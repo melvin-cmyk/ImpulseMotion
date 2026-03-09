@@ -16,7 +16,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       authorization: {
         url: "https://www.facebook.com/v18.0/dialog/oauth",
         params: {
-          scope: "ads_read,ads_management,read_insights",
+          scope: "ads_read,ads_management",
           response_type: "code",
         },
       },

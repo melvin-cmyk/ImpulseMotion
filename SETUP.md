@@ -36,7 +36,7 @@ Then fill in the values (see below).
 3. Add the **Marketing API** product
 4. In **App Settings → Basic**, copy your **App ID** and **App Secret**
 5. Add OAuth redirect URI: `http://localhost:3000/api/auth/callback/facebook`
-6. In **App Review → Permissions**, add: `ads_read`, `ads_management`, `read_insights`
+6. In **App Review → Permissions**, add: `ads_read`, `ads_management`
 
 Fill in `.env.local`:
 

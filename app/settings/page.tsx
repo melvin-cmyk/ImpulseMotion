@@ -245,7 +245,7 @@ export default function SettingsPage() {
             <IntegrationCard
               platform="Meta"
               color="bg-blue-600"
-              permissions={["ads_read", "ads_management", "read_insights"]}
+              permissions={["ads_read", "ads_management"]}
               apiPath="/api/meta/accounts"
               storageKey="impulse_meta_account"
             />
