@@ -42,14 +42,6 @@ export default async function RootLayout({
             </div>
           ) : (
             <div className="min-h-screen bg-gray-950 text-gray-100">
-              <header className="h-12 border-b border-gray-800 flex items-center justify-end px-4">
-                <a
-                  href="/login"
-                  className="text-sm text-gray-300 hover:text-white transition-colors"
-                >
-                  Se connecter
-                </a>
-              </header>
               {children}
             </div>
           )}
