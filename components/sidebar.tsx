@@ -7,7 +7,7 @@ import {
   Grid2X2,
   BarChart3,
   GitCompareArrows,
-  Filter,
+  AlertTriangle,
   Settings,
   Zap,
 } from "lucide-react"
@@ -15,10 +15,10 @@ import { cn } from "@/lib/utils"
 
 const navItems = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/creatives", icon: Grid2X2, label: "Creative Feed" },
+  { href: "/creatives", icon: Grid2X2, label: "Creatives" },
   { href: "/top-charts", icon: BarChart3, label: "Top Charts" },
   { href: "/compare", icon: GitCompareArrows, label: "A/B Compare" },
-  { href: "/funnel", icon: Filter, label: "Funnel" },
+  { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ]
 

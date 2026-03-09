@@ -60,7 +60,7 @@ function Sparkline({ data }: { data: { date: string; roas: number }[] }) {
             fontSize: "11px",
             color: "#e5e7eb",
           }}
-          formatter={(v: number) => [`${v}x`, "ROAS"]}
+          formatter={(v: unknown) => [`${v}x`, "ROAS"]}
           labelFormatter={(l) => l}
         />
       </LineChart>
