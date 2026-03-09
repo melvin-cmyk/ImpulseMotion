@@ -3,6 +3,10 @@
     {
       "source": "/tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad.txt/",
       "destination": "/api/tiktok-verify"
+    },
+    {
+      "source": "/tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad.txt",
+      "destination": "/api/tiktok-verify"
     }
   ]
 }

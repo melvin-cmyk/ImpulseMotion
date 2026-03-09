@@ -2,12 +2,20 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   async rewrites() {
-    return [
-      {
-        source: '/tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad.txt/',
-        destination: '/tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad.txt',
-      },
-    ];
+    return {
+      beforeFiles: [
+        {
+          source: '/tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad.txt/',
+          destination: '/api/tiktok-verify',
+        },
+        {
+          source: '/tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad.txt',
+          destination: '/api/tiktok-verify',
+        },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
   },
 };
 
