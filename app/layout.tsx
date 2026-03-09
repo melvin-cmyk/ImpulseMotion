@@ -9,8 +9,8 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "ImpulseMotion",
-  description: "AI-powered calendar and task scheduler",
+  title: "ImpulseMotion — Ad Creative Analytics",
+  description: "Analyze Facebook & TikTok ad creatives with ImpulseMotion",
 };
 
 export default function RootLayout({
@@ -21,7 +21,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geist.variable} antialiased`}>
-        <div className="flex h-screen bg-gray-50">
+        <div className="flex h-screen bg-gray-950 text-gray-100">
           <Sidebar />
           <main className="flex-1 overflow-auto">
             {children}
