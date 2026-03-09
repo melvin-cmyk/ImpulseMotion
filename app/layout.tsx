@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/sidebar";
+import { SessionProvider } from "next-auth/react";
+import { auth } from "@/auth";
+import { UserNav } from "@/components/user-nav";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -13,20 +16,36 @@ export const metadata: Metadata = {
   description: "Analyze Facebook & TikTok ad creatives with ImpulseMotion",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+  const isLoginPage = false; // middleware handles redirects
+
   return (
     <html lang="en">
       <body className={`${geist.variable} antialiased`}>
-        <div className="flex h-screen bg-gray-950 text-gray-100">
-          <Sidebar />
-          <main className="flex-1 overflow-auto">
-            {children}
-          </main>
-        </div>
+        <SessionProvider session={session}>
+          {session ? (
+            <div className="flex h-screen bg-gray-950 text-gray-100">
+              <Sidebar />
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <header className="h-12 border-b border-gray-800 flex items-center justify-end px-4 flex-shrink-0">
+                  <UserNav session={session} />
+                </header>
+                <main className="flex-1 overflow-auto">
+                  {children}
+                </main>
+              </div>
+            </div>
+          ) : (
+            <div className="min-h-screen bg-gray-950 text-gray-100">
+              {children}
+            </div>
+          )}
+        </SessionProvider>
       </body>
     </html>
   );

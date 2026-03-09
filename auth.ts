@@ -1,7 +1,13 @@
 import NextAuth from "next-auth";
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import { prisma } from "@/lib/prisma";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  adapter: PrismaAdapter(prisma),
   secret: process.env.AUTH_SECRET,
+  session: {
+    strategy: "database",
+  },
   providers: [
     {
       id: "facebook",
@@ -22,7 +28,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         return {
           id: profile.id,
           name: profile.name,
-          email: profile.email,
+          email: profile.email ?? null,
+          image: profile.picture?.data?.url ?? null,
         };
       },
     },
@@ -46,29 +53,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           id: profile.data?.core_user_info?.user_id?.toString() ?? "",
           name: profile.data?.core_user_info?.display_name ?? "",
           email: null,
+          image: null,
         };
       },
     },
   ],
   callbacks: {
-    async jwt({ token, account }) {
-      if (account) {
-        token.accessToken = account.access_token;
-        token.provider = account.provider;
-        token.providerAccountId = account.providerAccountId;
-      }
-      return token;
-    },
-    async session({ session, token }) {
+    async session({ session, user }) {
+      // Attach provider + access token to session from DB
+      const account = await prisma.account.findFirst({
+        where: { userId: user.id },
+        orderBy: { id: "desc" },
+      });
       return {
         ...session,
-        accessToken: token.accessToken as string,
-        provider: token.provider as string,
-        providerAccountId: token.providerAccountId as string,
+        userId: user.id,
+        provider: account?.provider ?? null,
+        accessToken: account?.access_token ?? null,
+        providerAccountId: account?.providerAccountId ?? null,
       };
     },
   },
   pages: {
-    signIn: "/settings",
+    signIn: "/login",
+    error: "/login",
   },
 });
