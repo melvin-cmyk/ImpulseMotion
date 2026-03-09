@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { mockCreatives, Platform, Format, Status } from "@/lib/mock-data";
+import { useCreatives } from "@/lib/use-creatives";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, Database, Wifi } from "lucide-react";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
 
@@ -83,8 +84,31 @@ export default function CreativesPage() {
   const [format, setFormat] = useState<"All" | Format>("All");
   const [sortBy, setSortBy] = useState<SortKey>("roas");
 
+  // Read stored account IDs from localStorage
+  const [metaAccountId, setMetaAccountId] = useState<string | null>(null);
+  const [tiktokAccountId, setTiktokAccountId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const meta = localStorage.getItem("impulse_meta_account");
+    const tiktok = localStorage.getItem("impulse_tiktok_account");
+    if (meta) {
+      try { setMetaAccountId(JSON.parse(meta).accountId); } catch {}
+    }
+    if (tiktok) {
+      try { setTiktokAccountId(JSON.parse(tiktok).accountId); } catch {}
+    }
+  }, []);
+
+  const isConnected = !!(metaAccountId || tiktokAccountId);
+
+  const { creatives, loading, error, isRealData } = useCreatives({
+    metaAccountId,
+    tiktokAccountId,
+    isConnected,
+  });
+
   const filtered = useMemo(() => {
-    let list = [...mockCreatives];
+    let list = [...creatives];
     if (platform !== "All") list = list.filter((c) => c.platform === platform);
     if (status !== "All") list = list.filter((c) => c.status === status);
     if (format !== "All") list = list.filter((c) => c.format === format);
@@ -93,7 +117,7 @@ export default function CreativesPage() {
       return (b[sortBy] as number) - (a[sortBy] as number);
     });
     return list;
-  }, [platform, status, format, sortBy]);
+  }, [creatives, platform, status, format, sortBy]);
 
   return (
     <div className="p-6 space-y-5">
@@ -103,7 +127,24 @@ export default function CreativesPage() {
           <h1 className="text-2xl font-bold text-white">Creative Feed</h1>
           <p className="text-gray-400 text-sm mt-0.5">{filtered.length} creatives</p>
         </div>
+        <div className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-gray-800 bg-gray-900">
+          {isRealData ? (
+            <><Wifi className="w-3 h-3 text-green-400" /><span className="text-green-400">Live data</span></>
+          ) : (
+            <><Database className="w-3 h-3 text-gray-500" /><span className="text-gray-500">Demo data</span></>
+          )}
+        </div>
       </div>
+
+      {error && (
+        <div className="p-3 bg-red-900/20 border border-red-800/40 rounded-xl text-xs text-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="text-center py-12 text-gray-500 text-sm">Loading creatives...</div>
+      )}
 
       {/* Filter Bar */}
       <div className="flex flex-wrap gap-3 items-center">
@@ -177,6 +218,7 @@ export default function CreativesPage() {
       </div>
 
       {/* Grid */}
+      {!loading && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filtered.map((creative) => (
           <div
@@ -233,8 +275,9 @@ export default function CreativesPage() {
           </div>
         ))}
       </div>
+      )}
 
-      {filtered.length === 0 && (
+      {!loading && filtered.length === 0 && (
         <div className="flex items-center justify-center h-48 text-gray-600">
           No creatives match the selected filters.
         </div>
