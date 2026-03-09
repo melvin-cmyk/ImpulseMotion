@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { mockCreatives, Platform, Status } from "@/lib/mock-data";
+import { Creative, Platform, Status } from "@/lib/mock-data";
+import { useCreativesContext } from "@/lib/creatives-context";
 import {
   LineChart,
   Line,
@@ -91,7 +92,7 @@ function RankRow({
   trendColor,
 }: {
   rank: number;
-  creative: (typeof mockCreatives)[0];
+  creative: Creative;
   metricLabel: string;
   metricValue: string;
   metricColor: string;
@@ -178,28 +179,29 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 ];
 
 export default function TopChartsPage() {
+  const { creatives } = useCreativesContext();
   const [tab, setTab] = useState<Tab>("roas");
 
   const sorted = (() => {
     switch (tab) {
       case "spend":
-        return [...mockCreatives].sort((a, b) => b.spend - a.spend);
+        return [...creatives].sort((a, b) => b.spend - a.spend);
       case "roas":
-        return [...mockCreatives].sort((a, b) => b.roas - a.roas);
+        return [...creatives].sort((a, b) => b.roas - a.roas);
       case "ctr":
-        return [...mockCreatives].sort((a, b) => b.ctr - a.ctr);
+        return [...creatives].sort((a, b) => b.ctr - a.ctr);
       case "fatigued":
-        return [...mockCreatives]
+        return [...creatives]
           .filter((c) => c.status === "Fatigued")
           .sort((a, b) => a.roas - b.roas);
     }
   })();
 
-  const maxSpend = Math.max(...mockCreatives.map((c) => c.spend));
-  const maxRoas = Math.max(...mockCreatives.map((c) => c.roas));
-  const maxCtr = Math.max(...mockCreatives.map((c) => c.ctr));
+  const maxSpend = creatives.length > 0 ? Math.max(...creatives.map((c) => c.spend)) : 1;
+  const maxRoas = creatives.length > 0 ? Math.max(...creatives.map((c) => c.roas)) : 1;
+  const maxCtr = creatives.length > 0 ? Math.max(...creatives.map((c) => c.ctr)) : 1;
 
-  function getBarWidth(c: (typeof mockCreatives)[0]) {
+  function getBarWidth(c: Creative) {
     switch (tab) {
       case "spend":
         return (c.spend / maxSpend) * 100;
@@ -212,7 +214,7 @@ export default function TopChartsPage() {
     }
   }
 
-  function getMetricDisplay(c: (typeof mockCreatives)[0]): {
+  function getMetricDisplay(c: Creative): {
     label: string;
     value: string;
     color: string;

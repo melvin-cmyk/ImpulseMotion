@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/sidebar";
 import { SessionProvider } from "next-auth/react";
 import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
+import { CreativesProvider } from "@/lib/creatives-context";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -28,23 +29,25 @@ export default async function RootLayout({
     <html lang="en">
       <body className={`${geist.variable} antialiased`}>
         <SessionProvider session={session}>
-          {session ? (
-            <div className="flex h-screen bg-gray-950 text-gray-100">
-              <Sidebar />
-              <div className="flex-1 flex flex-col overflow-hidden">
-                <header className="h-12 border-b border-gray-800 flex items-center justify-end px-4 flex-shrink-0">
-                  <UserNav session={session} />
-                </header>
-                <main className="flex-1 overflow-auto">
-                  {children}
-                </main>
+          <CreativesProvider>
+            {session ? (
+              <div className="flex h-screen bg-gray-950 text-gray-100">
+                <Sidebar />
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  <header className="h-12 border-b border-gray-800 flex items-center justify-end px-4 flex-shrink-0">
+                    <UserNav session={session} />
+                  </header>
+                  <main className="flex-1 overflow-auto">
+                    {children}
+                  </main>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="min-h-screen bg-gray-950 text-gray-100">
-              {children}
-            </div>
-          )}
+            ) : (
+              <div className="min-h-screen bg-gray-950 text-gray-100">
+                {children}
+              </div>
+            )}
+          </CreativesProvider>
         </SessionProvider>
       </body>
     </html>

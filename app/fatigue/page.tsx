@@ -1,6 +1,6 @@
 "use client";
 
-import { mockCreatives } from "@/lib/mock-data";
+import { useCreativesContext } from "@/lib/creatives-context";
 import {
   LineChart,
   Line,
@@ -9,11 +9,6 @@ import {
   XAxis,
 } from "recharts";
 import { AlertTriangle, TrendingDown, RefreshCw } from "lucide-react";
-
-// Derive fatigued creatives and compute days-since-fatigue (mocked: based on how quickly ROAS drops)
-const fatiguedCreatives = [...mockCreatives]
-  .filter((c) => c.status === "Fatigued")
-  .sort((a, b) => a.roas - b.roas);
 
 function getFatigueDays(id: string): number {
   const map: Record<string, number> = {
@@ -25,7 +20,9 @@ function getFatigueDays(id: string): number {
   return map[id] ?? 4;
 }
 
-function getDailyTrend(creative: (typeof mockCreatives)[0]) {
+type CreativeItem = ReturnType<typeof useCreativesContext>["creatives"][0];
+
+function getDailyTrend(creative: CreativeItem) {
   // Build a 7-day series showing CPA rising and CTR falling
   return creative.trend.map((d, i) => ({
     date: d.date,
@@ -143,6 +140,10 @@ function PlatformBadge({ platform }: { platform: string }) {
 }
 
 export default function FatiguePage() {
+  const { creatives } = useCreativesContext();
+  const fatiguedCreatives = [...creatives]
+    .filter((c) => c.status === "Fatigued")
+    .sort((a, b) => a.roas - b.roas);
   const totalFatigued = fatiguedCreatives.length;
 
   // Compute average degradation

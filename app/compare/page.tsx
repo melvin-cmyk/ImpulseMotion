@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { mockCreatives } from "@/lib/mock-data";
+import { Creative } from "@/lib/mock-data";
+import { useCreativesContext } from "@/lib/creatives-context";
 import {
   BarChart,
   Bar,
@@ -13,8 +14,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { ArrowRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
-
-type Creative = (typeof mockCreatives)[0];
 
 interface Metric {
   key: keyof Creative;
@@ -113,11 +112,23 @@ function WinnerIcon({
 }
 
 export default function ComparePage() {
-  const [idA, setIdA] = useState<string>(mockCreatives[0].id);
-  const [idB, setIdB] = useState<string>(mockCreatives[1].id);
+  const { creatives } = useCreativesContext();
+  const [idA, setIdA] = useState<string>("");
+  const [idB, setIdB] = useState<string>("");
 
-  const creativeA = mockCreatives.find((c) => c.id === idA) ?? mockCreatives[0];
-  const creativeB = mockCreatives.find((c) => c.id === idB) ?? mockCreatives[1];
+  const effectiveIdA = idA || (creatives[0]?.id ?? "");
+  const effectiveIdB = idB || (creatives[1]?.id ?? "");
+
+  const creativeA = creatives.find((c) => c.id === effectiveIdA) ?? creatives[0];
+  const creativeB = creatives.find((c) => c.id === effectiveIdB) ?? creatives[1];
+
+  if (!creativeA || !creativeB) {
+    return (
+      <div className="p-6 flex items-center justify-center h-48 text-gray-600">
+        Loading creatives…
+      </div>
+    );
+  }
 
   function getWinner(
     a: number,
@@ -169,45 +180,44 @@ export default function ComparePage() {
         {[
           {
             label: "Creative A",
-            id: idA,
+            id: effectiveIdA,
             setId: setIdA,
             color: "border-violet-600",
             accent: "text-violet-400",
+            creative: creativeA,
           },
           {
             label: "Creative B",
-            id: idB,
+            id: effectiveIdB,
             setId: setIdB,
             color: "border-emerald-600",
             accent: "text-emerald-400",
+            creative: creativeB,
           },
-        ].map(({ label, id, setId, color, accent }) => {
-          const sel = mockCreatives.find((c) => c.id === id)!;
-          return (
-            <div
-              key={label}
-              className={`bg-gray-900 border-2 ${color} rounded-2xl p-4 space-y-3`}
-            >
-              <div className="flex items-center justify-between">
-                <p className={`text-xs font-bold uppercase tracking-widest ${accent}`}>
-                  {label}
-                </p>
-                <select
-                  value={id}
-                  onChange={(e) => setId(e.target.value)}
-                  className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1.5 outline-none cursor-pointer max-w-[220px]"
-                >
-                  {mockCreatives.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <CreativeCard creative={sel} />
+        ].map(({ label, id, setId, color, accent, creative: sel }) => (
+          <div
+            key={label}
+            className={`bg-gray-900 border-2 ${color} rounded-2xl p-4 space-y-3`}
+          >
+            <div className="flex items-center justify-between">
+              <p className={`text-xs font-bold uppercase tracking-widest ${accent}`}>
+                {label}
+              </p>
+              <select
+                value={id}
+                onChange={(e) => setId(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded-lg px-2 py-1.5 outline-none cursor-pointer max-w-[220px]"
+              >
+                {creatives.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
             </div>
-          );
-        })}
+            <CreativeCard creative={sel} />
+          </div>
+        ))}
       </div>
 
       {/* Overall Winner Banner */}

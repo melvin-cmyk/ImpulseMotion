@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { mockCreatives, Platform, Format, Status } from "@/lib/mock-data";
-import { useCreatives } from "@/lib/use-creatives";
+import { useState, useMemo } from "react";
+import { Platform, Format, Status } from "@/lib/mock-data";
+import { useCreativesContext } from "@/lib/creatives-context";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowUpDown, Database, Wifi } from "lucide-react";
 
@@ -84,28 +84,7 @@ export default function CreativesPage() {
   const [format, setFormat] = useState<"All" | Format>("All");
   const [sortBy, setSortBy] = useState<SortKey>("roas");
 
-  // Read stored account IDs from localStorage
-  const [metaAccountId, setMetaAccountId] = useState<string | null>(null);
-  const [tiktokAccountId, setTiktokAccountId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const meta = localStorage.getItem("impulse_meta_account");
-    const tiktok = localStorage.getItem("impulse_tiktok_account");
-    if (meta) {
-      try { setMetaAccountId(JSON.parse(meta).accountId); } catch {}
-    }
-    if (tiktok) {
-      try { setTiktokAccountId(JSON.parse(tiktok).accountId); } catch {}
-    }
-  }, []);
-
-  const isConnected = !!(metaAccountId || tiktokAccountId);
-
-  const { creatives, loading, error, isRealData } = useCreatives({
-    metaAccountId,
-    tiktokAccountId,
-    isConnected,
-  });
+  const { creatives, isLoading: loading, error, isRealData } = useCreativesContext();
 
   const filtered = useMemo(() => {
     let list = [...creatives];

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { mockCreatives } from "@/lib/mock-data";
+import { Creative } from "@/lib/mock-data";
+import { useCreativesContext } from "@/lib/creatives-context";
 import {
   BarChart,
   Bar,
@@ -39,9 +40,9 @@ function parseSegment(name: string, segment: Segment): string {
   return "Unknown";
 }
 
-function groupBySegment(segment: Segment): GroupStats[] {
+function groupBySegment(segment: Segment, creatives: Creative[]): GroupStats[] {
   const map: Record<string, GroupStats> = {};
-  for (const c of mockCreatives) {
+  for (const c of creatives) {
     const key = parseSegment(c.name, segment);
     if (!map[key]) {
       map[key] = { key, count: 0, spend: 0, roas: 0, cpa: 0, ctr: 0, winners: 0 };
@@ -114,8 +115,9 @@ function StatTable({ data }: { data: GroupStats[] }) {
 }
 
 export default function NamingPage() {
+  const { creatives } = useCreativesContext();
   const [segment, setSegment] = useState<Segment>("Angle");
-  const data = useMemo(() => groupBySegment(segment), [segment]);
+  const data = useMemo(() => groupBySegment(segment, creatives), [segment, creatives]);
 
   return (
     <div className="p-6 space-y-6">
