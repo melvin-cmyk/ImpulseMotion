@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Creative } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
+import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import {
   BarChart,
   Bar,
@@ -79,12 +80,14 @@ function PlatformBadge({ platform }: { platform: string }) {
 function CreativeCard({ creative }: { creative: Creative }) {
   return (
     <div className="flex items-center gap-3">
-      <div
-        className={`w-12 h-12 rounded-xl bg-gradient-to-br ${creative.thumbnailColor} flex items-center justify-center shrink-0`}
-      >
-        <span className="text-white/30 text-lg font-black">
-          {creative.format === "Video" ? "▶" : creative.format === "Image" ? "◼" : "⊞"}
-        </span>
+      <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0">
+        <CreativeThumbnail
+          format={creative.format}
+          thumbnailColor={creative.thumbnailColor}
+          thumbnailUrl={creative.thumbnailUrl}
+          videoUrl={creative.videoUrl}
+          className="w-12 h-12"
+        />
       </div>
       <div>
         <p className="text-sm font-mono text-gray-100 truncate max-w-[180px]">

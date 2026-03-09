@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { Platform, Format, Status } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
+import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowUpDown, Database, Wifi } from "lucide-react";
 
@@ -205,19 +206,21 @@ export default function CreativesPage() {
             className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden hover:border-gray-700 hover:shadow-xl hover:shadow-black/30 transition-all duration-200 group"
           >
             {/* Thumbnail */}
-            <div
-              className={`h-36 bg-gradient-to-br ${creative.thumbnailColor} relative flex items-center justify-center`}
-            >
-              <div className="text-white/20 text-5xl font-black">
-                {creative.format === "Video" ? "▶" : creative.format === "Image" ? "◼" : "⊞"}
-              </div>
-              <div className="absolute top-2 left-2">
+            <div className="relative">
+              <CreativeThumbnail
+                format={creative.format}
+                thumbnailColor={creative.thumbnailColor}
+                thumbnailUrl={creative.thumbnailUrl}
+                videoUrl={creative.videoUrl}
+                className="h-36"
+              />
+              <div className="absolute top-2 left-2 z-10">
                 <PlatformBadge platform={creative.platform} />
               </div>
-              <div className="absolute top-2 right-2">
+              <div className="absolute top-2 right-2 z-10">
                 <StatusBadge status={creative.status} />
               </div>
-              <div className="absolute bottom-2 left-2 text-[10px] font-medium text-white/60 uppercase tracking-wide">
+              <div className="absolute bottom-2 left-2 z-10 text-[10px] font-medium text-white/60 uppercase tracking-wide">
                 {creative.format}
               </div>
             </div>

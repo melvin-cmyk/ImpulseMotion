@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Creative, Platform, Status } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
+import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import {
   LineChart,
   Line,
@@ -109,12 +110,14 @@ function RankRow({
         </div>
 
         {/* Thumbnail */}
-        <div
-          className={`w-14 h-14 rounded-xl bg-gradient-to-br ${creative.thumbnailColor} flex items-center justify-center shrink-0`}
-        >
-          <span className="text-white/30 text-xl font-black">
-            {creative.format === "Video" ? "▶" : creative.format === "Image" ? "◼" : "⊞"}
-          </span>
+        <div className="w-14 h-14 rounded-xl overflow-hidden shrink-0">
+          <CreativeThumbnail
+            format={creative.format}
+            thumbnailColor={creative.thumbnailColor}
+            thumbnailUrl={creative.thumbnailUrl}
+            videoUrl={creative.videoUrl}
+            className="w-14 h-14"
+          />
         </div>
 
         {/* Info */}

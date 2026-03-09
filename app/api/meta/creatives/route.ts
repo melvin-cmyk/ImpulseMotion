@@ -66,6 +66,14 @@ export async function GET(request: NextRequest) {
           ad.creative?.video_id ||
           ad.creative?.object_type === "VIDEO";
 
+        // thumbnail_url is available for both image and video creatives from Meta API.
+        // For video creatives it is the video thumbnail; for image creatives it is the ad image.
+        // image_url is a fallback for image-only creatives when thumbnail_url is absent.
+        const thumbnailUrl =
+          ad.creative?.thumbnail_url ||
+          ad.creative?.image_url ||
+          undefined;
+
         return {
           id: ad.id,
           name: ad.name,
@@ -73,6 +81,7 @@ export async function GET(request: NextRequest) {
           format: isVideo ? "Video" as const : "Image" as const,
           status: determineStatus(roas, ctr, hookRate),
           thumbnailColor: THUMBNAIL_COLORS[idx % THUMBNAIL_COLORS.length],
+          thumbnailUrl,
           spend: Math.round(spend),
           roas,
           cpa,

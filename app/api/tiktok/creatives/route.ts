@@ -76,6 +76,7 @@ export async function GET(request: NextRequest) {
           format: isVideo ? "Video" as const : "Image" as const,
           status: determineStatus(roas, ctr, hookRate),
           thumbnailColor: THUMBNAIL_COLORS[idx % THUMBNAIL_COLORS.length],
+          thumbnailUrl: ad.image_url || undefined,
           spend: Math.round(spend),
           roas,
           cpa: Math.round(cpa * 100) / 100,

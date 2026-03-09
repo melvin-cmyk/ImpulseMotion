@@ -1,6 +1,7 @@
 "use client";
 
 import { useCreativesContext } from "@/lib/creatives-context";
+import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import {
   LineChart,
   Line,
@@ -213,12 +214,14 @@ export default function FatiguePage() {
               {/* Top bar */}
               <div className="flex items-center gap-4 p-4 border-b border-gray-800">
                 {/* Thumbnail */}
-                <div
-                  className={`w-12 h-12 rounded-xl bg-gradient-to-br ${creative.thumbnailColor} flex items-center justify-center shrink-0`}
-                >
-                  <span className="text-white/30 text-lg font-black">
-                    {creative.format === "Video" ? "▶" : creative.format === "Image" ? "◼" : "⊞"}
-                  </span>
+                <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0">
+                  <CreativeThumbnail
+                    format={creative.format}
+                    thumbnailColor={creative.thumbnailColor}
+                    thumbnailUrl={creative.thumbnailUrl}
+                    videoUrl={creative.videoUrl}
+                    className="w-12 h-12"
+                  />
                 </div>
 
                 <div className="flex-1 min-w-0">

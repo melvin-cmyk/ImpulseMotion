@@ -34,6 +34,8 @@ export interface TikTokAd {
   status: string;
   image_mode?: string;
   video_id?: string;
+  /** URL of the cover image / thumbnail returned by the TikTok Ads API */
+  image_url?: string;
 }
 
 async function tiktokFetch<T>(
@@ -92,7 +94,7 @@ export async function getTikTokAds(
     advertiser_id: advertiserId,
     page: String(page),
     page_size: String(pageSize),
-    fields: JSON.stringify(["ad_id", "ad_name", "status", "image_mode", "video_id"]),
+    fields: JSON.stringify(["ad_id", "ad_name", "status", "image_mode", "video_id", "image_url"]),
   });
   return res.data.list ?? [];
 }

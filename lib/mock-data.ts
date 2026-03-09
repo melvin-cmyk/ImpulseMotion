@@ -19,6 +19,10 @@ export interface Creative {
   format: Format;
   status: Status;
   thumbnailColor: string;
+  /** URL of the thumbnail/preview image (from Meta or TikTok API) */
+  thumbnailUrl?: string;
+  /** URL of the full video (from Meta or TikTok API) */
+  videoUrl?: string;
   spend: number;
   roas: number;
   cpa: number;

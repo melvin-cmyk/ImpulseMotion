@@ -39,6 +39,7 @@ export interface MetaAd {
   creative?: {
     id: string;
     thumbnail_url?: string;
+    image_url?: string;
     video_id?: string;
     object_type?: string;
   };
@@ -90,7 +91,7 @@ export async function getAds(
     `/${accountId}/ads`,
     accessToken,
     {
-      fields: "id,name,status,creative{id,thumbnail_url,video_id,object_type}",
+      fields: "id,name,status,creative{id,thumbnail_url,image_url,video_id,object_type}",
       limit: String(limit),
     }
   );
