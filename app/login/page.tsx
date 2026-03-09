@@ -9,12 +9,12 @@ export default function LoginPage() {
 
   const handleMeta = async () => {
     setLoadingMeta(true);
-    await signIn("facebook", { callbackUrl: "/dashboard" });
+    await signIn("facebook", { callbackUrl: "/creatives" });
   };
 
   const handleTikTok = async () => {
     setLoadingTikTok(true);
-    await signIn("tiktok", { callbackUrl: "/dashboard" });
+    await signIn("tiktok", { callbackUrl: "/creatives" });
   };
 
   return (
