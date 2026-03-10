@@ -73,21 +73,6 @@ function VideoPlayer({
 }) {
   const [useFallback, setUseFallback] = useState(false);
 
-  // If no direct URL, go straight to iframe fallback
-  if (!videoUrl && videoId) {
-    return (
-      <iframe
-        src={`https://www.facebook.com/video/embed?video_id=${videoId}`}
-        className="w-full"
-        style={{ height: 400, border: "none", display: "block" }}
-        allowFullScreen
-        scrolling="no"
-        allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-        title="Facebook video player"
-      />
-    );
-  }
-
   if (videoUrl && !useFallback) {
     return (
       <video
@@ -95,23 +80,19 @@ function VideoPlayer({
         poster={thumbnailUrl}
         controls
         crossOrigin="anonymous"
-        className="w-full h-full"
-        style={{ maxHeight: 400, objectFit: "contain", background: "#000", display: "block" }}
+        className="absolute inset-0 w-full h-full object-contain"
         onError={() => {
-          // Direct URL failed (CORS / expired) → fall back to Facebook iframe
           if (videoId) setUseFallback(true);
         }}
       />
     );
   }
 
-  // Fallback: Facebook iframe embed
   if (videoId) {
     return (
       <iframe
         src={`https://www.facebook.com/video/embed?video_id=${videoId}`}
-        className="w-full"
-        style={{ height: 400, border: "none", display: "block" }}
+        className="absolute inset-0 w-full h-full border-0"
         allowFullScreen
         scrolling="no"
         allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
@@ -120,12 +101,8 @@ function VideoPlayer({
     );
   }
 
-  // No playable source at all
   return (
-    <div
-      className="w-full flex items-center justify-center bg-gray-900"
-      style={{ height: 260 }}
-    >
+    <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
       <span className="text-gray-600 text-sm">Video unavailable</span>
     </div>
   );
@@ -202,45 +179,26 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
         </button>
 
         {/* Media section */}
-        <div
-          className="w-full bg-black rounded-t-2xl overflow-hidden flex items-center justify-center"
-          style={{ minHeight: 240, maxHeight: 420 }}
-        >
-          {isMetaVideo ? (
-            /* Meta video: try direct URL first, fall back to iframe */
+        <div className="relative w-full aspect-video bg-black rounded-t-2xl overflow-hidden">
+          {isVideo ? (
             <VideoPlayer
               videoUrl={creative.videoUrl}
               thumbnailUrl={creative.thumbnailUrl}
               videoId={creative.videoId}
-            />
-          ) : isVideo && creative.videoUrl ? (
-            <video
-              src={creative.videoUrl}
-              poster={creative.thumbnailUrl}
-              controls
-              crossOrigin="anonymous"
-              className="w-full h-full"
-              style={{ maxHeight: 420, objectFit: "contain", background: "#000", display: "block" }}
             />
           ) : creative.thumbnailUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={creative.thumbnailUrl}
               alt={creative.name}
-              className="w-full h-full object-contain"
-              style={{ maxHeight: 420, background: "#000", display: "block" }}
+              className="absolute inset-0 w-full h-full object-contain"
             />
           ) : (
             <div
-              className={`w-full bg-gradient-to-br ${creative.thumbnailColor} flex items-center justify-center`}
-              style={{ height: 260 }}
+              className={`absolute inset-0 bg-gradient-to-br ${creative.thumbnailColor} flex items-center justify-center`}
             >
               <span className="text-white/30 text-6xl font-black">
-                {creative.format === "Image"
-                  ? "◼"
-                  : creative.format === "Video"
-                  ? "▶"
-                  : "⊞"}
+                {creative.format === "Image" ? "◼" : creative.format === "Video" ? "▶" : "⊞"}
               </span>
             </div>
           )}
