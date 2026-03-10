@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import {
   getAds,
   getAdInsights,
+  getAdDailyInsights,
   getCampaigns,
   getVideoSources,
   getVideoSourcesViaAdCreatives,
@@ -11,7 +12,7 @@ import {
   computeHoldRate,
   computeVideoDropoff,
 } from "@/lib/meta-api";
-import { Creative, Status } from "@/lib/mock-data";
+import { Creative, DayMetric, Status } from "@/lib/mock-data";
 import { NextRequest, NextResponse } from "next/server";
 
 function determineStatus(roas: number, ctr: number, hookRate: number): Status {
@@ -148,6 +149,37 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Fetch 14 days of daily data for all ads in parallel (for trend sparklines)
+    const dailyInsightsResults = await Promise.allSettled(
+      filteredAds.map((ad) => getAdDailyInsights(accessToken, ad.id, 14))
+    );
+    const dailyInsightsMap = new Map<string, DayMetric[]>();
+    filteredAds.forEach((ad, idx) => {
+      const result = dailyInsightsResults[idx];
+      if (result.status === "fulfilled" && result.value.length > 0) {
+        dailyInsightsMap.set(
+          ad.id,
+          result.value.map((d) => {
+            const daySpend = parseFloat(d.spend ?? "0");
+            const dayImpressions = parseInt(d.impressions ?? "0", 10);
+            const dayClicks = parseInt(d.clicks ?? "0", 10);
+            const dayRoas = computeRoas(d);
+            const dayCpa = computeCpa(d);
+            const dayConversions = Math.round(daySpend > 0 && dayCpa > 0 ? daySpend / dayCpa : 0);
+            return {
+              date: d.date_start,
+              spend: Math.round(daySpend),
+              roas: dayRoas,
+              cpa: dayCpa,
+              impressions: dayImpressions,
+              clicks: dayClicks,
+              conversions: dayConversions,
+            };
+          })
+        );
+      }
+    });
+
     const creatives: Creative[] = filteredAds.map((ad, idx) => {
       const insight = insightMap.get(ad.id)!;
       const spend = parseFloat(insight.spend);
@@ -212,7 +244,7 @@ export async function GET(request: NextRequest) {
         conversions: Math.round(spend > 0 && cpa > 0 ? spend / cpa : 0),
         threeSecViews: Math.round(impressions * (hookRate / 100)),
         fifteenSecViews: Math.round(impressions * (holdRate / 100)),
-        trend: [], // loaded lazily per-creative
+        trend: dailyInsightsMap.get(ad.id) ?? [],
       };
     });
 
