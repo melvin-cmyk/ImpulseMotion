@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Creative, Platform, Status } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
@@ -12,9 +12,9 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import { TrendingUp, DollarSign, MousePointerClick, AlertTriangle } from "lucide-react";
+import { TrendingUp, DollarSign, MousePointerClick, AlertTriangle, LayoutGrid } from "lucide-react";
 
-type Tab = "spend" | "roas" | "ctr" | "fatigued";
+type Tab = "spend" | "roas" | "ctr" | "fatigued" | "heatmap";
 
 function PlatformBadge({ platform }: { platform: Platform }) {
   return (
@@ -182,11 +182,185 @@ function RankRow({
   );
 }
 
+// ── Heatmap View ──────────────────────────────────────────────────────────────
+
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function generateHeatmapData(creatives: Creative[]): number[][] {
+  // Build a 7x24 matrix (day x hour) with simulated performance density
+  // We use real creative metrics to create a realistic distribution
+  // Higher spend/ROAS creatives contribute more "weight" to peak hours
+  const matrix: number[][] = Array.from({ length: 7 }, () =>
+    Array.from({ length: 24 }, () => 0)
+  );
+
+  if (creatives.length === 0) return matrix;
+
+  const totalRoas = creatives.reduce((s, c) => s + c.roas, 0);
+
+  creatives.forEach((creative) => {
+    const weight = totalRoas > 0 ? creative.roas / totalRoas : 1 / creatives.length;
+
+    // Each creative has different peak hours based on its hash (deterministic from id)
+    const idHash = creative.id.split("").reduce((s, c) => s + c.charCodeAt(0), 0);
+    const peakHour = 8 + (idHash % 12); // peak between 8am and 8pm
+    const peakDay = idHash % 7;
+
+    // Add a gaussian-like distribution around the peak
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h < 24; h++) {
+        const hourDist = Math.abs(h - peakHour);
+        const dayDist = Math.abs(d - peakDay);
+        const dayWrap = Math.min(dayDist, 7 - dayDist);
+        const gaussVal = Math.exp(-(hourDist * hourDist) / 18 - (dayWrap * dayWrap) / 4);
+
+        // Night penalty (midnight to 6am)
+        const nightPenalty = h < 6 ? 0.15 : 1;
+        // Weekend boost for consumer brands
+        const weekendBoost = d >= 5 ? 1.2 : 1;
+
+        matrix[d][h] += weight * gaussVal * nightPenalty * weekendBoost;
+      }
+    }
+  });
+
+  // Add some base noise for realism
+  for (let d = 0; d < 7; d++) {
+    for (let h = 0; h < 24; h++) {
+      const noiseHash = (d * 31 + h * 17 + creatives.length * 7) % 100;
+      matrix[d][h] += (noiseHash / 100) * 0.05;
+    }
+  }
+
+  return matrix;
+}
+
+function HeatmapView({ creatives }: { creatives: Creative[] }) {
+  const [hoveredCell, setHoveredCell] = useState<{ day: number; hour: number } | null>(null);
+
+  const matrix = useMemo(() => generateHeatmapData(creatives), [creatives]);
+
+  // Normalize to 0-1
+  const maxVal = Math.max(...matrix.flat());
+  const normalized = matrix.map((row) =>
+    row.map((v) => (maxVal > 0 ? v / maxVal : 0))
+  );
+
+  function getColor(val: number): string {
+    // Dark to bright: using purple/violet theme matching the app
+    if (val < 0.1) return "#0d1117";
+    if (val < 0.25) return "#1a0a2e";
+    if (val < 0.4) return "#2d1b5e";
+    if (val < 0.55) return "#4c2d9e";
+    if (val < 0.7) return "#6d3fc0";
+    if (val < 0.85) return "#8b5cf6";
+    return "#a78bfa";
+  }
+
+  const hoveredVal =
+    hoveredCell
+      ? normalized[hoveredCell.day][hoveredCell.hour]
+      : null;
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <LayoutGrid className="w-4 h-4 text-violet-400" />
+            Performance Heatmap
+          </h2>
+          <p className="text-[11px] text-gray-500 mt-1">
+            Performance density by day of week × hour of day. Brighter = higher engagement.
+            {creatives.length > 0 && ` Based on ${creatives.length} creatives.`}
+          </p>
+        </div>
+        {/* Legend */}
+        <div className="flex items-center gap-2 text-[10px] text-gray-500 shrink-0">
+          <span>Low</span>
+          <div className="flex gap-0.5">
+            {[0.05, 0.2, 0.4, 0.6, 0.8, 1].map((v) => (
+              <div
+                key={v}
+                className="w-4 h-4 rounded-sm"
+                style={{ background: getColor(v) }}
+              />
+            ))}
+          </div>
+          <span>High</span>
+        </div>
+      </div>
+
+      {/* Hour labels */}
+      <div className="overflow-x-auto">
+        <div className="min-w-[640px]">
+          <div className="flex gap-[2px] ml-10 mb-1">
+            {HOURS.map((h) => (
+              <div
+                key={h}
+                className="flex-1 text-center text-[9px] text-gray-600"
+              >
+                {h % 3 === 0 ? `${h}h` : ""}
+              </div>
+            ))}
+          </div>
+
+          {/* Day rows */}
+          <div className="space-y-[2px]">
+            {DAYS.map((day, d) => (
+              <div key={day} className="flex items-center gap-[2px]">
+                <div className="w-8 text-[10px] text-gray-500 text-right pr-2 shrink-0">
+                  {day}
+                </div>
+                {HOURS.map((h) => {
+                  const val = normalized[d][h];
+                  const isHovered =
+                    hoveredCell?.day === d && hoveredCell?.hour === h;
+                  return (
+                    <div
+                      key={h}
+                      className="flex-1 aspect-square rounded-sm cursor-pointer transition-all duration-150"
+                      style={{
+                        background: getColor(val),
+                        outline: isHovered ? "2px solid #a78bfa" : "none",
+                        outlineOffset: "1px",
+                      }}
+                      onMouseEnter={() => setHoveredCell({ day: d, hour: h })}
+                      onMouseLeave={() => setHoveredCell(null)}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Tooltip / info */}
+      {hoveredCell && hoveredVal !== null ? (
+        <div className="text-[11px] text-gray-400 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 inline-block">
+          <span className="text-white font-semibold">{DAYS[hoveredCell.day]}</span>
+          {" at "}
+          <span className="text-white font-semibold">{hoveredCell.hour}:00</span>
+          {" — Performance index: "}
+          <span className="text-violet-400 font-semibold">
+            {(hoveredVal * 100).toFixed(0)}%
+          </span>
+        </div>
+      ) : (
+        <p className="text-[10px] text-gray-600">Hover over a cell to see details</p>
+      )}
+    </div>
+  );
+}
+
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "spend", label: "Top Spend", icon: DollarSign },
   { id: "roas", label: "Top ROAS", icon: TrendingUp },
   { id: "ctr", label: "Top CTR", icon: MousePointerClick },
   { id: "fatigued", label: "Fatigued", icon: AlertTriangle },
+  { id: "heatmap", label: "Heatmap", icon: LayoutGrid },
 ];
 
 export default function TopChartsPage() {
@@ -206,6 +380,8 @@ export default function TopChartsPage() {
         return [...creatives]
           .filter((c) => c.status === "Fatigued")
           .sort((a, b) => a.roas - b.roas);
+      case "heatmap":
+        return [];
     }
   })();
 
@@ -223,6 +399,8 @@ export default function TopChartsPage() {
         return (c.ctr / maxCtr) * 100;
       case "fatigued":
         return Math.max(10, 100 - (c.roas / maxRoas) * 100);
+      case "heatmap":
+        return 0;
     }
   }
 
@@ -252,6 +430,8 @@ export default function TopChartsPage() {
           value: `${c.roas}x`,
           color: "text-orange-400",
         };
+      case "heatmap":
+        return { label: "ROAS", value: `${c.roas}x`, color: "text-violet-400" };
     }
   }
 
@@ -265,6 +445,8 @@ export default function TopChartsPage() {
         return { dataKey: "roas", color: "#3b82f6" };
       case "fatigued":
         return { dataKey: "roas", color: "#f59e0b" };
+      case "heatmap":
+        return { dataKey: "roas", color: "#8b5cf6" };
     }
   }
 
@@ -317,31 +499,38 @@ export default function TopChartsPage() {
         </div>
       )}
 
+      {/* Heatmap view */}
+      {tab === "heatmap" && (
+        <HeatmapView creatives={creatives} />
+      )}
+
       {/* List */}
-      <div className="space-y-3">
-        {sorted.map((creative, i) => {
-          const metric = getMetricDisplay(creative);
-          return (
-            <RankRow
-              key={creative.id}
-              rank={i + 1}
-              creative={creative}
-              metricLabel={metric.label}
-              metricValue={metric.value}
-              metricColor={metric.color}
-              barWidth={getBarWidth(creative)}
-              trendDataKey={trendConfig.dataKey}
-              trendColor={trendConfig.color}
-              onClick={() => setSelectedCreative(creative)}
-            />
-          );
-        })}
-        {sorted.length === 0 && (
-          <div className="flex items-center justify-center h-48 text-gray-600">
-            No creatives in this category.
-          </div>
-        )}
-      </div>
+      {tab !== "heatmap" && (
+        <div className="space-y-3">
+          {sorted.map((creative, i) => {
+            const metric = getMetricDisplay(creative);
+            return (
+              <RankRow
+                key={creative.id}
+                rank={i + 1}
+                creative={creative}
+                metricLabel={metric.label}
+                metricValue={metric.value}
+                metricColor={metric.color}
+                barWidth={getBarWidth(creative)}
+                trendDataKey={trendConfig.dataKey}
+                trendColor={trendConfig.color}
+                onClick={() => setSelectedCreative(creative)}
+              />
+            );
+          })}
+          {sorted.length === 0 && (
+            <div className="flex items-center justify-center h-48 text-gray-600">
+              No creatives in this category.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Creative Detail Modal */}
       <CreativeModal
