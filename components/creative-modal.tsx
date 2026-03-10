@@ -112,6 +112,61 @@ function VideoPlayer({
   );
 }
 
+// ── Video Drop-off Waterfall ──────────────────────────────────────────────────
+
+function VideoDropoff({ creative }: { creative: Creative }) {
+  const steps = [
+    { label: "3s (Hook)", value: creative.hookRate },
+    { label: "25%", value: creative.videoP25Rate ?? 0 },
+    { label: "50%", value: creative.videoP50Rate ?? 0 },
+    { label: "75%", value: creative.videoP75Rate ?? 0 },
+    { label: "100% (Thruplay)", value: creative.holdRate },
+  ];
+
+  const hasData = steps.some((s) => s.value > 0);
+  if (!hasData) return null;
+
+  const max = steps[0].value || 1;
+
+  return (
+    <div>
+      <p className="text-[9px] uppercase tracking-widest text-gray-600 font-bold mb-3">
+        Video Drop-off
+      </p>
+      <div className="bg-[#13131f] border border-white/5 rounded-xl p-4 space-y-2.5">
+        {steps.map((step, i) => {
+          const pct = (step.value / max) * 100;
+          const dropoff =
+            i > 0 && steps[i - 1].value > 0
+              ? Math.round(((steps[i - 1].value - step.value) / steps[i - 1].value) * 100)
+              : null;
+          return (
+            <div key={step.label}>
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-gray-400 font-medium w-28 shrink-0">{step.label}</span>
+                <div className="flex-1 mx-3 h-2 bg-gray-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-violet-500 transition-all duration-700"
+                    style={{ width: `${pct}%`, opacity: 1 - i * 0.12 }}
+                  />
+                </div>
+                <span className="text-white font-bold w-14 text-right">
+                  {step.value > 0 ? `${step.value.toFixed(1)}%` : "—"}
+                </span>
+                {dropoff !== null && (
+                  <span className="text-red-400 text-[10px] w-14 text-right">
+                    {step.value > 0 ? `−${dropoff}%` : ""}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Funnel Score bar ──────────────────────────────────────────────────────────
 
 interface FunnelMetric {
@@ -523,6 +578,14 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
 
           {/* Divider */}
           <div className="border-t border-white/5" />
+
+          {/* Video Drop-off (video ads only) */}
+          {isVideo && (
+            <>
+              <VideoDropoff creative={creative} />
+              <div className="border-t border-white/5" />
+            </>
+          )}
 
           {/* Funnel Scores */}
           <FunnelScores creative={creative} />

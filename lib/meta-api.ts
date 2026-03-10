@@ -28,6 +28,8 @@ export interface MetaCreativeInsight {
   video_play_actions?: Array<{ action_type: string; value: string }>;
   video_thruplay_watched_actions?: Array<{ action_type: string; value: string }>;
   video_p25_watched_actions?: Array<{ action_type: string; value: string }>;
+  video_p50_watched_actions?: Array<{ action_type: string; value: string }>;
+  video_p75_watched_actions?: Array<{ action_type: string; value: string }>;
   date_start: string;
   date_stop: string;
 }
@@ -157,6 +159,8 @@ export async function getAdInsights(
     "video_play_actions",
     "video_thruplay_watched_actions",
     "video_p25_watched_actions",
+    "video_p50_watched_actions",
+    "video_p75_watched_actions",
   ].join(",");
 
   const params: Record<string, string> = {
@@ -345,4 +349,21 @@ export function computeHoldRate(insight: MetaCreativeInsight): number {
   return impressions > 0
     ? Math.round((thruplay / impressions) * 10000) / 100
     : 0;
+}
+
+export function computeVideoDropoff(insight: MetaCreativeInsight): {
+  p25: number;
+  p50: number;
+  p75: number;
+} {
+  const impressions = parseInt(insight.impressions, 10);
+  if (!impressions) return { p25: 0, p50: 0, p75: 0 };
+  const p25 = getActionValue(insight.video_p25_watched_actions, "video_view");
+  const p50 = getActionValue(insight.video_p50_watched_actions, "video_view");
+  const p75 = getActionValue(insight.video_p75_watched_actions, "video_view");
+  return {
+    p25: Math.round((p25 / impressions) * 10000) / 100,
+    p50: Math.round((p50 / impressions) * 10000) / 100,
+    p75: Math.round((p75 / impressions) * 10000) / 100,
+  };
 }

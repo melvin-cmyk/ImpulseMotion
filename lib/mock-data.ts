@@ -36,6 +36,10 @@ export interface Creative {
   ctr: number;
   hookRate: number;
   holdRate: number;
+  /** Video view rates at each quartile (% of impressions). Video ads only. */
+  videoP25Rate?: number;
+  videoP50Rate?: number;
+  videoP75Rate?: number;
   impressions: number;
   clicks: number;
   conversions: number;

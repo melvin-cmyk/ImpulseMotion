@@ -9,6 +9,7 @@ import {
   computeCpa,
   computeHookRate,
   computeHoldRate,
+  computeVideoDropoff,
 } from "@/lib/meta-api";
 import { Creative, Status } from "@/lib/mock-data";
 import { NextRequest, NextResponse } from "next/server";
@@ -157,6 +158,7 @@ export async function GET(request: NextRequest) {
       const cpa = computeCpa(insight);
       const hookRate = computeHookRate(insight);
       const holdRate = computeHoldRate(insight);
+      const { p25, p50, p75 } = computeVideoDropoff(insight);
 
       const isVideo = Boolean(
         ad.creative?.video_id ||
@@ -202,6 +204,9 @@ export async function GET(request: NextRequest) {
         ctr: Math.round(ctr * 100) / 100,
         hookRate,
         holdRate,
+        videoP25Rate: isVideo ? p25 : undefined,
+        videoP50Rate: isVideo ? p50 : undefined,
+        videoP75Rate: isVideo ? p75 : undefined,
         impressions,
         clicks,
         conversions: Math.round(spend > 0 && cpa > 0 ? spend / cpa : 0),
