@@ -14,12 +14,14 @@
  * - Platform / Status badges
  * - Link to Meta Ads Manager when applicable
  * - X button and click-outside to close
+ * - Funnel Scores (Hook / Watch / Click / Convert)
+ * - Custom Tags (saved in localStorage)
  *
  * Design: dark background #0a0a0f, violet/purple accents — matches ImpulseMotion.
  */
 
-import { useEffect } from "react";
-import { X, ExternalLink } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { X, ExternalLink, Plus, Tag } from "lucide-react";
 import { Creative } from "@/lib/mock-data";
 
 interface CreativeModalProps {
@@ -103,29 +105,18 @@ function VideoPlayer({
     );
   }
 
-  // No direct video URL — show thumbnail with a link to Facebook
+  // No direct video URL — embed via official Facebook iframe player
   if (videoId) {
-    const fbUrl = `https://www.facebook.com/watch/?v=${videoId}`;
+    const embedSrc = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(`https://www.facebook.com/watch/?v=${videoId}`)}&show_text=false&allowfullscreen=true`;
     return (
       <div className="relative w-full bg-black" style={{ paddingTop: "56.25%" }}>
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-          {thumbnailUrl && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={thumbnailUrl}
-              alt="Video thumbnail"
-              className="absolute inset-0 w-full h-full object-contain opacity-60"
-            />
-          )}
-          <a
-            href={fbUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="relative z-10 flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-          >
-            Voir sur Facebook
-          </a>
-        </div>
+        <iframe
+          src={embedSrc}
+          className="absolute inset-0 w-full h-full"
+          style={{ border: "none" }}
+          allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+          allowFullScreen
+        />
       </div>
     );
   }
@@ -133,6 +124,199 @@ function VideoPlayer({
   return (
     <div className="w-full flex items-center justify-center bg-gray-900" style={{ minHeight: "200px" }}>
       <span className="text-gray-600 text-sm">Video unavailable</span>
+    </div>
+  );
+}
+
+// ── Funnel Score bar ──────────────────────────────────────────────────────────
+
+interface FunnelMetric {
+  label: string;
+  value: number;
+  benchmark: number;
+  unit: string;
+}
+
+function FunnelBar({ label, value, benchmark, unit }: FunnelMetric) {
+  const pct = Math.min((value / (benchmark * 2)) * 100, 100);
+  const ratio = benchmark > 0 ? value / benchmark : 0;
+  const color =
+    ratio >= 1
+      ? "bg-emerald-500"
+      : ratio >= 0.6
+      ? "bg-amber-500"
+      : "bg-red-500";
+  const textColor =
+    ratio >= 1
+      ? "text-emerald-400"
+      : ratio >= 0.6
+      ? "text-amber-400"
+      : "text-red-400";
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-400 font-medium">{label}</span>
+        <span className={`font-bold ${textColor}`}>
+          {value > 0 ? `${value.toFixed(1)}${unit}` : "—"}
+        </span>
+      </div>
+      <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-700 ${color}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="text-[10px] text-gray-600">
+        Benchmark: {benchmark}{unit}
+      </div>
+    </div>
+  );
+}
+
+function FunnelScores({ creative }: { creative: Creative }) {
+  const convertScore = creative.roas > 0 ? (creative.roas / 1.5) * 1.5 : 0;
+
+  return (
+    <div>
+      <p className="text-[9px] uppercase tracking-widest text-gray-600 font-bold mb-3">
+        Funnel Scores
+      </p>
+      <div className="grid grid-cols-2 gap-4 bg-[#13131f] border border-white/5 rounded-xl p-4">
+        <FunnelBar
+          label="Hook"
+          value={creative.hookRate}
+          benchmark={25}
+          unit="%"
+        />
+        <FunnelBar
+          label="Watch"
+          value={creative.holdRate}
+          benchmark={40}
+          unit="%"
+        />
+        <FunnelBar
+          label="Click"
+          value={creative.ctr}
+          benchmark={1.5}
+          unit="%"
+        />
+        <FunnelBar
+          label="Convert"
+          value={convertScore > 0 ? creative.roas : 0}
+          benchmark={1.5}
+          unit="x"
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Custom Tags ───────────────────────────────────────────────────────────────
+
+function useCreativeTags(creativeId: string) {
+  const storageKey = `impulse_tags_${creativeId}`;
+
+  const [tags, setTags] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const addTag = useCallback(
+    (tag: string) => {
+      const trimmed = tag.trim();
+      if (!trimmed) return;
+      setTags((prev) => {
+        if (prev.includes(trimmed)) return prev;
+        const next = [...prev, trimmed];
+        localStorage.setItem(storageKey, JSON.stringify(next));
+        return next;
+      });
+    },
+    [storageKey]
+  );
+
+  const removeTag = useCallback(
+    (tag: string) => {
+      setTags((prev) => {
+        const next = prev.filter((t) => t !== tag);
+        localStorage.setItem(storageKey, JSON.stringify(next));
+        return next;
+      });
+    },
+    [storageKey]
+  );
+
+  return { tags, addTag, removeTag };
+}
+
+function CustomTagsSection({ creativeId }: { creativeId: string }) {
+  const { tags, addTag, removeTag } = useCreativeTags(creativeId);
+  const [input, setInput] = useState("");
+
+  function handleAdd() {
+    if (input.trim()) {
+      addTag(input.trim());
+      setInput("");
+    }
+  }
+
+  return (
+    <div>
+      <p className="text-[9px] uppercase tracking-widest text-gray-600 font-bold mb-3 flex items-center gap-1.5">
+        <Tag className="w-3 h-3" />
+        Custom Tags
+      </p>
+      <div className="bg-[#13131f] border border-white/5 rounded-xl p-4 space-y-3">
+        {/* Input */}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAdd();
+            }}
+            placeholder="Add tag (e.g. UGC, Promo50, Funnel-Top)"
+            className="flex-1 bg-gray-800/60 border border-white/8 rounded-lg px-3 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:border-violet-500/50 transition-colors"
+          />
+          <button
+            onClick={handleAdd}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-violet-600/20 border border-violet-500/30 text-violet-400 hover:bg-violet-600/30 transition-colors text-xs font-semibold"
+          >
+            <Plus className="w-3 h-3" />
+            Add
+          </button>
+        </div>
+        {/* Tags */}
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/25"
+              >
+                {tag}
+                <button
+                  onClick={() => removeTag(tag)}
+                  className="ml-0.5 hover:text-white transition-colors"
+                  aria-label={`Remove tag ${tag}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        {tags.length === 0 && (
+          <p className="text-[11px] text-gray-600">No tags yet. Add tags to organize this creative.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -352,6 +536,18 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
               />
             </div>
           </div>
+
+          {/* Divider */}
+          <div className="border-t border-white/5" />
+
+          {/* Funnel Scores */}
+          <FunnelScores creative={creative} />
+
+          {/* Divider */}
+          <div className="border-t border-white/5" />
+
+          {/* Custom Tags */}
+          <CustomTagsSection creativeId={creative.id} />
         </div>
       </div>
     </div>

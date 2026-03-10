@@ -85,27 +85,18 @@ export function CreativeThumbnail({
       );
     }
 
-    // Meta videos with no direct URL — show thumbnail + external link to Facebook
+    // Meta videos with no direct URL — embed via official Facebook iframe player
     if (videoId) {
-      const fbUrl = `https://www.facebook.com/watch/?v=${videoId}`;
+      const embedSrc = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(`https://www.facebook.com/watch/?v=${videoId}`)}&show_text=false&allowfullscreen=true`;
       return (
-        <div className={`relative ${className} bg-black flex flex-col items-center justify-center gap-2`}>
-          {thumbnailUrl && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={thumbnailUrl}
-              alt="Video thumbnail"
-              className="absolute inset-0 w-full h-full object-contain opacity-60"
-            />
-          )}
-          <a
-            href={fbUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="relative z-10 flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-          >
-            Voir sur Facebook
-          </a>
+        <div className={`relative ${className} bg-black`}>
+          <iframe
+            src={embedSrc}
+            className="w-full h-full"
+            style={{ border: "none" }}
+            allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+            allowFullScreen
+          />
           <button
             className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-lg z-10"
             onClick={() => { setPlaying(false); setVideoFailed(false); }}

@@ -121,27 +121,15 @@ export function CreativeDetailModal({ creative, onClose }: CreativeDetailModalPr
               </div>
             )
           ) : isMetaVideo ? (
-            // Meta video with no direct URL — show thumbnail + external link
+            // Meta video with no direct URL — embed via official Facebook iframe player
             <div className="relative w-full bg-black" style={{ paddingTop: "56.25%" }}>
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                {creative.thumbnailUrl && (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={creative.thumbnailUrl}
-                    alt="Video thumbnail"
-                    className="absolute inset-0 w-full h-full object-contain opacity-60"
-                  />
-                )}
-                <a
-                  href={`https://www.facebook.com/watch/?v=${creative.videoId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="relative z-10 flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-                >
-                  Voir sur Facebook
-                </a>
-              </div>
-            </div>
+              <iframe
+                src={`https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(`https://www.facebook.com/watch/?v=${creative.videoId}`)}&show_text=false&allowfullscreen=true`}
+                className="absolute inset-0 w-full h-full"
+                style={{ border: "none" }}
+                allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                allowFullScreen
+              /></div>
           ) : creative.thumbnailUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img

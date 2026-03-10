@@ -12,12 +12,14 @@ import {
   Zap,
   Tag,
   Share2,
+  Rocket,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const navItems = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/creatives", icon: Grid2X2, label: "Creatives" },
+  { href: "/launch", icon: Rocket, label: "Launch Analysis" },
   { href: "/top-charts", icon: BarChart3, label: "Top Charts" },
   { href: "/compare", icon: GitCompareArrows, label: "A/B Compare" },
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },

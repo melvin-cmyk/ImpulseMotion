@@ -1,16 +1,38 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Platform, Format, Status, Creative } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
-import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star } from "lucide-react";
+import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star, LayoutGrid, Table2, ChevronUp as ChevronUpSort, X, Tag } from "lucide-react";
 import { FiltersBar, AdStatus } from "@/components/ui/filters-bar";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
+type ViewMode = "card" | "table";
+type TableSortKey = "name" | "spend" | "ctr" | "hookRate" | "thumbstop" | "roas" | "cpa" | "status";
+
+// ── localStorage helpers for tags ─────────────────────────────────────────────
+
+function getTagsForCreative(creativeId: string): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(`impulse_tags_${creativeId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getAllUsedTags(creatives: Creative[]): string[] {
+  const set = new Set<string>();
+  creatives.forEach((c) => {
+    getTagsForCreative(c.id).forEach((t) => set.add(t));
+  });
+  return Array.from(set).sort();
+}
 
 // ── Score badge (A/B/C/D) ─────────────────────────────────────────────────────
 
@@ -775,6 +797,213 @@ function AiInsightsSection({ creatives }: { creatives: Creative[] }) {
   );
 }
 
+// ── Table View ────────────────────────────────────────────────────────────────
+
+function getMedian(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+interface TableViewProps {
+  creatives: Creative[];
+  onCreativeClick: (c: Creative) => void;
+}
+
+function TableView({ creatives, onCreativeClick }: TableViewProps) {
+  const [sortKey, setSortKey] = useState<TableSortKey>("roas");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  function handleSort(key: TableSortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "cpa" ? "asc" : "desc");
+    }
+  }
+
+  const medians = useMemo(() => {
+    return {
+      spend: getMedian(creatives.map((c) => c.spend)),
+      ctr: getMedian(creatives.map((c) => c.ctr)),
+      hookRate: getMedian(creatives.map((c) => c.hookRate)),
+      thumbstop: getMedian(
+        creatives.map((c) =>
+          c.impressions > 0 ? (c.clicks * 5 / c.impressions) * 100 : 0
+        )
+      ),
+      roas: getMedian(creatives.map((c) => c.roas)),
+      cpa: getMedian(creatives.map((c) => c.cpa)),
+    };
+  }, [creatives]);
+
+  const sorted = useMemo(() => {
+    const list = [...creatives];
+    list.sort((a, b) => {
+      let aVal: number | string = 0;
+      let bVal: number | string = 0;
+      if (sortKey === "name") { aVal = a.name; bVal = b.name; }
+      else if (sortKey === "spend") { aVal = a.spend; bVal = b.spend; }
+      else if (sortKey === "ctr") { aVal = a.ctr; bVal = b.ctr; }
+      else if (sortKey === "hookRate") { aVal = a.hookRate; bVal = b.hookRate; }
+      else if (sortKey === "thumbstop") {
+        aVal = a.impressions > 0 ? (a.clicks * 5 / a.impressions) * 100 : 0;
+        bVal = b.impressions > 0 ? (b.clicks * 5 / b.impressions) * 100 : 0;
+      }
+      else if (sortKey === "roas") { aVal = a.roas; bVal = b.roas; }
+      else if (sortKey === "cpa") { aVal = a.cpa; bVal = b.cpa; }
+      else if (sortKey === "status") { aVal = a.status; bVal = b.status; }
+
+      if (typeof aVal === "string") {
+        return sortDir === "asc"
+          ? aVal.localeCompare(bVal as string)
+          : (bVal as string).localeCompare(aVal);
+      }
+      return sortDir === "asc"
+        ? (aVal as number) - (bVal as number)
+        : (bVal as number) - (aVal as number);
+    });
+    return list;
+  }, [creatives, sortKey, sortDir]);
+
+  function cellColor(value: number, median: number, higherIsBetter = true): string {
+    if (value === 0 || median === 0) return "";
+    const isGood = higherIsBetter ? value > median : value < median;
+    return isGood
+      ? "bg-emerald-900/30 text-emerald-300"
+      : "bg-red-900/30 text-red-300";
+  }
+
+  function SortIcon({ col }: { col: TableSortKey }) {
+    if (col !== sortKey)
+      return <ChevronUpSort className="w-3 h-3 text-gray-600 opacity-40" />;
+    return sortDir === "asc" ? (
+      <ChevronUpSort className="w-3 h-3 text-violet-400" />
+    ) : (
+      <ChevronUpSort className="w-3 h-3 text-violet-400 rotate-180" />
+    );
+  }
+
+  const columns: { key: TableSortKey; label: string }[] = [
+    { key: "name", label: "Name" },
+    { key: "spend", label: "Spend" },
+    { key: "ctr", label: "CTR" },
+    { key: "hookRate", label: "Hook Rate" },
+    { key: "thumbstop", label: "Thumbstop" },
+    { key: "roas", label: "ROAS" },
+    { key: "cpa", label: "CPA" },
+    { key: "status", label: "Status" },
+  ];
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-gray-800 bg-gray-900">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-800">
+            <th className="px-3 py-3 text-left text-[10px] text-gray-500 uppercase tracking-wide w-12">
+              Thumb
+            </th>
+            {columns.map((col) => (
+              <th
+                key={col.key}
+                onClick={() => handleSort(col.key)}
+                className="px-3 py-3 text-left text-[10px] text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-300 transition-colors select-none"
+              >
+                <div className="flex items-center gap-1">
+                  {col.label}
+                  <SortIcon col={col.key} />
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-800/60">
+          {sorted.map((c) => {
+            const thumbstop =
+              c.impressions > 0
+                ? Math.min((c.clicks * 5 / c.impressions) * 100, 60)
+                : 0;
+
+            const statusMap: Record<Status, string> = {
+              Winner: "bg-green-900/60 text-green-300 border border-green-800",
+              Loser: "bg-red-900/60 text-red-300 border border-red-800",
+              Fatigued: "bg-orange-900/60 text-orange-300 border border-orange-800",
+              Active: "bg-blue-900/60 text-blue-300 border border-blue-800",
+            };
+
+            return (
+              <tr
+                key={c.id}
+                onClick={() => onCreativeClick(c)}
+                className="hover:bg-gray-800/40 cursor-pointer transition-colors"
+              >
+                {/* Thumbnail */}
+                <td className="px-3 py-2">
+                  <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                    <CreativeThumbnail
+                      format={c.format}
+                      thumbnailColor={c.thumbnailColor}
+                      thumbnailUrl={c.thumbnailUrl}
+                      videoUrl={c.videoUrl}
+                      videoId={c.videoId}
+                      className="w-12 h-12"
+                    />
+                  </div>
+                </td>
+                {/* Name */}
+                <td className="px-3 py-2 max-w-[200px]">
+                  <p className="text-xs font-mono text-gray-200 truncate" title={c.name}>
+                    {c.name}
+                  </p>
+                </td>
+                {/* Spend */}
+                <td className={`px-3 py-2 text-xs font-semibold rounded-none ${cellColor(c.spend, medians.spend)}`}>
+                  {c.spend >= 1000 ? `$${(c.spend / 1000).toFixed(1)}k` : `$${c.spend.toFixed(0)}`}
+                </td>
+                {/* CTR */}
+                <td className={`px-3 py-2 text-xs font-semibold ${cellColor(c.ctr, medians.ctr)}`}>
+                  {c.ctr.toFixed(2)}%
+                </td>
+                {/* Hook Rate */}
+                <td className={`px-3 py-2 text-xs font-semibold ${cellColor(c.hookRate, medians.hookRate)}`}>
+                  {c.hookRate > 0 ? `${c.hookRate.toFixed(1)}%` : "—"}
+                </td>
+                {/* Thumbstop */}
+                <td className={`px-3 py-2 text-xs font-semibold ${cellColor(thumbstop, medians.thumbstop)}`}>
+                  {thumbstop > 0 ? `${thumbstop.toFixed(1)}%` : "—"}
+                </td>
+                {/* ROAS */}
+                <td className={`px-3 py-2 text-xs font-semibold ${cellColor(c.roas, medians.roas)}`}>
+                  {c.roas > 0 ? `${c.roas}x` : "—"}
+                </td>
+                {/* CPA */}
+                <td className={`px-3 py-2 text-xs font-semibold ${cellColor(c.cpa, medians.cpa, false)}`}>
+                  {c.cpa > 0 ? `$${c.cpa}` : "—"}
+                </td>
+                {/* Status */}
+                <td className="px-3 py-2">
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusMap[c.status]}`}>
+                    {c.status}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {sorted.length === 0 && (
+        <div className="flex items-center justify-center h-24 text-gray-600 text-sm">
+          No creatives match the selected filters.
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CreativesPage() {
@@ -784,8 +1013,24 @@ export default function CreativesPage() {
   const [sortBy, setSortBy] = useState<SortKey>("roas");
   const [adStatus, setAdStatus] = useState<AdStatus>("ALL");
   const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("card");
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  // Key to re-compute tags after modal closes (localStorage update)
+  const [tagsKey, setTagsKey] = useState(0);
 
   const { creatives, isLoading: loading, error, isRealData } = useCreativesContext();
+
+  // Refresh tags list when modal closes
+  const handleModalClose = useCallback(() => {
+    setSelectedCreative(null);
+    setTagsKey((k) => k + 1);
+  }, []);
+
+  const allTags = useMemo(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+    tagsKey; // dependency to recompute
+    return getAllUsedTags(creatives);
+  }, [creatives, tagsKey]);
 
   // Derive meta account id from localStorage for FiltersBar
   const [metaAccountId, setMetaAccountId] = useState<string | null>(null);
@@ -808,12 +1053,15 @@ export default function CreativesPage() {
     } else if (adStatus === "PAUSED") {
       list = list.filter((c) => c.status === "Loser" || c.status === "Fatigued");
     }
+    if (selectedTag) {
+      list = list.filter((c) => getTagsForCreative(c.id).includes(selectedTag));
+    }
     list.sort((a, b) => {
       if (sortBy === "cpa") return a.cpa - b.cpa;
       return (b[sortBy] as number) - (a[sortBy] as number);
     });
     return list;
-  }, [creatives, platform, status, format, sortBy, adStatus]);
+  }, [creatives, platform, status, format, sortBy, adStatus, selectedTag, tagsKey]);
 
   // ── KPI Summary calculations ──────────────────────────────────────────────
   const kpiData = useMemo(() => {
@@ -845,12 +1093,39 @@ export default function CreativesPage() {
           <h1 className="text-2xl font-bold text-white">Creative Feed</h1>
           <p className="text-gray-400 text-sm mt-0.5">{filtered.length} creatives</p>
         </div>
-        <div className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-gray-800 bg-gray-900">
-          {isRealData ? (
-            <><Wifi className="w-3 h-3 text-green-400" /><span className="text-green-400">Live data</span></>
-          ) : (
-            <><Database className="w-3 h-3 text-gray-500" /><span className="text-gray-500">Demo data</span></>
-          )}
+        <div className="flex items-center gap-2">
+          {/* View mode toggle */}
+          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+            <button
+              onClick={() => setViewMode("card")}
+              title="Card view"
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                viewMode === "card"
+                  ? "bg-violet-600 text-white"
+                  : "text-gray-500 hover:text-gray-200"
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode("table")}
+              title="Table view"
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                viewMode === "table"
+                  ? "bg-violet-600 text-white"
+                  : "text-gray-500 hover:text-gray-200"
+              }`}
+            >
+              <Table2 className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-gray-800 bg-gray-900">
+            {isRealData ? (
+              <><Wifi className="w-3 h-3 text-green-400" /><span className="text-green-400">Live data</span></>
+            ) : (
+              <><Database className="w-3 h-3 text-gray-500" /><span className="text-gray-500">Demo data</span></>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1015,8 +1290,47 @@ export default function CreativesPage() {
         </div>
       </div>
 
+      {/* Tag filter */}
+      {allTags.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            <Tag className="w-3.5 h-3.5" />
+            <span>Tags:</span>
+          </div>
+          <button
+            onClick={() => setSelectedTag(null)}
+            className={`text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+              selectedTag === null
+                ? "bg-violet-600 border-violet-500 text-white"
+                : "bg-gray-900 border-gray-700 text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            All
+          </button>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
+              className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+                selectedTag === tag
+                  ? "bg-violet-500/20 border-violet-500/50 text-violet-300"
+                  : "bg-gray-900 border-gray-700 text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              {tag}
+              {selectedTag === tag && <X className="w-3 h-3" />}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Table View */}
+      {!loading && viewMode === "table" && (
+        <TableView creatives={filtered} onCreativeClick={setSelectedCreative} />
+      )}
+
       {/* Grid */}
-      {!loading && (
+      {!loading && viewMode === "card" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((creative) => (
             <div
@@ -1083,7 +1397,7 @@ export default function CreativesPage() {
         </div>
       )}
 
-      {!loading && filtered.length === 0 && (
+      {!loading && filtered.length === 0 && viewMode === "card" && (
         <div className="flex items-center justify-center h-48 text-gray-600">
           No creatives match the selected filters.
         </div>
@@ -1092,7 +1406,7 @@ export default function CreativesPage() {
       {/* Creative Detail Modal */}
       <CreativeModal
         creative={selectedCreative}
-        onClose={() => setSelectedCreative(null)}
+        onClose={handleModalClose}
       />
     </div>
   );
