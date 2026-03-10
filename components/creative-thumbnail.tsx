@@ -132,14 +132,6 @@ export function CreativeThumbnail({
           alt="Creative thumbnail"
           className="w-full h-full object-contain"
           loading="lazy"
-          onLoad={(e) => {
-            const img = e.target as HTMLImageElement;
-            // Hide images that are too small (below 200px) — they are
-            // low-res thumbnails that would appear pixelated at card size.
-            if (img.naturalWidth > 0 && img.naturalWidth < 200) {
-              setImgHidden(true);
-            }
-          }}
           onError={() => setImgHidden(true)}
         />
         {/* Play button overlay for video creatives */}
