@@ -93,28 +93,55 @@ export function CreativeDetailModal({ creative, onClose }: CreativeDetailModalPr
 
         {/* Media section */}
         <div className="relative bg-black rounded-t-2xl overflow-hidden flex items-center justify-center w-full max-h-[70vh]">
-          {isMetaVideo ? (
-            // iframe: can't detect dimensions, so use 9:16 aspect ratio (portrait) by default
-            <div className="w-full" style={{ aspectRatio: "9/16", maxHeight: "70vh" }}>
-              <iframe
-                src={`https://www.facebook.com/video/embed?video_id=${creative.videoId}`}
-                className="w-full h-full border-0"
-                style={{ display: "block" }}
-                allowFullScreen
-                scrolling="no"
-                allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-                title="Facebook video player"
-              />
+          {isVideo && creative.videoUrl ? (
+            isMetaVideo ? (
+              // Portrait (9:16) for Meta videos
+              <div
+                className="relative w-full bg-black overflow-hidden"
+                style={{ paddingTop: "177.78%", maxHeight: "70vh" }}
+              >
+                <video
+                  src={creative.videoUrl}
+                  poster={creative.thumbnailUrl}
+                  controls
+                  crossOrigin="anonymous"
+                  className="absolute inset-0 w-full h-full object-contain"
+                />
+              </div>
+            ) : (
+              // Landscape (16:9) for other platforms
+              <div className="relative w-full bg-black" style={{ paddingTop: "56.25%" }}>
+                <video
+                  src={creative.videoUrl}
+                  poster={creative.thumbnailUrl}
+                  controls
+                  crossOrigin="anonymous"
+                  className="absolute inset-0 w-full h-full object-contain"
+                />
+              </div>
+            )
+          ) : isMetaVideo ? (
+            // Meta video with no direct URL — show thumbnail + external link
+            <div className="relative w-full bg-black" style={{ paddingTop: "56.25%" }}>
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                {creative.thumbnailUrl && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={creative.thumbnailUrl}
+                    alt="Video thumbnail"
+                    className="absolute inset-0 w-full h-full object-contain opacity-60"
+                  />
+                )}
+                <a
+                  href={`https://www.facebook.com/watch/?v=${creative.videoId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="relative z-10 flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+                >
+                  Voir sur Facebook
+                </a>
+              </div>
             </div>
-          ) : isVideo && creative.videoUrl ? (
-            <video
-              src={creative.videoUrl}
-              poster={creative.thumbnailUrl}
-              controls
-              crossOrigin="anonymous"
-              className="max-h-[70vh] w-auto mx-auto object-contain block"
-              style={{ background: "#000" }}
-            />
           ) : creative.thumbnailUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
