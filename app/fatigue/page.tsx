@@ -275,15 +275,16 @@ export default function FatiguePage() {
       <div className="space-y-4">
         {fatiguedCreatives.map((creative) => {
           const trendData = getDailyTrend(creative);
-          const latestCpa = trendData[trendData.length - 1].cpa;
-          const firstCpa = trendData[0].cpa;
-          const latestCtr = trendData[trendData.length - 1].ctr;
-          const firstCtr = trendData[0].ctr;
+          const hasTrend = trendData.length >= 2;
+          const latestCpa = hasTrend ? trendData[trendData.length - 1].cpa : 0;
+          const firstCpa = hasTrend ? trendData[0].cpa : 0;
+          const latestCtr = hasTrend ? trendData[trendData.length - 1].ctr : 0;
+          const firstCtr = hasTrend ? trendData[0].ctr : 0;
           const cpaChange =
             firstCpa > 0
               ? Math.round(((latestCpa - firstCpa) / firstCpa) * 100)
               : 0;
-          const ctrChange = (latestCtr - firstCtr).toFixed(1);
+          const ctrChange = hasTrend ? (latestCtr - firstCtr).toFixed(1) : "0";
           const signals = getFatigueSignals(creative).signals;
 
           return (
