@@ -191,9 +191,11 @@ function PlatformBadge({ platform }: { platform: string }) {
 export default function FatiguePage() {
   const { creatives } = useCreativesContext();
   const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
+  const [platformFilter, setPlatformFilter] = useState<"All" | "Meta" | "TikTok">("Meta");
 
   // Use real fatigue detection instead of only checking status
   const fatiguedCreatives = [...creatives]
+    .filter((c) => (platformFilter === "All" ? true : c.platform === platformFilter))
     .filter(isFatigued)
     .sort((a, b) => a.roas - b.roas);
   const totalFatigued = fatiguedCreatives.length;
@@ -238,6 +240,23 @@ export default function FatiguePage() {
       {/* Date Range Picker */}
       <DateRangePicker />
 
+      {/* Platform filter */}
+      <div className="flex gap-2">
+        {(["Meta", "TikTok", "All"] as const).map((p) => (
+          <button
+            key={p}
+            onClick={() => setPlatformFilter(p)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              platformFilter === p
+                ? "bg-orange-600/30 border-orange-600 text-orange-200"
+                : "bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+
       {/* Alert Banner */}
       {totalFatigued > 0 && (
         <div className="flex items-start gap-4 bg-orange-950/50 border border-orange-700/60 rounded-2xl p-5">
@@ -275,16 +294,6 @@ export default function FatiguePage() {
       <div className="space-y-4">
         {fatiguedCreatives.map((creative) => {
           const trendData = getDailyTrend(creative);
-          const hasTrend = trendData.length >= 2;
-          const latestCpa = hasTrend ? trendData[trendData.length - 1].cpa : 0;
-          const firstCpa = hasTrend ? trendData[0].cpa : 0;
-          const latestCtr = hasTrend ? trendData[trendData.length - 1].ctr : 0;
-          const firstCtr = hasTrend ? trendData[0].ctr : 0;
-          const cpaChange =
-            firstCpa > 0
-              ? Math.round(((latestCpa - firstCpa) / firstCpa) * 100)
-              : 0;
-          const ctrChange = hasTrend ? (latestCtr - firstCtr).toFixed(1) : "0";
           const signals = getFatigueSignals(creative).signals;
 
           return (
@@ -326,19 +335,25 @@ export default function FatiguePage() {
                   <p className="text-gray-500 text-xs">signals</p>
                 </div>
 
-                {/* Change indicators */}
+                {/* Real metrics */}
                 <div className="flex gap-4 shrink-0">
                   <div className="text-right">
-                    <p className="text-red-400 text-sm font-semibold">
-                      {ctrChange}pp
+                    <p className="text-white text-sm font-semibold">
+                      {creative.ctr.toFixed(2)}%
                     </p>
-                    <p className="text-gray-500 text-xs">CTR change</p>
+                    <p className="text-gray-500 text-xs">CTR</p>
                   </div>
                   <div className="text-right">
                     <p className="text-orange-400 text-sm font-semibold">
-                      +{cpaChange}%
+                      ${creative.cpa.toFixed(2)}
                     </p>
-                    <p className="text-gray-500 text-xs">CPA change</p>
+                    <p className="text-gray-500 text-xs">CPA</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-gray-300 text-sm font-semibold">
+                      ${creative.spend.toLocaleString()}
+                    </p>
+                    <p className="text-gray-500 text-xs">Spend</p>
                   </div>
                 </div>
               </div>
