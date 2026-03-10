@@ -103,14 +103,17 @@ export function CreativeDetailModal({ creative, onClose }: CreativeDetailModalPr
             />
           ) : isMetaVideo ? (
             // Meta video with no direct URL — embed via official Facebook iframe player
-            <div className="relative w-full bg-black" style={{ paddingTop: "56.25%" }}>
+            <div
+              className="bg-black"
+              style={{ aspectRatio: "9/16", maxHeight: "70vh", width: "auto", minWidth: "200px" }}
+            >
               <iframe
                 src={`https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(`https://www.facebook.com/watch/?v=${creative.videoId}`)}&show_text=false&allowfullscreen=true`}
-                className="absolute inset-0 w-full h-full"
-                style={{ border: "none" }}
+                style={{ width: "100%", height: "100%", border: "none", display: "block" }}
                 allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
                 allowFullScreen
-              /></div>
+              />
+            </div>
           ) : creative.thumbnailUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
