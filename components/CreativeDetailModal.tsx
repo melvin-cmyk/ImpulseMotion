@@ -92,39 +92,41 @@ export function CreativeDetailModal({ creative, onClose }: CreativeDetailModalPr
         </button>
 
         {/* Media section */}
-        <div className="relative w-full h-80 bg-black rounded-t-2xl overflow-hidden flex items-center justify-center">
+        <div className="relative bg-black rounded-t-2xl overflow-hidden flex items-center justify-center w-full max-h-[70vh]">
           {isMetaVideo ? (
-            <iframe
-              src={`https://www.facebook.com/video/embed?video_id=${creative.videoId}`}
-              className="absolute inset-0 border-0"
-              width="100%"
-              height="100%"
-              style={{ display: "block" }}
-              allowFullScreen
-              scrolling="no"
-              allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
-              title="Facebook video player"
-            />
+            // iframe: can't detect dimensions, so use 9:16 aspect ratio (portrait) by default
+            <div className="w-full" style={{ aspectRatio: "9/16", maxHeight: "70vh" }}>
+              <iframe
+                src={`https://www.facebook.com/video/embed?video_id=${creative.videoId}`}
+                className="w-full h-full border-0"
+                style={{ display: "block" }}
+                allowFullScreen
+                scrolling="no"
+                allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                title="Facebook video player"
+              />
+            </div>
           ) : isVideo && creative.videoUrl ? (
             <video
               src={creative.videoUrl}
               poster={creative.thumbnailUrl}
               controls
               crossOrigin="anonymous"
-              className="absolute inset-0 w-full h-full object-contain"
-              style={{ display: "block", background: "#000" }}
+              className="max-h-[70vh] w-auto mx-auto object-contain block"
+              style={{ background: "#000" }}
             />
           ) : creative.thumbnailUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={creative.thumbnailUrl}
               alt={creative.name}
-              className="absolute inset-0 w-full h-full object-contain"
-              style={{ display: "block", background: "#000" }}
+              className="max-h-[70vh] w-auto mx-auto object-contain block"
+              style={{ background: "#000" }}
             />
           ) : (
             <div
-              className={`absolute inset-0 bg-gradient-to-br ${creative.thumbnailColor} flex items-center justify-center`}
+              className={`w-full bg-gradient-to-br ${creative.thumbnailColor} flex items-center justify-center`}
+              style={{ minHeight: "320px" }}
             >
               <span className="text-white/30 text-6xl font-black">
                 {creative.format === "Image" ? "◼" : creative.format === "Video" ? "▶" : "⊞"}
