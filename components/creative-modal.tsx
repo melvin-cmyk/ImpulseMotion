@@ -80,7 +80,8 @@ function VideoPlayer({
         poster={thumbnailUrl}
         controls
         crossOrigin="anonymous"
-        className="absolute inset-0 w-full h-full object-contain"
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ display: "block", background: "#000" }}
         onError={() => {
           if (videoId) setUseFallback(true);
         }}
@@ -92,7 +93,10 @@ function VideoPlayer({
     return (
       <iframe
         src={`https://www.facebook.com/video/embed?video_id=${videoId}`}
-        className="absolute inset-0 w-full h-full border-0"
+        className="absolute inset-0 border-0"
+        width="100%"
+        height="100%"
+        style={{ display: "block" }}
         allowFullScreen
         scrolling="no"
         allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
@@ -179,7 +183,7 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
         </button>
 
         {/* Media section */}
-        <div className="relative w-full aspect-video bg-black rounded-t-2xl overflow-hidden">
+        <div className="relative w-full h-72 bg-black rounded-t-2xl overflow-hidden">
           {isVideo ? (
             <VideoPlayer
               videoUrl={creative.videoUrl}
