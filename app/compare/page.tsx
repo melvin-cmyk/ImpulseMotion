@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Creative } from "@/lib/mock-data";
+import { Creative, Format } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import { CreativeModal } from "@/components/creative-modal";
@@ -16,7 +16,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { ArrowRight, TrendingUp, TrendingDown, Minus, CalendarDays, Loader2 } from "lucide-react";
+import { ArrowRight, TrendingUp, TrendingDown, Minus, CalendarDays, Loader2, LayoutGrid } from "lucide-react";
 
 interface Metric {
   key: keyof Creative;
@@ -119,6 +119,193 @@ function WinnerIcon({
   if (winner === "a")
     return <TrendingUp className="w-4 h-4 text-emerald-400" />;
   return <TrendingUp className="w-4 h-4 text-violet-400" />;
+}
+
+// ── Creative Type Comparison ──────────────────────────────────────────────────
+
+interface TypeAgg {
+  format: Format;
+  count: number;
+  spend: number;
+  ctr: number;
+  hookRate: number;
+  roas: number;
+}
+
+const FORMAT_COLORS: Record<Format, string> = {
+  Video: "#7c3aed",
+  Image: "#0ea5e9",
+  Carousel: "#10b981",
+};
+
+function CreativeTypeComparison({ creatives }: { creatives: Creative[] }) {
+  const typeData: TypeAgg[] = useMemo(() => {
+    const groups: Record<Format, Creative[]> = { Video: [], Image: [], Carousel: [] };
+    creatives.forEach((c) => {
+      if (groups[c.format]) groups[c.format].push(c);
+    });
+
+    return (["Video", "Image", "Carousel"] as Format[]).map((format) => {
+      const list = groups[format];
+      if (list.length === 0) {
+        return { format, count: 0, spend: 0, ctr: 0, hookRate: 0, roas: 0 };
+      }
+      const spend = list.reduce((s, c) => s + c.spend, 0);
+      const ctr = list.reduce((s, c) => s + c.ctr, 0) / list.length;
+      const videoList = list.filter((c) => c.hookRate > 0);
+      const hookRate =
+        videoList.length > 0
+          ? videoList.reduce((s, c) => s + c.hookRate, 0) / videoList.length
+          : 0;
+      const roas = list.reduce((s, c) => s + c.roas, 0) / list.length;
+      return { format, count: list.length, spend, ctr, hookRate, roas };
+    });
+  }, [creatives]);
+
+  const maxSpend = Math.max(...typeData.map((d) => d.spend), 1);
+  const maxCtr = Math.max(...typeData.map((d) => d.ctr), 1);
+  const maxRoas = Math.max(...typeData.map((d) => d.roas), 1);
+  const maxHookRate = Math.max(...typeData.map((d) => d.hookRate), 1);
+
+  const chartData = typeData
+    .filter((d) => d.count > 0)
+    .map((d) => ({
+      format: d.format,
+      Spend: Math.round(d.spend / 1000 * 10) / 10,
+      CTR: Math.round(d.ctr * 100) / 100,
+      "Hook Rate": Math.round(d.hookRate * 10) / 10,
+      ROAS: Math.round(d.roas * 100) / 100,
+    }));
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-800">
+        <div className="w-8 h-8 rounded-xl bg-violet-500/20 flex items-center justify-center">
+          <LayoutGrid className="w-4 h-4 text-violet-400" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-200">Creative Type Comparison</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            Images vs Videos vs Carousels — aggregated metrics
+          </p>
+        </div>
+      </div>
+
+      {/* Metric rows (horizontal bar charts) */}
+      <div className="p-5 space-y-5">
+        {(
+          [
+            {
+              label: "Avg ROAS",
+              key: "roas" as keyof TypeAgg,
+              max: maxRoas,
+              format: (v: number) => `${v.toFixed(2)}x`,
+              accent: "bg-violet-500",
+            },
+            {
+              label: "Avg CTR",
+              key: "ctr" as keyof TypeAgg,
+              max: maxCtr,
+              format: (v: number) => `${v.toFixed(2)}%`,
+              accent: "bg-blue-500",
+            },
+            {
+              label: "Avg Hook Rate",
+              key: "hookRate" as keyof TypeAgg,
+              max: maxHookRate,
+              format: (v: number) => (v > 0 ? `${v.toFixed(1)}%` : "—"),
+              accent: "bg-pink-500",
+            },
+            {
+              label: "Total Spend",
+              key: "spend" as keyof TypeAgg,
+              max: maxSpend,
+              format: (v: number) =>
+                v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`,
+              accent: "bg-emerald-500",
+            },
+          ] as const
+        ).map(({ label, key, max, format, accent }) => (
+          <div key={label}>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-2">
+              {label}
+            </p>
+            <div className="space-y-2">
+              {typeData
+                .filter((d) => d.count > 0)
+                .map((d) => {
+                  const val = d[key] as number;
+                  const pct = max > 0 ? (val / max) * 100 : 0;
+                  return (
+                    <div key={d.format} className="flex items-center gap-3">
+                      <span className="text-xs text-gray-400 w-16 shrink-0">{d.format}</span>
+                      <div className="flex-1 bg-gray-800 rounded-full h-2 overflow-hidden">
+                        <div
+                          className={`h-2 rounded-full ${accent} transition-all duration-500`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-300 w-14 text-right shrink-0">
+                        {format(val)}
+                      </span>
+                      <span className="text-[10px] text-gray-600 w-8 shrink-0">
+                        ({d.count})
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Bar chart */}
+      <div className="px-5 pb-5">
+        <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide font-medium">
+          Overview chart (Spend in $k, rates in %)
+        </p>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={{ top: 0, right: 16, left: 0, bottom: 0 }}
+            barCategoryGap="30%"
+            barGap={3}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" horizontal={false} />
+            <XAxis
+              type="number"
+              tick={{ fill: "#9ca3af", fontSize: 10 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <YAxis
+              type="category"
+              dataKey="format"
+              tick={{ fill: "#9ca3af", fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              width={60}
+            />
+            <Tooltip
+              contentStyle={{
+                background: "#111827",
+                border: "1px solid #374151",
+                borderRadius: "8px",
+                fontSize: "12px",
+                color: "#e5e7eb",
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: "11px", color: "#9ca3af" }} />
+            <Bar dataKey="ROAS" fill="#7c3aed" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="CTR" fill="#0ea5e9" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="Hook Rate" fill="#ec4899" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
 }
 
 // ── Week-over-Week types & helpers ────────────────────────────────────────────
@@ -665,6 +852,9 @@ export default function ComparePage() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Creative Type Comparison */}
+      <CreativeTypeComparison creatives={creatives} />
 
       {/* Week over Week Section */}
       <WowSection />

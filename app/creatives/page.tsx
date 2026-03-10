@@ -7,10 +7,44 @@ import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
-import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp } from "lucide-react";
+import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp } from "lucide-react";
 import { FiltersBar, AdStatus } from "@/components/ui/filters-bar";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
+
+// ── Score badge (A/B/C/D) ─────────────────────────────────────────────────────
+
+function getScore(creative: Creative): "A" | "B" | "C" | "D" {
+  // For video creatives: use hookRate + ROAS composite
+  if (creative.hookRate > 0) {
+    if (creative.hookRate >= 30 && creative.roas >= 4) return "A";
+    if (creative.hookRate >= 20 || creative.roas >= 3.5) return "B";
+    if (creative.hookRate >= 10 || creative.roas >= 2) return "C";
+    return "D";
+  }
+  // For image/carousel: use ROAS + CTR
+  if (creative.roas >= 4 && creative.ctr >= 2.5) return "A";
+  if (creative.roas >= 3 || creative.ctr >= 2) return "B";
+  if (creative.roas >= 1.5 || creative.ctr >= 1) return "C";
+  return "D";
+}
+
+function ScoreBadge({ creative }: { creative: Creative }) {
+  const score = getScore(creative);
+  const styles: Record<string, string> = {
+    A: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-emerald-900/30",
+    B: "bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-blue-900/30",
+    C: "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-amber-900/30",
+    D: "bg-red-500/20 text-red-300 border border-red-500/40 shadow-red-900/30",
+  };
+  return (
+    <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md shadow-sm ${styles[score]}`}>
+      {score}
+    </span>
+  );
+}
+
+// ── KPI card ──────────────────────────────────────────────────────────────────
 
 interface KpiCardProps {
   label: string;
@@ -69,10 +103,21 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
-function Sparkline({ data }: { data: { date: string; roas: number }[] }) {
+// ── Sparkline (CTR trend) ─────────────────────────────────────────────────────
+
+function Sparkline({ data }: { data: { date: string; roas: number; ctr?: number }[] }) {
+  // Build per-day CTR from trend data (clicks/impressions * 100)
+  const sparkData = data.map((d) => ({
+    date: d.date,
+    ctr: d.ctr ?? ((d as { clicks?: number }).clicks && (d as { impressions?: number }).impressions
+      ? (((d as { clicks?: number }).clicks ?? 0) / ((d as { impressions?: number }).impressions ?? 1)) * 100
+      : d.roas),
+    roas: d.roas,
+  }));
+
   return (
     <ResponsiveContainer width="100%" height={36}>
-      <LineChart data={data}>
+      <LineChart data={sparkData}>
         <Line
           type="monotone"
           dataKey="roas"
@@ -88,7 +133,7 @@ function Sparkline({ data }: { data: { date: string; roas: number }[] }) {
             fontSize: "11px",
             color: "#e5e7eb",
           }}
-          formatter={(v: unknown) => [`${v}x`, "ROAS"]}
+          formatter={(v: unknown) => [`${Number(v).toFixed(2)}x`, "ROAS"]}
           labelFormatter={(l) => l}
         />
       </LineChart>
@@ -104,6 +149,210 @@ function MetricPill({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+// ── Creatives to Scale section ────────────────────────────────────────────────
+
+function CreativesToScaleSection({
+  creatives,
+  onCreativeClick,
+}: {
+  creatives: Creative[];
+  onCreativeClick: (c: Creative) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  const toScale = useMemo(() => {
+    if (creatives.length === 0) return [];
+    const spends = creatives.map((c) => c.spend).sort((a, b) => a - b);
+    const roasArr = creatives.map((c) => c.roas).sort((a, b) => a - b);
+    const medianSpend = spends[Math.floor(spends.length / 2)];
+    const medianRoas = roasArr[Math.floor(roasArr.length / 2)];
+    return creatives
+      .filter((c) => c.spend < medianSpend && c.roas > medianRoas)
+      .sort((a, b) => b.roas - a.roas)
+      .slice(0, 5);
+  }, [creatives]);
+
+  if (toScale.length === 0) return null;
+
+  return (
+    <div className="bg-gray-900 border border-emerald-800/40 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center gap-3 px-5 py-4 border-b border-gray-800 hover:bg-gray-800/30 transition-colors"
+      >
+        <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
+          <Rocket className="w-4 h-4 text-emerald-400" />
+        </div>
+        <div className="text-left flex-1">
+          <h2 className="text-sm font-semibold text-emerald-300">Creatives to Scale</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            Low spend + high ROAS — untapped scaling potential ({toScale.length})
+          </p>
+        </div>
+        {collapsed ? (
+          <ChevronDown className="w-4 h-4 text-gray-500" />
+        ) : (
+          <ChevronUp className="w-4 h-4 text-gray-500" />
+        )}
+      </button>
+
+      {!collapsed && (
+        <div className="divide-y divide-gray-800">
+          {toScale.map((c) => (
+            <div
+              key={c.id}
+              onClick={() => onCreativeClick(c)}
+              className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-800/40 cursor-pointer transition-colors"
+            >
+              <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0">
+                <CreativeThumbnail
+                  format={c.format}
+                  thumbnailColor={c.thumbnailColor}
+                  thumbnailUrl={c.thumbnailUrl}
+                  videoUrl={c.videoUrl}
+                  videoId={c.videoId}
+                  className="w-10 h-10"
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-mono text-gray-200 truncate">{c.name}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <PlatformBadge platform={c.platform} />
+                  <span className="text-[10px] text-gray-500 uppercase">{c.format}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-6 shrink-0">
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">Spend</p>
+                  <p className="text-xs font-semibold text-gray-300">
+                    ${(c.spend / 1000).toFixed(1)}k
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">ROAS</p>
+                  <p className="text-xs font-semibold text-emerald-400">{c.roas}x</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">CTR</p>
+                  <p className="text-xs font-semibold text-gray-300">{c.ctr}%</p>
+                </div>
+                <ScoreBadge creative={c} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Creatives to Cut section ──────────────────────────────────────────────────
+
+function CreativesToCutSection({
+  creatives,
+  onCreativeClick,
+}: {
+  creatives: Creative[];
+  onCreativeClick: (c: Creative) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  const toCut = useMemo(() => {
+    if (creatives.length === 0) return [];
+    // Frequency proxy: impressions / clicks (higher = more repetitive exposure per click)
+    // CTR declining = status Fatigued OR low CTR relative to spend
+    const avgCtr = creatives.reduce((s, c) => s + c.ctr, 0) / creatives.length;
+    return creatives
+      .filter((c) => {
+        const frequency = c.impressions > 0 && c.clicks > 0 ? c.impressions / c.clicks : 0;
+        const frequencyHigh = frequency > 30; // >30 impressions per click = high frequency proxy
+        const ctrDeclined = c.ctr < avgCtr * 0.7 || c.status === "Fatigued";
+        return frequencyHigh && ctrDeclined;
+      })
+      .sort((a, b) => a.ctr - b.ctr)
+      .slice(0, 5);
+  }, [creatives]);
+
+  if (toCut.length === 0) return null;
+
+  return (
+    <div className="bg-gray-900 border border-red-800/40 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center gap-3 px-5 py-4 border-b border-gray-800 hover:bg-gray-800/30 transition-colors"
+      >
+        <div className="w-8 h-8 rounded-xl bg-red-500/20 flex items-center justify-center shrink-0">
+          <Scissors className="w-4 h-4 text-red-400" />
+        </div>
+        <div className="text-left flex-1">
+          <h2 className="text-sm font-semibold text-red-300">Creatives to Cut</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            High frequency + declining CTR — confirmed ad fatigue ({toCut.length})
+          </p>
+        </div>
+        {collapsed ? (
+          <ChevronDown className="w-4 h-4 text-gray-500" />
+        ) : (
+          <ChevronUp className="w-4 h-4 text-gray-500" />
+        )}
+      </button>
+
+      {!collapsed && (
+        <div className="divide-y divide-gray-800">
+          {toCut.map((c) => {
+            const frequency =
+              c.impressions > 0 && c.clicks > 0
+                ? (c.impressions / c.clicks).toFixed(0)
+                : "—";
+            return (
+              <div
+                key={c.id}
+                onClick={() => onCreativeClick(c)}
+                className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-800/40 cursor-pointer transition-colors"
+              >
+                <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0">
+                  <CreativeThumbnail
+                    format={c.format}
+                    thumbnailColor={c.thumbnailColor}
+                    thumbnailUrl={c.thumbnailUrl}
+                    videoUrl={c.videoUrl}
+                    videoId={c.videoId}
+                    className="w-10 h-10"
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-mono text-gray-200 truncate">{c.name}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <PlatformBadge platform={c.platform} />
+                    <StatusBadge status={c.status} />
+                  </div>
+                </div>
+                <div className="flex items-center gap-6 shrink-0">
+                  <div className="text-center">
+                    <p className="text-[10px] text-gray-500 uppercase">Freq.</p>
+                    <p className="text-xs font-semibold text-red-400">{frequency}x</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-gray-500 uppercase">CTR</p>
+                    <p className="text-xs font-semibold text-gray-300">{c.ctr}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-gray-500 uppercase">ROAS</p>
+                    <p className="text-xs font-semibold text-gray-400">{c.roas}x</p>
+                  </div>
+                  <ScoreBadge creative={c} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CreativesPage() {
   const [platform, setPlatform] = useState<"All" | Platform>("All");
@@ -131,8 +380,6 @@ export default function CreativesPage() {
     if (platform !== "All") list = list.filter((c) => c.platform === platform);
     if (status !== "All") list = list.filter((c) => c.status === status);
     if (format !== "All") list = list.filter((c) => c.format === format);
-    // adStatus maps to the creative's computed status for demo data;
-    // for real data the creative status field reflects Meta delivery status
     if (adStatus === "ACTIVE") {
       list = list.filter((c) => c.status === "Active" || c.status === "Winner");
     } else if (adStatus === "PAUSED") {
@@ -248,6 +495,22 @@ export default function CreativesPage() {
         onAdStatusChange={setAdStatus}
       />
 
+      {/* Creatives to Scale */}
+      {!loading && (
+        <CreativesToScaleSection
+          creatives={creatives}
+          onCreativeClick={setSelectedCreative}
+        />
+      )}
+
+      {/* Creatives to Cut */}
+      {!loading && (
+        <CreativesToCutSection
+          creatives={creatives}
+          onCreativeClick={setSelectedCreative}
+        />
+      )}
+
       {/* Filter Bar */}
       <div className="flex flex-wrap gap-3 items-center">
         {/* Platform */}
@@ -321,66 +584,67 @@ export default function CreativesPage() {
 
       {/* Grid */}
       {!loading && (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {filtered.map((creative) => (
-          <div
-            key={creative.id}
-            onClick={() => setSelectedCreative(creative)}
-            className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden hover:border-violet-700/60 hover:shadow-xl hover:shadow-violet-900/20 transition-all duration-200 group cursor-pointer"
-          >
-            {/* Thumbnail */}
-            <div className="relative">
-              <CreativeThumbnail
-                format={creative.format}
-                thumbnailColor={creative.thumbnailColor}
-                thumbnailUrl={creative.thumbnailUrl}
-                videoUrl={creative.videoUrl}
-                videoId={creative.videoId}
-                className="h-36"
-              />
-              <div className="absolute top-2 left-2 z-10">
-                <PlatformBadge platform={creative.platform} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filtered.map((creative) => (
+            <div
+              key={creative.id}
+              onClick={() => setSelectedCreative(creative)}
+              className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden hover:border-violet-700/60 hover:shadow-xl hover:shadow-violet-900/20 transition-all duration-200 group cursor-pointer"
+            >
+              {/* Thumbnail */}
+              <div className="relative">
+                <CreativeThumbnail
+                  format={creative.format}
+                  thumbnailColor={creative.thumbnailColor}
+                  thumbnailUrl={creative.thumbnailUrl}
+                  videoUrl={creative.videoUrl}
+                  videoId={creative.videoId}
+                  className="h-36"
+                />
+                <div className="absolute top-2 left-2 z-10">
+                  <PlatformBadge platform={creative.platform} />
+                </div>
+                <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+                  <ScoreBadge creative={creative} />
+                  <StatusBadge status={creative.status} />
+                </div>
+                <div className="absolute bottom-2 left-2 z-10 text-[10px] font-medium text-white/60 uppercase tracking-wide">
+                  {creative.format}
+                </div>
               </div>
-              <div className="absolute top-2 right-2 z-10">
-                <StatusBadge status={creative.status} />
-              </div>
-              <div className="absolute bottom-2 left-2 z-10 text-[10px] font-medium text-white/60 uppercase tracking-wide">
-                {creative.format}
+
+              {/* Body */}
+              <div className="p-3 space-y-3">
+                <p className="text-xs font-mono text-gray-300 truncate" title={creative.name}>
+                  {creative.name}
+                </p>
+
+                {/* Sparkline (ROAS trend — last 7 points) */}
+                <div className="h-9">
+                  <Sparkline data={creative.trend} />
+                </div>
+
+                {/* Metrics */}
+                <div className="grid grid-cols-3 gap-1 pt-1 border-t border-gray-800">
+                  <MetricPill label="Spend" value={`$${(creative.spend / 1000).toFixed(1)}k`} />
+                  <MetricPill label="ROAS" value={`${creative.roas}x`} />
+                  <MetricPill label="CPA" value={`$${creative.cpa}`} />
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  <MetricPill label="CTR" value={`${creative.ctr}%`} />
+                  <MetricPill
+                    label="Hook"
+                    value={creative.hookRate > 0 ? `${creative.hookRate}%` : "—"}
+                  />
+                  <MetricPill
+                    label="Hold"
+                    value={creative.holdRate > 0 ? `${creative.holdRate}%` : "—"}
+                  />
+                </div>
               </div>
             </div>
-
-            {/* Body */}
-            <div className="p-3 space-y-3">
-              <p className="text-xs font-mono text-gray-300 truncate" title={creative.name}>
-                {creative.name}
-              </p>
-
-              {/* Sparkline */}
-              <div className="h-9">
-                <Sparkline data={creative.trend} />
-              </div>
-
-              {/* Metrics */}
-              <div className="grid grid-cols-3 gap-1 pt-1 border-t border-gray-800">
-                <MetricPill label="Spend" value={`$${(creative.spend / 1000).toFixed(1)}k`} />
-                <MetricPill label="ROAS" value={`${creative.roas}x`} />
-                <MetricPill label="CPA" value={`$${creative.cpa}`} />
-              </div>
-              <div className="grid grid-cols-3 gap-1">
-                <MetricPill label="CTR" value={`${creative.ctr}%`} />
-                <MetricPill
-                  label="Hook"
-                  value={creative.hookRate > 0 ? `${creative.hookRate}%` : "—"}
-                />
-                <MetricPill
-                  label="Hold"
-                  value={creative.holdRate > 0 ? `${creative.holdRate}%` : "—"}
-                />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
       )}
 
       {!loading && filtered.length === 0 && (
