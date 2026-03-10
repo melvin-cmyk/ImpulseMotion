@@ -352,6 +352,92 @@ function CreativesToCutSection({
   );
 }
 
+// ── Creative Labels/Tags ──────────────────────────────────────────────────────
+
+export interface CreativeLabel {
+  text: string;
+  emoji: string;
+  style: string;
+}
+
+export function getCreativeLabels(
+  creative: Creative,
+  allCreatives: Creative[]
+): CreativeLabel[] {
+  const labels: CreativeLabel[] = [];
+  if (allCreatives.length === 0) return labels;
+
+  // "Top Performer" — ROAS in top 10%
+  const sortedByRoas = [...allCreatives].sort((a, b) => b.roas - a.roas);
+  const top10pctIndex = Math.ceil(allCreatives.length * 0.1);
+  const roasThreshold = sortedByRoas[top10pctIndex - 1]?.roas ?? 0;
+  if (creative.roas >= roasThreshold && allCreatives.length >= 3) {
+    labels.push({
+      text: "Top Performer",
+      emoji: "🏅",
+      style: "bg-amber-500/20 text-amber-300 border border-amber-500/40",
+    });
+  }
+
+  // "Winner" — CTR > 2% AND ROAS > 3
+  if (creative.ctr > 2 && creative.roas > 3) {
+    labels.push({
+      text: "Winner",
+      emoji: "🏆",
+      style: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
+    });
+  }
+
+  // "Fatigué" — frequency proxy > 3 (impressions / clicks > 200) AND CTR below average
+  const avgCtr = allCreatives.reduce((s, c) => s + c.ctr, 0) / allCreatives.length;
+  const freqProxy =
+    creative.clicks > 0 ? creative.impressions / creative.clicks : 0;
+  if (freqProxy > 200 && creative.ctr < avgCtr) {
+    labels.push({
+      text: "Fatigué",
+      emoji: "😴",
+      style: "bg-orange-500/20 text-orange-300 border border-orange-500/40",
+    });
+  }
+
+  // "En test" — Spend < 50€ (or $50)
+  if (creative.spend < 50) {
+    labels.push({
+      text: "En test",
+      emoji: "🧪",
+      style: "bg-blue-500/20 text-blue-300 border border-blue-500/40",
+    });
+  }
+
+  return labels;
+}
+
+function CreativeLabelTags({
+  creative,
+  allCreatives,
+}: {
+  creative: Creative;
+  allCreatives: Creative[];
+}) {
+  const labels = useMemo(
+    () => getCreativeLabels(creative, allCreatives),
+    [creative, allCreatives]
+  );
+  if (labels.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {labels.map((label) => (
+        <span
+          key={label.text}
+          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${label.style}`}
+        >
+          {label.emoji} {label.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── Industry Benchmarks ───────────────────────────────────────────────────────
 
 interface BenchmarkMetric {
@@ -962,9 +1048,12 @@ export default function CreativesPage() {
 
               {/* Body */}
               <div className="p-3 space-y-3">
-                <p className="text-xs font-mono text-gray-300 truncate" title={creative.name}>
-                  {creative.name}
-                </p>
+                <div>
+                  <p className="text-xs font-mono text-gray-300 truncate" title={creative.name}>
+                    {creative.name}
+                  </p>
+                  <CreativeLabelTags creative={creative} allCreatives={creatives} />
+                </div>
 
                 {/* Sparkline (ROAS trend — last 7 points) */}
                 <div className="h-9">
