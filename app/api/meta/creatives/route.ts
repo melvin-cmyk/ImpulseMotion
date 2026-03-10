@@ -63,7 +63,7 @@ function upgradeImageUrl(url: string | undefined): string | undefined {
 export async function GET(request: NextRequest) {
   const session = await auth();
 
-  if (!session || session.provider !== "facebook") {
+  if (!session || !session.metaAccessToken) {
     return NextResponse.json({ error: "Not authenticated with Meta" }, { status: 401 });
   }
 
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const accessToken = session.accessToken as string;
+    const accessToken = session.metaAccessToken as string;
     const [ads, insights] = await Promise.all([
       getAds(accessToken, adAccountId),
       getAdInsights(accessToken, adAccountId),

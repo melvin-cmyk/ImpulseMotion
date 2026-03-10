@@ -28,7 +28,7 @@ const THUMBNAIL_COLORS = [
 export async function GET(request: NextRequest) {
   const session = await auth();
 
-  if (!session || session.provider !== "tiktok") {
+  if (!session || !session.tiktokAccessToken) {
     return NextResponse.json({ error: "Not authenticated with TikTok" }, { status: 401 });
   }
 
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const accessToken = session.accessToken as string;
+    const accessToken = session.tiktokAccessToken as string;
     const end = new Date().toISOString().split("T")[0];
     const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()

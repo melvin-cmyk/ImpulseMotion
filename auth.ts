@@ -16,7 +16,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       authorization: {
         url: "https://www.facebook.com/v18.0/dialog/oauth",
         params: {
-          scope: "ads_read,ads_management",
+          scope: "ads_read,ads_management,video_read",
           response_type: "code",
         },
       },
@@ -60,17 +60,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     async session({ session, user }) {
-      // Attach provider + access token to session from DB
-      const account = await prisma.account.findFirst({
+      // Fetch all linked provider accounts for this user
+      const accounts = await prisma.account.findMany({
         where: { userId: user.id },
-        orderBy: { id: "desc" },
       });
+      const facebookAccount = accounts.find((a) => a.provider === "facebook");
+      const tiktokAccount = accounts.find((a) => a.provider === "tiktok");
       return {
         ...session,
         userId: user.id,
-        provider: account?.provider ?? null,
-        accessToken: account?.access_token ?? null,
-        providerAccountId: account?.providerAccountId ?? null,
+        metaAccessToken: facebookAccount?.access_token ?? null,
+        tiktokAccessToken: tiktokAccount?.access_token ?? null,
+        metaProviderAccountId: facebookAccount?.providerAccountId ?? null,
+        tiktokProviderAccountId: tiktokAccount?.providerAccountId ?? null,
       };
     },
   },
