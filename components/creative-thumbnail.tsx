@@ -47,18 +47,47 @@ export function CreativeThumbnail({
   className = "h-36",
 }: CreativeThumbnailProps) {
   const [playing, setPlaying] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false);
 
   const isVideo = format === "Video";
 
   // --- Playing state ---
   if (playing && isVideo) {
-    // Meta videos: use the official Facebook plugin iframe to avoid CORS and
-    // expiry issues with direct video source URLs.
+    // If we have a direct video URL (Meta or TikTok), try it first.
+    // On error, fall back to the Facebook iframe (Meta only).
+    if (videoUrl && !videoFailed) {
+      return (
+        <div className={`relative ${className} bg-black`}>
+          <video
+            src={videoUrl}
+            poster={thumbnailUrl}
+            autoPlay
+            controls
+            crossOrigin="anonymous"
+            className="w-full h-full object-contain"
+            onEnded={() => setPlaying(false)}
+            onError={() => {
+              if (videoId) {
+                // Direct URL failed → try Facebook iframe next render
+                setVideoFailed(true);
+              } else {
+                setPlaying(false);
+              }
+            }}
+          />
+          <button
+            className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-lg z-10"
+            onClick={() => setPlaying(false)}
+          >
+            ✕ close
+          </button>
+        </div>
+      );
+    }
+
+    // Meta videos fallback: official Facebook embed iframe
     if (videoId) {
-      const fbEmbedSrc =
-        `https://www.facebook.com/plugins/video.php` +
-        `?href=${encodeURIComponent(`https://www.facebook.com/video/embed?video_id=${videoId}`)}` +
-        `&show_text=false`;
+      const fbEmbedSrc = `https://www.facebook.com/video/embed?video_id=${videoId}`;
       return (
         <div className={`relative ${className} bg-black`}>
           <iframe
@@ -73,7 +102,7 @@ export function CreativeThumbnail({
           />
           <button
             className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-lg z-10"
-            onClick={() => setPlaying(false)}
+            onClick={() => { setPlaying(false); setVideoFailed(false); }}
           >
             ✕ close
           </button>
@@ -81,18 +110,10 @@ export function CreativeThumbnail({
       );
     }
 
-    // Non-Meta (TikTok etc.): native <video> tag fallback
+    // No playable source — close player
     return (
-      <div className={`relative ${className} bg-black`}>
-        <video
-          src={videoUrl}
-          poster={thumbnailUrl}
-          autoPlay
-          controls
-          className="w-full h-full object-contain"
-          onEnded={() => setPlaying(false)}
-          onError={() => setPlaying(false)}
-        />
+      <div className={`relative ${className} bg-black flex items-center justify-center`}>
+        <span className="text-gray-600 text-xs">Video unavailable</span>
         <button
           className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-lg"
           onClick={() => setPlaying(false)}

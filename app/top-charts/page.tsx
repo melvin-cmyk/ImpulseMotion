@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Creative, Platform, Status } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
 import {
   LineChart,
@@ -92,6 +93,7 @@ function RankRow({
   barWidth,
   trendDataKey,
   trendColor,
+  onClick,
 }: {
   rank: number;
   creative: Creative;
@@ -101,9 +103,13 @@ function RankRow({
   barWidth: number;
   trendDataKey: string;
   trendColor: string;
+  onClick?: () => void;
 }) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 hover:border-gray-700 transition-all">
+    <div
+      className="bg-gray-900 border border-gray-800 rounded-2xl p-4 hover:border-violet-700/60 hover:shadow-violet-900/20 hover:shadow-xl transition-all cursor-pointer"
+      onClick={onClick}
+    >
       <div className="flex items-center gap-4">
         {/* Rank */}
         <div className="w-8 h-8 rounded-xl bg-gray-800 flex items-center justify-center shrink-0">
@@ -186,6 +192,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
 export default function TopChartsPage() {
   const { creatives } = useCreativesContext();
   const [tab, setTab] = useState<Tab>("roas");
+  const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
 
   const sorted = (() => {
     switch (tab) {
@@ -325,6 +332,7 @@ export default function TopChartsPage() {
               barWidth={getBarWidth(creative)}
               trendDataKey={trendConfig.dataKey}
               trendColor={trendConfig.color}
+              onClick={() => setSelectedCreative(creative)}
             />
           );
         })}
@@ -334,6 +342,12 @@ export default function TopChartsPage() {
           </div>
         )}
       </div>
+
+      {/* Creative Detail Modal */}
+      <CreativeModal
+        creative={selectedCreative}
+        onClose={() => setSelectedCreative(null)}
+      />
     </div>
   );
 }

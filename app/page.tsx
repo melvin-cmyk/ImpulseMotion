@@ -1,8 +1,183 @@
-import Link from "next/link";
+"use client";
 
-export default function LandingPage() {
+import { useCreativesContext } from "@/lib/creatives-context";
+import { useSession } from "next-auth/react";
+import Link from "next/link";
+import { TrendingUp, DollarSign, MousePointerClick, Zap } from "lucide-react";
+import { useMemo } from "react";
+import { DateRangePicker } from "@/components/date-range-picker";
+
+// ─── KPI card ────────────────────────────────────────────────────────────────
+
+interface KpiCardProps {
+  label: string;
+  value: string;
+  sub?: string;
+  icon: React.ElementType;
+  gradient: string;
+  accentText: string;
+}
+
+function KpiCard({ label, value, sub, icon: Icon, gradient, accentText }: KpiCardProps) {
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div
+      className={`bg-gradient-to-br ${gradient} border border-gray-800 rounded-2xl p-5 flex flex-col gap-4`}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+          {label}
+        </span>
+        <div className="w-8 h-8 rounded-xl bg-gray-800/70 flex items-center justify-center">
+          <Icon className={`w-4 h-4 ${accentText}`} />
+        </div>
+      </div>
+      <div>
+        <p className={`text-3xl font-extrabold ${accentText}`}>{value}</p>
+        {sub && <p className="text-xs text-gray-500 mt-1">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Dashboard home (logged in) ───────────────────────────────────────────────
+
+function DashboardHome() {
+  const { creatives, isLoading, dateRange } = useCreativesContext();
+
+  const kpis = useMemo(() => {
+    if (creatives.length === 0) {
+      return { totalSpend: 0, avgCtr: 0, avgHookRate: 0, avgRoas: 0 };
+    }
+    const totalSpend = creatives.reduce((s, c) => s + c.spend, 0);
+    const avgCtr =
+      creatives.reduce((s, c) => s + c.ctr, 0) / creatives.length;
+    const videoCreatives = creatives.filter((c) => c.hookRate > 0);
+    const avgHookRate =
+      videoCreatives.length > 0
+        ? videoCreatives.reduce((s, c) => s + c.hookRate, 0) / videoCreatives.length
+        : 0;
+    const avgRoas =
+      creatives.reduce((s, c) => s + c.roas, 0) / creatives.length;
+    return { totalSpend, avgCtr, avgHookRate, avgRoas };
+  }, [creatives]);
+
+  const fmtSpend = (n: number) =>
+    n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
+          <p className="text-gray-400 text-sm mt-0.5">
+            This week at a glance
+          </p>
+        </div>
+        <DateRangePicker />
+      </div>
+
+      {/* Date badge */}
+      <p className="text-xs text-gray-600 -mt-2">
+        {dateRange.since} — {dateRange.until}
+      </p>
+
+      {/* KPI cards */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div
+              key={i}
+              className="h-32 bg-gray-900 border border-gray-800 rounded-2xl animate-pulse"
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <KpiCard
+            label="Total Spend"
+            value={fmtSpend(kpis.totalSpend)}
+            sub={`Across ${creatives.length} active creatives`}
+            icon={DollarSign}
+            gradient="from-violet-950/60 to-transparent"
+            accentText="text-violet-400"
+          />
+          <KpiCard
+            label="Avg CTR"
+            value={`${kpis.avgCtr.toFixed(2)}%`}
+            sub="Click-through rate"
+            icon={MousePointerClick}
+            gradient="from-blue-950/60 to-transparent"
+            accentText="text-blue-400"
+          />
+          <KpiCard
+            label="Avg Hook Rate"
+            value={kpis.avgHookRate > 0 ? `${kpis.avgHookRate.toFixed(1)}%` : "—"}
+            sub="3-second video retention"
+            icon={Zap}
+            gradient="from-emerald-950/60 to-transparent"
+            accentText="text-emerald-400"
+          />
+          <KpiCard
+            label="Avg ROAS"
+            value={`${kpis.avgRoas.toFixed(2)}x`}
+            sub="Return on ad spend"
+            icon={TrendingUp}
+            gradient="from-orange-950/60 to-transparent"
+            accentText="text-orange-400"
+          />
+        </div>
+      )}
+
+      {/* Quick links */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+        {[
+          {
+            href: "/creatives",
+            label: "Creative Feed",
+            desc: "Browse all creatives with metrics",
+            color: "hover:border-violet-700/60",
+          },
+          {
+            href: "/compare",
+            label: "A/B Compare",
+            desc: "Compare two creatives head-to-head",
+            color: "hover:border-blue-700/60",
+          },
+          {
+            href: "/fatigue",
+            label: "Fatigue Detection",
+            desc: "Creatives showing declining performance",
+            color: "hover:border-orange-700/60",
+          },
+          {
+            href: "/top-charts",
+            label: "Top Charts",
+            desc: "Ranked by ROAS, Spend, CTR",
+            color: "hover:border-emerald-700/60",
+          },
+        ].map(({ href, label, desc, color }) => (
+          <Link
+            key={href}
+            href={href}
+            className={`block bg-gray-900 border border-gray-800 ${color} rounded-2xl p-5 transition-colors group`}
+          >
+            <p className="text-white font-semibold text-sm group-hover:text-violet-300 transition-colors">
+              {label}
+            </p>
+            <p className="text-gray-500 text-xs mt-1 leading-relaxed">{desc}</p>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Landing page (logged out) ────────────────────────────────────────────────
+
+function LandingPage() {
+  return (
+    <div className="min-h-screen bg-[#0a0a0f] text-gray-100">
       {/* Nav */}
       <nav className="border-b border-gray-800/60 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
@@ -117,51 +292,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Metrics */}
-      <section className="max-w-6xl mx-auto px-6 pb-24">
-        <div className="text-center mb-14">
-          <h2 className="text-3xl font-bold text-white mb-3">Les métriques qui comptent</h2>
-          <p className="text-gray-400">Chaque KPI expliqué simplement pour optimiser vos créatives.</p>
-        </div>
-
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            {
-              metric: "Hook Rate",
-              question: "Les 3 premières secondes accrochent-elles ?",
-              color: "from-violet-600/20 to-transparent",
-              accent: "text-violet-400",
-            },
-            {
-              metric: "Hold Rate",
-              question: "Regardent-ils jusqu'au bout ?",
-              color: "from-blue-600/20 to-transparent",
-              accent: "text-blue-400",
-            },
-            {
-              metric: "Thumbstop Ratio",
-              question: "S'arrêtent-ils sur votre pub ?",
-              color: "from-emerald-600/20 to-transparent",
-              accent: "text-emerald-400",
-            },
-            {
-              metric: "CTR",
-              question: "Cliquent-ils pour en savoir plus ?",
-              color: "from-orange-600/20 to-transparent",
-              accent: "text-orange-400",
-            },
-          ].map((k) => (
-            <div
-              key={k.metric}
-              className={`bg-gradient-to-b ${k.color} bg-gray-900 border border-gray-800 rounded-2xl p-6 hover:border-gray-700 transition-colors`}
-            >
-              <p className={`text-xl font-bold mb-2 ${k.accent}`}>{k.metric}</p>
-              <p className="text-gray-400 text-sm leading-relaxed">{k.question}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
       {/* Footer CTA */}
       <section className="border-t border-gray-800/60">
         <div className="max-w-6xl mx-auto px-6 py-20 text-center">
@@ -191,4 +321,24 @@ export default function LandingPage() {
       </section>
     </div>
   );
+}
+
+// ─── Root export ──────────────────────────────────────────────────────────────
+
+export default function RootPage() {
+  const { data: session, status } = useSession();
+
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+        Loading…
+      </div>
+    );
+  }
+
+  if (session) {
+    return <DashboardHome />;
+  }
+
+  return <LandingPage />;
 }

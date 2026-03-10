@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Creative } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
 import {
   BarChart,
@@ -78,10 +79,14 @@ function PlatformBadge({ platform }: { platform: string }) {
   );
 }
 
-function CreativeCard({ creative }: { creative: Creative }) {
+function CreativeCard({ creative, onThumbClick }: { creative: Creative; onThumbClick?: () => void }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0">
+      <div
+        className="w-12 h-12 rounded-xl overflow-hidden shrink-0 cursor-pointer hover:ring-2 hover:ring-violet-500 transition-all"
+        onClick={onThumbClick}
+        title="Click to view details"
+      >
         <CreativeThumbnail
           format={creative.format}
           thumbnailColor={creative.thumbnailColor}
@@ -371,6 +376,7 @@ export default function ComparePage() {
   const { creatives } = useCreativesContext();
   const [idA, setIdA] = useState<string>("");
   const [idB, setIdB] = useState<string>("");
+  const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
 
   const effectiveIdA = idA || (creatives[0]?.id ?? "");
   const effectiveIdB = idB || (creatives[1]?.id ?? "");
@@ -474,7 +480,7 @@ export default function ComparePage() {
                 ))}
               </select>
             </div>
-            <CreativeCard creative={sel} />
+            <CreativeCard creative={sel} onThumbClick={() => setSelectedCreative(sel)} />
           </div>
         ))}
       </div>
@@ -662,6 +668,12 @@ export default function ComparePage() {
 
       {/* Week over Week Section */}
       <WowSection />
+
+      {/* Creative Detail Modal */}
+      <CreativeModal
+        creative={selectedCreative}
+        onClose={() => setSelectedCreative(null)}
+      />
     </div>
   );
 }

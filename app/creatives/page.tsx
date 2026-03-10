@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Platform, Format, Status } from "@/lib/mock-data";
+import { Platform, Format, Status, Creative } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp } from "lucide-react";
@@ -110,6 +111,7 @@ export default function CreativesPage() {
   const [format, setFormat] = useState<"All" | Format>("All");
   const [sortBy, setSortBy] = useState<SortKey>("roas");
   const [adStatus, setAdStatus] = useState<AdStatus>("ALL");
+  const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
 
   const { creatives, isLoading: loading, error, isRealData } = useCreativesContext();
 
@@ -323,7 +325,8 @@ export default function CreativesPage() {
         {filtered.map((creative) => (
           <div
             key={creative.id}
-            className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden hover:border-gray-700 hover:shadow-xl hover:shadow-black/30 transition-all duration-200 group"
+            onClick={() => setSelectedCreative(creative)}
+            className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden hover:border-violet-700/60 hover:shadow-xl hover:shadow-violet-900/20 transition-all duration-200 group cursor-pointer"
           >
             {/* Thumbnail */}
             <div className="relative">
@@ -385,6 +388,12 @@ export default function CreativesPage() {
           No creatives match the selected filters.
         </div>
       )}
+
+      {/* Creative Detail Modal */}
+      <CreativeModal
+        creative={selectedCreative}
+        onClose={() => setSelectedCreative(null)}
+      />
     </div>
   );
 }

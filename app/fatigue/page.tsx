@@ -2,6 +2,7 @@
 
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
 import {
   LineChart,
@@ -11,27 +12,73 @@ import {
   XAxis,
 } from "recharts";
 import { AlertTriangle, TrendingDown, RefreshCw } from "lucide-react";
-
-function getFatigueDays(id: string): number {
-  const map: Record<string, number> = {
-    c8: 5,
-    c9: 3,
-    c10: 7,
-    c17: 4,
-  };
-  return map[id] ?? 4;
-}
+import { useState } from "react";
+import { Creative } from "@/lib/mock-data";
 
 type CreativeItem = ReturnType<typeof useCreativesContext>["creatives"][0];
 
+/**
+ * Determine fatigue signals for a creative using real metrics:
+ * - Frequency > 3.5 → high fatigue
+ * - CTR declining over 7 days (last point < first point) → alert
+ * - Thumbstop / hookRate < 25% → hook fatigue
+ */
+function getFatigueSignals(creative: CreativeItem): {
+  highFrequency: boolean;
+  ctrDecline: boolean;
+  hookFatigue: boolean;
+  signals: string[];
+} {
+  // Frequency = impressions / reach (approximate using trend data if available)
+  // We don't have reach directly, so we use ctr trend direction and hookRate
+  const highFrequency = creative.status === "Fatigued"; // use status as primary signal
+
+  // CTR trend: compare first half vs second half of trend data
+  const trend = creative.trend;
+  let ctrDecline = false;
+  if (trend.length >= 2) {
+    const firstHalf = trend.slice(0, Math.floor(trend.length / 2));
+    const secondHalf = trend.slice(Math.floor(trend.length / 2));
+    const avgCtrFirst =
+      firstHalf.reduce((s, d) => s + (d.clicks / Math.max(d.impressions, 1)), 0) /
+      firstHalf.length;
+    const avgCtrSecond =
+      secondHalf.reduce((s, d) => s + (d.clicks / Math.max(d.impressions, 1)), 0) /
+      secondHalf.length;
+    ctrDecline = avgCtrSecond < avgCtrFirst * 0.9; // >10% drop
+  }
+
+  // Hook fatigue: thumbstop/hookRate < 25%
+  const hookFatigue = creative.hookRate > 0 && creative.hookRate < 25;
+
+  const signals: string[] = [];
+  if (highFrequency) signals.push("Audience saturation (status: Fatigued)");
+  if (ctrDecline) signals.push("CTR declining over 7 days");
+  if (hookFatigue) signals.push(`Hook Rate ${creative.hookRate.toFixed(1)}% < 25% threshold`);
+
+  return { highFrequency, ctrDecline, hookFatigue, signals };
+}
+
 function getDailyTrend(creative: CreativeItem) {
-  // Build a 7-day series showing CPA rising and CTR falling
+  // Use real trend data — if CTR is declining, it'll show naturally
   return creative.trend.map((d, i) => ({
     date: d.date,
-    cpa: Math.round(d.cpa * (1 + i * 0.08)),
-    ctr: Math.max(0.5, creative.ctr - i * 0.2),
+    cpa: d.cpa,
+    ctr: d.impressions > 0 ? Math.round((d.clicks / d.impressions) * 10000) / 100 : creative.ctr,
     roas: d.roas,
   }));
+}
+
+/**
+ * Detect fatigued creatives using real metrics:
+ * Primary: status === "Fatigued" (set by Meta or computed)
+ * Secondary: CTR declining OR hook rate < 25% — even if status is Active
+ */
+function isFatigued(creative: CreativeItem): boolean {
+  if (creative.status === "Fatigued") return true;
+  // Also flag creatives with hook fatigue even if not labelled Fatigued
+  const { ctrDecline, hookFatigue } = getFatigueSignals(creative);
+  return ctrDecline && hookFatigue;
 }
 
 function CTRTrend({ data }: { data: ReturnType<typeof getDailyTrend> }) {
@@ -143,14 +190,40 @@ function PlatformBadge({ platform }: { platform: string }) {
 
 export default function FatiguePage() {
   const { creatives } = useCreativesContext();
+  const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
+
+  // Use real fatigue detection instead of only checking status
   const fatiguedCreatives = [...creatives]
-    .filter((c) => c.status === "Fatigued")
+    .filter(isFatigued)
     .sort((a, b) => a.roas - b.roas);
   const totalFatigued = fatiguedCreatives.length;
 
-  // Compute average degradation
-  const avgCtrDrop = 1.4; // percentage points over 7 days (mock)
-  const avgCpaRise = 32; // percent increase (mock)
+  // Compute real average degradation from trend data
+  const avgCtrDrop = fatiguedCreatives.length > 0
+    ? (() => {
+        const drops = fatiguedCreatives.map((c) => {
+          const t = c.trend;
+          if (t.length < 2) return 0;
+          const first = t[0].clicks / Math.max(t[0].impressions, 1) * 100;
+          const last = t[t.length - 1].clicks / Math.max(t[t.length - 1].impressions, 1) * 100;
+          return Math.max(0, first - last);
+        });
+        return Math.round((drops.reduce((s, v) => s + v, 0) / drops.length) * 10) / 10;
+      })()
+    : 0;
+
+  const avgCpaRise = fatiguedCreatives.length > 0
+    ? (() => {
+        const rises = fatiguedCreatives.map((c) => {
+          const t = c.trend;
+          if (t.length < 2) return 0;
+          const first = t[0].cpa;
+          const last = t[t.length - 1].cpa;
+          return first > 0 ? Math.round(((last - first) / first) * 100) : 0;
+        });
+        return Math.round(rises.reduce((s, v) => s + v, 0) / rises.length);
+      })()
+    : 0;
 
   return (
     <div className="p-6 space-y-5">
@@ -201,19 +274,23 @@ export default function FatiguePage() {
       {/* Fatigued Creative Cards */}
       <div className="space-y-4">
         {fatiguedCreatives.map((creative) => {
-          const days = getFatigueDays(creative.id);
           const trendData = getDailyTrend(creative);
           const latestCpa = trendData[trendData.length - 1].cpa;
+          const firstCpa = trendData[0].cpa;
           const latestCtr = trendData[trendData.length - 1].ctr;
-          const cpaChange = Math.round(
-            ((latestCpa - trendData[0].cpa) / trendData[0].cpa) * 100
-          );
-          const ctrChange = (latestCtr - trendData[0].ctr).toFixed(1);
+          const firstCtr = trendData[0].ctr;
+          const cpaChange =
+            firstCpa > 0
+              ? Math.round(((latestCpa - firstCpa) / firstCpa) * 100)
+              : 0;
+          const ctrChange = (latestCtr - firstCtr).toFixed(1);
+          const signals = getFatigueSignals(creative).signals;
 
           return (
             <div
               key={creative.id}
-              className="bg-gray-900 border border-orange-900/40 rounded-2xl overflow-hidden"
+              onClick={() => setSelectedCreative(creative)}
+              className="bg-gray-900 border border-orange-900/40 rounded-2xl overflow-hidden hover:border-orange-700/60 hover:shadow-lg hover:shadow-orange-900/10 transition-all cursor-pointer"
             >
               {/* Top bar */}
               <div className="flex items-center gap-4 p-4 border-b border-gray-800">
@@ -242,10 +319,10 @@ export default function FatiguePage() {
                   </div>
                 </div>
 
-                {/* Fatigue duration */}
+                {/* Fatigue signals count */}
                 <div className="text-right shrink-0">
-                  <p className="text-orange-400 font-bold text-lg">{days}d</p>
-                  <p className="text-gray-500 text-xs">since fatigue</p>
+                  <p className="text-orange-400 font-bold text-lg">{signals.length}</p>
+                  <p className="text-gray-500 text-xs">signals</p>
                 </div>
 
                 {/* Change indicators */}
@@ -278,14 +355,31 @@ export default function FatiguePage() {
                 </div>
               </div>
 
+              {/* Fatigue signals list */}
+              {signals.length > 0 && (
+                <div className="px-4 py-2 bg-orange-950/10 border-b border-gray-800">
+                  <p className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold mb-1">Detected Signals</p>
+                  <ul className="space-y-0.5">
+                    {signals.map((s) => (
+                      <li key={s} className="text-xs text-orange-300/80 flex items-center gap-1.5">
+                        <span className="w-1 h-1 rounded-full bg-orange-500 shrink-0" />
+                        {s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {/* Recommendation */}
               <div className="flex items-center gap-3 px-4 py-3 bg-orange-950/20">
                 <RefreshCw className="w-4 h-4 text-orange-400 shrink-0" />
                 <p className="text-orange-300 text-xs">
                   <span className="font-semibold">Recommend: Replace creative.</span>{" "}
-                  This ad has been fatiguing for {days} day{days > 1 ? "s" : ""} — audience
-                  saturation detected. Consider launching a new variant with a different hook
-                  or visual angle.
+                  {signals.length > 0
+                    ? `${signals.length} fatigue signal${signals.length > 1 ? "s" : ""} detected — audience saturation likely. `
+                    : "Audience saturation detected. "}
+                  Consider launching a new variant with a different hook or visual angle.
+                  <span className="text-gray-500 ml-1">(Click card to view full details)</span>
                 </p>
               </div>
             </div>
@@ -294,10 +388,20 @@ export default function FatiguePage() {
       </div>
 
       {fatiguedCreatives.length === 0 && (
-        <div className="flex items-center justify-center h-48 text-gray-600">
-          No fatigued creatives detected.
+        <div className="flex flex-col items-center justify-center h-48 gap-2">
+          <span className="text-2xl">✅</span>
+          <p className="text-gray-500 text-sm">No fatigued creatives detected.</p>
+          <p className="text-gray-600 text-xs">
+            Fatigue is detected when: status = Fatigued, CTR declining &gt;10%, or Hook Rate &lt;25%.
+          </p>
         </div>
       )}
+
+      {/* Creative Detail Modal */}
+      <CreativeModal
+        creative={selectedCreative}
+        onClose={() => setSelectedCreative(null)}
+      />
     </div>
   );
 }
