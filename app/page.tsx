@@ -4,8 +4,9 @@ import { useCreativesContext } from "@/lib/creatives-context";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { TrendingUp, DollarSign, MousePointerClick, Zap } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { DateRangePicker } from "@/components/date-range-picker";
+import { WoWBanner } from "@/components/wow-banner";
 
 // ─── KPI card ────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,18 @@ function KpiCard({ label, value, sub, icon: Icon, gradient, accentText }: KpiCar
 
 function DashboardHome() {
   const { creatives, isLoading, dateRange } = useCreativesContext();
+  const [metaAccountId, setMetaAccountId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const raw = localStorage.getItem("impulse_meta_account");
+    if (raw) {
+      try {
+        setMetaAccountId(JSON.parse(raw).accountId ?? null);
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }, []);
 
   const kpis = useMemo(() => {
     if (creatives.length === 0) {
@@ -81,6 +94,11 @@ function DashboardHome() {
       <p className="text-xs text-gray-600 -mt-2">
         {dateRange.since} — {dateRange.until}
       </p>
+
+      {/* Week over Week trends banner */}
+      {metaAccountId && (
+        <WoWBanner accountId={metaAccountId} />
+      )}
 
       {/* KPI cards */}
       {isLoading ? (
