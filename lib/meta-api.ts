@@ -165,6 +165,38 @@ export async function getAdDailyInsights(
   return data.data;
 }
 
+/**
+ * Batch-fetch video source URLs for a list of video IDs.
+ * Returns a map of videoId → source URL.
+ * Silently skips any video IDs that fail (e.g. permission denied).
+ */
+export async function getVideoSources(
+  accessToken: string,
+  videoIds: string[]
+): Promise<Map<string, string>> {
+  const results = new Map<string, string>();
+  if (videoIds.length === 0) return results;
+
+  await Promise.allSettled(
+    videoIds.map(async (videoId) => {
+      try {
+        const data = await metaFetch<{ source?: string }>(
+          `/${videoId}`,
+          accessToken,
+          { fields: "source" }
+        );
+        if (data.source) {
+          results.set(videoId, data.source);
+        }
+      } catch {
+        // ignore individual failures
+      }
+    })
+  );
+
+  return results;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 export function getActionValue(

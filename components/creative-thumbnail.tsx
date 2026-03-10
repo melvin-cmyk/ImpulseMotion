@@ -73,7 +73,7 @@ export function CreativeThumbnail({
         <img
           src={thumbnailUrl}
           alt="Creative thumbnail"
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain"
           loading="lazy"
           onError={(e) => {
             // If the signed URL has expired or is unreachable, hide the img

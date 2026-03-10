@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import {
   getAds,
   getAdInsights,
+  getVideoSources,
   computeRoas,
   computeCpa,
   computeHookRate,
@@ -48,10 +49,15 @@ export async function GET(request: NextRequest) {
     ]);
 
     const insightMap = new Map(insights.map((i) => [i.ad_id, i]));
+    const filteredAds = ads.filter((ad) => insightMap.has(ad.id));
 
-    const creatives: Creative[] = ads
-      .filter((ad) => insightMap.has(ad.id))
-      .map((ad, idx) => {
+    // Batch-fetch video source URLs for all video creatives
+    const videoIds = filteredAds
+      .map((ad) => ad.creative?.video_id)
+      .filter((id): id is string => Boolean(id));
+    const videoSourceMap = await getVideoSources(accessToken, videoIds);
+
+    const creatives: Creative[] = filteredAds.map((ad, idx) => {
         const insight = insightMap.get(ad.id)!;
         const spend = parseFloat(insight.spend);
         const impressions = parseInt(insight.impressions, 10);
@@ -62,17 +68,21 @@ export async function GET(request: NextRequest) {
         const hookRate = computeHookRate(insight);
         const holdRate = computeHoldRate(insight);
 
-        const isVideo =
+        const isVideo = Boolean(
           ad.creative?.video_id ||
-          ad.creative?.object_type === "VIDEO";
+          ad.creative?.object_type === "VIDEO"
+        );
 
-        // thumbnail_url is available for both image and video creatives from Meta API.
-        // For video creatives it is the video thumbnail; for image creatives it is the ad image.
-        // image_url is a fallback for image-only creatives when thumbnail_url is absent.
-        const thumbnailUrl =
-          ad.creative?.thumbnail_url ||
-          ad.creative?.image_url ||
-          undefined;
+        // For image ads: prefer image_url (full-res) over thumbnail_url (low-res preview)
+        // For video ads: use thumbnail_url as the poster image
+        const thumbnailUrl = isVideo
+          ? (ad.creative?.thumbnail_url || undefined)
+          : (ad.creative?.image_url || ad.creative?.thumbnail_url || undefined);
+
+        // Video playback URL fetched from /{video_id}?fields=source
+        const videoUrl = ad.creative?.video_id
+          ? videoSourceMap.get(ad.creative.video_id)
+          : undefined;
 
         return {
           id: ad.id,
@@ -82,6 +92,7 @@ export async function GET(request: NextRequest) {
           status: determineStatus(roas, ctr, hookRate),
           thumbnailColor: THUMBNAIL_COLORS[idx % THUMBNAIL_COLORS.length],
           thumbnailUrl,
+          videoUrl,
           spend: Math.round(spend),
           roas,
           cpa,
