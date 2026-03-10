@@ -42,6 +42,10 @@ export interface MetaAd {
     image_url?: string;
     video_id?: string;
     object_type?: string;
+    /** The story ID can be used to resolve a higher-res image when image_url is absent */
+    effective_object_story_id?: string;
+    /** MD5 hash of the creative image — can be used with /adimages?hashes[] for full-res URL */
+    image_hash?: string;
   };
 }
 
@@ -87,11 +91,15 @@ export async function getAds(
   const accountId = adAccountId.startsWith("act_")
     ? adAccountId
     : `act_${adAccountId}`;
+  // Request both thumbnail_url and image_url at full resolution.
+  // effective_object_story_id is included so the route can look up the
+  // story's high-res image via the object_story_spec if needed.
   const data = await metaFetch<{ data: MetaAd[] }>(
     `/${accountId}/ads`,
     accessToken,
     {
-      fields: "id,name,status,creative{id,thumbnail_url,image_url,video_id,object_type}",
+      fields:
+        "id,name,status,creative{id,thumbnail_url,image_url,video_id,object_type,effective_object_story_id,image_hash}",
       limit: String(limit),
     }
   );
@@ -168,7 +176,7 @@ export async function getAdDailyInsights(
 /**
  * Batch-fetch video source URLs for a list of video IDs.
  * Returns a map of videoId → source URL.
- * Silently skips any video IDs that fail (e.g. permission denied).
+ * Logs warnings for individual failures rather than silently swallowing them.
  */
 export async function getVideoSources(
   accessToken: string,
@@ -180,21 +188,87 @@ export async function getVideoSources(
   await Promise.allSettled(
     videoIds.map(async (videoId) => {
       try {
-        const data = await metaFetch<{ source?: string }>(
-          `/${videoId}`,
-          accessToken,
-          { fields: "source" }
-        );
+        // Primary: GET /{video_id}?fields=source,thumbnails
+        const data = await metaFetch<{
+          source?: string;
+          thumbnails?: { data: Array<{ uri: string; is_preferred: boolean }> };
+        }>(`/${videoId}`, accessToken, { fields: "source,thumbnails" });
+
         if (data.source) {
           results.set(videoId, data.source);
+          return;
         }
-      } catch {
-        // ignore individual failures
+
+        // Fallback: use the preferred thumbnail CDN URL as a last resort
+        // (not a playable URL, but at least surfaced as a debugging signal)
+        const preferred = data.thumbnails?.data?.find((t) => t.is_preferred);
+        if (preferred?.uri) {
+          console.warn(
+            `[meta-api] video ${videoId}: no source URL returned, falling back to thumbnail URI`
+          );
+          // We do NOT set this as the video source — a thumbnail is not playable.
+          // The calling code should treat a missing videoUrl entry as "video unavailable".
+        } else {
+          console.warn(
+            `[meta-api] video ${videoId}: GET /{video_id}?fields=source returned no source field`,
+            JSON.stringify(data)
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[meta-api] video ${videoId}: failed to fetch source URL —`,
+          err instanceof Error ? err.message : err
+        );
       }
     })
   );
 
   return results;
+}
+
+/**
+ * Fetch video source URLs via the adcreatives edge as a fallback.
+ * Calls GET /{ad_id}/adcreatives?fields=video_data then resolves each video_id.
+ * Returns a map of videoId → source URL.
+ */
+export async function getVideoSourcesViaAdCreatives(
+  accessToken: string,
+  adIds: string[]
+): Promise<Map<string, string>> {
+  const videoIdToSource = new Map<string, string>();
+  if (adIds.length === 0) return videoIdToSource;
+
+  // Step 1: collect video_ids from adcreatives edge
+  const adIdToVideoId = new Map<string, string>();
+  await Promise.allSettled(
+    adIds.map(async (adId) => {
+      try {
+        const data = await metaFetch<{
+          data: Array<{ video_data?: { video_id?: string } }>;
+        }>(`/${adId}/adcreatives`, accessToken, { fields: "video_data" });
+        const videoId = data.data?.[0]?.video_data?.video_id;
+        if (videoId) {
+          adIdToVideoId.set(adId, videoId);
+        }
+      } catch (err) {
+        console.error(
+          `[meta-api] ad ${adId}: failed to fetch adcreatives —`,
+          err instanceof Error ? err.message : err
+        );
+      }
+    })
+  );
+
+  // Step 2: deduplicate and fetch source for each unique video_id
+  const uniqueVideoIds = [...new Set(adIdToVideoId.values())];
+  const sourceMap = await getVideoSources(accessToken, uniqueVideoIds);
+
+  for (const [, videoId] of adIdToVideoId) {
+    const src = sourceMap.get(videoId);
+    if (src) videoIdToSource.set(videoId, src);
+  }
+
+  return videoIdToSource;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
