@@ -352,6 +352,178 @@ function CreativesToCutSection({
   );
 }
 
+// ── Industry Benchmarks ───────────────────────────────────────────────────────
+
+interface BenchmarkMetric {
+  key: string;
+  label: string;
+  benchmark: number;
+  unit: string;
+  description: string;
+  higherIsBetter: boolean;
+  color: string;
+}
+
+const BENCHMARKS: BenchmarkMetric[] = [
+  {
+    key: "hookRate",
+    label: "Hook Rate",
+    benchmark: 30,
+    unit: "%",
+    description: "3-sec views / impressions",
+    higherIsBetter: true,
+    color: "bg-pink-500",
+  },
+  {
+    key: "thumbstop",
+    label: "Thumbstop",
+    benchmark: 25,
+    unit: "%",
+    description: "scroll stops / impressions",
+    higherIsBetter: true,
+    color: "bg-violet-500",
+  },
+  {
+    key: "ctr",
+    label: "CTR",
+    benchmark: 1.5,
+    unit: "%",
+    description: "clicks / impressions",
+    higherIsBetter: true,
+    color: "bg-blue-500",
+  },
+  {
+    key: "holdRate",
+    label: "Hold Rate",
+    benchmark: 40,
+    unit: "%",
+    description: "15-sec views / 3-sec views",
+    higherIsBetter: true,
+    color: "bg-emerald-500",
+  },
+];
+
+function BenchmarksSection({ creatives }: { creatives: Creative[] }) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  const userMetrics = useMemo(() => {
+    if (creatives.length === 0) return {} as Record<string, number>;
+    const videoCreatives = creatives.filter((c) => c.hookRate > 0);
+    const avgHookRate =
+      videoCreatives.length > 0
+        ? videoCreatives.reduce((s, c) => s + c.hookRate, 0) / videoCreatives.length
+        : 0;
+    const avgCtr = creatives.reduce((s, c) => s + c.ctr, 0) / creatives.length;
+    // thumbstop: proxy via (clicks * 5) / impressions * 100 (rough estimate)
+    const avgThumbstop =
+      creatives.reduce((s, c) => {
+        const imp = c.impressions;
+        return imp > 0 ? s + (c.clicks * 5 / imp) * 100 : s;
+      }, 0) / creatives.length;
+    // holdRate: 15sec views / 3sec views
+    const withHold = creatives.filter((c) => c.holdRate > 0);
+    const avgHoldRate =
+      withHold.length > 0
+        ? withHold.reduce((s, c) => s + c.holdRate, 0) / withHold.length
+        : 0;
+    return {
+      hookRate: avgHookRate,
+      thumbstop: Math.min(avgThumbstop, 60),
+      ctr: avgCtr,
+      holdRate: avgHoldRate,
+    };
+  }, [creatives]);
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center gap-3 px-5 py-4 border-b border-gray-800 hover:bg-gray-800/30 transition-colors"
+      >
+        <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center shrink-0">
+          <TrendingUp className="w-4 h-4 text-blue-400" />
+        </div>
+        <div className="text-left flex-1">
+          <h2 className="text-sm font-semibold text-white">Industry Benchmarks</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            Your KPIs vs e-commerce average — see where you stand
+          </p>
+        </div>
+        {collapsed ? (
+          <ChevronDown className="w-4 h-4 text-gray-500" />
+        ) : (
+          <ChevronUp className="w-4 h-4 text-gray-500" />
+        )}
+      </button>
+
+      {!collapsed && (
+        <div className="p-5 space-y-5">
+          <p className="text-[11px] text-gray-500">
+            Benchmarks based on e-commerce industry averages. Your metrics are averaged across all filtered creatives.
+          </p>
+          <div className="space-y-4">
+            {BENCHMARKS.map((bm) => {
+              const userVal = userMetrics[bm.key] ?? 0;
+              const maxVal = Math.max(userVal, bm.benchmark) * 1.3;
+              const userPct = Math.min((userVal / maxVal) * 100, 100);
+              const bmPct = Math.min((bm.benchmark / maxVal) * 100, 100);
+              const isAbove = userVal >= bm.benchmark;
+              const diff = userVal > 0 ? ((userVal - bm.benchmark) / bm.benchmark) * 100 : null;
+
+              return (
+                <div key={bm.key}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="text-sm font-semibold text-white">{bm.label}</span>
+                      <span className="text-[11px] text-gray-500 ml-2">{bm.description}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs">
+                      {userVal > 0 ? (
+                        <span className={`font-bold ${isAbove ? "text-emerald-400" : "text-red-400"}`}>
+                          {userVal.toFixed(1)}{bm.unit}
+                          {diff !== null && (
+                            <span className="ml-1 font-normal opacity-70">
+                              ({diff > 0 ? "+" : ""}{diff.toFixed(0)}%)
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-gray-600">no data</span>
+                      )}
+                      <span className="text-gray-500">
+                        Benchmark: <span className="text-gray-300">{bm.benchmark}{bm.unit}</span>
+                      </span>
+                    </div>
+                  </div>
+                  {/* Stacked bar chart */}
+                  <div className="relative h-5 bg-gray-800 rounded-full overflow-hidden">
+                    {/* Benchmark marker */}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-gray-400 z-10"
+                      style={{ left: `${bmPct}%` }}
+                    />
+                    {/* User bar */}
+                    {userVal > 0 && (
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ${isAbove ? bm.color : "bg-gray-600"} opacity-80`}
+                        style={{ width: `${userPct}%` }}
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 mt-1">
+                    <div className="w-2 h-2 rounded-full bg-gray-400" />
+                    <span className="text-[10px] text-gray-600">Benchmark line at {bm.benchmark}{bm.unit}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── AI Insights ───────────────────────────────────────────────────────────────
 
 interface AiInsight {
@@ -656,6 +828,11 @@ export default function CreativesPage() {
       {/* AI Insights */}
       {!loading && (
         <AiInsightsSection creatives={creatives} />
+      )}
+
+      {/* Industry Benchmarks */}
+      {!loading && (
+        <BenchmarksSection creatives={filtered} />
       )}
 
       {/* Filters Bar (campaign + ad status) */}
