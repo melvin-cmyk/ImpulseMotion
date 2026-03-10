@@ -9,6 +9,13 @@ interface UseCreativesOptions {
   tiktokAccountId?: string | null;
   /** Whether the user has configured real accounts */
   isConnected?: boolean;
+  /** Date range filter (YYYY-MM-DD) — forwarded to the Meta API */
+  since?: string;
+  until?: string;
+  /** Meta campaign ID filter */
+  campaignId?: string;
+  /** Meta campaign status filter */
+  campaignStatus?: "ACTIVE" | "PAUSED";
 }
 
 interface UseCreativesResult {
@@ -22,6 +29,10 @@ export function useCreatives({
   metaAccountId,
   tiktokAccountId,
   isConnected = false,
+  since,
+  until,
+  campaignId,
+  campaignStatus,
 }: UseCreativesOptions = {}): UseCreativesResult {
   const [creatives, setCreatives] = useState<Creative[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,8 +54,14 @@ export function useCreatives({
       const fetches: Promise<Creative[]>[] = [];
 
       if (metaAccountId) {
+        const params = new URLSearchParams({ accountId: metaAccountId });
+        if (since) params.set("since", since);
+        if (until) params.set("until", until);
+        if (campaignId) params.set("campaignId", campaignId);
+        if (campaignStatus) params.set("campaignStatus", campaignStatus);
+
         fetches.push(
-          fetch(`/api/meta/creatives?accountId=${encodeURIComponent(metaAccountId)}`)
+          fetch(`/api/meta/creatives?${params.toString()}`)
             .then((r) => r.json())
             .then((data) => {
               if (Array.isArray(data)) return data as Creative[];
@@ -98,7 +115,7 @@ export function useCreatives({
     }
 
     fetchAll();
-  }, [metaAccountId, tiktokAccountId, isConnected]);
+  }, [metaAccountId, tiktokAccountId, isConnected, since, until, campaignId, campaignStatus]);
 
   return { creatives, loading, error, isRealData };
 }

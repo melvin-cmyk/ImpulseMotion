@@ -4,10 +4,35 @@ import { useState, useMemo } from "react";
 import { Platform, Format, Status } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { DateRangePicker } from "@/components/date-range-picker";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
-import { ArrowUpDown, Database, Wifi } from "lucide-react";
+import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp } from "lucide-react";
+import { FiltersBar, AdStatus } from "@/components/ui/filters-bar";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
+
+interface KpiCardProps {
+  label: string;
+  value: string;
+  sub?: string;
+  icon: React.ElementType;
+  accent: string;
+}
+
+function KpiCard({ label, value, sub, icon: Icon, accent }: KpiCardProps) {
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex items-start gap-3">
+      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${accent}`}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div>
+        <p className="text-[11px] text-gray-500 uppercase tracking-wide font-medium">{label}</p>
+        <p className="text-xl font-bold text-white mt-0.5">{value}</p>
+        {sub && <p className="text-[11px] text-gray-500 mt-0.5">{sub}</p>}
+      </div>
+    </div>
+  );
+}
 
 function PlatformBadge({ platform }: { platform: Platform }) {
   return (
@@ -84,20 +109,61 @@ export default function CreativesPage() {
   const [status, setStatus] = useState<"All" | Status>("All");
   const [format, setFormat] = useState<"All" | Format>("All");
   const [sortBy, setSortBy] = useState<SortKey>("roas");
+  const [adStatus, setAdStatus] = useState<AdStatus>("ALL");
 
   const { creatives, isLoading: loading, error, isRealData } = useCreativesContext();
+
+  // Derive meta account id from localStorage for FiltersBar
+  const [metaAccountId, setMetaAccountId] = useState<string | null>(null);
+  useMemo(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("impulse_meta_account");
+        if (raw) setMetaAccountId(JSON.parse(raw).accountId ?? null);
+      } catch {}
+    }
+  }, []);
 
   const filtered = useMemo(() => {
     let list = [...creatives];
     if (platform !== "All") list = list.filter((c) => c.platform === platform);
     if (status !== "All") list = list.filter((c) => c.status === status);
     if (format !== "All") list = list.filter((c) => c.format === format);
+    // adStatus maps to the creative's computed status for demo data;
+    // for real data the creative status field reflects Meta delivery status
+    if (adStatus === "ACTIVE") {
+      list = list.filter((c) => c.status === "Active" || c.status === "Winner");
+    } else if (adStatus === "PAUSED") {
+      list = list.filter((c) => c.status === "Loser" || c.status === "Fatigued");
+    }
     list.sort((a, b) => {
       if (sortBy === "cpa") return a.cpa - b.cpa;
       return (b[sortBy] as number) - (a[sortBy] as number);
     });
     return list;
-  }, [creatives, platform, status, format, sortBy]);
+  }, [creatives, platform, status, format, sortBy, adStatus]);
+
+  // ── KPI Summary calculations ──────────────────────────────────────────────
+  const kpiData = useMemo(() => {
+    if (filtered.length === 0) {
+      return { totalSpend: 0, avgCtr: 0, avgHookRate: 0, avgRoas: 0 };
+    }
+    const totalSpend = filtered.reduce((s, c) => s + c.spend, 0);
+    const avgCtr =
+      filtered.reduce((s, c) => s + c.ctr, 0) / filtered.length;
+    const videoCreatives = filtered.filter((c) => c.hookRate > 0);
+    const avgHookRate =
+      videoCreatives.length > 0
+        ? videoCreatives.reduce((s, c) => s + c.hookRate, 0) /
+          videoCreatives.length
+        : 0;
+    const roasCreatives = filtered.filter((c) => c.roas > 0);
+    const avgRoas =
+      roasCreatives.length > 0
+        ? roasCreatives.reduce((s, c) => s + c.roas, 0) / roasCreatives.length
+        : 0;
+    return { totalSpend, avgCtr, avgHookRate, avgRoas };
+  }, [filtered]);
 
   return (
     <div className="p-6 space-y-5">
@@ -125,6 +191,60 @@ export default function CreativesPage() {
       {loading && (
         <div className="text-center py-12 text-gray-500 text-sm">Loading creatives...</div>
       )}
+
+      {/* Date Range Picker */}
+      <DateRangePicker />
+
+      {/* KPI Summary Cards */}
+      {!loading && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <KpiCard
+            label="Total Spend"
+            value={
+              kpiData.totalSpend >= 1000
+                ? `$${(kpiData.totalSpend / 1000).toFixed(1)}k`
+                : `$${kpiData.totalSpend.toFixed(0)}`
+            }
+            sub={`across ${filtered.length} creatives`}
+            icon={DollarSign}
+            accent="bg-violet-500/20 text-violet-400"
+          />
+          <KpiCard
+            label="Avg CTR"
+            value={`${kpiData.avgCtr.toFixed(2)}%`}
+            sub="click-through rate"
+            icon={MousePointerClick}
+            accent="bg-blue-500/20 text-blue-400"
+          />
+          <KpiCard
+            label="Avg Hook Rate"
+            value={
+              kpiData.avgHookRate > 0
+                ? `${kpiData.avgHookRate.toFixed(1)}%`
+                : "—"
+            }
+            sub="3s views / impressions"
+            icon={Play}
+            accent="bg-pink-500/20 text-pink-400"
+          />
+          <KpiCard
+            label="Avg ROAS"
+            value={
+              kpiData.avgRoas > 0 ? `${kpiData.avgRoas.toFixed(2)}x` : "—"
+            }
+            sub="return on ad spend"
+            icon={TrendingUp}
+            accent="bg-emerald-500/20 text-emerald-400"
+          />
+        </div>
+      )}
+
+      {/* Filters Bar (campaign + ad status) */}
+      <FiltersBar
+        accountId={metaAccountId}
+        adStatus={adStatus}
+        onAdStatusChange={setAdStatus}
+      />
 
       {/* Filter Bar */}
       <div className="flex flex-wrap gap-3 items-center">
@@ -212,6 +332,7 @@ export default function CreativesPage() {
                 thumbnailColor={creative.thumbnailColor}
                 thumbnailUrl={creative.thumbnailUrl}
                 videoUrl={creative.videoUrl}
+                videoId={creative.videoId}
                 className="h-36"
               />
               <div className="absolute top-2 left-2 z-10">

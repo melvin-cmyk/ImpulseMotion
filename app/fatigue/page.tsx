@@ -2,6 +2,7 @@
 
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { DateRangePicker } from "@/components/date-range-picker";
 import {
   LineChart,
   Line,
@@ -161,6 +162,9 @@ export default function FatiguePage() {
         </p>
       </div>
 
+      {/* Date Range Picker */}
+      <DateRangePicker />
+
       {/* Alert Banner */}
       {totalFatigued > 0 && (
         <div className="flex items-start gap-4 bg-orange-950/50 border border-orange-700/60 rounded-2xl p-5">
@@ -220,6 +224,7 @@ export default function FatiguePage() {
                     thumbnailColor={creative.thumbnailColor}
                     thumbnailUrl={creative.thumbnailUrl}
                     videoUrl={creative.videoUrl}
+                    videoId={creative.videoId}
                     className="w-12 h-12"
                   />
                 </div>

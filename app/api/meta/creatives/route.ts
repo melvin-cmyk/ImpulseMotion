@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import {
   getAds,
   getAdInsights,
+  getCampaigns,
   getVideoSources,
   getVideoSourcesViaAdCreatives,
   computeRoas,
@@ -69,6 +70,10 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const adAccountId = searchParams.get("accountId");
+  const since = searchParams.get("since") ?? undefined;
+  const until = searchParams.get("until") ?? undefined;
+  const campaignId = searchParams.get("campaignId") ?? undefined;
+  const campaignStatus = searchParams.get("campaignStatus") ?? undefined;
 
   if (!adAccountId) {
     return NextResponse.json({ error: "accountId is required" }, { status: 400 });
@@ -76,13 +81,32 @@ export async function GET(request: NextRequest) {
 
   try {
     const accessToken = session.metaAccessToken as string;
-    const [ads, insights] = await Promise.all([
+    const [ads, insights, allCampaigns] = await Promise.all([
       getAds(accessToken, adAccountId),
-      getAdInsights(accessToken, adAccountId),
+      getAdInsights(accessToken, adAccountId, since && until ? { since, until } : undefined),
+      campaignStatus ? getCampaigns(accessToken, adAccountId) : Promise.resolve([]),
     ]);
 
+    // Build a set of campaign IDs matching the requested status filter
+    const statusFilteredCampaignIds: Set<string> | null = campaignStatus
+      ? new Set(
+          allCampaigns
+            .filter((c) => c.status === campaignStatus)
+            .map((c) => c.id)
+        )
+      : null;
+
     const insightMap = new Map(insights.map((i) => [i.ad_id, i]));
-    const filteredAds = ads.filter((ad) => insightMap.has(ad.id));
+    // Filter to ads that have insight data, and optionally by campaign / status
+    const filteredAds = ads.filter((ad) => {
+      if (!insightMap.has(ad.id)) return false;
+      const insight = insightMap.get(ad.id)!;
+      if (campaignId && insight.campaign_id !== campaignId) return false;
+      if (statusFilteredCampaignIds && !statusFilteredCampaignIds.has(insight.campaign_id)) {
+        return false;
+      }
+      return true;
+    });
 
     // Batch-fetch video source URLs for all video creatives.
     // Primary path: GET /{video_id}?fields=source
@@ -162,6 +186,8 @@ export async function GET(request: NextRequest) {
         thumbnailColor: THUMBNAIL_COLORS[idx % THUMBNAIL_COLORS.length],
         thumbnailUrl,
         videoUrl,
+        videoId: ad.creative?.video_id ?? undefined,
+        campaignId: insight.campaign_id ?? undefined,
         spend: Math.round(spend),
         roas,
         cpa,

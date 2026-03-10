@@ -23,6 +23,13 @@ export interface Creative {
   thumbnailUrl?: string;
   /** URL of the full video (from Meta or TikTok API) */
   videoUrl?: string;
+  /**
+   * Meta video_id — used to embed the official Facebook iframe player.
+   * Only present for Meta video creatives.
+   */
+  videoId?: string;
+  /** Meta campaign_id — used for campaign filtering */
+  campaignId?: string;
   spend: number;
   roas: number;
   cpa: number;

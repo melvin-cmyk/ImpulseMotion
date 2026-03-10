@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Creative, Platform, Status } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { DateRangePicker } from "@/components/date-range-picker";
 import {
   LineChart,
   Line,
@@ -116,6 +117,7 @@ function RankRow({
             thumbnailColor={creative.thumbnailColor}
             thumbnailUrl={creative.thumbnailUrl}
             videoUrl={creative.videoUrl}
+            videoId={creative.videoId}
             className="w-14 h-14"
           />
         </div>
@@ -270,6 +272,9 @@ export default function TopChartsPage() {
           Ranked creatives across key performance metrics
         </p>
       </div>
+
+      {/* Date Range Picker */}
+      <DateRangePicker />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">

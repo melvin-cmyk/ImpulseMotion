@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Creative } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { DateRangePicker } from "@/components/date-range-picker";
 import {
   BarChart,
   Bar,
@@ -14,7 +15,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { ArrowRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ArrowRight, TrendingUp, TrendingDown, Minus, CalendarDays, Loader2 } from "lucide-react";
 
 interface Metric {
   key: keyof Creative;
@@ -86,6 +87,7 @@ function CreativeCard({ creative }: { creative: Creative }) {
           thumbnailColor={creative.thumbnailColor}
           thumbnailUrl={creative.thumbnailUrl}
           videoUrl={creative.videoUrl}
+          videoId={creative.videoId}
           className="w-12 h-12"
         />
       </div>
@@ -112,6 +114,257 @@ function WinnerIcon({
   if (winner === "a")
     return <TrendingUp className="w-4 h-4 text-emerald-400" />;
   return <TrendingUp className="w-4 h-4 text-violet-400" />;
+}
+
+// ── Week-over-Week types & helpers ────────────────────────────────────────────
+
+interface WowMetricRow {
+  label: string;
+  key: string;
+  thisWeek: number;
+  lastWeek: number;
+  higherIsBetter: boolean;
+  format: (v: number) => string;
+}
+
+interface WowData {
+  spend: number;
+  ctr: number;
+  cpm: number;
+  cpc: number;
+  roas: number;
+}
+
+/** Aggregate WoW metrics from a list of Creative objects */
+function aggregateWow(creatives: Creative[]): WowData {
+  if (creatives.length === 0) {
+    return { spend: 0, ctr: 0, cpm: 0, cpc: 0, roas: 0 };
+  }
+  const total = creatives.length;
+  const spend = creatives.reduce((s, c) => s + c.spend, 0);
+  const ctr = creatives.reduce((s, c) => s + c.ctr, 0) / total;
+  // CPM = (spend / impressions) * 1000
+  const totalImpressions = creatives.reduce((s, c) => s + c.impressions, 0);
+  const cpm = totalImpressions > 0 ? (spend / totalImpressions) * 1000 : 0;
+  // CPC = spend / clicks
+  const totalClicks = creatives.reduce((s, c) => s + c.clicks, 0);
+  const cpc = totalClicks > 0 ? spend / totalClicks : 0;
+  const roas = creatives.reduce((s, c) => s + c.roas, 0) / total;
+  return { spend, ctr, cpm, cpc, roas };
+}
+
+/** Build YYYY-MM-DD offset from today */
+function isoOffset(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
+
+function ChangePill({ change, higherIsBetter }: { change: number; higherIsBetter: boolean }) {
+  if (!isFinite(change) || change === 0) {
+    return <span className="text-gray-500 text-sm font-medium">—</span>;
+  }
+  const improved =
+    (higherIsBetter && change > 0) || (!higherIsBetter && change < 0);
+  const abs = Math.abs(change);
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-sm font-semibold ${
+        improved ? "text-emerald-400" : "text-red-400"
+      }`}
+    >
+      {improved ? (
+        <TrendingUp className="w-3.5 h-3.5" />
+      ) : (
+        <TrendingDown className="w-3.5 h-3.5" />
+      )}
+      {change > 0 ? "+" : ""}
+      {abs.toFixed(1)}%
+    </span>
+  );
+}
+
+function WowSection() {
+  const { creatives, isRealData } = useCreativesContext();
+
+  // Fetch this-week and last-week data independently when real data is available
+  const [metaAccountId, setMetaAccountId] = useState<string | null>(null);
+  const [thisWeekData, setThisWeekData] = useState<WowData | null>(null);
+  const [lastWeekData, setLastWeekData] = useState<WowData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("impulse_meta_account");
+        if (raw) setMetaAccountId(JSON.parse(raw).accountId ?? null);
+      } catch {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isRealData || !metaAccountId) {
+      // Derive WoW from mock creatives by splitting the trend data
+      // Use the existing creatives array split by half as a proxy
+      const half = Math.floor(creatives.length / 2);
+      setThisWeekData(aggregateWow(creatives.slice(0, half || creatives.length)));
+      setLastWeekData(aggregateWow(creatives.slice(half)));
+      return;
+    }
+
+    async function fetchWow() {
+      setLoading(true);
+      setFetchError(null);
+      try {
+        const thisWeekSince = isoOffset(-7);
+        const thisWeekUntil = isoOffset(0);
+        const lastWeekSince = isoOffset(-14);
+        const lastWeekUntil = isoOffset(-7);
+
+        const [thisRes, lastRes] = await Promise.all([
+          fetch(
+            `/api/meta/creatives?accountId=${encodeURIComponent(metaAccountId!)}&since=${thisWeekSince}&until=${thisWeekUntil}`
+          ).then((r) => r.json()),
+          fetch(
+            `/api/meta/creatives?accountId=${encodeURIComponent(metaAccountId!)}&since=${lastWeekSince}&until=${lastWeekUntil}`
+          ).then((r) => r.json()),
+        ]);
+
+        if (Array.isArray(thisRes)) setThisWeekData(aggregateWow(thisRes));
+        if (Array.isArray(lastRes)) setLastWeekData(aggregateWow(lastRes));
+      } catch (err) {
+        setFetchError(err instanceof Error ? err.message : "Failed to load WoW data");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchWow();
+  }, [isRealData, metaAccountId, creatives]);
+
+  // Build metric rows
+  const rows: WowMetricRow[] = useMemo(() => {
+    if (!thisWeekData || !lastWeekData) return [];
+
+    return (["spend", "ctr", "cpm", "cpc", "roas"] as const).map((k) => {
+      const tw = thisWeekData[k];
+      const lw = lastWeekData[k];
+      return {
+        key: k,
+        label:
+          k === "spend"
+            ? "Spend"
+            : k === "ctr"
+            ? "CTR"
+            : k === "cpm"
+            ? "CPM"
+            : k === "cpc"
+            ? "CPC"
+            : "ROAS",
+        thisWeek: tw,
+        lastWeek: lw,
+        higherIsBetter: k === "roas" || k === "ctr",
+        format:
+          k === "spend"
+            ? (v: number) =>
+                `$${v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(0)}`
+            : k === "ctr"
+            ? (v: number) => `${v.toFixed(2)}%`
+            : k === "cpm" || k === "cpc"
+            ? (v: number) => `$${v.toFixed(2)}`
+            : (v: number) => `${v.toFixed(2)}x`,
+      };
+    });
+  }, [thisWeekData, lastWeekData]);
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-800">
+        <div className="w-8 h-8 rounded-xl bg-violet-500/20 flex items-center justify-center">
+          <CalendarDays className="w-4 h-4 text-violet-400" />
+        </div>
+        <div>
+          <h2 className="text-sm font-semibold text-gray-200">Week over Week</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            This week (last 7 days) vs previous week (7–14 days ago)
+          </p>
+        </div>
+        {loading && (
+          <Loader2 className="w-4 h-4 text-gray-500 animate-spin ml-auto" />
+        )}
+      </div>
+
+      {fetchError && (
+        <div className="px-5 py-3 text-xs text-red-400 bg-red-900/10 border-b border-gray-800">
+          {fetchError}
+        </div>
+      )}
+
+      {/* Table header */}
+      <div className="grid grid-cols-[1fr_120px_120px_100px] border-b border-gray-800 bg-gray-900/80">
+        <div className="px-5 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          Metric
+        </div>
+        <div className="px-4 py-2.5 text-xs font-semibold text-violet-400 uppercase tracking-wide text-center">
+          This Week
+        </div>
+        <div className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide text-center">
+          Last Week
+        </div>
+        <div className="px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide text-center">
+          Change
+        </div>
+      </div>
+
+      {/* Rows */}
+      {rows.map((row, i) => {
+        const change =
+          row.lastWeek !== 0
+            ? ((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100
+            : 0;
+        const improved =
+          (row.higherIsBetter && change > 0) ||
+          (!row.higherIsBetter && change < 0);
+        return (
+          <div
+            key={row.key}
+            className={`grid grid-cols-[1fr_120px_120px_100px] ${
+              i < rows.length - 1 ? "border-b border-gray-800/70" : ""
+            }`}
+          >
+            <div className="px-5 py-4 flex items-center">
+              <span className="text-sm text-gray-400 font-medium">{row.label}</span>
+            </div>
+            <div
+              className={`px-4 py-4 flex items-center justify-center ${
+                improved && change !== 0 ? "bg-violet-950/20" : ""
+              }`}
+            >
+              <span className="text-sm font-bold text-gray-100">
+                {row.format(row.thisWeek)}
+              </span>
+            </div>
+            <div className="px-4 py-4 flex items-center justify-center">
+              <span className="text-sm text-gray-500">
+                {row.format(row.lastWeek)}
+              </span>
+            </div>
+            <div className="px-4 py-4 flex items-center justify-center">
+              <ChangePill change={change} higherIsBetter={row.higherIsBetter} />
+            </div>
+          </div>
+        );
+      })}
+
+      {rows.length === 0 && !loading && (
+        <div className="px-5 py-8 text-center text-gray-600 text-sm">
+          No data available
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ComparePage() {
@@ -177,6 +430,9 @@ export default function ComparePage() {
           Select two creatives to compare head-to-head
         </p>
       </div>
+
+      {/* Date Range Picker */}
+      <DateRangePicker />
 
       {/* Selectors */}
       <div className="grid grid-cols-2 gap-4">
@@ -403,6 +659,9 @@ export default function ComparePage() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Week over Week Section */}
+      <WowSection />
     </div>
   );
 }

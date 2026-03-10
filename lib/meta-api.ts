@@ -70,6 +70,30 @@ async function metaFetch<T>(
   return res.json();
 }
 
+export interface MetaCampaign {
+  id: string;
+  name: string;
+  status: string;
+  objective?: string;
+}
+
+/** List campaigns for an ad account */
+export async function getCampaigns(
+  accessToken: string,
+  adAccountId: string,
+  limit = 100
+): Promise<MetaCampaign[]> {
+  const accountId = adAccountId.startsWith("act_")
+    ? adAccountId
+    : `act_${adAccountId}`;
+  const data = await metaFetch<{ data: MetaCampaign[] }>(
+    `/${accountId}/campaigns`,
+    accessToken,
+    { fields: "id,name,status,objective", limit: String(limit) }
+  );
+  return data.data;
+}
+
 /** List ad accounts accessible to the user */
 export async function getAdAccounts(
   accessToken: string
@@ -110,7 +134,7 @@ export async function getAds(
 export async function getAdInsights(
   accessToken: string,
   adAccountId: string,
-  datePreset = "last_30d",
+  timeRange?: { since: string; until: string },
   limit = 50
 ): Promise<MetaCreativeInsight[]> {
   const accountId = adAccountId.startsWith("act_")
@@ -135,15 +159,22 @@ export async function getAdInsights(
     "video_p25_watched_actions",
   ].join(",");
 
+  const params: Record<string, string> = {
+    fields,
+    level: "ad",
+    limit: String(limit),
+  };
+
+  if (timeRange) {
+    params.time_range = JSON.stringify({ since: timeRange.since, until: timeRange.until });
+  } else {
+    params.date_preset = "last_30d";
+  }
+
   const data = await metaFetch<{ data: MetaCreativeInsight[] }>(
     `/${accountId}/insights`,
     accessToken,
-    {
-      fields,
-      level: "ad",
-      date_preset: datePreset,
-      limit: String(limit),
-    }
+    params
   );
   return data.data;
 }

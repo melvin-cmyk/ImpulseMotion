@@ -5,13 +5,14 @@
  *
  * Renders the thumbnail area for a creative card.
  *
+ * - For Meta video creatives (identified by videoId prop), clicking the
+ *   thumbnail embeds an official Facebook iframe player via
+ *   https://www.facebook.com/video/embed?video_id={videoId}.
+ * - For non-Meta video creatives, a native <video> tag is used as fallback.
  * - If a real `thumbnailUrl` is provided (from Meta/TikTok API), it is shown
  *   as an <img> with unoptimized rendering so that Meta CDN URLs pass through
- *   without Next.js image optimisation (which would fail for external CDN URLs
- *   that are not yet proxied).
- * - For video creatives, clicking the thumbnail expands an inline <video> player.
- * - Falls back to the gradient colour placeholder when no URL is available
- *   (e.g. demo / mock data).
+ *   without Next.js image optimisation.
+ * - Falls back to the gradient colour placeholder when no URL is available.
  *
  * CORS note: Meta CDN URLs (*.fbcdn.net, *.fbsbx.com) include the access token
  * embedded in the signed URL, so they can be loaded by the browser directly as
@@ -28,6 +29,11 @@ interface CreativeThumbnailProps {
   thumbnailColor: string;
   thumbnailUrl?: string;
   videoUrl?: string;
+  /**
+   * Meta video_id — when set, the player uses the official Facebook embed
+   * iframe instead of a native <video> tag.
+   */
+  videoId?: string;
   /** Extra Tailwind classes applied to the outer container */
   className?: string;
 }
@@ -37,14 +43,45 @@ export function CreativeThumbnail({
   thumbnailColor,
   thumbnailUrl,
   videoUrl,
+  videoId,
   className = "h-36",
 }: CreativeThumbnailProps) {
   const [playing, setPlaying] = useState(false);
 
   const isVideo = format === "Video";
 
-  // --- Playing state: render inline <video> ---
+  // --- Playing state ---
   if (playing && isVideo) {
+    // Meta videos: use the official Facebook plugin iframe to avoid CORS and
+    // expiry issues with direct video source URLs.
+    if (videoId) {
+      const fbEmbedSrc =
+        `https://www.facebook.com/plugins/video.php` +
+        `?href=${encodeURIComponent(`https://www.facebook.com/video/embed?video_id=${videoId}`)}` +
+        `&show_text=false`;
+      return (
+        <div className={`relative ${className} bg-black`}>
+          <iframe
+            src={fbEmbedSrc}
+            className="w-full h-full"
+            allowFullScreen
+            scrolling="no"
+            frameBorder="0"
+            allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+            title="Facebook video player"
+            style={{ border: "none", overflow: "hidden" }}
+          />
+          <button
+            className="absolute top-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-lg z-10"
+            onClick={() => setPlaying(false)}
+          >
+            ✕ close
+          </button>
+        </div>
+      );
+    }
+
+    // Non-Meta (TikTok etc.): native <video> tag fallback
     return (
       <div className={`relative ${className} bg-black`}>
         <video
@@ -103,9 +140,22 @@ export function CreativeThumbnail({
     <div
       className={`${className} bg-gradient-to-br ${thumbnailColor} relative flex items-center justify-center`}
     >
-      <div className="text-white/20 text-5xl font-black">
-        {format === "Video" ? "▶" : format === "Image" ? "◼" : "⊞"}
-      </div>
+      {isVideo && (
+        <button
+          onClick={() => setPlaying(true)}
+          aria-label="Play video"
+          className="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/40 transition-colors group"
+        >
+          <span className="w-12 h-12 rounded-full bg-white/20 border-2 border-white/70 flex items-center justify-center group-hover:scale-110 transition-transform">
+            <span className="text-white text-xl ml-1">▶</span>
+          </span>
+        </button>
+      )}
+      {!isVideo && (
+        <div className="text-white/20 text-5xl font-black">
+          {format === "Image" ? "◼" : "⊞"}
+        </div>
+      )}
     </div>
   );
 }
