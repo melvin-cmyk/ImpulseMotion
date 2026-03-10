@@ -35,11 +35,11 @@ function MetricCell({
   value: string | number;
 }) {
   return (
-    <div className="flex flex-col gap-0.5 bg-[#111118] rounded-xl px-3 py-2.5">
-      <span className="text-[10px] uppercase tracking-widest text-gray-500 font-semibold">
+    <div className="flex flex-col gap-1 bg-[#13131f] border border-white/5 rounded-xl px-3 py-3 hover:border-white/10 transition-colors">
+      <span className="text-[9px] uppercase tracking-widest text-gray-500 font-bold">
         {label}
       </span>
-      <span className="text-sm font-bold text-gray-100">{value}</span>
+      <span className="text-sm font-bold text-white leading-tight">{value}</span>
     </div>
   );
 }
@@ -79,7 +79,7 @@ function VideoPlayer({
       <iframe
         src={`https://www.facebook.com/video/embed?video_id=${videoId}`}
         className="w-full"
-        style={{ height: 360, border: "none" }}
+        style={{ height: 400, border: "none", display: "block" }}
         allowFullScreen
         scrolling="no"
         allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
@@ -95,8 +95,8 @@ function VideoPlayer({
         poster={thumbnailUrl}
         controls
         crossOrigin="anonymous"
-        className="w-full"
-        style={{ maxHeight: 360, objectFit: "contain", background: "#000" }}
+        className="w-full h-full"
+        style={{ maxHeight: 400, objectFit: "contain", background: "#000", display: "block" }}
         onError={() => {
           // Direct URL failed (CORS / expired) → fall back to Facebook iframe
           if (videoId) setUseFallback(true);
@@ -111,7 +111,7 @@ function VideoPlayer({
       <iframe
         src={`https://www.facebook.com/video/embed?video_id=${videoId}`}
         className="w-full"
-        style={{ height: 360, border: "none" }}
+        style={{ height: 400, border: "none", display: "block" }}
         allowFullScreen
         scrolling="no"
         allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
@@ -124,7 +124,7 @@ function VideoPlayer({
   return (
     <div
       className="w-full flex items-center justify-center bg-gray-900"
-      style={{ height: 240 }}
+      style={{ height: 260 }}
     >
       <span className="text-gray-600 text-sm">Video unavailable</span>
     </div>
@@ -189,7 +189,7 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
     >
       {/* Panel */}
       <div
-        className="relative w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-2xl border border-gray-800 bg-[#0a0a0f] shadow-2xl shadow-black/70"
+        className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d14] shadow-2xl shadow-black/80"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
@@ -203,8 +203,8 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
 
         {/* Media section */}
         <div
-          className="w-full bg-black rounded-t-2xl overflow-hidden"
-          style={{ minHeight: 200 }}
+          className="w-full bg-black rounded-t-2xl overflow-hidden flex items-center justify-center"
+          style={{ minHeight: 240, maxHeight: 420 }}
         >
           {isMetaVideo ? (
             /* Meta video: try direct URL first, fall back to iframe */
@@ -219,21 +219,21 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
               poster={creative.thumbnailUrl}
               controls
               crossOrigin="anonymous"
-              className="w-full"
-              style={{ maxHeight: 360, objectFit: "contain", background: "#000" }}
+              className="w-full h-full"
+              style={{ maxHeight: 420, objectFit: "contain", background: "#000", display: "block" }}
             />
           ) : creative.thumbnailUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
               src={creative.thumbnailUrl}
               alt={creative.name}
-              className="w-full object-contain"
-              style={{ maxHeight: 360, background: "#000" }}
+              className="w-full h-full object-contain"
+              style={{ maxHeight: 420, background: "#000", display: "block" }}
             />
           ) : (
             <div
               className={`w-full bg-gradient-to-br ${creative.thumbnailColor} flex items-center justify-center`}
-              style={{ height: 240 }}
+              style={{ height: 260 }}
             >
               <span className="text-white/30 text-6xl font-black">
                 {creative.format === "Image"
@@ -247,44 +247,44 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
         </div>
 
         {/* Content */}
-        <div className="p-5 space-y-5">
+        <div className="px-5 pb-6 pt-4 space-y-4">
           {/* Title row */}
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2
-                className="text-base font-bold text-white truncate"
+                className="text-base font-bold text-white leading-snug"
                 title={creative.name}
               >
                 {creative.name}
               </h2>
               {/* Ad ID */}
               <p className="text-[10px] text-gray-600 font-mono mt-0.5">
-                Ad ID: {creative.id}
+                {creative.id}
               </p>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 {/* Platform badge */}
                 <span
-                  className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                     creative.platform === "Meta"
-                      ? "bg-blue-900/70 text-blue-300 border border-blue-800"
-                      : "bg-pink-900/70 text-pink-300 border border-pink-800"
+                      ? "bg-blue-500/15 text-blue-400 border border-blue-500/25"
+                      : "bg-pink-500/15 text-pink-400 border border-pink-500/25"
                   }`}
                 >
                   {creative.platform}
                 </span>
-                <span className="text-xs text-gray-500 uppercase tracking-wide">
+                <span className="text-[10px] text-gray-600 uppercase tracking-wider font-semibold">
                   {creative.format}
                 </span>
                 {/* Status badge */}
                 <span
-                  className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                     creative.status === "Winner"
-                      ? "bg-green-900/60 text-green-300 border border-green-800"
+                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
                       : creative.status === "Fatigued"
-                      ? "bg-orange-900/60 text-orange-300 border border-orange-800"
+                      ? "bg-amber-500/15 text-amber-400 border border-amber-500/25"
                       : creative.status === "Loser"
-                      ? "bg-red-900/60 text-red-300 border border-red-800"
-                      : "bg-blue-900/60 text-blue-300 border border-blue-800"
+                      ? "bg-red-500/15 text-red-400 border border-red-500/25"
+                      : "bg-violet-500/15 text-violet-400 border border-violet-500/25"
                   }`}
                 >
                   {creative.status}
@@ -298,20 +298,23 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
                 href={metaAdsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-violet-600/20 border border-violet-600/40 text-violet-300 hover:bg-violet-600/30 transition-colors"
+                className="shrink-0 flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg bg-violet-600/15 border border-violet-500/30 text-violet-400 hover:bg-violet-600/25 hover:border-violet-500/50 transition-all"
               >
-                <ExternalLink className="w-3.5 h-3.5" />
+                <ExternalLink className="w-3 h-3" />
                 Meta Ads
               </a>
             )}
           </div>
 
-          {/* Metrics grid */}
+          {/* Divider */}
+          <div className="border-t border-white/5" />
+
+          {/* Metrics grid — 4 columns, Motion-style */}
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-gray-600 font-semibold mb-2">
+            <p className="text-[9px] uppercase tracking-widest text-gray-600 font-bold mb-2.5">
               Performance Metrics
             </p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <MetricCell
                 label="Spend"
                 value={fmt(creative.spend, "currency")}
