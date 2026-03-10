@@ -7,7 +7,7 @@ import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
-import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star } from "lucide-react";
 import { FiltersBar, AdStatus } from "@/components/ui/filters-bar";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
@@ -352,6 +352,171 @@ function CreativesToCutSection({
   );
 }
 
+// ── AI Insights ───────────────────────────────────────────────────────────────
+
+interface AiInsight {
+  icon: React.ElementType;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  title: string;
+  description: string;
+}
+
+function generateInsights(creatives: Creative[]): AiInsight[] {
+  if (creatives.length === 0) return [];
+  const insights: AiInsight[] = [];
+
+  // Insight 1: Video vs Image CTR comparison
+  const videos = creatives.filter((c) => c.format === "Video");
+  const images = creatives.filter((c) => c.format === "Image");
+  if (videos.length > 0 && images.length > 0) {
+    const videoCtr = videos.reduce((s, c) => s + c.ctr, 0) / videos.length;
+    const imageCtr = images.reduce((s, c) => s + c.ctr, 0) / images.length;
+    if (videoCtr > imageCtr * 1.2) {
+      const ratio = (videoCtr / imageCtr).toFixed(1);
+      insights.push({
+        icon: Zap,
+        color: "text-violet-300",
+        bgColor: "bg-violet-500/15",
+        borderColor: "border-violet-500/30",
+        title: "Videos outperform images on CTR",
+        description: `Your video creatives have a ${ratio}x higher CTR (${videoCtr.toFixed(2)}%) vs images (${imageCtr.toFixed(2)}%) this period. Consider shifting more budget toward video formats.`,
+      });
+    } else if (imageCtr > videoCtr * 1.2) {
+      const ratio = (imageCtr / videoCtr).toFixed(1);
+      insights.push({
+        icon: Zap,
+        color: "text-blue-300",
+        bgColor: "bg-blue-500/15",
+        borderColor: "border-blue-500/30",
+        title: "Images outperform videos on CTR",
+        description: `Your image creatives have a ${ratio}x higher CTR (${imageCtr.toFixed(2)}%) vs videos (${videoCtr.toFixed(2)}%) this period. Images are driving stronger engagement right now.`,
+      });
+    }
+  }
+
+  // Insight 2: Underutilized top performer (high ROAS, low spend)
+  if (creatives.length > 0) {
+    const sortedByRoas = [...creatives].sort((a, b) => b.roas - a.roas);
+    const spends = creatives.map((c) => c.spend).sort((a, b) => a - b);
+    const medianSpend = spends[Math.floor(spends.length / 2)];
+    const topRoas = sortedByRoas[0];
+    if (topRoas && topRoas.spend < medianSpend && topRoas.roas > 3) {
+      insights.push({
+        icon: Rocket,
+        color: "text-emerald-300",
+        bgColor: "bg-emerald-500/15",
+        borderColor: "border-emerald-500/30",
+        title: "Underutilized winner detected",
+        description: `"${topRoas.name.slice(0, 30)}..." has your best ROAS at ${topRoas.roas}x but only $${(topRoas.spend / 1000).toFixed(1)}k spend. Scale this creative — it's your top performer flying under the radar.`,
+      });
+    }
+  }
+
+  // Insight 3: Hook Rate opportunity
+  const videoWithHook = creatives.filter((c) => c.hookRate > 0);
+  if (videoWithHook.length > 0) {
+    const avgHook = videoWithHook.reduce((s, c) => s + c.hookRate, 0) / videoWithHook.length;
+    const bestHook = [...videoWithHook].sort((a, b) => b.hookRate - a.hookRate)[0];
+    const worstHook = [...videoWithHook].sort((a, b) => a.hookRate - b.hookRate)[0];
+    if (bestHook && bestHook.hookRate > avgHook * 1.5) {
+      insights.push({
+        icon: Star,
+        color: "text-amber-300",
+        bgColor: "bg-amber-500/15",
+        borderColor: "border-amber-500/30",
+        title: "Best Hook Rate is underscaled",
+        description: `"${bestHook.name.slice(0, 30)}..." hooks ${bestHook.hookRate}% of viewers in the first 3 seconds — ${((bestHook.hookRate / avgHook - 1) * 100).toFixed(0)}% above average. Strong hooks = lower CPMs. Prioritize scaling it.`,
+      });
+    } else if (worstHook && worstHook.hookRate < avgHook * 0.5 && worstHook.spend > 500) {
+      insights.push({
+        icon: AlertCircle,
+        color: "text-red-300",
+        bgColor: "bg-red-500/15",
+        borderColor: "border-red-500/30",
+        title: "Weak hook burning your budget",
+        description: `"${worstHook.name.slice(0, 30)}..." only hooks ${worstHook.hookRate}% of viewers — far below your ${avgHook.toFixed(1)}% average. Consider refreshing the first 3 seconds or pausing it.`,
+      });
+    }
+  }
+
+  // Insight 4: ROAS spread — top vs bottom gap
+  if (creatives.length >= 4) {
+    const sortedRoas = [...creatives].sort((a, b) => b.roas - a.roas);
+    const top25 = sortedRoas.slice(0, Math.ceil(sortedRoas.length * 0.25));
+    const bottom25 = sortedRoas.slice(Math.floor(sortedRoas.length * 0.75));
+    const topAvg = top25.reduce((s, c) => s + c.roas, 0) / top25.length;
+    const botAvg = bottom25.reduce((s, c) => s + c.roas, 0) / bottom25.length;
+    if (topAvg > botAvg * 2) {
+      const totalBotSpend = bottom25.reduce((s, c) => s + c.spend, 0);
+      insights.push({
+        icon: TrendingUp,
+        color: "text-pink-300",
+        bgColor: "bg-pink-500/15",
+        borderColor: "border-pink-500/30",
+        title: `Top 25% outperform bottom 25% by ${(topAvg / botAvg).toFixed(1)}x`,
+        description: `Your best creatives average ${topAvg.toFixed(1)}x ROAS vs ${botAvg.toFixed(1)}x for your weakest. Reallocating $${(totalBotSpend / 1000).toFixed(1)}k from low performers to top winners could significantly improve overall returns.`,
+      });
+    }
+  }
+
+  return insights.slice(0, 4);
+}
+
+function AiInsightsSection({ creatives }: { creatives: Creative[] }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const insights = useMemo(() => generateInsights(creatives), [creatives]);
+
+  if (insights.length === 0) return null;
+
+  return (
+    <div className="bg-gray-900 border border-violet-800/40 rounded-2xl overflow-hidden">
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center gap-3 px-5 py-4 border-b border-gray-800 hover:bg-gray-800/30 transition-colors"
+      >
+        <div className="w-8 h-8 rounded-xl bg-violet-500/20 flex items-center justify-center shrink-0">
+          <Sparkles className="w-4 h-4 text-violet-400" />
+        </div>
+        <div className="text-left flex-1">
+          <h2 className="text-sm font-semibold text-violet-300">AI Insights</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">
+            Automated analysis from your creative data ({insights.length} insights)
+          </p>
+        </div>
+        {collapsed ? (
+          <ChevronDown className="w-4 h-4 text-gray-500" />
+        ) : (
+          <ChevronUp className="w-4 h-4 text-gray-500" />
+        )}
+      </button>
+
+      {!collapsed && (
+        <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          {insights.map((insight, i) => {
+            const Icon = insight.icon;
+            return (
+              <div
+                key={i}
+                className={`${insight.bgColor} border ${insight.borderColor} rounded-xl p-4 flex gap-3`}
+              >
+                <div className={`w-8 h-8 rounded-lg ${insight.bgColor} border ${insight.borderColor} flex items-center justify-center shrink-0`}>
+                  <Icon className={`w-4 h-4 ${insight.color}`} />
+                </div>
+                <div>
+                  <p className={`text-xs font-semibold ${insight.color} mb-1`}>{insight.title}</p>
+                  <p className="text-[11px] text-gray-400 leading-relaxed">{insight.description}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CreativesPage() {
@@ -486,6 +651,11 @@ export default function CreativesPage() {
             accent="bg-emerald-500/20 text-emerald-400"
           />
         </div>
+      )}
+
+      {/* AI Insights */}
+      {!loading && (
+        <AiInsightsSection creatives={creatives} />
       )}
 
       {/* Filters Bar (campaign + ad status) */}
