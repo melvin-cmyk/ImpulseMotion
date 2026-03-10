@@ -92,7 +92,7 @@ export function CreativeDetailModal({ creative, onClose }: CreativeDetailModalPr
         </button>
 
         {/* Media section */}
-        <div className="relative w-full h-72 bg-black rounded-t-2xl overflow-hidden">
+        <div className="relative w-full h-80 bg-black rounded-t-2xl overflow-hidden flex items-center justify-center">
           {isMetaVideo ? (
             <iframe
               src={`https://www.facebook.com/video/embed?video_id=${creative.videoId}`}
@@ -111,7 +111,7 @@ export function CreativeDetailModal({ creative, onClose }: CreativeDetailModalPr
               poster={creative.thumbnailUrl}
               controls
               crossOrigin="anonymous"
-              className="absolute inset-0 w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-contain"
               style={{ display: "block", background: "#000" }}
             />
           ) : creative.thumbnailUrl ? (

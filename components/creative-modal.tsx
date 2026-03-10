@@ -80,7 +80,7 @@ function VideoPlayer({
         poster={thumbnailUrl}
         controls
         crossOrigin="anonymous"
-        className="absolute inset-0 w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-contain"
         style={{ display: "block", background: "#000" }}
         onError={() => {
           if (videoId) setUseFallback(true);
@@ -183,7 +183,7 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
         </button>
 
         {/* Media section */}
-        <div className="relative w-full h-72 bg-black rounded-t-2xl overflow-hidden">
+        <div className="relative w-full h-80 bg-black rounded-t-2xl overflow-hidden flex items-center justify-center">
           {isVideo ? (
             <VideoPlayer
               videoUrl={creative.videoUrl}
