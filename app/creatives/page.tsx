@@ -1021,7 +1021,42 @@ function saveViewMode(mode: ViewMode) {
   try { localStorage.setItem("impulse_view_mode", mode); } catch {}
 }
 
-// ── Bar Chart View (spend & CPA per creative) ─────────────────────────────────
+// ── Bar Chart View (KPI per creative) ─────────────────────────────────────────
+
+type BarChartMetric = "spend" | "cpa" | "ctr" | "roas" | "cpm";
+
+const BAR_METRIC_OPTIONS: { value: BarChartMetric; label: string }[] = [
+  { value: "spend", label: "Spend" },
+  { value: "cpa", label: "CPA" },
+  { value: "ctr", label: "CTR" },
+  { value: "roas", label: "ROAS" },
+  { value: "cpm", label: "CPM" },
+];
+
+function getBarValue(c: Creative, metric: BarChartMetric): number {
+  if (metric === "spend") return c.spend;
+  if (metric === "cpa") return c.cpa;
+  if (metric === "ctr") return c.ctr;
+  if (metric === "roas") return c.roas;
+  // CPM = (spend / impressions) * 1000
+  if (metric === "cpm") return c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0;
+  return 0;
+}
+
+function formatBarValue(v: number, metric: BarChartMetric): string {
+  if (metric === "spend") return v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`;
+  if (metric === "cpa") return `$${v.toFixed(2)}`;
+  if (metric === "ctr") return `${v.toFixed(2)}%`;
+  if (metric === "roas") return `${v.toFixed(2)}x`;
+  if (metric === "cpm") return `$${v.toFixed(2)}`;
+  return String(v);
+}
+
+function sortForMetric(a: Creative, b: Creative, metric: BarChartMetric): number {
+  // For CPA: ascending (lower is better); others: descending
+  if (metric === "cpa") return getBarValue(a, metric) - getBarValue(b, metric);
+  return getBarValue(b, metric) - getBarValue(a, metric);
+}
 
 function BarChartView({
   creatives,
@@ -1030,16 +1065,16 @@ function BarChartView({
   creatives: Creative[];
   onCreativeClick: (c: Creative) => void;
 }) {
-  const [metric, setMetric] = useState<"spend" | "cpa">("spend");
+  const [metric, setMetric] = useState<BarChartMetric>("spend");
 
   const data = useMemo(() => {
     return [...creatives]
-      .sort((a, b) => metric === "cpa" ? a.cpa - b.cpa : b.spend - a.spend)
+      .sort((a, b) => sortForMetric(a, b, metric))
       .slice(0, 20)
       .map((c) => ({
         name: c.name.length > 18 ? c.name.slice(0, 18) + "…" : c.name,
         fullName: c.name,
-        value: metric === "spend" ? c.spend : c.cpa,
+        value: getBarValue(c, metric),
         id: c.id,
         format: c.format,
         status: c.status,
@@ -1053,10 +1088,13 @@ function BarChartView({
     Loser: "#f87171",
   };
 
-  const formatLabel = (v: number) =>
-    metric === "spend"
-      ? v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v}`
-      : `$${v}`;
+  const sortDesc: Record<BarChartMetric, string> = {
+    spend: "spend décroissant",
+    cpa: "CPA croissant (meilleur en haut)",
+    ctr: "CTR décroissant",
+    roas: "ROAS décroissant",
+    cpm: "CPM décroissant",
+  };
 
   const creativeById = useMemo(() => {
     const m = new Map<string, Creative>();
@@ -1066,28 +1104,23 @@ function BarChartView({
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h3 className="text-sm font-semibold text-white">Bar Chart — Top 20 créatives</h3>
-          <p className="text-[11px] text-gray-500 mt-0.5">Triées par {metric === "spend" ? "spend décroissant" : "CPA croissant"}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">Triées par {sortDesc[metric]}</p>
         </div>
         <div className="flex gap-1 bg-gray-800 rounded-xl p-1">
-          <button
-            onClick={() => setMetric("spend")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              metric === "spend" ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"
-            }`}
-          >
-            Spend
-          </button>
-          <button
-            onClick={() => setMetric("cpa")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              metric === "cpa" ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"
-            }`}
-          >
-            CPA
-          </button>
+          {BAR_METRIC_OPTIONS.map(({ value, label }) => (
+            <button
+              key={value}
+              onClick={() => setMetric(value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                metric === value ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
       {data.length === 0 ? (
@@ -1102,7 +1135,7 @@ function BarChartView({
             <XAxis
               type="number"
               tick={{ fill: "#6b7280", fontSize: 10 }}
-              tickFormatter={formatLabel}
+              tickFormatter={(v) => formatBarValue(v, metric)}
               axisLine={false}
               tickLine={false}
             />
@@ -1122,11 +1155,8 @@ function BarChartView({
                 fontSize: "11px",
                 color: "#e5e7eb",
               }}
-              formatter={(v: unknown, _: unknown, props: { payload?: { fullName?: string; id?: string } }) => {
-                const label = metric === "spend"
-                  ? [`$${Number(v).toLocaleString()}`, "Spend"]
-                  : [`$${Number(v).toFixed(2)}`, "CPA"];
-                return label;
+              formatter={(v: unknown) => {
+                return [formatBarValue(Number(v), metric), BAR_METRIC_OPTIONS.find((o) => o.value === metric)?.label ?? metric];
               }}
               labelFormatter={(_, payload) => {
                 const p = payload?.[0]?.payload as { fullName?: string } | undefined;
@@ -1749,74 +1779,130 @@ export default function CreativesPage() {
         <ComparativeAnalysisSection creatives={filtered} />
       )}
 
-      {/* Filter Bar */}
-      <div className="flex flex-wrap gap-3 items-center">
-        {/* Platform */}
-        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
-          {(["All", "Meta", "TikTok"] as const).map((p) => (
+      {/* Creatives section header: filters + view mode toggle */}
+      <div className="border-t border-gray-800 pt-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="text-sm font-semibold text-white">
+            Créatives <span className="text-gray-500 font-normal">({filtered.length})</span>
+          </h2>
+          {/* View mode toggle — next to filters */}
+          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
             <button
-              key={p}
-              onClick={() => setPlatform(p)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                platform === p
+              onClick={() => handleViewMode("card")}
+              title="Grille (thumbnails)"
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                viewMode === "card"
                   ? "bg-violet-600 text-white"
-                  : "text-gray-400 hover:text-white"
+                  : "text-gray-500 hover:text-gray-200"
               }`}
             >
-              {p}
+              <LayoutGrid className="w-4 h-4" />
             </button>
-          ))}
-        </div>
-
-        {/* Status */}
-        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
-          {(["All", "Winner", "Active", "Fatigued", "Loser"] as const).map((s) => (
             <button
-              key={s}
-              onClick={() => setStatus(s)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                status === s
+              onClick={() => handleViewMode("chart")}
+              title="Bar Chart (KPI)"
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                viewMode === "chart"
                   ? "bg-violet-600 text-white"
-                  : "text-gray-400 hover:text-white"
+                  : "text-gray-500 hover:text-gray-200"
               }`}
             >
-              {s}
+              <BarChart2 className="w-4 h-4" />
             </button>
-          ))}
-        </div>
-
-        {/* Format */}
-        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
-          {(["All", "Video", "Image", "Carousel"] as const).map((f) => (
             <button
-              key={f}
-              onClick={() => setFormat(f)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                format === f
+              onClick={() => handleViewMode("table")}
+              title="Tableau compact"
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                viewMode === "table"
                   ? "bg-violet-600 text-white"
-                  : "text-gray-400 hover:text-white"
+                  : "text-gray-500 hover:text-gray-200"
               }`}
             >
-              {f}
+              <Table2 className="w-4 h-4" />
             </button>
-          ))}
+            <button
+              onClick={() => handleViewMode("curve")}
+              title="Courbes ROAS"
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                viewMode === "curve"
+                  ? "bg-violet-600 text-white"
+                  : "text-gray-500 hover:text-gray-200"
+              }`}
+            >
+              <TrendingUp className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Sort */}
-        <div className="flex items-center gap-2 ml-auto bg-gray-900 border border-gray-800 rounded-xl px-3 py-2">
-          <ArrowUpDown className="w-4 h-4 text-gray-500" />
-          <span className="text-gray-500 text-sm">Sort:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="bg-transparent text-gray-300 text-sm outline-none cursor-pointer"
-          >
-            <option value="roas">ROAS</option>
-            <option value="cpa">CPA (low→high)</option>
-            <option value="spend">Spend</option>
-            <option value="ctr">CTR</option>
-            <option value="hookRate">Hook Rate</option>
-          </select>
+        {/* Filter Bar */}
+        <div className="flex flex-wrap gap-3 items-center">
+          {/* Platform */}
+          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+            {(["All", "Meta", "TikTok"] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPlatform(p)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  platform === p
+                    ? "bg-violet-600 text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {/* Status */}
+          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+            {(["All", "Winner", "Active", "Fatigued", "Loser"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatus(s)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  status === s
+                    ? "bg-violet-600 text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+
+          {/* Format */}
+          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+            {(["All", "Video", "Image", "Carousel"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFormat(f)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  format === f
+                    ? "bg-violet-600 text-white"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+
+          {/* Sort */}
+          <div className="flex items-center gap-2 ml-auto bg-gray-900 border border-gray-800 rounded-xl px-3 py-2">
+            <ArrowUpDown className="w-4 h-4 text-gray-500" />
+            <span className="text-gray-500 text-sm">Sort:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+              className="bg-transparent text-gray-300 text-sm outline-none cursor-pointer"
+            >
+              <option value="roas">ROAS</option>
+              <option value="cpa">CPA (low→high)</option>
+              <option value="spend">Spend</option>
+              <option value="ctr">CTR</option>
+              <option value="hookRate">Hook Rate</option>
+            </select>
+          </div>
         </div>
       </div>
 

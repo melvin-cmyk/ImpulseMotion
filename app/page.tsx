@@ -148,7 +148,7 @@ function DashboardHome() {
       )}
 
       {/* Quick links */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 pt-2">
         {[
           {
             href: "/creatives",
@@ -161,6 +161,12 @@ function DashboardHome() {
             label: "A/B Compare",
             desc: "Compare two creatives head-to-head",
             color: "hover:border-blue-700/60",
+          },
+          {
+            href: "/comparaisons",
+            label: "Comparaisons",
+            desc: "Métriques agrégées par format, plateforme et statut",
+            color: "hover:border-pink-700/60",
           },
           {
             href: "/fatigue",

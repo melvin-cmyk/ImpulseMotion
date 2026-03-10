@@ -13,6 +13,7 @@ import {
   Tag,
   Share2,
   Rocket,
+  PieChart,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -22,6 +23,7 @@ const navItems = [
   { href: "/launch", icon: Rocket, label: "Launch Analysis" },
   { href: "/top-charts", icon: BarChart3, label: "Top Charts" },
   { href: "/compare", icon: GitCompareArrows, label: "A/B Compare" },
+  { href: "/comparaisons", icon: PieChart, label: "Comparaisons" },
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/naming", icon: Tag, label: "Naming Convention" },
   { href: "/reports", icon: Share2, label: "Reports" },
