@@ -68,38 +68,20 @@ function VideoPlayer({
   videoUrl,
   thumbnailUrl,
   videoId,
-  isPortrait = false,
 }: {
   videoUrl?: string;
   thumbnailUrl?: string;
   videoId?: string;
-  isPortrait?: boolean;
 }) {
   if (videoUrl) {
-    if (isPortrait) {
-      return (
-        <div
-          className="relative w-full bg-black overflow-hidden"
-          style={{ paddingTop: "177.78%", maxHeight: "70vh" }}
-        >
-          <video
-            src={videoUrl}
-            poster={thumbnailUrl}
-            controls
-            crossOrigin="anonymous"
-            className="absolute inset-0 w-full h-full object-contain"
-          />
-        </div>
-      );
-    }
     return (
-      <div className="relative w-full bg-black" style={{ paddingTop: "56.25%" }}>
+      <div className="w-full bg-black flex items-center justify-center" style={{ maxHeight: "70vh" }}>
         <video
           src={videoUrl}
           poster={thumbnailUrl}
           controls
           crossOrigin="anonymous"
-          className="absolute inset-0 w-full h-full object-contain"
+          style={{ maxHeight: "70vh", maxWidth: "100%", width: "auto", height: "auto" }}
         />
       </div>
     );

@@ -48,6 +48,7 @@ export function CreativeThumbnail({
 }: CreativeThumbnailProps) {
   const [playing, setPlaying] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [imgHidden, setImgHidden] = useState(false);
 
   const isVideo = format === "Video";
 
@@ -122,7 +123,7 @@ export function CreativeThumbnail({
   }
 
   // --- Has a real thumbnail URL ---
-  if (thumbnailUrl) {
+  if (thumbnailUrl && !imgHidden) {
     return (
       <div className={`relative ${className} bg-black overflow-hidden`}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -131,11 +132,15 @@ export function CreativeThumbnail({
           alt="Creative thumbnail"
           className="w-full h-full object-contain"
           loading="lazy"
-          onError={(e) => {
-            // If the signed URL has expired or is unreachable, hide the img
-            // so the fallback gradient div underneath shows through.
-            (e.target as HTMLImageElement).style.display = "none";
+          onLoad={(e) => {
+            const img = e.target as HTMLImageElement;
+            // Hide images that are too small (below 200px) — they are
+            // low-res thumbnails that would appear pixelated at card size.
+            if (img.naturalWidth > 0 && img.naturalWidth < 200) {
+              setImgHidden(true);
+            }
           }}
+          onError={() => setImgHidden(true)}
         />
         {/* Play button overlay for video creatives */}
         {isVideo && (

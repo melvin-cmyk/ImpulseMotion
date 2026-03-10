@@ -92,34 +92,15 @@ export function CreativeDetailModal({ creative, onClose }: CreativeDetailModalPr
         </button>
 
         {/* Media section */}
-        <div className="relative bg-black rounded-t-2xl overflow-hidden flex items-center justify-center w-full max-h-[70vh]">
+        <div className="relative bg-black rounded-t-2xl overflow-hidden flex items-center justify-center w-full" style={{ maxHeight: "70vh" }}>
           {isVideo && creative.videoUrl ? (
-            isMetaVideo ? (
-              // Portrait (9:16) for Meta videos
-              <div
-                className="relative w-full bg-black overflow-hidden"
-                style={{ paddingTop: "177.78%", maxHeight: "70vh" }}
-              >
-                <video
-                  src={creative.videoUrl}
-                  poster={creative.thumbnailUrl}
-                  controls
-                  crossOrigin="anonymous"
-                  className="absolute inset-0 w-full h-full object-contain"
-                />
-              </div>
-            ) : (
-              // Landscape (16:9) for other platforms
-              <div className="relative w-full bg-black" style={{ paddingTop: "56.25%" }}>
-                <video
-                  src={creative.videoUrl}
-                  poster={creative.thumbnailUrl}
-                  controls
-                  crossOrigin="anonymous"
-                  className="absolute inset-0 w-full h-full object-contain"
-                />
-              </div>
-            )
+            <video
+              src={creative.videoUrl}
+              poster={creative.thumbnailUrl}
+              controls
+              crossOrigin="anonymous"
+              style={{ maxHeight: "70vh", maxWidth: "100%", width: "auto", height: "auto" }}
+            />
           ) : isMetaVideo ? (
             // Meta video with no direct URL — embed via official Facebook iframe player
             <div className="relative w-full bg-black" style={{ paddingTop: "56.25%" }}>

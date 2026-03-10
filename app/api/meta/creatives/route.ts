@@ -46,13 +46,21 @@ function upgradeImageUrl(url: string | undefined): string | undefined {
       parsed.hostname.endsWith(".fbcdn.net") ||
       parsed.hostname.endsWith(".fbsbx.com")
     ) {
-      // Remove any existing low-res size parameters that Meta embeds in the path.
       // Meta CDN URLs encode dimensions like "s320x320" or "p320x320" in the
-      // path segments — replace the first such segment with a 1200-wide variant.
-      parsed.pathname = parsed.pathname.replace(
+      // path segments — replace with a 1200-wide variant.
+      const upgraded = parsed.pathname.replace(
         /\/(s|p)\d+x\d+\//,
         "/s1200x1200/"
       );
+      parsed.pathname = upgraded;
+      // Also remove any _nc_cat / size-limiting query params that force low-res
+      parsed.searchParams.delete("_nc_cat");
+      return parsed.toString();
+    }
+    // For graph.facebook.com URLs (thumbnail redirects), append a width hint
+    if (parsed.hostname === "graph.facebook.com") {
+      parsed.searchParams.set("redirect", "1");
+      parsed.searchParams.set("width", "1200");
       return parsed.toString();
     }
   } catch {
