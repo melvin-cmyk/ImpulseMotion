@@ -13,7 +13,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { Tag, Settings, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
+import { Tag, Settings, ChevronDown, ChevronUp, AlertCircle, HelpCircle, Lightbulb, X } from "lucide-react";
 
 interface SegmentDef {
   label: string;
@@ -177,7 +177,12 @@ function ConfigPanel({
 
       {/* Separator */}
       <div className="flex items-center gap-4">
-        <label className="text-sm text-gray-300 w-32 shrink-0">Séparateur</label>
+        <div className="flex items-center gap-1.5 w-32 shrink-0">
+          <label className="text-sm text-gray-300">Séparateur</label>
+          <span title="Le caractère qui sépare les segments dans ton nom d'ad. Ex: PRODUIT_FORMAT_ANGLE → séparateur = _" className="cursor-help">
+            <HelpCircle className="w-3.5 h-3.5 text-gray-600 hover:text-gray-400" />
+          </span>
+        </div>
         <div className="flex gap-2 flex-wrap">
           {SEPARATOR_OPTIONS.map((opt) => (
             <button
@@ -203,7 +208,12 @@ function ConfigPanel({
 
       {/* Segment positions */}
       <div className="space-y-2">
-        <label className="text-sm text-gray-300">Segments (position dans le nom)</label>
+        <div className="flex items-center gap-1.5">
+          <label className="text-sm text-gray-300">Segments (position dans le nom)</label>
+          <span title="Chaque segment correspond à une partie du nom après découpage. Position 1 = premier mot, Position 2 = deuxième mot, etc." className="cursor-help">
+            <HelpCircle className="w-3.5 h-3.5 text-gray-600 hover:text-gray-400" />
+          </span>
+        </div>
         <div className="flex flex-wrap gap-3">
           {config.segments.map((seg, idx) => (
             <div key={idx} className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2">
@@ -286,11 +296,79 @@ function ConfigPanel({
 
 const STORAGE_KEY = "impulsemotion_naming_config";
 
+function NamingGuide({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="bg-gradient-to-br from-violet-950/60 to-gray-900 border border-violet-800/40 rounded-2xl p-6 space-y-5">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2">
+          <Lightbulb className="w-5 h-5 text-violet-400 shrink-0" />
+          <h2 className="text-base font-semibold text-white">Comment fonctionne la Naming Convention ?</h2>
+        </div>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Concept */}
+      <div className="space-y-2">
+        <p className="text-sm text-gray-300 leading-relaxed">
+          La naming convention, c&apos;est un système de nommage structuré pour tes publicités Meta. En donnant un nom cohérent à chaque créa, l&apos;outil peut automatiquement les regrouper et comparer leurs performances par catégorie.
+        </p>
+      </div>
+
+      {/* Example */}
+      <div className="bg-gray-900/80 border border-gray-800 rounded-xl p-4 space-y-3">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Exemple concret</p>
+        <div className="font-mono text-sm">
+          <span className="text-amber-300">OMEGA3</span>
+          <span className="text-gray-600">_</span>
+          <span className="text-blue-300">VIDEO</span>
+          <span className="text-gray-600">_</span>
+          <span className="text-green-300">PROMO_ETE</span>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className="px-2 py-1 rounded-md bg-amber-900/30 text-amber-300 font-mono">Product: OMEGA3</span>
+          <span className="px-2 py-1 rounded-md bg-blue-900/30 text-blue-300 font-mono">Format: VIDEO</span>
+          <span className="px-2 py-1 rounded-md bg-green-900/30 text-green-300 font-mono">Angle: PROMO_ETE</span>
+        </div>
+        <p className="text-xs text-gray-500">Séparateur : underscore ( _ ) · 3 segments · position 1-2-3</p>
+      </div>
+
+      {/* Steps */}
+      <div className="space-y-3">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Comment configurer</p>
+        <div className="space-y-2.5">
+          {[
+            { step: "1", text: "Clique sur \"Configurer\" → choisis le séparateur que tu utilises dans tes noms d'ads (_  -  |  etc.)" },
+            { step: "2", text: "Définis tes segments et leur position : Product en position 1, Format en 2, Angle en 3 (ou adapte selon ton naming)." },
+            { step: "3", text: "L'aperçu en temps réel montre comment tes vraies créas sont parsées — ajuste jusqu'à avoir 80%+ catégorisés (badge vert)." },
+            { step: "4", text: "Une fois configuré, reviens sur cette page pour voir le ROAS moyen par segment et identifier tes angles/formats gagnants." },
+          ].map(({ step, text }) => (
+            <div key={step} className="flex gap-3 text-sm">
+              <span className="w-5 h-5 rounded-full bg-violet-800/60 text-violet-300 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{step}</span>
+              <span className="text-gray-300">{text}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Tips */}
+      <div className="bg-amber-950/30 border border-amber-800/30 rounded-xl px-4 py-3 flex gap-3">
+        <span className="text-amber-400 text-base shrink-0">💡</span>
+        <p className="text-xs text-amber-200/80 leading-relaxed">
+          <strong>Conseil :</strong> Même si tes noms ne sont pas 100% standardisés, commence par le séparateur le plus fréquent. Le badge de santé (% catégorisés) te guide. Les créas non catégorisées apparaissent grisées en bas du tableau et n&apos;impactent pas les stats.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function NamingPage() {
   const { creatives } = useCreativesContext();
   const [config, setConfig] = useState<NamingConfig>(DEFAULT_CONFIG);
   const [activeSegmentIdx, setActiveSegmentIdx] = useState(0);
   const [showConfig, setShowConfig] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   // Load saved config from localStorage
   useEffect(() => {
@@ -358,6 +436,19 @@ export default function NamingPage() {
             </div>
           )}
 
+          {/* Help toggle */}
+          <button
+            onClick={() => setShowGuide((v) => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm border transition-colors ${
+              showGuide
+                ? "bg-violet-900/40 border-violet-600 text-violet-300"
+                : "text-gray-400 border-gray-700 hover:border-violet-600 hover:text-violet-400"
+            }`}
+          >
+            <HelpCircle className="w-4 h-4" />
+            Comment ça marche ?
+          </button>
+
           {/* Config toggle */}
           <button
             onClick={() => setShowConfig((v) => !v)}
@@ -369,6 +460,9 @@ export default function NamingPage() {
           </button>
         </div>
       </div>
+
+      {/* Guide panel */}
+      {showGuide && <NamingGuide onClose={() => setShowGuide(false)} />}
 
       {/* Config panel */}
       {showConfig && (
