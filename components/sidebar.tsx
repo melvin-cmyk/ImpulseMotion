@@ -14,6 +14,7 @@ import {
   Share2,
   Rocket,
   PieChart,
+  Shapes,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -26,6 +27,7 @@ const navItems = [
   { href: "/comparatif", icon: PieChart, label: "Comparatif" },
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/naming", icon: Tag, label: "Naming Convention" },
+  { href: "/patterns", icon: Shapes, label: "Patterns" },
   { href: "/reports", icon: Share2, label: "Reports" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ]
