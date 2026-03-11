@@ -1176,6 +1176,7 @@ export default function CreativesPage() {
   const [format, setFormat] = useState<"All" | Format>("All");
   const [sortBy, setSortBy] = useState<SortKey>("roas");
   const [adStatus, setAdStatus] = useState<AdStatus>("ALL");
+  const [minSpend, setMinSpend] = useState<number>(0);
   const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("card");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -1220,12 +1221,15 @@ export default function CreativesPage() {
     if (selectedTag) {
       list = list.filter((c) => getTagsForCreative(c.id).includes(selectedTag));
     }
+    if (minSpend > 0) {
+      list = list.filter((c) => c.spend >= minSpend);
+    }
     list.sort((a, b) => {
       if (sortBy === "cpa") return a.cpa - b.cpa;
       return (b[sortBy] as number) - (a[sortBy] as number);
     });
     return list;
-  }, [creatives, platform, status, format, sortBy, adStatus, selectedTag, tagsKey]);
+  }, [creatives, platform, status, format, sortBy, adStatus, selectedTag, tagsKey, minSpend]);
 
   // ── KPI Summary calculations ──────────────────────────────────────────────
   const kpiData = useMemo(() => {
@@ -1377,6 +1381,32 @@ export default function CreativesPage() {
         adStatus={adStatus}
         onAdStatusChange={setAdStatus}
       />
+
+      {/* Min Spend Filter */}
+      <div className="flex items-center gap-3 bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
+        <DollarSign className="w-4 h-4 text-gray-500 shrink-0" />
+        <span className="text-gray-400 text-sm shrink-0">Spend min :</span>
+        <input
+          type="range"
+          min={0}
+          max={1000}
+          step={50}
+          value={minSpend}
+          onChange={(e) => setMinSpend(Number(e.target.value))}
+          className="flex-1 accent-violet-500 h-1.5"
+        />
+        <span className="text-sm font-semibold text-white w-16 text-right">
+          {minSpend === 0 ? "All" : `≥ $${minSpend}`}
+        </span>
+        {minSpend > 0 && (
+          <button
+            onClick={() => setMinSpend(0)}
+            className="text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
 
       {/* Creatives to Scale */}
       {!loading && (

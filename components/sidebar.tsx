@@ -24,10 +24,10 @@ const navItems = [
   { href: "/launch", icon: Rocket, label: "Launch Analysis" },
   { href: "/top-charts", icon: BarChart3, label: "Top Charts" },
   { href: "/compare", icon: GitCompareArrows, label: "A/B Compare" },
-  { href: "/comparatif", icon: PieChart, label: "Comparatif" },
+  { href: "/comparaisons", icon: PieChart, label: "Comparaisons" },
+  { href: "/patterns", icon: Shapes, label: "Patterns" },
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/naming", icon: Tag, label: "Naming Convention" },
-  { href: "/patterns", icon: Shapes, label: "Patterns" },
   { href: "/reports", icon: Share2, label: "Reports" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ]

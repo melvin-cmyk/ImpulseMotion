@@ -1,38 +1,27 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Creative } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
-import { CreativeModal } from "@/components/creative-modal";
-import { BarChart2, TrendingUp, Trophy, Shapes } from "lucide-react";
-import Link from "next/link";
+import { DateRangePicker } from "@/components/date-range-picker";
+import { Layers, TrendingUp, DollarSign, MousePointerClick, Trophy } from "lucide-react";
 
-// ── Naming config (mirrors /naming page) ─────────────────────────────────────
-
-interface SegmentDef {
-  label: string;
-  position: number;
-}
+// ── Segment config stored in localStorage (reuse naming convention config) ────
 
 interface NamingConfig {
   separator: string;
-  segments: SegmentDef[];
+  segments: { name: string; position: number }[];
 }
 
-const DEFAULT_CONFIG: NamingConfig = {
-  separator: "_",
-  segments: [
-    { label: "Product", position: 0 },
-    { label: "Format", position: 1 },
-    { label: "Angle", position: 2 },
-  ],
-};
-
-function parseSegment(name: string, position: number, separator: string): string {
-  const parts = name.split(separator).map((p) => p.trim()).filter(Boolean);
-  const val = parts[position];
-  if (!val || val === "") return "Non catégorisé";
-  return val;
+function getNamingConfig(): NamingConfig {
+  if (typeof window === "undefined") {
+    return { separator: "_", segments: [{ name: "Product", position: 0 }, { name: "Format", position: 1 }, { name: "Angle", position: 2 }] };
+  }
+  try {
+    const raw = localStorage.getItem("impulse_naming_config");
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { separator: "_", segments: [{ name: "Product", position: 0 }, { name: "Format", position: 1 }, { name: "Angle", position: 2 }] };
 }
 
 // ── Group stats ───────────────────────────────────────────────────────────────
@@ -46,427 +35,125 @@ interface GroupStats {
   ctr: number;
   winners: number;
   thumbnails: string[];
-  topCreatives: Creative[];
 }
 
 function groupBySegment(
-  seg: SegmentDef,
+  creatives: Creative[],
   separator: string,
-  creatives: Creative[]
+  position: number
 ): GroupStats[] {
-  const map: Record<string, { stats: GroupStats; creatives: Creative[] }> = {};
-
+  const map: Record<string, GroupStats> = {};
   for (const c of creatives) {
-    const key = parseSegment(c.name, seg.position, separator);
+    const parts = c.name.split(separator);
+    const key = parts[position]?.trim() || "Unknown";
     if (!map[key]) {
-      map[key] = {
-        stats: {
-          key,
-          count: 0,
-          spend: 0,
-          roas: 0,
-          cpa: 0,
-          ctr: 0,
-          winners: 0,
-          thumbnails: [],
-          topCreatives: [],
-        },
-        creatives: [],
-      };
+      map[key] = { key, count: 0, spend: 0, roas: 0, cpa: 0, ctr: 0, winners: 0, thumbnails: [] };
     }
-    map[key].stats.count++;
-    map[key].stats.spend += c.spend;
-    map[key].stats.roas += c.roas;
-    map[key].stats.cpa += c.cpa;
-    map[key].stats.ctr += c.ctr;
-    if (c.status === "Winner") map[key].stats.winners++;
-    if (c.thumbnailUrl && map[key].stats.thumbnails.length < 5) {
-      map[key].stats.thumbnails.push(c.thumbnailUrl);
+    map[key].count++;
+    map[key].spend += c.spend;
+    map[key].roas += c.roas;
+    map[key].cpa += c.cpa;
+    map[key].ctr += c.ctr;
+    if (c.status === "Winner") map[key].winners++;
+    if (c.thumbnailUrl && map[key].thumbnails.length < 3) {
+      map[key].thumbnails.push(c.thumbnailUrl);
     }
-    map[key].creatives.push(c);
   }
-
   return Object.values(map)
-    .map(({ stats, creatives: grpCreatives }) => {
-      const n = stats.count;
-      const topCreatives = [...grpCreatives]
-        .sort((a, b) => b.roas - a.roas)
-        .slice(0, 3);
-      return {
-        ...stats,
-        spend: Math.round(stats.spend),
-        roas: Math.round((stats.roas / n) * 100) / 100,
-        cpa: Math.round((stats.cpa / n) * 100) / 100,
-        ctr: Math.round((stats.ctr / n) * 100) / 100,
-        topCreatives,
-      };
-    })
-    .sort((a, b) => {
-      if (a.key === "Non catégorisé") return 1;
-      if (b.key === "Non catégorisé") return -1;
-      return b.count - a.count;
-    });
+    .map((g) => ({
+      ...g,
+      spend: Math.round(g.spend),
+      roas: Math.round((g.roas / g.count) * 100) / 100,
+      cpa: Math.round((g.cpa / g.count) * 100) / 100,
+      ctr: Math.round((g.ctr / g.count) * 100) / 100,
+    }))
+    .sort((a, b) => b.spend - a.spend);
 }
 
 // ── Segment card ──────────────────────────────────────────────────────────────
 
-function SegmentCard({
-  seg,
-  groups,
-  onCreativeClick,
-}: {
-  seg: SegmentDef;
-  groups: GroupStats[];
-  onCreativeClick: (c: Creative) => void;
-}) {
-  const maxCount = Math.max(...groups.map((g) => g.count), 1);
-  const top6 = groups.slice(0, 8);
+const ACCENT_COLORS = [
+  "from-violet-500/20 to-violet-900/10 border-violet-500/30",
+  "from-blue-500/20 to-blue-900/10 border-blue-500/30",
+  "from-emerald-500/20 to-emerald-900/10 border-emerald-500/30",
+  "from-pink-500/20 to-pink-900/10 border-pink-500/30",
+  "from-amber-500/20 to-amber-900/10 border-amber-500/30",
+  "from-cyan-500/20 to-cyan-900/10 border-cyan-500/30",
+];
 
-  const hitRate = (g: GroupStats) =>
-    g.count > 0 ? Math.round((g.winners / g.count) * 100) : 0;
-
-  const isProven = (g: GroupStats) => hitRate(g) >= 20 && g.winners >= 2;
+function PatternCard({ group, index, totalSpend }: { group: GroupStats; index: number; totalSpend: number }) {
+  const spendPct = totalSpend > 0 ? (group.spend / totalSpend) * 100 : 0;
+  const accentClass = ACCENT_COLORS[index % ACCENT_COLORS.length];
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden flex flex-col">
-      {/* Card header */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-violet-500/20 flex items-center justify-center">
-            <BarChart2 className="w-3.5 h-3.5 text-violet-400" />
-          </div>
-          <span className="font-semibold text-white text-sm">{seg.label}</span>
-          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">
-            {groups.length} valeurs
+    <div className={`bg-gradient-to-br ${accentClass} border rounded-2xl p-4 space-y-3`}>
+      {/* Thumbnails row */}
+      <div className="flex gap-1.5 h-16">
+        {group.thumbnails.length > 0 ? (
+          group.thumbnails.map((url, i) => (
+            <div key={i} className="flex-1 rounded-lg overflow-hidden bg-gray-800">
+              <img src={url} alt="" className="w-full h-full object-cover" />
+            </div>
+          ))
+        ) : (
+          Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex-1 rounded-lg bg-gray-800/60 flex items-center justify-center">
+              <Layers className="w-4 h-4 text-gray-600" />
+            </div>
+          ))
+        )}
+        {group.thumbnails.length < 3 &&
+          Array.from({ length: 3 - group.thumbnails.length }).map((_, i) => (
+            <div key={`pad-${i}`} className="flex-1 rounded-lg bg-gray-800/60" />
+          ))}
+      </div>
+
+      {/* Name + count */}
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="font-semibold text-white text-sm leading-tight">{group.key}</h3>
+        <span className="text-xs text-gray-400 shrink-0">{group.count} ads</span>
+      </div>
+
+      {/* Spend bar */}
+      <div className="space-y-1">
+        <div className="flex justify-between text-xs text-gray-400">
+          <span>Spend</span>
+          <span className="font-medium text-white">
+            ${group.spend >= 1000 ? `${(group.spend / 1000).toFixed(1)}k` : group.spend}
           </span>
         </div>
-        <Link
-          href="/naming"
-          className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
-        >
-          Voir rapport →
-        </Link>
-      </div>
-
-      {/* Rows */}
-      <div className="divide-y divide-gray-800/50 flex-1">
-        {top6.map((g) => (
-          <div key={g.key} className="flex items-center gap-3 px-4 py-3 group hover:bg-gray-800/30 transition-colors">
-            {/* Thumbnails */}
-            <div className="flex -space-x-2 shrink-0">
-              {g.thumbnails.slice(0, 4).map((thumb, i) => (
-                <div
-                  key={i}
-                  className="w-7 h-7 rounded-full border-2 border-gray-900 overflow-hidden bg-gray-800 shrink-0"
-                  style={{ zIndex: 4 - i }}
-                >
-                  <img
-                    src={thumb}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = "none";
-                    }}
-                  />
-                </div>
-              ))}
-              {g.thumbnails.length === 0 && (
-                <div className="w-7 h-7 rounded-full border-2 border-gray-900 bg-gray-700 flex items-center justify-center text-gray-500">
-                  <Shapes className="w-3 h-3" />
-                </div>
-              )}
-            </div>
-
-            {/* Label + bar */}
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm text-gray-200 truncate">{g.key}</span>
-                {isProven(g) && (
-                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 rounded-full font-medium shrink-0">
-                    ✓ Proven
-                  </span>
-                )}
-              </div>
-              <div className="w-full bg-gray-800 rounded-full h-1.5">
-                <div
-                  className="bg-violet-500 rounded-full h-1.5 transition-all"
-                  style={{ width: `${(g.count / maxCount) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Count */}
-            <span className="text-sm font-semibold text-gray-300 shrink-0 w-6 text-right">
-              {g.count}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Footer KPIs */}
-      <div className="px-4 py-3 border-t border-gray-800 flex gap-4 text-xs text-gray-500">
-        {groups.length > 0 && (
-          <>
-            <span>
-              <span className="text-gray-300 font-medium">
-                {groups.reduce((s, g) => s + g.winners, 0)}
-              </span>{" "}
-              winners
-            </span>
-            <span>
-              Meilleur ROAS:{" "}
-              <span className="text-emerald-400 font-medium">
-                {Math.max(...groups.map((g) => g.roas)).toFixed(1)}x
-              </span>
-            </span>
-            <span>
-              Meilleur CPA:{" "}
-              <span className="text-blue-400 font-medium">
-                €{Math.min(...groups.filter((g) => g.cpa > 0).map((g) => g.cpa)).toFixed(0)}
-              </span>
-            </span>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Top creatives per segment ─────────────────────────────────────────────────
-
-function TopWinnersSection({
-  config,
-  creatives,
-  onCreativeClick,
-}: {
-  config: NamingConfig;
-  creatives: Creative[];
-  onCreativeClick: (c: Creative) => void;
-}) {
-  const allGroups = useMemo(() => {
-    return config.segments.map((seg) => ({
-      seg,
-      groups: groupBySegment(seg, config.separator, creatives),
-    }));
-  }, [config, creatives]);
-
-  // Find segment with most differentiation (highest ROAS spread)
-  const bestSeg = useMemo(() => {
-    let best = allGroups[0];
-    for (const g of allGroups) {
-      const roasValues = g.groups.map((gg) => gg.roas).filter((r) => r > 0);
-      const spread =
-        roasValues.length > 1
-          ? Math.max(...roasValues) - Math.min(...roasValues)
-          : 0;
-      const currentSpread =
-        best.groups.map((gg) => gg.roas).filter((r) => r > 0).length > 1
-          ? Math.max(...best.groups.map((g) => g.roas)) -
-            Math.min(...best.groups.map((g) => g.roas))
-          : 0;
-      if (spread > currentSpread) best = g;
-    }
-    return best;
-  }, [allGroups]);
-
-  const topItems = useMemo(
-    () =>
-      bestSeg.groups
-        .filter((g) => g.key !== "Non catégorisé" && g.roas > 0)
-        .sort((a, b) => b.roas - a.roas)
-        .slice(0, 5),
-    [bestSeg]
-  );
-
-  if (topItems.length === 0) return null;
-
-  return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-800">
-        <div className="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center">
-          <Trophy className="w-4 h-4 text-amber-400" />
+        <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-violet-500 to-purple-600"
+            style={{ width: `${Math.min(spendPct, 100)}%` }}
+          />
         </div>
-        <div>
-          <h3 className="font-semibold text-white text-sm">
-            Top performers par {bestSeg.seg.label}
-          </h3>
-          <p className="text-xs text-gray-500">Segmenté par ROAS moyen</p>
+        <p className="text-xs text-gray-500">{spendPct.toFixed(1)}% du budget</p>
+      </div>
+
+      {/* KPI row */}
+      <div className="grid grid-cols-3 gap-2 pt-1">
+        <div className="text-center">
+          <div className="text-xs text-gray-500">ROAS</div>
+          <div className="text-sm font-semibold text-white">{group.roas.toFixed(1)}x</div>
+        </div>
+        <div className="text-center">
+          <div className="text-xs text-gray-500">CPA</div>
+          <div className="text-sm font-semibold text-white">${group.cpa.toFixed(0)}</div>
+        </div>
+        <div className="text-center">
+          <div className="text-xs text-gray-500">CTR</div>
+          <div className="text-sm font-semibold text-white">{group.ctr.toFixed(2)}%</div>
         </div>
       </div>
-      <div className="divide-y divide-gray-800/50">
-        {topItems.map((g, i) => (
-          <div key={g.key} className="flex items-center gap-4 px-5 py-3">
-            <span className="text-lg font-bold text-gray-600 w-6 shrink-0">
-              {i + 1}
-            </span>
-            <div className="flex -space-x-2 shrink-0">
-              {g.thumbnails.slice(0, 3).map((thumb, j) => (
-                <div
-                  key={j}
-                  className="w-8 h-8 rounded-full border-2 border-gray-900 overflow-hidden bg-gray-800"
-                  style={{ zIndex: 3 - j }}
-                >
-                  <img
-                    src={thumb}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = "none";
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{g.key}</p>
-              <p className="text-xs text-gray-500">
-                {g.count} créas · {g.winners} winners
-              </p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-sm font-bold text-emerald-400">
-                {g.roas.toFixed(1)}x
-              </p>
-              <p className="text-xs text-gray-500">ROAS moyen</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-sm font-semibold text-white">
-                €{g.spend >= 1000 ? (g.spend / 1000).toFixed(1) + "k" : g.spend}
-              </p>
-              <p className="text-xs text-gray-500">Spend</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
-// ── Performance heatmap per segment ──────────────────────────────────────────
-
-function SegmentHeatmap({
-  config,
-  creatives,
-}: {
-  config: NamingConfig;
-  creatives: Creative[];
-}) {
-  const metric = useMemo(() => {
-    // Show CPA heatmap for all segment combinations
-    if (config.segments.length < 2) return null;
-    const seg1 = config.segments[0];
-    const seg2 = config.segments[1];
-
-    const map: Record<string, Record<string, { cpa: number; count: number }>> =
-      {};
-    const keys1 = new Set<string>();
-    const keys2 = new Set<string>();
-
-    for (const c of creatives) {
-      const k1 = parseSegment(c.name, seg1.position, config.separator);
-      const k2 = parseSegment(c.name, seg2.position, config.separator);
-      if (k1 === "Non catégorisé" || k2 === "Non catégorisé") continue;
-      keys1.add(k1);
-      keys2.add(k2);
-      if (!map[k1]) map[k1] = {};
-      if (!map[k1][k2]) map[k1][k2] = { cpa: 0, count: 0 };
-      map[k1][k2].cpa += c.cpa;
-      map[k1][k2].count++;
-    }
-
-    const rows = Array.from(keys1).slice(0, 6);
-    const cols = Array.from(keys2).slice(0, 6);
-
-    if (rows.length < 2 || cols.length < 2) return null;
-
-    const cells: { r: string; c: string; avgCpa: number }[] = [];
-    for (const r of rows) {
-      for (const c of cols) {
-        const cell = map[r]?.[c];
-        cells.push({
-          r,
-          c,
-          avgCpa: cell && cell.count > 0 ? cell.cpa / cell.count : -1,
-        });
-      }
-    }
-
-    const validCpas = cells.filter((c) => c.avgCpa >= 0).map((c) => c.avgCpa);
-    const minCpa = Math.min(...validCpas);
-    const maxCpa = Math.max(...validCpas);
-
-    return { rows, cols, cells, minCpa, maxCpa, seg1Label: seg1.label, seg2Label: seg2.label };
-  }, [config, creatives]);
-
-  if (!metric) return null;
-
-  function cellColor(cpa: number): string {
-    if (cpa < 0) return "bg-gray-800 text-gray-600";
-    const { minCpa, maxCpa } = metric!;
-    if (maxCpa === minCpa) return "bg-emerald-500/20 text-emerald-300";
-    const pct = (cpa - minCpa) / (maxCpa - minCpa); // 0 = best (low CPA), 1 = worst
-    if (pct < 0.25) return "bg-emerald-500/30 text-emerald-300";
-    if (pct < 0.5) return "bg-blue-500/20 text-blue-300";
-    if (pct < 0.75) return "bg-amber-500/20 text-amber-300";
-    return "bg-red-500/20 text-red-300";
-  }
-
-  return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-800">
-        <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center">
-          <TrendingUp className="w-4 h-4 text-blue-400" />
+      {/* Winners badge */}
+      {group.winners > 0 && (
+        <div className="flex items-center gap-1.5 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2 py-1">
+          <Trophy className="w-3 h-3" />
+          <span>{group.winners} winner{group.winners > 1 ? "s" : ""}</span>
         </div>
-        <div>
-          <h3 className="font-semibold text-white text-sm">
-            Heatmap CPA — {metric.seg1Label} × {metric.seg2Label}
-          </h3>
-          <p className="text-xs text-gray-500">
-            Vert = CPA bas (meilleur) · Rouge = CPA élevé
-          </p>
-        </div>
-      </div>
-      <div className="p-4 overflow-x-auto">
-        <table className="text-xs w-full">
-          <thead>
-            <tr>
-              <th className="text-left text-gray-500 pb-2 pr-3 font-medium w-28">
-                {metric.seg1Label} \ {metric.seg2Label}
-              </th>
-              {metric.cols.map((c) => (
-                <th key={c} className="text-center pb-2 px-1 text-gray-400 font-medium max-w-20">
-                  <span className="block truncate">{c}</span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {metric.rows.map((r) => (
-              <tr key={r}>
-                <td className="text-gray-400 py-1.5 pr-3 font-medium truncate max-w-28">
-                  {r}
-                </td>
-                {metric.cols.map((c) => {
-                  const cell = metric.cells.find(
-                    (cell) => cell.r === r && cell.c === c
-                  );
-                  return (
-                    <td key={c} className="px-1 py-1.5 text-center">
-                      <span
-                        className={`inline-block px-2 py-1 rounded-lg font-semibold ${cellColor(cell?.avgCpa ?? -1)}`}
-                      >
-                        {cell && cell.avgCpa >= 0
-                          ? `€${cell.avgCpa.toFixed(0)}`
-                          : "—"}
-                      </span>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      )}
     </div>
   );
 }
@@ -474,160 +161,185 @@ function SegmentHeatmap({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function PatternsPage() {
-  const { creatives } = useCreativesContext();
-  const [config, setConfig] = useState<NamingConfig>(DEFAULT_CONFIG);
-  const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
+  const { creatives, isLoading } = useCreativesContext();
+  const [activeSegmentIdx, setActiveSegmentIdx] = useState(0);
 
-  // Load naming config from localStorage (same as /naming page)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = localStorage.getItem("namingConfig");
-      if (raw) setConfig(JSON.parse(raw));
-    } catch {}
-  }, []);
+  const config = useMemo(() => getNamingConfig(), []);
 
-  const segmentGroups = useMemo(
-    () =>
-      config.segments.map((seg) => ({
-        seg,
-        groups: groupBySegment(seg, config.separator, creatives),
-      })),
-    [config, creatives]
-  );
+  const groups = useMemo(() => {
+    if (!config.segments[activeSegmentIdx]) return [];
+    const seg = config.segments[activeSegmentIdx];
+    return groupBySegment(creatives, config.separator, seg.position);
+  }, [creatives, config, activeSegmentIdx]);
 
-  const totalCreatives = creatives.length;
-  const totalWinners = creatives.filter((c) => c.status === "Winner").length;
-  const categorizedCount = creatives.filter((c) => {
-    const parts = c.name.split(config.separator).map((p) => p.trim()).filter(Boolean);
-    return parts.length >= config.segments.length;
-  }).length;
-  const healthPct =
-    totalCreatives > 0
-      ? Math.round((categorizedCount / totalCreatives) * 100)
-      : 0;
+  const totalSpend = useMemo(() => groups.reduce((s, g) => s + g.spend, 0), [groups]);
+
+  const topByRoas = useMemo(() => [...groups].sort((a, b) => b.roas - a.roas)[0], [groups]);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-5">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-violet-500/20 flex items-center justify-center">
-            <Shapes className="w-5 h-5 text-violet-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">Patterns</h1>
-            <p className="text-gray-400 text-sm mt-0.5">
-              Découvrez les tendances de vos créatives
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {/* Health badge */}
-          <div
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-medium ${
-              healthPct >= 70
-                ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                : healthPct >= 40
-                ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                : "bg-red-500/10 text-red-300 border-red-500/30"
-            }`}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                healthPct >= 70
-                  ? "bg-emerald-400"
-                  : healthPct >= 40
-                  ? "bg-amber-400"
-                  : "bg-red-400"
-              }`}
-            />
-            {healthPct}% catégorisé
-          </div>
-          <Link
-            href="/naming"
-            className="text-xs text-violet-400 hover:text-violet-300 border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 rounded-full transition-colors"
-          >
-            ⚙ Configurer le naming
-          </Link>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-white">Patterns</h1>
+        <p className="text-gray-400 text-sm mt-0.5">
+          Performance par segment de naming convention
+        </p>
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          {
-            label: "Total créatives",
-            value: totalCreatives,
-            sub: `${categorizedCount} catégorisées`,
-            color: "text-white",
-          },
-          {
-            label: "Winners",
-            value: totalWinners,
-            sub: `${totalCreatives > 0 ? Math.round((totalWinners / totalCreatives) * 100) : 0}% hit rate`,
-            color: "text-emerald-400",
-          },
-          {
-            label: "Segments analysés",
-            value: config.segments.length,
-            sub: config.segments.map((s) => s.label).join(" · "),
-            color: "text-violet-400",
-          },
-        ].map((stat) => (
-          <div
-            key={stat.label}
-            className="bg-gray-900 border border-gray-800 rounded-xl p-4"
-          >
-            <p className="text-xs text-gray-500 uppercase tracking-wide font-medium mb-1">
-              {stat.label}
-            </p>
-            <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-            <p className="text-xs text-gray-500 mt-0.5 truncate">{stat.sub}</p>
-          </div>
-        ))}
-      </div>
+      <DateRangePicker />
 
-      {/* Segment cards grid */}
-      {creatives.length === 0 ? (
-        <div className="text-center py-16 text-gray-500 text-sm">
-          Aucune créative disponible. Configurez votre compte Meta dans les{" "}
-          <Link href="/settings" className="text-violet-400 hover:underline">
-            paramètres
-          </Link>
-          .
+      {/* Summary KPIs */}
+      {!isLoading && groups.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+            <div className="flex items-center gap-2 text-gray-400 text-xs mb-1">
+              <Layers className="w-3.5 h-3.5" />
+              Segments
+            </div>
+            <div className="text-2xl font-bold text-white">{groups.length}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{config.segments[activeSegmentIdx]?.name}</div>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+            <div className="flex items-center gap-2 text-gray-400 text-xs mb-1">
+              <DollarSign className="w-3.5 h-3.5" />
+              Budget total
+            </div>
+            <div className="text-2xl font-bold text-white">
+              ${totalSpend >= 1000 ? `${(totalSpend / 1000).toFixed(1)}k` : totalSpend}
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5">{creatives.length} créas</div>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+            <div className="flex items-center gap-2 text-gray-400 text-xs mb-1">
+              <TrendingUp className="w-3.5 h-3.5" />
+              Best ROAS
+            </div>
+            <div className="text-2xl font-bold text-emerald-400">
+              {topByRoas ? `${topByRoas.roas.toFixed(1)}x` : "—"}
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5 truncate">{topByRoas?.key}</div>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+            <div className="flex items-center gap-2 text-gray-400 text-xs mb-1">
+              <Trophy className="w-3.5 h-3.5" />
+              Winners
+            </div>
+            <div className="text-2xl font-bold text-amber-400">
+              {groups.reduce((s, g) => s + g.winners, 0)}
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5">total</div>
+          </div>
         </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {segmentGroups.map(({ seg, groups }) => (
-              <SegmentCard
-                key={seg.label}
-                seg={seg}
-                groups={groups}
-                onCreativeClick={setSelectedCreative}
-              />
-            ))}
-          </div>
-
-          {/* Top winners by best differentiating segment */}
-          <TopWinnersSection
-            config={config}
-            creatives={creatives}
-            onCreativeClick={setSelectedCreative}
-          />
-
-          {/* CPA heatmap */}
-          <SegmentHeatmap config={config} creatives={creatives} />
-        </>
       )}
 
-      {/* Creative modal */}
-      {selectedCreative && (
-        <CreativeModal
-          creative={selectedCreative}
-          onClose={() => setSelectedCreative(null)}
-        />
+      {/* Segment tabs */}
+      {config.segments.length > 1 && (
+        <div className="flex gap-2">
+          {config.segments.map((seg, i) => (
+            <button
+              key={i}
+              onClick={() => setActiveSegmentIdx(i)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                activeSegmentIdx === i
+                  ? "bg-violet-600 text-white"
+                  : "bg-gray-900 border border-gray-800 text-gray-400 hover:text-white hover:bg-gray-800"
+              }`}
+            >
+              {seg.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="text-center py-12 text-gray-500 text-sm">Chargement...</div>
+      )}
+
+      {/* Empty state */}
+      {!isLoading && groups.length === 0 && (
+        <div className="text-center py-12 text-gray-500 text-sm space-y-2">
+          <Layers className="w-8 h-8 mx-auto text-gray-700" />
+          <p>Aucune créa trouvée.</p>
+          <p className="text-xs">Configure ta naming convention sur la page <strong className="text-gray-400">Naming</strong>.</p>
+        </div>
+      )}
+
+      {/* Pattern cards grid */}
+      {!isLoading && groups.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {groups.map((group, i) => (
+            <PatternCard key={group.key} group={group} index={i} totalSpend={totalSpend} />
+          ))}
+        </div>
+      )}
+
+      {/* Table view below cards */}
+      {!isLoading && groups.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-800">
+            <h2 className="text-sm font-semibold text-white">Vue tableau</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-500 text-xs uppercase tracking-wide border-b border-gray-800">
+                  <th className="text-left py-3 px-4">Segment</th>
+                  <th className="text-right py-3 px-4">Créas</th>
+                  <th className="text-right py-3 px-4">Spend</th>
+                  <th className="text-right py-3 px-4">Budget %</th>
+                  <th className="text-right py-3 px-4">ROAS</th>
+                  <th className="text-right py-3 px-4">CPA</th>
+                  <th className="text-right py-3 px-4">CTR</th>
+                  <th className="text-right py-3 px-4">Winners</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((g, i) => (
+                  <tr
+                    key={g.key}
+                    className={`border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors ${
+                      i === 0 ? "bg-violet-900/10" : ""
+                    }`}
+                  >
+                    <td className="py-3 px-4 font-medium text-white">{g.key}</td>
+                    <td className="py-3 px-4 text-right text-gray-300">{g.count}</td>
+                    <td className="py-3 px-4 text-right text-gray-300">
+                      ${g.spend >= 1000 ? `${(g.spend / 1000).toFixed(1)}k` : g.spend}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="w-16 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-violet-500 rounded-full"
+                            style={{ width: `${Math.min((g.spend / totalSpend) * 100, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-gray-400 text-xs w-10 text-right">
+                          {((g.spend / totalSpend) * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <span className={g.roas >= 3 ? "text-emerald-400 font-semibold" : "text-gray-300"}>
+                        {g.roas.toFixed(2)}x
+                      </span>
+                    </td>
+                    <td className="py-3 px-4 text-right text-gray-300">${g.cpa.toFixed(0)}</td>
+                    <td className="py-3 px-4 text-right text-gray-300">{g.ctr.toFixed(2)}%</td>
+                    <td className="py-3 px-4 text-right">
+                      {g.winners > 0 ? (
+                        <span className="text-amber-400 font-semibold">{g.winners}</span>
+                      ) : (
+                        <span className="text-gray-600">0</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
