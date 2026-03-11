@@ -2,7 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
-import type { WoWData } from "@/app/api/meta/wow/route";
+interface WoWPeriod {
+  spend: number;
+  cpa: number;
+  ctr: number;
+  cpm: number;
+  roas: number;
+}
+
+interface WoWData {
+  current: WoWPeriod;
+  previous: WoWPeriod;
+  currentRange: { since: string; until: string };
+  previousRange: { since: string; until: string };
+}
 
 interface WoWBannerProps {
   accountId: string;
