@@ -3,10 +3,20 @@
 import { useCreativesContext } from "@/lib/creatives-context";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { TrendingUp, DollarSign, MousePointerClick, Zap } from "lucide-react";
-import { useMemo } from "react";
+import {
+  TrendingUp,
+  DollarSign,
+  MousePointerClick,
+  Zap,
+  Users,
+  Sparkles,
+  SendHorizonal,
+  Image as ImageIcon,
+  ChevronRight,
+} from "lucide-react";
+import { useMemo, useEffect, useState, useRef } from "react";
 import { DateRangePicker } from "@/components/date-range-picker";
-import { WowBanner } from "@/components/wow-indicator";
+import { WoWBanner } from "@/components/wow-banner";
 
 // ─── KPI card ────────────────────────────────────────────────────────────────
 
@@ -40,14 +50,277 @@ function KpiCard({ label, value, sub, icon: Icon, gradient, accentText }: KpiCar
   );
 }
 
+// ─── AI Prompt Bar ────────────────────────────────────────────────────────────
+
+interface AiAnalysisResult {
+  question: string;
+  answer: string;
+}
+
+function analyzeCreatives(
+  question: string,
+  creatives: ReturnType<typeof useCreativesContext>["creatives"]
+): string {
+  const q = question.toLowerCase();
+
+  if (creatives.length === 0) {
+    return "Aucune créa disponible pour analyser. Connectez votre compte Meta et sélectionnez une période.";
+  }
+
+  const totalSpend = creatives.reduce((s, c) => s + c.spend, 0);
+  const sorted = [...creatives].sort((a, b) => b.spend - a.spend);
+  const topSpend = sorted[0];
+  const winners = creatives.filter((c) => c.status === "Winner");
+  const losers = creatives.filter((c) => c.status === "Loser");
+  const fatigued = creatives.filter((c) => c.status === "Fatigued");
+  const avgCpa = creatives.filter((c) => c.cpa > 0).reduce((s, c) => s + c.cpa, 0) / (creatives.filter((c) => c.cpa > 0).length || 1);
+  const avgCtr = creatives.reduce((s, c) => s + c.ctr, 0) / creatives.length;
+  const videoCreatives = creatives.filter((c) => c.format === "Video");
+  const imageCreatives = creatives.filter((c) => c.format === "Image");
+
+  if (q.includes("couper") || q.includes("arrêter") || q.includes("stop") || q.includes("off")) {
+    if (losers.length === 0 && fatigued.length === 0) {
+      return "Bonne nouvelle — aucune créa classée Loser ou Fatigued en ce moment. Continuez à monitorer les performances.";
+    }
+    let result = `Créas à considérer pour la coupe :\n\n`;
+    if (losers.length > 0) {
+      result += `🔴 ${losers.length} Loser(s) : ${losers.map((c) => c.name).join(", ")}\n`;
+      result += `→ ROAS moyen : ${(losers.reduce((s, c) => s + c.roas, 0) / losers.length).toFixed(1)}x, CPA moyen : $${(losers.reduce((s, c) => s + c.cpa, 0) / losers.length).toFixed(0)}\n\n`;
+    }
+    if (fatigued.length > 0) {
+      result += `🟡 ${fatigued.length} Fatiguée(s) : ${fatigued.map((c) => c.name).join(", ")}\n`;
+      result += `→ Ces créas montrent une baisse de performance. Tester de nouvelles variations.`;
+    }
+    return result;
+  }
+
+  if (q.includes("scale") || q.includes("augmenter") || q.includes("opportunit")) {
+    if (winners.length === 0) {
+      return `Pas encore de Winners identifiés. La créa avec le meilleur ROAS est "${sorted.sort((a, b) => b.roas - a.roas)[0]?.name}" à ${sorted.sort((a, b) => b.roas - a.roas)[0]?.roas.toFixed(1)}x. Testez des variations similaires.`;
+    }
+    const topWinner = winners.sort((a, b) => b.roas - a.roas)[0];
+    return `✅ ${winners.length} Winner(s) identifié(s). \n\nMeilleure opportunité de scale : "${topWinner.name}"\n→ ROAS : ${topWinner.roas.toFixed(1)}x | CPA : $${topWinner.cpa.toFixed(0)} | Spend actuel : $${topWinner.spend >= 1000 ? `${(topWinner.spend / 1000).toFixed(1)}k` : topWinner.spend}\n\nRecommandation : augmenter progressivement le budget de 20-30% par jour tout en surveillant le CPA.`;
+  }
+
+  if (q.includes("analys") || q.includes("meilleur") || q.includes("top")) {
+    if (!topSpend) return "Aucune créa disponible.";
+    return `📊 Analyse de la créa top spend :\n\n"${topSpend.name}"\n→ Spend : $${topSpend.spend >= 1000 ? `${(topSpend.spend / 1000).toFixed(1)}k` : topSpend.spend}\n→ ROAS : ${topSpend.roas.toFixed(1)}x | CPA : $${topSpend.cpa.toFixed(0)} | CTR : ${topSpend.ctr.toFixed(2)}%\n→ Statut : ${topSpend.status}\n\nCette créa représente ${totalSpend > 0 ? ((topSpend.spend / totalSpend) * 100).toFixed(0) : 0}% du budget total.`;
+  }
+
+  if (q.includes("format") || q.includes("video") || q.includes("image")) {
+    const videoSpend = videoCreatives.reduce((s, c) => s + c.spend, 0);
+    const imageSpend = imageCreatives.reduce((s, c) => s + c.spend, 0);
+    const videoRoas = videoCreatives.length > 0 ? videoCreatives.reduce((s, c) => s + c.roas, 0) / videoCreatives.length : 0;
+    const imageRoas = imageCreatives.length > 0 ? imageCreatives.reduce((s, c) => s + c.roas, 0) / imageCreatives.length : 0;
+    return `📹 Vidéo : ${videoCreatives.length} créas, $${videoSpend >= 1000 ? `${(videoSpend / 1000).toFixed(1)}k` : videoSpend} spend, ROAS moyen ${videoRoas.toFixed(1)}x\n🖼️ Image : ${imageCreatives.length} créas, $${imageSpend >= 1000 ? `${(imageSpend / 1000).toFixed(1)}k` : imageSpend} spend, ROAS moyen ${imageRoas.toFixed(1)}x\n\n${videoRoas > imageRoas ? "Les vidéos surperforment les images en ROAS." : "Les images surperforment les vidéos en ROAS."}`;
+  }
+
+  // Default summary
+  return `📈 Résumé de la période :\n\n• ${creatives.length} créas actives\n• Spend total : $${totalSpend >= 1000 ? `${(totalSpend / 1000).toFixed(1)}k` : Math.round(totalSpend)}\n• CTR moyen : ${avgCtr.toFixed(2)}%\n• CPA moyen : ${avgCpa > 0 ? `$${avgCpa.toFixed(0)}` : "N/A"}\n• ${winners.length} Winner(s) | ${fatigued.length} Fatigué(s) | ${losers.length} Loser(s)\n\nTop spend : "${topSpend?.name}" à $${topSpend?.spend >= 1000 ? `${(topSpend?.spend / 1000).toFixed(1)}k` : topSpend?.spend}`;
+}
+
+function AiPromptBar({
+  creatives,
+}: {
+  creatives: ReturnType<typeof useCreativesContext>["creatives"];
+}) {
+  const [prompt, setPrompt] = useState("");
+  const [result, setResult] = useState<AiAnalysisResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const QUICK_PROMPTS = [
+    "Quelles créas à couper ?",
+    "Opportunités de scale",
+    "Analyser le top spend",
+    "Comparaison formats",
+  ];
+
+  function handleSubmit(q: string) {
+    if (!q.trim()) return;
+    setIsAnalyzing(true);
+    setResult(null);
+    // Simulate a brief "thinking" delay for UX
+    setTimeout(() => {
+      const answer = analyzeCreatives(q, creatives);
+      setResult({ question: q, answer });
+      setIsAnalyzing(false);
+    }, 600);
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded-lg bg-violet-600/20 flex items-center justify-center">
+          <Sparkles className="w-4 h-4 text-violet-400" />
+        </div>
+        <h2 className="text-sm font-semibold text-white">Demandez-moi n&apos;importe quoi</h2>
+      </div>
+
+      {/* Quick prompts */}
+      <div className="flex flex-wrap gap-2">
+        {QUICK_PROMPTS.map((q) => (
+          <button
+            key={q}
+            onClick={() => {
+              setPrompt(q);
+              handleSubmit(q);
+            }}
+            className="px-3 py-1.5 rounded-xl text-xs font-medium bg-gray-800 hover:bg-violet-600/20 border border-gray-700 hover:border-violet-500/40 text-gray-300 hover:text-violet-300 transition-colors"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+
+      {/* Input row */}
+      <div className="flex gap-2">
+        <textarea
+          ref={textareaRef}
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSubmit(prompt);
+            }
+          }}
+          placeholder="Ask anything about your creatives..."
+          rows={2}
+          className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-violet-500/60 resize-none"
+        />
+        <button
+          onClick={() => handleSubmit(prompt)}
+          disabled={!prompt.trim() || isAnalyzing}
+          className="self-end px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+        >
+          <SendHorizonal className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Result */}
+      {isAnalyzing && (
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="w-3 h-3 rounded-full bg-violet-500 animate-pulse" />
+          Analyse en cours…
+        </div>
+      )}
+
+      {result && !isAnalyzing && (
+        <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-4 space-y-2">
+          <p className="text-xs text-gray-500 italic">&ldquo;{result.question}&rdquo;</p>
+          <p className="text-sm text-gray-200 whitespace-pre-line leading-relaxed">{result.answer}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Top Créa de la semaine widget ────────────────────────────────────────────
+
+function TopCreativeWidget({
+  creatives,
+  onPrompt,
+}: {
+  creatives: ReturnType<typeof useCreativesContext>["creatives"];
+  onPrompt: (q: string) => void;
+}) {
+  const topCreative = useMemo(
+    () => [...creatives].sort((a, b) => b.spend - a.spend)[0] ?? null,
+    [creatives]
+  );
+
+  const STARTERS = ["Analyser cette créa", "Quelles créas à couper ?", "Opportunités de scale"];
+
+  if (!topCreative) return null;
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+      <h2 className="text-sm font-semibold text-white">Top créa de la semaine</h2>
+
+      <div className="flex gap-4">
+        {/* Thumbnail */}
+        <div className="w-28 h-36 rounded-xl overflow-hidden shrink-0 bg-gray-800 flex items-center justify-center">
+          {topCreative.thumbnailUrl ? (
+            <img
+              src={topCreative.thumbnailUrl}
+              alt={topCreative.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div
+              className={`w-full h-full bg-gradient-to-br ${topCreative.thumbnailColor} flex items-center justify-center`}
+            >
+              <ImageIcon className="w-7 h-7 text-white/40" />
+            </div>
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 space-y-3">
+          <div>
+            <p className="text-xs text-gray-500 truncate">{topCreative.name}</p>
+            <p className="text-sm text-gray-300 mt-1 leading-relaxed">
+              Cette créa a généré{" "}
+              <span className="text-white font-semibold">
+                ${topCreative.spend >= 1000
+                  ? `${(topCreative.spend / 1000).toFixed(1)}k`
+                  : topCreative.spend}
+              </span>{" "}
+              de spend
+              {topCreative.cpa > 0 && (
+                <>
+                  {" "}avec un CPA de{" "}
+                  <span className="text-white font-semibold">${topCreative.cpa.toFixed(0)}</span>
+                </>
+              )}
+              .
+            </p>
+          </div>
+
+          {/* Thought starters */}
+          <div className="space-y-1.5">
+            <p className="text-[10px] text-gray-600 uppercase tracking-wide">Thought starters</p>
+            {STARTERS.map((s) => (
+              <button
+                key={s}
+                onClick={() => onPrompt(s)}
+                className="flex items-center gap-2 w-full text-left px-3 py-1.5 rounded-lg bg-gray-800/60 hover:bg-violet-600/20 border border-gray-700/50 hover:border-violet-500/30 text-xs text-gray-300 hover:text-violet-300 transition-colors group"
+              >
+                <ChevronRight className="w-3 h-3 text-gray-600 group-hover:text-violet-400 shrink-0" />
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Dashboard home (logged in) ───────────────────────────────────────────────
 
 function DashboardHome() {
-  const { creatives, isLoading, dateRange, wowData, isWowLoading } = useCreativesContext();
+  const { creatives, isLoading, dateRange } = useCreativesContext();
+  const [metaAccountId, setMetaAccountId] = useState<string | null>(null);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiResult, setAiResult] = useState<AiAnalysisResult | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  useEffect(() => {
+    const raw = localStorage.getItem("impulse_meta_account");
+    if (raw) {
+      try {
+        setMetaAccountId(JSON.parse(raw).accountId ?? null);
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }, []);
 
   const kpis = useMemo(() => {
     if (creatives.length === 0) {
-      return { totalSpend: 0, avgCtr: 0, avgHookRate: 0, avgRoas: 0 };
+      return { totalSpend: 0, avgCtr: 0, avgHookRate: 0, avgRoas: 0, avgCpa: 0, activeCount: 0 };
     }
     const totalSpend = creatives.reduce((s, c) => s + c.spend, 0);
     const avgCtr =
@@ -59,11 +332,25 @@ function DashboardHome() {
         : 0;
     const avgRoas =
       creatives.reduce((s, c) => s + c.roas, 0) / creatives.length;
-    return { totalSpend, avgCtr, avgHookRate, avgRoas };
+    const cpas = creatives.filter((c) => c.cpa > 0);
+    const avgCpa = cpas.length > 0 ? cpas.reduce((s, c) => s + c.cpa, 0) / cpas.length : 0;
+    const activeCount = creatives.filter((c) => c.status === "Active" || c.status === "Winner").length;
+    return { totalSpend, avgCtr, avgHookRate, avgRoas, avgCpa, activeCount };
   }, [creatives]);
 
   const fmtSpend = (n: number) =>
     n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
+
+  function handleThoughtStarter(q: string) {
+    setAiPrompt(q);
+    setIsAnalyzing(true);
+    setAiResult(null);
+    setTimeout(() => {
+      const answer = analyzeCreatives(q, creatives);
+      setAiResult({ question: q, answer });
+      setIsAnalyzing(false);
+    }, 600);
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -82,6 +369,123 @@ function DashboardHome() {
       <p className="text-xs text-gray-600 -mt-2">
         {dateRange.since} — {dateRange.until}
       </p>
+
+      {/* Week over Week trends banner */}
+      {metaAccountId && (
+        <WoWBanner accountId={metaAccountId} />
+      )}
+
+      {/* ── Cette semaine en un coup d'œil ─────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
+          Cette semaine en un coup d&apos;œil
+        </h2>
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-24 bg-gray-900 border border-gray-800 rounded-2xl animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-gradient-to-br from-violet-950/60 to-transparent border border-gray-800 rounded-2xl p-4 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Total Spend</span>
+                <DollarSign className="w-4 h-4 text-violet-400" />
+              </div>
+              <p className="text-2xl font-extrabold text-violet-400">{fmtSpend(kpis.totalSpend)}</p>
+              <p className="text-xs text-gray-600">7 derniers jours</p>
+            </div>
+            <div className="bg-gradient-to-br from-blue-950/60 to-transparent border border-gray-800 rounded-2xl p-4 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">CPA moyen</span>
+                <TrendingUp className="w-4 h-4 text-blue-400" />
+              </div>
+              <p className="text-2xl font-extrabold text-blue-400">
+                {kpis.avgCpa > 0 ? `$${kpis.avgCpa.toFixed(0)}` : "—"}
+              </p>
+              <p className="text-xs text-gray-600">Coût par acquisition</p>
+            </div>
+            <div className="bg-gradient-to-br from-emerald-950/60 to-transparent border border-gray-800 rounded-2xl p-4 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Créas actives</span>
+                <Users className="w-4 h-4 text-emerald-400" />
+              </div>
+              <p className="text-2xl font-extrabold text-emerald-400">{kpis.activeCount}</p>
+              <p className="text-xs text-gray-600">Active + Winner</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Two-column: Top créa + AI prompt ───────────────────────────────── */}
+      {!isLoading && creatives.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <TopCreativeWidget
+            creatives={creatives}
+            onPrompt={handleThoughtStarter}
+          />
+
+          {/* AI prompt panel */}
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-violet-600/20 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-violet-400" />
+              </div>
+              <h2 className="text-sm font-semibold text-white">Demandez-moi n&apos;importe quoi</h2>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {["Quelles créas à couper ?", "Opportunités de scale", "Analyser le top spend"].map((q) => (
+                <button
+                  key={q}
+                  onClick={() => handleThoughtStarter(q)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-medium bg-gray-800 hover:bg-violet-600/20 border border-gray-700 hover:border-violet-500/40 text-gray-300 hover:text-violet-300 transition-colors"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              <textarea
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleThoughtStarter(aiPrompt);
+                  }
+                }}
+                placeholder="Ask anything about your creatives..."
+                rows={2}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-violet-500/60 resize-none"
+              />
+              <button
+                onClick={() => handleThoughtStarter(aiPrompt)}
+                disabled={!aiPrompt.trim() || isAnalyzing}
+                className="self-end px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition-colors"
+              >
+                <SendHorizonal className="w-4 h-4" />
+              </button>
+            </div>
+
+            {isAnalyzing && (
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <div className="w-3 h-3 rounded-full bg-violet-500 animate-pulse" />
+                Analyse en cours…
+              </div>
+            )}
+
+            {aiResult && !isAnalyzing && (
+              <div className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-4 space-y-2">
+                <p className="text-xs text-gray-500 italic">&ldquo;{aiResult.question}&rdquo;</p>
+                <p className="text-sm text-gray-200 whitespace-pre-line leading-relaxed">{aiResult.answer}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* KPI cards */}
       {isLoading ? (
@@ -130,20 +534,8 @@ function DashboardHome() {
         </div>
       )}
 
-      {/* Week over Week Banner */}
-      {!isLoading && !isWowLoading && wowData && (
-        <WowBanner
-          wow={wowData.aggregateWow}
-          currentPeriod={wowData.currentPeriod}
-          prevPeriod={wowData.prevPeriod}
-        />
-      )}
-      {!isLoading && isWowLoading && (
-        <div className="h-28 bg-gray-900 border border-gray-800 rounded-2xl animate-pulse" />
-      )}
-
       {/* Quick links */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 pt-2">
         {[
           {
             href: "/creatives",
@@ -156,6 +548,12 @@ function DashboardHome() {
             label: "A/B Compare",
             desc: "Compare two creatives head-to-head",
             color: "hover:border-blue-700/60",
+          },
+          {
+            href: "/comparaisons",
+            label: "Comparaisons",
+            desc: "Métriques agrégées par format, plateforme et statut",
+            color: "hover:border-pink-700/60",
           },
           {
             href: "/fatigue",

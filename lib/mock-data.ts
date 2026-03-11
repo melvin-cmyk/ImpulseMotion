@@ -12,18 +12,7 @@ export interface DayMetric {
   conversions: number;
 }
 
-/**
- * Week-over-Week percentage changes for key metrics.
- * A positive value means the metric went up from prev week to current week.
- * null means no data available for the previous period.
- */
-export interface WowMetrics {
-  spendChange: number | null;
-  ctrChange: number | null;
-  cpaChange: number | null;
-  roasChange: number | null;
-  hookRateChange: number | null;
-}
+export type AspectRatio = "9:16" | "16:9" | "1:1" | "Carousel";
 
 export interface Creative {
   id: string;
@@ -43,6 +32,12 @@ export interface Creative {
   videoId?: string;
   /** Meta campaign_id — used for campaign filtering */
   campaignId?: string;
+  /** Ad headline / title (from Meta body or title field) */
+  headline?: string;
+  /** Ad body copy text */
+  body?: string;
+  /** Visual aspect ratio of the creative */
+  aspectRatio?: AspectRatio;
   spend: number;
   roas: number;
   cpa: number;
@@ -59,23 +54,6 @@ export interface Creative {
   threeSecViews: number;
   fifteenSecViews: number;
   trend: DayMetric[];
-  /** Week-over-week change metrics (last 7 days vs previous 7 days) */
-  wow?: WowMetrics;
-}
-
-/** Generate plausible mock WoW metrics based on creative status */
-function generateWow(status: Status): WowMetrics {
-  if (status === "Winner") {
-    return { spendChange: 18.5, ctrChange: 12.3, cpaChange: -8.2, roasChange: 14.1, hookRateChange: 9.7 };
-  }
-  if (status === "Loser") {
-    return { spendChange: -5.2, ctrChange: -22.8, cpaChange: 31.4, roasChange: -25.6, hookRateChange: -18.3 };
-  }
-  if (status === "Fatigued") {
-    return { spendChange: 2.1, ctrChange: -14.7, cpaChange: 19.6, roasChange: -12.3, hookRateChange: -21.0 };
-  }
-  // Active — mixed
-  return { spendChange: 8.4, ctrChange: 5.1, cpaChange: -3.9, roasChange: 6.2, hookRateChange: 4.5 };
 }
 
 function generateTrend(baseRoas: number, status: Status): DayMetric[] {
@@ -112,6 +90,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Winner",
     thumbnailColor: "from-violet-500 to-purple-700",
+    headline: "I lost 12kg in 60 days — here's what actually worked",
+    body: "After trying everything, this was the only thing that gave me real, lasting results. No gimmicks. No crash diets. Just science-backed nutrition that fits your life.",
+    aspectRatio: "9:16",
     spend: 4820,
     roas: 5.8,
     cpa: 12.4,
@@ -124,7 +105,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 184600,
     fifteenSecViews: 119280,
     trend: generateTrend(5.8, "Winner"),
-    wow: generateWow("Winner"),
   },
   {
     id: "c2",
@@ -133,6 +113,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Winner",
     thumbnailColor: "from-pink-500 to-rose-700",
+    headline: "POV: You finally found something that works 🔥",
+    body: "I was skeptical at first. But after 3 weeks, the results speak for themselves. My energy is through the roof and I'm down 8 pounds. This is not a drill.",
+    aspectRatio: "9:16",
     spend: 3910,
     roas: 5.2,
     cpa: 14.1,
@@ -145,7 +128,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 369200,
     fifteenSecViews: 202960,
     trend: generateTrend(5.2, "Winner"),
-    wow: generateWow("Winner"),
   },
   {
     id: "c3",
@@ -154,6 +136,9 @@ export const mockCreatives: Creative[] = [
     format: "Image",
     status: "Winner",
     thumbnailColor: "from-blue-500 to-indigo-700",
+    headline: "Save 40% — This Weekend Only",
+    body: "Don't miss our biggest sale of the year. Premium quality at a price that makes sense. Free shipping on orders over $50.",
+    aspectRatio: "1:1",
     spend: 2750,
     roas: 4.9,
     cpa: 18.2,
@@ -166,7 +151,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(4.9, "Winner"),
-    wow: generateWow("Winner"),
   },
   {
     id: "c4",
@@ -175,6 +159,9 @@ export const mockCreatives: Creative[] = [
     format: "Carousel",
     status: "Active",
     thumbnailColor: "from-teal-500 to-emerald-700",
+    headline: "Meet the full collection",
+    body: "From everyday essentials to premium picks — swipe to explore our bestsellers and find your perfect match.",
+    aspectRatio: "Carousel",
     spend: 1890,
     roas: 3.6,
     cpa: 24.5,
@@ -187,7 +174,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(3.6, "Active"),
-    wow: generateWow("Active"),
   },
   {
     id: "c5",
@@ -196,6 +182,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Active",
     thumbnailColor: "from-orange-500 to-red-700",
+    headline: "Before vs After — 30 days of consistency",
+    body: "The transformation you've been waiting for. Real customers, real results. See what 30 days can do when you commit.",
+    aspectRatio: "9:16",
     spend: 2100,
     roas: 3.2,
     cpa: 29.8,
@@ -208,7 +197,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 226200,
     fifteenSecViews: 128700,
     trend: generateTrend(3.2, "Active"),
-    wow: generateWow("Active"),
   },
   {
     id: "c6",
@@ -217,6 +205,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Active",
     thumbnailColor: "from-cyan-500 to-blue-700",
+    headline: "How to get results in 3 simple steps",
+    body: "Step 1: Sign up. Step 2: Follow the plan. Step 3: Watch the results roll in. It really is that simple — thousands of customers can't be wrong.",
+    aspectRatio: "16:9",
     spend: 1450,
     roas: 3.0,
     cpa: 32.1,
@@ -229,7 +220,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 49280,
     fifteenSecViews: 30240,
     trend: generateTrend(3.0, "Active"),
-    wow: generateWow("Active"),
   },
   {
     id: "c7",
@@ -238,6 +228,9 @@ export const mockCreatives: Creative[] = [
     format: "Image",
     status: "Active",
     thumbnailColor: "from-lime-500 to-green-700",
+    headline: "Live the life you deserve",
+    body: "Join 50,000+ people who've upgraded their lifestyle. Premium products. Real impact. Delivered to your door.",
+    aspectRatio: "1:1",
     spend: 980,
     roas: 2.8,
     cpa: 38.7,
@@ -250,7 +243,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(2.8, "Active"),
-    wow: generateWow("Active"),
   },
   {
     id: "c8",
@@ -259,6 +251,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Fatigued",
     thumbnailColor: "from-amber-500 to-yellow-700",
+    headline: "Can you handle the 7-day challenge?",
+    body: "Thousands have tried. Most succeed. The ones who don't just didn't commit. Are you in?",
+    aspectRatio: "9:16",
     spend: 3200,
     roas: 2.1,
     cpa: 47.2,
@@ -271,7 +266,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 155800,
     fifteenSecViews: 77900,
     trend: generateTrend(2.1, "Fatigued"),
-    wow: generateWow("Fatigued"),
   },
   {
     id: "c9",
@@ -280,6 +274,9 @@ export const mockCreatives: Creative[] = [
     format: "Carousel",
     status: "Fatigued",
     thumbnailColor: "from-fuchsia-500 to-pink-700",
+    headline: "5 features that change everything",
+    body: "Swipe through to discover why over 30,000 customers switched. Each feature designed with one goal: making your life easier.",
+    aspectRatio: "Carousel",
     spend: 2600,
     roas: 1.9,
     cpa: 52.4,
@@ -292,7 +289,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(1.9, "Fatigued"),
-    wow: generateWow("Fatigued"),
   },
   {
     id: "c10",
@@ -301,6 +297,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Fatigued",
     thumbnailColor: "from-sky-500 to-blue-700",
+    headline: "This is NOT what you think it is 👀",
+    body: "We know, we know. But hear us out. What if the thing you've been avoiding is actually the thing that changes everything?",
+    aspectRatio: "9:16",
     spend: 1780,
     roas: 1.7,
     cpa: 61.0,
@@ -313,7 +312,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 176000,
     fifteenSecViews: 70400,
     trend: generateTrend(1.7, "Fatigued"),
-    wow: generateWow("Fatigued"),
   },
   {
     id: "c11",
@@ -322,6 +320,9 @@ export const mockCreatives: Creative[] = [
     format: "Image",
     status: "Loser",
     thumbnailColor: "from-red-500 to-rose-700",
+    headline: "SALE — Up to 50% off everything",
+    body: "Stock is limited. Don't wait. Shop now and save big on our full range of products.",
+    aspectRatio: "1:1",
     spend: 890,
     roas: 0.9,
     cpa: 74.2,
@@ -334,7 +335,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(0.9, "Loser"),
-    wow: generateWow("Loser"),
   },
   {
     id: "c12",
@@ -343,6 +343,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Loser",
     thumbnailColor: "from-slate-500 to-gray-700",
+    headline: "As seen on TV — Now available online",
+    body: "The product everyone's talking about. Endorsed by top experts. Order yours today.",
+    aspectRatio: "16:9",
     spend: 1200,
     roas: 0.7,
     cpa: 80.0,
@@ -355,7 +358,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 70000,
     fifteenSecViews: 30800,
     trend: generateTrend(0.7, "Loser"),
-    wow: generateWow("Loser"),
   },
   {
     id: "c13",
@@ -364,6 +366,9 @@ export const mockCreatives: Creative[] = [
     format: "Carousel",
     status: "Loser",
     thumbnailColor: "from-stone-500 to-neutral-700",
+    headline: "Us vs. them — see the difference",
+    body: "Side by side. Feature by feature. See exactly why customers choose us over the competition every single time.",
+    aspectRatio: "Carousel",
     spend: 560,
     roas: 0.5,
     cpa: 78.5,
@@ -376,7 +381,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(0.5, "Loser"),
-    wow: generateWow("Loser"),
   },
   {
     id: "c14",
@@ -385,6 +389,9 @@ export const mockCreatives: Creative[] = [
     format: "Image",
     status: "Loser",
     thumbnailColor: "from-zinc-500 to-gray-700",
+    headline: "Extra 20% off with code SAVE20",
+    body: "Use discount code SAVE20 at checkout. Valid for 48 hours only. Terms and conditions apply.",
+    aspectRatio: "1:1",
     spend: 340,
     roas: 0.6,
     cpa: 68.0,
@@ -397,7 +404,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(0.6, "Loser"),
-    wow: generateWow("Loser"),
   },
   {
     id: "c15",
@@ -406,6 +412,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Winner",
     thumbnailColor: "from-violet-600 to-blue-700",
+    headline: "My honest story — no filters, no BS",
+    body: "I was at my lowest point. Then I found this. Now I'm sharing my full journey — the good, the bad, and the transformation.",
+    aspectRatio: "9:16",
     spend: 2900,
     roas: 4.5,
     cpa: 16.8,
@@ -418,7 +427,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 266600,
     fifteenSecViews: 163400,
     trend: generateTrend(4.5, "Winner"),
-    wow: generateWow("Winner"),
   },
   {
     id: "c16",
@@ -427,6 +435,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Active",
     thumbnailColor: "from-green-500 to-teal-700",
+    headline: "Watch this before you buy anything else",
+    body: "In under 3 minutes, we'll show you exactly how to get the most out of your purchase — step by step, no experience needed.",
+    aspectRatio: "16:9",
     spend: 1100,
     roas: 2.4,
     cpa: 44.0,
@@ -439,7 +450,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 35670,
     fifteenSecViews: 20880,
     trend: generateTrend(2.4, "Active"),
-    wow: generateWow("Active"),
   },
   {
     id: "c17",
@@ -448,6 +458,9 @@ export const mockCreatives: Creative[] = [
     format: "Video",
     status: "Fatigued",
     thumbnailColor: "from-rose-500 to-pink-700",
+    headline: "My reaction after one week using this 😱",
+    body: "I filmed my honest reaction every single day. Week 1 results? Let's just say I'm ordering again.",
+    aspectRatio: "9:16",
     spend: 2400,
     roas: 1.5,
     cpa: 66.7,
@@ -460,7 +473,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 125400,
     fifteenSecViews: 57000,
     trend: generateTrend(1.5, "Fatigued"),
-    wow: generateWow("Fatigued"),
   },
   {
     id: "c18",
@@ -469,6 +481,9 @@ export const mockCreatives: Creative[] = [
     format: "Carousel",
     status: "Active",
     thumbnailColor: "from-indigo-500 to-purple-700",
+    headline: "Bundle and save — the smarter way to shop",
+    body: "Our most popular bundles, curated for maximum value. Swipe to build your perfect set and save up to 35%.",
+    aspectRatio: "Carousel",
     spend: 1650,
     roas: 3.1,
     cpa: 31.7,
@@ -481,7 +496,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(3.1, "Active"),
-    wow: generateWow("Active"),
   },
   {
     id: "c19",
@@ -490,6 +504,9 @@ export const mockCreatives: Creative[] = [
     format: "Image",
     status: "Active",
     thumbnailColor: "from-emerald-500 to-green-700",
+    headline: "Season's best — limited time offer",
+    body: "Fresh arrivals for the season. New colors, new styles, same premium quality you love. Shop before they're gone.",
+    aspectRatio: "1:1",
     spend: 720,
     roas: 2.6,
     cpa: 41.2,
@@ -502,7 +519,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(2.6, "Active"),
-    wow: generateWow("Active"),
   },
   {
     id: "c20",
@@ -511,6 +527,9 @@ export const mockCreatives: Creative[] = [
     format: "Carousel",
     status: "Winner",
     thumbnailColor: "from-blue-600 to-cyan-700",
+    headline: "The brand that's redefining what's possible",
+    body: "Trusted by 100,000+ customers worldwide. Swipe to see our story, our mission, and why people keep coming back.",
+    aspectRatio: "Carousel",
     spend: 3450,
     roas: 4.2,
     cpa: 19.7,
@@ -523,7 +542,6 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(4.2, "Winner"),
-    wow: generateWow("Winner"),
   },
 ];
 

@@ -18,6 +18,7 @@ import {
   MessageSquare,
   FileText,
   Monitor,
+  Globe,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +33,7 @@ const navItems = [
   { href: "/angles", icon: MessageSquare, label: "Angles" },
   { href: "/top-copy", icon: FileText, label: "Top Copy" },
   { href: "/visual-format", icon: Monitor, label: "Visual Format" },
+  { href: "/top-landing-page", icon: Globe, label: "Top Landing Pages" },
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/naming", icon: Tag, label: "Naming Convention" },
   { href: "/reports", icon: Share2, label: "Reports" },
