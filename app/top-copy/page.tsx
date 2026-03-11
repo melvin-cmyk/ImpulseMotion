@@ -119,9 +119,23 @@ export default function TopCopyPage() {
 
             {/* Content */}
             <div className="p-3">
-              <p className="text-sm font-medium text-gray-100 truncate mb-2" title={c.name}>
+              <p className="text-xs text-gray-600 truncate mb-1" title={c.name}>
                 {c.name}
               </p>
+
+              {/* Copy text */}
+              {c.headline ? (
+                <p className="text-sm font-semibold text-gray-100 leading-snug mb-1 line-clamp-2" title={c.headline}>
+                  {c.headline}
+                </p>
+              ) : null}
+              {c.body ? (
+                <p className="text-xs text-gray-400 leading-relaxed mb-2 line-clamp-2" title={c.body}>
+                  {c.body}
+                </p>
+              ) : !c.headline ? (
+                <p className="text-xs text-gray-600 italic mb-2">Aucun texte disponible</p>
+              ) : <div className="mb-2" />}
 
               <div className="grid grid-cols-3 gap-2">
                 <div>

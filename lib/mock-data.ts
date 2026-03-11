@@ -2,6 +2,14 @@ export type Platform = "Meta" | "TikTok";
 export type Format = "Video" | "Image" | "Carousel";
 export type Status = "Winner" | "Loser" | "Fatigued" | "Active";
 
+export interface WowMetrics {
+  spendChange: number | null;    // % change in spend vs previous week
+  ctrChange: number | null;      // % change in CTR
+  cpaChange: number | null;      // % change in CPA
+  roasChange: number | null;     // % change in ROAS
+  hookRateChange: number | null; // % change in hook rate
+}
+
 export interface DayMetric {
   date: string;
   spend: number;
@@ -38,6 +46,8 @@ export interface Creative {
   body?: string;
   /** Visual aspect ratio of the creative */
   aspectRatio?: AspectRatio;
+  /** Week-over-week performance changes vs previous 7 days */
+  wow?: WowMetrics;
   spend: number;
   roas: number;
   cpa: number;
@@ -93,6 +103,7 @@ export const mockCreatives: Creative[] = [
     headline: "I lost 12kg in 60 days — here's what actually worked",
     body: "After trying everything, this was the only thing that gave me real, lasting results. No gimmicks. No crash diets. Just science-backed nutrition that fits your life.",
     aspectRatio: "9:16",
+    wow: { spendChange: 18.4, ctrChange: 6.2, cpaChange: -8.1, roasChange: 12.3, hookRateChange: 4.5 },
     spend: 4820,
     roas: 5.8,
     cpa: 12.4,
@@ -116,6 +127,7 @@ export const mockCreatives: Creative[] = [
     headline: "POV: You finally found something that works 🔥",
     body: "I was skeptical at first. But after 3 weeks, the results speak for themselves. My energy is through the roof and I'm down 8 pounds. This is not a drill.",
     aspectRatio: "9:16",
+    wow: { spendChange: 22.1, ctrChange: 9.4, cpaChange: -11.2, roasChange: 15.8, hookRateChange: 7.3 },
     spend: 3910,
     roas: 5.2,
     cpa: 14.1,
@@ -139,6 +151,7 @@ export const mockCreatives: Creative[] = [
     headline: "Save 40% — This Weekend Only",
     body: "Don't miss our biggest sale of the year. Premium quality at a price that makes sense. Free shipping on orders over $50.",
     aspectRatio: "1:1",
+    wow: { spendChange: 8.9, ctrChange: 3.1, cpaChange: -5.4, roasChange: 7.2, hookRateChange: null },
     spend: 2750,
     roas: 4.9,
     cpa: 18.2,
@@ -162,6 +175,7 @@ export const mockCreatives: Creative[] = [
     headline: "Meet the full collection",
     body: "From everyday essentials to premium picks — swipe to explore our bestsellers and find your perfect match.",
     aspectRatio: "Carousel",
+    wow: { spendChange: -4.2, ctrChange: 1.8, cpaChange: 3.1, roasChange: -2.9, hookRateChange: null },
     spend: 1890,
     roas: 3.6,
     cpa: 24.5,
@@ -185,6 +199,7 @@ export const mockCreatives: Creative[] = [
     headline: "Before vs After — 30 days of consistency",
     body: "The transformation you've been waiting for. Real customers, real results. See what 30 days can do when you commit.",
     aspectRatio: "9:16",
+    wow: { spendChange: 5.7, ctrChange: -1.2, cpaChange: 2.4, roasChange: -3.1, hookRateChange: -2.8 },
     spend: 2100,
     roas: 3.2,
     cpa: 29.8,
@@ -254,6 +269,7 @@ export const mockCreatives: Creative[] = [
     headline: "Can you handle the 7-day challenge?",
     body: "Thousands have tried. Most succeed. The ones who don't just didn't commit. Are you in?",
     aspectRatio: "9:16",
+    wow: { spendChange: -12.4, ctrChange: -18.3, cpaChange: 24.7, roasChange: -19.1, hookRateChange: -14.6 },
     spend: 3200,
     roas: 2.1,
     cpa: 47.2,
@@ -415,6 +431,7 @@ export const mockCreatives: Creative[] = [
     headline: "My honest story — no filters, no BS",
     body: "I was at my lowest point. Then I found this. Now I'm sharing my full journey — the good, the bad, and the transformation.",
     aspectRatio: "9:16",
+    wow: { spendChange: 31.2, ctrChange: 11.8, cpaChange: -15.4, roasChange: 18.9, hookRateChange: 9.2 },
     spend: 2900,
     roas: 4.5,
     cpa: 16.8,

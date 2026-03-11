@@ -53,12 +53,25 @@ function buildFormatStats(creatives: Creative[]): FormatStats[] {
     .sort((a, b) => b.totalSpend - a.totalSpend);
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+interface TooltipEntry {
+  dataKey: string;
+  name: string;
+  value: number;
+  fill: string;
+}
+
+interface TooltipProps {
+  active?: boolean;
+  payload?: TooltipEntry[];
+  label?: string;
+}
+
+const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
   if (!active || !payload) return null;
   return (
     <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs shadow-xl">
       <p className="text-gray-200 font-semibold mb-2">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <div key={p.dataKey} className="flex justify-between gap-4">
           <span style={{ color: p.fill }}>{p.name}</span>
           <span className="text-gray-200 font-medium">{p.value.toLocaleString()}</span>
