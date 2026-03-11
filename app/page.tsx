@@ -180,6 +180,12 @@ function DashboardHome() {
             desc: "Ranked by ROAS, Spend, CTR",
             color: "hover:border-emerald-700/60",
           },
+          {
+            href: "/comparatif",
+            label: "Comparatif",
+            desc: "Performance by format: Image, Video, Carousel",
+            color: "hover:border-pink-700/60",
+          },
         ].map(({ href, label, desc, color }) => (
           <Link
             key={href}

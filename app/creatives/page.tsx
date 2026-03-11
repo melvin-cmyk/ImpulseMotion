@@ -6,14 +6,13 @@ import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star, LayoutGrid, Table2, BarChart2, ChevronUp as ChevronUpSort, X, Tag } from "lucide-react";
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star, LayoutGrid, Table2, ChevronUp as ChevronUpSort, X, Tag, BarChart2 } from "lucide-react";
 import { FiltersBar, AdStatus } from "@/components/ui/filters-bar";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
-type ViewMode = "card" | "table" | "chart" | "curve";
+type ViewMode = "card" | "table" | "barchart";
 type TableSortKey = "name" | "spend" | "ctr" | "hookRate" | "thumbstop" | "roas" | "cpa" | "status";
-type GroupBy = "type" | "format-orientation";
 
 // ── localStorage helpers for tags ─────────────────────────────────────────────
 
@@ -1005,527 +1004,164 @@ function TableView({ creatives, onCreativeClick }: TableViewProps) {
   );
 }
 
-// ── localStorage helper for view mode ────────────────────────────────────────
+// ── Bar Chart View ────────────────────────────────────────────────────────────
 
-function getSavedViewMode(): ViewMode {
-  if (typeof window === "undefined") return "card";
-  try {
-    const v = localStorage.getItem("impulse_view_mode");
-    if (v === "card" || v === "table" || v === "chart" || v === "curve") return v;
-  } catch {}
-  return "card";
-}
-
-function saveViewMode(mode: ViewMode) {
-  if (typeof window === "undefined") return;
-  try { localStorage.setItem("impulse_view_mode", mode); } catch {}
-}
-
-// ── Bar Chart View (KPI per creative) ─────────────────────────────────────────
-
-type BarChartMetric = "spend" | "cpa" | "ctr" | "roas" | "cpm";
-
-const BAR_METRIC_OPTIONS: { value: BarChartMetric; label: string }[] = [
-  { value: "spend", label: "Spend" },
-  { value: "cpa", label: "CPA" },
-  { value: "ctr", label: "CTR" },
-  { value: "roas", label: "ROAS" },
-  { value: "cpm", label: "CPM" },
-];
-
-function getBarValue(c: Creative, metric: BarChartMetric): number {
-  if (metric === "spend") return c.spend;
-  if (metric === "cpa") return c.cpa;
-  if (metric === "ctr") return c.ctr;
-  if (metric === "roas") return c.roas;
-  // CPM = (spend / impressions) * 1000
-  if (metric === "cpm") return c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0;
-  return 0;
-}
-
-function formatBarValue(v: number, metric: BarChartMetric): string {
-  if (metric === "spend") return v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`;
-  if (metric === "cpa") return `$${v.toFixed(2)}`;
-  if (metric === "ctr") return `${v.toFixed(2)}%`;
-  if (metric === "roas") return `${v.toFixed(2)}x`;
-  if (metric === "cpm") return `$${v.toFixed(2)}`;
-  return String(v);
-}
-
-function sortForMetric(a: Creative, b: Creative, metric: BarChartMetric): number {
-  // For CPA: ascending (lower is better); others: descending
-  if (metric === "cpa") return getBarValue(a, metric) - getBarValue(b, metric);
-  return getBarValue(b, metric) - getBarValue(a, metric);
-}
-
-function BarChartView({
-  creatives,
-  onCreativeClick,
-}: {
+interface BarChartViewProps {
   creatives: Creative[];
   onCreativeClick: (c: Creative) => void;
-}) {
-  const [metric, setMetric] = useState<BarChartMetric>("spend");
-
-  const data = useMemo(() => {
-    return [...creatives]
-      .sort((a, b) => sortForMetric(a, b, metric))
-      .slice(0, 20)
-      .map((c) => ({
-        name: c.name.length > 18 ? c.name.slice(0, 18) + "…" : c.name,
-        fullName: c.name,
-        value: getBarValue(c, metric),
-        id: c.id,
-        format: c.format,
-        status: c.status,
-      }));
-  }, [creatives, metric]);
-
-  const statusColors: Record<string, string> = {
-    Winner: "#34d399",
-    Active: "#60a5fa",
-    Fatigued: "#fb923c",
-    Loser: "#f87171",
-  };
-
-  const sortDesc: Record<BarChartMetric, string> = {
-    spend: "spend décroissant",
-    cpa: "CPA croissant (meilleur en haut)",
-    ctr: "CTR décroissant",
-    roas: "ROAS décroissant",
-    cpm: "CPM décroissant",
-  };
-
-  const creativeById = useMemo(() => {
-    const m = new Map<string, Creative>();
-    creatives.forEach((c) => m.set(c.id, c));
-    return m;
-  }, [creatives]);
-
-  return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-white">Bar Chart — Top 20 créatives</h3>
-          <p className="text-[11px] text-gray-500 mt-0.5">Triées par {sortDesc[metric]}</p>
-        </div>
-        <div className="flex gap-1 bg-gray-800 rounded-xl p-1">
-          {BAR_METRIC_OPTIONS.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setMetric(value)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                metric === value ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-      {data.length === 0 ? (
-        <div className="text-center py-8 text-gray-600 text-sm">Aucune créa disponible.</div>
-      ) : (
-        <ResponsiveContainer width="100%" height={Math.max(300, data.length * 34)}>
-          <BarChart
-            data={data}
-            layout="vertical"
-            margin={{ top: 0, right: 60, left: 8, bottom: 0 }}
-          >
-            <XAxis
-              type="number"
-              tick={{ fill: "#6b7280", fontSize: 10 }}
-              tickFormatter={(v) => formatBarValue(v, metric)}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              type="category"
-              dataKey="name"
-              width={145}
-              tick={{ fill: "#9ca3af", fontSize: 10 }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <Tooltip
-              contentStyle={{
-                background: "#111827",
-                border: "1px solid #374151",
-                borderRadius: "8px",
-                fontSize: "11px",
-                color: "#e5e7eb",
-              }}
-              formatter={(v: unknown) => {
-                return [formatBarValue(Number(v), metric), BAR_METRIC_OPTIONS.find((o) => o.value === metric)?.label ?? metric];
-              }}
-              labelFormatter={(_, payload) => {
-                const p = payload?.[0]?.payload as { fullName?: string } | undefined;
-                return p?.fullName ?? "";
-              }}
-            />
-            <Bar
-              dataKey="value"
-              radius={[0, 4, 4, 0]}
-              cursor="pointer"
-              onClick={(entry: { id?: string }) => {
-                if (entry.id) {
-                  const c = creativeById.get(entry.id);
-                  if (c) onCreativeClick(c);
-                }
-              }}
-            >
-              {data.map((entry) => (
-                <Cell
-                  key={entry.id}
-                  fill={statusColors[entry.status] ?? "#8b5cf6"}
-                  fillOpacity={0.85}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      )}
-      <div className="flex flex-wrap gap-3 mt-2">
-        {(["Winner", "Active", "Fatigued", "Loser"] as const).map((s) => (
-          <div key={s} className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-sm" style={{ background: statusColors[s] }} />
-            <span className="text-[10px] text-gray-500">{s}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
-// ── Curve View (ROAS trend temporel) ─────────────────────────────────────────
-
-function CurveView({ creatives }: { creatives: Creative[] }) {
-  const [topN, setTopN] = useState(5);
-
-  const topCreatives = useMemo(
-    () => [...creatives].sort((a, b) => b.roas - a.roas).slice(0, topN),
-    [creatives, topN]
+function BarChartView({ creatives, onCreativeClick }: BarChartViewProps) {
+  // Sort by spend descending, top 20 for readability
+  const sorted = useMemo(
+    () => [...creatives].sort((a, b) => b.spend - a.spend).slice(0, 20),
+    [creatives]
   );
 
-  // Build unified day-based data: each entry has date + one key per creative
-  const chartData = useMemo(() => {
-    if (topCreatives.length === 0) return [];
-    const days = topCreatives[0].trend.map((d) => d.date);
-    return days.map((date, i) => {
-      const point: Record<string, string | number> = { date };
-      topCreatives.forEach((c) => {
-        point[c.id] = c.trend[i]?.roas ?? 0;
-      });
-      return point;
-    });
-  }, [topCreatives]);
+  const chartData = sorted.map((c) => ({
+    name: c.name.length > 18 ? c.name.slice(0, 18) + "…" : c.name,
+    fullName: c.name,
+    id: c.id,
+    spend: Math.round(c.spend),
+    cpa: c.cpa,
+    ctr: c.ctr,
+    roas: c.roas,
+    status: c.status,
+  }));
 
-  const COLORS = ["#8b5cf6", "#34d399", "#60a5fa", "#fb923c", "#f472b6"];
+  const maxSpend = chartData.length > 0 ? chartData[0].spend : 1;
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-white">Courbes ROAS — Tendances sur 7 jours</h3>
-          <p className="text-[11px] text-gray-500 mt-0.5">Top créatives par ROAS moyen</p>
-        </div>
-        <div className="flex gap-1 bg-gray-800 rounded-xl p-1">
-          {([3, 5, 10] as const).map((n) => (
-            <button
-              key={n}
-              onClick={() => setTopN(n)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                topN === n ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              Top {n}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="space-y-4">
+      <p className="text-xs text-gray-500">
+        Showing top {chartData.length} creatives by Spend. Bars show CPA ($) and CTR (%) overlaid.
+      </p>
 
       {chartData.length === 0 ? (
-        <div className="text-center py-8 text-gray-600 text-sm">Aucune créa disponible.</div>
+        <div className="flex items-center justify-center h-48 text-gray-600 text-sm">
+          No creatives match the selected filters.
+        </div>
       ) : (
-        <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-            <XAxis
-              dataKey="date"
-              tick={{ fill: "#6b7280", fontSize: 10 }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fill: "#6b7280", fontSize: 10 }}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v) => `${v}x`}
-            />
-            <Tooltip
-              contentStyle={{
-                background: "#111827",
-                border: "1px solid #374151",
-                borderRadius: "8px",
-                fontSize: "11px",
-                color: "#e5e7eb",
-              }}
-              formatter={(v: unknown, key?: string | number) => {
-                const keyStr = key !== undefined ? String(key) : "";
-                const c = topCreatives.find((x) => x.id === keyStr);
-                return [`${Number(v).toFixed(2)}x`, c ? c.name.slice(0, 22) : keyStr] as [string, string];
-              }}
-            />
-            {topCreatives.map((c, i) => (
-              <Line
-                key={c.id}
-                type="monotone"
-                dataKey={c.id}
-                stroke={COLORS[i % COLORS.length]}
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 4 }}
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      )}
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-2">
+          {chartData.map((item) => {
+            const spendPct = (item.spend / maxSpend) * 100;
+            const cpaNorm = Math.min((item.cpa / 200) * 100, 100); // normalize CPA up to $200
+            const ctrNorm = Math.min((item.ctr / 5) * 100, 100); // normalize CTR up to 5%
+            const statusColors: Record<string, string> = {
+              Winner: "bg-emerald-500",
+              Active: "bg-blue-500",
+              Fatigued: "bg-orange-500",
+              Loser: "bg-red-500",
+            };
+            const statusColor = statusColors[item.status] ?? "bg-gray-500";
 
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3">
-        {topCreatives.map((c, i) => (
-          <div key={c.id} className="flex items-center gap-1.5">
-            <div
-              className="w-3 h-0.5 rounded-full"
-              style={{ background: COLORS[i % COLORS.length] }}
-            />
-            <span className="text-[10px] text-gray-400 truncate max-w-[130px]" title={c.name}>
-              {c.name}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Comparative Analysis Section ──────────────────────────────────────────────
-
-interface GroupStats {
-  label: string;
-  count: number;
-  totalSpend: number;
-  avgCpa: number;
-  avgCtr: number;
-  avgRoas: number;
-}
-
-function buildGroupStats(creatives: Creative[], groupBy: GroupBy): GroupStats[] {
-  const groups = new Map<string, Creative[]>();
-
-  creatives.forEach((c) => {
-    let key: string;
-    if (groupBy === "type") {
-      key = c.format; // "Video" | "Image" | "Carousel"
-    } else {
-      // format-orientation: portrait vs paysage — use format as proxy since we have no aspect ratio
-      // Video = typically portrait (9:16) on social, Image/Carousel = paysage/carré
-      if (c.format === "Video") key = "Portrait (Vidéo 9:16)";
-      else if (c.format === "Carousel") key = "Carré (Carrousel)";
-      else key = "Paysage / Carré (Image)";
-    }
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(c);
-  });
-
-  const stats: GroupStats[] = [];
-  groups.forEach((items, label) => {
-    const totalSpend = items.reduce((s, c) => s + c.spend, 0);
-    const avgCpa = items.reduce((s, c) => s + c.cpa, 0) / items.length;
-    const avgCtr = items.reduce((s, c) => s + c.ctr, 0) / items.length;
-    const avgRoas = items.reduce((s, c) => s + c.roas, 0) / items.length;
-    stats.push({ label, count: items.length, totalSpend, avgCpa, avgCtr, avgRoas });
-  });
-
-  return stats.sort((a, b) => b.totalSpend - a.totalSpend);
-}
-
-const GROUP_COLORS: Record<string, string> = {
-  Video: "#8b5cf6",
-  Image: "#60a5fa",
-  Carousel: "#34d399",
-  "Portrait (Vidéo 9:16)": "#8b5cf6",
-  "Carré (Carrousel)": "#34d399",
-  "Paysage / Carré (Image)": "#60a5fa",
-};
-
-function ComparativeAnalysisSection({ creatives }: { creatives: Creative[] }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const [groupBy, setGroupBy] = useState<GroupBy>("type");
-  const [barMetric, setBarMetric] = useState<"spend" | "cpa" | "ctr" | "roas">("spend");
-
-  const stats = useMemo(() => buildGroupStats(creatives, groupBy), [creatives, groupBy]);
-
-  const maxVal = useMemo(() => {
-    if (stats.length === 0) return 1;
-    return Math.max(
-      ...stats.map((s) => {
-        if (barMetric === "spend") return s.totalSpend;
-        if (barMetric === "cpa") return s.avgCpa;
-        if (barMetric === "ctr") return s.avgCtr;
-        return s.avgRoas;
-      })
-    );
-  }, [stats, barMetric]);
-
-  function getVal(s: GroupStats) {
-    if (barMetric === "spend") return s.totalSpend;
-    if (barMetric === "cpa") return s.avgCpa;
-    if (barMetric === "ctr") return s.avgCtr;
-    return s.avgRoas;
-  }
-
-  function formatVal(v: number) {
-    if (barMetric === "spend") return v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`;
-    if (barMetric === "cpa") return `$${v.toFixed(2)}`;
-    if (barMetric === "ctr") return `${v.toFixed(2)}%`;
-    return `${v.toFixed(2)}x`;
-  }
-
-  const metricLabels: Record<typeof barMetric, string> = {
-    spend: "Spend total",
-    cpa: "CPA moyen",
-    ctr: "CTR moyen",
-    roas: "ROAS moyen",
-  };
-
-  return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-      <button
-        onClick={() => setCollapsed((v) => !v)}
-        className="w-full flex items-center gap-3 px-5 py-4 border-b border-gray-800 hover:bg-gray-800/30 transition-colors"
-      >
-        <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center shrink-0">
-          <BarChart2 className="w-4 h-4 text-blue-400" />
-        </div>
-        <div className="text-left flex-1">
-          <h2 className="text-sm font-semibold text-white">Analyse comparative</h2>
-          <p className="text-[11px] text-gray-500 mt-0.5">
-            Performance par groupe — {groupBy === "type" ? "type de créa" : "format / orientation"}
-          </p>
-        </div>
-        {collapsed ? (
-          <ChevronDown className="w-4 h-4 text-gray-500" />
-        ) : (
-          <ChevronUp className="w-4 h-4 text-gray-500" />
-        )}
-      </button>
-
-      {!collapsed && (
-        <div className="p-5 space-y-5">
-          {/* Controls */}
-          <div className="flex flex-wrap gap-3 items-center">
-            {/* Group by */}
-            <div className="flex gap-1 bg-gray-800 rounded-xl p-1">
-              <button
-                onClick={() => setGroupBy("type")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  groupBy === "type" ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"
-                }`}
+            return (
+              <div
+                key={item.id}
+                className="group cursor-pointer hover:bg-gray-800/40 rounded-xl p-2 transition-colors"
+                onClick={() => {
+                  const c = creatives.find((x) => x.id === item.id);
+                  if (c) onCreativeClick(c);
+                }}
               >
-                Par type
-              </button>
-              <button
-                onClick={() => setGroupBy("format-orientation")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  groupBy === "format-orientation" ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"
-                }`}
-              >
-                Par format
-              </button>
-            </div>
-
-            {/* Metric */}
-            <div className="flex gap-1 bg-gray-800 rounded-xl p-1 ml-auto">
-              {(["spend", "cpa", "ctr", "roas"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setBarMetric(m)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    barMetric === m ? "bg-blue-600 text-white" : "text-gray-400 hover:text-white"
-                  }`}
-                >
-                  {metricLabels[m]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Horizontal bar chart (CSS pur) */}
-          <div className="space-y-4">
-            {stats.map((s) => {
-              const val = getVal(s);
-              const pct = maxVal > 0 ? (val / maxVal) * 100 : 0;
-              const color = GROUP_COLORS[s.label] ?? "#8b5cf6";
-              return (
-                <div key={s.label}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />
-                      <span className="text-sm font-semibold text-white">{s.label}</span>
-                      <span className="text-[11px] text-gray-500">({s.count} créas)</span>
-                    </div>
-                    <span className="text-sm font-bold" style={{ color }}>{formatVal(val)}</span>
+                {/* Name row */}
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-mono text-gray-300 truncate max-w-[260px]" title={item.fullName}>
+                    {item.name}
+                  </span>
+                  <div className="flex items-center gap-3 text-[10px] text-gray-500 shrink-0 ml-2">
+                    <span className="text-gray-300 font-semibold">
+                      ${item.spend >= 1000 ? `${(item.spend / 1000).toFixed(1)}k` : item.spend}
+                    </span>
+                    <span>CPA: <span className="text-amber-300">${item.cpa}</span></span>
+                    <span>CTR: <span className="text-blue-300">{item.ctr}%</span></span>
+                    <span>ROAS: <span className="text-emerald-300">{item.roas}x</span></span>
                   </div>
-                  <div className="h-6 bg-gray-800 rounded-full overflow-hidden">
+                </div>
+
+                {/* Spend bar */}
+                <div className="relative h-4 bg-gray-800 rounded-full overflow-hidden mb-1">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${statusColor} opacity-80`}
+                    style={{ width: `${spendPct}%` }}
+                  />
+                </div>
+
+                {/* CPA + CTR bars */}
+                <div className="flex gap-2">
+                  <div className="flex-1 relative h-2 bg-gray-800 rounded-full overflow-hidden">
                     <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{ width: `${pct}%`, background: color, opacity: 0.8 }}
+                      className="h-full rounded-full bg-amber-500 opacity-70 transition-all duration-500"
+                      style={{ width: `${cpaNorm}%` }}
+                    />
+                  </div>
+                  <div className="flex-1 relative h-2 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-blue-500 opacity-70 transition-all duration-500"
+                      style={{ width: `${ctrNorm}%` }}
                     />
                   </div>
                 </div>
-              );
-            })}
-          </div>
+                <div className="flex gap-2 mt-0.5">
+                  <div className="flex-1 flex items-center gap-1">
+                    <div className="w-2 h-1.5 rounded-full bg-amber-500 opacity-70" />
+                    <span className="text-[9px] text-gray-600">CPA</span>
+                  </div>
+                  <div className="flex-1 flex items-center gap-1">
+                    <div className="w-2 h-1.5 rounded-full bg-blue-500 opacity-70" />
+                    <span className="text-[9px] text-gray-600">CTR</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-          {/* Summary table */}
-          <div className="overflow-x-auto rounded-xl border border-gray-800 mt-2">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-gray-800">
-                  <th className="px-4 py-2.5 text-left text-[10px] text-gray-500 uppercase tracking-wide">Groupe</th>
-                  <th className="px-4 py-2.5 text-right text-[10px] text-gray-500 uppercase tracking-wide">Créas</th>
-                  <th className="px-4 py-2.5 text-right text-[10px] text-gray-500 uppercase tracking-wide">Spend total</th>
-                  <th className="px-4 py-2.5 text-right text-[10px] text-gray-500 uppercase tracking-wide">CPA moy.</th>
-                  <th className="px-4 py-2.5 text-right text-[10px] text-gray-500 uppercase tracking-wide">CTR moy.</th>
-                  <th className="px-4 py-2.5 text-right text-[10px] text-gray-500 uppercase tracking-wide">ROAS moy.</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800/60">
-                {stats.map((s) => {
-                  const color = GROUP_COLORS[s.label] ?? "#8b5cf6";
-                  return (
-                    <tr key={s.label} className="hover:bg-gray-800/30">
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-sm" style={{ background: color }} />
-                          <span className="font-semibold text-gray-200">{s.label}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-gray-300">{s.count}</td>
-                      <td className="px-4 py-2.5 text-right text-gray-300">
-                        {s.totalSpend >= 1000 ? `$${(s.totalSpend / 1000).toFixed(1)}k` : `$${s.totalSpend.toFixed(0)}`}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-gray-300">${s.avgCpa.toFixed(2)}</td>
-                      <td className="px-4 py-2.5 text-right text-gray-300">{s.avgCtr.toFixed(2)}%</td>
-                      <td className="px-4 py-2.5 text-right font-semibold" style={{ color }}>
-                        {s.avgRoas.toFixed(2)}x
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+      {/* Recharts grouped bar chart for quick comparison */}
+      {chartData.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+          <p className="text-xs text-gray-400 font-semibold mb-4">CPA vs CTR by Creative (top {chartData.length})</p>
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart
+              data={chartData}
+              layout="vertical"
+              margin={{ top: 0, right: 30, left: 10, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
+              <XAxis type="number" tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} />
+              <YAxis
+                type="category"
+                dataKey="name"
+                tick={{ fill: "#9ca3af", fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                width={100}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#1f2937",
+                  border: "1px solid #374151",
+                  borderRadius: "8px",
+                  fontSize: "11px",
+                  color: "#e5e7eb",
+                }}
+                formatter={(value: unknown, name: unknown) => {
+                  if (name === "cpa") return [`$${value}`, "CPA"];
+                  if (name === "ctr") return [`${value}%`, "CTR"];
+                  return [value as string, String(name)];
+                }}
+                labelFormatter={(label) => label}
+              />
+              <Legend
+                iconSize={8}
+                wrapperStyle={{ fontSize: "11px", color: "#9ca3af" }}
+                formatter={(value) => value === "cpa" ? "CPA ($)" : "CTR (%)"}
+              />
+              <Bar dataKey="cpa" fill="#f59e0b" opacity={0.8} radius={[0, 3, 3, 0]} barSize={8} />
+              <Bar dataKey="ctr" fill="#3b82f6" opacity={0.8} radius={[0, 3, 3, 0]} barSize={8} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       )}
     </div>
@@ -1541,12 +1177,7 @@ export default function CreativesPage() {
   const [sortBy, setSortBy] = useState<SortKey>("roas");
   const [adStatus, setAdStatus] = useState<AdStatus>("ALL");
   const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>(getSavedViewMode);
-
-  function handleViewMode(mode: ViewMode) {
-    setViewMode(mode);
-    saveViewMode(mode);
-  }
+  const [viewMode, setViewMode] = useState<ViewMode>("card");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   // Key to re-compute tags after modal closes (localStorage update)
   const [tagsKey, setTagsKey] = useState(0);
@@ -1630,8 +1261,8 @@ export default function CreativesPage() {
           {/* View mode toggle */}
           <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
             <button
-              onClick={() => handleViewMode("card")}
-              title="Grille"
+              onClick={() => setViewMode("card")}
+              title="Grid view"
               className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                 viewMode === "card"
                   ? "bg-violet-600 text-white"
@@ -1641,21 +1272,10 @@ export default function CreativesPage() {
               <LayoutGrid className="w-4 h-4" />
             </button>
             <button
-              onClick={() => handleViewMode("table")}
-              title="Tableau"
+              onClick={() => setViewMode("barchart")}
+              title="Bar chart view"
               className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                viewMode === "table"
-                  ? "bg-violet-600 text-white"
-                  : "text-gray-500 hover:text-gray-200"
-              }`}
-            >
-              <Table2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleViewMode("chart")}
-              title="Bar Chart"
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                viewMode === "chart"
+                viewMode === "barchart"
                   ? "bg-violet-600 text-white"
                   : "text-gray-500 hover:text-gray-200"
               }`}
@@ -1663,15 +1283,15 @@ export default function CreativesPage() {
               <BarChart2 className="w-4 h-4" />
             </button>
             <button
-              onClick={() => handleViewMode("curve")}
-              title="Courbes ROAS"
+              onClick={() => setViewMode("table")}
+              title="Table view"
               className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                viewMode === "curve"
+                viewMode === "table"
                   ? "bg-violet-600 text-white"
                   : "text-gray-500 hover:text-gray-200"
               }`}
             >
-              <TrendingUp className="w-4 h-4" />
+              <Table2 className="w-4 h-4" />
             </button>
           </div>
           <div className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-full border border-gray-800 bg-gray-900">
@@ -1774,135 +1394,74 @@ export default function CreativesPage() {
         />
       )}
 
-      {/* Comparative Analysis */}
-      {!loading && (
-        <ComparativeAnalysisSection creatives={filtered} />
-      )}
-
-      {/* Creatives section header: filters + view mode toggle */}
-      <div className="border-t border-gray-800 pt-5">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="text-sm font-semibold text-white">
-            Créatives <span className="text-gray-500 font-normal">({filtered.length})</span>
-          </h2>
-          {/* View mode toggle — next to filters */}
-          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+      {/* Filter Bar */}
+      <div className="flex flex-wrap gap-3 items-center">
+        {/* Platform */}
+        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+          {(["All", "Meta", "TikTok"] as const).map((p) => (
             <button
-              onClick={() => handleViewMode("card")}
-              title="Grille (thumbnails)"
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                viewMode === "card"
+              key={p}
+              onClick={() => setPlatform(p)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                platform === p
                   ? "bg-violet-600 text-white"
-                  : "text-gray-500 hover:text-gray-200"
+                  : "text-gray-400 hover:text-white"
               }`}
             >
-              <LayoutGrid className="w-4 h-4" />
+              {p}
             </button>
-            <button
-              onClick={() => handleViewMode("chart")}
-              title="Bar Chart (KPI)"
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                viewMode === "chart"
-                  ? "bg-violet-600 text-white"
-                  : "text-gray-500 hover:text-gray-200"
-              }`}
-            >
-              <BarChart2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleViewMode("table")}
-              title="Tableau compact"
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                viewMode === "table"
-                  ? "bg-violet-600 text-white"
-                  : "text-gray-500 hover:text-gray-200"
-              }`}
-            >
-              <Table2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleViewMode("curve")}
-              title="Courbes ROAS"
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                viewMode === "curve"
-                  ? "bg-violet-600 text-white"
-                  : "text-gray-500 hover:text-gray-200"
-              }`}
-            >
-              <TrendingUp className="w-4 h-4" />
-            </button>
-          </div>
+          ))}
         </div>
 
-        {/* Filter Bar */}
-        <div className="flex flex-wrap gap-3 items-center">
-          {/* Platform */}
-          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
-            {(["All", "Meta", "TikTok"] as const).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPlatform(p)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  platform === p
-                    ? "bg-violet-600 text-white"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-
-          {/* Status */}
-          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
-            {(["All", "Winner", "Active", "Fatigued", "Loser"] as const).map((s) => (
-              <button
-                key={s}
-                onClick={() => setStatus(s)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  status === s
-                    ? "bg-violet-600 text-white"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-
-          {/* Format */}
-          <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
-            {(["All", "Video", "Image", "Carousel"] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFormat(f)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  format === f
-                    ? "bg-violet-600 text-white"
-                    : "text-gray-400 hover:text-white"
-                }`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-
-          {/* Sort */}
-          <div className="flex items-center gap-2 ml-auto bg-gray-900 border border-gray-800 rounded-xl px-3 py-2">
-            <ArrowUpDown className="w-4 h-4 text-gray-500" />
-            <span className="text-gray-500 text-sm">Sort:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortKey)}
-              className="bg-transparent text-gray-300 text-sm outline-none cursor-pointer"
+        {/* Status */}
+        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+          {(["All", "Winner", "Active", "Fatigued", "Loser"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatus(s)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                status === s
+                  ? "bg-violet-600 text-white"
+                  : "text-gray-400 hover:text-white"
+              }`}
             >
-              <option value="roas">ROAS</option>
-              <option value="cpa">CPA (low→high)</option>
-              <option value="spend">Spend</option>
-              <option value="ctr">CTR</option>
-              <option value="hookRate">Hook Rate</option>
-            </select>
-          </div>
+              {s}
+            </button>
+          ))}
+        </div>
+
+        {/* Format */}
+        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
+          {(["All", "Video", "Image", "Carousel"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFormat(f)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                format === f
+                  ? "bg-violet-600 text-white"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+
+        {/* Sort */}
+        <div className="flex items-center gap-2 ml-auto bg-gray-900 border border-gray-800 rounded-xl px-3 py-2">
+          <ArrowUpDown className="w-4 h-4 text-gray-500" />
+          <span className="text-gray-500 text-sm">Sort:</span>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            className="bg-transparent text-gray-300 text-sm outline-none cursor-pointer"
+          >
+            <option value="roas">ROAS</option>
+            <option value="cpa">CPA (low→high)</option>
+            <option value="spend">Spend</option>
+            <option value="ctr">CTR</option>
+            <option value="hookRate">Hook Rate</option>
+          </select>
         </div>
       </div>
 
@@ -1946,13 +1505,8 @@ export default function CreativesPage() {
       )}
 
       {/* Bar Chart View */}
-      {!loading && viewMode === "chart" && (
+      {!loading && viewMode === "barchart" && (
         <BarChartView creatives={filtered} onCreativeClick={setSelectedCreative} />
-      )}
-
-      {/* Curve View */}
-      {!loading && viewMode === "curve" && (
-        <CurveView creatives={filtered} />
       )}
 
       {/* Grid */}
@@ -2023,7 +1577,7 @@ export default function CreativesPage() {
         </div>
       )}
 
-      {!loading && filtered.length === 0 && (viewMode === "card" || viewMode === "chart" || viewMode === "curve") && (
+      {!loading && filtered.length === 0 && viewMode === "card" && (
         <div className="flex items-center justify-center h-48 text-gray-600">
           No creatives match the selected filters.
         </div>

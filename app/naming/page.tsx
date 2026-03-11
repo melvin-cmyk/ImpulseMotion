@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Creative } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import {
@@ -13,9 +13,34 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { Tag } from "lucide-react";
+import { Tag, Settings, ChevronDown, ChevronUp, AlertCircle } from "lucide-react";
 
-type Segment = "Angle" | "Format" | "Product";
+interface SegmentDef {
+  label: string;
+  position: number; // index in split parts (-1 = skip)
+}
+
+interface NamingConfig {
+  separator: string;
+  segments: SegmentDef[];
+}
+
+const DEFAULT_CONFIG: NamingConfig = {
+  separator: "_",
+  segments: [
+    { label: "Product", position: 0 },
+    { label: "Format", position: 1 },
+    { label: "Angle", position: 2 },
+  ],
+};
+
+const SEPARATOR_OPTIONS = [
+  { value: "_", label: "Underscore (_)" },
+  { value: "-", label: "Tiret (-)" },
+  { value: "|", label: "Pipe (|)" },
+  { value: " ", label: "Espace ( )" },
+  { value: "/", label: "Slash (/)" },
+];
 
 interface GroupStats {
   key: string;
@@ -32,18 +57,17 @@ const COLORS = [
   "#f59e0b", "#ef4444", "#ec4899", "#a78bfa", "#34d399",
 ];
 
-function parseSegment(name: string, segment: Segment): string {
-  const parts = name.split("_");
-  if (segment === "Product") return parts[0] ?? "Unknown";
-  if (segment === "Format") return parts[1] ?? "Unknown";
-  if (segment === "Angle") return parts[2] ?? "Unknown";
-  return "Unknown";
+function parseSegment(name: string, position: number, separator: string): string {
+  const parts = name.split(separator).map((p) => p.trim()).filter(Boolean);
+  const val = parts[position];
+  if (!val || val === "") return "Non catégorisé";
+  return val;
 }
 
-function groupBySegment(segment: Segment, creatives: Creative[]): GroupStats[] {
+function groupBySegment(seg: SegmentDef, separator: string, creatives: Creative[]): GroupStats[] {
   const map: Record<string, GroupStats> = {};
   for (const c of creatives) {
-    const key = parseSegment(c.name, segment);
+    const key = parseSegment(c.name, seg.position, separator);
     if (!map[key]) {
       map[key] = { key, count: 0, spend: 0, roas: 0, cpa: 0, ctr: 0, winners: 0 };
     }
@@ -60,7 +84,12 @@ function groupBySegment(segment: Segment, creatives: Creative[]): GroupStats[] {
     roas: Math.round((g.roas / g.count) * 100) / 100,
     cpa: Math.round((g.cpa / g.count) * 100) / 100,
     ctr: Math.round((g.ctr / g.count) * 100) / 100,
-  })).sort((a, b) => b.roas - a.roas);
+  })).sort((a, b) => {
+    // Push "Non catégorisé" to the end
+    if (a.key === "Non catégorisé") return 1;
+    if (b.key === "Non catégorisé") return -1;
+    return b.roas - a.roas;
+  });
 }
 
 function StatTable({ data }: { data: GroupStats[] }) {
@@ -69,33 +98,42 @@ function StatTable({ data }: { data: GroupStats[] }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="text-gray-500 text-xs uppercase tracking-wide border-b border-gray-800">
-            <th className="text-left py-2 pr-4">Name</th>
-            <th className="text-right py-2 px-3">Creatives</th>
+            <th className="text-left py-2 pr-4">Nom</th>
+            <th className="text-right py-2 px-3">Créas</th>
             <th className="text-right py-2 px-3">Spend</th>
-            <th className="text-right py-2 px-3">Avg ROAS</th>
-            <th className="text-right py-2 px-3">Avg CPA</th>
-            <th className="text-right py-2 px-3">Avg CTR</th>
+            <th className="text-right py-2 px-3">ROAS moy</th>
+            <th className="text-right py-2 px-3">CPA moy</th>
+            <th className="text-right py-2 px-3">CTR moy</th>
             <th className="text-right py-2 px-3">Winners</th>
           </tr>
         </thead>
         <tbody>
           {data.map((row, i) => (
-            <tr key={row.key} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+            <tr
+              key={row.key}
+              className={`border-b border-gray-800/50 hover:bg-gray-800/30 ${
+                row.key === "Non catégorisé" ? "opacity-50" : ""
+              }`}
+            >
               <td className="py-2.5 pr-4">
                 <div className="flex items-center gap-2">
                   <span
                     className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ background: COLORS[i % COLORS.length] }}
+                    style={{ background: row.key === "Non catégorisé" ? "#4b5563" : COLORS[i % COLORS.length] }}
                   />
-                  <span className="font-mono font-medium text-gray-200">{row.key}</span>
+                  <span className="font-mono font-medium text-gray-200 truncate max-w-[200px]">{row.key}</span>
                 </div>
               </td>
               <td className="text-right py-2.5 px-3 text-gray-300">{row.count}</td>
               <td className="text-right py-2.5 px-3 text-gray-300">${(row.spend / 1000).toFixed(1)}k</td>
               <td className="text-right py-2.5 px-3">
-                <span className={`font-semibold ${row.roas >= 3 ? "text-green-400" : row.roas >= 2 ? "text-yellow-400" : "text-red-400"}`}>
-                  {row.roas}x
-                </span>
+                {row.key === "Non catégorisé" ? (
+                  <span className="text-gray-600">—</span>
+                ) : (
+                  <span className={`font-semibold ${row.roas >= 3 ? "text-green-400" : row.roas >= 2 ? "text-yellow-400" : "text-red-400"}`}>
+                    {row.roas}x
+                  </span>
+                )}
               </td>
               <td className="text-right py-2.5 px-3 text-gray-300">${row.cpa}</td>
               <td className="text-right py-2.5 px-3 text-gray-300">{row.ctr}%</td>
@@ -114,53 +152,266 @@ function StatTable({ data }: { data: GroupStats[] }) {
   );
 }
 
+function ConfigPanel({
+  config,
+  onChange,
+  sampleNames,
+}: {
+  config: NamingConfig;
+  onChange: (c: NamingConfig) => void;
+  sampleNames: string[];
+}) {
+  const preview = sampleNames.slice(0, 3).map((name) => {
+    const parts = name.split(config.separator).map((p) => p.trim()).filter(Boolean);
+    return { name, parts };
+  });
+
+  const uncategorizedCount = sampleNames.filter((n) => {
+    const parts = n.split(config.separator).map((p) => p.trim()).filter(Boolean);
+    return parts.length <= 1;
+  }).length;
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-5">
+      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Configuration</h2>
+
+      {/* Separator */}
+      <div className="flex items-center gap-4">
+        <label className="text-sm text-gray-300 w-32 shrink-0">Séparateur</label>
+        <div className="flex gap-2 flex-wrap">
+          {SEPARATOR_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => onChange({ ...config, separator: opt.value })}
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium border transition-colors ${
+                config.separator === opt.value
+                  ? "bg-violet-600 border-violet-500 text-white"
+                  : "border-gray-700 text-gray-400 hover:text-white hover:border-gray-500"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+          {/* Custom separator */}
+          {!SEPARATOR_OPTIONS.find((o) => o.value === config.separator) && (
+            <span className="px-3 py-1.5 rounded-lg text-xs font-mono font-medium border bg-violet-600 border-violet-500 text-white">
+              &quot;{config.separator}&quot;
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Segment positions */}
+      <div className="space-y-2">
+        <label className="text-sm text-gray-300">Segments (position dans le nom)</label>
+        <div className="flex flex-wrap gap-3">
+          {config.segments.map((seg, idx) => (
+            <div key={idx} className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2">
+              <input
+                className="bg-transparent text-gray-200 text-sm font-medium w-24 outline-none"
+                value={seg.label}
+                onChange={(e) => {
+                  const segs = [...config.segments];
+                  segs[idx] = { ...segs[idx], label: e.target.value };
+                  onChange({ ...config, segments: segs });
+                }}
+              />
+              <span className="text-gray-600 text-xs">pos</span>
+              <select
+                className="bg-gray-900 text-gray-300 text-xs rounded-lg px-2 py-1 outline-none border border-gray-700"
+                value={seg.position}
+                onChange={(e) => {
+                  const segs = [...config.segments];
+                  segs[idx] = { ...segs[idx], position: Number(e.target.value) };
+                  onChange({ ...config, segments: segs });
+                }}
+              >
+                {[0, 1, 2, 3, 4, 5].map((p) => (
+                  <option key={p} value={p}>{p + 1}ère partie</option>
+                ))}
+              </select>
+            </div>
+          ))}
+          <button
+            onClick={() => onChange({ ...config, segments: [...config.segments, { label: "Segment", position: config.segments.length }] })}
+            className="px-3 py-2 rounded-xl text-xs text-gray-400 border border-dashed border-gray-700 hover:border-violet-600 hover:text-violet-400 transition-colors"
+          >
+            + Ajouter
+          </button>
+        </div>
+      </div>
+
+      {/* Preview */}
+      {preview.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-300">Aperçu (3 premiers ads)</label>
+            {uncategorizedCount > 0 && (
+              <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">
+                <AlertCircle className="w-3 h-3" />
+                {uncategorizedCount} ad{uncategorizedCount > 1 ? "s" : ""} non catégorisé{uncategorizedCount > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            {preview.map(({ name, parts }, i) => (
+              <div key={i} className="flex items-start gap-3 text-xs">
+                <span className="font-mono text-gray-500 truncate max-w-[200px] shrink-0">{name}</span>
+                <span className="text-gray-700">→</span>
+                <div className="flex gap-2 flex-wrap">
+                  {config.segments.map((seg) => {
+                    const val = parts[seg.position];
+                    return (
+                      <span
+                        key={seg.label}
+                        className={`px-2 py-0.5 rounded-md font-mono ${
+                          val
+                            ? "bg-violet-900/40 text-violet-300"
+                            : "bg-gray-800 text-gray-600"
+                        }`}
+                      >
+                        {seg.label}: {val ?? "—"}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const STORAGE_KEY = "impulsemotion_naming_config";
+
 export default function NamingPage() {
   const { creatives } = useCreativesContext();
-  const [segment, setSegment] = useState<Segment>("Angle");
-  const data = useMemo(() => groupBySegment(segment, creatives), [segment, creatives]);
+  const [config, setConfig] = useState<NamingConfig>(DEFAULT_CONFIG);
+  const [activeSegmentIdx, setActiveSegmentIdx] = useState(0);
+  const [showConfig, setShowConfig] = useState(false);
+
+  // Load saved config from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) setConfig(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  // Save config when it changes
+  const handleConfigChange = (c: NamingConfig) => {
+    setConfig(c);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(c));
+    } catch {}
+    // Reset to first segment if current index is out of bounds
+    if (activeSegmentIdx >= c.segments.length) setActiveSegmentIdx(0);
+  };
+
+  const activeSeg = config.segments[activeSegmentIdx] ?? config.segments[0];
+  const data = useMemo(
+    () => groupBySegment(activeSeg, config.separator, creatives),
+    [activeSeg, config.separator, creatives]
+  );
+
+  const sampleNames = useMemo(() => creatives.slice(0, 10).map((c) => c.name), [creatives]);
+
+  // Compute format preview string
+  const formatPreview = config.segments.map((s) => s.label.toUpperCase()).join(config.separator === " " ? " " : config.separator);
+
+  // Check health: % of creatives that parse cleanly for current segment
+  const uncategorizedCount = creatives.filter((c) => {
+    const parts = c.name.split(config.separator).map((p) => p.trim()).filter(Boolean);
+    return !parts[activeSeg.position];
+  }).length;
+  const healthPct = creatives.length > 0 ? Math.round(((creatives.length - uncategorizedCount) / creatives.length) * 100) : 0;
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Tag className="w-5 h-5 text-violet-400" />
             <h1 className="text-2xl font-bold text-white">Naming Convention</h1>
           </div>
           <p className="text-gray-400 text-sm">
-            Analyze performance by segment — parsed from{" "}
-            <span className="font-mono text-gray-300">PRODUCT_FORMAT_ANGLE</span>
+            Analyse par segment — format actuel :{" "}
+            <span className="font-mono text-gray-300">{formatPreview}</span>
           </p>
         </div>
 
-        {/* Segment selector */}
-        <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
-          {(["Angle", "Format", "Product"] as Segment[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSegment(s)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                segment === s
-                  ? "bg-violet-600 text-white"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {s}
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          {/* Health indicator */}
+          {creatives.length > 0 && (
+            <div className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full ${
+              healthPct >= 80 ? "bg-green-900/30 text-green-400" :
+              healthPct >= 50 ? "bg-amber-900/30 text-amber-400" :
+              "bg-red-900/30 text-red-400"
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                healthPct >= 80 ? "bg-green-400" : healthPct >= 50 ? "bg-amber-400" : "bg-red-400"
+              }`} />
+              {healthPct}% catégorisés
+            </div>
+          )}
+
+          {/* Config toggle */}
+          <button
+            onClick={() => setShowConfig((v) => !v)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-gray-400 border border-gray-700 hover:border-violet-600 hover:text-violet-400 transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            Configurer
+            {showConfig ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
         </div>
+      </div>
+
+      {/* Config panel */}
+      {showConfig && (
+        <ConfigPanel
+          config={config}
+          onChange={handleConfigChange}
+          sampleNames={sampleNames}
+        />
+      )}
+
+      {/* Segment selector */}
+      <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
+        {config.segments.map((seg, idx) => (
+          <button
+            key={idx}
+            onClick={() => setActiveSegmentIdx(idx)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              activeSegmentIdx === idx
+                ? "bg-violet-600 text-white"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            {seg.label}
+          </button>
+        ))}
       </div>
 
       {/* Chart */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
         <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">
-          Avg ROAS by {segment}
+          ROAS moyen par {activeSeg.label}
         </h2>
         <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={data} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+          <BarChart
+            data={data.filter((d) => d.key !== "Non catégorisé")}
+            margin={{ top: 4, right: 8, left: -12, bottom: 0 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-            <XAxis dataKey="key" tick={{ fill: "#9ca3af", fontSize: 12 }} />
+            <XAxis
+              dataKey="key"
+              tick={{ fill: "#9ca3af", fontSize: 11 }}
+              tickFormatter={(v) => v.length > 15 ? v.slice(0, 15) + "…" : v}
+            />
             <YAxis tick={{ fill: "#9ca3af", fontSize: 12 }} />
             <Tooltip
               contentStyle={{
@@ -170,10 +421,10 @@ export default function NamingPage() {
                 fontSize: "12px",
                 color: "#e5e7eb",
               }}
-              formatter={(v: unknown) => [`${v}x`, "Avg ROAS"]}
+              formatter={(v: unknown) => [`${v}x`, "ROAS moyen"]}
             />
             <Bar dataKey="roas" radius={[6, 6, 0, 0]}>
-              {data.map((_, i) => (
+              {data.filter((d) => d.key !== "Non catégorisé").map((_, i) => (
                 <Cell key={i} fill={COLORS[i % COLORS.length]} />
               ))}
             </Bar>
@@ -184,45 +435,50 @@ export default function NamingPage() {
       {/* Table */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
         <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">
-          Performance by {segment}
+          Performance par {activeSeg.label}
         </h2>
         <StatTable data={data} />
       </div>
 
       {/* Insights */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
-        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">
-          Key Insights
-        </h2>
-        <div className="space-y-3">
-          {data.slice(0, 3).map((row, i) => {
-            const rank = ["🥇", "🥈", "🥉"][i];
-            return (
-              <div key={row.key} className="flex items-start gap-3 text-sm">
-                <span className="text-lg leading-none">{rank}</span>
-                <div>
-                  <span className="font-mono font-semibold text-gray-200">{row.key}</span>
-                  <span className="text-gray-400">
-                    {" "}— {row.roas}x ROAS avg · ${row.cpa} CPA · {row.count} creative{row.count > 1 ? "s" : ""}
-                    {row.winners > 0 && ` · ${row.winners} winner${row.winners > 1 ? "s" : ""}`}
-                  </span>
+      {data.filter((d) => d.key !== "Non catégorisé").length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">
+            Key Insights
+          </h2>
+          <div className="space-y-3">
+            {data.filter((d) => d.key !== "Non catégorisé").slice(0, 3).map((row, i) => {
+              const rank = ["🥇", "🥈", "🥉"][i];
+              return (
+                <div key={row.key} className="flex items-start gap-3 text-sm">
+                  <span className="text-lg leading-none">{rank}</span>
+                  <div>
+                    <span className="font-mono font-semibold text-gray-200">{row.key}</span>
+                    <span className="text-gray-400">
+                      {" "}— {row.roas}x ROAS · ${row.cpa} CPA · {row.count} créa{row.count > 1 ? "s" : ""}
+                      {row.winners > 0 && ` · ${row.winners} winner${row.winners > 1 ? "s" : ""}`}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-          {data.at(-1) && data.length > 3 && (
-            <div className="flex items-start gap-3 text-sm">
-              <span className="text-lg leading-none">⚠️</span>
-              <div>
-                <span className="font-mono font-semibold text-gray-200">{data.at(-1)!.key}</span>
-                <span className="text-gray-400">
-                  {" "}— lowest performer at {data.at(-1)!.roas}x ROAS · consider pausing or refreshing these creatives
-                </span>
-              </div>
-            </div>
-          )}
+              );
+            })}
+            {data.filter((d) => d.key !== "Non catégorisé").length > 3 && (() => {
+              const worst = data.filter((d) => d.key !== "Non catégorisé").at(-1)!;
+              return (
+                <div className="flex items-start gap-3 text-sm">
+                  <span className="text-lg leading-none">⚠️</span>
+                  <div>
+                    <span className="font-mono font-semibold text-gray-200">{worst.key}</span>
+                    <span className="text-gray-400">
+                      {" "}— moins performant à {worst.roas}x ROAS · envisage de pauser ou renouveler
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
