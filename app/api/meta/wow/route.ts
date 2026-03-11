@@ -3,66 +3,31 @@ import {
   getAdInsights,
   computeRoas,
   computeCpa,
-  MetaCreativeInsight,
+  computeHookRate,
 } from "@/lib/meta-api";
+import { WowMetrics } from "@/lib/mock-data";
 import { NextRequest, NextResponse } from "next/server";
 
-/** Returns YYYY-MM-DD for a date offset by `days` from today */
+/**
+ * GET /api/meta/wow?accountId=...
+ *
+ * Fetches insights for:
+ *   - Current period: last 7 days (today-7 → today)
+ *   - Previous period: 7-14 days ago (today-14 → today-8)
+ *
+ * Returns a map of adId → WowMetrics (% change per metric).
+ * Also returns aggregate WoW metrics for the whole account.
+ */
+
 function offsetDate(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
 }
 
-export interface WoWMetrics {
-  spend: number;
-  cpa: number;
-  ctr: number;
-  cpm: number;
-  roas: number;
-  impressions: number;
-  clicks: number;
-}
-
-export interface WoWData {
-  current: WoWMetrics;   // last 7 days
-  previous: WoWMetrics;  // days -14 to -8
-  currentRange: { since: string; until: string };
-  previousRange: { since: string; until: string };
-}
-
-function aggregateInsights(insights: MetaCreativeInsight[]): WoWMetrics {
-  if (insights.length === 0) {
-    return { spend: 0, cpa: 0, ctr: 0, cpm: 0, roas: 0, impressions: 0, clicks: 0 };
-  }
-
-  const totalSpend = insights.reduce((s, i) => s + parseFloat(i.spend), 0);
-  const totalImpressions = insights.reduce((s, i) => s + parseInt(i.impressions, 10), 0);
-  const totalClicks = insights.reduce((s, i) => s + parseInt(i.clicks, 10), 0);
-
-  // Weighted average CTR (clicks / impressions * 100)
-  const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
-
-  // CPM = (spend / impressions) * 1000
-  const cpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
-
-  // Average CPA across ads that have a CPA value
-  const cpas = insights.map(computeCpa).filter((v) => v > 0);
-  const avgCpa = cpas.length > 0 ? cpas.reduce((s, v) => s + v, 0) / cpas.length : 0;
-
-  // Average ROAS across ads that have a ROAS value
-  const roasValues = insights.map(computeRoas).filter((v) => v > 0);
-  const avgRoas = roasValues.length > 0 ? roasValues.reduce((s, v) => s + v, 0) / roasValues.length : 0;
-
-  return {
-    spend: Math.round(totalSpend * 100) / 100,
-    cpa: Math.round(avgCpa * 100) / 100,
-    ctr: Math.round(ctr * 10000) / 10000,
-    cpm: Math.round(cpm * 100) / 100,
-    roas: Math.round(avgRoas * 100) / 100,
-    impressions: totalImpressions,
-    clicks: totalClicks,
-  };
+function pctChange(current: number, prev: number): number | null {
+  if (prev === 0) return null;
+  return Math.round(((current - prev) / prev) * 1000) / 10; // 1 decimal place
 }
 
 export async function GET(request: NextRequest) {
@@ -79,39 +44,113 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "accountId is required" }, { status: 400 });
   }
 
-  // Current period: last 7 days (today-7 to today-1 so data is settled)
-  const currentRange = {
-    since: offsetDate(-7),
-    until: offsetDate(-1),
-  };
-
-  // Previous period: days -14 to -8 (7 days before the current period)
-  const previousRange = {
-    since: offsetDate(-14),
-    until: offsetDate(-8),
-  };
-
   try {
     const accessToken = session.metaAccessToken as string;
 
-    const [currentInsights, previousInsights] = await Promise.all([
-      getAdInsights(accessToken, adAccountId, currentRange),
-      getAdInsights(accessToken, adAccountId, previousRange),
+    // Fetch both periods in parallel
+    const currentSince = offsetDate(-7);
+    const currentUntil = offsetDate(0);
+    const prevSince = offsetDate(-14);
+    const prevUntil = offsetDate(-8);
+
+    const [currentInsights, prevInsights] = await Promise.all([
+      getAdInsights(accessToken, adAccountId, { since: currentSince, until: currentUntil }),
+      getAdInsights(accessToken, adAccountId, { since: prevSince, until: prevUntil }),
     ]);
 
-    // Only return WoW data if both periods have data
-    if (currentInsights.length === 0 || previousInsights.length === 0) {
-      return NextResponse.json({ error: "Insufficient data for WoW comparison" }, { status: 204 });
+    // Build map of adId → WowMetrics
+    const currentMap = new Map(currentInsights.map((i) => [i.ad_id, i]));
+    const prevMap = new Map(prevInsights.map((i) => [i.ad_id, i]));
+
+    const wowByAdId: Record<string, WowMetrics> = {};
+
+    for (const [adId, current] of currentMap) {
+      const prev = prevMap.get(adId);
+
+      const currSpend = parseFloat(current.spend);
+      const currCtr = parseFloat(current.ctr);
+      const currRoas = computeRoas(current);
+      const currCpa = computeCpa(current);
+      const currHookRate = computeHookRate(current);
+
+      if (!prev) {
+        wowByAdId[adId] = {
+          spendChange: null,
+          ctrChange: null,
+          cpaChange: null,
+          roasChange: null,
+          hookRateChange: null,
+        };
+        continue;
+      }
+
+      const prevSpend = parseFloat(prev.spend);
+      const prevCtr = parseFloat(prev.ctr);
+      const prevRoas = computeRoas(prev);
+      const prevCpa = computeCpa(prev);
+      const prevHookRate = computeHookRate(prev);
+
+      wowByAdId[adId] = {
+        spendChange: pctChange(currSpend, prevSpend),
+        ctrChange: pctChange(currCtr, prevCtr),
+        cpaChange: pctChange(currCpa, prevCpa),
+        roasChange: pctChange(currRoas, prevRoas),
+        hookRateChange: pctChange(currHookRate, prevHookRate),
+      };
     }
 
-    const data: WoWData = {
-      current: aggregateInsights(currentInsights),
-      previous: aggregateInsights(previousInsights),
-      currentRange,
-      previousRange,
+    // Aggregate WoW: sum spend, weighted averages for rates
+    const aggCurrent = {
+      spend: currentInsights.reduce((s, i) => s + parseFloat(i.spend), 0),
+      impressions: currentInsights.reduce((s, i) => s + parseInt(i.impressions, 10), 0),
+      clicks: currentInsights.reduce((s, i) => s + parseInt(i.clicks, 10), 0),
+      roas: currentInsights.length > 0
+        ? currentInsights.reduce((s, i) => s + computeRoas(i), 0) / currentInsights.length
+        : 0,
+      cpa: currentInsights.length > 0
+        ? currentInsights.reduce((s, i) => s + computeCpa(i), 0) / currentInsights.length
+        : 0,
+      hookRate: currentInsights.length > 0
+        ? currentInsights.reduce((s, i) => s + computeHookRate(i), 0) / currentInsights.length
+        : 0,
     };
 
-    return NextResponse.json(data);
+    const aggPrev = {
+      spend: prevInsights.reduce((s, i) => s + parseFloat(i.spend), 0),
+      impressions: prevInsights.reduce((s, i) => s + parseInt(i.impressions, 10), 0),
+      clicks: prevInsights.reduce((s, i) => s + parseInt(i.clicks, 10), 0),
+      roas: prevInsights.length > 0
+        ? prevInsights.reduce((s, i) => s + computeRoas(i), 0) / prevInsights.length
+        : 0,
+      cpa: prevInsights.length > 0
+        ? prevInsights.reduce((s, i) => s + computeCpa(i), 0) / prevInsights.length
+        : 0,
+      hookRate: prevInsights.length > 0
+        ? prevInsights.reduce((s, i) => s + computeHookRate(i), 0) / prevInsights.length
+        : 0,
+    };
+
+    const aggCtr = aggCurrent.impressions > 0
+      ? (aggCurrent.clicks / aggCurrent.impressions) * 100
+      : 0;
+    const aggPrevCtr = aggPrev.impressions > 0
+      ? (aggPrev.clicks / aggPrev.impressions) * 100
+      : 0;
+
+    const aggregateWow: WowMetrics = {
+      spendChange: pctChange(aggCurrent.spend, aggPrev.spend),
+      ctrChange: pctChange(aggCtr, aggPrevCtr),
+      cpaChange: pctChange(aggCurrent.cpa, aggPrev.cpa),
+      roasChange: pctChange(aggCurrent.roas, aggPrev.roas),
+      hookRateChange: pctChange(aggCurrent.hookRate, aggPrev.hookRate),
+    };
+
+    return NextResponse.json({
+      wowByAdId,
+      aggregateWow,
+      currentPeriod: { since: currentSince, until: currentUntil },
+      prevPeriod: { since: prevSince, until: prevUntil },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[wow route] unhandled error:", err);

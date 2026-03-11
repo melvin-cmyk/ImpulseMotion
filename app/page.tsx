@@ -4,9 +4,9 @@ import { useCreativesContext } from "@/lib/creatives-context";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { TrendingUp, DollarSign, MousePointerClick, Zap } from "lucide-react";
-import { useMemo, useEffect, useState } from "react";
+import { useMemo } from "react";
 import { DateRangePicker } from "@/components/date-range-picker";
-import { WoWBanner } from "@/components/wow-banner";
+import { WowBanner } from "@/components/wow-indicator";
 
 // ─── KPI card ────────────────────────────────────────────────────────────────
 
@@ -43,19 +43,7 @@ function KpiCard({ label, value, sub, icon: Icon, gradient, accentText }: KpiCar
 // ─── Dashboard home (logged in) ───────────────────────────────────────────────
 
 function DashboardHome() {
-  const { creatives, isLoading, dateRange } = useCreativesContext();
-  const [metaAccountId, setMetaAccountId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const raw = localStorage.getItem("impulse_meta_account");
-    if (raw) {
-      try {
-        setMetaAccountId(JSON.parse(raw).accountId ?? null);
-      } catch {
-        // ignore parse errors
-      }
-    }
-  }, []);
+  const { creatives, isLoading, dateRange, wowData, isWowLoading } = useCreativesContext();
 
   const kpis = useMemo(() => {
     if (creatives.length === 0) {
@@ -94,11 +82,6 @@ function DashboardHome() {
       <p className="text-xs text-gray-600 -mt-2">
         {dateRange.since} — {dateRange.until}
       </p>
-
-      {/* Week over Week trends banner */}
-      {metaAccountId && (
-        <WoWBanner accountId={metaAccountId} />
-      )}
 
       {/* KPI cards */}
       {isLoading ? (
@@ -147,8 +130,20 @@ function DashboardHome() {
         </div>
       )}
 
+      {/* Week over Week Banner */}
+      {!isLoading && !isWowLoading && wowData && (
+        <WowBanner
+          wow={wowData.aggregateWow}
+          currentPeriod={wowData.currentPeriod}
+          prevPeriod={wowData.prevPeriod}
+        />
+      )}
+      {!isLoading && isWowLoading && (
+        <div className="h-28 bg-gray-900 border border-gray-800 rounded-2xl animate-pulse" />
+      )}
+
       {/* Quick links */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 pt-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
         {[
           {
             href: "/creatives",
@@ -161,12 +156,6 @@ function DashboardHome() {
             label: "A/B Compare",
             desc: "Compare two creatives head-to-head",
             color: "hover:border-blue-700/60",
-          },
-          {
-            href: "/comparaisons",
-            label: "Comparaisons",
-            desc: "Métriques agrégées par format, plateforme et statut",
-            color: "hover:border-pink-700/60",
           },
           {
             href: "/fatigue",

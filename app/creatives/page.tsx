@@ -1,17 +1,18 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback } from "react";
-import { Platform, Format, Status, Creative } from "@/lib/mock-data";
+import { Platform, Format, Status, Creative, WowMetrics } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import { CreativeModal } from "@/components/creative-modal";
 import { DateRangePicker } from "@/components/date-range-picker";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star, LayoutGrid, Table2, ChevronUp as ChevronUpSort, X, Tag, BarChart2 } from "lucide-react";
+import { WowBanner, WowChip } from "@/components/wow-indicator";
+import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
+import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star, LayoutGrid, Table2, ChevronUp as ChevronUpSort, X, Tag } from "lucide-react";
 import { FiltersBar, AdStatus } from "@/components/ui/filters-bar";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
-type ViewMode = "card" | "table" | "barchart";
+type ViewMode = "card" | "table";
 type TableSortKey = "name" | "spend" | "ctr" | "hookRate" | "thumbstop" | "roas" | "cpa" | "status";
 
 // ── localStorage helpers for tags ─────────────────────────────────────────────
@@ -1004,170 +1005,6 @@ function TableView({ creatives, onCreativeClick }: TableViewProps) {
   );
 }
 
-// ── Bar Chart View ────────────────────────────────────────────────────────────
-
-interface BarChartViewProps {
-  creatives: Creative[];
-  onCreativeClick: (c: Creative) => void;
-}
-
-function BarChartView({ creatives, onCreativeClick }: BarChartViewProps) {
-  // Sort by spend descending, top 20 for readability
-  const sorted = useMemo(
-    () => [...creatives].sort((a, b) => b.spend - a.spend).slice(0, 20),
-    [creatives]
-  );
-
-  const chartData = sorted.map((c) => ({
-    name: c.name.length > 18 ? c.name.slice(0, 18) + "…" : c.name,
-    fullName: c.name,
-    id: c.id,
-    spend: Math.round(c.spend),
-    cpa: c.cpa,
-    ctr: c.ctr,
-    roas: c.roas,
-    status: c.status,
-  }));
-
-  const maxSpend = chartData.length > 0 ? chartData[0].spend : 1;
-
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-gray-500">
-        Showing top {chartData.length} creatives by Spend. Bars show CPA ($) and CTR (%) overlaid.
-      </p>
-
-      {chartData.length === 0 ? (
-        <div className="flex items-center justify-center h-48 text-gray-600 text-sm">
-          No creatives match the selected filters.
-        </div>
-      ) : (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-2">
-          {chartData.map((item) => {
-            const spendPct = (item.spend / maxSpend) * 100;
-            const cpaNorm = Math.min((item.cpa / 200) * 100, 100); // normalize CPA up to $200
-            const ctrNorm = Math.min((item.ctr / 5) * 100, 100); // normalize CTR up to 5%
-            const statusColors: Record<string, string> = {
-              Winner: "bg-emerald-500",
-              Active: "bg-blue-500",
-              Fatigued: "bg-orange-500",
-              Loser: "bg-red-500",
-            };
-            const statusColor = statusColors[item.status] ?? "bg-gray-500";
-
-            return (
-              <div
-                key={item.id}
-                className="group cursor-pointer hover:bg-gray-800/40 rounded-xl p-2 transition-colors"
-                onClick={() => {
-                  const c = creatives.find((x) => x.id === item.id);
-                  if (c) onCreativeClick(c);
-                }}
-              >
-                {/* Name row */}
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-mono text-gray-300 truncate max-w-[260px]" title={item.fullName}>
-                    {item.name}
-                  </span>
-                  <div className="flex items-center gap-3 text-[10px] text-gray-500 shrink-0 ml-2">
-                    <span className="text-gray-300 font-semibold">
-                      ${item.spend >= 1000 ? `${(item.spend / 1000).toFixed(1)}k` : item.spend}
-                    </span>
-                    <span>CPA: <span className="text-amber-300">${item.cpa}</span></span>
-                    <span>CTR: <span className="text-blue-300">{item.ctr}%</span></span>
-                    <span>ROAS: <span className="text-emerald-300">{item.roas}x</span></span>
-                  </div>
-                </div>
-
-                {/* Spend bar */}
-                <div className="relative h-4 bg-gray-800 rounded-full overflow-hidden mb-1">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${statusColor} opacity-80`}
-                    style={{ width: `${spendPct}%` }}
-                  />
-                </div>
-
-                {/* CPA + CTR bars */}
-                <div className="flex gap-2">
-                  <div className="flex-1 relative h-2 bg-gray-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-amber-500 opacity-70 transition-all duration-500"
-                      style={{ width: `${cpaNorm}%` }}
-                    />
-                  </div>
-                  <div className="flex-1 relative h-2 bg-gray-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-blue-500 opacity-70 transition-all duration-500"
-                      style={{ width: `${ctrNorm}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-0.5">
-                  <div className="flex-1 flex items-center gap-1">
-                    <div className="w-2 h-1.5 rounded-full bg-amber-500 opacity-70" />
-                    <span className="text-[9px] text-gray-600">CPA</span>
-                  </div>
-                  <div className="flex-1 flex items-center gap-1">
-                    <div className="w-2 h-1.5 rounded-full bg-blue-500 opacity-70" />
-                    <span className="text-[9px] text-gray-600">CTR</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Recharts grouped bar chart for quick comparison */}
-      {chartData.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
-          <p className="text-xs text-gray-400 font-semibold mb-4">CPA vs CTR by Creative (top {chartData.length})</p>
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart
-              data={chartData}
-              layout="vertical"
-              margin={{ top: 0, right: 30, left: 10, bottom: 0 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={false} />
-              <XAxis type="number" tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} />
-              <YAxis
-                type="category"
-                dataKey="name"
-                tick={{ fill: "#9ca3af", fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-                width={100}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: "#1f2937",
-                  border: "1px solid #374151",
-                  borderRadius: "8px",
-                  fontSize: "11px",
-                  color: "#e5e7eb",
-                }}
-                formatter={(value: unknown, name: unknown) => {
-                  if (name === "cpa") return [`$${value}`, "CPA"];
-                  if (name === "ctr") return [`${value}%`, "CTR"];
-                  return [value as string, String(name)];
-                }}
-                labelFormatter={(label) => label}
-              />
-              <Legend
-                iconSize={8}
-                wrapperStyle={{ fontSize: "11px", color: "#9ca3af" }}
-                formatter={(value) => value === "cpa" ? "CPA ($)" : "CTR (%)"}
-              />
-              <Bar dataKey="cpa" fill="#f59e0b" opacity={0.8} radius={[0, 3, 3, 0]} barSize={8} />
-              <Bar dataKey="ctr" fill="#3b82f6" opacity={0.8} radius={[0, 3, 3, 0]} barSize={8} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CreativesPage() {
@@ -1176,14 +1013,13 @@ export default function CreativesPage() {
   const [format, setFormat] = useState<"All" | Format>("All");
   const [sortBy, setSortBy] = useState<SortKey>("roas");
   const [adStatus, setAdStatus] = useState<AdStatus>("ALL");
-  const [minSpend, setMinSpend] = useState<number>(0);
   const [selectedCreative, setSelectedCreative] = useState<Creative | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("card");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   // Key to re-compute tags after modal closes (localStorage update)
   const [tagsKey, setTagsKey] = useState(0);
 
-  const { creatives, isLoading: loading, error, isRealData } = useCreativesContext();
+  const { creatives, isLoading: loading, error, isRealData, wowData, isWowLoading } = useCreativesContext();
 
   // Refresh tags list when modal closes
   const handleModalClose = useCallback(() => {
@@ -1221,15 +1057,12 @@ export default function CreativesPage() {
     if (selectedTag) {
       list = list.filter((c) => getTagsForCreative(c.id).includes(selectedTag));
     }
-    if (minSpend > 0) {
-      list = list.filter((c) => c.spend >= minSpend);
-    }
     list.sort((a, b) => {
       if (sortBy === "cpa") return a.cpa - b.cpa;
       return (b[sortBy] as number) - (a[sortBy] as number);
     });
     return list;
-  }, [creatives, platform, status, format, sortBy, adStatus, selectedTag, tagsKey, minSpend]);
+  }, [creatives, platform, status, format, sortBy, adStatus, selectedTag, tagsKey]);
 
   // ── KPI Summary calculations ──────────────────────────────────────────────
   const kpiData = useMemo(() => {
@@ -1266,7 +1099,7 @@ export default function CreativesPage() {
           <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-xl p-1">
             <button
               onClick={() => setViewMode("card")}
-              title="Grid view"
+              title="Card view"
               className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                 viewMode === "card"
                   ? "bg-violet-600 text-white"
@@ -1274,17 +1107,6 @@ export default function CreativesPage() {
               }`}
             >
               <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode("barchart")}
-              title="Bar chart view"
-              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                viewMode === "barchart"
-                  ? "bg-violet-600 text-white"
-                  : "text-gray-500 hover:text-gray-200"
-              }`}
-            >
-              <BarChart2 className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode("table")}
@@ -1365,6 +1187,18 @@ export default function CreativesPage() {
         </div>
       )}
 
+      {/* Week over Week Banner */}
+      {!loading && !isWowLoading && wowData && (
+        <WowBanner
+          wow={wowData.aggregateWow}
+          currentPeriod={wowData.currentPeriod}
+          prevPeriod={wowData.prevPeriod}
+        />
+      )}
+      {!loading && isWowLoading && (
+        <div className="h-28 bg-gray-900 border border-gray-800 rounded-2xl animate-pulse" />
+      )}
+
       {/* AI Insights */}
       {!loading && (
         <AiInsightsSection creatives={creatives} />
@@ -1381,32 +1215,6 @@ export default function CreativesPage() {
         adStatus={adStatus}
         onAdStatusChange={setAdStatus}
       />
-
-      {/* Min Spend Filter */}
-      <div className="flex items-center gap-3 bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
-        <DollarSign className="w-4 h-4 text-gray-500 shrink-0" />
-        <span className="text-gray-400 text-sm shrink-0">Spend min :</span>
-        <input
-          type="range"
-          min={0}
-          max={1000}
-          step={50}
-          value={minSpend}
-          onChange={(e) => setMinSpend(Number(e.target.value))}
-          className="flex-1 accent-violet-500 h-1.5"
-        />
-        <span className="text-sm font-semibold text-white w-16 text-right">
-          {minSpend === 0 ? "All" : `≥ $${minSpend}`}
-        </span>
-        {minSpend > 0 && (
-          <button
-            onClick={() => setMinSpend(0)}
-            className="text-gray-500 hover:text-gray-300 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
 
       {/* Creatives to Scale */}
       {!loading && (
@@ -1534,11 +1342,6 @@ export default function CreativesPage() {
         <TableView creatives={filtered} onCreativeClick={setSelectedCreative} />
       )}
 
-      {/* Bar Chart View */}
-      {!loading && viewMode === "barchart" && (
-        <BarChartView creatives={filtered} onCreativeClick={setSelectedCreative} />
-      )}
-
       {/* Grid */}
       {!loading && viewMode === "card" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -1601,6 +1404,32 @@ export default function CreativesPage() {
                     value={creative.holdRate > 0 ? `${creative.holdRate}%` : "—"}
                   />
                 </div>
+
+                {/* Week-over-Week indicators */}
+                {wowData && (() => {
+                  const wow: WowMetrics | undefined = wowData.wowByAdId[creative.id];
+                  if (!wow) return null;
+                  const hasAnyData = [
+                    wow.spendChange,
+                    wow.roasChange,
+                    wow.ctrChange,
+                    wow.cpaChange,
+                    wow.hookRateChange,
+                  ].some((v) => v !== null);
+                  if (!hasAnyData) return null;
+                  return (
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1.5 border-t border-gray-800/60">
+                      <WowChip metricKey="roasChange" change={wow.roasChange} label="ROAS" />
+                      <WowChip metricKey="ctrChange" change={wow.ctrChange} label="CTR" />
+                      <WowChip metricKey="cpaChange" change={wow.cpaChange} label="CPA" />
+                      {creative.hookRate > 0 && (
+                        <WowChip metricKey="hookRateChange" change={wow.hookRateChange} label="Hook" />
+                      )}
+                      <WowChip metricKey="spendChange" change={wow.spendChange} label="Spend" />
+                      <span className="text-[9px] text-gray-700 self-center">WoW</span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ))}

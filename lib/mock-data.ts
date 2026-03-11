@@ -12,6 +12,19 @@ export interface DayMetric {
   conversions: number;
 }
 
+/**
+ * Week-over-Week percentage changes for key metrics.
+ * A positive value means the metric went up from prev week to current week.
+ * null means no data available for the previous period.
+ */
+export interface WowMetrics {
+  spendChange: number | null;
+  ctrChange: number | null;
+  cpaChange: number | null;
+  roasChange: number | null;
+  hookRateChange: number | null;
+}
+
 export interface Creative {
   id: string;
   name: string;
@@ -46,6 +59,23 @@ export interface Creative {
   threeSecViews: number;
   fifteenSecViews: number;
   trend: DayMetric[];
+  /** Week-over-week change metrics (last 7 days vs previous 7 days) */
+  wow?: WowMetrics;
+}
+
+/** Generate plausible mock WoW metrics based on creative status */
+function generateWow(status: Status): WowMetrics {
+  if (status === "Winner") {
+    return { spendChange: 18.5, ctrChange: 12.3, cpaChange: -8.2, roasChange: 14.1, hookRateChange: 9.7 };
+  }
+  if (status === "Loser") {
+    return { spendChange: -5.2, ctrChange: -22.8, cpaChange: 31.4, roasChange: -25.6, hookRateChange: -18.3 };
+  }
+  if (status === "Fatigued") {
+    return { spendChange: 2.1, ctrChange: -14.7, cpaChange: 19.6, roasChange: -12.3, hookRateChange: -21.0 };
+  }
+  // Active — mixed
+  return { spendChange: 8.4, ctrChange: 5.1, cpaChange: -3.9, roasChange: 6.2, hookRateChange: 4.5 };
 }
 
 function generateTrend(baseRoas: number, status: Status): DayMetric[] {
@@ -94,6 +124,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 184600,
     fifteenSecViews: 119280,
     trend: generateTrend(5.8, "Winner"),
+    wow: generateWow("Winner"),
   },
   {
     id: "c2",
@@ -114,6 +145,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 369200,
     fifteenSecViews: 202960,
     trend: generateTrend(5.2, "Winner"),
+    wow: generateWow("Winner"),
   },
   {
     id: "c3",
@@ -134,6 +166,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(4.9, "Winner"),
+    wow: generateWow("Winner"),
   },
   {
     id: "c4",
@@ -154,6 +187,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(3.6, "Active"),
+    wow: generateWow("Active"),
   },
   {
     id: "c5",
@@ -174,6 +208,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 226200,
     fifteenSecViews: 128700,
     trend: generateTrend(3.2, "Active"),
+    wow: generateWow("Active"),
   },
   {
     id: "c6",
@@ -194,6 +229,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 49280,
     fifteenSecViews: 30240,
     trend: generateTrend(3.0, "Active"),
+    wow: generateWow("Active"),
   },
   {
     id: "c7",
@@ -214,6 +250,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(2.8, "Active"),
+    wow: generateWow("Active"),
   },
   {
     id: "c8",
@@ -234,6 +271,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 155800,
     fifteenSecViews: 77900,
     trend: generateTrend(2.1, "Fatigued"),
+    wow: generateWow("Fatigued"),
   },
   {
     id: "c9",
@@ -254,6 +292,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(1.9, "Fatigued"),
+    wow: generateWow("Fatigued"),
   },
   {
     id: "c10",
@@ -274,6 +313,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 176000,
     fifteenSecViews: 70400,
     trend: generateTrend(1.7, "Fatigued"),
+    wow: generateWow("Fatigued"),
   },
   {
     id: "c11",
@@ -294,6 +334,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(0.9, "Loser"),
+    wow: generateWow("Loser"),
   },
   {
     id: "c12",
@@ -314,6 +355,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 70000,
     fifteenSecViews: 30800,
     trend: generateTrend(0.7, "Loser"),
+    wow: generateWow("Loser"),
   },
   {
     id: "c13",
@@ -334,6 +376,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(0.5, "Loser"),
+    wow: generateWow("Loser"),
   },
   {
     id: "c14",
@@ -354,6 +397,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(0.6, "Loser"),
+    wow: generateWow("Loser"),
   },
   {
     id: "c15",
@@ -374,6 +418,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 266600,
     fifteenSecViews: 163400,
     trend: generateTrend(4.5, "Winner"),
+    wow: generateWow("Winner"),
   },
   {
     id: "c16",
@@ -394,6 +439,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 35670,
     fifteenSecViews: 20880,
     trend: generateTrend(2.4, "Active"),
+    wow: generateWow("Active"),
   },
   {
     id: "c17",
@@ -414,6 +460,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 125400,
     fifteenSecViews: 57000,
     trend: generateTrend(1.5, "Fatigued"),
+    wow: generateWow("Fatigued"),
   },
   {
     id: "c18",
@@ -434,6 +481,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(3.1, "Active"),
+    wow: generateWow("Active"),
   },
   {
     id: "c19",
@@ -454,6 +502,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(2.6, "Active"),
+    wow: generateWow("Active"),
   },
   {
     id: "c20",
@@ -474,6 +523,7 @@ export const mockCreatives: Creative[] = [
     threeSecViews: 0,
     fifteenSecViews: 0,
     trend: generateTrend(4.2, "Winner"),
+    wow: generateWow("Winner"),
   },
 ];
 

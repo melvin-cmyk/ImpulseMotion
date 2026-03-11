@@ -1,230 +1,166 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useCreativesContext } from "@/lib/creatives-context";
 import { Creative } from "@/lib/mock-data";
-import { BadgeCheck } from "lucide-react";
+import { useCreativesContext } from "@/lib/creatives-context";
+import { MessageSquare, TrendingUp, ChevronUp, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-interface AngleGroup {
-  name: string;
-  creatives: Creative[];
-  spend: number;
-  activeCount: number;
-  winnerCount: number;
+type SortKey = "spend" | "cpa" | "ctr" | "hitRate" | "count";
+
+interface AngleStats {
+  angle: string;
+  count: number;
+  winners: number;
+  totalSpend: number;
+  avgCpa: number;
+  avgCtr: number;
+  avgRoas: number;
   hitRate: number;
-  thumbnails: string[];
 }
 
-const DEFAULT_CONFIG = { separator: "_", angleIndex: 2 };
-
-function loadNamingConfig(): { separator: string; angleIndex: number } {
-  if (typeof window === "undefined") return DEFAULT_CONFIG;
-  try {
-    const raw = localStorage.getItem("impulse_naming_config");
-    if (!raw) return DEFAULT_CONFIG;
-    const parsed = JSON.parse(raw);
-    const segments: { name: string }[] = parsed.segments ?? [];
-    const sep: string = parsed.separator ?? "_";
-    // Find the "angle" segment index (case-insensitive) or fall back to last segment
-    const angleIdx = segments.findIndex((s) =>
-      s.name?.toLowerCase().includes("angle")
-    );
-    return {
-      separator: sep,
-      angleIndex: angleIdx >= 0 ? angleIdx : Math.max(0, segments.length - 1),
-    };
-  } catch {
-    return DEFAULT_CONFIG;
+function buildAngleStats(creatives: Creative[]): AngleStats[] {
+  const map = new Map<string, Creative[]>();
+  for (const c of creatives) {
+    const parts = c.name.split("_");
+    const angle = parts[2] || parts[1] || parts[0] || "Unknown";
+    if (!map.has(angle)) map.set(angle, []);
+    map.get(angle)!.push(c);
   }
+
+  return Array.from(map.entries()).map(([angle, items]) => {
+    const totalSpend = items.reduce((s, c) => s + c.spend, 0);
+    const avgCpa = items.reduce((s, c) => s + c.cpa, 0) / items.length;
+    const avgCtr = items.reduce((s, c) => s + c.ctr, 0) / items.length;
+    const avgRoas = items.reduce((s, c) => s + c.roas, 0) / items.length;
+    const winners = items.filter(c => c.status === "Winner").length;
+    const hitRate = items.length > 0 ? (winners / items.length) * 100 : 0;
+    return { angle, count: items.length, winners, totalSpend, avgCpa, avgCtr, avgRoas, hitRate };
+  });
 }
 
-function extractAngle(name: string, sep: string, idx: number): string {
-  const parts = name.split(sep);
-  return parts[idx]?.trim() || "Unknown";
+function HitBadge({ rate }: { rate: number }) {
+  if (rate >= 30)
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">Proven</span>;
+  if (rate < 10)
+    return <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 font-semibold">Weak</span>;
+  return <span className="text-xs px-2 py-0.5 rounded-full bg-gray-700 text-gray-400 border border-gray-600 font-semibold">Testing</span>;
 }
 
 export default function AnglesPage() {
-  const { creatives, isLoading } = useCreativesContext();
-  const [sortBy, setSortBy] = useState<"spend" | "hitRate" | "active">("spend");
+  const { creatives } = useCreativesContext();
+  const [sortKey, setSortKey] = useState<SortKey>("spend");
+  const [sortAsc, setSortAsc] = useState(false);
 
-  const config = useMemo(() => loadNamingConfig(), []);
-
-  const groups = useMemo<AngleGroup[]>(() => {
-    const map = new Map<string, Creative[]>();
-
-    for (const c of creatives) {
-      const angle = extractAngle(c.name, config.separator, config.angleIndex);
-      if (!map.has(angle)) map.set(angle, []);
-      map.get(angle)!.push(c);
-    }
-
-    return Array.from(map.entries()).map(([name, items]) => {
-      const spend = items.reduce((s, c) => s + c.spend, 0);
-      const activeCount = items.filter(
-        (c) => c.status === "Active" || c.status === "Winner"
-      ).length;
-      const winnerCount = items.filter((c) => c.status === "Winner").length;
-      const hitRate =
-        items.length > 0
-          ? Math.round((winnerCount / items.length) * 100)
-          : 0;
-      const thumbnails = items
-        .filter((c) => c.thumbnailUrl)
-        .slice(0, 3)
-        .map((c) => c.thumbnailUrl!);
-
-      return { name, creatives: items, spend, activeCount, winnerCount, hitRate, thumbnails };
-    });
-  }, [creatives, config]);
+  const angleStats = useMemo(() => buildAngleStats(creatives), [creatives]);
 
   const sorted = useMemo(() => {
-    return [...groups].sort((a, b) => {
-      if (sortBy === "spend") return b.spend - a.spend;
-      if (sortBy === "hitRate") return b.hitRate - a.hitRate;
-      return b.activeCount - a.activeCount;
+    return [...angleStats].sort((a, b) => {
+      let diff = 0;
+      if (sortKey === "spend") diff = a.totalSpend - b.totalSpend;
+      else if (sortKey === "cpa") diff = a.avgCpa - b.avgCpa;
+      else if (sortKey === "ctr") diff = a.avgCtr - b.avgCtr;
+      else if (sortKey === "hitRate") diff = a.hitRate - b.hitRate;
+      else if (sortKey === "count") diff = a.count - b.count;
+      return sortAsc ? diff : -diff;
     });
-  }, [groups, sortBy]);
+  }, [angleStats, sortKey, sortAsc]);
 
-  if (isLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-gray-500">
-        Chargement…
-      </div>
-    );
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortAsc(a => !a);
+    else { setSortKey(key); setSortAsc(false); }
   }
 
+  function SortIcon({ k }: { k: SortKey }) {
+    if (sortKey !== k) return <ChevronUp className="w-3 h-3 opacity-30" />;
+    return sortAsc ? <ChevronUp className="w-3 h-3 text-violet-400" /> : <ChevronDown className="w-3 h-3 text-violet-400" />;
+  }
+
+  const totalSpend = angleStats.reduce((s, a) => s + a.totalSpend, 0);
+
   return (
-    <div className="flex-1 overflow-y-auto bg-[#09090f] p-6">
+    <div className="flex-1 overflow-auto bg-gray-950 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-9 h-9 bg-violet-600/20 rounded-xl flex items-center justify-center">
+          <MessageSquare className="w-5 h-5 text-violet-400" />
+        </div>
         <div>
-          <h1 className="text-xl font-bold text-white">Angles</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Performance par messaging angle — basé sur ta naming convention
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {(["spend", "hitRate", "active"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSortBy(s)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                sortBy === s
-                  ? "bg-violet-600 text-white"
-                  : "bg-gray-800 text-gray-400 hover:text-white"
-              }`}
-            >
-              {s === "spend" ? "Spend" : s === "hitRate" ? "Hit Rate" : "Actifs"}
-            </button>
-          ))}
+          <h1 className="text-lg font-semibold text-gray-100">Angles</h1>
+          <p className="text-xs text-gray-500">Performance par angle de messaging (3e segment du naming)</p>
         </div>
       </div>
 
-      {/* Angle cards */}
-      <div className="space-y-3">
-        {sorted.map((group) => (
-          <AngleCard key={group.name} group={group} />
-        ))}
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">Angles testés</p>
+          <p className="text-2xl font-bold text-gray-100">{angleStats.length}</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">Angles Proven</p>
+          <p className="text-2xl font-bold text-emerald-400">{angleStats.filter(a => a.hitRate >= 30).length}</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <p className="text-xs text-gray-500 mb-1">Total Spend</p>
+          <p className="text-2xl font-bold text-gray-100">${totalSpend.toLocaleString()}</p>
+        </div>
       </div>
 
-      {sorted.length === 0 && (
-        <div className="text-center text-gray-600 py-20">
-          Aucune créa trouvée. Vérifie ta{" "}
-          <a href="/naming" className="text-violet-400 underline">
-            naming convention
-          </a>
-          .
-        </div>
-      )}
-    </div>
-  );
-}
+      {/* Table */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-800 text-gray-500 text-xs">
+              <th className="text-left px-4 py-3 font-medium">Angle</th>
+              <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("count")}>
+                <span className="flex items-center justify-end gap-1"># Ads <SortIcon k="count" /></span>
+              </th>
+              <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("spend")}>
+                <span className="flex items-center justify-end gap-1">Spend <SortIcon k="spend" /></span>
+              </th>
+              <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("cpa")}>
+                <span className="flex items-center justify-end gap-1">Avg CPA <SortIcon k="cpa" /></span>
+              </th>
+              <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("ctr")}>
+                <span className="flex items-center justify-end gap-1">CTR <SortIcon k="ctr" /></span>
+              </th>
+              <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("hitRate")}>
+                <span className="flex items-center justify-end gap-1">Hit Rate <SortIcon k="hitRate" /></span>
+              </th>
+              <th className="text-right px-4 py-3 font-medium">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((a, i) => (
+              <tr key={a.angle} className={cn("border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors", i === sorted.length - 1 && "border-0")}>
+                <td className="px-4 py-3 text-gray-200 font-medium">{a.angle}</td>
+                <td className="px-4 py-3 text-right text-gray-400">{a.count}</td>
+                <td className="px-4 py-3 text-right text-gray-200">${a.totalSpend.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right text-gray-200">${a.avgCpa.toFixed(2)}</td>
+                <td className="px-4 py-3 text-right text-gray-200">{a.avgCtr.toFixed(2)}%</td>
+                <td className="px-4 py-3 text-right">
+                  <span className={cn(
+                    "font-semibold",
+                    a.hitRate >= 30 ? "text-emerald-400" : a.hitRate < 10 ? "text-red-400" : "text-gray-400"
+                  )}>
+                    {a.hitRate.toFixed(0)}%
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <HitBadge rate={a.hitRate} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-function AngleCard({ group }: { group: AngleGroup }) {
-  const isProven = group.hitRate >= 20;
-
-  return (
-    <div className="bg-[#0d0d1a] border border-white/5 rounded-xl p-4 flex items-center gap-4 hover:border-white/10 transition-colors">
-      {/* Thumbnail cluster */}
-      <div className="relative w-16 h-16 shrink-0">
-        {group.thumbnails.length === 0 && (
-          <div className="w-16 h-16 rounded-lg bg-gradient-to-br from-violet-800/40 to-purple-900/40 border border-white/5" />
+        {sorted.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-gray-600">
+            <MessageSquare className="w-8 h-8 mb-2 opacity-40" />
+            <p className="text-sm">Aucun angle trouvé</p>
+          </div>
         )}
-        {group.thumbnails.map((url, i) => (
-          <img
-            key={url}
-            src={url}
-            alt=""
-            className="absolute rounded-md object-cover border border-black"
-            style={{
-              width: 40,
-              height: 40,
-              top: i * 6,
-              left: i * 6,
-              zIndex: group.thumbnails.length - i,
-            }}
-          />
-        ))}
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-white font-semibold text-sm truncate">
-            {group.name}
-          </span>
-          {isProven && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-[10px] font-bold shrink-0">
-              <BadgeCheck className="w-3 h-3" />
-              Proven
-            </span>
-          )}
-        </div>
-        <div className="flex gap-4 text-xs text-gray-500">
-          <span>
-            <span className="text-white font-medium">
-              ${group.spend >= 1000 ? `${(group.spend / 1000).toFixed(1)}k` : group.spend.toFixed(0)}
-            </span>{" "}
-            spend
-          </span>
-          <span>
-            <span className="text-white font-medium">{group.activeCount}</span>{" "}
-            actifs
-          </span>
-          <span>
-            <span
-              className={`font-bold ${
-                group.hitRate >= 20
-                  ? "text-emerald-400"
-                  : group.hitRate > 0
-                  ? "text-amber-400"
-                  : "text-gray-500"
-              }`}
-            >
-              {group.hitRate}%
-            </span>{" "}
-            hit rate
-          </span>
-          <span className="text-gray-600">
-            {group.creatives.length} créa{group.creatives.length > 1 ? "s" : ""}
-          </span>
-        </div>
-      </div>
-
-      {/* Hit rate bar */}
-      <div className="w-24 shrink-0">
-        <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full ${
-              group.hitRate >= 20
-                ? "bg-emerald-500"
-                : group.hitRate > 0
-                ? "bg-amber-400"
-                : "bg-gray-700"
-            }`}
-            style={{ width: `${Math.min(100, group.hitRate * 3)}%` }}
-          />
-        </div>
       </div>
     </div>
   );
