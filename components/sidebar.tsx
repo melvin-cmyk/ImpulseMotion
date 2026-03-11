@@ -17,6 +17,8 @@ import {
   Shapes,
   MessageSquare,
   Users,
+  FileText,
+  Layers,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -31,6 +33,8 @@ const navItems = [
   { href: "/patterns", icon: Shapes, label: "Patterns" },
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/naming", icon: Tag, label: "Naming Convention" },
+  { href: "/top-copy", icon: FileText, label: "Top Copy" },
+  { href: "/visual-format", icon: Layers, label: "Format Visuel" },
   { href: "/creative-team", icon: Users, label: "Équipe créa" },
   { href: "/reports", icon: Share2, label: "Reports" },
   { href: "/settings", icon: Settings, label: "Settings" },
