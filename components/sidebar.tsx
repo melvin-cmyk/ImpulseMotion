@@ -15,6 +15,8 @@ import {
   Rocket,
   PieChart,
   Shapes,
+  MessageSquare,
+  Users,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -25,9 +27,11 @@ const navItems = [
   { href: "/top-charts", icon: BarChart3, label: "Top Charts" },
   { href: "/compare", icon: GitCompareArrows, label: "A/B Compare" },
   { href: "/comparaisons", icon: PieChart, label: "Comparaisons" },
+  { href: "/angles", icon: MessageSquare, label: "Angles" },
   { href: "/patterns", icon: Shapes, label: "Patterns" },
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/naming", icon: Tag, label: "Naming Convention" },
+  { href: "/creative-team", icon: Users, label: "Équipe créa" },
   { href: "/reports", icon: Share2, label: "Reports" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ]
