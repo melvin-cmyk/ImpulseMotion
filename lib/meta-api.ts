@@ -3,7 +3,7 @@
  * Docs: https://developers.facebook.com/docs/marketing-api/reference
  */
 
-const META_API_BASE = "https://graph.facebook.com/v18.0";
+const META_API_BASE = "https://graph.facebook.com/v22.0";
 
 export interface MetaAdAccount {
   id: string;

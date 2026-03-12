@@ -14,14 +14,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       name: "Meta",
       type: "oauth",
       authorization: {
-        url: "https://www.facebook.com/v18.0/dialog/oauth",
+        url: "https://www.facebook.com/v22.0/dialog/oauth",
         params: {
           scope: "ads_read,ads_management",
           response_type: "code",
         },
       },
-      token: "https://graph.facebook.com/v18.0/oauth/access_token",
-      userinfo: "https://graph.facebook.com/v18.0/me?fields=id,name,email",
+      token: "https://graph.facebook.com/v22.0/oauth/access_token",
+      userinfo: "https://graph.facebook.com/v22.0/me?fields=id,name,email",
       clientId: process.env.FACEBOOK_APP_ID,
       clientSecret: process.env.FACEBOOK_APP_SECRET,
       profile(profile) {
