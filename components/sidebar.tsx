@@ -19,6 +19,7 @@ import {
   FileText,
   Monitor,
   Globe,
+  Users,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -31,6 +32,7 @@ const navItems = [
   { href: "/comparaisons", icon: PieChart, label: "Comparaisons" },
   { href: "/patterns", icon: Layers, label: "Patterns" },
   { href: "/angles", icon: MessageSquare, label: "Angles" },
+  { href: "/audience", icon: Users, label: "Intended Audience" },
   { href: "/top-copy", icon: FileText, label: "Top Copy" },
   { href: "/visual-format", icon: Monitor, label: "Visual Format" },
   { href: "/top-landing-page", icon: Globe, label: "Top Landing Pages" },
