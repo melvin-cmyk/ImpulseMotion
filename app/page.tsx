@@ -368,6 +368,27 @@ function DashboardHome() {
         ]}
         tip="Commence par 'Quelles créas à couper ?' pour nettoyer ton compte des ads qui drainent ton budget sans résultats."
       />
+      {/* No account connected banner */}
+      {!metaAccountId && (
+        <div className="flex items-center gap-4 rounded-xl border border-violet-500/30 bg-violet-500/10 px-5 py-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-500/20">
+            <svg className="h-5 w-5 text-violet-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-violet-200">Aucun compte publicitaire connecté</p>
+            <p className="text-xs text-violet-300/70 mt-0.5">Connecte ton compte Meta Ads pour afficher tes vraies données.</p>
+          </div>
+          <Link
+            href="/settings"
+            className="shrink-0 rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-500 transition-colors"
+          >
+            Connecter un compte →
+          </Link>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
