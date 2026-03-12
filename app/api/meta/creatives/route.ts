@@ -31,57 +31,17 @@ const THUMBNAIL_COLORS = [
   "from-indigo-500 to-violet-600",
 ];
 
-/**
- * Attempt to upgrade a Meta CDN image URL to a higher resolution.
- *
- * Meta CDN URLs (scontent-*.fbcdn.net) accept width/height query parameters.
- * If the URL already contains size parameters we replace them; otherwise we
- * append them.  We request 1200 px wide which is the typical full-resolution
- * available from the Marketing API.
- */
-function upgradeImageUrl(url: string | undefined): string | undefined {
-  if (!url) return undefined;
+export function upgradeImageUrl(url: string): string {
+  if (!url) return url;
   try {
-    const parsed = new URL(url);
-    // Only mangle fbcdn / fbsbx CDN URLs — leave other URLs untouched.
-    if (
-      parsed.hostname.endsWith(".fbcdn.net") ||
-      parsed.hostname.endsWith(".fbsbx.com")
-    ) {
-      // Meta CDN URLs encode dimensions like "s320x320", "p320x320", "c0.320x320a",
-      // or "t39.35426-6/p320x320" in the path segments — replace with high-res variant.
-      // We use a greedy approach: replace any dimension-like segment.
-      const originalPathname = parsed.pathname;
-      let upgraded = originalPathname
-        // Handle "s<W>x<H>" and "p<W>x<H>" as standalone path segments
-        .replace(/\/(s|p)\d+x\d+\//g, "/s1200x1200/")
-        // Handle "c<x>.<W>x<H>" crop variants
-        .replace(/\/c\d+\.\d+x\d+[a-z]?\//g, "/s1200x1200/");
-      parsed.pathname = upgraded;
-
-      // Remove size-limiting query params
-      parsed.searchParams.delete("_nc_cat");
-      parsed.searchParams.delete("_nc_oc");
-      parsed.searchParams.delete("_nc_ht");
-
-      // If no dimension was found in the path (no replacement happened),
-      // try appending width hint via query params as a fallback.
-      if (upgraded === originalPathname && !upgraded.includes("s1200x1200")) {
-        parsed.searchParams.set("_nc_sx", "1200");
-      }
-
-      return parsed.toString();
-    }
-    // For graph.facebook.com URLs (thumbnail redirects), append a width hint
-    if (parsed.hostname === "graph.facebook.com") {
-      parsed.searchParams.set("redirect", "1");
-      parsed.searchParams.set("width", "1200");
-      return parsed.toString();
-    }
+    // Try to replace small dimension patterns with larger ones
+    const upgraded = url
+      .replace(/\/(s|p)\d+x\d+\//g, '/p1200x1200/')
+      .replace(/\/c\d+\.\d+x\d+\//g, '/p1200x1200/');
+    return upgraded;
   } catch {
-    // If URL parsing fails just return the original
+    return url;
   }
-  return url;
 }
 
 export async function GET(request: NextRequest) {
@@ -217,7 +177,7 @@ export async function GET(request: NextRequest) {
         ? (ad.creative?.thumbnail_url || undefined)
         : (ad.creative?.image_url || ad.creative?.thumbnail_url || undefined);
 
-      const thumbnailUrl = upgradeImageUrl(rawThumbnailUrl);
+      const thumbnailUrl = rawThumbnailUrl ? upgradeImageUrl(rawThumbnailUrl) : undefined;
 
       // Video playback URL fetched from /{video_id}?fields=source (with
       // adcreatives fallback applied above).
