@@ -150,6 +150,23 @@ export async function GET(request: NextRequest) {
       aggregateWow,
       currentPeriod: { since: currentSince, until: currentUntil },
       prevPeriod: { since: prevSince, until: prevUntil },
+      // Shape expected by WoWBanner component
+      current: {
+        spend: aggCurrent.spend,
+        cpa: aggCurrent.cpa,
+        ctr: aggCtr,
+        cpm: aggCurrent.impressions > 0 ? (aggCurrent.spend / aggCurrent.impressions) * 1000 : 0,
+        roas: aggCurrent.roas,
+      },
+      previous: {
+        spend: aggPrev.spend,
+        cpa: aggPrev.cpa,
+        ctr: aggPrevCtr,
+        cpm: aggPrev.impressions > 0 ? (aggPrev.spend / aggPrev.impressions) * 1000 : 0,
+        roas: aggPrev.roas,
+      },
+      currentRange: { since: currentSince, until: currentUntil },
+      previousRange: { since: prevSince, until: prevUntil },
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
