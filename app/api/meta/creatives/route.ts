@@ -48,15 +48,28 @@ function upgradeImageUrl(url: string | undefined): string | undefined {
       parsed.hostname.endsWith(".fbcdn.net") ||
       parsed.hostname.endsWith(".fbsbx.com")
     ) {
-      // Meta CDN URLs encode dimensions like "s320x320" or "p320x320" in the
-      // path segments — replace with a 1200-wide variant.
-      const upgraded = parsed.pathname.replace(
-        /\/(s|p)\d+x\d+\//,
-        "/s1200x1200/"
-      );
+      // Meta CDN URLs encode dimensions like "s320x320", "p320x320", "c0.320x320a",
+      // or "t39.35426-6/p320x320" in the path segments — replace with high-res variant.
+      // We use a greedy approach: replace any dimension-like segment.
+      const originalPathname = parsed.pathname;
+      let upgraded = originalPathname
+        // Handle "s<W>x<H>" and "p<W>x<H>" as standalone path segments
+        .replace(/\/(s|p)\d+x\d+\//g, "/s1200x1200/")
+        // Handle "c<x>.<W>x<H>" crop variants
+        .replace(/\/c\d+\.\d+x\d+[a-z]?\//g, "/s1200x1200/");
       parsed.pathname = upgraded;
-      // Also remove any _nc_cat / size-limiting query params that force low-res
+
+      // Remove size-limiting query params
       parsed.searchParams.delete("_nc_cat");
+      parsed.searchParams.delete("_nc_oc");
+      parsed.searchParams.delete("_nc_ht");
+
+      // If no dimension was found in the path (no replacement happened),
+      // try appending width hint via query params as a fallback.
+      if (upgraded === originalPathname && !upgraded.includes("s1200x1200")) {
+        parsed.searchParams.set("_nc_sx", "1200");
+      }
+
       return parsed.toString();
     }
     // For graph.facebook.com URLs (thumbnail redirects), append a width hint
