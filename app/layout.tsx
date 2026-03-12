@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/sidebar";
 import { SessionProvider } from "next-auth/react";
 import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
+import { AccountSwitcher } from "@/components/account-switcher";
 import { CreativesProvider } from "@/lib/creatives-context";
 
 const geist = Geist({
@@ -34,7 +35,8 @@ export default async function RootLayout({
               <div className="flex h-screen bg-gray-950 text-gray-100">
                 <Sidebar />
                 <div className="flex-1 flex flex-col overflow-hidden">
-                  <header className="h-12 border-b border-gray-800 flex items-center justify-end px-4 flex-shrink-0">
+                  <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
+                    <AccountSwitcher />
                     <UserNav session={session} />
                   </header>
                   <main className="flex-1 overflow-auto">
