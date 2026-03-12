@@ -6,6 +6,7 @@ import { useCreativesContext } from "@/lib/creatives-context";
 import { MessageSquare, ChevronUp, ChevronDown, Trophy, Flame, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { loadNamingConfig, NamingConfig, parseSegmentValue } from "@/lib/naming-config";
+import { PageHelp } from "@/components/ui/page-help";
 
 type SortKey = "spend" | "cpa" | "ctr" | "roas" | "hitRate" | "count";
 
@@ -94,6 +95,17 @@ export default function AnglesPage() {
 
   return (
     <div className="flex-1 overflow-auto bg-gray-950 p-6">
+      {/* Page Help */}
+      <PageHelp
+        title="Angles — Quel message résonne le mieux ?"
+        description="Compare tes angles de messaging pour savoir quel message résonne le mieux avec ton audience. Les angles sont extraits automatiquement du dernier segment de ta naming convention."
+        steps={[
+          "Vérifie que ta naming convention est bien configurée (page Naming) — les angles viennent du dernier segment.",
+          "Consulte le tableau trié par Spend pour voir quels angles reçoivent le plus de budget.",
+          "Compare le Hit Rate et le ROAS moyen pour identifier tes angles 'Proven' à réutiliser dans tes prochaines créas.",
+        ]}
+        tip="Un angle 'Proven' (Hit Rate ≥ 30%) mérite d'être décliné en plusieurs formats (Image, Vidéo, Carrousel) pour maximiser son potentiel."
+      />
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="w-9 h-9 bg-violet-600/20 rounded-xl flex items-center justify-center">

@@ -16,6 +16,7 @@ import {
   Cell,
 } from "recharts";
 import { BarChart2, LayoutGrid, TrendingUp, DollarSign, MousePointerClick, Zap } from "lucide-react";
+import { PageHelp } from "@/components/ui/page-help";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -492,6 +493,17 @@ export default function ComparaisonsPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Page Help */}
+      <PageHelp
+        title="Comparaisons — Métriques agrégées par dimension"
+        description="Compare les performances entre différentes dimensions : format créatif (Image vs Vidéo vs Carrousel), plateforme (Meta vs TikTok) et statut (Winner vs Loser). Identifie où concentrer ton budget."
+        steps={[
+          "Sélectionne une période avec le date picker pour filtrer les données sur la fenêtre qui t'intéresse.",
+          "Consulte les KPIs globaux en haut, puis descends dans chaque section pour comparer par format, plateforme et statut.",
+          "Utilise les boutons de métrique (Spend, CPA, CTR, ROAS) dans chaque section pour changer la visualisation.",
+        ]}
+        tip="Le panneau 'Insights comparatifs' en haut génère automatiquement des recommandations actionables — regarde si une plateforme a un CPA significativement plus bas que l'autre."
+      />
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>

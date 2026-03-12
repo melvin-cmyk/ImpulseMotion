@@ -5,6 +5,7 @@ import { Creative, Status } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { FileText, DollarSign, TrendingUp, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHelp } from "@/components/ui/page-help";
 
 type FilterStatus = "all" | Status;
 type SortKey = "spend" | "cpa" | "ctr" | "roas";
@@ -49,6 +50,17 @@ export default function TopCopyPage() {
 
   return (
     <div className="flex-1 overflow-auto bg-gray-950 p-6">
+      {/* Page Help */}
+      <PageHelp
+        title="Top Copy — Textes d'annonce qui convertissent"
+        description="Vois quels textes d'annonce (headline et body copy) génèrent le plus d'engagement et de conversions. Identifie les formulations gagnantes pour briefer tes copywriters."
+        steps={[
+          "Filtre par statut (Winners, Actifs, Fatigués, Losers) pour te concentrer sur une catégorie spécifique.",
+          "Trie par CTR pour voir quels textes attirent le plus de clics, ou par ROAS pour les plus rentables.",
+          "Note les patterns de langage des créas Winners : longueur, ton, promesse, CTA — et reproduis-les.",
+        ]}
+        tip="Les créas sans texte affiché n'ont pas encore de headline/body renseigné dans les données Meta. Ces infos apparaissent automatiquement quand l'API les fournit."
+      />
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="w-9 h-9 bg-violet-600/20 rounded-xl flex items-center justify-center">

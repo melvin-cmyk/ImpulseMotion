@@ -13,6 +13,7 @@ import {
   Tooltip,
 } from "recharts";
 import { TrendingUp, DollarSign, MousePointerClick, AlertTriangle, LayoutGrid } from "lucide-react";
+import { PageHelp } from "@/components/ui/page-help";
 
 type Tab = "spend" | "roas" | "ctr" | "fatigued" | "heatmap";
 
@@ -454,6 +455,17 @@ export default function TopChartsPage() {
 
   return (
     <div className="p-6 space-y-5">
+      {/* Page Help */}
+      <PageHelp
+        title="Top Charts — Classement de tes créas"
+        description="Visualise tes meilleures créas par ROAS, Spend ou CTR, et repère en un coup d'œil celles qui s'essoufflent. Le heatmap montre les jours et heures où tes créas performent le mieux."
+        steps={[
+          "Sélectionne un onglet (Top ROAS, Top Spend, Top CTR) pour voir les créas classées selon cette métrique.",
+          "Consulte l'onglet 'Fatigued' pour identifier les créas à remplacer en priorité avant qu'elles brûlent ton budget.",
+          "Explore le Heatmap pour identifier les créneaux horaires et jours de la semaine les plus performants.",
+        ]}
+        tip="Commence par le classement Top ROAS pour identifier tes créas les plus rentables, puis va dans Fatigued pour couper celles qui drainent ton budget sans résultats."
+      />
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white">Top Charts</h1>

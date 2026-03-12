@@ -14,6 +14,7 @@ import {
 import { AlertTriangle, TrendingDown, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { Creative } from "@/lib/mock-data";
+import { PageHelp } from "@/components/ui/page-help";
 
 type CreativeItem = ReturnType<typeof useCreativesContext>["creatives"][0];
 
@@ -229,6 +230,17 @@ export default function FatiguePage() {
 
   return (
     <div className="p-6 space-y-5">
+      {/* Page Help */}
+      <PageHelp
+        title="Fatigue Detection — Détecte l'essoufflement"
+        description="Détecte les créas qui s'épuisent avant qu'elles ne coûtent trop cher. Un CTR qui baisse et un CPA qui monte sont les signaux d'alarme d'une audience saturée."
+        steps={[
+          "Filtre par plateforme (Meta / TikTok / Tout) pour cibler ton analyse.",
+          "Lis le bandeau d'alerte en haut : il résume le nombre de créas en danger et la dégradation moyenne.",
+          "Sur chaque carte, consulte les mini-graphes CTR, CPA et ROAS sur 7 jours, et la liste des signaux détectés.",
+        ]}
+        tip="Dès qu'une créa affiche 2+ signaux de fatigue, considère lancer une variation avec un hook différent plutôt que d'attendre que le CPA explose."
+      />
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white">Fatigue Detection</h1>

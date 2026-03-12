@@ -17,6 +17,7 @@ import {
 import { useMemo, useEffect, useState, useRef } from "react";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { WoWBanner } from "@/components/wow-banner";
+import { PageHelp } from "@/components/ui/page-help";
 
 // ─── KPI card ────────────────────────────────────────────────────────────────
 
@@ -354,6 +355,17 @@ function DashboardHome() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Page Help */}
+      <PageHelp
+        title="Dashboard — Vue d'ensemble"
+        description="Vue d'ensemble de tes performances Meta Ads. Compare cette semaine vs la semaine dernière, identifie les créas qui décollent ou fatiguent, et interroge l'assistant IA pour des insights instantanés."
+        steps={[
+          "Sélectionne une période avec le date picker en haut à droite pour filtrer les données.",
+          "Consulte le bandeau Week over Week pour voir l'évolution de tes KPIs clés.",
+          "Utilise l'assistant IA (\"Demandez-moi n'importe quoi\") pour obtenir des recommandations concrètes sur tes créas.",
+        ]}
+        tip="Commence par 'Quelles créas à couper ?' pour nettoyer ton compte des ads qui drainent ton budget sans résultats."
+      />
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>

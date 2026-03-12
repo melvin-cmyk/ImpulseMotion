@@ -23,6 +23,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { X, ExternalLink, Plus, Tag } from "lucide-react";
 import { Creative } from "@/lib/mock-data";
+import { AudienceTagInput } from "@/components/audience-tag-input";
 
 interface CreativeModalProps {
   creative: Creative | null;
@@ -595,6 +596,12 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
 
           {/* Custom Tags */}
           <CustomTagsSection creativeId={creative.id} />
+
+          {/* Divider */}
+          <div className="border-t border-white/5" />
+
+          {/* Intended Audience */}
+          <AudienceTagInput creativeId={creative.id} />
         </div>
       </div>
     </div>

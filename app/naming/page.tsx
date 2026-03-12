@@ -14,6 +14,7 @@ import {
   Cell,
 } from "recharts";
 import { Tag, Settings, ChevronDown, ChevronUp, AlertCircle, HelpCircle, Lightbulb, X } from "lucide-react";
+import { PageHelp } from "@/components/ui/page-help";
 
 interface SegmentDef {
   label: string;
@@ -408,6 +409,17 @@ export default function NamingPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Page Help */}
+      <PageHelp
+        title="Naming Convention — Configure l'interprétation de tes noms d'ads"
+        description="Configure comment tes noms d'ads sont interprétés pour déverrouiller les pages Patterns et Angles. Ex: PRODUIT_FORMAT_ANGLE avec _ comme séparateur permet d'agréger automatiquement les perfs par catégorie."
+        steps={[
+          "Clique sur 'Configurer' et choisis le séparateur utilisé dans tes noms d'ads (_ - | etc.).",
+          "Définis tes segments et leur position : Product en pos.1, Format en pos.2, Angle en pos.3 (adapte selon ton naming).",
+          "Vérifie l'aperçu en temps réel sur 3 créas — ajuste jusqu'à avoir le badge vert (80%+ catégorisés).",
+        ]}
+        tip="Même si tes noms ne sont pas 100% standardisés, commence par le séparateur le plus fréquent. Les créas non catégorisées apparaissent grisées et n'impactent pas les statistiques."
+      />
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>

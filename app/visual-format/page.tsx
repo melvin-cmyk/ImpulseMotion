@@ -5,6 +5,7 @@ import { Creative, Format } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHelp } from "@/components/ui/page-help";
 import {
   BarChart,
   Bar,
@@ -90,6 +91,17 @@ export default function VisualFormatPage() {
 
   return (
     <div className="flex-1 overflow-auto bg-gray-950 p-6">
+      {/* Page Help */}
+      <PageHelp
+        title="Visual Format — Vidéo vs Image vs Carrousel"
+        description="Compare les performances par format créatif (Vidéo, Image, Carrousel). Identifie quel format génère le meilleur ROAS et le CPA le plus bas pour allouer ton budget de production intelligemment."
+        steps={[
+          "Consulte les graphiques en haut : Spend par format à gauche, CPA & CTR par format à droite.",
+          "Lis le tableau récapitulatif pour comparer ROAS moyen, CPA et nombre de créas par format.",
+          "Identifie la 'Meilleure créa' par format dans la dernière colonne pour t'inspirer des templates qui marchent.",
+        ]}
+        tip="Si la Vidéo a un ROAS bien supérieur à l'Image mais représente moins de 30% de ton budget, c'est un signal fort pour réorienter ta production créa."
+      />
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="w-9 h-9 bg-violet-600/20 rounded-xl flex items-center justify-center">

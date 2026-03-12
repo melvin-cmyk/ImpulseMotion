@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Image as ImageIcon,
 } from "lucide-react";
+import { PageHelp } from "@/components/ui/page-help";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -300,6 +301,17 @@ export default function TopLandingPagePage() {
   return (
     <div className="flex-1 overflow-y-auto bg-[#09090f]">
       <div className="p-6 max-w-7xl mx-auto space-y-6">
+        {/* Page Help */}
+        <PageHelp
+          title="Top Landing Pages — Quelle page de destination convertit le mieux ?"
+          description="Compare les performances de tes landing pages pour savoir où envoyer tes prospects. Identifie les pages qui génèrent le CPA le plus bas et concentre ton budget sur celles qui convertissent."
+          steps={[
+            "Les landing pages sont extraites automatiquement de tes URLs de destination Meta Ads — assure-toi que le champ est bien renseigné dans tes campagnes.",
+            "Compare le CPA moyen par landing page pour identifier celles qui convertissent le mieux ton audience.",
+            "Consulte la 'Vue tableau' pour voir la répartition du budget entre tes différentes destinations et repérer les déséquilibres.",
+          ]}
+          tip="Si toutes tes créas pointent vers la même URL, cette page ne sera pas très utile. Elle prend tout son sens quand tu testes plusieurs landing pages (ex: version courte vs longue, différentes offres)."
+        />
         {/* Header */}
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>

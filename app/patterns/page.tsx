@@ -6,6 +6,7 @@ import { useCreativesContext } from "@/lib/creatives-context";
 import { Layers, TrendingUp, DollarSign, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { loadNamingConfig, NamingConfig, parseSegmentValue, SegmentDef } from "@/lib/naming-config";
+import { PageHelp } from "@/components/ui/page-help";
 
 interface SegmentStats {
   value: string;
@@ -78,6 +79,17 @@ export default function PatternsPage() {
 
   return (
     <div className="flex-1 overflow-auto bg-gray-950 p-6">
+      {/* Page Help */}
+      <PageHelp
+        title="Patterns — Segments gagnants de ta naming"
+        description="Découvre quels segments de ta naming convention performent le mieux. Identifie les formats, angles et produits gagnants pour orienter ta production créa vers ce qui fonctionne vraiment."
+        steps={[
+          "Configure d'abord ta naming convention sur la page Naming (séparateur, segments, positions).",
+          "Sélectionne un segment (ex: Format, Angle, Produit) via les onglets pour voir les stats agrégées.",
+          "Repère les cartes avec le badge 'Proven' (Hit Rate ≥ 30%) : ce sont tes patterns gagnants à dupliquer.",
+        ]}
+        tip="Le Hit Rate indique le % de créas Winner dans ce groupe. Un segment avec ROAS élevé ET Hit Rate ≥ 30% est une mine d'or pour briefer ton équipe créa."
+      />
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="w-9 h-9 bg-violet-600/20 rounded-xl flex items-center justify-center">

@@ -6,6 +6,7 @@ import { Creative } from "@/lib/mock-data";
 import { calculateFunnelScores } from "@/lib/funnel-scores";
 import { FunnelScoresBar } from "@/components/funnel-scores-bar";
 import { Scissors, TrendingUp, Star, ChevronDown, ChevronUp } from "lucide-react";
+import { PageHelp } from "@/components/ui/page-help";
 
 type InsightType = "cut" | "scale" | "working" | null;
 
@@ -110,6 +111,17 @@ export default function CreativeTeamPage() {
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#09090f] p-6">
+      {/* Page Help */}
+      <PageHelp
+        title="Équipe Créa — Vue optimisée pour les créatifs"
+        description="Partage les insights créa avec ton équipe production. Cette vue funnel est optimisée pour les créatifs et réalisateurs — pas pour les media buyers. Elle met en avant les scores Hook, CTR, et Conversion de chaque créa."
+        steps={[
+          "Utilise les boutons d'insight rapide ('Quelles créas couper ?', 'Opportunités de scale', 'Ce qui fonctionne') pour générer des recommandations.",
+          "Parcours la liste des créas avec leur score funnel : Hook Rate, CTR et taux de conversion visualisés en barres.",
+          "Partage cette page directement avec ton équipe créa pour qu'ils voient ce qui performe et pourquoi.",
+        ]}
+        tip="Cette page est conçue pour être partagée avec des créatifs qui ne comprennent pas forcément le ROAS. Les barres de score funnel parlent d'elles-mêmes : Hook bon, CTR faible = problème dans l'ad copy."
+      />
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-xl font-bold text-white">Pour l&apos;équipe créa</h1>

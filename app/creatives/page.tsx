@@ -10,6 +10,7 @@ import { WowBanner, WowChip } from "@/components/wow-indicator";
 import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star, LayoutGrid, Table2, ChevronUp as ChevronUpSort, X, Tag } from "lucide-react";
 import { FiltersBar, AdStatus } from "@/components/ui/filters-bar";
+import { PageHelp } from "@/components/ui/page-help";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
 type ViewMode = "card" | "table";
@@ -1088,6 +1089,17 @@ export default function CreativesPage() {
 
   return (
     <div className="p-6 space-y-5">
+      {/* Page Help */}
+      <PageHelp
+        title="Creative Feed — Toutes tes créas"
+        description="Analyse toutes tes créas publicitaires en un coup d'oeil. Filtre par spend, type, statut ou tag. Clique sur une créa pour voir le funnel détaillé et les métriques semaine par semaine."
+        steps={[
+          "Utilise les filtres (statut, format, plateforme) pour cibler les créas qui t'intéressent.",
+          "Trie par ROAS, CPA ou Spend pour repérer les top performers et les losers rapidement.",
+          "Clique sur une créa pour ouvrir la vue détaillée : funnel, tendances CTR/CPA sur 7 jours, et comparaison WoW.",
+        ]}
+        tip="Bascule en vue tableau (icône grille en haut à droite) pour comparer plusieurs créas côte à côte en un seul coup d'oeil."
+      />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
