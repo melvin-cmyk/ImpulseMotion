@@ -67,7 +67,7 @@ export function AccountSwitcher() {
             className="fixed inset-0 z-40"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px] bg-gray-900 border border-gray-700 rounded-xl shadow-xl overflow-hidden">
+          <div className="absolute left-0 top-full mt-1 z-50 min-w-[220px] bg-gray-900 border border-gray-700 rounded-xl shadow-xl overflow-hidden">
             <div className="px-3 py-2 text-xs text-gray-500 border-b border-gray-800">
               Changer de compte Meta
             </div>
