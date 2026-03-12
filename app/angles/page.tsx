@@ -7,6 +7,7 @@ import { MessageSquare, ChevronUp, ChevronDown, Trophy, Flame, Activity } from "
 import { cn } from "@/lib/utils";
 import { loadNamingConfig, NamingConfig, parseSegmentValue } from "@/lib/naming-config";
 import { PageHelp } from "@/components/ui/page-help";
+import { MetricInfoButton } from "@/components/metric-info-button";
 
 type SortKey = "spend" | "cpa" | "ctr" | "roas" | "hitRate" | "count";
 
@@ -165,19 +166,19 @@ export default function AnglesPage() {
                 <span className="flex items-center justify-end gap-1"># Ads <SortIcon k="count" /></span>
               </th>
               <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("spend")}>
-                <span className="flex items-center justify-end gap-1">Spend <SortIcon k="spend" /></span>
+                <span className="flex items-center justify-end gap-1">Spend <MetricInfoButton metricKey="spend" /> <SortIcon k="spend" /></span>
               </th>
               <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("roas")}>
-                <span className="flex items-center justify-end gap-1">ROAS <SortIcon k="roas" /></span>
+                <span className="flex items-center justify-end gap-1">ROAS <MetricInfoButton metricKey="roas" /> <SortIcon k="roas" /></span>
               </th>
               <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("cpa")}>
-                <span className="flex items-center justify-end gap-1">Avg CPA <SortIcon k="cpa" /></span>
+                <span className="flex items-center justify-end gap-1">Avg CPA <MetricInfoButton metricKey="cpa" /> <SortIcon k="cpa" /></span>
               </th>
               <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("ctr")}>
-                <span className="flex items-center justify-end gap-1">CTR <SortIcon k="ctr" /></span>
+                <span className="flex items-center justify-end gap-1">CTR <MetricInfoButton metricKey="ctr" /> <SortIcon k="ctr" /></span>
               </th>
               <th className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300" onClick={() => toggleSort("hitRate")}>
-                <span className="flex items-center justify-end gap-1">Hit Rate <SortIcon k="hitRate" /></span>
+                <span className="flex items-center justify-end gap-1">Hit Rate <MetricInfoButton metricKey="hitRate" /> <SortIcon k="hitRate" /></span>
               </th>
               <th className="text-right px-4 py-3 font-medium">Statut</th>
             </tr>

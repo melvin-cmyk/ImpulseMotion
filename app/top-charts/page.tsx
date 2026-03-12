@@ -13,6 +13,7 @@ import {
   Tooltip,
 } from "recharts";
 import { TrendingUp, DollarSign, MousePointerClick, AlertTriangle, LayoutGrid } from "lucide-react";
+import { MetricInfoButton } from "@/components/metric-info-button";
 import { PageHelp } from "@/components/ui/page-help";
 
 type Tab = "spend" | "roas" | "ctr" | "fatigued" | "heatmap";
@@ -166,15 +167,15 @@ function RankRow({
         {/* Secondary metrics */}
         <div className="text-right shrink-0 w-28 hidden lg:block">
           <p className="text-xs text-gray-400">
-            <span className="text-gray-500">Spend</span>{" "}
+            <span className="text-gray-500 inline-flex items-center gap-0.5">Spend <MetricInfoButton metricKey="spend" /></span>{" "}
             <span className="text-gray-200">${(creative.spend / 1000).toFixed(1)}k</span>
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
-            <span className="text-gray-500">CPA</span>{" "}
+            <span className="text-gray-500 inline-flex items-center gap-0.5">CPA <MetricInfoButton metricKey="cpa" /></span>{" "}
             <span className="text-gray-200">${creative.cpa}</span>
           </p>
           <p className="text-xs text-gray-400 mt-0.5">
-            <span className="text-gray-500">CTR</span>{" "}
+            <span className="text-gray-500 inline-flex items-center gap-0.5">CTR <MetricInfoButton metricKey="ctr" /></span>{" "}
             <span className="text-gray-200">{creative.ctr}%</span>
           </p>
         </div>

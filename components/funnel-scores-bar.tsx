@@ -1,6 +1,7 @@
 "use client";
 
 import { FunnelScores, scoreColor, scoreTextColor } from "@/lib/funnel-scores";
+import { MetricInfoButton } from "@/components/metric-info-button";
 
 interface FunnelScoresBarProps {
   scores: FunnelScores;
@@ -8,10 +9,10 @@ interface FunnelScoresBarProps {
 }
 
 const LABELS = [
-  { key: "hook" as const, label: "Hook" },
-  { key: "watch" as const, label: "Watch" },
-  { key: "click" as const, label: "Click" },
-  { key: "convert" as const, label: "Convert" },
+  { key: "hook" as const, label: "Hook", metricKey: "funnelHook" },
+  { key: "watch" as const, label: "Watch", metricKey: "funnelWatch" },
+  { key: "click" as const, label: "Click", metricKey: "funnelClick" },
+  { key: "convert" as const, label: "Convert", metricKey: "funnelConvert" },
 ];
 
 export function FunnelScoresBar({ scores, compact = false }: FunnelScoresBarProps) {
@@ -41,12 +42,12 @@ export function FunnelScoresBar({ scores, compact = false }: FunnelScoresBarProp
 
   return (
     <div className="space-y-2">
-      {LABELS.map(({ key, label }) => {
+      {LABELS.map(({ key, label, metricKey }) => {
         const score = scores[key];
         return (
           <div key={key} className="flex items-center gap-3">
-            <span className="text-[10px] uppercase tracking-widest text-gray-500 font-bold w-14 shrink-0">
-              {label}
+            <span className="text-[10px] uppercase tracking-widest text-gray-500 font-bold w-14 shrink-0 inline-flex items-center gap-1">
+              {label} <MetricInfoButton metricKey={metricKey} />
             </span>
             <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
               <div

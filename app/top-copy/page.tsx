@@ -6,6 +6,7 @@ import { useCreativesContext } from "@/lib/creatives-context";
 import { FileText, DollarSign, TrendingUp, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHelp } from "@/components/ui/page-help";
+import { MetricInfoButton } from "@/components/metric-info-button";
 
 type FilterStatus = "all" | Status;
 type SortKey = "spend" | "cpa" | "ctr" | "roas";
@@ -151,15 +152,15 @@ export default function TopCopyPage() {
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Spend</p>
+                  <p className="text-xs text-gray-500 mb-0.5 flex items-center gap-0.5">Spend <MetricInfoButton metricKey="spend" /></p>
                   <p className="text-xs font-semibold text-gray-200">${c.spend >= 1000 ? `${(c.spend / 1000).toFixed(1)}k` : c.spend.toFixed(0)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">CPA</p>
+                  <p className="text-xs text-gray-500 mb-0.5 flex items-center gap-0.5">CPA <MetricInfoButton metricKey="cpa" /></p>
                   <p className="text-xs font-semibold text-gray-200">${c.cpa.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500 mb-0.5">CTR</p>
+                  <p className="text-xs text-gray-500 mb-0.5 flex items-center gap-0.5">CTR <MetricInfoButton metricKey="ctr" /></p>
                   <p className="text-xs font-semibold text-gray-200">{c.ctr.toFixed(2)}%</p>
                 </div>
               </div>
@@ -167,7 +168,7 @@ export default function TopCopyPage() {
               {/* ROAS bar */}
               <div className="mt-2.5">
                 <div className="flex justify-between text-xs mb-1">
-                  <span className="text-gray-500">ROAS</span>
+                  <span className="text-gray-500 flex items-center gap-0.5">ROAS <MetricInfoButton metricKey="roas" /></span>
                   <span className={cn("font-semibold", c.roas >= 2 ? "text-emerald-400" : c.roas >= 1 ? "text-yellow-400" : "text-red-400")}>
                     {c.roas.toFixed(2)}x
                   </span>

@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   ChevronRight,
 } from "lucide-react";
+import { MetricInfoButton } from "@/components/metric-info-button";
 import { useMemo, useEffect, useState, useRef } from "react";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { WoWBanner } from "@/components/wow-banner";
@@ -23,6 +24,7 @@ import { PageHelp } from "@/components/ui/page-help";
 
 interface KpiCardProps {
   label: string;
+  metricKey?: string;
   value: string;
   sub?: string;
   icon: React.ElementType;
@@ -30,14 +32,14 @@ interface KpiCardProps {
   accentText: string;
 }
 
-function KpiCard({ label, value, sub, icon: Icon, gradient, accentText }: KpiCardProps) {
+function KpiCard({ label, metricKey, value, sub, icon: Icon, gradient, accentText }: KpiCardProps) {
   return (
     <div
       className={`bg-gradient-to-br ${gradient} border border-gray-800 rounded-2xl p-5 flex flex-col gap-4`}
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
-          {label}
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest inline-flex items-center gap-1">
+          {label}{metricKey && <MetricInfoButton metricKey={metricKey} />}
         </span>
         <div className="w-8 h-8 rounded-xl bg-gray-800/70 flex items-center justify-center">
           <Icon className={`w-4 h-4 ${accentText}`} />
@@ -402,7 +404,7 @@ function DashboardHome() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-gradient-to-br from-violet-950/60 to-transparent border border-gray-800 rounded-2xl p-4 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500 uppercase tracking-wide">Total Spend</span>
+                <span className="text-xs text-gray-500 uppercase tracking-wide inline-flex items-center gap-1">Total Spend <MetricInfoButton metricKey="spend" /></span>
                 <DollarSign className="w-4 h-4 text-violet-400" />
               </div>
               <p className="text-2xl font-extrabold text-violet-400">{fmtSpend(kpis.totalSpend)}</p>
@@ -410,7 +412,7 @@ function DashboardHome() {
             </div>
             <div className="bg-gradient-to-br from-blue-950/60 to-transparent border border-gray-800 rounded-2xl p-4 space-y-1">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500 uppercase tracking-wide">CPA moyen</span>
+                <span className="text-xs text-gray-500 uppercase tracking-wide inline-flex items-center gap-1">CPA moyen <MetricInfoButton metricKey="cpa" /></span>
                 <TrendingUp className="w-4 h-4 text-blue-400" />
               </div>
               <p className="text-2xl font-extrabold text-blue-400">
@@ -513,6 +515,7 @@ function DashboardHome() {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <KpiCard
             label="Total Spend"
+            metricKey="spend"
             value={fmtSpend(kpis.totalSpend)}
             sub={`Across ${creatives.length} active creatives`}
             icon={DollarSign}
@@ -521,6 +524,7 @@ function DashboardHome() {
           />
           <KpiCard
             label="Avg CTR"
+            metricKey="ctr"
             value={`${kpis.avgCtr.toFixed(2)}%`}
             sub="Click-through rate"
             icon={MousePointerClick}
@@ -529,6 +533,7 @@ function DashboardHome() {
           />
           <KpiCard
             label="Avg Hook Rate"
+            metricKey="hookRate"
             value={kpis.avgHookRate > 0 ? `${kpis.avgHookRate.toFixed(1)}%` : "—"}
             sub="3-second video retention"
             icon={Zap}
@@ -537,6 +542,7 @@ function DashboardHome() {
           />
           <KpiCard
             label="Avg ROAS"
+            metricKey="roas"
             value={`${kpis.avgRoas.toFixed(2)}x`}
             sub="Return on ad spend"
             icon={TrendingUp}

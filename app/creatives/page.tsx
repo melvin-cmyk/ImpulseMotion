@@ -11,6 +11,7 @@ import { LineChart, Line, ResponsiveContainer, Tooltip } from "recharts";
 import { ArrowUpDown, Database, Wifi, DollarSign, MousePointerClick, Play, TrendingUp, Rocket, Scissors, ChevronDown, ChevronUp, Sparkles, Zap, AlertCircle, Star, LayoutGrid, Table2, ChevronUp as ChevronUpSort, X, Tag } from "lucide-react";
 import { FiltersBar, AdStatus } from "@/components/ui/filters-bar";
 import { PageHelp } from "@/components/ui/page-help";
+import { MetricInfoButton } from "@/components/metric-info-button";
 
 type SortKey = "roas" | "cpa" | "spend" | "ctr" | "hookRate";
 type ViewMode = "card" | "table";
@@ -248,17 +249,17 @@ function CreativesToScaleSection({
               </div>
               <div className="flex items-center gap-6 shrink-0">
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 uppercase">Spend</p>
+                  <p className="text-[10px] text-gray-500 uppercase flex items-center justify-center gap-0.5">Spend <MetricInfoButton metricKey="spend" /></p>
                   <p className="text-xs font-semibold text-gray-300">
                     ${(c.spend / 1000).toFixed(1)}k
                   </p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 uppercase">ROAS</p>
+                  <p className="text-[10px] text-gray-500 uppercase flex items-center justify-center gap-0.5">ROAS <MetricInfoButton metricKey="roas" /></p>
                   <p className="text-xs font-semibold text-emerald-400">{c.roas}x</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[10px] text-gray-500 uppercase">CTR</p>
+                  <p className="text-[10px] text-gray-500 uppercase flex items-center justify-center gap-0.5">CTR <MetricInfoButton metricKey="ctr" /></p>
                   <p className="text-xs font-semibold text-gray-300">{c.ctr}%</p>
                 </div>
                 <ScoreBadge creative={c} />
@@ -354,15 +355,15 @@ function CreativesToCutSection({
                 </div>
                 <div className="flex items-center gap-6 shrink-0">
                   <div className="text-center">
-                    <p className="text-[10px] text-gray-500 uppercase">Freq.</p>
+                    <p className="text-[10px] text-gray-500 uppercase flex items-center justify-center gap-0.5">Freq. <MetricInfoButton metricKey="frequency" /></p>
                     <p className="text-xs font-semibold text-red-400">{frequency}x</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-[10px] text-gray-500 uppercase">CTR</p>
+                    <p className="text-[10px] text-gray-500 uppercase flex items-center justify-center gap-0.5">CTR <MetricInfoButton metricKey="ctr" /></p>
                     <p className="text-xs font-semibold text-gray-300">{c.ctr}%</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-[10px] text-gray-500 uppercase">ROAS</p>
+                    <p className="text-[10px] text-gray-500 uppercase flex items-center justify-center gap-0.5">ROAS <MetricInfoButton metricKey="roas" /></p>
                     <p className="text-xs font-semibold text-gray-400">{c.roas}x</p>
                   </div>
                   <ScoreBadge creative={c} />

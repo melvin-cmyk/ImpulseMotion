@@ -6,6 +6,7 @@ import { useCreativesContext } from "@/lib/creatives-context";
 import { Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHelp } from "@/components/ui/page-help";
+import { MetricInfoButton } from "@/components/metric-info-button";
 import {
   BarChart,
   Bar,
@@ -160,10 +161,10 @@ export default function VisualFormatPage() {
             <tr className="border-b border-gray-800 text-gray-500 text-xs">
               <th className="text-left px-4 py-3 font-medium">Format</th>
               <th className="text-right px-4 py-3 font-medium"># Créas</th>
-              <th className="text-right px-4 py-3 font-medium">Total Spend</th>
-              <th className="text-right px-4 py-3 font-medium">Avg CPA</th>
-              <th className="text-right px-4 py-3 font-medium">Avg CTR</th>
-              <th className="text-right px-4 py-3 font-medium">Avg ROAS</th>
+              <th className="text-right px-4 py-3 font-medium"><span className="inline-flex items-center gap-1">Total Spend <MetricInfoButton metricKey="spend" /></span></th>
+              <th className="text-right px-4 py-3 font-medium"><span className="inline-flex items-center gap-1">Avg CPA <MetricInfoButton metricKey="cpa" /></span></th>
+              <th className="text-right px-4 py-3 font-medium"><span className="inline-flex items-center gap-1">Avg CTR <MetricInfoButton metricKey="ctr" /></span></th>
+              <th className="text-right px-4 py-3 font-medium"><span className="inline-flex items-center gap-1">Avg ROAS <MetricInfoButton metricKey="roas" /></span></th>
               <th className="text-right px-4 py-3 font-medium">Meilleure créa</th>
             </tr>
           </thead>

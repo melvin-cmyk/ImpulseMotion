@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import { Creative } from "@/lib/mock-data";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { Users, ChevronUp, ChevronDown, X, Save, Sparkles, TrendingUp, Trophy, AlertTriangle, Tag } from "lucide-react";
+import { MetricInfoButton } from "@/components/metric-info-button";
 import { cn } from "@/lib/utils";
 import {
   BarChart,
@@ -462,31 +463,31 @@ export default function AudiencePage() {
                 className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300"
                 onClick={() => toggleSort("spend")}
               >
-                <span className="flex items-center justify-end gap-1">Spend <SortIcon k="spend" /></span>
+                <span className="flex items-center justify-end gap-1">Spend <MetricInfoButton metricKey="spend" /> <SortIcon k="spend" /></span>
               </th>
               <th
                 className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300"
                 onClick={() => toggleSort("roas")}
               >
-                <span className="flex items-center justify-end gap-1">ROAS <SortIcon k="roas" /></span>
+                <span className="flex items-center justify-end gap-1">ROAS <MetricInfoButton metricKey="roas" /> <SortIcon k="roas" /></span>
               </th>
               <th
                 className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300"
                 onClick={() => toggleSort("cpa")}
               >
-                <span className="flex items-center justify-end gap-1">CPA <SortIcon k="cpa" /></span>
+                <span className="flex items-center justify-end gap-1">CPA <MetricInfoButton metricKey="cpa" /> <SortIcon k="cpa" /></span>
               </th>
               <th
                 className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300"
                 onClick={() => toggleSort("ctr")}
               >
-                <span className="flex items-center justify-end gap-1">CTR <SortIcon k="ctr" /></span>
+                <span className="flex items-center justify-end gap-1">CTR <MetricInfoButton metricKey="ctr" /> <SortIcon k="ctr" /></span>
               </th>
               <th
                 className="text-right px-4 py-3 font-medium cursor-pointer hover:text-gray-300"
                 onClick={() => toggleSort("hitRate")}
               >
-                <span className="flex items-center justify-end gap-1">Hit Rate <SortIcon k="hitRate" /></span>
+                <span className="flex items-center justify-end gap-1">Hit Rate <MetricInfoButton metricKey="hitRate" /> <SortIcon k="hitRate" /></span>
               </th>
             </tr>
           </thead>

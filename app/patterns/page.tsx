@@ -7,6 +7,7 @@ import { Layers, TrendingUp, DollarSign, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { loadNamingConfig, NamingConfig, parseSegmentValue, SegmentDef } from "@/lib/naming-config";
 import { PageHelp } from "@/components/ui/page-help";
+import { MetricInfoButton } from "@/components/metric-info-button";
 
 interface SegmentStats {
   value: string;
@@ -138,28 +139,28 @@ export default function PatternsPage() {
 
             <div className="space-y-1.5 mb-3">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 flex items-center gap-1"><DollarSign className="w-3 h-3" />Spend</span>
+                <span className="text-gray-500 flex items-center gap-1"><DollarSign className="w-3 h-3" />Spend <MetricInfoButton metricKey="spend" /></span>
                 <span className="text-gray-200 font-medium">${seg.totalSpend.toLocaleString()}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 flex items-center gap-1"><TrendingUp className="w-3 h-3" />ROAS</span>
+                <span className="text-gray-500 flex items-center gap-1"><TrendingUp className="w-3 h-3" />ROAS <MetricInfoButton metricKey="roas" /></span>
                 <span className={cn("font-semibold", seg.avgRoas >= 3 ? "text-emerald-400" : seg.avgRoas >= 2 ? "text-blue-400" : "text-gray-400")}>
                   {seg.avgRoas.toFixed(2)}x
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">CPA</span>
+                <span className="text-gray-500 flex items-center gap-1">CPA <MetricInfoButton metricKey="cpa" /></span>
                 <span className="text-gray-200 font-medium">${seg.avgCpa.toFixed(2)}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">CTR</span>
+                <span className="text-gray-500 flex items-center gap-1">CTR <MetricInfoButton metricKey="ctr" /></span>
                 <span className="text-gray-200 font-medium">{seg.avgCtr.toFixed(2)}%</span>
               </div>
             </div>
 
             {/* Hit rate bar */}
             <div className="mb-1 flex items-center justify-between text-xs">
-              <span className="text-gray-500">Hit Rate</span>
+              <span className="text-gray-500 flex items-center gap-1">Hit Rate <MetricInfoButton metricKey="hitRate" /></span>
               <span className={cn("font-semibold", seg.hitRate >= 30 ? "text-emerald-400" : seg.hitRate < 10 ? "text-red-400" : "text-amber-400")}>
                 {seg.hitRate.toFixed(0)}%
               </span>

@@ -7,6 +7,7 @@ import { calculateFunnelScores } from "@/lib/funnel-scores";
 import { FunnelScoresBar } from "@/components/funnel-scores-bar";
 import { Scissors, TrendingUp, Star, ChevronDown, ChevronUp } from "lucide-react";
 import { PageHelp } from "@/components/ui/page-help";
+import { MetricInfoButton } from "@/components/metric-info-button";
 
 type InsightType = "cut" | "scale" | "working" | null;
 
@@ -253,12 +254,12 @@ function CreativeTeamCard({
           </span>
           <span className="text-[10px] text-gray-600">{creative.format}</span>
         </div>
-        <p className="text-xs text-gray-500 mt-1">
-          Spend{" "}
+        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1 flex-wrap">
+          <span className="inline-flex items-center gap-0.5">Spend <MetricInfoButton metricKey="spend" /></span>{" "}
           <span className="text-white font-medium">
             ${creative.spend >= 1000 ? `${(creative.spend / 1000).toFixed(1)}k` : creative.spend.toFixed(0)}
           </span>{" "}
-          · ROAS{" "}
+          · <span className="inline-flex items-center gap-0.5">ROAS <MetricInfoButton metricKey="roas" /></span>{" "}
           <span className="text-white font-medium">{creative.roas.toFixed(2)}x</span>
         </p>
       </div>

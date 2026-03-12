@@ -17,6 +17,7 @@ import {
 } from "recharts";
 import { BarChart2, LayoutGrid, TrendingUp, DollarSign, MousePointerClick, Zap } from "lucide-react";
 import { PageHelp } from "@/components/ui/page-help";
+import { MetricInfoButton } from "@/components/metric-info-button";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -257,19 +258,19 @@ function SummaryTable({ stats }: { stats: GroupStats[] }) {
               Créas
             </th>
             <th className="px-4 py-3 text-right text-[10px] text-gray-500 uppercase tracking-wide">
-              Spend total
+              <span className="inline-flex items-center gap-1 justify-end">Spend total <MetricInfoButton metricKey="spend" /></span>
             </th>
             <th className="px-4 py-3 text-right text-[10px] text-gray-500 uppercase tracking-wide">
-              CPA moy.
+              <span className="inline-flex items-center gap-1 justify-end">CPA moy. <MetricInfoButton metricKey="cpa" /></span>
             </th>
             <th className="px-4 py-3 text-right text-[10px] text-gray-500 uppercase tracking-wide">
-              CTR moy.
+              <span className="inline-flex items-center gap-1 justify-end">CTR moy. <MetricInfoButton metricKey="ctr" /></span>
             </th>
             <th className="px-4 py-3 text-right text-[10px] text-gray-500 uppercase tracking-wide">
-              ROAS moy.
+              <span className="inline-flex items-center gap-1 justify-end">ROAS moy. <MetricInfoButton metricKey="roas" /></span>
             </th>
             <th className="px-4 py-3 text-right text-[10px] text-gray-500 uppercase tracking-wide">
-              Hook Rate moy.
+              <span className="inline-flex items-center gap-1 justify-end">Hook Rate moy. <MetricInfoButton metricKey="hookRate" /></span>
             </th>
           </tr>
         </thead>
