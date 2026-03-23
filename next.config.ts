@@ -48,7 +48,7 @@ const nextConfig: NextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: https: blob:",
               "media-src 'self' https: blob:",
-              "connect-src 'self' https://graph.facebook.com https://api.tiktok.com",
+              "connect-src 'self' https://graph.facebook.com https://api.tiktok.com https://*.trycloudflare.com",
               // Allow Facebook video embeds
               "frame-src 'self' https://www.facebook.com https://video.facebook.com https://web.facebook.com",
             ].join("; "),
