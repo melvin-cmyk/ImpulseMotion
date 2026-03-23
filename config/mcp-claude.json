@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "meta-ads-impulse": {
+      "type": "sse",
+      "url": "https://impulseai.app.n8n.cloud/mcp/meta-ads-mcp/sse"
+    },
+    "mcp-google-analytics": {
+      "type": "sse",
+      "url": "https://impulseai.app.n8n.cloud/mcp/79d9b472-cc91-4d29-bfdc-e0f6946c5c02/sse"
+    },
+    "mcp-google-ads": {
+      "type": "sse",
+      "url": "https://impulseai.app.n8n.cloud/mcp/google-ads-mcp/sse"
+    }
+  }
+}

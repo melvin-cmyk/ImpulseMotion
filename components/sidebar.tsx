@@ -20,6 +20,8 @@ import {
   Monitor,
   Globe,
   Users,
+  Bot,
+  Presentation,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -38,6 +40,8 @@ const navItems = [
   { href: "/top-landing-page", icon: Globe, label: "Top Landing Pages" },
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/naming", icon: Tag, label: "Naming Convention" },
+  { href: "/ai", icon: Bot, label: "AI Assistant" },
+  { href: "/deck", icon: Presentation, label: "Slide Builder" },
   { href: "/reports", icon: Share2, label: "Reports" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ]
