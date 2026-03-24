@@ -74,6 +74,7 @@ export default function MonthlyPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [formatFilter, setFormatFilter] = useState<string>("all");
 
   const handleMount = () => {
     setDatePreset(30);
@@ -178,11 +179,14 @@ export default function MonthlyPage() {
     });
   }, [metaCreatives, sortKey, sortDir]);
 
-  // Filtered by search query + status
+  // Filtered by search query + status + format
   const filteredCreatives = useMemo(() => {
     let result = sortedCreatives;
     if (statusFilter !== "all") {
       result = result.filter((c) => (c.status ?? "").toLowerCase() === statusFilter.toLowerCase());
+    }
+    if (formatFilter !== "all") {
+      result = result.filter((c) => (c.format ?? "").toLowerCase().includes(formatFilter.toLowerCase()));
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -191,7 +195,7 @@ export default function MonthlyPage() {
       );
     }
     return result;
-  }, [sortedCreatives, searchQuery, statusFilter]);
+  }, [sortedCreatives, searchQuery, statusFilter, formatFilter]);
 
   // CSV export
   const exportCsv = () => {
@@ -431,7 +435,7 @@ export default function MonthlyPage() {
         <div className="bg-[#111118] border border-gray-800 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-800 flex flex-wrap items-center gap-3 justify-between">
             <span className="text-sm font-semibold text-white">
-              Adset Performance — {filteredCreatives.length}{filteredCreatives.length !== sortedCreatives.length ? ` / ${sortedCreatives.length}` : ""} creatives{statusFilter !== "all" ? ` · ${statusFilter}` : ""}
+              Adset Performance — {filteredCreatives.length}{filteredCreatives.length !== sortedCreatives.length ? ` / ${sortedCreatives.length}` : ""} creatives{statusFilter !== "all" ? ` · ${statusFilter}` : ""}{formatFilter !== "all" ? ` · ${formatFilter}` : ""}
             </span>
             <div className="flex items-center gap-2">
               <input
@@ -441,6 +445,16 @@ export default function MonthlyPage() {
                 placeholder="Search creatives…"
                 className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-violet-500 w-44"
               />
+              <select
+                value={formatFilter}
+                onChange={(e) => setFormatFilter(e.target.value)}
+                className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 focus:outline-none focus:border-violet-500 cursor-pointer"
+              >
+                <option value="all">All formats</option>
+                <option value="Video">Video</option>
+                <option value="Image">Image</option>
+                <option value="Carousel">Carousel</option>
+              </select>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
