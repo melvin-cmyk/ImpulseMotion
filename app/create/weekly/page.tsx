@@ -383,6 +383,17 @@ export default function WeeklyPage() {
               Adset Performance — {filteredCreatives.length}{filteredCreatives.length !== sortedCreatives.length ? ` / ${sortedCreatives.length}` : ""} creatives{statusFilter !== "all" ? ` · ${statusFilter}` : ""}
             </span>
             <div className="flex items-center gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 focus:outline-none focus:border-violet-500"
+              >
+                <option value="all">All statuses</option>
+                <option value="Winner">Winner</option>
+                <option value="Active">Active</option>
+                <option value="Fatigued">Fatigued</option>
+                <option value="Paused">Paused</option>
+              </select>
               <input
                 type="text"
                 value={searchQuery}
