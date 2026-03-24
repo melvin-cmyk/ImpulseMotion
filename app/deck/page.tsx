@@ -44,7 +44,10 @@ interface SlideConfig {
   id: string;
   label: string;
   section: number;
-  render: (data: DeckData, slideNumber: number) => React.ReactNode;
+  render: (data: DeckData, slideNumber: number, editCallbacks?: {
+    onEditRequest?: (event: SlideEditEvent) => void;
+    getOverride?: (slideIndex: number, field: string) => string | undefined;
+  }) => React.ReactNode;
 }
 
 function buildSlides(): SlideConfig[] {
@@ -54,30 +57,30 @@ function buildSlides(): SlideConfig[] {
     { id: "agenda", label: "Agenda", section: 0, render: (d) => <AgendaSlide data={d} /> },
 
     // Section 1 — Global Overview
-    { id: "s1-div", label: "Section 1", section: 1, render: (_, n) => <SectionDividerSlide sectionNumber="01" title="Global Overview" subtitle="Highlights · Performance · Nouveaux Clients" slideNumber={n} /> },
-    { id: "highlights", label: "Highlights", section: 1, render: (d, n) => <HighlightsSlide data={d} slideNumber={n} /> },
+    { id: "s1-div", label: "Section 1", section: 1, render: (_, n, cb) => <SectionDividerSlide sectionNumber="01" title="Global Overview" subtitle="Highlights · Performance · Nouveaux Clients" slideNumber={n} {...cb} /> },
+    { id: "highlights", label: "Highlights", section: 1, render: (d, n, cb) => <HighlightsSlide data={d} slideNumber={n} {...cb} /> },
     { id: "global-table", label: "Tableau Global", section: 1, render: (d, n) => <GlobalTableSlide data={d} slideNumber={n} /> },
     { id: "nc-table", label: "NC / CP-NC", section: 1, render: (d, n) => <NCSlide data={d} slideNumber={n} /> },
-    { id: "learnings-global", label: "Learnings Global", section: 1, render: (d, n) => <LearningsSlide learnings={d.learnings} slideNumber={n} /> },
+    { id: "learnings-global", label: "Learnings Global", section: 1, render: (d, n, cb) => <LearningsSlide learnings={d.learnings} slideNumber={n} {...cb} /> },
 
     // Section 2 — Google Ads
-    { id: "s2-div", label: "Section 2", section: 2, render: (_, n) => <SectionDividerSlide sectionNumber="02" title="Focus Google Ads" subtitle="Vue globale · Campagnes · Brand Search · Pmax" slideNumber={n} /> },
+    { id: "s2-div", label: "Section 2", section: 2, render: (_, n, cb) => <SectionDividerSlide sectionNumber="02" title="Focus Google Ads" subtitle="Vue globale · Campagnes · Brand Search · Pmax" slideNumber={n} {...cb} /> },
     { id: "google-kpi", label: "Google KPIs", section: 2, render: (d, n) => <KPIOverviewSlide title="Google Ads — Vue Globale" metrics={d.googleOverview} slideNumber={n} /> },
     { id: "google-campaigns", label: "Campagnes Google", section: 2, render: (d, n) => <CampaignTableSlide title="Google Ads — Campagnes" campaigns={d.googleCampaigns} slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} /> },
-    { id: "insights-google", label: "Insights Google", section: 2, render: (d, n) => <LearningsSlide learnings={d.insightsGoogle} slideNumber={n} /> },
-    { id: "next-google", label: "Next Steps Google", section: 2, render: (d, n) => <NextStepsSlide title="Next Steps — Google Ads" steps={d.nextStepsGoogle} slideNumber={n} /> },
+    { id: "insights-google", label: "Insights Google", section: 2, render: (d, n, cb) => <LearningsSlide learnings={d.insightsGoogle} slideNumber={n} {...cb} /> },
+    { id: "next-google", label: "Next Steps Google", section: 2, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Google Ads" steps={d.nextStepsGoogle} slideNumber={n} {...cb} /> },
 
     // Section 3 — Meta Ads
-    { id: "s3-div", label: "Section 3", section: 3, render: (_, n) => <SectionDividerSlide sectionNumber="03" title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Learnings" slideNumber={n} /> },
+    { id: "s3-div", label: "Section 3", section: 3, render: (_, n, cb) => <SectionDividerSlide sectionNumber="03" title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Learnings" slideNumber={n} {...cb} /> },
     { id: "meta-kpi", label: "Meta KPIs", section: 3, render: (d, n) => <KPIOverviewSlide title="Meta Ads — Vue Globale" metrics={d.metaOverview} accent="violet" slideNumber={n} /> },
     { id: "meta-campaigns", label: "Campagnes Meta", section: 3, render: (d, n) => <CampaignTableSlide title="Meta Ads — Campagnes" campaigns={d.metaCampaigns} accent="violet" slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} /> },
     { id: "top-creatives", label: "Top Créatives", section: 3, render: (d, n) => <TopCreativesSlide creatives={d.topCreatives} slideNumber={n} /> },
-    { id: "insights-meta", label: "Insights Meta", section: 3, render: (d, n) => <LearningsSlide learnings={d.insightsMeta} accent="violet" slideNumber={n} /> },
-    { id: "next-meta", label: "Next Steps Meta", section: 3, render: (d, n) => <NextStepsSlide title="Next Steps — Meta Ads" steps={d.nextStepsMeta} accent="violet" slideNumber={n} /> },
+    { id: "insights-meta", label: "Insights Meta", section: 3, render: (d, n, cb) => <LearningsSlide learnings={d.insightsMeta} accent="violet" slideNumber={n} {...cb} /> },
+    { id: "next-meta", label: "Next Steps Meta", section: 3, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Meta Ads" steps={d.nextStepsMeta} accent="violet" slideNumber={n} {...cb} /> },
 
     // Section 4 — Next Steps & Budget
-    { id: "s4-div", label: "Section 4", section: 4, render: (_, n) => <SectionDividerSlide sectionNumber="04" title="Next Steps & Budget" subtitle="Actions globales · Budget mensuel" slideNumber={n} /> },
-    { id: "next-global", label: "Next Steps Global", section: 4, render: (d, n) => <NextStepsSlide title="Next Steps — Global" steps={d.nextStepsGlobal} slideNumber={n} /> },
+    { id: "s4-div", label: "Section 4", section: 4, render: (_, n, cb) => <SectionDividerSlide sectionNumber="04" title="Next Steps & Budget" subtitle="Actions globales · Budget mensuel" slideNumber={n} {...cb} /> },
+    { id: "next-global", label: "Next Steps Global", section: 4, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Global" steps={d.nextStepsGlobal} slideNumber={n} {...cb} /> },
     { id: "budget", label: "Budget", section: 4, render: (d, n) => <BudgetSlide budget={d.budget} period={d.period.label} slideNumber={n} /> },
   ];
 }
@@ -106,6 +109,18 @@ interface DroppedBlock {
   slideIndex: number;
 }
 
+interface SlideEditEvent {
+  field: string;
+  slideIndex: number;
+  currentValue: string;
+}
+
+interface SlideOverride {
+  slideIndex: number;
+  field: string;
+  value: string;
+}
+
 export default function DeckPage() {
   const [selectedClient, setSelectedClient] = useState<DeckClient>(mockClients[0]);
   const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(getAvailablePeriods()[1]);
@@ -114,6 +129,8 @@ export default function DeckPage() {
   const [deckGenerated, setDeckGenerated] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [droppedBlocks, setDroppedBlocks] = useState<DroppedBlock[]>([]);
+  const [slideOverrides, setSlideOverrides] = useState<SlideOverride[]>([]);
+  const [editRequest, setEditRequest] = useState<SlideEditEvent | null>(null);
   const slideContainerRef = useRef<HTMLDivElement>(null);
 
   const periods = useMemo(() => getAvailablePeriods(), []);
@@ -175,6 +192,23 @@ export default function DeckPage() {
 
   const removeBlock = (blockId: string) => {
     setDroppedBlocks((prev) => prev.filter((b) => b.id !== blockId));
+  };
+
+  // ── Inline editing handlers ──────────────────────────────────────────────
+
+  const handleEditRequest = (event: SlideEditEvent) => {
+    setEditRequest(event);
+  };
+
+  const handleSlideUpdate = (slideIndex: number, field: string, newValue: string) => {
+    setSlideOverrides((prev) => {
+      const filtered = prev.filter((o) => !(o.slideIndex === slideIndex && o.field === field));
+      return [...filtered, { slideIndex, field, value: newValue }];
+    });
+  };
+
+  const getSlideOverride = (slideIndex: number, field: string): string | undefined => {
+    return slideOverrides.find((o) => o.slideIndex === slideIndex && o.field === field)?.value;
   };
 
   // Blocs pour la slide actuelle
@@ -441,7 +475,10 @@ export default function DeckPage() {
             onDrop={handleDrop}
           >
             <div className="w-full max-w-3xl">
-              {slides[currentSlide].render(deckData, currentSlide + 1)}
+              {slides[currentSlide].render(deckData, currentSlide + 1, {
+                onEditRequest: handleEditRequest,
+                getOverride: getSlideOverride,
+              })}
 
               {/* Dropped data blocks */}
               {currentSlideBlocks.length > 0 && (
@@ -513,6 +550,9 @@ export default function DeckPage() {
             deckData={deckData}
             currentSlideIndex={currentSlide}
             currentSlideLabel={slides[currentSlide]?.label ?? ""}
+            editRequest={editRequest}
+            onEditComplete={() => setEditRequest(null)}
+            onSlideUpdate={handleSlideUpdate}
           />
         </div>
       </div>

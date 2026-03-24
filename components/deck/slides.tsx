@@ -1,6 +1,7 @@
 "use client";
 
 import { SlideShell } from "./slide-shell";
+import { EditableText } from "./editable-text";
 import type {
   DeckData,
   PlatformRow,
@@ -10,6 +11,13 @@ import type {
   TopCreative,
   BudgetLine,
 } from "@/lib/deck-data";
+
+// ── Types pour l'édition inline ──────────────────────────────────────────────
+
+interface EditCallbacks {
+  onEditRequest?: (event: { field: string; slideIndex: number; currentValue: string }) => void;
+  getOverride?: (slideIndex: number, field: string) => string | undefined;
+}
 
 // ── Design tokens ────────────────────────────────────────────────────────────
 
@@ -137,12 +145,17 @@ export function SectionDividerSlide({
   title,
   subtitle,
   slideNumber,
+  onEditRequest,
+  getOverride,
 }: {
   sectionNumber: string;
   title: string;
   subtitle?: string;
   slideNumber?: number;
-}) {
+} & EditCallbacks) {
+  const actualTitle = getOverride?.(slideNumber ?? 0, "title") ?? title;
+  const actualSubtitle = getOverride?.(slideNumber ?? 0, "subtitle") ?? subtitle;
+
   return (
     <SlideShell dark slideNumber={slideNumber}>
       <div className="flex flex-col items-center justify-center h-full text-center gap-[2%]">
@@ -156,10 +169,34 @@ export function SectionDividerSlide({
           className="text-[4%] font-extrabold"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          {title}
+          {onEditRequest ? (
+            <EditableText
+              field="title"
+              slideIndex={slideNumber ?? 0}
+              currentValue={actualTitle}
+              onClick={onEditRequest}
+            >
+              {actualTitle}
+            </EditableText>
+          ) : (
+            actualTitle
+          )}
         </div>
-        {subtitle && (
-          <div className="text-[1.8%] opacity-70">{subtitle}</div>
+        {actualSubtitle && (
+          <div className="text-[1.8%] opacity-70">
+            {onEditRequest ? (
+              <EditableText
+                field="subtitle"
+                slideIndex={slideNumber ?? 0}
+                currentValue={actualSubtitle}
+                onClick={onEditRequest}
+              >
+                {actualSubtitle}
+              </EditableText>
+            ) : (
+              actualSubtitle
+            )}
+          </div>
         )}
       </div>
     </SlideShell>
@@ -168,7 +205,15 @@ export function SectionDividerSlide({
 
 // ── 4. Highlights (4 cards) ──────────────────────────────────────────────────
 
-export function HighlightsSlide({ data, slideNumber }: { data: DeckData; slideNumber?: number }) {
+export function HighlightsSlide({
+  data,
+  slideNumber,
+  onEditRequest,
+  getOverride,
+}: {
+  data: DeckData;
+  slideNumber?: number;
+} & EditCallbacks) {
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
       <div>
@@ -181,7 +226,14 @@ export function HighlightsSlide({ data, slideNumber }: { data: DeckData; slideNu
         <div className="w-full h-[1px] mb-[3%]" style={{ backgroundColor: colors.caption }} />
         <div className="grid grid-cols-2 gap-[2.5%]">
           {data.highlights.map((h, i) => (
-            <HighlightCard key={i} highlight={h} />
+            <HighlightCard
+              key={i}
+              highlight={h}
+              index={i}
+              slideNumber={slideNumber ?? 0}
+              onEditRequest={onEditRequest}
+              getOverride={getOverride}
+            />
           ))}
         </div>
       </div>
@@ -189,14 +241,40 @@ export function HighlightsSlide({ data, slideNumber }: { data: DeckData; slideNu
   );
 }
 
-function HighlightCard({ highlight }: { highlight: DeckHighlight }) {
+function HighlightCard({
+  highlight,
+  index,
+  slideNumber,
+  onEditRequest,
+  getOverride,
+}: {
+  highlight: DeckHighlight;
+  index: number;
+  slideNumber: number;
+} & EditCallbacks) {
+  const titleField = `highlight${index}_title`;
+  const descField = `highlight${index}_description`;
+  const actualTitle = getOverride?.(slideNumber, titleField) ?? highlight.title;
+  const actualDesc = getOverride?.(slideNumber, descField) ?? highlight.description;
+
   return (
     <div
       className="rounded-[8px] p-[8%] flex flex-col gap-[6%]"
       style={{ backgroundColor: colors.bgAlt }}
     >
       <div className="text-[1.6%] font-bold" style={{ color: colors.blueDeep }}>
-        {highlight.title}
+        {onEditRequest ? (
+          <EditableText
+            field={titleField}
+            slideIndex={slideNumber}
+            currentValue={actualTitle}
+            onClick={onEditRequest}
+          >
+            {actualTitle}
+          </EditableText>
+        ) : (
+          actualTitle
+        )}
       </div>
       <div className="flex items-baseline gap-[6%]">
         <span
@@ -212,7 +290,18 @@ function HighlightCard({ highlight }: { highlight: DeckHighlight }) {
         )}
       </div>
       <div className="text-[1.2%]" style={{ color: "#555" }}>
-        {highlight.description}
+        {onEditRequest ? (
+          <EditableText
+            field={descField}
+            slideIndex={slideNumber}
+            currentValue={actualDesc}
+            onClick={onEditRequest}
+          >
+            {actualDesc}
+          </EditableText>
+        ) : (
+          actualDesc
+        )}
       </div>
     </div>
   );
@@ -510,11 +599,13 @@ export function LearningsSlide({
   learnings,
   slideNumber,
   accent = "blue",
+  onEditRequest,
+  getOverride,
 }: {
   learnings: string[];
   slideNumber?: number;
   accent?: "blue" | "violet";
-}) {
+} & EditCallbacks) {
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
       <div>
@@ -531,14 +622,31 @@ export function LearningsSlide({
             // LEARNINGS
           </div>
           <ul className="space-y-[2%]">
-            {learnings.map((l, i) => (
-              <li key={i} className="flex gap-[2%] text-[1.3%] text-white">
-                <span style={{ color: colors.blueSignature }} className="font-bold flex-shrink-0">
-                  {String(i + 1).padStart(2, "0")}.
-                </span>
-                <span>{l}</span>
-              </li>
-            ))}
+            {learnings.map((l, i) => {
+              const field = `learning${i}`;
+              const actualValue = getOverride?.(slideNumber ?? 0, field) ?? l;
+              return (
+                <li key={i} className="flex gap-[2%] text-[1.3%] text-white">
+                  <span style={{ color: colors.blueSignature }} className="font-bold flex-shrink-0">
+                    {String(i + 1).padStart(2, "0")}.
+                  </span>
+                  <span>
+                    {onEditRequest ? (
+                      <EditableText
+                        field={field}
+                        slideIndex={slideNumber ?? 0}
+                        currentValue={actualValue}
+                        onClick={onEditRequest}
+                      >
+                        {actualValue}
+                      </EditableText>
+                    ) : (
+                      actualValue
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>
@@ -553,12 +661,14 @@ export function NextStepsSlide({
   steps,
   accent = "blue",
   slideNumber,
+  onEditRequest,
+  getOverride,
 }: {
   title: string;
   steps: string[];
   accent?: "blue" | "violet";
   slideNumber?: number;
-}) {
+} & EditCallbacks) {
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
       <div>
@@ -571,21 +681,38 @@ export function NextStepsSlide({
         <div className="w-full h-[1px] mb-[3%]" style={{ backgroundColor: colors.caption }} />
 
         <div className="space-y-[2.5%]">
-          {steps.map((s, i) => (
-            <div
-              key={i}
-              className="flex gap-[2%] items-start rounded-[8px] p-[2.5%]"
-              style={{ backgroundColor: i % 2 === 0 ? colors.bgAlt : "#fff" }}
-            >
-              <span
-                className="text-[2.5%] font-black flex-shrink-0"
-                style={{ color: accent === "violet" ? colors.violet : colors.blueSignature, fontFamily: "'Mulish', 'Arial Black', sans-serif" }}
+          {steps.map((s, i) => {
+            const field = `step${i}`;
+            const actualValue = getOverride?.(slideNumber ?? 0, field) ?? s;
+            return (
+              <div
+                key={i}
+                className="flex gap-[2%] items-start rounded-[8px] p-[2.5%]"
+                style={{ backgroundColor: i % 2 === 0 ? colors.bgAlt : "#fff" }}
               >
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <span className="text-[1.4%] pt-[0.4%]">{s}</span>
-            </div>
-          ))}
+                <span
+                  className="text-[2.5%] font-black flex-shrink-0"
+                  style={{ color: accent === "violet" ? colors.violet : colors.blueSignature, fontFamily: "'Mulish', 'Arial Black', sans-serif" }}
+                >
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className="text-[1.4%] pt-[0.4%]">
+                  {onEditRequest ? (
+                    <EditableText
+                      field={field}
+                      slideIndex={slideNumber ?? 0}
+                      currentValue={actualValue}
+                      onClick={onEditRequest}
+                    >
+                      {actualValue}
+                    </EditableText>
+                  ) : (
+                    actualValue
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </SlideShell>
