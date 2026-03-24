@@ -71,6 +71,104 @@ function fmtCurrency(n: number) {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// ── Spend Distribution ────────────────────────────────────────────────────────
+
+function SpendBreakdown({
+  creatives,
+}: {
+  creatives: Array<{ spend: number; format?: string | null; status: string }>;
+}) {
+  const total = creatives.reduce((s, c) => s + c.spend, 0);
+  if (total === 0) return null;
+
+  const formatColors: Record<string, string> = {
+    Video: "bg-violet-500",
+    Image: "bg-cyan-500",
+    Carousel: "bg-pink-500",
+  };
+  const statusColors: Record<string, string> = {
+    Winner: "bg-emerald-500",
+    Active: "bg-blue-500",
+    Fatigued: "bg-amber-500",
+    Paused: "bg-gray-500",
+  };
+
+  const byFormat = Object.entries(
+    creatives.reduce<Record<string, number>>((acc, c) => {
+      const key = c.format ?? "Other";
+      acc[key] = (acc[key] ?? 0) + c.spend;
+      return acc;
+    }, {})
+  ).sort((a, b) => b[1] - a[1]);
+
+  const byStatus = Object.entries(
+    creatives.reduce<Record<string, number>>((acc, c) => {
+      acc[c.status] = (acc[c.status] ?? 0) + c.spend;
+      return acc;
+    }, {})
+  ).sort((a, b) => b[1] - a[1]);
+
+  const BarRow = ({
+    label,
+    spend,
+    colorClass,
+  }: {
+    label: string;
+    spend: number;
+    colorClass: string;
+  }) => {
+    const pct = total > 0 ? (spend / total) * 100 : 0;
+    return (
+      <div className="flex items-center gap-3 text-xs">
+        <span className="w-20 text-gray-400 truncate shrink-0">{label}</span>
+        <div className="flex-1 bg-gray-800 rounded-full h-1.5 overflow-hidden">
+          <div
+            className={`h-full rounded-full ${colorClass}`}
+            style={{ width: `${pct.toFixed(1)}%` }}
+          />
+        </div>
+        <span className="text-gray-300 w-10 text-right">{pct.toFixed(0)}%</span>
+        <span className="text-gray-500 w-16 text-right">${(spend / 1000).toFixed(1)}k</span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div className="bg-[#111118] border border-gray-800 rounded-2xl p-5">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+          Spend by Format
+        </h3>
+        <div className="flex flex-col gap-3">
+          {byFormat.map(([fmt, spend]) => (
+            <BarRow
+              key={fmt}
+              label={fmt}
+              spend={spend}
+              colorClass={formatColors[fmt] ?? "bg-gray-500"}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="bg-[#111118] border border-gray-800 rounded-2xl p-5">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-4">
+          Spend by Status
+        </h3>
+        <div className="flex flex-col gap-3">
+          {byStatus.map(([status, spend]) => (
+            <BarRow
+              key={status}
+              label={status}
+              spend={spend}
+              colorClass={statusColors[status] ?? "bg-gray-500"}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Sort types ─────────────────────────────────────────────────────────────────
 
 type SortKey = "spend" | "impressions" | "cpm" | "ctr" | "cpc" | "cpa" | "roas" | "hookRate";
@@ -324,6 +422,9 @@ export default function WeeklyPage() {
             accent="bg-orange-600"
           />
         </div>
+
+        {/* Spend Distribution */}
+        <SpendBreakdown creatives={metaCreatives} />
 
         {/* Winners spotlight */}
         {winners.length > 0 && (
