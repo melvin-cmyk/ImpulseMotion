@@ -168,21 +168,14 @@ function SpendSparkline({
 }: {
   creatives: Array<{ spend: number; trend: DayMetric[] }>;
 }) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-
-  const { dailySpend, dailyRoas } = useMemo(() => {
-    const spendTotals = Array(7).fill(0) as number[];
-    const revenueTotals = Array(7).fill(0) as number[];
+  const dailySpend = useMemo(() => {
+    const totals = Array(7).fill(0) as number[];
     for (const c of creatives) {
       c.trend.forEach((d, i) => {
-        if (i < 7) {
-          spendTotals[i] += d.spend;
-          revenueTotals[i] += d.spend * d.roas;
-        }
+        if (i < 7) totals[i] += d.spend;
       });
     }
-    const roasTotals = spendTotals.map((s, i) => (s > 0 ? revenueTotals[i] / s : 0));
-    return { dailySpend: spendTotals, dailyRoas: roasTotals };
+    return totals;
   }, [creatives]);
 
   const total = dailySpend.reduce((s, v) => s + v, 0);
@@ -202,7 +195,6 @@ function SpendSparkline({
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
   const n = dailySpend.length;
-  const colW = chartW / (n - 1);
 
   const xOf = (i: number) => padL + (i / (n - 1)) * chartW;
   const yOf = (v: number) => padT + chartH - ((v - min) / range) * chartH;
@@ -221,17 +213,6 @@ function SpendSparkline({
     { v: (max + min) / 2, y: yOf((max + min) / 2) },
     { v: min, y: yOf(min) },
   ];
-
-  // Tooltip position in SVG coords
-  const tooltipForIdx = (i: number) => {
-    const cx = xOf(i);
-    const cy = yOf(dailySpend[i]);
-    // flip to left side if too close to right edge
-    const flipLeft = cx > W * 0.7;
-    const tx = flipLeft ? cx - 82 : cx + 8;
-    const ty = Math.max(padT, cy - 28);
-    return { tx, ty };
-  };
 
   return (
     <div className="bg-[#111118] border border-gray-800 rounded-2xl p-5 mb-6">
@@ -253,7 +234,7 @@ function SpendSparkline({
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
         style={{ height: 140 }}
-        onMouseLeave={() => setHoveredIdx(null)}
+        aria-hidden="true"
       >
         <defs>
           <linearGradient id="sparkline-fill-m" x1="0" y1="0" x2="0" y2="1">
@@ -287,18 +268,6 @@ function SpendSparkline({
             ${(v / 1000).toFixed(1)}k
           </text>
         ))}
-        {/* Hover vertical rule */}
-        {hoveredIdx !== null && (
-          <line
-            x1={xOf(hoveredIdx).toFixed(1)}
-            y1={padT}
-            x2={xOf(hoveredIdx).toFixed(1)}
-            y2={padT + chartH}
-            stroke="#6b7280"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-          />
-        )}
         {/* Area fill */}
         <path d={areaPath} fill="url(#sparkline-fill-m)" />
         {/* Line */}
@@ -316,23 +285,10 @@ function SpendSparkline({
             key={i}
             cx={xOf(i).toFixed(1)}
             cy={yOf(v).toFixed(1)}
-            r={hoveredIdx === i ? "6" : i === peakIdx ? "5" : "3"}
+            r={i === peakIdx ? "5" : "3"}
             fill={i === peakIdx ? "#10b981" : "#7c3aed"}
-            stroke={hoveredIdx === i ? "#ffffff" : "#0a0a0f"}
+            stroke="#0a0a0f"
             strokeWidth="1.5"
-            style={{ cursor: "crosshair" }}
-          />
-        ))}
-        {/* Invisible hit areas per day column */}
-        {dailySpend.map((_, i) => (
-          <rect
-            key={i}
-            x={(xOf(i) - colW / 2).toFixed(1)}
-            y={padT}
-            width={colW.toFixed(1)}
-            height={chartH + padB}
-            fill="transparent"
-            onMouseEnter={() => setHoveredIdx(i)}
           />
         ))}
         {/* X-axis day labels */}
@@ -343,38 +299,12 @@ function SpendSparkline({
             y={(padT + chartH + 16).toFixed(1)}
             textAnchor="middle"
             fontSize="9"
-            fill={hoveredIdx === i ? "#e5e7eb" : i === peakIdx ? "#10b981" : "#6b7280"}
-            fontWeight={hoveredIdx === i || i === peakIdx ? "700" : "400"}
+            fill={i === peakIdx ? "#10b981" : "#6b7280"}
+            fontWeight={i === peakIdx ? "700" : "400"}
           >
             {label}
           </text>
         ))}
-        {/* Tooltip */}
-        {hoveredIdx !== null && (() => {
-          const { tx, ty } = tooltipForIdx(hoveredIdx);
-          return (
-            <g>
-              <rect
-                x={tx}
-                y={ty}
-                width="76"
-                height="34"
-                rx="4"
-                fill="#1f2937"
-                stroke="#374151"
-                strokeWidth="0.8"
-              />
-              <text x={tx + 6} y={ty + 13} fontSize="9" fill="#9ca3af">Spend</text>
-              <text x={tx + 6} y={ty + 24} fontSize="10" fontWeight="700" fill="#e5e7eb">
-                ${(dailySpend[hoveredIdx] / 1000).toFixed(2)}k
-              </text>
-              <text x={tx + 46} y={ty + 13} fontSize="9" fill="#9ca3af">ROAS</text>
-              <text x={tx + 46} y={ty + 24} fontSize="10" fontWeight="700" fill={dailyRoas[hoveredIdx] >= 3 ? "#10b981" : dailyRoas[hoveredIdx] >= 1.5 ? "#f59e0b" : "#ef4444"}>
-                {dailyRoas[hoveredIdx].toFixed(2)}x
-              </text>
-            </g>
-          );
-        })()}
       </svg>
     </div>
   );

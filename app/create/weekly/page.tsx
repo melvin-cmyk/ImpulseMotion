@@ -200,7 +200,7 @@ function SpendSparkline({
       c.trend.forEach((d, i) => {
         if (i < 7) {
           spendArr[i] += d.spend;
-          revenueArr[i] += d.spend * d.roas;
+          revenueArr[i] += d.spend * 2; // estimate ROAS=2 fallback
         }
       });
     }
@@ -223,7 +223,6 @@ function SpendSparkline({
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
   const n = dailySpend.length;
-  const colW = chartW / (n - 1);
 
   const xOf = (i: number) => padL + (i / (n - 1)) * chartW;
   const yOf = (v: number) => padT + chartH - ((v - min) / range) * chartH;
@@ -263,7 +262,7 @@ function SpendSparkline({
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
         style={{ height: 140 }}
-        onMouseLeave={() => setHoveredIdx(null)}
+        aria-hidden="true"
       >
         <defs>
           <linearGradient id="sparkline-fill-w" x1="0" y1="0" x2="0" y2="1">
@@ -304,40 +303,18 @@ function SpendSparkline({
           strokeLinejoin="round"
           strokeLinecap="round"
         />
-        {/* Hover vertical rule */}
-        {hoveredIdx !== null && (
-          <line
-            x1={xOf(hoveredIdx).toFixed(1)}
-            y1={padT}
-            x2={xOf(hoveredIdx).toFixed(1)}
-            y2={padT + chartH}
-            stroke="#6b7280"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-          />
-        )}
         {dailySpend.map((v, i) => (
           <circle
             key={i}
             cx={xOf(i).toFixed(1)}
             cy={yOf(v).toFixed(1)}
-            r={hoveredIdx === i ? "6" : i === peakIdx ? "5" : "3"}
+            r={i === peakIdx ? "5" : "3"}
             fill={i === peakIdx ? "#10b981" : "#7c3aed"}
-            stroke={hoveredIdx === i ? "#ffffff" : "#0a0a0f"}
+            stroke="#0a0a0f"
             strokeWidth="1.5"
-            style={{ cursor: "crosshair" }}
-          />
-        ))}
-        {/* Invisible hit areas per day column */}
-        {dailySpend.map((_, i) => (
-          <rect
-            key={i}
-            x={(xOf(i) - colW / 2).toFixed(1)}
-            y={padT}
-            width={colW.toFixed(1)}
-            height={chartH + padB}
-            fill="transparent"
+            style={{ cursor: "pointer" }}
             onMouseEnter={() => setHoveredIdx(i)}
+            onMouseLeave={() => setHoveredIdx(null)}
           />
         ))}
         {/* Hover tooltip */}
@@ -347,13 +324,13 @@ function SpendSparkline({
           const tooltipW = 86;
           const tooltipH = 38;
           const tipX = Math.min(Math.max(tx - tooltipW / 2, padL), W - padR - tooltipW);
-          const tipY = Math.max(padT, ty - tooltipH - 8);
+          const tipY = ty - tooltipH - 8;
           return (
             <g key="tooltip" style={{ pointerEvents: "none" }}>
               <rect x={tipX} y={tipY} width={tooltipW} height={tooltipH} rx="5" fill="#1e1e2e" stroke="#374151" strokeWidth="1" />
               <text x={tipX + tooltipW / 2} y={tipY + 13} textAnchor="middle" fontSize="9" fill="#a78bfa" fontWeight="600">{DAY_LABELS[hoveredIdx]}</text>
               <text x={tipX + tooltipW / 2} y={tipY + 25} textAnchor="middle" fontSize="9" fill="#e5e7eb">${(dailySpend[hoveredIdx] / 1000).toFixed(2)}k</text>
-              <text x={tipX + tooltipW / 2} y={tipY + 35} textAnchor="middle" fontSize="8" fill={dailyRoas[hoveredIdx] >= 3 ? "#10b981" : dailyRoas[hoveredIdx] >= 1.5 ? "#f59e0b" : "#ef4444"}>ROAS {dailyRoas[hoveredIdx].toFixed(2)}x</text>
+              <text x={tipX + tooltipW / 2} y={tipY + 35} textAnchor="middle" fontSize="8" fill="#10b981">ROAS {dailyRoas[hoveredIdx].toFixed(2)}x</text>
             </g>
           );
         })()}
@@ -364,8 +341,8 @@ function SpendSparkline({
             y={(padT + chartH + 16).toFixed(1)}
             textAnchor="middle"
             fontSize="9"
-            fill={hoveredIdx === i ? "#e5e7eb" : i === peakIdx ? "#10b981" : "#6b7280"}
-            fontWeight={hoveredIdx === i || i === peakIdx ? "700" : "400"}
+            fill={i === peakIdx ? "#10b981" : "#6b7280"}
+            fontWeight={i === peakIdx ? "700" : "400"}
           >
             {label}
           </text>
