@@ -24,6 +24,7 @@ import {
   Presentation,
   CalendarDays,
   CalendarRange,
+  LayoutPanelLeft,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -47,6 +48,7 @@ const navItems = [
   { href: "/reports", icon: Share2, label: "Reports" },
   { href: "/create/weekly", icon: CalendarDays, label: "Weekly Overview" },
   { href: "/create/monthly", icon: CalendarRange, label: "Monthly Overview" },
+  { href: "/deck", icon: LayoutPanelLeft, label: "Deck Builder" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ]
 
