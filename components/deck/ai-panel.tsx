@@ -22,6 +22,7 @@ interface AIPanelMessage {
   toolCalls?: { name: string; id: string }[];
   toolResults?: { id: string; content: string; is_error: boolean }[];
   isStreaming?: boolean;
+  isFetchResponse?: boolean;
 }
 
 interface AIPanelProps {
@@ -29,6 +30,7 @@ interface AIPanelProps {
   currentSlideIndex: number;
   currentSlideLabel: string;
   onSlideUpdate?: (slideIndex: number, field: string, newValue: string) => void;
+  onRefreshDeckData?: () => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -47,6 +49,7 @@ export function AIPanel({
   currentSlideIndex,
   currentSlideLabel,
   onSlideUpdate,
+  onRefreshDeckData,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -111,7 +114,7 @@ export function AIPanel({
     if (!text || isLoading) return;
 
     const originalInput = text;
-    const isFetchCommand = text.startsWith("/fetch");
+    const isFetchCommand = text.startsWith("/fetch meta") || text.startsWith("/fetch google");
     const matchedCmd = SLASH_COMMANDS.find((sc) => text.startsWith(sc.cmd));
     if (matchedCmd) {
       text = handleSlashCommand(matchedCmd.cmd);
@@ -126,10 +129,11 @@ export function AIPanel({
     const assistantMsg: AIPanelMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
-      content: isFetchCommand ? "" : "",
+      content: "",
       toolCalls: [],
       toolResults: [],
       isStreaming: true,
+      isFetchResponse: isFetchCommand,
     };
 
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
@@ -324,6 +328,17 @@ export function AIPanel({
                         </div>
                       ))}
                     </div>
+                  )}
+
+                  {msg.isFetchResponse && !msg.isStreaming && onRefreshDeckData && (
+                    <button
+                      onClick={onRefreshDeckData}
+                      className="mb-2 w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-lg transition-colors text-white"
+                      style={{ backgroundColor: "#0944A1" }}
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      Mettre à jour les slides avec ces données
+                    </button>
                   )}
 
                   {msg.content && hasDataContent(msg.content) && !msg.isStreaming && (

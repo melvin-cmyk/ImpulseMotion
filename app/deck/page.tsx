@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ChevronLeft,
   ChevronRight,
@@ -585,8 +587,8 @@ export default function DeckPage() {
                       >
                         ×
                       </button>
-                      <div className="text-xs text-gray-700 whitespace-pre-wrap pr-6">
-                        {block.content}
+                      <div className="text-xs text-gray-700 pr-6 prose prose-sm max-w-none [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-0.5 [&_th]:bg-[#0070C0] [&_th]:text-white [&_tr:nth-child(even)_td]:bg-[#F3F3F3]">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
                       </div>
                     </div>
                   ))}
@@ -642,6 +644,7 @@ export default function DeckPage() {
             currentSlideIndex={currentSlide}
             currentSlideLabel={slides[currentSlide]?.label ?? ""}
             onSlideUpdate={handleSlideUpdate}
+            onRefreshDeckData={handleGenerate}
           />
         </div>
       </div>
