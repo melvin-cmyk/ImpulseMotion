@@ -15,6 +15,8 @@ import {
   ArrowDown,
   Presentation,
   Target,
+  AlertTriangle,
+  Sparkles,
 } from "lucide-react";
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
@@ -164,6 +166,158 @@ function SpendBreakdown({
             />
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── AI Insights ───────────────────────────────────────────────────────────────
+
+type InsightType = "success" | "warning" | "danger" | "info" | "neutral";
+
+interface Insight {
+  icon: React.ElementType;
+  colorClass: string;
+  bgClass: string;
+  text: string;
+  type: InsightType;
+}
+
+function AiInsights({
+  creatives,
+  totals,
+}: {
+  creatives: Array<{
+    spend: number;
+    roas: number;
+    format?: string | null;
+    status: string;
+    impressions?: number | null;
+    clicks?: number | null;
+  }>;
+  totals: { spend: number; impressions: number; clicks: number; ctr: number };
+}) {
+  const insights = useMemo<Insight[]>(() => {
+    if (!creatives.length || totals.spend === 0) return [];
+    const list: Insight[] = [];
+
+    // 1. Best format by spend-weighted ROAS
+    const formatMap: Record<string, { totalRoasWeighted: number; spend: number }> = {};
+    for (const c of creatives) {
+      const key = c.format ?? "Other";
+      if (!formatMap[key]) formatMap[key] = { totalRoasWeighted: 0, spend: 0 };
+      formatMap[key].totalRoasWeighted += c.roas * c.spend;
+      formatMap[key].spend += c.spend;
+    }
+    const formats = Object.entries(formatMap)
+      .map(([fmtKey, v]) => ({ fmt: fmtKey, avgRoas: v.spend > 0 ? v.totalRoasWeighted / v.spend : 0, spend: v.spend }))
+      .filter((f) => f.spend > 0)
+      .sort((a, b) => b.avgRoas - a.avgRoas);
+    if (formats.length > 0) {
+      const best = formats[0];
+      const pct = Math.round((best.spend / totals.spend) * 100);
+      list.push({
+        icon: TrendingUp,
+        colorClass: "text-emerald-400",
+        bgClass: "bg-emerald-500/15",
+        text: `${best.fmt} is your top format at ${best.avgRoas.toFixed(1)}× ROAS avg (${pct}% of spend)`,
+        type: "success",
+      });
+    }
+
+    // 2. Concentration risk — top creative >35% of spend
+    const sorted = [...creatives].sort((a, b) => b.spend - a.spend);
+    if (sorted.length > 0) {
+      const topPct = (sorted[0].spend / totals.spend) * 100;
+      if (topPct > 35) {
+        list.push({
+          icon: AlertTriangle,
+          colorClass: "text-amber-400",
+          bgClass: "bg-amber-500/10",
+          text: `1 creative drives ${topPct.toFixed(0)}% of spend — consider diversifying your budget`,
+          type: "warning",
+        });
+      }
+    }
+
+    // 3. CTR efficiency
+    if (totals.impressions > 0 && totals.clicks > 0) {
+      const ctr = totals.ctr;
+      if (ctr >= 2) {
+        list.push({
+          icon: MousePointerClick,
+          colorClass: "text-cyan-400",
+          bgClass: "bg-cyan-500/10",
+          text: `Strong click-through rate at ${ctr.toFixed(1)}% — your audience resonates with the creatives`,
+          type: "success",
+        });
+      } else if (ctr < 1) {
+        list.push({
+          icon: MousePointerClick,
+          colorClass: "text-orange-400",
+          bgClass: "bg-orange-500/10",
+          text: `CTR below 1% (${ctr.toFixed(2)}%) — test new hooks or angles to improve engagement`,
+          type: "warning",
+        });
+      }
+    }
+
+    // 4. Fatigue rate
+    const fatigued = creatives.filter((c) => c.status === "Fatigued");
+    if (fatigued.length > 0) {
+      const fatigueSpend = fatigued.reduce((s, c) => s + c.spend, 0);
+      list.push({
+        icon: AlertTriangle,
+        colorClass: "text-red-400",
+        bgClass: "bg-red-500/10",
+        text: `${fatigued.length} creative${fatigued.length > 1 ? "s" : ""} fatigued, $${(fatigueSpend / 1000).toFixed(1)}k spend at risk — refresh soon`,
+        type: "danger",
+      });
+    }
+
+    // 5. Win rate (only if >5 creatives)
+    if (creatives.length > 5) {
+      const active = creatives.filter((c) => c.status === "Winner" || c.status === "Active").length;
+      const rate = (active / creatives.length) * 100;
+      if (rate >= 60) {
+        list.push({
+          icon: Target,
+          colorClass: "text-violet-400",
+          bgClass: "bg-violet-500/10",
+          text: `Good portfolio health — ${active}/${creatives.length} creatives are winners or active`,
+          type: "success",
+        });
+      } else if (rate < 30) {
+        list.push({
+          icon: Target,
+          colorClass: "text-gray-400",
+          bgClass: "bg-gray-500/10",
+          text: `Only ${active}/${creatives.length} creatives are performing — audit your budget allocation`,
+          type: "neutral",
+        });
+      }
+    }
+
+    return list.slice(0, 5);
+  }, [creatives, totals]);
+
+  if (!insights.length) return null;
+
+  return (
+    <div className="bg-[#0e0e16] border border-gray-800 rounded-2xl p-5 mb-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Sparkles className="w-4 h-4 text-violet-400" />
+        <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Smart Insights</h3>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {insights.map((insight, i) => (
+          <div key={i} className={`flex items-start gap-2.5 rounded-xl p-3 ${insight.bgClass}`}>
+            <div className={`mt-0.5 flex-shrink-0 ${insight.colorClass}`}>
+              <insight.icon className="w-4 h-4" />
+            </div>
+            <p className="text-sm text-gray-200 leading-snug">{insight.text}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -425,6 +579,9 @@ export default function WeeklyPage() {
 
         {/* Spend Distribution */}
         <SpendBreakdown creatives={metaCreatives} />
+
+        {/* AI Smart Insights */}
+        <AiInsights creatives={metaCreatives} totals={totals} />
 
         {/* Winners spotlight */}
         {winners.length > 0 && (
