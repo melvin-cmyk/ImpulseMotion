@@ -94,17 +94,20 @@ export function EditableText({
         e.stopPropagation();
         setIsEditing(true);
       }}
-      className="editable-text-inline cursor-pointer transition-all"
+      title="Cliquer pour modifier"
+      className="editable-text-inline cursor-text transition-all relative group"
       style={{
         outline: "0px solid #2CA6F9",
-        outlineOffset: "2px",
+        outlineOffset: "3px",
         borderRadius: "2px",
       }}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLElement).style.outline = "2px solid #2CA6F9";
+        (e.currentTarget as HTMLElement).style.backgroundColor = "rgba(44,166,249,0.08)";
       }}
       onMouseLeave={(e) => {
         (e.currentTarget as HTMLElement).style.outline = "0px solid #2CA6F9";
+        (e.currentTarget as HTMLElement).style.backgroundColor = "transparent";
       }}
     >
       {children}

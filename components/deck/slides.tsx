@@ -65,9 +65,13 @@ function DeltaBadge({ value, invert }: { value: number; invert?: boolean }) {
 
 // ── 1. Cover Slide ───────────────────────────────────────────────────────────
 
-export function CoverSlide({ data }: { data: DeckData }) {
+export function CoverSlide({ data, slideNumber, onEdit, getOverride }: { data: DeckData; slideNumber?: number } & EditCallbacks) {
+  const sn = slideNumber ?? 0;
+  const clientName = getOverride?.(sn, "clientName") ?? data.client.name;
+  const period = getOverride?.(sn, "period") ?? data.period.label;
+  const subtitle = getOverride?.(sn, "subtitle") ?? "Prepared by Impulse Analytics";
   return (
-    <SlideShell dark>
+    <SlideShell dark slideNumber={slideNumber}>
       <div className="flex flex-col items-center justify-center h-full text-center gap-[3%]">
         <div
           className="text-[5%] font-extrabold tracking-wide uppercase"
@@ -79,15 +83,17 @@ export function CoverSlide({ data }: { data: DeckData }) {
           className="text-[3.5%] font-extrabold"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          {data.client.name}
+          {onEdit ? <EditableText field="clientName" slideIndex={sn} currentValue={clientName} onEdit={onEdit}>{clientName}</EditableText> : clientName}
         </div>
-        <div className="text-[2%] opacity-80">{data.period.label}</div>
+        <div className="text-[2%] opacity-80">
+          {onEdit ? <EditableText field="period" slideIndex={sn} currentValue={period} onEdit={onEdit}>{period}</EditableText> : period}
+        </div>
         <div
           className="mt-[2%] w-[30%] h-[2px]"
           style={{ backgroundColor: "#2CA6F9" }}
         />
         <div className="text-[1.4%] opacity-60 mt-[1%]">
-          Prepared by Impulse Analytics
+          {onEdit ? <EditableText field="subtitle" slideIndex={sn} currentValue={subtitle} onEdit={onEdit}>{subtitle}</EditableText> : subtitle}
         </div>
       </div>
     </SlideShell>
@@ -309,7 +315,8 @@ function HighlightCard({
 
 // ── 5. Global Table (10 columns) ─────────────────────────────────────────────
 
-export function GlobalTableSlide({ data, slideNumber }: { data: DeckData; slideNumber?: number }) {
+export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { data: DeckData; slideNumber?: number } & EditCallbacks) {
+  const sn = slideNumber ?? 0;
   const cols: { label: string; key: keyof import("@/lib/deck-data").PlatformMetrics; fmt: (n: number) => string; invert?: boolean }[] = [
     { label: "Spend", key: "spend", fmt: fmtCur },
     { label: "Impr.", key: "impressions", fmt: fmtK },
@@ -323,6 +330,9 @@ export function GlobalTableSlide({ data, slideNumber }: { data: DeckData; slideN
     { label: "ROAS", key: "roas", fmt: (n) => fmtDec(n) + "×" },
   ];
 
+  const title = getOverride?.(sn, "title") ?? "Vue Globale — Performance par Plateforme";
+  const periodStr = getOverride?.(sn, "period") ?? `${data.period.label} vs ${data.previousPeriod.label}`;
+
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
       <div>
@@ -330,10 +340,10 @@ export function GlobalTableSlide({ data, slideNumber }: { data: DeckData; slideN
           className="text-[2.8%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          Vue Globale — Performance par Plateforme
+          {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={title} onEdit={onEdit}>{title}</EditableText> : title}
         </h2>
         <div className="text-[1.4%] mb-[1%]" style={{ color: colors.caption }}>
-          {data.period.label} vs {data.previousPeriod.label}
+          {onEdit ? <EditableText field="period" slideIndex={sn} currentValue={periodStr} onEdit={onEdit}>{periodStr}</EditableText> : periodStr}
         </div>
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
@@ -350,7 +360,7 @@ export function GlobalTableSlide({ data, slideNumber }: { data: DeckData; slideN
           </thead>
           <tbody>
             {data.globalTable.map((row, idx) => (
-              <PlatformTableRow key={row.platform} row={row} cols={cols} isTotal={row.platform === "Total"} odd={idx % 2 === 1} />
+              <PlatformTableRow key={row.platform} row={row} cols={cols} isTotal={row.platform === "Total"} odd={idx % 2 === 1} rowIdx={idx} slideIndex={sn} onEdit={onEdit} getOverride={getOverride} />
             ))}
           </tbody>
         </table>
@@ -364,12 +374,18 @@ function PlatformTableRow({
   cols,
   isTotal,
   odd,
+  rowIdx,
+  slideIndex,
+  onEdit,
+  getOverride,
 }: {
   row: PlatformRow;
   cols: { key: keyof import("@/lib/deck-data").PlatformMetrics; fmt: (n: number) => string; invert?: boolean }[];
   isTotal: boolean;
   odd: boolean;
-}) {
+  rowIdx: number;
+  slideIndex: number;
+} & EditCallbacks) {
   const bg = isTotal ? colors.bgAlt : odd ? colors.bgRow : "#fff";
   const textColor = isTotal ? colors.blueDeep : colors.text;
   const weight = isTotal ? 700 : 400;
@@ -377,12 +393,27 @@ function PlatformTableRow({
   return (
     <>
       <tr style={{ backgroundColor: bg, color: textColor, fontWeight: weight }}>
-        <td className="px-[1%] py-[0.6%]">{row.platform}</td>
-        {cols.map((c) => (
-          <td key={c.key} className="text-right px-[0.8%] py-[0.6%]">
-            {c.fmt(row.current[c.key])}
-          </td>
-        ))}
+        <td className="px-[1%] py-[0.6%]">
+          {onEdit ? (
+            <EditableText field={`row${rowIdx}.platform`} slideIndex={slideIndex} currentValue={getOverride?.(slideIndex, `row${rowIdx}.platform`) ?? row.platform} onEdit={onEdit}>
+              {getOverride?.(slideIndex, `row${rowIdx}.platform`) ?? row.platform}
+            </EditableText>
+          ) : row.platform}
+        </td>
+        {cols.map((c) => {
+          const field = `row${rowIdx}.${c.key}`;
+          const formatted = c.fmt(row.current[c.key]);
+          const override = getOverride?.(slideIndex, field);
+          return (
+            <td key={c.key} className="text-right px-[0.8%] py-[0.6%]">
+              {onEdit ? (
+                <EditableText field={field} slideIndex={slideIndex} currentValue={override ?? formatted} onEdit={onEdit}>
+                  {override ?? formatted}
+                </EditableText>
+              ) : formatted}
+            </td>
+          );
+        })}
       </tr>
       <tr style={{ backgroundColor: bg }}>
         <td className="px-[1%] pb-[0.6%] text-[1%]" style={{ color: colors.caption }}>
@@ -400,7 +431,9 @@ function PlatformTableRow({
 
 // ── 6. NC / CP-NC Slide ──────────────────────────────────────────────────────
 
-export function NCSlide({ data, slideNumber }: { data: DeckData; slideNumber?: number }) {
+export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: DeckData; slideNumber?: number } & EditCallbacks) {
+  const sn = slideNumber ?? 0;
+  const title = getOverride?.(sn, "title") ?? "Nouveaux Clients — NC / CP-NC / %NC";
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
       <div>
@@ -408,7 +441,7 @@ export function NCSlide({ data, slideNumber }: { data: DeckData; slideNumber?: n
           className="text-[2.8%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          Nouveaux Clients — NC / CP-NC / %NC
+          {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={title} onEdit={onEdit}>{title}</EditableText> : title}
         </h2>
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
@@ -428,14 +461,17 @@ export function NCSlide({ data, slideNumber }: { data: DeckData; slideNumber?: n
             {data.ncTable.map((row, idx) => {
               const isTotal = row.platform === "Total";
               const bg = isTotal ? colors.bgAlt : idx % 2 === 1 ? colors.bgRow : "#fff";
+              const nc = getOverride?.(sn, `nc${idx}.nc`) ?? String(row.current.newClients);
+              const cpnc = getOverride?.(sn, `nc${idx}.cpnc`) ?? `€${fmtDec(row.current.cpNc)}`;
+              const pnc = getOverride?.(sn, `nc${idx}.pnc`) ?? fmtPct(row.current.percentNc);
               return (
                 <tr key={row.platform} style={{ backgroundColor: bg, fontWeight: isTotal ? 700 : 400, color: isTotal ? colors.blueDeep : colors.text }}>
                   <td className="px-[1.5%] py-[0.8%]">{row.platform}</td>
-                  <td className="text-right px-[1.5%] py-[0.8%]">{row.current.newClients}</td>
+                  <td className="text-right px-[1.5%] py-[0.8%]">{onEdit ? <EditableText field={`nc${idx}.nc`} slideIndex={sn} currentValue={nc} onEdit={onEdit}>{nc}</EditableText> : nc}</td>
                   <td className="text-right px-[1.5%] py-[0.8%]"><DeltaBadge value={row.delta.newClients} /></td>
-                  <td className="text-right px-[1.5%] py-[0.8%]">€{fmtDec(row.current.cpNc)}</td>
+                  <td className="text-right px-[1.5%] py-[0.8%]">{onEdit ? <EditableText field={`nc${idx}.cpnc`} slideIndex={sn} currentValue={cpnc} onEdit={onEdit}>{cpnc}</EditableText> : cpnc}</td>
                   <td className="text-right px-[1.5%] py-[0.8%]"><DeltaBadge value={row.delta.cpNc} invert /></td>
-                  <td className="text-right px-[1.5%] py-[0.8%]">{fmtPct(row.current.percentNc)}</td>
+                  <td className="text-right px-[1.5%] py-[0.8%]">{onEdit ? <EditableText field={`nc${idx}.pnc`} slideIndex={sn} currentValue={pnc} onEdit={onEdit}>{pnc}</EditableText> : pnc}</td>
                   <td className="text-right px-[1.5%] py-[0.8%]"><DeltaBadge value={row.delta.percentNc} /></td>
                 </tr>
               );
@@ -455,13 +491,17 @@ export function CampaignTableSlide({
   accent = "blue",
   slideNumber,
   periodLabel,
+  onEdit,
+  getOverride,
 }: {
   title: string;
   campaigns: CampaignRow[];
   accent?: "blue" | "violet";
   slideNumber?: number;
   periodLabel?: string;
-}) {
+} & EditCallbacks) {
+  const sn = slideNumber ?? 0;
+  const actualTitle = getOverride?.(sn, "title") ?? title;
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
       <div>
@@ -469,7 +509,7 @@ export function CampaignTableSlide({
           className="text-[2.8%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          {title}
+          {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={actualTitle} onEdit={onEdit}>{actualTitle}</EditableText> : actualTitle}
         </h2>
         {periodLabel && (
           <div className="text-[1.4%] mb-[1%]" style={{ color: colors.caption }}>{periodLabel}</div>
@@ -491,9 +531,13 @@ export function CampaignTableSlide({
             </tr>
           </thead>
           <tbody>
-            {campaigns.map((c, idx) => (
+            {campaigns.map((c, idx) => {
+              const campaignName = getOverride?.(sn, `c${idx}.name`) ?? c.name;
+              const campaignSpend = getOverride?.(sn, `c${idx}.spend`) ?? fmtCur(c.current.spend);
+              const campaignRoas = getOverride?.(sn, `c${idx}.roas`) ?? `${fmtDec(c.current.roas)}×`;
+              return (
               <tr key={c.id} style={{ backgroundColor: idx % 2 === 1 ? colors.bgRow : "#fff" }}>
-                <td className="px-[0.8%] py-[0.5%] font-medium">{c.name}</td>
+                <td className="px-[0.8%] py-[0.5%] font-medium">{onEdit ? <EditableText field={`c${idx}.name`} slideIndex={sn} currentValue={campaignName} onEdit={onEdit}>{campaignName}</EditableText> : campaignName}</td>
                 <td className="text-center px-[0.5%] py-[0.5%]">
                   <span
                     className="inline-block px-[4px] py-[1px] rounded text-[0.9%] font-semibold"
@@ -505,17 +549,18 @@ export function CampaignTableSlide({
                     {c.status}
                   </span>
                 </td>
-                <td className="text-right px-[0.5%] py-[0.5%]">{fmtCur(c.current.spend)}</td>
+                <td className="text-right px-[0.5%] py-[0.5%]">{onEdit ? <EditableText field={`c${idx}.spend`} slideIndex={sn} currentValue={campaignSpend} onEdit={onEdit}>{campaignSpend}</EditableText> : campaignSpend}</td>
                 <td className="text-right px-[0.5%] py-[0.5%]">{fmtK(c.current.impressions)}</td>
                 <td className="text-right px-[0.5%] py-[0.5%]">{fmtK(c.current.clicks)}</td>
                 <td className="text-right px-[0.5%] py-[0.5%]">{Math.round(c.current.conversions)}</td>
                 <td className="text-right px-[0.5%] py-[0.5%]">€{fmtDec(c.current.cpa)}</td>
-                <td className="text-right px-[0.5%] py-[0.5%] font-bold">{fmtDec(c.current.roas)}×</td>
+                <td className="text-right px-[0.5%] py-[0.5%] font-bold">{onEdit ? <EditableText field={`c${idx}.roas`} slideIndex={sn} currentValue={campaignRoas} onEdit={onEdit}>{campaignRoas}</EditableText> : campaignRoas}</td>
                 <td className="text-right px-[0.5%] py-[0.5%]">
                   <DeltaBadge value={c.delta.roas} />
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -725,11 +770,15 @@ export function BudgetSlide({
   budget,
   period,
   slideNumber,
+  onEdit,
+  getOverride,
 }: {
   budget: BudgetLine[];
   period: string;
   slideNumber?: number;
-}) {
+} & EditCallbacks) {
+  const sn = slideNumber ?? 0;
+  const titlePeriod = getOverride?.(sn, "period") ?? period;
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
       <div>
@@ -737,7 +786,7 @@ export function BudgetSlide({
           className="text-[2.8%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          Budget — {period}
+          Budget — {onEdit ? <EditableText field="period" slideIndex={sn} currentValue={titlePeriod} onEdit={onEdit}>{titlePeriod}</EditableText> : titlePeriod}
         </h2>
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
@@ -753,6 +802,8 @@ export function BudgetSlide({
           <tbody>
             {budget.map((b, idx) => {
               const isTotal = b.platform === "Total";
+              const planned = getOverride?.(sn, `b${idx}.planned`) ?? fmtCur(b.planned);
+              const actual = getOverride?.(sn, `b${idx}.actual`) ?? fmtCur(b.actual);
               return (
                 <tr
                   key={b.platform}
@@ -763,8 +814,8 @@ export function BudgetSlide({
                   }}
                 >
                   <td className="px-[2%] py-[0.8%]">{b.platform}</td>
-                  <td className="text-right px-[2%] py-[0.8%]">{fmtCur(b.planned)}</td>
-                  <td className="text-right px-[2%] py-[0.8%]">{fmtCur(b.actual)}</td>
+                  <td className="text-right px-[2%] py-[0.8%]">{onEdit ? <EditableText field={`b${idx}.planned`} slideIndex={sn} currentValue={planned} onEdit={onEdit}>{planned}</EditableText> : planned}</td>
+                  <td className="text-right px-[2%] py-[0.8%]">{onEdit ? <EditableText field={`b${idx}.actual`} slideIndex={sn} currentValue={actual} onEdit={onEdit}>{actual}</EditableText> : actual}</td>
                   <td className="text-right px-[2%] py-[0.8%]">
                     <DeltaBadge value={b.variance} />
                   </td>
@@ -809,24 +860,28 @@ export function KPIOverviewSlide({
   metrics,
   accent = "blue",
   slideNumber,
+  onEdit,
+  getOverride,
 }: {
   title: string;
   metrics: import("@/lib/deck-data").PlatformMetrics;
   accent?: "blue" | "violet";
   slideNumber?: number;
-}) {
+} & EditCallbacks) {
+  const sn = slideNumber ?? 0;
   const kpis = [
-    { label: "Spend", value: fmtCur(metrics.spend) },
-    { label: "Impressions", value: fmtK(metrics.impressions) },
-    { label: "Clicks", value: fmtK(metrics.clicks) },
-    { label: "Conversions", value: String(Math.round(metrics.conversions)) },
-    { label: "Revenue", value: fmtCur(metrics.revenue) },
-    { label: "ROAS", value: fmtDec(metrics.roas) + "×" },
-    { label: "CPA", value: "€" + fmtDec(metrics.cpa) },
-    { label: "CTR", value: fmtPct(metrics.ctr) },
+    { label: "Spend", key: "spend", value: fmtCur(metrics.spend) },
+    { label: "Impressions", key: "impressions", value: fmtK(metrics.impressions) },
+    { label: "Clicks", key: "clicks", value: fmtK(metrics.clicks) },
+    { label: "Conversions", key: "conversions", value: String(Math.round(metrics.conversions)) },
+    { label: "Revenue", key: "revenue", value: fmtCur(metrics.revenue) },
+    { label: "ROAS", key: "roas", value: fmtDec(metrics.roas) + "×" },
+    { label: "CPA", key: "cpa", value: "€" + fmtDec(metrics.cpa) },
+    { label: "CTR", key: "ctr", value: fmtPct(metrics.ctr) },
   ];
 
   const accentColor = accent === "violet" ? colors.violet : colors.blueSignature;
+  const actualTitle = getOverride?.(sn, "title") ?? title;
 
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
@@ -835,12 +890,14 @@ export function KPIOverviewSlide({
           className="text-[2.8%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          {title}
+          {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={actualTitle} onEdit={onEdit}>{actualTitle}</EditableText> : actualTitle}
         </h2>
         <div className="w-full h-[1px] mb-[3%]" style={{ backgroundColor: colors.caption }} />
 
         <div className="grid grid-cols-4 gap-[2%]">
-          {kpis.map((k) => (
+          {kpis.map((k) => {
+            const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
+            return (
             <div key={k.label} className="rounded-[8px] p-[5%] text-center" style={{ backgroundColor: colors.bgAlt }}>
               <div className="text-[1.2%] mb-[4%]" style={{ color: colors.caption }}>
                 {k.label}
@@ -849,10 +906,11 @@ export function KPIOverviewSlide({
                 className="text-[2.8%] font-black"
                 style={{ fontFamily: "'Mulish', 'Arial Black', sans-serif", color: accentColor }}
               >
-                {k.value}
+                {onEdit ? <EditableText field={`kpi.${k.key}`} slideIndex={sn} currentValue={override} onEdit={onEdit}>{override}</EditableText> : override}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </SlideShell>
