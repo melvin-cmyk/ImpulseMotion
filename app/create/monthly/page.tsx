@@ -71,6 +71,7 @@ export default function MonthlyPage() {
 
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const handleMount = () => {
     setDatePreset(30);
@@ -174,6 +175,47 @@ export default function MonthlyPage() {
       return sortDir === "desc" ? valB - valA : valA - valB;
     });
   }, [metaCreatives, sortKey, sortDir]);
+
+  // Filtered by search query
+  const filteredCreatives = useMemo(() => {
+    if (!searchQuery.trim()) return sortedCreatives;
+    const q = searchQuery.toLowerCase();
+    return sortedCreatives.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.format ?? "").toLowerCase().includes(q)
+    );
+  }, [sortedCreatives, searchQuery]);
+
+  // CSV export
+  const exportCsv = () => {
+    const header = ["Name", "Format", "Spend", "Impressions", "CPM", "CTR", "CPC", "CPA", "ROAS", "Status"];
+    const rows = filteredCreatives.map((c) => {
+      const imp = c.impressions ?? 0;
+      const clk = c.clicks ?? 0;
+      const cpm = imp > 0 ? (c.spend / imp) * 1000 : 0;
+      const ctr = imp > 0 ? (clk / imp) * 100 : 0;
+      const cpc = clk > 0 ? c.spend / clk : 0;
+      return [
+        `"${c.name.replace(/"/g, '""')}"`,
+        c.format ?? "",
+        c.spend.toFixed(2),
+        imp,
+        cpm.toFixed(2),
+        ctr.toFixed(2),
+        cpc.toFixed(2),
+        (c.cpa ?? 0).toFixed(2),
+        (c.roas ?? 0).toFixed(2),
+        c.status,
+      ].join(",");
+    });
+    const csv = [header.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `monthly-${dateRange.since}-${dateRange.until}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Top 6 creatives for visual grid
   const topVisuals = useMemo(
@@ -372,13 +414,29 @@ export default function MonthlyPage() {
 
         {/* Data table */}
         <div className="bg-[#111118] border border-gray-800 rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+          <div className="px-5 py-4 border-b border-gray-800 flex flex-wrap items-center gap-3 justify-between">
             <span className="text-sm font-semibold text-white">
-              Adset Performance — {sortedCreatives.length} creatives
+              Adset Performance — {filteredCreatives.length}{filteredCreatives.length !== sortedCreatives.length ? ` / ${sortedCreatives.length}` : ""} creatives
             </span>
-            {isLoading && (
-              <span className="text-xs text-gray-500 animate-pulse">Loading…</span>
-            )}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search creatives…"
+                className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-violet-500 w-44"
+              />
+              <button
+                onClick={exportCsv}
+                disabled={filteredCreatives.length === 0}
+                className="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 rounded-lg font-medium transition-colors"
+              >
+                Export CSV
+              </button>
+              {isLoading && (
+                <span className="text-xs text-gray-500 animate-pulse">Loading…</span>
+              )}
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -410,14 +468,14 @@ export default function MonthlyPage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedCreatives.length === 0 && !isLoading && (
+                {filteredCreatives.length === 0 && !isLoading && (
                   <tr>
                     <td colSpan={9} className="text-center py-12 text-gray-600 text-xs">
-                      No Meta creatives found for this date range.
+                      {searchQuery ? "No creatives match your search." : "No Meta creatives found for this date range."}
                     </td>
                   </tr>
                 )}
-                {sortedCreatives.map((c) => {
+                {filteredCreatives.map((c) => {
                   const impressions = c.impressions ?? 0;
                   const clicks = c.clicks ?? 0;
                   const cpm = impressions > 0 ? (c.spend / impressions) * 1000 : 0;
@@ -479,6 +537,32 @@ export default function MonthlyPage() {
                   );
                 })}
               </tbody>
+              {filteredCreatives.length > 0 && (() => {
+                const fSpend = filteredCreatives.reduce((s, c) => s + c.spend, 0);
+                const fImp = filteredCreatives.reduce((s, c) => s + (c.impressions ?? 0), 0);
+                const fClk = filteredCreatives.reduce((s, c) => s + (c.clicks ?? 0), 0);
+                const fConv = filteredCreatives.reduce((s, c) => s + (c.conversions ?? 0), 0);
+                const fCpm = fImp > 0 ? (fSpend / fImp) * 1000 : 0;
+                const fCtr = fImp > 0 ? (fClk / fImp) * 100 : 0;
+                const fCpc = fClk > 0 ? fSpend / fClk : 0;
+                const fCpa = fConv > 0 ? fSpend / fConv : 0;
+                const fRoas = fSpend > 0 ? filteredCreatives.reduce((s, c) => s + c.roas * c.spend, 0) / fSpend : 0;
+                return (
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-700 bg-gray-900/40 text-xs font-semibold">
+                      <td className="px-5 py-3 text-gray-300">Totals / Avg</td>
+                      <td className="text-right px-4 py-3 text-white">{fmtCurrency(fSpend)}</td>
+                      <td className="text-right px-4 py-3 text-gray-300">{fImp > 0 ? (fImp / 1000).toFixed(1) + "k" : "—"}</td>
+                      <td className="text-right px-4 py-3 text-gray-300">{fCpm > 0 ? fmtCurrency(fCpm) : "—"}</td>
+                      <td className="text-right px-4 py-3 text-gray-300">{fCtr > 0 ? fmt(fCtr) + "%" : "—"}</td>
+                      <td className="text-right px-4 py-3 text-gray-300">{fCpc > 0 ? fmtCurrency(fCpc) : "—"}</td>
+                      <td className="text-right px-4 py-3 text-gray-300">{fCpa > 0 ? fmtCurrency(fCpa) : "—"}</td>
+                      <td className="text-right px-4 py-3 text-violet-300">{fRoas > 0 ? fmt(fRoas) + "×" : "—"}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                );
+              })()}
             </table>
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { Sidebar } from "@/components/sidebar";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
@@ -70,14 +70,31 @@ function fmtCurrency(n: number) {
   return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// ── Sort types ─────────────────────────────────────────────────────────────────
+
+type SortKey = "spend" | "impressions" | "cpm" | "ctr" | "cpc" | "cpa" | "roas" | "hookRate";
+type SortDir = "asc" | "desc";
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function WeeklyPage() {
   const { creatives, isLoading, error, dateRange, setDatePreset, isRealData, wowData } =
     useCreativesContext();
 
+  const [sortKey, setSortKey] = useState<SortKey>("spend");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
   const handleMount = () => {
     setDatePreset(7);
+  };
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
   };
 
   const metaCreatives = useMemo(
@@ -108,6 +125,42 @@ export default function WeeklyPage() {
     () => [...metaCreatives].sort((a, b) => b.spend - a.spend),
     [metaCreatives]
   );
+
+  // Sortable table data
+  const sortedCreatives = useMemo(() => {
+    return [...metaCreatives].sort((a, b) => {
+      const impA = a.impressions ?? 0;
+      const impB = b.impressions ?? 0;
+      const clkA = a.clicks ?? 0;
+      const clkB = b.clicks ?? 0;
+      let valA: number;
+      let valB: number;
+      switch (sortKey) {
+        case "spend": valA = a.spend; valB = b.spend; break;
+        case "impressions": valA = impA; valB = impB; break;
+        case "cpm": valA = impA > 0 ? (a.spend / impA) * 1000 : 0; valB = impB > 0 ? (b.spend / impB) * 1000 : 0; break;
+        case "ctr": valA = impA > 0 ? (clkA / impA) * 100 : 0; valB = impB > 0 ? (clkB / impB) * 100 : 0; break;
+        case "cpc": valA = clkA > 0 ? a.spend / clkA : 0; valB = clkB > 0 ? b.spend / clkB : 0; break;
+        case "cpa": valA = a.cpa ?? 0; valB = b.cpa ?? 0; break;
+        case "roas": valA = a.roas ?? 0; valB = b.roas ?? 0; break;
+        case "hookRate": valA = a.hookRate ?? 0; valB = b.hookRate ?? 0; break;
+        default: valA = a.spend; valB = b.spend;
+      }
+      return sortDir === "desc" ? valB - valA : valA - valB;
+    });
+  }, [metaCreatives, sortKey, sortDir]);
+
+  const SortIcon = ({ col }: { col: SortKey }) => {
+    if (sortKey !== col) return <span className="opacity-30 ml-1">↕</span>;
+    return sortDir === "desc"
+      ? <ArrowDown className="inline w-3 h-3 ml-1 text-violet-400" />
+      : <ArrowUp className="inline w-3 h-3 ml-1 text-violet-400" />;
+  };
+
+  const thClass = (col: SortKey) =>
+    `text-right px-4 py-3 font-medium cursor-pointer select-none hover:text-white transition-colors ${
+      sortKey === col ? "text-violet-300" : ""
+    }`;
 
   // Top 6 creatives for visual grid
   const topVisuals = useMemo(() => sortedBySpend.slice(0, 6), [sortedBySpend]);
@@ -253,7 +306,7 @@ export default function WeeklyPage() {
         <div className="bg-[#111118] border border-gray-800 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
             <span className="text-sm font-semibold text-white">
-              Adset Performance — {sortedBySpend.length} creatives
+              Adset Performance — {sortedCreatives.length} creatives
             </span>
             {isLoading && (
               <span className="text-xs text-gray-500 animate-pulse">Loading…</span>
@@ -264,26 +317,26 @@ export default function WeeklyPage() {
               <thead>
                 <tr className="border-b border-gray-800 text-xs text-gray-500">
                   <th className="text-left px-5 py-3 font-medium">Creative</th>
-                  <th className="text-right px-4 py-3 font-medium">Spend</th>
-                  <th className="text-right px-4 py-3 font-medium">Impressions</th>
-                  <th className="text-right px-4 py-3 font-medium">CPM</th>
-                  <th className="text-right px-4 py-3 font-medium">CTR</th>
-                  <th className="text-right px-4 py-3 font-medium">CPC</th>
-                  <th className="text-right px-4 py-3 font-medium">CPA</th>
-                  <th className="text-right px-4 py-3 font-medium">ROAS</th>
-                  <th className="text-right px-4 py-3 font-medium">Hook</th>
+                  <th className={thClass("spend")} onClick={() => handleSort("spend")}>Spend<SortIcon col="spend" /></th>
+                  <th className={thClass("impressions")} onClick={() => handleSort("impressions")}>Impressions<SortIcon col="impressions" /></th>
+                  <th className={thClass("cpm")} onClick={() => handleSort("cpm")}>CPM<SortIcon col="cpm" /></th>
+                  <th className={thClass("ctr")} onClick={() => handleSort("ctr")}>CTR<SortIcon col="ctr" /></th>
+                  <th className={thClass("cpc")} onClick={() => handleSort("cpc")}>CPC<SortIcon col="cpc" /></th>
+                  <th className={thClass("cpa")} onClick={() => handleSort("cpa")}>CPA<SortIcon col="cpa" /></th>
+                  <th className={thClass("roas")} onClick={() => handleSort("roas")}>ROAS<SortIcon col="roas" /></th>
+                  <th className={thClass("hookRate")} onClick={() => handleSort("hookRate")}>Hook<SortIcon col="hookRate" /></th>
                   <th className="text-right px-5 py-3 font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedBySpend.length === 0 && !isLoading && (
+                {sortedCreatives.length === 0 && !isLoading && (
                   <tr>
                     <td colSpan={10} className="text-center py-12 text-gray-600 text-xs">
                       No Meta creatives found for this date range.
                     </td>
                   </tr>
                 )}
-                {sortedBySpend.map((c) => {
+                {sortedCreatives.map((c) => {
                   const impressions = c.impressions ?? 0;
                   const clicks = c.clicks ?? 0;
                   const cpm = impressions > 0 ? (c.spend / impressions) * 1000 : 0;
