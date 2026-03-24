@@ -31,6 +31,7 @@ interface AIPanelProps {
   currentSlideLabel: string;
   onSlideUpdate?: (slideIndex: number, field: string, newValue: string) => void;
   onRefreshDeckData?: () => void;
+  onExportPptx?: () => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -43,6 +44,7 @@ const SLASH_COMMANDS = [
   { cmd: "/analyze slide", desc: "Analyser la slide actuelle et suggérer des améliorations" },
   { cmd: "/suggest next-steps", desc: "Suggérer des actions prioritaires basées sur la performance" },
   { cmd: "/summarize deck", desc: "Rédiger un résumé exécutif du deck en 3 phrases" },
+  { cmd: "/export pptx", desc: "Exporter le deck en fichier PowerPoint (.pptx)" },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -53,6 +55,7 @@ export function AIPanel({
   currentSlideLabel,
   onSlideUpdate,
   onRefreshDeckData,
+  onExportPptx,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -150,6 +153,40 @@ export function AIPanel({
   const handleSubmit = async () => {
     let text = input.trim();
     if (!text || isLoading) return;
+
+    // /export pptx — direct action, no AI stream
+    if (text.startsWith("/export pptx")) {
+      setInput("");
+      setShowSlashMenu(false);
+      const exportMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "/export pptx",
+      };
+      if (!deckData) {
+        setMessages((prev) => [
+          ...prev,
+          exportMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Aucun deck généré — génère d'abord le deck avant d'exporter." },
+        ]);
+        return;
+      }
+      if (onExportPptx) {
+        setMessages((prev) => [
+          ...prev,
+          exportMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⬇️ Export PPTX en cours… Le téléchargement va démarrer." },
+        ]);
+        onExportPptx();
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          exportMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Export non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
 
     const originalInput = text;
     const isFetchCommand = text.startsWith("/fetch meta") || text.startsWith("/fetch google");

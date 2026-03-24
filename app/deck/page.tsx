@@ -865,6 +865,7 @@ export default function DeckPage() {
             currentSlideLabel={slides[currentSlide]?.label ?? ""}
             onSlideUpdate={handleSlideUpdate}
             onRefreshDeckData={handleGenerate}
+            onExportPptx={handleExportPptx}
           />
         </div>
       </div>
