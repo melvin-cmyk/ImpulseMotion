@@ -386,7 +386,7 @@ export default function WeeklyPage() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 focus:outline-none focus:border-violet-500"
+                className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 focus:outline-none focus:border-violet-500 cursor-pointer"
               >
                 <option value="all">All statuses</option>
                 <option value="Winner">Winner</option>
@@ -401,17 +401,6 @@ export default function WeeklyPage() {
                 placeholder="Search creatives…"
                 className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-violet-500 w-44"
               />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 focus:outline-none focus:border-violet-500 cursor-pointer"
-              >
-                <option value="all">All statuses</option>
-                <option value="Winner">Winner</option>
-                <option value="Active">Active</option>
-                <option value="Fatigued">Fatigued</option>
-                <option value="Paused">Paused</option>
-              </select>
               <button
                 onClick={exportCsv}
                 disabled={filteredCreatives.length === 0}
