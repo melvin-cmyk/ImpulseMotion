@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { Sidebar } from "@/components/sidebar";
+import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import {
   DollarSign,
   Eye,
@@ -10,6 +11,7 @@ import {
   TrendingUp,
   ShoppingCart,
   BarChart3,
+  Presentation,
 } from "lucide-react";
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
@@ -94,6 +96,9 @@ export default function MonthlyPage() {
     [metaCreatives]
   );
 
+  // Top 6 creatives for the visual grid
+  const topVisuals = useMemo(() => sortedBySpend.slice(0, 6), [sortedBySpend]);
+
   return (
     <div className="flex h-screen bg-[#0a0a0f] text-white overflow-hidden">
       <Sidebar />
@@ -106,12 +111,23 @@ export default function MonthlyPage() {
               Meta Ads · {dateRange.since} → {dateRange.until}
             </p>
           </div>
-          <button
-            onClick={handleMount}
-            className="text-xs px-3 py-1.5 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
-          >
-            Reset to 30 days
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                alert("Google Slides export coming soon — connect your Google account in Settings.");
+              }}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg font-medium transition-colors"
+            >
+              <Presentation className="w-3.5 h-3.5" />
+              Générer Google Slide
+            </button>
+            <button
+              onClick={handleMount}
+              className="text-xs px-3 py-1.5 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
+            >
+              Reset to 30 days
+            </button>
+          </div>
         </div>
 
         {/* Status */}
@@ -186,6 +202,7 @@ export default function MonthlyPage() {
                   <th className="text-right px-4 py-3 font-medium">Impressions</th>
                   <th className="text-right px-4 py-3 font-medium">CPM</th>
                   <th className="text-right px-4 py-3 font-medium">CTR</th>
+                  <th className="text-right px-4 py-3 font-medium">CPC</th>
                   <th className="text-right px-4 py-3 font-medium">CPA</th>
                   <th className="text-right px-4 py-3 font-medium">ROAS</th>
                   <th className="text-right px-5 py-3 font-medium">Status</th>
@@ -194,7 +211,7 @@ export default function MonthlyPage() {
               <tbody>
                 {sortedBySpend.length === 0 && !isLoading && (
                   <tr>
-                    <td colSpan={8} className="text-center py-12 text-gray-600 text-xs">
+                    <td colSpan={9} className="text-center py-12 text-gray-600 text-xs">
                       No Meta creatives found for this date range.
                     </td>
                   </tr>
@@ -204,6 +221,7 @@ export default function MonthlyPage() {
                   const clicks = c.clicks ?? 0;
                   const cpm = impressions > 0 ? (c.spend / impressions) * 1000 : 0;
                   const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+                  const cpc = clicks > 0 ? c.spend / clicks : 0;
                   const statusColor: Record<string, string> = {
                     Winner: "text-emerald-400",
                     Loser: "text-red-400",
@@ -234,6 +252,9 @@ export default function MonthlyPage() {
                         {ctr > 0 ? fmt(ctr) + "%" : "—"}
                       </td>
                       <td className="text-right px-4 py-3 text-gray-400">
+                        {cpc > 0 ? fmtCurrency(cpc) : "—"}
+                      </td>
+                      <td className="text-right px-4 py-3 text-gray-400">
                         {c.cpa > 0 ? fmtCurrency(c.cpa) : "—"}
                       </td>
                       <td className="text-right px-4 py-3 font-semibold text-white">
@@ -249,6 +270,70 @@ export default function MonthlyPage() {
             </table>
           </div>
         </div>
+
+        {/* Creative Visuals Grid */}
+        {topVisuals.length > 0 && (
+          <div className="mt-6">
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+              Top Creatives — Visual Preview
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {topVisuals.map((c) => {
+                const impressions = c.impressions ?? 0;
+                const clicks = c.clicks ?? 0;
+                const cpm = impressions > 0 ? (c.spend / impressions) * 1000 : 0;
+                const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+                const cpc = clicks > 0 ? c.spend / clicks : 0;
+                return (
+                  <div
+                    key={c.id}
+                    className="bg-[#111118] border border-gray-800 rounded-2xl overflow-hidden"
+                  >
+                    <CreativeThumbnail
+                      format={c.format}
+                      thumbnailColor={c.thumbnailColor}
+                      thumbnailUrl={c.thumbnailUrl}
+                      videoUrl={c.videoUrl}
+                      videoId={c.videoId}
+                      className="h-44"
+                    />
+                    <div className="p-4">
+                      <div className="font-medium text-white text-sm truncate mb-2" title={c.name}>
+                        {c.name}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <span className="text-gray-500">Spend</span>
+                          <div className="text-gray-200 font-medium">{fmtCurrency(c.spend)}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">ROAS</span>
+                          <div className="text-white font-bold">{c.roas > 0 ? fmt(c.roas) + "×" : "—"}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">CPA</span>
+                          <div className="text-gray-200 font-medium">{c.cpa > 0 ? fmtCurrency(c.cpa) : "—"}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">CPM</span>
+                          <div className="text-gray-400">{cpm > 0 ? fmtCurrency(cpm) : "—"}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">CTR</span>
+                          <div className="text-gray-400">{ctr > 0 ? fmt(ctr) + "%" : "—"}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">CPC</span>
+                          <div className="text-gray-400">{cpc > 0 ? fmtCurrency(cpc) : "—"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
