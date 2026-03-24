@@ -1,18 +1,31 @@
 /**
- * Deck Store — State management for the slide builder.
+ * Deck Store — State management for the MBR slide builder.
  * Uses useSyncExternalStore with localStorage persistence.
  */
 
 import { useSyncExternalStore } from "react"
+import type { SectionId } from "./impulse-theme"
 
 export interface TableData {
   headers: string[]
   rows: string[][]
 }
 
+export interface HighlightItem {
+  label: string
+  value: string
+  delta?: string
+  deltaPositive?: boolean
+}
+
+export type SlideType =
+  | "markdown" | "image" | "title" | "table" | "creative"
+  | "cover" | "agenda" | "section-divider" | "highlights"
+  | "kpi-table" | "learnings" | "next-steps" | "budget"
+
 export interface Slide {
   id: string
-  type: "markdown" | "image" | "title" | "table" | "creative"
+  type: SlideType
   content: string
   imageUrl?: string
   title?: string
@@ -22,6 +35,12 @@ export interface Slide {
   // Creative-specific fields
   creativeName?: string
   creativeMetrics?: Record<string, string>
+  // MBR fields
+  section?: SectionId
+  highlights?: HighlightItem[]
+  items?: string[]
+  budgetData?: { platform: string; amount: string; percentage: string }[]
+  isDark?: boolean
 }
 
 export interface Deck {
@@ -30,6 +49,9 @@ export interface Deck {
   slides: Slide[]
   createdAt: string
   updatedAt: string
+  clientName?: string
+  period?: string
+  periodPrev?: string
 }
 
 type Listener = () => void
@@ -123,6 +145,16 @@ export function reorderSlides(slides: Slide[]) {
 
 export function setDeckName(name: string) {
   currentDeck = { ...currentDeck, name, updatedAt: new Date().toISOString() }
+  persist()
+}
+
+export function setDeckMeta(meta: Partial<Pick<Deck, "clientName" | "period" | "periodPrev">>) {
+  currentDeck = { ...currentDeck, ...meta, updatedAt: new Date().toISOString() }
+  persist()
+}
+
+export function setSlides(slides: Slide[]) {
+  currentDeck = { ...currentDeck, slides, updatedAt: new Date().toISOString() }
   persist()
 }
 
