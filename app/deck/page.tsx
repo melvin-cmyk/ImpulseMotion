@@ -158,31 +158,40 @@ export default function DeckPage() {
   const [deckData, setDeckData] = useState<DeckData | null>(null);
   const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
 
-  const handleGenerate = async () => {
-    if (!selectedClient) return;
+  const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod) => {
     setIsGenerating(true);
     try {
       const res = await fetch("/api/deck/data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client: selectedClient, period: selectedPeriod }),
+        body: JSON.stringify({ client, period }),
       });
       if (res.ok) {
         const json = await res.json() as { data: DeckData; source: "real" | "mock" };
         setDeckData(json.data);
         setDataSource(json.source);
       } else {
-        // Fallback to mock
-        setDeckData(generateMockDeckData(selectedClient, selectedPeriod));
+        setDeckData(generateMockDeckData(client, period));
         setDataSource("mock");
       }
     } catch {
-      setDeckData(generateMockDeckData(selectedClient, selectedPeriod));
+      setDeckData(generateMockDeckData(client, period));
       setDataSource("mock");
     }
     setDeckGenerated(true);
     setCurrentSlide(0);
     setIsGenerating(false);
+  }, []);
+
+  // Auto-generate when client or period changes
+  useEffect(() => {
+    if (selectedClient) {
+      generateDeck(selectedClient, selectedPeriod);
+    }
+  }, [selectedClient?.id, selectedPeriod.month]);
+
+  const handleGenerate = () => {
+    if (selectedClient) generateDeck(selectedClient, selectedPeriod);
   };
 
   const handleExportPptx = async () => {

@@ -16,6 +16,8 @@ import {
   type TopCreative,
 } from "@/lib/deck-data";
 
+export const maxDuration = 60; // Vercel Pro: allow up to 60s
+
 const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
 const RELAY_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
@@ -23,7 +25,7 @@ const RELAY_URL = rawRelayUrl
 
 // ── Relay helpers ─────────────────────────────────────────────────────────────
 
-async function relayChat(prompt: string, timeoutMs = 30000): Promise<string> {
+async function relayChat(prompt: string, timeoutMs = 50000): Promise<string> {
   const res = await fetch(`${RELAY_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -154,29 +156,30 @@ async function fetchMetaData(
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null> {
-  const prompt = `Fetch Meta Ads data for ad account ${accountId}.
+  const prompt = `Use the MCP tools to fetch real Meta Ads data for ad account ${accountId}.
 
-Current period: ${period.startDate} to ${period.endDate}
-Previous period: ${previousPeriod.startDate} to ${previousPeriod.endDate}
+Steps:
+1. Call mcp__meta-ads-impulse__Account_Overview1 with ad_account_id="${accountId}" and date_preset for ${period.startDate} to ${period.endDate} to get total spend, impressions, clicks, conversions, ROAS
+2. Call mcp__meta-ads-impulse__Campaign_Performance1 with ad_account_id="${accountId}" for the same period to get per-campaign data
+3. Call mcp__meta-ads-impulse__Ad_Performance1 with ad_account_id="${accountId}" to get top creatives
 
-Return ONLY a valid JSON object (no markdown, no explanation):
+Also call Account_Overview1 again for previous period ${previousPeriod.startDate} to ${previousPeriod.endDate} to get prev_total.
+
+After calling those tools, output ONLY this JSON (no markdown, no explanation, just the raw JSON):
 {
   "total": {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0},
   "prev_total": {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0},
   "campaigns": [
     {
-      "id": "string",
-      "name": "string",
-      "type": "string",
-      "status": "Active|Paused|Completed",
+      "id": "string", "name": "string", "type": "string", "status": "Active",
       "spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0,
       "prev_spend": 0, "prev_impressions": 0, "prev_clicks": 0, "prev_conversions": 0, "prev_revenue": 0
     }
   ],
   "creatives": [
     {
-      "id": "string", "name": "string", "format": "Video|Image|Carousel",
-      "spend": 0, "roas": 0, "ctr": 0, "cpa": 0, "impressions": 0, "hookRate": null, "thumbnailUrl": null
+      "id": "string", "name": "string", "format": "Video",
+      "spend": 0, "roas": 0, "ctr": 0, "cpa": 0, "impressions": 0
     }
   ]
 }`;
@@ -230,21 +233,19 @@ async function fetchGoogleData(
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null> {
-  const prompt = `Fetch Google Ads data for customer ${customerId}.
+  const prompt = `Use the MCP tools to fetch real Google Ads data for customer ${customerId}.
 
-Current period: ${period.startDate} to ${period.endDate}
-Previous period: ${previousPeriod.startDate} to ${previousPeriod.endDate}
+Steps:
+1. Call mcp__mcp-google-ads__Campaign_Performance with customer_id="${customerId}" and date_range="LAST_30_DAYS" to get campaign metrics
+2. Call mcp__mcp-google-ads__Conversion_Actions with customer_id="${customerId}" to get conversion data
 
-Return ONLY a valid JSON object (no markdown, no explanation):
+After calling those tools, output ONLY this JSON (no markdown, no explanation, just the raw JSON):
 {
   "total": {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0},
   "prev_total": {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0},
   "campaigns": [
     {
-      "id": "string",
-      "name": "string",
-      "type": "string",
-      "status": "Active|Paused|Completed",
+      "id": "string", "name": "string", "type": "string", "status": "Active",
       "spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0,
       "prev_spend": 0, "prev_impressions": 0, "prev_clicks": 0, "prev_conversions": 0, "prev_revenue": 0
     }
