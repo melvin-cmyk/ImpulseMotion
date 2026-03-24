@@ -40,6 +40,9 @@ const SLASH_COMMANDS = [
   { cmd: "/fetch google", desc: "Récupérer les données Google Ads via MCP" },
   { cmd: "/generate learnings", desc: "Générer les learnings à partir des données" },
   { cmd: "/add slide", desc: "Ajouter une slide au deck" },
+  { cmd: "/analyze slide", desc: "Analyser la slide actuelle et suggérer des améliorations" },
+  { cmd: "/suggest next-steps", desc: "Suggérer des actions prioritaires basées sur la performance" },
+  { cmd: "/summarize deck", desc: "Rédiger un résumé exécutif du deck en 3 phrases" },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -104,6 +107,41 @@ export function AIPanel({
           `Rédige en français, style analytique, avec des chiffres précis. Format: liste numérotée.`;
       case "/add slide":
         return "Quel type de slide souhaites-tu ajouter ? (learnings, next-steps, table, highlights, etc.)";
+      case "/analyze slide":
+        if (!deckData)
+          return "Analyse la slide actuelle et propose des améliorations. (Génère d'abord le deck pour une analyse précise)";
+        return (
+          `Analyse en détail la slide #${currentSlideIndex + 1} — "${currentSlideLabel}" du deck ` +
+          `de ${deckData.client.name} (${deckData.period.label}).\n\n` +
+          `Contexte disponible :\n${buildSystemContext()}\n\n` +
+          `1. Identifie les points forts et faiblesses du contenu de cette slide.\n` +
+          `2. Propose 2-3 améliorations concrètes (chiffres manquants, formulation, insight à ajouter).\n` +
+          `3. Signale si un KPI est anormal et explique pourquoi (benchmark secteur).\n` +
+          `Réponds en français, sois direct et actionnable.`
+        );
+      case "/suggest next-steps":
+        if (!deckData)
+          return "Génère les next steps recommandés. (Génère d'abord le deck pour des recommandations précises)";
+        return (
+          `En te basant sur les performances de ${deckData.client.name} (${deckData.period.label}), ` +
+          `génère une liste de 5 next steps prioritaires pour le mois prochain.\n\n` +
+          `Données clés :\n${buildSystemContext()}\n\n` +
+          `Format attendu : liste numérotée, chaque item commence par un verbe d'action, ` +
+          `inclut un impact attendu et un owner suggéré (ex: "Équipe Acquisition", "Creative Studio"). ` +
+          `Priorise par impact potentiel sur le ROAS. Réponds en français.`
+        );
+      case "/summarize deck":
+        if (!deckData)
+          return "Génère un résumé exécutif du deck. (Génère d'abord le deck)";
+        return (
+          `Rédige un résumé exécutif en exactement 3 phrases du Monthly Business Review de ` +
+          `${deckData.client.name} pour ${deckData.period.label}.\n\n` +
+          `Données :\n${buildSystemContext()}\n\n` +
+          `Structure : (1) Synthèse de la performance globale avec les 2 chiffres les plus importants. ` +
+          `(2) Point d'attention principal (risque ou opportunité). ` +
+          `(3) Action prioritaire recommandée pour le prochain mois. ` +
+          `Ton : analytique, direct, adapté à une présentation C-level. Réponds en français.`
+        );
       default:
         return cmd;
     }
