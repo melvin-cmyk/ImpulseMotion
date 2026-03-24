@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { Sidebar } from "@/components/sidebar";
 import { CreativeThumbnail } from "@/components/creative-thumbnail";
+import { DayMetric } from "@/lib/mock-data";
 import {
   DollarSign,
   Eye,
@@ -167,6 +168,150 @@ function SpendBreakdown({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Spend Sparkline ────────────────────────────────────────────────────────────
+
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function SpendSparkline({
+  creatives,
+}: {
+  creatives: Array<{ spend: number; trend: DayMetric[] }>;
+}) {
+  const dailySpend = useMemo(() => {
+    const totals = Array(7).fill(0) as number[];
+    for (const c of creatives) {
+      c.trend.forEach((d, i) => {
+        if (i < 7) totals[i] += d.spend;
+      });
+    }
+    return totals;
+  }, [creatives]);
+
+  const total = dailySpend.reduce((s, v) => s + v, 0);
+  if (total === 0) return null;
+
+  const max = Math.max(...dailySpend);
+  const min = Math.min(...dailySpend);
+  const range = max - min || 1;
+
+  const W = 600;
+  const H = 140;
+  const padL = 44;
+  const padR = 12;
+  const padT = 16;
+  const padB = 28;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const n = dailySpend.length;
+
+  const xOf = (i: number) => padL + (i / (n - 1)) * chartW;
+  const yOf = (v: number) => padT + chartH - ((v - min) / range) * chartH;
+
+  const points = dailySpend.map((v, i) => `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`);
+  const polyline = points.join(" ");
+  const areaPath =
+    `M${xOf(0).toFixed(1)},${(padT + chartH).toFixed(1)} ` +
+    points.map((p) => `L${p}`).join(" ") +
+    ` L${xOf(n - 1).toFixed(1)},${(padT + chartH).toFixed(1)} Z`;
+
+  const peakIdx = dailySpend.indexOf(max);
+
+  const yLabels = [
+    { v: max, y: yOf(max) },
+    { v: (max + min) / 2, y: yOf((max + min) / 2) },
+    { v: min, y: yOf(min) },
+  ];
+
+  return (
+    <div className="bg-[#111118] border border-gray-800 rounded-2xl p-5 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-violet-400" />
+          <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+            Daily Spend Trend
+          </h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Peak:</span>
+          <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+            {DAY_LABELS[peakIdx]} — ${(max / 1000).toFixed(1)}k
+          </span>
+        </div>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ height: 140 }}
+        aria-hidden="true"
+      >
+        <defs>
+          <linearGradient id="sparkline-fill-w" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#7c3aed" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+        {yLabels.map(({ y }, i) => (
+          <line
+            key={i}
+            x1={padL}
+            y1={y.toFixed(1)}
+            x2={W - padR}
+            y2={y.toFixed(1)}
+            stroke="#374151"
+            strokeWidth="0.5"
+            strokeDasharray="4 4"
+          />
+        ))}
+        {yLabels.map(({ v, y }, i) => (
+          <text
+            key={i}
+            x={padL - 6}
+            y={(y + 4).toFixed(1)}
+            textAnchor="end"
+            fontSize="9"
+            fill="#6b7280"
+          >
+            ${(v / 1000).toFixed(1)}k
+          </text>
+        ))}
+        <path d={areaPath} fill="url(#sparkline-fill-w)" />
+        <polyline
+          points={polyline}
+          fill="none"
+          stroke="#7c3aed"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {dailySpend.map((v, i) => (
+          <circle
+            key={i}
+            cx={xOf(i).toFixed(1)}
+            cy={yOf(v).toFixed(1)}
+            r={i === peakIdx ? "5" : "3"}
+            fill={i === peakIdx ? "#10b981" : "#7c3aed"}
+            stroke="#0a0a0f"
+            strokeWidth="1.5"
+          />
+        ))}
+        {DAY_LABELS.map((label, i) => (
+          <text
+            key={i}
+            x={xOf(i).toFixed(1)}
+            y={(padT + chartH + 16).toFixed(1)}
+            textAnchor="middle"
+            fontSize="9"
+            fill={i === peakIdx ? "#10b981" : "#6b7280"}
+            fontWeight={i === peakIdx ? "700" : "400"}
+          >
+            {label}
+          </text>
+        ))}
+      </svg>
     </div>
   );
 }
@@ -576,6 +721,9 @@ export default function WeeklyPage() {
             accent="bg-orange-600"
           />
         </div>
+
+        {/* Daily Spend Sparkline */}
+        <SpendSparkline creatives={metaCreatives} />
 
         {/* Spend Distribution */}
         <SpendBreakdown creatives={metaCreatives} />
