@@ -20,6 +20,8 @@ import {
   Monitor,
   Globe,
   Users,
+  CalendarDays,
+  CalendarRange,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -39,6 +41,8 @@ const navItems = [
   { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
   { href: "/naming", icon: Tag, label: "Naming Convention" },
   { href: "/reports", icon: Share2, label: "Reports" },
+  { href: "/create/weekly", icon: CalendarDays, label: "Weekly Overview" },
+  { href: "/create/monthly", icon: CalendarRange, label: "Monthly Overview" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ]
 
