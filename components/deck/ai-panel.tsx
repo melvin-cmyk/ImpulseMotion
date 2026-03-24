@@ -35,6 +35,7 @@ interface AIPanelProps {
   onExportPdf?: () => void;
   onShareDeck?: () => string;
   onResetDeck?: () => void;
+  onAddCustomSlide?: (label: string, content: string) => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -43,7 +44,12 @@ const SLASH_COMMANDS = [
   { cmd: "/fetch meta", desc: "Récupérer les données Meta Ads via MCP" },
   { cmd: "/fetch google", desc: "Récupérer les données Google Ads via MCP" },
   { cmd: "/generate learnings", desc: "Générer les learnings à partir des données" },
-  { cmd: "/add slide", desc: "Ajouter une slide au deck" },
+  { cmd: "/add slide learnings", desc: "Ajouter une slide Learnings au deck" },
+  { cmd: "/add slide next-steps", desc: "Ajouter une slide Next Steps au deck" },
+  { cmd: "/add slide highlights", desc: "Ajouter une slide Highlights au deck" },
+  { cmd: "/add slide table", desc: "Ajouter une slide Tableau de données au deck" },
+  { cmd: "/add slide kpi", desc: "Ajouter une slide KPIs au deck" },
+  { cmd: "/add slide blank", desc: "Ajouter une slide vierge au deck" },
   { cmd: "/analyze slide", desc: "Analyser la slide actuelle et suggérer des améliorations" },
   { cmd: "/suggest next-steps", desc: "Suggérer des actions prioritaires basées sur la performance" },
   { cmd: "/summarize deck", desc: "Rédiger un résumé exécutif du deck en 3 phrases" },
@@ -52,6 +58,33 @@ const SLASH_COMMANDS = [
   { cmd: "/share deck", desc: "Copier un lien partageable vers ce deck (client + période)" },
   { cmd: "/reset deck", desc: "Effacer tous les overrides et slides personnalisées" },
 ];
+
+const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
+  learnings: {
+    label: "Learnings",
+    content: "# Learnings\n\n1. **Learning 1** — description de l'insight\n2. **Learning 2** — description de l'insight\n3. **Learning 3** — description de l'insight",
+  },
+  "next-steps": {
+    label: "Next Steps",
+    content: "# Next Steps\n\n1. ✅ **Action 1** — impact attendu (Owner)\n2. ✅ **Action 2** — impact attendu (Owner)\n3. ✅ **Action 3** — impact attendu (Owner)",
+  },
+  highlights: {
+    label: "Highlights",
+    content: "# Highlights du mois\n\n| Métrique | Valeur | vs M-1 |\n|----------|--------|--------|\n| ROAS | — | — |\n| Spend | — | — |\n| Conversions | — | — |",
+  },
+  table: {
+    label: "Tableau de données",
+    content: "# Tableau de données\n\n| Plateforme | Spend | ROAS | CTR | CPA |\n|-----------|-------|------|-----|-----|\n| Google | — | — | — | — |\n| Meta | — | — | — | — |\n| **Total** | — | — | — | — |",
+  },
+  kpi: {
+    label: "KPIs clés",
+    content: "# KPIs clés\n\n- **Spend :** —\n- **ROAS :** —\n- **CTR :** —\n- **CPA :** —\n- **Nouvelles acquisitions :** —",
+  },
+  blank: {
+    label: "Slide personnalisée",
+    content: "# Nouveau slide\n\nAjoutez votre contenu ici.",
+  },
+};
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -65,6 +98,7 @@ export function AIPanel({
   onExportPdf,
   onShareDeck,
   onResetDeck,
+  onAddCustomSlide,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -260,6 +294,43 @@ export function AIPanel({
           ...prev,
           shareMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Partage non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
+
+    // /add slide [type] — direct action, no AI stream
+    if (text.startsWith("/add slide ")) {
+      const slideType = text.replace("/add slide ", "").trim().toLowerCase();
+      setInput("");
+      setShowSlashMenu(false);
+      const addMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: text,
+      };
+      const template = SLIDE_TEMPLATES[slideType];
+      if (!template) {
+        const available = Object.keys(SLIDE_TEMPLATES).join(", ");
+        setMessages((prev) => [
+          ...prev,
+          addMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: `⚠️ Type de slide inconnu : \`${slideType}\`\n\nTypes disponibles : ${available}` },
+        ]);
+        return;
+      }
+      if (onAddCustomSlide) {
+        onAddCustomSlide(template.label, template.content);
+        setMessages((prev) => [
+          ...prev,
+          addMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: `✅ Slide **${template.label}** ajoutée au deck — accès direct via le filmstrip.` },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          addMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Ajout de slide non disponible dans ce contexte." },
         ]);
       }
       return;

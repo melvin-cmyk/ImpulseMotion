@@ -278,6 +278,21 @@ export default function DeckPage() {
     showToast("♻️ Deck réinitialisé");
   }, [showToast]);
 
+  const handleAddCustomSlide = useCallback((label: string, content: string) => {
+    const newSlide = {
+      id: `custom-${Date.now()}`,
+      label,
+      content,
+    };
+    setCustomSlides((prev) => {
+      const next = [...prev, newSlide];
+      // Navigate to the new slide after state update
+      setTimeout(() => setCurrentSlide(slides.length + next.length - 1), 50);
+      return next;
+    });
+    showToast(`✅ Slide "${label}" ajoutée`);
+  }, [slides.length, showToast]);
+
   const handleShareDeck = useCallback(() => {
     if (!selectedClient || !selectedPeriod) return "";
     const url = new URL(window.location.href);
@@ -972,6 +987,7 @@ export default function DeckPage() {
             onExportPdf={handleExportPdf}
             onShareDeck={handleShareDeck}
             onResetDeck={handleResetDeck}
+            onAddCustomSlide={handleAddCustomSlide}
           />
         </div>
       </div>
