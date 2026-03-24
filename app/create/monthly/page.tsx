@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useCreativesContext } from "@/lib/creatives-context";
 import { Sidebar } from "@/components/sidebar";
+import { CreativeThumbnail } from "@/components/creative-thumbnail";
 import {
   DollarSign,
   Eye,
@@ -12,6 +13,7 @@ import {
   BarChart3,
   ArrowUp,
   ArrowDown,
+  Presentation,
   AlertTriangle,
 } from "lucide-react";
 
@@ -58,7 +60,7 @@ function fmtCurrency(n: number) {
 
 // ── Sort types ─────────────────────────────────────────────────────────────────
 
-type SortKey = "spend" | "impressions" | "cpm" | "ctr" | "cpa" | "roas";
+type SortKey = "spend" | "impressions" | "cpm" | "ctr" | "cpc" | "cpa" | "roas";
 type SortDir = "asc" | "desc";
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -70,7 +72,6 @@ export default function MonthlyPage() {
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
-  // Force 30-day preset for monthly view
   const handleMount = () => {
     setDatePreset(30);
   };
@@ -91,7 +92,7 @@ export default function MonthlyPage() {
 
   const totals = useMemo(() => {
     if (!metaCreatives.length)
-      return { spend: 0, impressions: 0, clicks: 0, conversions: 0, cpm: 0, ctr: 0, cpa: 0, roas: 0 };
+      return { spend: 0, impressions: 0, clicks: 0, conversions: 0, cpm: 0, ctr: 0, cpc: 0, cpa: 0, roas: 0 };
 
     const spend = metaCreatives.reduce((s, c) => s + c.spend, 0);
     const impressions = metaCreatives.reduce((s, c) => s + (c.impressions ?? 0), 0);
@@ -99,13 +100,14 @@ export default function MonthlyPage() {
     const conversions = metaCreatives.reduce((s, c) => s + (c.conversions ?? 0), 0);
     const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
     const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+    const cpc = clicks > 0 ? spend / clicks : 0;
     const cpa = conversions > 0 ? spend / conversions : 0;
     const roas =
       spend > 0
         ? metaCreatives.reduce((s, c) => s + c.roas * c.spend, 0) / spend
         : 0;
 
-    return { spend, impressions, clicks, conversions, cpm, ctr, cpa, roas };
+    return { spend, impressions, clicks, conversions, cpm, ctr, cpc, cpa, roas };
   }, [metaCreatives]);
 
   // Top performers: Winners or Active, sorted by ROAS, top 3
@@ -152,6 +154,10 @@ export default function MonthlyPage() {
           valA = impressionsA > 0 ? (clicksA / impressionsA) * 100 : 0;
           valB = impressionsB > 0 ? (clicksB / impressionsB) * 100 : 0;
           break;
+        case "cpc":
+          valA = clicksA > 0 ? a.spend / clicksA : 0;
+          valB = clicksB > 0 ? b.spend / clicksB : 0;
+          break;
         case "cpa":
           valA = a.cpa ?? 0;
           valB = b.cpa ?? 0;
@@ -168,6 +174,12 @@ export default function MonthlyPage() {
       return sortDir === "desc" ? valB - valA : valA - valB;
     });
   }, [metaCreatives, sortKey, sortDir]);
+
+  // Top 6 creatives for visual grid
+  const topVisuals = useMemo(
+    () => [...metaCreatives].sort((a, b) => b.spend - a.spend).slice(0, 6),
+    [metaCreatives]
+  );
 
   const SortIcon = ({ col }: { col: SortKey }) => {
     if (sortKey !== col) return <span className="opacity-30 ml-1">↕</span>;
@@ -200,12 +212,23 @@ export default function MonthlyPage() {
               Meta Ads · {dateRange.since} → {dateRange.until}
             </p>
           </div>
-          <button
-            onClick={handleMount}
-            className="text-xs px-3 py-1.5 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
-          >
-            Reset to 30 days
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                alert("Google Slides export coming soon — connect your Google account in Settings.");
+              }}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-amber-600 hover:bg-amber-500 rounded-lg font-medium transition-colors"
+            >
+              <Presentation className="w-3.5 h-3.5" />
+              Générer Google Slide
+            </button>
+            <button
+              onClick={handleMount}
+              className="text-xs px-3 py-1.5 bg-violet-600 hover:bg-violet-500 rounded-lg font-medium transition-colors"
+            >
+              Reset to 30 days
+            </button>
+          </div>
         </div>
 
         {/* Status */}
@@ -265,7 +288,7 @@ export default function MonthlyPage() {
         {topPerformers.length > 0 && (
           <div className="mb-6">
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Top Monthly Performers
+              Top Performers This Month
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {topPerformers.map((c) => {
@@ -277,7 +300,6 @@ export default function MonthlyPage() {
                     key={c.id}
                     className="bg-[#111118] border border-emerald-500/30 rounded-2xl p-4 flex gap-3 items-start"
                   >
-                    {/* Thumbnail */}
                     <div className="flex-shrink-0">
                       {c.thumbnailUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -363,40 +385,25 @@ export default function MonthlyPage() {
               <thead>
                 <tr className="border-b border-gray-800 text-xs text-gray-500">
                   <th className="text-left px-5 py-3 font-medium">Creative</th>
-                  <th
-                    className={thClass("spend")}
-                    onClick={() => handleSort("spend")}
-                  >
+                  <th className={thClass("spend")} onClick={() => handleSort("spend")}>
                     Spend<SortIcon col="spend" />
                   </th>
-                  <th
-                    className={thClass("impressions")}
-                    onClick={() => handleSort("impressions")}
-                  >
+                  <th className={thClass("impressions")} onClick={() => handleSort("impressions")}>
                     Impressions<SortIcon col="impressions" />
                   </th>
-                  <th
-                    className={thClass("cpm")}
-                    onClick={() => handleSort("cpm")}
-                  >
+                  <th className={thClass("cpm")} onClick={() => handleSort("cpm")}>
                     CPM<SortIcon col="cpm" />
                   </th>
-                  <th
-                    className={thClass("ctr")}
-                    onClick={() => handleSort("ctr")}
-                  >
+                  <th className={thClass("ctr")} onClick={() => handleSort("ctr")}>
                     CTR<SortIcon col="ctr" />
                   </th>
-                  <th
-                    className={thClass("cpa")}
-                    onClick={() => handleSort("cpa")}
-                  >
+                  <th className={thClass("cpc")} onClick={() => handleSort("cpc")}>
+                    CPC<SortIcon col="cpc" />
+                  </th>
+                  <th className={thClass("cpa")} onClick={() => handleSort("cpa")}>
                     CPA<SortIcon col="cpa" />
                   </th>
-                  <th
-                    className={thClass("roas")}
-                    onClick={() => handleSort("roas")}
-                  >
+                  <th className={thClass("roas")} onClick={() => handleSort("roas")}>
                     ROAS<SortIcon col="roas" />
                   </th>
                   <th className="text-right px-5 py-3 font-medium">Status</th>
@@ -405,7 +412,7 @@ export default function MonthlyPage() {
               <tbody>
                 {sortedCreatives.length === 0 && !isLoading && (
                   <tr>
-                    <td colSpan={8} className="text-center py-12 text-gray-600 text-xs">
+                    <td colSpan={9} className="text-center py-12 text-gray-600 text-xs">
                       No Meta creatives found for this date range.
                     </td>
                   </tr>
@@ -415,6 +422,7 @@ export default function MonthlyPage() {
                   const clicks = c.clicks ?? 0;
                   const cpm = impressions > 0 ? (c.spend / impressions) * 1000 : 0;
                   const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+                  const cpc = clicks > 0 ? c.spend / clicks : 0;
                   return (
                     <tr
                       key={c.id}
@@ -456,6 +464,9 @@ export default function MonthlyPage() {
                         {ctr > 0 ? fmt(ctr) + "%" : "—"}
                       </td>
                       <td className="text-right px-4 py-3 text-gray-400">
+                        {cpc > 0 ? fmtCurrency(cpc) : "—"}
+                      </td>
+                      <td className="text-right px-4 py-3 text-gray-400">
                         {c.cpa > 0 ? fmtCurrency(c.cpa) : "—"}
                       </td>
                       <td className="text-right px-4 py-3 font-semibold text-white">
@@ -471,6 +482,70 @@ export default function MonthlyPage() {
             </table>
           </div>
         </div>
+
+        {/* Creative Visuals Grid */}
+        {topVisuals.length > 0 && (
+          <div className="mt-6">
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+              Top Creatives — Visual Preview
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {topVisuals.map((c) => {
+                const impressions = c.impressions ?? 0;
+                const clicks = c.clicks ?? 0;
+                const cpm = impressions > 0 ? (c.spend / impressions) * 1000 : 0;
+                const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+                const cpc = clicks > 0 ? c.spend / clicks : 0;
+                return (
+                  <div
+                    key={c.id}
+                    className="bg-[#111118] border border-gray-800 rounded-2xl overflow-hidden"
+                  >
+                    <CreativeThumbnail
+                      format={c.format}
+                      thumbnailColor={c.thumbnailColor}
+                      thumbnailUrl={c.thumbnailUrl}
+                      videoUrl={c.videoUrl}
+                      videoId={c.videoId}
+                      className="h-44"
+                    />
+                    <div className="p-4">
+                      <div className="font-medium text-white text-sm truncate mb-2" title={c.name}>
+                        {c.name}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <span className="text-gray-500">Spend</span>
+                          <div className="text-gray-200 font-medium">{fmtCurrency(c.spend)}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">ROAS</span>
+                          <div className="text-white font-bold">{c.roas > 0 ? fmt(c.roas) + "×" : "—"}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">CPA</span>
+                          <div className="text-gray-200 font-medium">{c.cpa > 0 ? fmtCurrency(c.cpa) : "—"}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">CPM</span>
+                          <div className="text-gray-400">{cpm > 0 ? fmtCurrency(cpm) : "—"}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">CTR</span>
+                          <div className="text-gray-400">{ctr > 0 ? fmt(ctr) + "%" : "—"}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">CPC</span>
+                          <div className="text-gray-400">{cpc > 0 ? fmtCurrency(cpc) : "—"}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
