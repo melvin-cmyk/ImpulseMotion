@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -124,24 +125,39 @@ interface SlideOverride {
 }
 
 export default function DeckPage() {
+  const searchParams = useSearchParams();
   const [clients, setClients] = useState<DeckClient[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState<DeckClient | null>(null);
-  const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(getAvailablePeriods()[1]);
+  const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(() => {
+    const periodParam = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("period") : null;
+    const periods = getAvailablePeriods();
+    if (periodParam) {
+      const found = periods.find((p) => p.month === periodParam);
+      if (found) return found;
+    }
+    return periods[1];
+  });
 
   // Load real clients from Meta Ads + Google Ads on mount
   useEffect(() => {
+    const clientParam = searchParams.get("client");
     fetch("/api/deck/clients")
       .then((r) => r.json())
       .then((data: { clients: DeckClient[] }) => {
         if (data.clients && data.clients.length > 0) {
           setClients(data.clients);
-          setSelectedClient(data.clients[0]);
+          if (clientParam) {
+            const found = data.clients.find((c) => c.id === clientParam);
+            setSelectedClient(found ?? data.clients[0]);
+          } else {
+            setSelectedClient(data.clients[0]);
+          }
         }
       })
       .catch(() => {/* relay not available */})
       .finally(() => setClientsLoading(false));
-  }, []);
+  }, [searchParams]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [deckGenerated, setDeckGenerated] = useState(false);
@@ -233,12 +249,19 @@ export default function DeckPage() {
 
   useEffect(() => {
     if (!isPrintingPdf) return;
+    const handleAfterPrint = () => {
+      setIsPrintingPdf(false);
+      showToast("✅ PDF généré — vérifiez votre dossier Téléchargements");
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
+    window.addEventListener("afterprint", handleAfterPrint);
     const t = setTimeout(() => {
       window.print();
-      setIsPrintingPdf(false);
-      showToast("✅ PDF ouvert dans le navigateur");
     }, 400);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("afterprint", handleAfterPrint);
+    };
   }, [isPrintingPdf, showToast]);
 
   const handleShareDeck = useCallback(() => {
