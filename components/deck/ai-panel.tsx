@@ -110,9 +110,9 @@ export function AIPanel({
   const handleSlashCommand = (cmd: string): string => {
     switch (cmd) {
       case "/fetch meta":
-        return "Récupère les données Meta Ads du client pour la période sélectionnée. Utilise le MCP Meta Ads pour obtenir les metrics des campagnes actives, les top créatives et les insights de performance.";
+        return "Fetch Meta Ads data for the last 30 days: spend, impressions, clicks, CPM, CPC, CTR, ROAS, conversions per campaign. Use the MCP Meta Ads tools to retrieve this data and present it in a table format with key metrics.";
       case "/fetch google":
-        return "Récupère les données Google Ads du client pour la période sélectionnée. Utilise le MCP Google Ads pour obtenir les metrics des campagnes (Brand Search, Pmax Shopping, etc.).";
+        return "Fetch Google Ads data for the last 30 days: spend, impressions, clicks, CPM, CPC, CTR, ROAS, conversions per campaign. Use the MCP Google Ads tools to retrieve this data and present it in a table format with key metrics.";
       case "/generate learnings":
         if (!deckData) return "Génère les learnings du mois. (Aucune donnée disponible — génère d'abord le deck)";
         return `À partir des données suivantes, génère 4-5 learnings clés pour le Monthly Business Review de ${deckData.client.name} (${deckData.period.label}):\n\n` +
@@ -133,6 +133,7 @@ export function AIPanel({
     if (!text || isLoading) return;
 
     const originalInput = text;
+    const isFetchCommand = text.startsWith("/fetch");
     const matchedCmd = SLASH_COMMANDS.find((sc) => text.startsWith(sc.cmd));
     if (matchedCmd) {
       text = handleSlashCommand(matchedCmd.cmd);
@@ -147,7 +148,7 @@ export function AIPanel({
     const assistantMsg: AIPanelMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
-      content: "",
+      content: isFetchCommand ? "" : "",
       toolCalls: [],
       toolResults: [],
       isStreaming: true,
@@ -385,10 +386,10 @@ export function AIPanel({
                     </div>
                   )}
 
-                  {msg.isStreaming && !msg.content && (
+                  {msg.isStreaming && !msg.content && !msg.toolCalls?.length && (
                     <div className="flex items-center gap-1.5 text-xs text-gray-500">
                       <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Analyse…</span>
+                      <span>Chargement depuis MCP…</span>
                     </div>
                   )}
                 </div>
