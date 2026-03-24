@@ -558,7 +558,7 @@ function addTopCreatives(pptx: PptxGen, creatives: TopCreative[]) {
 
 // ── Main export function ────────────────────────────────────────────────────
 
-export async function exportDeckToPptx(data: DeckData): Promise<void> {
+export async function exportDeckToPptx(data: DeckData): Promise<Blob> {
   const PptxGenJS = (await import("pptxgenjs")).default;
   const pptx = new PptxGenJS();
 
@@ -599,6 +599,8 @@ export async function exportDeckToPptx(data: DeckData): Promise<void> {
   addNextSteps(pptx, "Next Steps — Global", data.nextStepsGlobal, IA.blue, IA.blue);
   addBudget(pptx, data.budget, data.period.label);
 
-  const fileName = `MBR_${data.client.name.replace(/\s+/g, "_")}_${data.period.month}.pptx`;
-  await pptx.writeFile({ fileName });
+  // Return as Blob — caller handles download
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blob = await (pptx as any).write({ outputType: "blob" }) as Blob;
+  return blob;
 }

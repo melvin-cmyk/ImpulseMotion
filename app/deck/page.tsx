@@ -15,6 +15,7 @@ import {
   FileDown,
   Trash2,
   GripVertical,
+  Plus,
 } from "lucide-react";
 import {
   getAvailablePeriods,
@@ -40,6 +41,7 @@ import {
 } from "@/components/deck/slides";
 import { AIPanel } from "@/components/deck/ai-panel";
 import { exportDeckToPptx } from "@/lib/deck-export";
+import { SlideStyleContext, type TextStyle } from "@/components/deck/slide-style-context";
 
 // ── Section config ───────────────────────────────────────────────────────────
 
@@ -148,6 +150,8 @@ export default function DeckPage() {
   const [slideOverrides, setSlideOverrides] = useState<SlideOverride[]>([]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [draggingBlock, setDraggingBlock] = useState<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const [textStyles, setTextStyles] = useState<Record<string, TextStyle>>({});
+  const [customSlides, setCustomSlides] = useState<{ id: string; label: string; content: string }[]>([]);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
@@ -198,17 +202,25 @@ export default function DeckPage() {
     if (!deckData) return;
     setIsExporting(true);
     try {
-      await exportDeckToPptx(deckData);
+      const blob = await exportDeckToPptx(deckData);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch (err) {
-      console.error("Export failed:", err);
-      alert("Erreur lors de l'export PPTX. Vérifiez la console.");
+      console.error("Export PPTX failed:", err);
+      alert("Erreur lors de l'export PPTX : " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsExporting(false);
     }
   };
 
   const goToSlide = (idx: number) => {
-    const newIdx = Math.max(0, Math.min(slides.length - 1, idx));
+    const newIdx = Math.max(0, Math.min(slides.length + customSlides.length - 1, idx));
     if (newIdx !== currentSlide) {
       setSlideTransition(true);
       setTimeout(() => {
@@ -326,6 +338,29 @@ export default function DeckPage() {
 
   const getSlideOverride = (slideIndex: number, field: string): string | undefined => {
     return slideOverrides.find((o) => o.slideIndex === slideIndex && o.field === field)?.value;
+  };
+
+  const getTextStyle = (slideIndex: number, field: string): TextStyle => {
+    return textStyles[`${slideIndex}:${field}`] ?? {};
+  };
+
+  const setTextStyle = (slideIndex: number, field: string, style: Partial<TextStyle>) => {
+    const key = `${slideIndex}:${field}`;
+    setTextStyles((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], ...style },
+    }));
+  };
+
+  const addCustomSlide = () => {
+    const newSlide = {
+      id: `custom-${Date.now()}`,
+      label: `Slide ${slides.length + customSlides.length + 1}`,
+      content: "# Nouveau slide\n\nAjoutez votre contenu ici.",
+    };
+    setCustomSlides((prev) => [...prev, newSlide]);
+    // Navigate to the new slide
+    goToSlide(slides.length + customSlides.length);
   };
 
   // Blocs pour la slide actuelle
@@ -535,7 +570,7 @@ export default function DeckPage() {
 
         {/* Slide counter */}
         <span className="text-xs text-gray-400 flex-shrink-0">
-          Slide {currentSlide + 1} / {slides.length}
+          Slide {currentSlide + 1} / {slides.length + customSlides.length}
         </span>
 
         {/* Generate button */}
@@ -571,12 +606,14 @@ export default function DeckPage() {
       </div>
 
       {/* ── Split layout: Slides (left) + AI Panel (right) ───────────────── */}
+      <SlideStyleContext.Provider value={{ getStyle: getTextStyle, setStyle: setTextStyle }}>
       <div className="flex-1 flex overflow-hidden">
 
         {/* ── LEFT: Filmstrip + Slide Viewer (60-65%) ───────────────────── */}
         <div className="flex-1 flex overflow-hidden" style={{ flex: "0 0 62%" }}>
           {/* Filmstrip sidebar */}
-          <div className="w-44 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto">
+          <div className="w-44 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
+            <div className="flex-1">
             {Object.entries(sectionSlides).map(([secStr, items]) => {
               const sec = Number(secStr);
               return (
@@ -612,6 +649,41 @@ export default function DeckPage() {
                 </div>
               );
             })}
+
+            {/* Custom slides */}
+            {customSlides.length > 0 && (
+              <div>
+                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                  Personnalisés
+                </div>
+                {customSlides.map((cs, i) => {
+                  const idx = slides.length + i;
+                  return (
+                    <button
+                      key={cs.id}
+                      onClick={() => goToSlide(idx)}
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-all ${
+                        currentSlide === idx ? "bg-blue-50 text-blue-700 font-semibold" : "text-gray-600 hover:bg-gray-50"
+                      }`}
+                      style={currentSlide === idx ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "9px" } : undefined}
+                    >
+                      <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
+                      {cs.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            </div>
+
+            {/* Add slide button */}
+            <button
+              onClick={addCustomSlide}
+              className="flex items-center justify-center gap-1.5 w-full py-2.5 text-xs text-gray-500 hover:text-[#0944A1] hover:bg-blue-50 border-t border-gray-200 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Ajouter une slide
+            </button>
           </div>
 
           {/* Slide preview */}
@@ -629,10 +701,43 @@ export default function DeckPage() {
               onDrop={handleDrop}
             >
               {/* Slide content */}
-              {slides[currentSlide].render(deckData, currentSlide + 1, {
-                onEdit: handleInlineEdit,
-                getOverride: getSlideOverride,
-              })}
+              {currentSlide < slides.length ? (
+                slides[currentSlide].render(deckData, currentSlide + 1, {
+                  onEdit: handleInlineEdit,
+                  getOverride: getSlideOverride,
+                })
+              ) : (
+                // Custom slide
+                (() => {
+                  const cs = customSlides[currentSlide - slides.length];
+                  return cs ? (
+                    <div className="relative" style={{ paddingBottom: "56.25%" }}>
+                      <div className="absolute inset-0 bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col">
+                        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100">
+                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Slide personnalisée</span>
+                          <input
+                            type="text"
+                            value={cs.label}
+                            onChange={(e) => setCustomSlides(prev => prev.map((s, i) => i === currentSlide - slides.length ? { ...s, label: e.target.value } : s))}
+                            className="text-sm font-semibold text-gray-800 bg-transparent border-none focus:outline-none flex-1"
+                            placeholder="Titre de la slide"
+                          />
+                          <button
+                            onClick={() => { setCustomSlides(prev => prev.filter((_, i) => i !== currentSlide - slides.length)); goToSlide(Math.max(0, currentSlide - 1)); }}
+                            className="text-xs text-red-400 hover:text-red-600 transition-colors"
+                          >Supprimer</button>
+                        </div>
+                        <textarea
+                          value={cs.content}
+                          onChange={(e) => setCustomSlides(prev => prev.map((s, i) => i === currentSlide - slides.length ? { ...s, content: e.target.value } : s))}
+                          className="flex-1 p-4 text-sm text-gray-700 resize-none focus:outline-none font-mono"
+                          placeholder="Contenu en Markdown…"
+                        />
+                      </div>
+                    </div>
+                  ) : null;
+                })()
+              )}
 
               {/* Overlay blocks — positioned ON the canvas */}
               {currentSlideBlocks.map((block) => {
@@ -743,7 +848,7 @@ export default function DeckPage() {
 
               <button
                 onClick={() => goToSlide(currentSlide + 1)}
-                disabled={currentSlide === slides.length - 1}
+                disabled={currentSlide === slides.length + customSlides.length - 1}
                 className="p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
               >
                 <ChevronRight className="w-4 h-4 text-gray-600" />
@@ -763,6 +868,7 @@ export default function DeckPage() {
           />
         </div>
       </div>
+      </SlideStyleContext.Provider>
     </div>
   );
 }
