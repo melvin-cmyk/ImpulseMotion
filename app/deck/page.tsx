@@ -147,6 +147,7 @@ export default function DeckPage() {
   const [deckGenerated, setDeckGenerated] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isPrintingPdf, setIsPrintingPdf] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [droppedBlocks, setDroppedBlocks] = useState<DroppedBlock[]>([]);
   const [slideOverrides, setSlideOverrides] = useState<SlideOverride[]>([]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -220,6 +221,11 @@ export default function DeckPage() {
     }
   };
 
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  }, []);
+
   const handleExportPdf = useCallback(() => {
     if (!deckData) return;
     setIsPrintingPdf(true);
@@ -230,9 +236,21 @@ export default function DeckPage() {
     const t = setTimeout(() => {
       window.print();
       setIsPrintingPdf(false);
+      showToast("✅ PDF ouvert dans le navigateur");
     }, 400);
     return () => clearTimeout(t);
-  }, [isPrintingPdf]);
+  }, [isPrintingPdf, showToast]);
+
+  const handleShareDeck = useCallback(() => {
+    if (!selectedClient || !selectedPeriod) return "";
+    const url = new URL(window.location.href);
+    url.searchParams.set("client", selectedClient.id);
+    url.searchParams.set("period", selectedPeriod.month);
+    const shareUrl = url.toString();
+    navigator.clipboard.writeText(shareUrl).catch(() => {});
+    showToast("🔗 Lien copié dans le presse-papiers");
+    return shareUrl;
+  }, [selectedClient, selectedPeriod, showToast]);
 
   const goToSlide = (idx: number) => {
     const newIdx = Math.max(0, Math.min(slides.length + customSlides.length - 1, idx));
@@ -892,10 +910,21 @@ export default function DeckPage() {
             onRefreshDeckData={handleGenerate}
             onExportPptx={handleExportPptx}
             onExportPdf={handleExportPdf}
+            onShareDeck={handleShareDeck}
           />
         </div>
       </div>
       </SlideStyleContext.Provider>
+
+      {/* ── Toast notification ──────────────────────────────────────────── */}
+      {toastMsg && (
+        <div
+          className="fixed bottom-5 right-5 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white animate-in fade-in slide-in-from-bottom-2"
+          style={{ backgroundColor: "#1a1a2e", border: "1px solid rgba(255,255,255,0.12)" }}
+        >
+          {toastMsg}
+        </div>
+      )}
 
       {/* ── Print-only: all slides rendered for PDF export ─────────────── */}
       {isPrintingPdf && deckData && (

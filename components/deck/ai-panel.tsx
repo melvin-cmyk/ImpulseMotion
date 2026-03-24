@@ -33,6 +33,7 @@ interface AIPanelProps {
   onRefreshDeckData?: () => void;
   onExportPptx?: () => void;
   onExportPdf?: () => void;
+  onShareDeck?: () => string;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -47,6 +48,7 @@ const SLASH_COMMANDS = [
   { cmd: "/summarize deck", desc: "Rédiger un résumé exécutif du deck en 3 phrases" },
   { cmd: "/export pptx", desc: "Exporter le deck en fichier PowerPoint (.pptx)" },
   { cmd: "/export pdf", desc: "Exporter le deck en PDF (impression navigateur, toutes slides)" },
+  { cmd: "/share deck", desc: "Copier un lien partageable vers ce deck (client + période)" },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -59,6 +61,7 @@ export function AIPanel({
   onRefreshDeckData,
   onExportPptx,
   onExportPdf,
+  onShareDeck,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -220,6 +223,40 @@ export function AIPanel({
           ...prev,
           exportMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Export PDF non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
+
+    // /share deck — direct action, no AI stream
+    if (text.startsWith("/share deck")) {
+      setInput("");
+      setShowSlashMenu(false);
+      const shareMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "/share deck",
+      };
+      if (!deckData) {
+        setMessages((prev) => [
+          ...prev,
+          shareMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Aucun deck généré — génère d'abord le deck avant de partager." },
+        ]);
+        return;
+      }
+      if (onShareDeck) {
+        const url = onShareDeck();
+        setMessages((prev) => [
+          ...prev,
+          shareMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: `🔗 Lien copié :\n\`${url}\`` },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          shareMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Partage non disponible dans ce contexte." },
         ]);
       }
       return;
