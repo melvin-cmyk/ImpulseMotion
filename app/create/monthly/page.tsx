@@ -12,6 +12,7 @@ import {
   BarChart3,
   ArrowUp,
   ArrowDown,
+  AlertTriangle,
 } from "lucide-react";
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
@@ -114,6 +115,12 @@ export default function MonthlyPage() {
         .filter((c) => (c.status === "Winner" || c.status === "Active") && c.spend > 0)
         .sort((a, b) => b.roas - a.roas)
         .slice(0, 3),
+    [metaCreatives]
+  );
+
+  // Fatigued creatives that need attention
+  const fatigued = useMemo(
+    () => metaCreatives.filter((c) => c.status === "Fatigued").sort((a, b) => b.spend - a.spend),
     [metaCreatives]
   );
 
@@ -258,7 +265,7 @@ export default function MonthlyPage() {
         {topPerformers.length > 0 && (
           <div className="mb-6">
             <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              🏆 Top Monthly Performers
+              Top Monthly Performers
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {topPerformers.map((c) => {
@@ -309,6 +316,34 @@ export default function MonthlyPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* Fatigued creatives alert */}
+        {fatigued.length > 0 && (
+          <div className="mb-6">
+            <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="w-4 h-4 text-amber-400" />
+                <h2 className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
+                  {fatigued.length} Fatigued Creative{fatigued.length > 1 ? "s" : ""} — Consider Refreshing
+                </h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {fatigued.slice(0, 5).map((c) => (
+                  <div
+                    key={c.id}
+                    className="bg-[#111118] border border-amber-500/20 rounded-lg px-3 py-2 text-xs"
+                  >
+                    <span className="text-white font-medium truncate max-w-[150px] inline-block align-middle" title={c.name}>
+                      {c.name}
+                    </span>
+                    <span className="text-gray-500 ml-2">{fmtCurrency(c.spend)} spent</span>
+                    <span className="text-amber-400 ml-2">{fmt(c.roas)}×</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
