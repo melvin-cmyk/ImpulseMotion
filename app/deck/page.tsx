@@ -159,6 +159,13 @@ export default function DeckPage() {
       .finally(() => setClientsLoading(false));
   }, [searchParams]);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [sharedDeckBanner, setSharedDeckBanner] = useState<{ client: string; period: string } | null>(() => {
+    if (typeof window === "undefined") return null;
+    const p = new URLSearchParams(window.location.search);
+    const c = p.get("client");
+    const period = p.get("period");
+    return c && period ? { client: c, period } : null;
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [deckGenerated, setDeckGenerated] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -263,6 +270,13 @@ export default function DeckPage() {
       window.removeEventListener("afterprint", handleAfterPrint);
     };
   }, [isPrintingPdf, showToast]);
+
+  const handleResetDeck = useCallback(() => {
+    setSlideOverrides([]);
+    setCustomSlides([]);
+    setCurrentSlide(0);
+    showToast("♻️ Deck réinitialisé");
+  }, [showToast]);
 
   const handleShareDeck = useCallback(() => {
     if (!selectedClient || !selectedPeriod) return "";
@@ -437,6 +451,29 @@ export default function DeckPage() {
     return (
       <div className="h-full bg-gray-50 overflow-auto">
         <div className="max-w-2xl mx-auto py-12 px-6">
+          {/* Shared deck banner */}
+          {sharedDeckBanner && (
+            <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-6 text-sm">
+              <span className="text-blue-700">
+                🔗 Deck partagé chargé — client&nbsp;<strong>{sharedDeckBanner.client}</strong>, période&nbsp;<strong>{sharedDeckBanner.period}</strong>
+              </span>
+              <button
+                onClick={() => {
+                  setSharedDeckBanner(null);
+                  if (typeof window !== "undefined") {
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete("client");
+                    url.searchParams.delete("period");
+                    window.history.replaceState({}, "", url.toString());
+                  }
+                }}
+                className="ml-4 text-blue-400 hover:text-blue-600 transition-colors"
+                aria-label="Fermer la bannière"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4" style={{ backgroundColor: "#0944A1" }}>
               <Presentation className="w-8 h-8 text-white" />
@@ -934,6 +971,7 @@ export default function DeckPage() {
             onExportPptx={handleExportPptx}
             onExportPdf={handleExportPdf}
             onShareDeck={handleShareDeck}
+            onResetDeck={handleResetDeck}
           />
         </div>
       </div>

@@ -34,6 +34,7 @@ interface AIPanelProps {
   onExportPptx?: () => void;
   onExportPdf?: () => void;
   onShareDeck?: () => string;
+  onResetDeck?: () => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -49,6 +50,7 @@ const SLASH_COMMANDS = [
   { cmd: "/export pptx", desc: "Exporter le deck en fichier PowerPoint (.pptx)" },
   { cmd: "/export pdf", desc: "Exporter le deck en PDF (impression navigateur, toutes slides)" },
   { cmd: "/share deck", desc: "Copier un lien partageable vers ce deck (client + période)" },
+  { cmd: "/reset deck", desc: "Effacer tous les overrides et slides personnalisées" },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -62,6 +64,7 @@ export function AIPanel({
   onExportPptx,
   onExportPdf,
   onShareDeck,
+  onResetDeck,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -257,6 +260,32 @@ export function AIPanel({
           ...prev,
           shareMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Partage non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
+
+    // /reset deck — direct action, no AI stream
+    if (text.startsWith("/reset deck")) {
+      setInput("");
+      setShowSlashMenu(false);
+      const resetMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "/reset deck",
+      };
+      if (onResetDeck) {
+        onResetDeck();
+        setMessages((prev) => [
+          ...prev,
+          resetMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "♻️ Deck réinitialisé — tous les overrides et slides personnalisées ont été effacés." },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          resetMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Reset non disponible dans ce contexte." },
         ]);
       }
       return;
