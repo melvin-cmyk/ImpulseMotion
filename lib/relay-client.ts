@@ -3,7 +3,10 @@
  * Connects to the relay server that bridges Claude CLI + MCP tools.
  */
 
-const RELAY_URL = process.env.NEXT_PUBLIC_RELAY_URL || "https://guitar-instruments-missions-avatar.trycloudflare.com";
+const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
+const RELAY_URL = rawRelayUrl
+  ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
+  : "https://guitar-instruments-missions-avatar.trycloudflare.com";
 
 export interface ChatMessage {
   role: "user" | "assistant";
