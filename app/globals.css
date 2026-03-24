@@ -124,3 +124,48 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Deck PDF print ────────────────────────────────────────────────────────── */
+.deck-print-all {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .deck-print-all,
+  .deck-print-all * {
+    visibility: visible;
+  }
+
+  .deck-print-all {
+    display: block !important;
+    position: fixed;
+    inset: 0;
+    background: white;
+    z-index: 99999;
+  }
+
+  .deck-print-page {
+    width: 297mm;
+    height: 210mm;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    page-break-after: always;
+    break-after: page;
+    overflow: hidden;
+  }
+
+  .deck-print-page > * {
+    width: 285mm !important;
+    max-width: none !important;
+  }
+}

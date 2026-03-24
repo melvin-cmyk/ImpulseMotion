@@ -146,6 +146,7 @@ export default function DeckPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [deckGenerated, setDeckGenerated] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isPrintingPdf, setIsPrintingPdf] = useState(false);
   const [droppedBlocks, setDroppedBlocks] = useState<DroppedBlock[]>([]);
   const [slideOverrides, setSlideOverrides] = useState<SlideOverride[]>([]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -218,6 +219,20 @@ export default function DeckPage() {
       setIsExporting(false);
     }
   };
+
+  const handleExportPdf = useCallback(() => {
+    if (!deckData) return;
+    setIsPrintingPdf(true);
+  }, [deckData]);
+
+  useEffect(() => {
+    if (!isPrintingPdf) return;
+    const t = setTimeout(() => {
+      window.print();
+      setIsPrintingPdf(false);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [isPrintingPdf]);
 
   const goToSlide = (idx: number) => {
     const newIdx = Math.max(0, Math.min(slides.length + customSlides.length - 1, idx));
@@ -594,6 +609,16 @@ export default function DeckPage() {
           .pptx
         </button>
 
+        {/* Export PDF */}
+        <button
+          onClick={handleExportPdf}
+          disabled={!deckData}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-gray-700 flex-shrink-0 disabled:opacity-40"
+        >
+          <FileDown className="w-3.5 h-3.5" />
+          .pdf
+        </button>
+
         {/* Export Google Slides */}
         <button
           onClick={() => alert("Google Slides export coming soon — connect your Google account in Settings.")}
@@ -866,10 +891,22 @@ export default function DeckPage() {
             onSlideUpdate={handleSlideUpdate}
             onRefreshDeckData={handleGenerate}
             onExportPptx={handleExportPptx}
+            onExportPdf={handleExportPdf}
           />
         </div>
       </div>
       </SlideStyleContext.Provider>
+
+      {/* ── Print-only: all slides rendered for PDF export ─────────────── */}
+      {isPrintingPdf && deckData && (
+        <div className="deck-print-all">
+          {slides.map((slide, i) => (
+            <div key={slide.id} className="deck-print-page">
+              {slide.render(deckData, i + 1, { getOverride: getSlideOverride })}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

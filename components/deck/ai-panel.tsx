@@ -32,6 +32,7 @@ interface AIPanelProps {
   onSlideUpdate?: (slideIndex: number, field: string, newValue: string) => void;
   onRefreshDeckData?: () => void;
   onExportPptx?: () => void;
+  onExportPdf?: () => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -45,6 +46,7 @@ const SLASH_COMMANDS = [
   { cmd: "/suggest next-steps", desc: "Suggérer des actions prioritaires basées sur la performance" },
   { cmd: "/summarize deck", desc: "Rédiger un résumé exécutif du deck en 3 phrases" },
   { cmd: "/export pptx", desc: "Exporter le deck en fichier PowerPoint (.pptx)" },
+  { cmd: "/export pdf", desc: "Exporter le deck en PDF (impression navigateur, toutes slides)" },
 ];
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -56,6 +58,7 @@ export function AIPanel({
   onSlideUpdate,
   onRefreshDeckData,
   onExportPptx,
+  onExportPdf,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -183,6 +186,40 @@ export function AIPanel({
           ...prev,
           exportMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Export non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
+
+    // /export pdf — direct action, no AI stream
+    if (text.startsWith("/export pdf")) {
+      setInput("");
+      setShowSlashMenu(false);
+      const exportMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "/export pdf",
+      };
+      if (!deckData) {
+        setMessages((prev) => [
+          ...prev,
+          exportMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Aucun deck généré — génère d'abord le deck avant d'exporter." },
+        ]);
+        return;
+      }
+      if (onExportPdf) {
+        setMessages((prev) => [
+          ...prev,
+          exportMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "🖨️ Export PDF en cours… La boîte de dialogue d'impression va s'ouvrir (toutes les slides, format A4 paysage)." },
+        ]);
+        onExportPdf();
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          exportMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Export PDF non disponible dans ce contexte." },
         ]);
       }
       return;
