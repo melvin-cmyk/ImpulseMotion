@@ -72,6 +72,7 @@ export default function MonthlyPage() {
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const handleMount = () => {
     setDatePreset(30);
@@ -176,14 +177,20 @@ export default function MonthlyPage() {
     });
   }, [metaCreatives, sortKey, sortDir]);
 
-  // Filtered by search query
+  // Filtered by search query + status
   const filteredCreatives = useMemo(() => {
-    if (!searchQuery.trim()) return sortedCreatives;
-    const q = searchQuery.toLowerCase();
-    return sortedCreatives.filter(
-      (c) => c.name.toLowerCase().includes(q) || (c.format ?? "").toLowerCase().includes(q)
-    );
-  }, [sortedCreatives, searchQuery]);
+    let result = sortedCreatives;
+    if (statusFilter !== "all") {
+      result = result.filter((c) => (c.status ?? "").toLowerCase() === statusFilter.toLowerCase());
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (c) => c.name.toLowerCase().includes(q) || (c.format ?? "").toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [sortedCreatives, searchQuery, statusFilter]);
 
   // CSV export
   const exportCsv = () => {
@@ -416,7 +423,7 @@ export default function MonthlyPage() {
         <div className="bg-[#111118] border border-gray-800 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-800 flex flex-wrap items-center gap-3 justify-between">
             <span className="text-sm font-semibold text-white">
-              Adset Performance — {filteredCreatives.length}{filteredCreatives.length !== sortedCreatives.length ? ` / ${sortedCreatives.length}` : ""} creatives
+              Adset Performance — {filteredCreatives.length}{filteredCreatives.length !== sortedCreatives.length ? ` / ${sortedCreatives.length}` : ""} creatives{statusFilter !== "all" ? ` · ${statusFilter}` : ""}
             </span>
             <div className="flex items-center gap-2">
               <input
@@ -426,6 +433,17 @@ export default function MonthlyPage() {
                 placeholder="Search creatives…"
                 className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 placeholder-gray-600 focus:outline-none focus:border-violet-500 w-44"
               />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 focus:outline-none focus:border-violet-500 cursor-pointer"
+              >
+                <option value="all">All statuses</option>
+                <option value="Winner">Winner</option>
+                <option value="Active">Active</option>
+                <option value="Fatigued">Fatigued</option>
+                <option value="Paused">Paused</option>
+              </select>
               <button
                 onClick={exportCsv}
                 disabled={filteredCreatives.length === 0}
@@ -471,7 +489,7 @@ export default function MonthlyPage() {
                 {filteredCreatives.length === 0 && !isLoading && (
                   <tr>
                     <td colSpan={9} className="text-center py-12 text-gray-600 text-xs">
-                      {searchQuery ? "No creatives match your search." : "No Meta creatives found for this date range."}
+                      {(searchQuery || statusFilter !== "all") ? "No creatives match your filters." : "No Meta creatives found for this date range."}
                     </td>
                   </tr>
                 )}
