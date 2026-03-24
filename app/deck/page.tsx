@@ -45,7 +45,7 @@ interface SlideConfig {
   label: string;
   section: number;
   render: (data: DeckData, slideNumber: number, editCallbacks?: {
-    onEditRequest?: (event: SlideEditEvent) => void;
+    onEdit?: (field: string, slideIndex: number, newValue: string) => void;
     getOverride?: (slideIndex: number, field: string) => string | undefined;
   }) => React.ReactNode;
 }
@@ -109,12 +109,6 @@ interface DroppedBlock {
   slideIndex: number;
 }
 
-interface SlideEditEvent {
-  field: string;
-  slideIndex: number;
-  currentValue: string;
-}
-
 interface SlideOverride {
   slideIndex: number;
   field: string;
@@ -130,7 +124,6 @@ export default function DeckPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [droppedBlocks, setDroppedBlocks] = useState<DroppedBlock[]>([]);
   const [slideOverrides, setSlideOverrides] = useState<SlideOverride[]>([]);
-  const [editRequest, setEditRequest] = useState<SlideEditEvent | null>(null);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
 
@@ -229,15 +222,15 @@ export default function DeckPage() {
 
   // ── Inline editing handlers ──────────────────────────────────────────────
 
-  const handleEditRequest = (event: SlideEditEvent) => {
-    setEditRequest(event);
-  };
-
-  const handleSlideUpdate = (slideIndex: number, field: string, newValue: string) => {
+  const handleInlineEdit = (field: string, slideIndex: number, newValue: string) => {
     setSlideOverrides((prev) => {
       const filtered = prev.filter((o) => !(o.slideIndex === slideIndex && o.field === field));
       return [...filtered, { slideIndex, field, value: newValue }];
     });
+  };
+
+  const handleSlideUpdate = (slideIndex: number, field: string, newValue: string) => {
+    handleInlineEdit(field, slideIndex, newValue);
   };
 
   const getSlideOverride = (slideIndex: number, field: string): string | undefined => {
@@ -520,7 +513,7 @@ export default function DeckPage() {
               style={{ opacity: slideTransition ? 0 : 1 }}
             >
               {slides[currentSlide].render(deckData, currentSlide + 1, {
-                onEditRequest: handleEditRequest,
+                onEdit: handleInlineEdit,
                 getOverride: getSlideOverride,
               })}
 
@@ -594,8 +587,6 @@ export default function DeckPage() {
             deckData={deckData}
             currentSlideIndex={currentSlide}
             currentSlideLabel={slides[currentSlide]?.label ?? ""}
-            editRequest={editRequest}
-            onEditComplete={() => setEditRequest(null)}
             onSlideUpdate={handleSlideUpdate}
           />
         </div>

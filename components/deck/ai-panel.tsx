@@ -24,18 +24,10 @@ interface AIPanelMessage {
   isStreaming?: boolean;
 }
 
-interface SlideEditEvent {
-  field: string;
-  slideIndex: number;
-  currentValue: string;
-}
-
 interface AIPanelProps {
   deckData: DeckData | null;
   currentSlideIndex: number;
   currentSlideLabel: string;
-  editRequest?: SlideEditEvent | null;
-  onEditComplete?: () => void;
   onSlideUpdate?: (slideIndex: number, field: string, newValue: string) => void;
 }
 
@@ -54,15 +46,12 @@ export function AIPanel({
   deckData,
   currentSlideIndex,
   currentSlideLabel,
-  editRequest,
-  onEditComplete,
   onSlideUpdate,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
-  const [pendingEdit, setPendingEdit] = useState<SlideEditEvent | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -80,17 +69,6 @@ export function AIPanel({
   useEffect(() => {
     setShowSlashMenu(input.startsWith("/") && !input.includes(" "));
   }, [input]);
-
-  // ── Handle inline edit requests ──────────────────────────────────────────
-  useEffect(() => {
-    if (editRequest && !isLoading) {
-      const editPrompt = `Modifier le champ "${editRequest.field}" de la slide ${editRequest.slideIndex + 1}.\n\nValeur actuelle : "${editRequest.currentValue}"\n\nTape ta correction et je mettrai à jour la slide automatiquement.`;
-      setInput(editPrompt);
-      setPendingEdit(editRequest);
-      onEditComplete?.();
-      inputRef.current?.focus();
-    }
-  }, [editRequest, isLoading, onEditComplete]);
 
   const buildSystemContext = (): string => {
     if (!deckData) return "Aucun deck n'est encore généré.";
@@ -170,9 +148,6 @@ export function AIPanel({
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
-    const editContext = pendingEdit;
-    setPendingEdit(null);
-
     try {
       let finalContent = "";
       await streamChat(
@@ -216,17 +191,6 @@ export function AIPanel({
         abort.signal
       );
 
-      // Auto-update slide if this was an edit request
-      if (editContext && onSlideUpdate && finalContent) {
-        // Extract the new value from the response (take the first meaningful line)
-        const lines = finalContent.split("\n").filter((l) => l.trim() && !l.startsWith("#") && !l.startsWith("**"));
-        if (lines.length > 0) {
-          const newValue = lines[0].replace(/^["']|["']$/g, "").trim();
-          if (newValue && newValue !== editContext.currentValue) {
-            onSlideUpdate(editContext.slideIndex, editContext.field, newValue);
-          }
-        }
-      }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setMessages((prev) => {

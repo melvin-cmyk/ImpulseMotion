@@ -15,7 +15,7 @@ import type {
 // ── Types pour l'édition inline ──────────────────────────────────────────────
 
 interface EditCallbacks {
-  onEditRequest?: (event: { field: string; slideIndex: number; currentValue: string }) => void;
+  onEdit?: (field: string, slideIndex: number, newValue: string) => void;
   getOverride?: (slideIndex: number, field: string) => string | undefined;
 }
 
@@ -145,7 +145,7 @@ export function SectionDividerSlide({
   title,
   subtitle,
   slideNumber,
-  onEditRequest,
+  onEdit,
   getOverride,
 }: {
   sectionNumber: string;
@@ -169,12 +169,12 @@ export function SectionDividerSlide({
           className="text-[4%] font-extrabold"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          {onEditRequest ? (
+          {onEdit ? (
             <EditableText
               field="title"
               slideIndex={slideNumber ?? 0}
               currentValue={actualTitle}
-              onClick={onEditRequest}
+              onEdit={onEdit}
             >
               {actualTitle}
             </EditableText>
@@ -184,12 +184,12 @@ export function SectionDividerSlide({
         </div>
         {actualSubtitle && (
           <div className="text-[1.8%] opacity-70">
-            {onEditRequest ? (
+            {onEdit ? (
               <EditableText
                 field="subtitle"
                 slideIndex={slideNumber ?? 0}
                 currentValue={actualSubtitle}
-                onClick={onEditRequest}
+                onEdit={onEdit}
               >
                 {actualSubtitle}
               </EditableText>
@@ -208,7 +208,7 @@ export function SectionDividerSlide({
 export function HighlightsSlide({
   data,
   slideNumber,
-  onEditRequest,
+  onEdit,
   getOverride,
 }: {
   data: DeckData;
@@ -231,7 +231,7 @@ export function HighlightsSlide({
               highlight={h}
               index={i}
               slideNumber={slideNumber ?? 0}
-              onEditRequest={onEditRequest}
+              onEdit={onEdit}
               getOverride={getOverride}
             />
           ))}
@@ -245,7 +245,7 @@ function HighlightCard({
   highlight,
   index,
   slideNumber,
-  onEditRequest,
+  onEdit,
   getOverride,
 }: {
   highlight: DeckHighlight;
@@ -263,12 +263,12 @@ function HighlightCard({
       style={{ backgroundColor: colors.bgAlt }}
     >
       <div className="text-[1.6%] font-bold" style={{ color: colors.blueDeep }}>
-        {onEditRequest ? (
+        {onEdit ? (
           <EditableText
             field={titleField}
             slideIndex={slideNumber}
             currentValue={actualTitle}
-            onClick={onEditRequest}
+            onEdit={onEdit}
           >
             {actualTitle}
           </EditableText>
@@ -290,12 +290,12 @@ function HighlightCard({
         )}
       </div>
       <div className="text-[1.2%]" style={{ color: "#555" }}>
-        {onEditRequest ? (
+        {onEdit ? (
           <EditableText
             field={descField}
             slideIndex={slideNumber}
             currentValue={actualDesc}
-            onClick={onEditRequest}
+            onEdit={onEdit}
           >
             {actualDesc}
           </EditableText>
@@ -599,7 +599,7 @@ export function LearningsSlide({
   learnings,
   slideNumber,
   accent = "blue",
-  onEditRequest,
+  onEdit,
   getOverride,
 }: {
   learnings: string[];
@@ -631,12 +631,12 @@ export function LearningsSlide({
                     {String(i + 1).padStart(2, "0")}.
                   </span>
                   <span>
-                    {onEditRequest ? (
+                    {onEdit ? (
                       <EditableText
                         field={field}
                         slideIndex={slideNumber ?? 0}
                         currentValue={actualValue}
-                        onClick={onEditRequest}
+                        onEdit={onEdit}
                       >
                         {actualValue}
                       </EditableText>
@@ -661,7 +661,7 @@ export function NextStepsSlide({
   steps,
   accent = "blue",
   slideNumber,
-  onEditRequest,
+  onEdit,
   getOverride,
 }: {
   title: string;
@@ -697,12 +697,12 @@ export function NextStepsSlide({
                   {String(i + 1).padStart(2, "0")}
                 </span>
                 <span className="text-[1.4%] pt-[0.4%]">
-                  {onEditRequest ? (
+                  {onEdit ? (
                     <EditableText
                       field={field}
                       slideIndex={slideNumber ?? 0}
                       currentValue={actualValue}
-                      onClick={onEditRequest}
+                      onEdit={onEdit}
                     >
                       {actualValue}
                     </EditableText>

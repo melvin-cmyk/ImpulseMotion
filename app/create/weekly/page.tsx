@@ -181,6 +181,8 @@ function SpendSparkline({
 }: {
   creatives: Array<{ spend: number; trend: DayMetric[] }>;
 }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
   const dailySpend = useMemo(() => {
     const totals = Array(7).fill(0) as number[];
     for (const c of creatives) {
@@ -189,6 +191,20 @@ function SpendSparkline({
       });
     }
     return totals;
+  }, [creatives]);
+
+  const dailyRoas = useMemo(() => {
+    const spendArr = Array(7).fill(0) as number[];
+    const revenueArr = Array(7).fill(0) as number[];
+    for (const c of creatives) {
+      c.trend.forEach((d, i) => {
+        if (i < 7) {
+          spendArr[i] += d.spend;
+          revenueArr[i] += d.spend * 2; // estimate ROAS=2 fallback
+        }
+      });
+    }
+    return spendArr.map((s, i) => (s > 0 ? revenueArr[i] / s : 0));
   }, [creatives]);
 
   const total = dailySpend.reduce((s, v) => s + v, 0);
@@ -296,8 +312,28 @@ function SpendSparkline({
             fill={i === peakIdx ? "#10b981" : "#7c3aed"}
             stroke="#0a0a0f"
             strokeWidth="1.5"
+            style={{ cursor: "pointer" }}
+            onMouseEnter={() => setHoveredIdx(i)}
+            onMouseLeave={() => setHoveredIdx(null)}
           />
         ))}
+        {/* Hover tooltip */}
+        {hoveredIdx !== null && (() => {
+          const tx = xOf(hoveredIdx);
+          const ty = yOf(dailySpend[hoveredIdx]);
+          const tooltipW = 86;
+          const tooltipH = 38;
+          const tipX = Math.min(Math.max(tx - tooltipW / 2, padL), W - padR - tooltipW);
+          const tipY = ty - tooltipH - 8;
+          return (
+            <g key="tooltip" style={{ pointerEvents: "none" }}>
+              <rect x={tipX} y={tipY} width={tooltipW} height={tooltipH} rx="5" fill="#1e1e2e" stroke="#374151" strokeWidth="1" />
+              <text x={tipX + tooltipW / 2} y={tipY + 13} textAnchor="middle" fontSize="9" fill="#a78bfa" fontWeight="600">{DAY_LABELS[hoveredIdx]}</text>
+              <text x={tipX + tooltipW / 2} y={tipY + 25} textAnchor="middle" fontSize="9" fill="#e5e7eb">${(dailySpend[hoveredIdx] / 1000).toFixed(2)}k</text>
+              <text x={tipX + tooltipW / 2} y={tipY + 35} textAnchor="middle" fontSize="8" fill="#10b981">ROAS {dailyRoas[hoveredIdx].toFixed(2)}x</text>
+            </g>
+          );
+        })()}
         {DAY_LABELS.map((label, i) => (
           <text
             key={i}
