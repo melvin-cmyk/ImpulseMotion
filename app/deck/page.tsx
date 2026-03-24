@@ -145,14 +145,31 @@ export default function DeckPage() {
   const periods = useMemo(() => getAvailablePeriods(), []);
   const slides = useMemo(() => buildSlides(), []);
 
-  const deckData = useMemo(() => {
-    if (!deckGenerated || !selectedClient) return null;
-    return generateMockDeckData(selectedClient, selectedPeriod);
-  }, [deckGenerated, selectedClient, selectedPeriod]);
+  const [deckData, setDeckData] = useState<DeckData | null>(null);
+  const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
 
   const handleGenerate = async () => {
+    if (!selectedClient) return;
     setIsGenerating(true);
-    await new Promise((r) => setTimeout(r, 2000));
+    try {
+      const res = await fetch("/api/deck/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: selectedClient, period: selectedPeriod }),
+      });
+      if (res.ok) {
+        const json = await res.json() as { data: DeckData; source: "real" | "mock" };
+        setDeckData(json.data);
+        setDataSource(json.source);
+      } else {
+        // Fallback to mock
+        setDeckData(generateMockDeckData(selectedClient, selectedPeriod));
+        setDataSource("mock");
+      }
+    } catch {
+      setDeckData(generateMockDeckData(selectedClient, selectedPeriod));
+      setDataSource("mock");
+    }
     setDeckGenerated(true);
     setCurrentSlide(0);
     setIsGenerating(false);
@@ -445,6 +462,17 @@ export default function DeckPage() {
         </div>
 
         <div className="flex-1" />
+
+        {/* Data source badge */}
+        {dataSource && (
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
+            dataSource === "real"
+              ? "bg-green-50 text-green-700 border border-green-200"
+              : "bg-amber-50 text-amber-700 border border-amber-200"
+          }`}>
+            {dataSource === "real" ? "✓ Données réelles" : "⚠ Données fictives"}
+          </span>
+        )}
 
         {/* Slide counter */}
         <span className="text-xs text-gray-400 flex-shrink-0">
