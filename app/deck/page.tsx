@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -13,6 +13,8 @@ import {
   Loader2,
   Sparkles,
   FileDown,
+  Trash2,
+  GripVertical,
 } from "lucide-react";
 import {
   getAvailablePeriods,
@@ -108,6 +110,9 @@ interface DroppedBlock {
   id: string;
   content: string;
   slideIndex: number;
+  x: number; // % of canvas width
+  y: number; // % of canvas height
+  w: number; // % of canvas width
 }
 
 interface SlideOverride {
@@ -141,7 +146,10 @@ export default function DeckPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [droppedBlocks, setDroppedBlocks] = useState<DroppedBlock[]>([]);
   const [slideOverrides, setSlideOverrides] = useState<SlideOverride[]>([]);
+  const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
+  const [draggingBlock, setDraggingBlock] = useState<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const slideContainerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
 
   const periods = useMemo(() => getAvailablePeriods(), []);
@@ -238,17 +246,57 @@ export default function DeckPage() {
     try {
       const data = JSON.parse(e.dataTransfer.getData("application/json"));
       if (data.type === "data-block" && data.content) {
+        const canvas = canvasRef.current;
+        let xPct = 5, yPct = 10;
+        if (canvas) {
+          const rect = canvas.getBoundingClientRect();
+          xPct = Math.max(0, Math.min(60, ((e.clientX - rect.left) / rect.width) * 100));
+          yPct = Math.max(0, Math.min(60, ((e.clientY - rect.top) / rect.height) * 100));
+        }
         const newBlock: DroppedBlock = {
           id: crypto.randomUUID(),
           content: data.content,
           slideIndex: currentSlide,
+          x: xPct,
+          y: yPct,
+          w: 60,
         };
         setDroppedBlocks((prev) => [...prev, newBlock]);
+        setSelectedBlockId(newBlock.id);
       }
     } catch (err) {
       console.error("Drop failed:", err);
     }
   };
+
+  // Block drag-to-reposition
+  const handleBlockMouseDown = useCallback((e: React.MouseEvent, blockId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const block = droppedBlocks.find(b => b.id === blockId);
+    if (!block) return;
+    setSelectedBlockId(blockId);
+    setDraggingBlock({ id: blockId, startX: e.clientX, startY: e.clientY, origX: block.x, origY: block.y });
+  }, [droppedBlocks]);
+
+  useEffect(() => {
+    if (!draggingBlock) return;
+    const canvas = canvasRef.current;
+    const onMove = (e: MouseEvent) => {
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const dx = ((e.clientX - draggingBlock.startX) / rect.width) * 100;
+      const dy = ((e.clientY - draggingBlock.startY) / rect.height) * 100;
+      setDroppedBlocks(prev => prev.map(b => b.id === draggingBlock.id
+        ? { ...b, x: Math.max(0, Math.min(65, draggingBlock.origX + dx)), y: Math.max(0, Math.min(70, draggingBlock.origY + dy)) }
+        : b
+      ));
+    };
+    const onUp = () => setDraggingBlock(null);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [draggingBlock]);
 
   const removeBlock = (blockId: string) => {
     setDroppedBlocks((prev) => prev.filter((b) => b.id !== blockId));
@@ -561,39 +609,97 @@ export default function DeckPage() {
           <div
             className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto"
             ref={slideContainerRef}
-            onDragOver={handleDragOver}
-            onDrop={handleDrop}
+            onClick={() => setSelectedBlockId(null)}
           >
+            {/* 16:9 canvas */}
             <div
-              className="w-full max-w-3xl transition-opacity duration-300 ease-in-out"
+              className="w-full max-w-3xl transition-opacity duration-300 ease-in-out relative"
               style={{ opacity: slideTransition ? 0 : 1 }}
+              ref={canvasRef}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
             >
+              {/* Slide content */}
               {slides[currentSlide].render(deckData, currentSlide + 1, {
                 onEdit: handleInlineEdit,
                 getOverride: getSlideOverride,
               })}
 
-              {/* Dropped data blocks */}
-              {currentSlideBlocks.length > 0 && (
-                <div className="mt-4 space-y-2">
-                  {currentSlideBlocks.map((block) => (
-                    <div
-                      key={block.id}
-                      className="relative bg-white border border-gray-300 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow"
-                    >
-                      <button
-                        onClick={() => removeBlock(block.id)}
-                        className="absolute top-2 right-2 w-5 h-5 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 hover:text-gray-700 text-xs"
-                      >
-                        ×
-                      </button>
-                      <div className="text-xs text-gray-700 pr-6 prose prose-sm max-w-none [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-0.5 [&_th]:bg-[#0070C0] [&_th]:text-white [&_tr:nth-child(even)_td]:bg-[#F3F3F3]">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
+              {/* Overlay blocks — positioned ON the canvas */}
+              {currentSlideBlocks.map((block) => {
+                const isSelected = selectedBlockId === block.id;
+                return (
+                  <div
+                    key={block.id}
+                    onClick={(e) => { e.stopPropagation(); setSelectedBlockId(block.id); }}
+                    style={{
+                      position: "absolute",
+                      left: `${block.x}%`,
+                      top: `${block.y}%`,
+                      width: `${block.w}%`,
+                      cursor: draggingBlock?.id === block.id ? "grabbing" : "grab",
+                      zIndex: isSelected ? 20 : 10,
+                    }}
+                    className={`rounded-lg shadow-lg bg-white border-2 transition-all ${
+                      isSelected ? "border-[#2CA6F9]" : "border-transparent hover:border-[#2CA6F9]/40"
+                    }`}
+                  >
+                    {/* Toolbar */}
+                    {isSelected && (
+                      <div className="absolute -top-8 left-0 flex items-center gap-1 bg-[#0944A1] rounded-lg px-2 py-1 shadow-md z-30">
+                        <GripVertical
+                          className="w-3.5 h-3.5 text-white/70 cursor-grab"
+                          onMouseDown={(e) => handleBlockMouseDown(e, block.id)}
+                        />
+                        <span className="text-[10px] text-white/70 font-medium select-none">Bloc données</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeBlock(block.id); }}
+                          className="ml-1 p-0.5 rounded hover:bg-white/20 text-white/80 hover:text-white transition-colors"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
                       </div>
+                    )}
+                    {/* Drag handle (full block) */}
+                    <div
+                      className="absolute inset-0 z-10"
+                      onMouseDown={(e) => handleBlockMouseDown(e, block.id)}
+                      style={{ cursor: draggingBlock?.id === block.id ? "grabbing" : "grab" }}
+                    />
+                    {/* Content */}
+                    <div className="relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none pointer-events-none [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-0.5 [&_th]:bg-[#0070C0] [&_th]:text-white [&_tr:nth-child(even)_td]:bg-[#F3F3F3]">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
                     </div>
-                  ))}
-                </div>
-              )}
+                    {/* Resize handle (bottom-right) */}
+                    {isSelected && (
+                      <div
+                        className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-30"
+                        style={{ background: "linear-gradient(135deg, transparent 50%, #2CA6F9 50%)", borderBottomRightRadius: 6 }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          const canvas = canvasRef.current;
+                          if (!canvas) return;
+                          const startX = e.clientX;
+                          const origW = block.w;
+                          const onMove = (ev: MouseEvent) => {
+                            const rect = canvas.getBoundingClientRect();
+                            const dw = ((ev.clientX - startX) / rect.width) * 100;
+                            setDroppedBlocks(prev => prev.map(b => b.id === block.id
+                              ? { ...b, w: Math.max(15, Math.min(95, origW + dw)) }
+                              : b
+                            ));
+                          };
+                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          window.addEventListener("mousemove", onMove);
+                          window.addEventListener("mouseup", onUp);
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Navigation */}
