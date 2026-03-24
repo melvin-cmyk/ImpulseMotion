@@ -251,7 +251,10 @@ export function AIPanel({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleSubmit();
+    } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
@@ -310,9 +313,9 @@ export function AIPanel({
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500/20 to-purple-700/20 flex items-center justify-center mb-3">
               <Sparkles className="w-6 h-6 text-violet-400" />
             </div>
-            <h3 className="text-sm font-semibold text-white mb-1">Impulse AI</h3>
+            <h3 className="text-sm font-semibold text-white mb-1">Assistant IA</h3>
             <p className="text-xs text-gray-500 mb-4">
-              Pose des questions, génère des learnings, ou récupère des données.
+              Tape <code className="text-violet-400 font-mono text-[11px]">/fetch meta</code> pour charger les données Meta Ads
             </p>
             <div className="w-full space-y-1.5">
               {SLASH_COMMANDS.map((sc) => (
@@ -365,7 +368,10 @@ export function AIPanel({
                       onDragStart={(e) => handleDragStart(e, msg.content)}
                       className="cursor-grab active:cursor-grabbing"
                     >
-                      <div className="absolute -left-6 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div
+                        className="absolute -left-6 top-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Glisser vers la slide"
+                      >
                         <div className="w-4 h-4 flex items-center justify-center text-gray-500 hover:text-violet-400">
                           <span className="text-sm leading-none">⠿</span>
                         </div>

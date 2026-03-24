@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -132,6 +132,7 @@ export default function DeckPage() {
   const [slideOverrides, setSlideOverrides] = useState<SlideOverride[]>([]);
   const [editRequest, setEditRequest] = useState<SlideEditEvent | null>(null);
   const slideContainerRef = useRef<HTMLDivElement>(null);
+  const [slideTransition, setSlideTransition] = useState(false);
 
   const periods = useMemo(() => getAvailablePeriods(), []);
   const slides = useMemo(() => buildSlides(), []);
@@ -163,8 +164,40 @@ export default function DeckPage() {
   };
 
   const goToSlide = (idx: number) => {
-    setCurrentSlide(Math.max(0, Math.min(slides.length - 1, idx)));
+    const newIdx = Math.max(0, Math.min(slides.length - 1, idx));
+    if (newIdx !== currentSlide) {
+      setSlideTransition(true);
+      setTimeout(() => {
+        setCurrentSlide(newIdx);
+        setTimeout(() => setSlideTransition(false), 50);
+      }, 150);
+    }
   };
+
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!deckGenerated) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Navigation avec flèches
+      if (e.key === "ArrowLeft" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+        e.preventDefault();
+        goToSlide(currentSlide - 1);
+      } else if (e.key === "ArrowRight" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+        e.preventDefault();
+        goToSlide(currentSlide + 1);
+      }
+      // Escape pour fermer (réservé pour futures modales)
+      else if (e.key === "Escape") {
+        // Future: fermer modales
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deckGenerated, currentSlide, slides.length]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
@@ -452,11 +485,19 @@ export default function DeckPage() {
                     <button
                       key={slide.id}
                       onClick={() => goToSlide(idx)}
-                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-all ${
                         currentSlide === idx
                           ? "bg-blue-50 text-blue-700 font-semibold"
                           : "text-gray-600 hover:bg-gray-50"
                       }`}
+                      style={
+                        currentSlide === idx
+                          ? {
+                              borderLeft: "3px solid #2CA6F9",
+                              paddingLeft: "9px",
+                            }
+                          : undefined
+                      }
                     >
                       <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
                       {slide.label}
@@ -474,7 +515,10 @@ export default function DeckPage() {
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
-            <div className="w-full max-w-3xl">
+            <div
+              className="w-full max-w-3xl transition-opacity duration-300 ease-in-out"
+              style={{ opacity: slideTransition ? 0 : 1 }}
+            >
               {slides[currentSlide].render(deckData, currentSlide + 1, {
                 onEditRequest: handleEditRequest,
                 getOverride: getSlideOverride,
