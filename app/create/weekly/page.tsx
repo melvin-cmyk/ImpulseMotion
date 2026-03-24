@@ -14,6 +14,7 @@ import {
   ArrowUp,
   ArrowDown,
   Presentation,
+  Target,
 } from "lucide-react";
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
@@ -84,6 +85,7 @@ export default function WeeklyPage() {
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
 
   const handleMount = () => {
     setDatePreset(7);
@@ -151,14 +153,20 @@ export default function WeeklyPage() {
     });
   }, [metaCreatives, sortKey, sortDir]);
 
-  // Filtered by search query
+  // Filtered by search query + status
   const filteredCreatives = useMemo(() => {
-    if (!searchQuery.trim()) return sortedCreatives;
-    const q = searchQuery.toLowerCase();
-    return sortedCreatives.filter(
-      (c) => c.name.toLowerCase().includes(q) || (c.format ?? "").toLowerCase().includes(q)
-    );
-  }, [sortedCreatives, searchQuery]);
+    let result = sortedCreatives;
+    if (statusFilter !== "all") {
+      result = result.filter((c) => (c.status ?? "").toLowerCase() === statusFilter.toLowerCase());
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (c) => c.name.toLowerCase().includes(q) || (c.format ?? "").toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [sortedCreatives, searchQuery, statusFilter]);
 
   // CSV export
   const exportCsv = () => {
@@ -262,7 +270,7 @@ export default function WeeklyPage() {
         )}
 
         {/* KPI grid with WoW deltas */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
           <KpiCard
             label="Spend"
             value={fmtCurrency(totals.spend)}
@@ -305,6 +313,12 @@ export default function WeeklyPage() {
             icon={TrendingUp}
             accent="bg-emerald-600"
           />
+          <KpiCard
+            label="Conversions"
+            value={totals.conversions > 0 ? totals.conversions.toLocaleString() : "—"}
+            icon={Target}
+            accent="bg-orange-600"
+          />
         </div>
 
         {/* Winners spotlight */}
@@ -317,8 +331,24 @@ export default function WeeklyPage() {
               {winners.map((c) => (
                 <div
                   key={c.id}
-                  className="bg-[#111118] border border-emerald-500/30 rounded-2xl p-4 flex flex-col gap-2"
+                  className="bg-[#111118] border border-emerald-500/30 rounded-2xl p-4 flex gap-3 items-start"
                 >
+                  <div className="flex-shrink-0">
+                    {c.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={c.thumbnailUrl}
+                        alt={c.name}
+                        className="w-10 h-10 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div
+                        className="w-10 h-10 rounded-lg"
+                        style={{ backgroundColor: c.thumbnailColor ?? "#374151" }}
+                      />
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1 min-w-0">
                   <div className="font-semibold text-white truncate text-sm" title={c.name}>
                     {c.name}
                   </div>
@@ -339,6 +369,7 @@ export default function WeeklyPage() {
                       </>
                     )}
                   </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -349,9 +380,20 @@ export default function WeeklyPage() {
         <div className="bg-[#111118] border border-gray-800 rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-800 flex flex-wrap items-center gap-3 justify-between">
             <span className="text-sm font-semibold text-white">
-              Adset Performance — {filteredCreatives.length}{filteredCreatives.length !== sortedCreatives.length ? ` / ${sortedCreatives.length}` : ""} creatives
+              Adset Performance — {filteredCreatives.length}{filteredCreatives.length !== sortedCreatives.length ? ` / ${sortedCreatives.length}` : ""} creatives{statusFilter !== "all" ? ` · ${statusFilter}` : ""}
             </span>
             <div className="flex items-center gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="text-xs bg-[#1a1a24] border border-gray-700 rounded-lg px-3 py-1.5 text-gray-200 focus:outline-none focus:border-violet-500 cursor-pointer"
+              >
+                <option value="all">All statuses</option>
+                <option value="Winner">Winner</option>
+                <option value="Active">Active</option>
+                <option value="Fatigued">Fatigued</option>
+                <option value="Paused">Paused</option>
+              </select>
               <input
                 type="text"
                 value={searchQuery}
@@ -391,7 +433,7 @@ export default function WeeklyPage() {
                 {filteredCreatives.length === 0 && !isLoading && (
                   <tr>
                     <td colSpan={10} className="text-center py-12 text-gray-600 text-xs">
-                      {searchQuery ? "No creatives match your search." : "No Meta creatives found for this date range."}
+                      {(searchQuery || statusFilter !== "all") ? "No creatives match your filters." : "No Meta creatives found for this date range."}
                     </td>
                   </tr>
                 )}

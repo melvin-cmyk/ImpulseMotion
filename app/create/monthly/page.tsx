@@ -15,6 +15,7 @@ import {
   ArrowDown,
   Presentation,
   AlertTriangle,
+  Target,
 } from "lucide-react";
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
@@ -293,7 +294,7 @@ export default function MonthlyPage() {
         )}
 
         {/* KPI grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
           <KpiCard
             label="Spend"
             value={fmtCurrency(totals.spend)}
@@ -330,6 +331,13 @@ export default function MonthlyPage() {
             value={totals.roas > 0 ? fmt(totals.roas) + "×" : "—"}
             icon={TrendingUp}
             accent="bg-emerald-600"
+          />
+          <KpiCard
+            label="Conversions"
+            value={totals.conversions > 0 ? totals.conversions.toLocaleString() : "—"}
+            sub="30-day total"
+            icon={Target}
+            accent="bg-orange-600"
           />
         </div>
 
