@@ -100,6 +100,12 @@ const SECTION_COLORS: Record<number, string> = {
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 
+interface DroppedBlock {
+  id: string;
+  content: string;
+  slideIndex: number;
+}
+
 export default function DeckPage() {
   const [selectedClient, setSelectedClient] = useState<DeckClient>(mockClients[0]);
   const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(getAvailablePeriods()[1]);
@@ -107,6 +113,7 @@ export default function DeckPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [deckGenerated, setDeckGenerated] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [droppedBlocks, setDroppedBlocks] = useState<DroppedBlock[]>([]);
   const slideContainerRef = useRef<HTMLDivElement>(null);
 
   const periods = useMemo(() => getAvailablePeriods(), []);
@@ -141,6 +148,37 @@ export default function DeckPage() {
   const goToSlide = (idx: number) => {
     setCurrentSlide(Math.max(0, Math.min(slides.length - 1, idx)));
   };
+
+  // ── Drag & drop handlers ─────────────────────────────────────────────────
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    try {
+      const data = JSON.parse(e.dataTransfer.getData("application/json"));
+      if (data.type === "data-block" && data.content) {
+        const newBlock: DroppedBlock = {
+          id: crypto.randomUUID(),
+          content: data.content,
+          slideIndex: currentSlide,
+        };
+        setDroppedBlocks((prev) => [...prev, newBlock]);
+      }
+    } catch (err) {
+      console.error("Drop failed:", err);
+    }
+  };
+
+  const removeBlock = (blockId: string) => {
+    setDroppedBlocks((prev) => prev.filter((b) => b.id !== blockId));
+  };
+
+  // Blocs pour la slide actuelle
+  const currentSlideBlocks = droppedBlocks.filter((b) => b.slideIndex === currentSlide);
 
   // Group slides by section for the filmstrip
   const sectionSlides = useMemo(() => {
@@ -396,9 +434,36 @@ export default function DeckPage() {
           </div>
 
           {/* Slide preview */}
-          <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto" ref={slideContainerRef}>
+          <div
+            className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto"
+            ref={slideContainerRef}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+          >
             <div className="w-full max-w-3xl">
               {slides[currentSlide].render(deckData, currentSlide + 1)}
+
+              {/* Dropped data blocks */}
+              {currentSlideBlocks.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  {currentSlideBlocks.map((block) => (
+                    <div
+                      key={block.id}
+                      className="relative bg-white border border-gray-300 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow"
+                    >
+                      <button
+                        onClick={() => removeBlock(block.id)}
+                        className="absolute top-2 right-2 w-5 h-5 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 hover:text-gray-700 text-xs"
+                      >
+                        ×
+                      </button>
+                      <div className="text-xs text-gray-700 whitespace-pre-wrap pr-6">
+                        {block.content}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Navigation */}

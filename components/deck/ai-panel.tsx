@@ -220,6 +220,25 @@ export function AIPanel({
       .replace("mcp__mcp-google-analytics__", "GA: ")
       .replace(/1$/, "");
 
+  // ── Drag & drop helpers ──────────────────────────────────────────────────
+
+  const hasDataContent = (content: string): boolean => {
+    // Détecte si le message contient des tableaux, listes de métriques, ou données structurées
+    return (
+      content.includes("|") || // Tableau markdown
+      /(\d+[%€×]|\d+\.\d+)/g.test(content) || // Métriques (nombres avec unités)
+      /^[\s]*[-*]\s+\w+/m.test(content) // Listes à puces
+    );
+  };
+
+  const handleDragStart = (e: React.DragEvent, content: string) => {
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("application/json", JSON.stringify({
+      type: "data-block",
+      content: content,
+    }));
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#0B1120] border-l border-gray-800">
       {/* Panel header */}
@@ -275,11 +294,11 @@ export function AIPanel({
                 </div>
               </div>
             ) : (
-              <div className="flex gap-2">
+              <div className="flex gap-2 group">
                 <div className="w-5 h-5 rounded-md bg-violet-600/20 flex items-center justify-center shrink-0 mt-0.5">
                   <Bot className="w-3 h-3 text-violet-400" />
                 </div>
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 relative">
                   {msg.toolCalls && msg.toolCalls.length > 0 && (
                     <div className="mb-2 space-y-1">
                       {msg.toolCalls.map((tc, i) => (
@@ -296,7 +315,26 @@ export function AIPanel({
                     </div>
                   )}
 
-                  {msg.content && (
+                  {msg.content && hasDataContent(msg.content) && !msg.isStreaming && (
+                    <div
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, msg.content)}
+                      className="cursor-grab active:cursor-grabbing"
+                    >
+                      <div className="absolute -left-6 top-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="w-4 h-4 flex items-center justify-center text-gray-500 hover:text-violet-400">
+                          <span className="text-sm leading-none">⠿</span>
+                        </div>
+                      </div>
+                      <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-1.5 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
+
+                  {msg.content && !hasDataContent(msg.content) && (
                     <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-1.5 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {msg.content}
