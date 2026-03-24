@@ -13,7 +13,6 @@ import {
   FileDown,
 } from "lucide-react";
 import {
-  mockClients,
   getAvailablePeriods,
   getPreviousPeriod,
   generateMockDeckData,
@@ -116,8 +115,24 @@ interface SlideOverride {
 }
 
 export default function DeckPage() {
-  const [selectedClient, setSelectedClient] = useState<DeckClient>(mockClients[0]);
+  const [clients, setClients] = useState<DeckClient[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(true);
+  const [selectedClient, setSelectedClient] = useState<DeckClient | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(getAvailablePeriods()[1]);
+
+  // Load real clients from Meta Ads + Google Ads on mount
+  useEffect(() => {
+    fetch("/api/deck/clients")
+      .then((r) => r.json())
+      .then((data: { clients: DeckClient[] }) => {
+        if (data.clients && data.clients.length > 0) {
+          setClients(data.clients);
+          setSelectedClient(data.clients[0]);
+        }
+      })
+      .catch(() => {/* relay not available */})
+      .finally(() => setClientsLoading(false));
+  }, []);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [deckGenerated, setDeckGenerated] = useState(false);
@@ -131,7 +146,7 @@ export default function DeckPage() {
   const slides = useMemo(() => buildSlides(), []);
 
   const deckData = useMemo(() => {
-    if (!deckGenerated) return null;
+    if (!deckGenerated || !selectedClient) return null;
     return generateMockDeckData(selectedClient, selectedPeriod);
   }, [deckGenerated, selectedClient, selectedPeriod]);
 
@@ -273,20 +288,31 @@ export default function DeckPage() {
               <Building2 className="w-4 h-4" />
               Client
             </label>
-            <select
-              value={selectedClient.id}
-              onChange={(e) => {
-                const c = mockClients.find((cl) => cl.id === e.target.value);
-                if (c) setSelectedClient(c);
-              }}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              {mockClients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} {c.industry ? `— ${c.industry}` : ""}
-                </option>
-              ))}
-            </select>
+            {clientsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Chargement des comptes...
+              </div>
+            ) : clients.length === 0 ? (
+              <p className="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                Aucun compte trouvé — connecte-toi à Meta ou Google Ads
+              </p>
+            ) : (
+              <select
+                value={selectedClient?.id ?? ""}
+                onChange={(e) => {
+                  const c = clients.find((cl) => cl.id === e.target.value);
+                  if (c) setSelectedClient(c);
+                }}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} {c.platform ? `— ${c.platform}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Period selection */}
@@ -387,14 +413,14 @@ export default function DeckPage() {
         <div className="flex items-center gap-1.5 flex-shrink-0">
           <Building2 className="w-3.5 h-3.5 text-gray-400" />
           <select
-            value={selectedClient.id}
+            value={selectedClient?.id ?? ""}
             onChange={(e) => {
-              const cl = mockClients.find((c) => c.id === e.target.value);
+              const cl = clients.find((c) => c.id === e.target.value);
               if (cl) setSelectedClient(cl);
             }}
             className="text-xs font-semibold text-gray-900 bg-transparent border-none focus:outline-none cursor-pointer pr-4"
           >
-            {mockClients.map((cl) => (
+            {clients.map((cl) => (
               <option key={cl.id} value={cl.id}>{cl.name}</option>
             ))}
           </select>

@@ -10,6 +10,9 @@ export interface DeckClient {
   name: string;
   logo?: string;
   industry?: string;
+  platform?: "meta" | "google" | "both";
+  metaAccountId?: string;
+  googleCustomerId?: string;
 }
 
 export interface DeckPeriod {
