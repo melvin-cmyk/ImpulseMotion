@@ -35,6 +35,8 @@ import {
   NextStepsSlide,
   BudgetSlide,
 } from "@/components/deck/slides";
+import { AIPanel } from "@/components/deck/ai-panel";
+import { exportDeckToPptx } from "@/lib/deck-export";
 
 // ── Section config ───────────────────────────────────────────────────────────
 
@@ -100,10 +102,11 @@ const SECTION_COLORS: Record<number, string> = {
 
 export default function DeckPage() {
   const [selectedClient, setSelectedClient] = useState<DeckClient>(mockClients[0]);
-  const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(getAvailablePeriods()[1]); // previous month
+  const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(getAvailablePeriods()[1]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [deckGenerated, setDeckGenerated] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const slideContainerRef = useRef<HTMLDivElement>(null);
 
   const periods = useMemo(() => getAvailablePeriods(), []);
@@ -116,18 +119,28 @@ export default function DeckPage() {
 
   const handleGenerate = async () => {
     setIsGenerating(true);
-    // Simulate AI generation delay
     await new Promise((r) => setTimeout(r, 2000));
     setDeckGenerated(true);
     setCurrentSlide(0);
     setIsGenerating(false);
   };
 
+  const handleExportPptx = async () => {
+    if (!deckData) return;
+    setIsExporting(true);
+    try {
+      await exportDeckToPptx(deckData);
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Erreur lors de l'export PPTX. Vérifiez la console.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const goToSlide = (idx: number) => {
     setCurrentSlide(Math.max(0, Math.min(slides.length - 1, idx)));
   };
-
-  const currentSection = slides[currentSlide]?.section ?? 0;
 
   // Group slides by section for the filmstrip
   const sectionSlides = useMemo(() => {
@@ -255,130 +268,187 @@ export default function DeckPage() {
     );
   }
 
-  // ── Deck viewer ─────────────────────────────────────────────────────────
+  // ── Deck viewer — Split layout ─────────────────────────────────────────
   if (!deckData) return null;
 
   return (
     <div className="h-full flex flex-col bg-gray-100 overflow-hidden">
-      {/* Top bar */}
-      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setDeckGenerated(false)}
-            className="text-xs text-gray-500 hover:text-gray-800 flex items-center gap-1"
+      {/* ── Full-width Header ────────────────────────────────────────────── */}
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3">
+        {/* Back button */}
+        <button
+          onClick={() => setDeckGenerated(false)}
+          className="text-xs text-gray-500 hover:text-gray-800 flex items-center gap-1 flex-shrink-0"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+          Retour
+        </button>
+        <div className="h-4 w-px bg-gray-200" />
+
+        {/* Client selector */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <Building2 className="w-3.5 h-3.5 text-gray-400" />
+          <select
+            value={selectedClient.id}
+            onChange={(e) => {
+              const cl = mockClients.find((c) => c.id === e.target.value);
+              if (cl) setSelectedClient(cl);
+            }}
+            className="text-xs font-semibold text-gray-900 bg-transparent border-none focus:outline-none cursor-pointer pr-4"
           >
-            <ChevronLeft className="w-3.5 h-3.5" />
-            Retour
-          </button>
-          <div className="h-4 w-px bg-gray-200" />
-          <div>
-            <span className="text-sm font-semibold text-gray-900">{deckData.client.name}</span>
-            <span className="text-xs text-gray-400 ml-2">{deckData.period.label}</span>
-          </div>
+            {mockClients.map((cl) => (
+              <option key={cl.id} value={cl.id}>{cl.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="h-4 w-px bg-gray-200" />
+
+        {/* Period selector */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <Calendar className="w-3.5 h-3.5 text-gray-400" />
+          <select
+            value={selectedPeriod.month}
+            onChange={(e) => {
+              const p = periods.find((pp) => pp.month === e.target.value);
+              if (p) setSelectedPeriod(p);
+            }}
+            className="text-xs text-gray-600 bg-transparent border-none focus:outline-none cursor-pointer pr-4"
+          >
+            {periods.map((p) => (
+              <option key={p.month} value={p.month}>{p.label}</option>
+            ))}
+          </select>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">
-            Slide {currentSlide + 1} / {slides.length}
-          </span>
-          <button
-            onClick={() => {
-              alert("Export PPTX coming soon. Le deck sera exporté au format PowerPoint avec le design system Impulse Analytics.");
-            }}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-gray-700"
-          >
-            <FileDown className="w-3.5 h-3.5" />
-            .pptx
-          </button>
-          <button
-            onClick={() => {
-              alert("Google Slides export coming soon — connect your Google account in Settings.");
-            }}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white"
-            style={{ backgroundColor: "#0944A1" }}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Google Slides
-          </button>
-        </div>
+        <div className="flex-1" />
+
+        {/* Slide counter */}
+        <span className="text-xs text-gray-400 flex-shrink-0">
+          Slide {currentSlide + 1} / {slides.length}
+        </span>
+
+        {/* Generate button */}
+        <button
+          onClick={handleGenerate}
+          disabled={isGenerating}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
+          style={{ backgroundColor: "#0944A1" }}
+        >
+          {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+          Générer
+        </button>
+
+        {/* Export PPTX */}
+        <button
+          onClick={handleExportPptx}
+          disabled={isExporting}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-gray-700 flex-shrink-0"
+        >
+          {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileDown className="w-3.5 h-3.5" />}
+          .pptx
+        </button>
+
+        {/* Export Google Slides */}
+        <button
+          onClick={() => alert("Google Slides export coming soon — connect your Google account in Settings.")}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
+          style={{ backgroundColor: "#0944A1" }}
+        >
+          <Download className="w-3.5 h-3.5" />
+          Google Slides
+        </button>
       </div>
 
+      {/* ── Split layout: Slides (left) + AI Panel (right) ───────────────── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left panel — section nav + filmstrip */}
-        <div className="w-52 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto">
-          {Object.entries(sectionSlides).map(([secStr, items]) => {
-            const sec = Number(secStr);
-            return (
-              <div key={sec}>
-                <div
-                  className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider"
-                  style={{ color: SECTION_COLORS[sec] ?? "#2CA6F9" }}
-                >
-                  {SECTION_LABELS[sec]}
-                </div>
-                {items.map(({ idx, slide }) => (
-                  <button
-                    key={slide.id}
-                    onClick={() => goToSlide(idx)}
-                    className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                      currentSlide === idx
-                        ? "bg-blue-50 text-blue-700 font-semibold"
-                        : "text-gray-600 hover:bg-gray-50"
-                    }`}
-                  >
-                    <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
-                    {slide.label}
-                  </button>
-                ))}
-              </div>
-            );
-          })}
-        </div>
 
-        {/* Center — slide preview */}
-        <div className="flex-1 flex flex-col items-center justify-center p-6 overflow-auto" ref={slideContainerRef}>
-          <div className="w-full max-w-4xl">
-            {slides[currentSlide].render(deckData, currentSlide + 1)}
+        {/* ── LEFT: Filmstrip + Slide Viewer (60-65%) ───────────────────── */}
+        <div className="flex-1 flex overflow-hidden" style={{ flex: "0 0 62%" }}>
+          {/* Filmstrip sidebar */}
+          <div className="w-44 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto">
+            {Object.entries(sectionSlides).map(([secStr, items]) => {
+              const sec = Number(secStr);
+              return (
+                <div key={sec}>
+                  <div
+                    className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider"
+                    style={{ color: SECTION_COLORS[sec] ?? "#2CA6F9" }}
+                  >
+                    {SECTION_LABELS[sec]}
+                  </div>
+                  {items.map(({ idx, slide }) => (
+                    <button
+                      key={slide.id}
+                      onClick={() => goToSlide(idx)}
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                        currentSlide === idx
+                          ? "bg-blue-50 text-blue-700 font-semibold"
+                          : "text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
+                      {slide.label}
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
           </div>
 
-          {/* Navigation */}
-          <div className="flex items-center gap-4 mt-4">
-            <button
-              onClick={() => goToSlide(currentSlide - 1)}
-              disabled={currentSlide === 0}
-              className="p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4 text-gray-600" />
-            </button>
-
-            {/* Section dots */}
-            <div className="flex gap-1">
-              {slides.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => goToSlide(i)}
-                  className="transition-all"
-                  style={{
-                    width: currentSlide === i ? 16 : 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor:
-                      currentSlide === i
-                        ? SECTION_COLORS[slides[i].section] ?? "#2CA6F9"
-                        : "#D1D5DB",
-                  }}
-                />
-              ))}
+          {/* Slide preview */}
+          <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto" ref={slideContainerRef}>
+            <div className="w-full max-w-3xl">
+              {slides[currentSlide].render(deckData, currentSlide + 1)}
             </div>
 
-            <button
-              onClick={() => goToSlide(currentSlide + 1)}
-              disabled={currentSlide === slides.length - 1}
-              className="p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
-            >
-              <ChevronRight className="w-4 h-4 text-gray-600" />
-            </button>
+            {/* Navigation */}
+            <div className="flex items-center gap-4 mt-3">
+              <button
+                onClick={() => goToSlide(currentSlide - 1)}
+                disabled={currentSlide === 0}
+                className="p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4 text-gray-600" />
+              </button>
+
+              {/* Section dots */}
+              <div className="flex gap-1">
+                {slides.map((_, i) => (
+                  <button
+                    key={i}
+                    onClick={() => goToSlide(i)}
+                    className="transition-all"
+                    style={{
+                      width: currentSlide === i ? 14 : 5,
+                      height: 5,
+                      borderRadius: 3,
+                      backgroundColor:
+                        currentSlide === i
+                          ? SECTION_COLORS[slides[i].section] ?? "#2CA6F9"
+                          : "#D1D5DB",
+                    }}
+                  />
+                ))}
+              </div>
+
+              <button
+                onClick={() => goToSlide(currentSlide + 1)}
+                disabled={currentSlide === slides.length - 1}
+                className="p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+              >
+                <ChevronRight className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
           </div>
+        </div>
+
+        {/* ── RIGHT: AI Panel (38%) ─────────────────────────────────────── */}
+        <div style={{ flex: "0 0 38%" }} className="overflow-hidden">
+          <AIPanel
+            deckData={deckData}
+            currentSlideIndex={currentSlide}
+            currentSlideLabel={slides[currentSlide]?.label ?? ""}
+          />
         </div>
       </div>
     </div>
