@@ -291,6 +291,11 @@ export default function DeckPage() {
     : (customSlides[currentSlide - slides.length]?.id ?? `custom-${currentSlide}`);
   const currentSlideNote = slideNotes[currentSlideId] ?? "";
 
+  const slidesWithNotesCount = useMemo(
+    () => [...slides, ...customSlides].filter(s => !!slideNotes[s.id]).length,
+    [slides, customSlides, slideNotes]
+  );
+
   const [deckData, setDeckData] = useState<DeckData | null>(null);
   const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
 
@@ -591,6 +596,17 @@ export default function DeckPage() {
   useEffect(() => {
     activeFilmstripItemRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [currentSlide]);
+
+  // ── Auto-reset filter when navigating to a slide without notes ────────────
+  useEffect(() => {
+    if (!showOnlyWithNotes) return;
+    const currentId = currentSlide < slides.length
+      ? slides[currentSlide]?.id
+      : customSlides[currentSlide - slides.length]?.id;
+    if (currentId && !slideNotes[currentId]) {
+      setShowOnlyWithNotes(false);
+    }
+  }, [currentSlide, showOnlyWithNotes, slides, customSlides, slideNotes]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1062,7 +1078,9 @@ export default function DeckPage() {
               title="Afficher uniquement les slides avec notes"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />
-              {showOnlyWithNotes ? "Avec notes" : "Toutes les slides"}
+              {showOnlyWithNotes
+                ? `${slidesWithNotesCount} slide${slidesWithNotesCount !== 1 ? "s" : ""} avec notes`
+                : "Toutes les slides"}
             </button>
             <div className="flex-1">
             <TooltipProvider delayDuration={300}>
