@@ -564,25 +564,26 @@ export default function DeckPage() {
     if (!deckGenerated) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Navigation avec flèches
-      if (e.key === "ArrowLeft" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+      const inInput = document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA";
+      // Navigation ←/↑ = slide précédente, →/↓ = slide suivante
+      if ((e.key === "ArrowLeft" || e.key === "ArrowUp") && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (inInput) return;
         e.preventDefault();
         goToSlide(currentSlide - 1);
-      } else if (e.key === "ArrowRight" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
+      } else if ((e.key === "ArrowRight" || e.key === "ArrowDown") && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (inInput) return;
         e.preventDefault();
         goToSlide(currentSlide + 1);
       }
-      // Escape pour fermer (réservé pour futures modales)
+      // Escape : ferme le panneau de notes s'il est ouvert
       else if (e.key === "Escape") {
-        // Future: fermer modales
+        if (notePanelOpen) setNotePanelOpen(false);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides.length]);
+  }, [deckGenerated, currentSlide, slides.length, notePanelOpen, setNotePanelOpen]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
