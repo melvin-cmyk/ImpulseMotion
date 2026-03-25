@@ -271,7 +271,7 @@ export default function DeckPage() {
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [draggingBlock, setDraggingBlock] = useState<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [textStyles, setTextStyles] = useState<Record<string, TextStyle>>({});
-  const [customSlides, setCustomSlides] = useState<{ id: string; label: string; content: string }[]>([]);
+  const [customSlides, setCustomSlides] = useState<{ id: string; label: string; content: string; fontFamily?: string }[]>([]);
   const [filmstripDragging, setFilmstripDragging] = useState<number | null>(null);
   const [filmstripDropTarget, setFilmstripDropTarget] = useState<number | null>(null);
   const [slideNotes, setSlideNotes] = useState<Record<string, string>>({});
@@ -408,11 +408,12 @@ export default function DeckPage() {
     showToast(`📋 "${label}" ajoutée`);
   }, [currentSlide, slides, customSlides, deckData, showToast]);
 
-  const handleAddCustomSlide = useCallback((label: string, content: string) => {
+  const handleAddCustomSlide = useCallback((label: string, content: string, fontFamily?: string) => {
     const newSlide = {
       id: `custom-${Date.now()}`,
       label,
       content,
+      fontFamily,
     };
     setCustomSlides((prev) => {
       const next = [...prev, newSlide];
@@ -1165,7 +1166,8 @@ export default function DeckPage() {
                         <textarea
                           value={cs.content}
                           onChange={(e) => setCustomSlides(prev => prev.map((s, i) => i === currentSlide - slides.length ? { ...s, content: e.target.value } : s))}
-                          className="flex-1 p-4 text-sm text-gray-700 resize-none focus:outline-none font-mono"
+                          className="flex-1 p-4 text-sm text-gray-700 resize-none focus:outline-none"
+                          style={{ fontFamily: cs.fontFamily || "inherit" }}
                           placeholder="Contenu en Markdown…"
                         />
                       </div>

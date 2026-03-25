@@ -35,7 +35,7 @@ interface AIPanelProps {
   onExportPdf?: () => void;
   onShareDeck?: () => string;
   onResetDeck?: () => void;
-  onAddCustomSlide?: (label: string, content: string) => void;
+  onAddCustomSlide?: (label: string, content: string, fontFamily?: string) => void;
   onDuplicateSlide?: () => void;
   onMoveSlide?: (direction: "up" | "down") => void;
   onRenameSlide?: (newLabel: string) => void;
@@ -100,6 +100,35 @@ const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
   },
 };
 
+// ── Font options ─────────────────────────────────────────────────────────────
+
+const FONT_OPTIONS = [
+  { label: "Inter", value: "Inter, sans-serif" },
+  { label: "Raleway", value: "'Raleway', sans-serif" },
+  { label: "Georgia", value: "Georgia, serif" },
+  { label: "Playfair", value: "'Playfair Display', serif" },
+  { label: "Mono", value: "'Roboto Mono', monospace" },
+];
+
+function parseMessageBlocks(content: string): { type: "heading" | "table" | "list" | "paragraph"; text: string }[] {
+  const blocks: { type: "heading" | "table" | "list" | "paragraph"; text: string }[] = [];
+  const sections = content.split(/\n{2,}/);
+  for (const section of sections) {
+    const trimmed = section.trim();
+    if (!trimmed) continue;
+    if (/^#{1,6}\s/.test(trimmed)) {
+      blocks.push({ type: "heading", text: trimmed });
+    } else if (trimmed.includes("|") && /\|[-:\s]+\|/.test(trimmed)) {
+      blocks.push({ type: "table", text: trimmed });
+    } else if (/^(\d+\.|[-*•])\s/m.test(trimmed)) {
+      blocks.push({ type: "list", text: trimmed });
+    } else {
+      blocks.push({ type: "paragraph", text: trimmed });
+    }
+  }
+  return blocks;
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function AIPanel({
@@ -128,6 +157,8 @@ export function AIPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [blockFonts, setBlockFonts] = useState<Record<string, string>>({});
+  const [addedBlocks, setAddedBlocks] = useState<Set<string>>(new Set());
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -803,29 +834,56 @@ export function AIPanel({
                     </button>
                   )}
 
-                  {msg.content && hasDataContent(msg.content) && !msg.isStreaming && (
-                    <div
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, msg.content)}
-                      className="cursor-grab active:cursor-grabbing"
-                    >
-                      <div
-                        className="absolute -left-6 top-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Glisser vers la slide"
-                      >
-                        <div className="w-4 h-4 flex items-center justify-center text-gray-500 hover:text-violet-400">
-                          <span className="text-sm leading-none">⠿</span>
-                        </div>
-                      </div>
-                      <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-1.5 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
-                        </ReactMarkdown>
-                      </div>
+                  {msg.content && !msg.isStreaming && (
+                    <div className="space-y-1.5">
+                      {parseMessageBlocks(msg.content).map((block, bIdx) => {
+                        const blockId = `${msg.id}-${bIdx}`;
+                        const isAdded = addedBlocks.has(blockId);
+                        const font = blockFonts[blockId] || FONT_OPTIONS[0].value;
+                        return (
+                          <div key={bIdx} className="relative group/block">
+                            <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-0 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 rounded px-1.5 py-1 group-hover/block:bg-gray-800/50 transition-colors">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
+                            </div>
+                            <div className="absolute right-0 top-0.5 hidden group-hover/block:flex items-center gap-1 z-10">
+                              <select
+                                value={font}
+                                onChange={(e) => setBlockFonts(prev => ({ ...prev, [blockId]: e.target.value }))}
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-[9px] bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-gray-300 cursor-pointer"
+                              >
+                                {FONT_OPTIONS.map(f => (
+                                  <option key={f.value} value={f.value}>{f.label}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => {
+                                  if (!isAdded && onAddCustomSlide) {
+                                    const label = block.type === "heading"
+                                      ? block.text.replace(/^#+\s*/, "").slice(0, 40)
+                                      : `Bloc IA ${bIdx + 1}`;
+                                    onAddCustomSlide(label, block.text, font);
+                                    setAddedBlocks(prev => new Set([...prev, blockId]));
+                                  }
+                                }}
+                                disabled={isAdded}
+                                title="Ajouter comme slide"
+                                className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                                  isAdded
+                                    ? "bg-green-700/30 text-green-400 cursor-default"
+                                    : "bg-violet-600 hover:bg-violet-700 text-white"
+                                }`}
+                              >
+                                {isAdded ? "✓" : "+ Slide"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
-                  {msg.content && !hasDataContent(msg.content) && (
+                  {msg.content && msg.isStreaming && (
                     <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-1.5 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {msg.content}
