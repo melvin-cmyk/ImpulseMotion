@@ -1086,9 +1086,9 @@ export default function DeckPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />
               {showOnlyWithNotes
                 ? `${slidesWithNotesCount} slide${slidesWithNotesCount !== 1 ? "s" : ""} avec notes`
-                : "Toutes les slides"}
+                : `Toutes les slides (${slides.length + customSlides.length})`}
             </button>
-            <div className="flex-1">
+            <div key={String(showOnlyWithNotes)} className="flex-1 animate-in fade-in duration-150">
             <TooltipProvider delayDuration={300}>
             {Object.entries(sectionSlides).map(([secStr, items]) => {
               const sec = Number(secStr);
