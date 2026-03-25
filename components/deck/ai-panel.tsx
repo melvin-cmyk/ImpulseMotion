@@ -846,8 +846,14 @@ export function AIPanel({
                           <div
                             key={bIdx}
                             className="relative"
+                            draggable={true}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              handleDragStart(e, block.text);
+                            }}
                             onMouseEnter={() => setHoveredBlock(blockId)}
                             onMouseLeave={() => setHoveredBlock(null)}
+                            style={{ cursor: isHovered ? "grab" : "default" }}
                           >
                             <div
                               className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-0 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 rounded px-1.5 py-1 transition-colors"
@@ -857,6 +863,7 @@ export function AIPanel({
                             </div>
                             {isHovered && (
                               <div className="absolute right-0 top-0.5 flex items-center gap-1 z-10">
+                                <span className="text-[9px] text-gray-500 italic select-none mr-1">⠿ drag</span>
                                 <select
                                   value={font}
                                   onChange={(e) => setBlockFonts(prev => ({ ...prev, [blockId]: e.target.value }))}
@@ -878,7 +885,7 @@ export function AIPanel({
                                     }
                                   }}
                                   disabled={isAdded}
-                                  title="Ajouter comme slide"
+                                  title="Créer une nouvelle slide"
                                   className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
                                     isAdded
                                       ? "bg-green-700/30 text-green-400 cursor-default"
