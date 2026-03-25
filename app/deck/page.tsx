@@ -427,6 +427,22 @@ export default function DeckPage() {
     showToast(`✏️ Slide renommée en "${newLabel}"`);
   }, [currentSlide, slides.length, showToast]);
 
+  const handleDeleteSlide = useCallback(() => {
+    const customIndex = currentSlide - slides.length;
+    if (customIndex < 0) {
+      showToast("⚠️ Seules les slides personnalisées peuvent être supprimées");
+      return;
+    }
+    setCustomSlides((prev) => {
+      const next = prev.filter((_, i) => i !== customIndex);
+      // Navigate to the previous slide to avoid out-of-bounds
+      const newIndex = Math.max(0, slides.length + customIndex - 1);
+      setTimeout(() => setCurrentSlide(newIndex), 50);
+      return next;
+    });
+    showToast("🗑️ Slide supprimée");
+  }, [currentSlide, slides.length, showToast]);
+
   const handleMoveSlide = useCallback((direction: "up" | "down") => {
     const customIndex = currentSlide - slides.length;
     if (customIndex < 0) {
@@ -1213,6 +1229,7 @@ export default function DeckPage() {
             onDuplicateSlide={handleDuplicateSlide}
             onMoveSlide={handleMoveSlide}
             onRenameSlide={handleRenameSlide}
+            onDeleteSlide={handleDeleteSlide}
           />
         </div>
       </div>

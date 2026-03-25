@@ -39,6 +39,7 @@ interface AIPanelProps {
   onDuplicateSlide?: () => void;
   onMoveSlide?: (direction: "up" | "down") => void;
   onRenameSlide?: (newLabel: string) => void;
+  onDeleteSlide?: () => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -63,6 +64,7 @@ const SLASH_COMMANDS = [
   { cmd: "/move up", desc: "Déplacer la slide actuelle vers le haut (customSlides uniquement)" },
   { cmd: "/move down", desc: "Déplacer la slide actuelle vers le bas (customSlides uniquement)" },
   { cmd: "/rename slide", desc: "Renommer la slide actuelle (ex: /rename slide Mon titre)" },
+  { cmd: "/delete slide", desc: "Supprimer la slide actuelle (customSlides uniquement)" },
   { cmd: "/reset deck", desc: "Effacer tous les overrides et slides personnalisées" },
 ];
 
@@ -109,6 +111,7 @@ export function AIPanel({
   onDuplicateSlide,
   onMoveSlide,
   onRenameSlide,
+  onDeleteSlide,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -429,6 +432,32 @@ export function AIPanel({
           ...prev,
           renameMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Renommage non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
+
+    // /delete slide — direct action, no AI stream
+    if (text.startsWith("/delete slide")) {
+      setInput("");
+      setShowSlashMenu(false);
+      const deleteMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "/delete slide",
+      };
+      if (onDeleteSlide) {
+        onDeleteSlide();
+        setMessages((prev) => [
+          ...prev,
+          deleteMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "🗑️ Slide supprimée." },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          deleteMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Suppression non disponible dans ce contexte." },
         ]);
       }
       return;
