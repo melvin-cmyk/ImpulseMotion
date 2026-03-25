@@ -360,6 +360,32 @@ export default function DeckPage() {
     setIsPrintingPdf(true);
   }, [deckData]);
 
+  const handleExportCsvNotes = useCallback(() => {
+    const totalSlides = slides.length + customSlides.length;
+    if (totalSlides === 0) return;
+    const rows: string[][] = [["#", "Titre", "Type", "Note"]];
+    slides.forEach((slide, i) => {
+      const note = slideNotes[slide.id] ?? "";
+      rows.push([String(i + 1), slide.label ?? `Slide ${i + 1}`, "standard", note]);
+    });
+    customSlides.forEach((cs, i) => {
+      const note = slideNotes[cs.id] ?? "";
+      rows.push([String(slides.length + i + 1), cs.label ?? `Custom ${i + 1}`, "custom", note]);
+    });
+    const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const clientName = deckData?.client?.name?.replace(/\s+/g, "_") ?? "deck";
+    const period = deckData?.period?.month ?? "notes";
+    a.download = `Notes_${clientName}_${period}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }, [slides, customSlides, slideNotes, deckData]);
+
   useEffect(() => {
     if (!isPrintingPdf) return;
     const handleAfterPrint = () => {
@@ -969,6 +995,17 @@ export default function DeckPage() {
           .pdf
         </button>
 
+        {/* Export CSV Notes */}
+        <button
+          onClick={handleExportCsvNotes}
+          disabled={slides.length + customSlides.length === 0}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-gray-700 flex-shrink-0 disabled:opacity-40"
+          title="Exporter les notes speaker en CSV"
+        >
+          <FileDown className="w-3.5 h-3.5" />
+          Notes .csv
+        </button>
+
         {/* Export Google Slides */}
         <button
           onClick={() => alert("Google Slides export coming soon — connect your Google account in Settings.")}
@@ -988,6 +1025,26 @@ export default function DeckPage() {
         <div className="flex-1 flex overflow-hidden" style={{ flex: "0 0 62%" }}>
           {/* Filmstrip sidebar */}
           <div className="w-48 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
+            {/* Filmstrip progress indicator */}
+            {(slides.length + customSlides.length) > 0 && (
+              <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Progression</span>
+                  <span className="text-[10px] font-bold text-gray-600">
+                    {currentSlide + 1} / {slides.length + customSlides.length}
+                  </span>
+                </div>
+                <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${((currentSlide + 1) / (slides.length + customSlides.length)) * 100}%`,
+                      backgroundColor: "#7F5AFD",
+                    }}
+                  />
+                </div>
+              </div>
+            )}
             <div className="flex-1">
             <TooltipProvider delayDuration={300}>
             {Object.entries(sectionSlides).map(([secStr, items]) => {
