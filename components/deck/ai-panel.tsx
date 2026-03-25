@@ -37,6 +37,7 @@ interface AIPanelProps {
   onResetDeck?: () => void;
   onAddCustomSlide?: (label: string, content: string) => void;
   onDuplicateSlide?: () => void;
+  onMoveSlide?: (direction: "up" | "down") => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -58,6 +59,8 @@ const SLASH_COMMANDS = [
   { cmd: "/export pdf", desc: "Exporter le deck en PDF (impression navigateur, toutes slides)" },
   { cmd: "/share deck", desc: "Copier un lien partageable vers ce deck (client + période)" },
   { cmd: "/duplicate slide", desc: "Dupliquer la slide actuelle comme nouveau customSlide" },
+  { cmd: "/move up", desc: "Déplacer la slide actuelle vers le haut (customSlides uniquement)" },
+  { cmd: "/move down", desc: "Déplacer la slide actuelle vers le bas (customSlides uniquement)" },
   { cmd: "/reset deck", desc: "Effacer tous les overrides et slides personnalisées" },
 ];
 
@@ -102,6 +105,7 @@ export function AIPanel({
   onResetDeck,
   onAddCustomSlide,
   onDuplicateSlide,
+  onMoveSlide,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -360,6 +364,33 @@ export function AIPanel({
           ...prev,
           dupMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Duplication non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
+
+    // /move up | /move down — direct action, no AI stream
+    if (text.startsWith("/move up") || text.startsWith("/move down")) {
+      const direction = text.startsWith("/move up") ? "up" : "down";
+      setInput("");
+      setShowSlashMenu(false);
+      const moveMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: text.startsWith("/move up") ? "/move up" : "/move down",
+      };
+      if (onMoveSlide) {
+        onMoveSlide(direction);
+        setMessages((prev) => [
+          ...prev,
+          moveMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: `↕️ Slide déplacée vers le ${direction === "up" ? "haut" : "bas"}.` },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          moveMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Déplacement non disponible dans ce contexte." },
         ]);
       }
       return;

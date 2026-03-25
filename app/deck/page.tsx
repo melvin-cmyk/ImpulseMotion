@@ -315,6 +315,28 @@ export default function DeckPage() {
     showToast(`✅ Slide "${label}" ajoutée`);
   }, [slides.length, showToast]);
 
+  const handleMoveSlide = useCallback((direction: "up" | "down") => {
+    const customIndex = currentSlide - slides.length;
+    if (customIndex < 0) {
+      showToast("⚠️ Seules les slides personnalisées peuvent être réordonnées");
+      return;
+    }
+    setCustomSlides((prev) => {
+      const next = [...prev];
+      if (direction === "up" && customIndex > 0) {
+        [next[customIndex - 1], next[customIndex]] = [next[customIndex], next[customIndex - 1]];
+        setTimeout(() => setCurrentSlide(slides.length + customIndex - 1), 50);
+      } else if (direction === "down" && customIndex < next.length - 1) {
+        [next[customIndex], next[customIndex + 1]] = [next[customIndex + 1], next[customIndex]];
+        setTimeout(() => setCurrentSlide(slides.length + customIndex + 1), 50);
+      } else {
+        showToast("⚠️ La slide ne peut pas être déplacée dans cette direction");
+        return prev;
+      }
+      return next;
+    });
+  }, [currentSlide, slides.length, showToast]);
+
   const handleShareDeck = useCallback(() => {
     if (!selectedClient || !selectedPeriod) return "";
     const url = new URL(window.location.href);
@@ -1002,7 +1024,7 @@ export default function DeckPage() {
           <AIPanel
             deckData={deckData}
             currentSlideIndex={currentSlide}
-            currentSlideLabel={slides[currentSlide]?.label ?? ""}
+            currentSlideLabel={currentSlide < slides.length ? (slides[currentSlide]?.label ?? "") : (customSlides[currentSlide - slides.length]?.label ?? "")}
             onSlideUpdate={handleSlideUpdate}
             onRefreshDeckData={handleGenerate}
             onExportPptx={handleExportPptx}
@@ -1011,6 +1033,7 @@ export default function DeckPage() {
             onResetDeck={handleResetDeck}
             onAddCustomSlide={handleAddCustomSlide}
             onDuplicateSlide={handleDuplicateSlide}
+            onMoveSlide={handleMoveSlide}
           />
         </div>
       </div>
