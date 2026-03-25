@@ -279,6 +279,7 @@ export default function DeckPage() {
   const prevSlideRef = useRef<number>(-1);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const activeFilmstripItemRef = useRef<HTMLButtonElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
 
   const periods = useMemo(() => getAvailablePeriods(), []);
@@ -559,6 +560,11 @@ export default function DeckPage() {
     }
   }, [currentSlide, currentSlideNote]);
 
+  // ── Auto-scroll filmstrip to active slide ────────────────────────────────
+  useEffect(() => {
+    activeFilmstripItemRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [currentSlide]);
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
     if (!deckGenerated) return;
@@ -578,6 +584,12 @@ export default function DeckPage() {
       // Escape : ferme le panneau de notes s'il est ouvert
       else if (e.key === "Escape") {
         if (notePanelOpen) setNotePanelOpen(false);
+      }
+      // N : toggle panneau de notes
+      else if (e.key === "n" || e.key === "N") {
+        if (inInput) return;
+        e.preventDefault();
+        setNotePanelOpen((prev) => !prev);
       }
     };
 
@@ -997,6 +1009,7 @@ export default function DeckPage() {
                       <Tooltip key={slide.id}>
                         <TooltipTrigger asChild>
                           <button
+                            ref={isActive ? activeFilmstripItemRef : undefined}
                             onClick={() => goToSlide(idx)}
                             className={`w-full text-left px-2 py-1.5 transition-all ${isActive ? "bg-blue-50" : "hover:bg-gray-50"}`}
                             style={isActive ? { borderLeft: `3px solid ${secColor}`, paddingLeft: "5px" } : undefined}
