@@ -36,6 +36,7 @@ interface AIPanelProps {
   onShareDeck?: () => string;
   onResetDeck?: () => void;
   onAddCustomSlide?: (label: string, content: string) => void;
+  onDuplicateSlide?: () => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -56,6 +57,7 @@ const SLASH_COMMANDS = [
   { cmd: "/export pptx", desc: "Exporter le deck en fichier PowerPoint (.pptx)" },
   { cmd: "/export pdf", desc: "Exporter le deck en PDF (impression navigateur, toutes slides)" },
   { cmd: "/share deck", desc: "Copier un lien partageable vers ce deck (client + période)" },
+  { cmd: "/duplicate slide", desc: "Dupliquer la slide actuelle comme nouveau customSlide" },
   { cmd: "/reset deck", desc: "Effacer tous les overrides et slides personnalisées" },
 ];
 
@@ -99,6 +101,7 @@ export function AIPanel({
   onShareDeck,
   onResetDeck,
   onAddCustomSlide,
+  onDuplicateSlide,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -331,6 +334,32 @@ export function AIPanel({
           ...prev,
           addMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Ajout de slide non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
+
+    // /duplicate slide — direct action, no AI stream
+    if (text.startsWith("/duplicate slide")) {
+      setInput("");
+      setShowSlashMenu(false);
+      const dupMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: "/duplicate slide",
+      };
+      if (onDuplicateSlide) {
+        onDuplicateSlide();
+        setMessages((prev) => [
+          ...prev,
+          dupMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: `📋 Slide **${currentSlideLabel}** dupliquée — accessible dans le filmstrip.` },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          dupMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Duplication non disponible dans ce contexte." },
         ]);
       }
       return;

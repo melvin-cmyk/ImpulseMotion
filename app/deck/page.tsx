@@ -278,6 +278,28 @@ export default function DeckPage() {
     showToast("♻️ Deck réinitialisé");
   }, [showToast]);
 
+  const handleDuplicateSlide = useCallback(() => {
+    const isCustom = currentSlide >= slides.length;
+    let label: string;
+    let content: string;
+    if (isCustom) {
+      const cs = customSlides[currentSlide - slides.length];
+      label = `${cs?.label ?? "Slide"} (copie)`;
+      content = cs?.content ?? "";
+    } else {
+      const sl = slides[currentSlide];
+      label = `${sl?.label ?? "Slide"} (copie)`;
+      content = `# ${sl?.label ?? "Slide"} (copie)\n\nContenu dupliqué — personnalisez cette slide.`;
+    }
+    const newSlide = { id: `custom-${Date.now()}`, label, content };
+    setCustomSlides((prev) => {
+      const next = [...prev, newSlide];
+      setTimeout(() => setCurrentSlide(slides.length + next.length - 1), 50);
+      return next;
+    });
+    showToast(`📋 "${label}" ajoutée`);
+  }, [currentSlide, slides, customSlides, showToast]);
+
   const handleAddCustomSlide = useCallback((label: string, content: string) => {
     const newSlide = {
       id: `custom-${Date.now()}`,
@@ -988,6 +1010,7 @@ export default function DeckPage() {
             onShareDeck={handleShareDeck}
             onResetDeck={handleResetDeck}
             onAddCustomSlide={handleAddCustomSlide}
+            onDuplicateSlide={handleDuplicateSlide}
           />
         </div>
       </div>
