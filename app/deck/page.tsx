@@ -277,6 +277,8 @@ export default function DeckPage() {
   const [slideNotes, setSlideNotes] = useState<Record<string, string>>({});
   const [notePanelOpen, setNotePanelOpen] = useState(false);
   const [showOnlyWithNotes, setShowOnlyWithNotes] = useState(false);
+  const [filmstripSearch, setFilmstripSearch] = useState("");
+  const lastGTimeRef = useRef<number>(0);
   const prevSlideRef = useRef<number>(-1);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -645,11 +647,28 @@ export default function DeckPage() {
         e.preventDefault();
         setShowOnlyWithNotes((prev) => !prev);
       }
+      // G : aller à la dernière slide / gg (double G) : aller à la première (vim-style)
+      else if ((e.key === "g" || e.key === "G") && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (inInput) return;
+        e.preventDefault();
+        const now = Date.now();
+        const totalSlides = slides.length + customSlides.length;
+        if (e.key === "g" && now - lastGTimeRef.current < 400) {
+          // gg → first slide
+          goToSlide(0);
+          lastGTimeRef.current = 0;
+        } else if (e.key === "G") {
+          // G → last slide
+          goToSlide(totalSlides - 1);
+        } else {
+          lastGTimeRef.current = now;
+        }
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, setShowOnlyWithNotes]);
+  }, [deckGenerated, currentSlide, slides.length, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, setShowOnlyWithNotes]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
@@ -1073,6 +1092,16 @@ export default function DeckPage() {
                 </div>
               </div>
             )}
+            {/* Search filmstrip by slide name */}
+            <div className="mx-3 mb-1 mt-1">
+              <input
+                type="text"
+                value={filmstripSearch}
+                onChange={(e) => setFilmstripSearch(e.target.value)}
+                placeholder="Rechercher une slide…"
+                className="w-full text-[10px] px-2 py-1 rounded-md border border-gray-200 bg-gray-50 text-gray-600 placeholder-gray-300 focus:outline-none focus:border-blue-300 focus:bg-white transition-colors"
+              />
+            </div>
             {/* Filter: show only slides with notes */}
             <button
               onClick={() => setShowOnlyWithNotes((prev) => !prev)}
@@ -1093,9 +1122,12 @@ export default function DeckPage() {
             {Object.entries(sectionSlides).map(([secStr, items]) => {
               const sec = Number(secStr);
               const secColor = SECTION_COLORS[sec] ?? "#2CA6F9";
-              const visibleItems = showOnlyWithNotes
-                ? items.filter(({ slide }) => !!slideNotes[slide.id])
-                : items;
+              const searchLower = filmstripSearch.trim().toLowerCase();
+              const visibleItems = items.filter(({ slide }) => {
+                if (showOnlyWithNotes && !slideNotes[slide.id]) return false;
+                if (searchLower && !slide.label.toLowerCase().includes(searchLower)) return false;
+                return true;
+              });
               if (visibleItems.length === 0) return null;
               return (
                 <div key={sec}>
@@ -1173,7 +1205,12 @@ export default function DeckPage() {
                   Personnalisés
                 </div>
                 <TooltipProvider delayDuration={300}>
-                {customSlides.filter(cs => !showOnlyWithNotes || !!slideNotes[cs.id]).map((cs, i) => {
+                {customSlides.filter(cs => {
+                  if (showOnlyWithNotes && !slideNotes[cs.id]) return false;
+                  const sl = filmstripSearch.trim().toLowerCase();
+                  if (sl && !cs.label.toLowerCase().includes(sl)) return false;
+                  return true;
+                }).map((cs, i) => {
                   i = customSlides.indexOf(cs);
                   const idx = slides.length + i;
                   const isDragging = filmstripDragging === i;
