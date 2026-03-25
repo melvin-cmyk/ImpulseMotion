@@ -413,6 +413,20 @@ export default function DeckPage() {
     showToast(`✅ Slide "${label}" ajoutée`);
   }, [slides.length, showToast]);
 
+  const handleRenameSlide = useCallback((newLabel: string) => {
+    const customIndex = currentSlide - slides.length;
+    if (customIndex < 0) {
+      showToast("⚠️ Seules les slides personnalisées peuvent être renommées");
+      return;
+    }
+    setCustomSlides((prev) => {
+      const next = [...prev];
+      next[customIndex] = { ...next[customIndex], label: newLabel };
+      return next;
+    });
+    showToast(`✏️ Slide renommée en "${newLabel}"`);
+  }, [currentSlide, slides.length, showToast]);
+
   const handleMoveSlide = useCallback((direction: "up" | "down") => {
     const customIndex = currentSlide - slides.length;
     if (customIndex < 0) {
@@ -1198,6 +1212,7 @@ export default function DeckPage() {
             onAddCustomSlide={handleAddCustomSlide}
             onDuplicateSlide={handleDuplicateSlide}
             onMoveSlide={handleMoveSlide}
+            onRenameSlide={handleRenameSlide}
           />
         </div>
       </div>

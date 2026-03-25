@@ -38,6 +38,7 @@ interface AIPanelProps {
   onAddCustomSlide?: (label: string, content: string) => void;
   onDuplicateSlide?: () => void;
   onMoveSlide?: (direction: "up" | "down") => void;
+  onRenameSlide?: (newLabel: string) => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -61,6 +62,7 @@ const SLASH_COMMANDS = [
   { cmd: "/duplicate slide", desc: "Dupliquer la slide actuelle comme nouveau customSlide" },
   { cmd: "/move up", desc: "Déplacer la slide actuelle vers le haut (customSlides uniquement)" },
   { cmd: "/move down", desc: "Déplacer la slide actuelle vers le bas (customSlides uniquement)" },
+  { cmd: "/rename slide", desc: "Renommer la slide actuelle (ex: /rename slide Mon titre)" },
   { cmd: "/reset deck", desc: "Effacer tous les overrides et slides personnalisées" },
 ];
 
@@ -106,6 +108,7 @@ export function AIPanel({
   onAddCustomSlide,
   onDuplicateSlide,
   onMoveSlide,
+  onRenameSlide,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -391,6 +394,41 @@ export function AIPanel({
           ...prev,
           moveMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Déplacement non disponible dans ce contexte." },
+        ]);
+      }
+      return;
+    }
+
+    // /rename slide [new title] — direct action, no AI stream
+    if (text.startsWith("/rename slide ")) {
+      const newLabel = text.replace("/rename slide ", "").trim();
+      setInput("");
+      setShowSlashMenu(false);
+      const renameMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "user",
+        content: text,
+      };
+      if (!newLabel) {
+        setMessages((prev) => [
+          ...prev,
+          renameMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Précise un nouveau titre : `/rename slide Mon Titre`" },
+        ]);
+        return;
+      }
+      if (onRenameSlide) {
+        onRenameSlide(newLabel);
+        setMessages((prev) => [
+          ...prev,
+          renameMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: `✏️ Slide renommée en **"${newLabel}"**.` },
+        ]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          renameMsg,
+          { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Renommage non disponible dans ce contexte." },
         ]);
       }
       return;
