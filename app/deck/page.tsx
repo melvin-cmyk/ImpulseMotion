@@ -275,6 +275,7 @@ export default function DeckPage() {
   const [filmstripDropTarget, setFilmstripDropTarget] = useState<number | null>(null);
   const [slideNotes, setSlideNotes] = useState<Record<string, string>>({});
   const [notePanelOpen, setNotePanelOpen] = useState(false);
+  const prevSlideRef = useRef<number>(-1);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
@@ -546,6 +547,15 @@ export default function DeckPage() {
       }, 150);
     }
   };
+
+  // ── Auto-open notes panel when navigating to a slide with a note ─────────
+  useEffect(() => {
+    if (prevSlideRef.current === currentSlide) return;
+    prevSlideRef.current = currentSlide;
+    if (currentSlideNote) {
+      setNotePanelOpen(true);
+    }
+  }, [currentSlide, currentSlideNote]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
@@ -995,7 +1005,10 @@ export default function DeckPage() {
                           }
                         >
                           <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
-                          {slide.label}
+                          <span className="flex-1 truncate">{slide.label}</span>
+                          {slideNotes[slide.id] && (
+                            <span className="ml-1 w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" title="Note" />
+                          )}
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side="right" className="max-w-[160px]">
@@ -1044,10 +1057,13 @@ export default function DeckPage() {
                           <TooltipTrigger asChild>
                             <button
                               onClick={() => goToSlide(idx)}
-                              className="flex-1 text-left truncate"
+                              className="flex-1 text-left truncate flex items-center gap-1"
                             >
                               <span className="text-gray-400 mr-1">{idx + 1}.</span>
-                              {cs.label}
+                              <span className="flex-1 truncate">{cs.label}</span>
+                              {slideNotes[cs.id] && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" title="Note" />
+                              )}
                             </button>
                           </TooltipTrigger>
                           <TooltipContent side="right" className="max-w-[160px]">
@@ -1249,6 +1265,11 @@ export default function DeckPage() {
               >
                 <ChevronRight className="w-4 h-4 text-gray-600" />
               </button>
+
+              {/* Slide counter */}
+              <span className="text-xs text-gray-400 ml-1 tabular-nums select-none">
+                {currentSlide + 1} / {slides.length + customSlides.length}
+              </span>
             </div>
 
             {/* Notes panel */}
