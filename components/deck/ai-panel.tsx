@@ -70,6 +70,7 @@ const SLASH_COMMANDS = [
   { cmd: "/reset deck", desc: "Effacer tous les overrides et slides personnalisées" },
   { cmd: "/note", desc: "Ajouter/modifier une note de présentation (ex: /note Mentionner le budget Q2)" },
   { cmd: "/note clear", desc: "Effacer la note de présentation de cette slide" },
+  { cmd: "/cancel", desc: "Annuler l'action en attente de confirmation" },
 ];
 
 const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
@@ -216,6 +217,20 @@ export function AIPanel({
   const handleSubmit = async () => {
     let text = input.trim();
     if (!text || isLoading) return;
+
+    // ── /cancel — explicit cancel of any pending action ─────────────────────
+    if (text === "/cancel") {
+      setInput("");
+      setShowSlashMenu(false);
+      const cancelMsg: AIPanelMessage = { id: crypto.randomUUID(), role: "user", content: "/cancel" };
+      if (pendingAction) {
+        setPendingAction(null);
+        setMessages((prev) => [...prev, cancelMsg, { id: crypto.randomUUID(), role: "assistant", content: "✅ Action annulée." }]);
+      } else {
+        setMessages((prev) => [...prev, cancelMsg, { id: crypto.randomUUID(), role: "assistant", content: "ℹ️ Aucune action en cours à annuler." }]);
+      }
+      return;
+    }
 
     // ── Pending confirmation flow ────────────────────────────────────────────
     if (pendingAction) {

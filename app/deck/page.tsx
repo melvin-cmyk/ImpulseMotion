@@ -43,6 +43,7 @@ import {
 import { AIPanel } from "@/components/deck/ai-panel";
 import { exportDeckToPptx } from "@/lib/deck-export";
 import { SlideStyleContext, type TextStyle } from "@/components/deck/slide-style-context";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ── Section config ───────────────────────────────────────────────────────────
 
@@ -963,6 +964,7 @@ export default function DeckPage() {
           {/* Filmstrip sidebar */}
           <div className="w-44 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
             <div className="flex-1">
+            <TooltipProvider delayDuration={300}>
             {Object.entries(sectionSlides).map(([secStr, items]) => {
               const sec = Number(secStr);
               return (
@@ -974,30 +976,38 @@ export default function DeckPage() {
                     {SECTION_LABELS[sec]}
                   </div>
                   {items.map(({ idx, slide }) => (
-                    <button
-                      key={slide.id}
-                      onClick={() => goToSlide(idx)}
-                      className={`w-full text-left px-3 py-1.5 text-xs transition-all ${
-                        currentSlide === idx
-                          ? "bg-blue-50 text-blue-700 font-semibold"
-                          : "text-gray-600 hover:bg-gray-50"
-                      }`}
-                      style={
-                        currentSlide === idx
-                          ? {
-                              borderLeft: "3px solid #2CA6F9",
-                              paddingLeft: "9px",
-                            }
-                          : undefined
-                      }
-                    >
-                      <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
-                      {slide.label}
-                    </button>
+                    <Tooltip key={slide.id}>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => goToSlide(idx)}
+                          className={`w-full text-left px-3 py-1.5 text-xs transition-all ${
+                            currentSlide === idx
+                              ? "bg-blue-50 text-blue-700 font-semibold"
+                              : "text-gray-600 hover:bg-gray-50"
+                          }`}
+                          style={
+                            currentSlide === idx
+                              ? {
+                                  borderLeft: "3px solid #2CA6F9",
+                                  paddingLeft: "9px",
+                                }
+                              : undefined
+                          }
+                        >
+                          <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
+                          {slide.label}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-[160px]">
+                        <p className="font-semibold">{slide.label}</p>
+                        <p className="text-gray-300 text-[10px]">{SECTION_LABELS[sec]}</p>
+                      </TooltipContent>
+                    </Tooltip>
                   ))}
                 </div>
               );
             })}
+            </TooltipProvider>
 
             {/* Custom slides */}
             {customSlides.length > 0 && (
@@ -1005,6 +1015,7 @@ export default function DeckPage() {
                 <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                   Personnalisés
                 </div>
+                <TooltipProvider delayDuration={300}>
                 {customSlides.map((cs, i) => {
                   const idx = slides.length + i;
                   const isDragging = filmstripDragging === i;
@@ -1029,17 +1040,26 @@ export default function DeckPage() {
                       >
                         {/* Drag handle */}
                         <GripVertical className="w-3 h-3 flex-shrink-0 text-gray-300 group-hover:text-gray-400 cursor-grab active:cursor-grabbing transition-colors" />
-                        <button
-                          onClick={() => goToSlide(idx)}
-                          className="flex-1 text-left truncate"
-                        >
-                          <span className="text-gray-400 mr-1">{idx + 1}.</span>
-                          {cs.label}
-                        </button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => goToSlide(idx)}
+                              className="flex-1 text-left truncate"
+                            >
+                              <span className="text-gray-400 mr-1">{idx + 1}.</span>
+                              {cs.label}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-[160px]">
+                            <p className="font-semibold">{cs.label}</p>
+                            <p className="text-gray-300 text-[10px]">Slide personnalisée</p>
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
                     </div>
                   );
                 })}
+                </TooltipProvider>
                 {/* Drop zone at the end */}
                 {filmstripDragging !== null && filmstripDropTarget === null && (
                   <div
