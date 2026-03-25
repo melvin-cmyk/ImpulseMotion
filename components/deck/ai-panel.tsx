@@ -159,6 +159,7 @@ export function AIPanel({
   const abortRef = useRef<AbortController | null>(null);
   const [blockFonts, setBlockFonts] = useState<Record<string, string>>({});
   const [addedBlocks, setAddedBlocks] = useState<Set<string>>(new Set());
+  const [hoveredBlock, setHoveredBlock] = useState<string | null>(null);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -840,43 +841,54 @@ export function AIPanel({
                         const blockId = `${msg.id}-${bIdx}`;
                         const isAdded = addedBlocks.has(blockId);
                         const font = blockFonts[blockId] || FONT_OPTIONS[0].value;
+                        const isHovered = hoveredBlock === blockId;
                         return (
-                          <div key={bIdx} className="relative group/block">
-                            <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-0 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 rounded px-1.5 py-1 group-hover/block:bg-gray-800/50 transition-colors">
+                          <div
+                            key={bIdx}
+                            className="relative"
+                            onMouseEnter={() => setHoveredBlock(blockId)}
+                            onMouseLeave={() => setHoveredBlock(null)}
+                          >
+                            <div
+                              className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-0 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 rounded px-1.5 py-1 transition-colors"
+                              style={{ backgroundColor: isHovered ? "rgba(31,41,55,0.5)" : "transparent" }}
+                            >
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
                             </div>
-                            <div className="absolute right-0 top-0.5 hidden group-hover/block:flex items-center gap-1 z-10">
-                              <select
-                                value={font}
-                                onChange={(e) => setBlockFonts(prev => ({ ...prev, [blockId]: e.target.value }))}
-                                onClick={(e) => e.stopPropagation()}
-                                className="text-[9px] bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-gray-300 cursor-pointer"
-                              >
-                                {FONT_OPTIONS.map(f => (
-                                  <option key={f.value} value={f.value}>{f.label}</option>
-                                ))}
-                              </select>
-                              <button
-                                onClick={() => {
-                                  if (!isAdded && onAddCustomSlide) {
-                                    const label = block.type === "heading"
-                                      ? block.text.replace(/^#+\s*/, "").slice(0, 40)
-                                      : `Bloc IA ${bIdx + 1}`;
-                                    onAddCustomSlide(label, block.text, font);
-                                    setAddedBlocks(prev => new Set([...prev, blockId]));
-                                  }
-                                }}
-                                disabled={isAdded}
-                                title="Ajouter comme slide"
-                                className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
-                                  isAdded
-                                    ? "bg-green-700/30 text-green-400 cursor-default"
-                                    : "bg-violet-600 hover:bg-violet-700 text-white"
-                                }`}
-                              >
-                                {isAdded ? "✓" : "+ Slide"}
-                              </button>
-                            </div>
+                            {isHovered && (
+                              <div className="absolute right-0 top-0.5 flex items-center gap-1 z-10">
+                                <select
+                                  value={font}
+                                  onChange={(e) => setBlockFonts(prev => ({ ...prev, [blockId]: e.target.value }))}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-[9px] bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-gray-300 cursor-pointer"
+                                >
+                                  {FONT_OPTIONS.map(f => (
+                                    <option key={f.value} value={f.value}>{f.label}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  onClick={() => {
+                                    if (!isAdded && onAddCustomSlide) {
+                                      const label = block.type === "heading"
+                                        ? block.text.replace(/^#+\s*/, "").slice(0, 40)
+                                        : `Bloc IA ${bIdx + 1}`;
+                                      onAddCustomSlide(label, block.text, font);
+                                      setAddedBlocks(prev => new Set([...prev, blockId]));
+                                    }
+                                  }}
+                                  disabled={isAdded}
+                                  title="Ajouter comme slide"
+                                  className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                                    isAdded
+                                      ? "bg-green-700/30 text-green-400 cursor-default"
+                                      : "bg-violet-600 hover:bg-violet-700 text-white"
+                                  }`}
+                                >
+                                  {isAdded ? "✓" : "+ Slide"}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
