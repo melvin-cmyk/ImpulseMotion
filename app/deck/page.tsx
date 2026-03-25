@@ -177,6 +177,8 @@ export default function DeckPage() {
   const [draggingBlock, setDraggingBlock] = useState<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [textStyles, setTextStyles] = useState<Record<string, TextStyle>>({});
   const [customSlides, setCustomSlides] = useState<{ id: string; label: string; content: string }[]>([]);
+  const [filmstripDragging, setFilmstripDragging] = useState<number | null>(null);
+  const [filmstripDropTarget, setFilmstripDropTarget] = useState<number | null>(null);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
@@ -336,6 +338,45 @@ export default function DeckPage() {
       return next;
     });
   }, [currentSlide, slides.length, showToast]);
+
+  const handleFilmstripDragStart = useCallback((e: React.DragEvent, customIdx: number) => {
+    setFilmstripDragging(customIdx);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(customIdx));
+  }, []);
+
+  const handleFilmstripDragOver = useCallback((e: React.DragEvent, customIdx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setFilmstripDropTarget(customIdx);
+  }, []);
+
+  const handleFilmstripDrop = useCallback((e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault();
+    const fromIdx = filmstripDragging;
+    if (fromIdx === null || fromIdx === targetIdx) {
+      setFilmstripDragging(null);
+      setFilmstripDropTarget(null);
+      return;
+    }
+    setCustomSlides((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      const insertAt = fromIdx < targetIdx ? targetIdx - 1 : targetIdx;
+      next.splice(insertAt, 0, moved);
+      const newAbsIdx = slides.length + insertAt;
+      setTimeout(() => setCurrentSlide(newAbsIdx), 50);
+      return next;
+    });
+    setFilmstripDragging(null);
+    setFilmstripDropTarget(null);
+    showToast("↕️ Slide réordonnée");
+  }, [filmstripDragging, slides.length, showToast]);
+
+  const handleFilmstripDragEnd = useCallback(() => {
+    setFilmstripDragging(null);
+    setFilmstripDropTarget(null);
+  }, []);
 
   const handleShareDeck = useCallback(() => {
     if (!selectedClient || !selectedPeriod) return "";
@@ -820,20 +861,47 @@ export default function DeckPage() {
                 </div>
                 {customSlides.map((cs, i) => {
                   const idx = slides.length + i;
+                  const isDragging = filmstripDragging === i;
+                  const isDropTarget = filmstripDropTarget === i && filmstripDragging !== null && filmstripDragging !== i;
                   return (
-                    <button
-                      key={cs.id}
-                      onClick={() => goToSlide(idx)}
-                      className={`w-full text-left px-3 py-1.5 text-xs transition-all ${
-                        currentSlide === idx ? "bg-blue-50 text-blue-700 font-semibold" : "text-gray-600 hover:bg-gray-50"
-                      }`}
-                      style={currentSlide === idx ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "9px" } : undefined}
-                    >
-                      <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
-                      {cs.label}
-                    </button>
+                    <div key={cs.id}>
+                      {/* Drop indicator line above this item */}
+                      {isDropTarget && (
+                        <div className="mx-3 h-0.5 rounded-full bg-violet-500 transition-all" />
+                      )}
+                      <div
+                        draggable
+                        onDragStart={(e) => handleFilmstripDragStart(e, i)}
+                        onDragOver={(e) => handleFilmstripDragOver(e, i)}
+                        onDrop={(e) => handleFilmstripDrop(e, i)}
+                        onDragEnd={handleFilmstripDragEnd}
+                        className={`flex items-center gap-1 w-full text-left px-2 py-1.5 text-xs transition-all group ${
+                          isDragging ? "opacity-40" :
+                          currentSlide === idx ? "bg-blue-50 text-blue-700 font-semibold" : "text-gray-600 hover:bg-gray-50"
+                        }`}
+                        style={currentSlide === idx && !isDragging ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "5px" } : undefined}
+                      >
+                        {/* Drag handle */}
+                        <GripVertical className="w-3 h-3 flex-shrink-0 text-gray-300 group-hover:text-gray-400 cursor-grab active:cursor-grabbing transition-colors" />
+                        <button
+                          onClick={() => goToSlide(idx)}
+                          className="flex-1 text-left truncate"
+                        >
+                          <span className="text-gray-400 mr-1">{idx + 1}.</span>
+                          {cs.label}
+                        </button>
+                      </div>
+                    </div>
                   );
                 })}
+                {/* Drop zone at the end */}
+                {filmstripDragging !== null && filmstripDropTarget === null && (
+                  <div
+                    className="mx-3 h-0.5 rounded-full bg-violet-300"
+                    onDragOver={(e) => { e.preventDefault(); setFilmstripDropTarget(customSlides.length); }}
+                    onDrop={(e) => handleFilmstripDrop(e, customSlides.length)}
+                  />
+                )}
               </div>
             )}
             </div>
