@@ -276,6 +276,7 @@ export default function DeckPage() {
   const [filmstripDropTarget, setFilmstripDropTarget] = useState<number | null>(null);
   const [slideNotes, setSlideNotes] = useState<Record<string, string>>({});
   const [notePanelOpen, setNotePanelOpen] = useState(false);
+  const [showOnlyWithNotes, setShowOnlyWithNotes] = useState(false);
   const prevSlideRef = useRef<number>(-1);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -611,8 +612,13 @@ export default function DeckPage() {
       else if (e.key === "Escape") {
         if (notePanelOpen) setNotePanelOpen(false);
       }
-      // N : toggle panneau de notes
-      else if (e.key === "n" || e.key === "N") {
+      // Ctrl+Shift+N : exporter les notes speaker en CSV
+      else if ((e.key === "n" || e.key === "N") && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+        e.preventDefault();
+        handleExportCsvNotes();
+      }
+      // N : toggle panneau de notes (sans Ctrl/Meta)
+      else if ((e.key === "n" || e.key === "N") && !e.ctrlKey && !e.metaKey) {
         if (inInput) return;
         e.preventDefault();
         setNotePanelOpen((prev) => !prev);
@@ -621,7 +627,7 @@ export default function DeckPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides.length, notePanelOpen, setNotePanelOpen]);
+  }, [deckGenerated, currentSlide, slides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
@@ -1045,11 +1051,28 @@ export default function DeckPage() {
                 </div>
               </div>
             )}
+            {/* Filter: show only slides with notes */}
+            <button
+              onClick={() => setShowOnlyWithNotes((prev) => !prev)}
+              className={`mx-3 mb-2 mt-1 flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                showOnlyWithNotes
+                  ? "bg-blue-50 border-blue-300 text-blue-700 font-semibold"
+                  : "bg-gray-50 border-gray-200 text-gray-400 hover:text-gray-600"
+              }`}
+              title="Afficher uniquement les slides avec notes"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />
+              {showOnlyWithNotes ? "Avec notes" : "Toutes les slides"}
+            </button>
             <div className="flex-1">
             <TooltipProvider delayDuration={300}>
             {Object.entries(sectionSlides).map(([secStr, items]) => {
               const sec = Number(secStr);
               const secColor = SECTION_COLORS[sec] ?? "#2CA6F9";
+              const visibleItems = showOnlyWithNotes
+                ? items.filter(({ slide }) => !!slideNotes[slide.id])
+                : items;
+              if (visibleItems.length === 0) return null;
               return (
                 <div key={sec}>
                   <div
@@ -1058,7 +1081,7 @@ export default function DeckPage() {
                   >
                     {SECTION_LABELS[sec]}
                   </div>
-                  {items.map(({ idx, slide }) => {
+                  {visibleItems.map(({ idx, slide }) => {
                     const isActive = currentSlide === idx;
                     const bg = slide.dark ? "#0944A1" : "#f1f5f9";
                     const textColor = slide.dark ? "rgba(255,255,255,0.5)" : "#94a3b8";
@@ -1118,13 +1141,14 @@ export default function DeckPage() {
             </TooltipProvider>
 
             {/* Custom slides */}
-            {customSlides.length > 0 && (
+            {customSlides.length > 0 && (!showOnlyWithNotes || customSlides.some(cs => !!slideNotes[cs.id])) && (
               <div>
                 <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
                   Personnalisés
                 </div>
                 <TooltipProvider delayDuration={300}>
-                {customSlides.map((cs, i) => {
+                {customSlides.filter(cs => !showOnlyWithNotes || !!slideNotes[cs.id]).map((cs, i) => {
+                  i = customSlides.indexOf(cs);
                   const idx = slides.length + i;
                   const isDragging = filmstripDragging === i;
                   const isDropTarget = filmstripDropTarget === i && filmstripDragging !== null && filmstripDragging !== i;
