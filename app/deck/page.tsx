@@ -144,6 +144,7 @@ interface SlideConfig {
   id: string;
   label: string;
   section: number;
+  dark?: boolean; // true for dark-background slides (cover, section dividers)
   render: (data: DeckData, slideNumber: number, editCallbacks?: {
     onEdit?: (field: string, slideIndex: number, newValue: string) => void;
     getOverride?: (slideIndex: number, field: string) => string | undefined;
@@ -153,25 +154,25 @@ interface SlideConfig {
 function buildSlides(): SlideConfig[] {
   return [
     // Cover & Agenda
-    { id: "cover", label: "Cover", section: 0, render: (d, n, cb) => <CoverSlide data={d} slideNumber={n} {...cb} /> },
+    { id: "cover", label: "Cover", section: 0, dark: true, render: (d, n, cb) => <CoverSlide data={d} slideNumber={n} {...cb} /> },
     { id: "agenda", label: "Agenda", section: 0, render: (d) => <AgendaSlide data={d} /> },
 
     // Section 1 — Global Overview
-    { id: "s1-div", label: "Section 1", section: 1, render: (_, n, cb) => <SectionDividerSlide sectionNumber="01" title="Global Overview" subtitle="Highlights · Performance · Nouveaux Clients" slideNumber={n} {...cb} /> },
+    { id: "s1-div", label: "Section 1", section: 1, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="01" title="Global Overview" subtitle="Highlights · Performance · Nouveaux Clients" slideNumber={n} {...cb} /> },
     { id: "highlights", label: "Highlights", section: 1, render: (d, n, cb) => <HighlightsSlide data={d} slideNumber={n} {...cb} /> },
     { id: "global-table", label: "Tableau Global", section: 1, render: (d, n, cb) => <GlobalTableSlide data={d} slideNumber={n} {...cb} /> },
     { id: "nc-table", label: "NC / CP-NC", section: 1, render: (d, n, cb) => <NCSlide data={d} slideNumber={n} {...cb} /> },
     { id: "learnings-global", label: "Learnings Global", section: 1, render: (d, n, cb) => <LearningsSlide learnings={d.learnings} slideNumber={n} {...cb} /> },
 
     // Section 2 — Google Ads
-    { id: "s2-div", label: "Section 2", section: 2, render: (_, n, cb) => <SectionDividerSlide sectionNumber="02" title="Focus Google Ads" subtitle="Vue globale · Campagnes · Brand Search · Pmax" slideNumber={n} {...cb} /> },
+    { id: "s2-div", label: "Section 2", section: 2, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="02" title="Focus Google Ads" subtitle="Vue globale · Campagnes · Brand Search · Pmax" slideNumber={n} {...cb} /> },
     { id: "google-kpi", label: "Google KPIs", section: 2, render: (d, n, cb) => <KPIOverviewSlide title="Google Ads — Vue Globale" metrics={d.googleOverview} slideNumber={n} {...cb} /> },
     { id: "google-campaigns", label: "Campagnes Google", section: 2, render: (d, n, cb) => <CampaignTableSlide title="Google Ads — Campagnes" campaigns={d.googleCampaigns} slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} {...cb} /> },
     { id: "insights-google", label: "Insights Google", section: 2, render: (d, n, cb) => <LearningsSlide learnings={d.insightsGoogle} slideNumber={n} {...cb} /> },
     { id: "next-google", label: "Next Steps Google", section: 2, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Google Ads" steps={d.nextStepsGoogle} slideNumber={n} {...cb} /> },
 
     // Section 3 — Meta Ads
-    { id: "s3-div", label: "Section 3", section: 3, render: (_, n, cb) => <SectionDividerSlide sectionNumber="03" title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Learnings" slideNumber={n} {...cb} /> },
+    { id: "s3-div", label: "Section 3", section: 3, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="03" title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Learnings" slideNumber={n} {...cb} /> },
     { id: "meta-kpi", label: "Meta KPIs", section: 3, render: (d, n, cb) => <KPIOverviewSlide title="Meta Ads — Vue Globale" metrics={d.metaOverview} accent="violet" slideNumber={n} {...cb} /> },
     { id: "meta-campaigns", label: "Campagnes Meta", section: 3, render: (d, n, cb) => <CampaignTableSlide title="Meta Ads — Campagnes" campaigns={d.metaCampaigns} accent="violet" slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} {...cb} /> },
     { id: "top-creatives", label: "Top Créatives", section: 3, render: (d, n) => <TopCreativesSlide creatives={d.topCreatives} slideNumber={n} /> },
@@ -179,7 +180,7 @@ function buildSlides(): SlideConfig[] {
     { id: "next-meta", label: "Next Steps Meta", section: 3, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Meta Ads" steps={d.nextStepsMeta} accent="violet" slideNumber={n} {...cb} /> },
 
     // Section 4 — Next Steps & Budget
-    { id: "s4-div", label: "Section 4", section: 4, render: (_, n, cb) => <SectionDividerSlide sectionNumber="04" title="Next Steps & Budget" subtitle="Actions globales · Budget mensuel" slideNumber={n} {...cb} /> },
+    { id: "s4-div", label: "Section 4", section: 4, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="04" title="Next Steps & Budget" subtitle="Actions globales · Budget mensuel" slideNumber={n} {...cb} /> },
     { id: "next-global", label: "Next Steps Global", section: 4, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Global" steps={d.nextStepsGlobal} slideNumber={n} {...cb} /> },
     { id: "budget", label: "Budget", section: 4, render: (d, n, cb) => <BudgetSlide budget={d.budget} period={d.period.label} slideNumber={n} {...cb} /> },
   ];
@@ -972,51 +973,73 @@ export default function DeckPage() {
         {/* ── LEFT: Filmstrip + Slide Viewer (60-65%) ───────────────────── */}
         <div className="flex-1 flex overflow-hidden" style={{ flex: "0 0 62%" }}>
           {/* Filmstrip sidebar */}
-          <div className="w-44 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
+          <div className="w-48 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
             <div className="flex-1">
             <TooltipProvider delayDuration={300}>
             {Object.entries(sectionSlides).map(([secStr, items]) => {
               const sec = Number(secStr);
+              const secColor = SECTION_COLORS[sec] ?? "#2CA6F9";
               return (
                 <div key={sec}>
                   <div
-                    className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider"
-                    style={{ color: SECTION_COLORS[sec] ?? "#2CA6F9" }}
+                    className="px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-wider"
+                    style={{ color: secColor }}
                   >
                     {SECTION_LABELS[sec]}
                   </div>
-                  {items.map(({ idx, slide }) => (
-                    <Tooltip key={slide.id}>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => goToSlide(idx)}
-                          className={`w-full text-left px-3 py-1.5 text-xs transition-all ${
-                            currentSlide === idx
-                              ? "bg-blue-50 text-blue-700 font-semibold"
-                              : "text-gray-600 hover:bg-gray-50"
-                          }`}
-                          style={
-                            currentSlide === idx
-                              ? {
-                                  borderLeft: "3px solid #2CA6F9",
-                                  paddingLeft: "9px",
-                                }
-                              : undefined
-                          }
-                        >
-                          <span className="text-gray-400 mr-1.5">{idx + 1}.</span>
-                          <span className="flex-1 truncate">{slide.label}</span>
-                          {slideNotes[slide.id] && (
-                            <span className="ml-1 w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" title="Note" />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-[160px]">
-                        <p className="font-semibold">{slide.label}</p>
-                        <p className="text-gray-300 text-[10px]">{SECTION_LABELS[sec]}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ))}
+                  {items.map(({ idx, slide }) => {
+                    const isActive = currentSlide === idx;
+                    const bg = slide.dark ? "#0944A1" : "#f1f5f9";
+                    const textColor = slide.dark ? "rgba(255,255,255,0.5)" : "#94a3b8";
+                    return (
+                      <Tooltip key={slide.id}>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => goToSlide(idx)}
+                            className={`w-full text-left px-2 py-1.5 transition-all ${isActive ? "bg-blue-50" : "hover:bg-gray-50"}`}
+                            style={isActive ? { borderLeft: `3px solid ${secColor}`, paddingLeft: "5px" } : undefined}
+                          >
+                            {/* Mini visual thumbnail */}
+                            <div
+                              className="w-full aspect-[16/9] rounded overflow-hidden relative mb-1"
+                              style={{ background: bg, boxShadow: isActive ? `0 0 0 1.5px ${secColor}` : "0 0 0 1px rgba(0,0,0,0.08)" }}
+                            >
+                              <span className="absolute top-0.5 left-1 text-[7px] font-bold" style={{ color: textColor }}>
+                                {idx + 1}
+                              </span>
+                              {/* Section accent bar */}
+                              <div className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ background: secColor, opacity: 0.7 }} />
+                              {/* Layout hint lines */}
+                              {!slide.dark && (
+                                <>
+                                  <div className="absolute top-[28%] left-[10%] right-[10%] h-[8%] rounded-sm" style={{ background: secColor, opacity: 0.15 }} />
+                                  <div className="absolute top-[45%] left-[10%] right-[30%] h-[5%] rounded-sm bg-gray-300 opacity-40" />
+                                  <div className="absolute top-[55%] left-[10%] right-[20%] h-[5%] rounded-sm bg-gray-300 opacity-30" />
+                                </>
+                              )}
+                              {slide.dark && (
+                                <>
+                                  <div className="absolute top-[30%] left-[10%] right-[15%] h-[10%] rounded-sm bg-white opacity-15" />
+                                  <div className="absolute top-[50%] left-[10%] right-[25%] h-[6%] rounded-sm bg-white opacity-10" />
+                                </>
+                              )}
+                              {slideNotes[slide.id] && (
+                                <span className="absolute top-0.5 right-1 w-1.5 h-1.5 rounded-full bg-blue-400" />
+                              )}
+                            </div>
+                            {/* Label */}
+                            <span className={`block text-[10px] leading-tight truncate ${isActive ? "text-blue-700 font-semibold" : "text-gray-500"}`}>
+                              {slide.label}
+                            </span>
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-[160px]">
+                          <p className="font-semibold">{slide.label}</p>
+                          <p className="text-gray-300 text-[10px]">{SECTION_LABELS[sec]}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
                 </div>
               );
             })}
