@@ -278,6 +278,7 @@ export default function DeckPage() {
   const [notePanelOpen, setNotePanelOpen] = useState(false);
   const [showOnlyWithNotes, setShowOnlyWithNotes] = useState(false);
   const [filmstripSearch, setFilmstripSearch] = useState("");
+  const filmstripSearchRef = useRef<HTMLInputElement>(null);
   const lastGTimeRef = useRef<number>(0);
   const prevSlideRef = useRef<number>(-1);
   const slideContainerRef = useRef<HTMLDivElement>(null);
@@ -626,9 +627,21 @@ export default function DeckPage() {
         e.preventDefault();
         goToSlide(currentSlide + 1);
       }
-      // Escape : ferme le panneau de notes s'il est ouvert
+      // Escape : ferme le panneau de notes, ou blur la recherche
       else if (e.key === "Escape") {
-        if (notePanelOpen) setNotePanelOpen(false);
+        if (notePanelOpen) {
+          setNotePanelOpen(false);
+        } else if (inInput) {
+          (document.activeElement as HTMLElement)?.blur();
+          setFilmstripSearch("");
+        }
+      }
+      // / : focus la barre de recherche filmstrip (vim-style)
+      else if (e.key === "/" && !e.ctrlKey && !e.metaKey) {
+        if (inInput) return;
+        e.preventDefault();
+        filmstripSearchRef.current?.focus();
+        filmstripSearchRef.current?.select();
       }
       // Ctrl+Shift+N : exporter les notes speaker en CSV
       else if ((e.key === "n" || e.key === "N") && (e.ctrlKey || e.metaKey) && e.shiftKey) {
@@ -944,6 +957,22 @@ export default function DeckPage() {
   // ── Deck viewer — Split layout ─────────────────────────────────────────
   if (!deckData) return null;
 
+  /** Highlight matching search term in a slide label */
+  function HighlightLabel({ label, search }: { label: string; search: string }) {
+    if (!search.trim()) return <>{label}</>;
+    const idx = label.toLowerCase().indexOf(search.trim().toLowerCase());
+    if (idx === -1) return <>{label}</>;
+    return (
+      <>
+        {label.slice(0, idx)}
+        <mark className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5 not-italic font-semibold">
+          {label.slice(idx, idx + search.trim().length)}
+        </mark>
+        {label.slice(idx + search.trim().length)}
+      </>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col bg-gray-100 overflow-hidden">
       {/* ── Full-width Header ────────────────────────────────────────────── */}
@@ -1095,10 +1124,12 @@ export default function DeckPage() {
             {/* Search filmstrip by slide name */}
             <div className="mx-3 mb-1 mt-1">
               <input
+                ref={filmstripSearchRef}
                 type="text"
                 value={filmstripSearch}
                 onChange={(e) => setFilmstripSearch(e.target.value)}
-                placeholder="Rechercher une slide…"
+                placeholder="Rechercher… (/)"
+                title="Raccourci clavier : / pour focus"
                 className="w-full text-[10px] px-2 py-1 rounded-md border border-gray-200 bg-gray-50 text-gray-600 placeholder-gray-300 focus:outline-none focus:border-blue-300 focus:bg-white transition-colors"
               />
             </div>
@@ -1182,7 +1213,7 @@ export default function DeckPage() {
                             </div>
                             {/* Label */}
                             <span className={`block text-[10px] leading-tight truncate ${isActive ? "text-blue-700 font-semibold" : "text-gray-500"}`}>
-                              {slide.label}
+                              <HighlightLabel label={slide.label} search={filmstripSearch} />
                             </span>
                           </button>
                         </TooltipTrigger>
@@ -1242,7 +1273,7 @@ export default function DeckPage() {
                               className="flex-1 text-left truncate flex items-center gap-1"
                             >
                               <span className="text-gray-400 mr-1">{idx + 1}.</span>
-                              <span className="flex-1 truncate">{cs.label}</span>
+                              <span className="flex-1 truncate"><HighlightLabel label={cs.label} search={filmstripSearch} /></span>
                               {slideNotes[cs.id] && (
                                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" title="Note" />
                               )}
