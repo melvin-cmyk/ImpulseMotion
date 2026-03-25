@@ -40,6 +40,8 @@ interface AIPanelProps {
   onMoveSlide?: (direction: "up" | "down") => void;
   onRenameSlide?: (newLabel: string) => void;
   onDeleteSlide?: () => void;
+  onSetNote?: (note: string) => void;
+  currentSlideNote?: string;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -66,6 +68,8 @@ const SLASH_COMMANDS = [
   { cmd: "/rename slide", desc: "Renommer la slide actuelle (ex: /rename slide Mon titre)" },
   { cmd: "/delete slide", desc: "Supprimer la slide actuelle (customSlides uniquement)" },
   { cmd: "/reset deck", desc: "Effacer tous les overrides et slides personnalisées" },
+  { cmd: "/note", desc: "Ajouter/modifier une note de présentation (ex: /note Mentionner le budget Q2)" },
+  { cmd: "/note clear", desc: "Effacer la note de présentation de cette slide" },
 ];
 
 const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
@@ -112,6 +116,8 @@ export function AIPanel({
   onMoveSlide,
   onRenameSlide,
   onDeleteSlide,
+  onSetNote,
+  currentSlideNote,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -520,6 +526,37 @@ export function AIPanel({
           content: `⚠️ **Confirmer la réinitialisation complète du deck ?**\n\nTous les overrides et slides personnalisées seront supprimés. Tape \`oui\` pour confirmer ou \`non\` pour annuler.`,
         },
       ]);
+      return;
+    }
+
+    // ── /note commands (no API call needed) ─────────────────────────────────
+    if (text.startsWith("/note clear")) {
+      const userMsg = { id: crypto.randomUUID(), role: "user" as const, content: text };
+      if (onSetNote) {
+        onSetNote("");
+        setMessages(prev => [...prev, userMsg, { id: crypto.randomUUID(), role: "assistant" as const, content: "🗑️ Note effacée pour cette slide." }]);
+      } else {
+        setMessages(prev => [...prev, userMsg, { id: crypto.randomUUID(), role: "assistant" as const, content: "❌ Impossible d'effacer la note." }]);
+      }
+      setInput("");
+      return;
+    }
+
+    if (text.startsWith("/note ") || text === "/note") {
+      const noteText = text.startsWith("/note ") ? text.slice(6).trim() : "";
+      const userMsg = { id: crypto.randomUUID(), role: "user" as const, content: text };
+      if (!noteText) {
+        const existing = currentSlideNote
+          ? `Note actuelle : _"${currentSlideNote}"_`
+          : "Aucune note pour cette slide.";
+        setMessages(prev => [...prev, userMsg, { id: crypto.randomUUID(), role: "assistant" as const, content: `${existing}\n\nUsage : \`/note [texte de la note]\`` }]);
+      } else if (onSetNote) {
+        onSetNote(noteText);
+        setMessages(prev => [...prev, userMsg, { id: crypto.randomUUID(), role: "assistant" as const, content: `📝 Note enregistrée : _"${noteText}"_` }]);
+      } else {
+        setMessages(prev => [...prev, userMsg, { id: crypto.randomUUID(), role: "assistant" as const, content: "❌ Impossible d'ajouter une note." }]);
+      }
+      setInput("");
       return;
     }
 

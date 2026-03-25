@@ -272,12 +272,19 @@ export default function DeckPage() {
   const [customSlides, setCustomSlides] = useState<{ id: string; label: string; content: string }[]>([]);
   const [filmstripDragging, setFilmstripDragging] = useState<number | null>(null);
   const [filmstripDropTarget, setFilmstripDropTarget] = useState<number | null>(null);
+  const [slideNotes, setSlideNotes] = useState<Record<string, string>>({});
+  const [notePanelOpen, setNotePanelOpen] = useState(false);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
 
   const periods = useMemo(() => getAvailablePeriods(), []);
   const slides = useMemo(() => buildSlides(), []);
+
+  const currentSlideId = currentSlide < slides.length
+    ? (slides[currentSlide]?.id ?? `slide-${currentSlide}`)
+    : (customSlides[currentSlide - slides.length]?.id ?? `custom-${currentSlide}`);
+  const currentSlideNote = slideNotes[currentSlideId] ?? "";
 
   const [deckData, setDeckData] = useState<DeckData | null>(null);
   const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
@@ -442,6 +449,19 @@ export default function DeckPage() {
     });
     showToast("🗑️ Slide supprimée");
   }, [currentSlide, slides.length, showToast]);
+
+  const handleSetNote = useCallback((note: string) => {
+    const slideId = currentSlide < slides.length
+      ? (slides[currentSlide]?.id ?? `slide-${currentSlide}`)
+      : (customSlides[currentSlide - slides.length]?.id ?? `custom-${currentSlide}`);
+    setSlideNotes(prev => ({ ...prev, [slideId]: note }));
+    if (note) {
+      setNotePanelOpen(true);
+      showToast("📝 Note enregistrée");
+    } else {
+      showToast("🗑️ Note effacée");
+    }
+  }, [currentSlide, slides, customSlides, showToast]);
 
   const handleMoveSlide = useCallback((direction: "up" | "down") => {
     const customIndex = currentSlide - slides.length;
@@ -1210,6 +1230,29 @@ export default function DeckPage() {
                 <ChevronRight className="w-4 h-4 text-gray-600" />
               </button>
             </div>
+
+            {/* Notes panel */}
+            <div className="mt-3 w-full max-w-3xl print:hidden">
+              <button
+                onClick={() => setNotePanelOpen(o => !o)}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors w-full"
+              >
+                <span className={`transition-transform inline-block ${notePanelOpen ? "rotate-90" : ""}`}>▶</span>
+                Notes de présentation
+                {currentSlideNote && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" />}
+              </button>
+              {notePanelOpen && (
+                <textarea
+                  value={currentSlideNote}
+                  onChange={(e) => {
+                    setSlideNotes(prev => ({ ...prev, [currentSlideId]: e.target.value }));
+                  }}
+                  placeholder="Ajoutez des notes pour cette slide… (masquées à l'impression)"
+                  className="mt-1.5 w-full text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-2.5 resize-none focus:outline-none focus:border-blue-300 transition-colors"
+                  rows={3}
+                />
+              )}
+            </div>
           </div>
         </div>
 
@@ -1230,6 +1273,8 @@ export default function DeckPage() {
             onMoveSlide={handleMoveSlide}
             onRenameSlide={handleRenameSlide}
             onDeleteSlide={handleDeleteSlide}
+            onSetNote={handleSetNote}
+            currentSlideNote={currentSlideNote}
           />
         </div>
       </div>
