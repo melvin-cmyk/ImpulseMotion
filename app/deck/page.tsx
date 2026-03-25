@@ -1359,11 +1359,37 @@ export default function DeckPage() {
       {/* ── Print-only: all slides rendered for PDF export ─────────────── */}
       {isPrintingPdf && deckData && (
         <div className="deck-print-all">
-          {slides.map((slide, i) => (
-            <div key={slide.id} className="deck-print-page">
-              {slide.render(deckData, i + 1, { getOverride: getSlideOverride })}
-            </div>
-          ))}
+          {slides.map((slide, i) => {
+            const note = slideNotes[slide.id];
+            return (
+              <div key={slide.id} className="deck-print-page">
+                {slide.render(deckData, i + 1, { getOverride: getSlideOverride })}
+                {note && (
+                  <div className="deck-print-notes">
+                    <span className="deck-print-notes-label">Notes</span>
+                    {note}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {customSlides.map((cs, i) => {
+            const note = slideNotes[cs.id];
+            return (
+              <div key={cs.id} className="deck-print-page">
+                <div className="w-full aspect-[16/9] bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm p-6" style={{ fontFamily: cs.fontFamily || "'Open Sans', sans-serif" }}>
+                  <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">{cs.label}</div>
+                  <div className="prose prose-sm max-w-none text-gray-800"><ReactMarkdown remarkPlugins={[remarkGfm]}>{cs.content}</ReactMarkdown></div>
+                </div>
+                {note && (
+                  <div className="deck-print-notes">
+                    <span className="deck-print-notes-label">Notes</span>
+                    {note}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
