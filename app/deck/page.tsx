@@ -639,11 +639,17 @@ export default function DeckPage() {
         e.preventDefault();
         setNotePanelOpen((prev) => !prev);
       }
+      // F : toggle filtre filmstrip (slides avec notes uniquement)
+      else if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey) {
+        if (inInput) return;
+        e.preventDefault();
+        setShowOnlyWithNotes((prev) => !prev);
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes]);
+  }, [deckGenerated, currentSlide, slides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, setShowOnlyWithNotes]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
@@ -1075,7 +1081,7 @@ export default function DeckPage() {
                   ? "bg-blue-50 border-blue-300 text-blue-700 font-semibold"
                   : "bg-gray-50 border-gray-200 text-gray-400 hover:text-gray-600"
               }`}
-              title="Afficher uniquement les slides avec notes"
+              title="Afficher uniquement les slides avec notes (F)"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />
               {showOnlyWithNotes
@@ -1094,8 +1100,10 @@ export default function DeckPage() {
               return (
                 <div key={sec}>
                   <div
-                    className="px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-wider"
-                    style={{ color: secColor }}
+                    className={`px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-wider rounded-sm transition-colors ${
+                      showOnlyWithNotes ? "bg-blue-50 border-l-2 border-blue-300 mx-1" : ""
+                    }`}
+                    style={{ color: showOnlyWithNotes ? "#3b82f6" : secColor }}
                   >
                     {SECTION_LABELS[sec]}
                   </div>
