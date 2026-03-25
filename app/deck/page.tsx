@@ -46,6 +46,99 @@ import { SlideStyleContext, type TextStyle } from "@/components/deck/slide-style
 
 // ── Section config ───────────────────────────────────────────────────────────
 
+/** Generate contextual Markdown from real deck data for a given slide id. */
+function extractSlideMarkdown(slideId: string, label: string, data: DeckData): string {
+  const fmtCur = (n: number) => `€${n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmtPct = (n: number) => `${n.toFixed(2)}%`;
+  const fmtDec = (n: number) => n.toFixed(2);
+  const fmtK = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
+
+  switch (slideId) {
+    case "cover":
+      return `# ${data.client.name} — ${data.period.label}\n\nMonthly Business Review — Rapport de performance publicitaire.\n\n**Période :** ${data.period.startDate} → ${data.period.endDate}`;
+
+    case "highlights": {
+      const lines = data.highlights.map(h =>
+        `- **${h.title}** : ${h.value}${h.delta != null ? ` (${h.delta >= 0 ? "+" : ""}${h.delta.toFixed(1)}%)` : ""} — ${h.description}`
+      );
+      return `# Highlights — ${data.period.label}\n\n${lines.join("\n")}`;
+    }
+
+    case "global-table": {
+      const rows = data.globalTable.map(r =>
+        `| ${r.platform} | ${fmtCur(r.current.spend)} | ${fmtK(r.current.impressions)} | ${fmtK(r.current.clicks)} | ${Math.round(r.current.conversions)} | ${fmtDec(r.current.roas)}× | ${fmtPct(r.current.ctr)} |`
+      );
+      return `# Tableau Global — ${data.period.label}\n\n| Plateforme | Spend | Impressions | Clicks | Conv. | ROAS | CTR |\n|---|---|---|---|---|---|---|\n${rows.join("\n")}`;
+    }
+
+    case "nc-table": {
+      const rows = data.ncTable.map(r =>
+        `| ${r.platform} | ${Math.round(r.current.newClients)} | ${fmtCur(r.current.cpNc)} | ${fmtPct(r.current.percentNc)} |`
+      );
+      return `# Nouveaux Clients — ${data.period.label}\n\n| Plateforme | NC | CP-NC | % NC |\n|---|---|---|\n${rows.join("\n")}`;
+    }
+
+    case "learnings-global":
+      return `# Learnings Global — ${data.period.label}\n\n${data.learnings.map(l => `- ${l}`).join("\n")}`;
+
+    case "google-kpi": {
+      const m = data.googleOverview;
+      return `# Google Ads — KPIs — ${data.period.label}\n\n| Métrique | Valeur |\n|---|---|\n| Spend | ${fmtCur(m.spend)} |\n| Impressions | ${fmtK(m.impressions)} |\n| Clicks | ${fmtK(m.clicks)} |\n| Conversions | ${Math.round(m.conversions)} |\n| Revenue | ${fmtCur(m.revenue)} |\n| ROAS | ${fmtDec(m.roas)}× |\n| CPA | ${fmtCur(m.cpa)} |\n| CTR | ${fmtPct(m.ctr)} |`;
+    }
+
+    case "google-campaigns": {
+      const rows = data.googleCampaigns.map(c =>
+        `| ${c.name} | ${c.status} | ${fmtCur(c.current.spend)} | ${Math.round(c.current.conversions)} | ${fmtDec(c.current.roas)}× |`
+      );
+      return `# Campagnes Google Ads — ${data.period.label}\n\n| Campagne | Statut | Spend | Conv. | ROAS |\n|---|---|---|---|---|\n${rows.join("\n")}`;
+    }
+
+    case "insights-google":
+      return `# Insights Google — ${data.period.label}\n\n${data.insightsGoogle.map(l => `- ${l}`).join("\n")}`;
+
+    case "next-google":
+      return `# Next Steps Google — ${data.period.label}\n\n${data.nextStepsGoogle.map(l => `- ${l}`).join("\n")}`;
+
+    case "meta-kpi": {
+      const m = data.metaOverview;
+      return `# Meta Ads — KPIs — ${data.period.label}\n\n| Métrique | Valeur |\n|---|---|\n| Spend | ${fmtCur(m.spend)} |\n| Impressions | ${fmtK(m.impressions)} |\n| Clicks | ${fmtK(m.clicks)} |\n| Conversions | ${Math.round(m.conversions)} |\n| Revenue | ${fmtCur(m.revenue)} |\n| ROAS | ${fmtDec(m.roas)}× |\n| CPA | ${fmtCur(m.cpa)} |\n| CTR | ${fmtPct(m.ctr)} |`;
+    }
+
+    case "meta-campaigns": {
+      const rows = data.metaCampaigns.map(c =>
+        `| ${c.name} | ${c.status} | ${fmtCur(c.current.spend)} | ${Math.round(c.current.conversions)} | ${fmtDec(c.current.roas)}× |`
+      );
+      return `# Campagnes Meta Ads — ${data.period.label}\n\n| Campagne | Statut | Spend | Conv. | ROAS |\n|---|---|---|---|---|\n${rows.join("\n")}`;
+    }
+
+    case "top-creatives": {
+      const rows = data.topCreatives.map(c =>
+        `| ${c.name} | ${c.format} | ${fmtCur(c.spend)} | ${fmtDec(c.roas)}× | ${fmtPct(c.ctr)} |`
+      );
+      return `# Top Créatives — ${data.period.label}\n\n| Créative | Format | Spend | ROAS | CTR |\n|---|---|---|---|---|\n${rows.join("\n")}`;
+    }
+
+    case "insights-meta":
+      return `# Insights Meta — ${data.period.label}\n\n${data.insightsMeta.map(l => `- ${l}`).join("\n")}`;
+
+    case "next-meta":
+      return `# Next Steps Meta — ${data.period.label}\n\n${data.nextStepsMeta.map(l => `- ${l}`).join("\n")}`;
+
+    case "next-global":
+      return `# Next Steps Global — ${data.period.label}\n\n${data.nextStepsGlobal.map(l => `- ${l}`).join("\n")}`;
+
+    case "budget": {
+      const rows = data.budget.map(b =>
+        `| ${b.platform} | ${fmtCur(b.planned)} | ${fmtCur(b.actual)} | ${b.variance >= 0 ? "+" : ""}${b.variance.toFixed(1)}% |`
+      );
+      return `# Budget — ${data.period.label}\n\n| Plateforme | Planifié | Réel | Écart |\n|---|---|---|---|\n${rows.join("\n")}`;
+    }
+
+    default:
+      return `# ${label} (copie)\n\n_Personnalisez cette slide._`;
+  }
+}
+
 interface SlideConfig {
   id: string;
   label: string;
@@ -291,7 +384,10 @@ export default function DeckPage() {
     } else {
       const sl = slides[currentSlide];
       label = `${sl?.label ?? "Slide"} (copie)`;
-      content = `# ${sl?.label ?? "Slide"} (copie)\n\nContenu dupliqué — personnalisez cette slide.`;
+      // Generate contextual Markdown from real deck data when available
+      content = deckData
+        ? extractSlideMarkdown(sl?.id ?? "", sl?.label ?? "Slide", deckData)
+        : `# ${sl?.label ?? "Slide"} (copie)\n\n_Personnalisez cette slide._`;
     }
     const newSlide = { id: `custom-${Date.now()}`, label, content };
     setCustomSlides((prev) => {
@@ -300,7 +396,7 @@ export default function DeckPage() {
       return next;
     });
     showToast(`📋 "${label}" ajoutée`);
-  }, [currentSlide, slides, customSlides, showToast]);
+  }, [currentSlide, slides, customSlides, deckData, showToast]);
 
   const handleAddCustomSlide = useCallback((label: string, content: string) => {
     const newSlide = {
