@@ -117,6 +117,7 @@ export function AIPanel({
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"delete" | "reset" | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -209,6 +210,31 @@ export function AIPanel({
   const handleSubmit = async () => {
     let text = input.trim();
     if (!text || isLoading) return;
+
+    // ── Pending confirmation flow ────────────────────────────────────────────
+    if (pendingAction) {
+      const confirmed = /^(oui|yes|o|y|confirme|ok)$/i.test(text);
+      const cancelled = /^(non|no|n|annule|cancel|annuler)$/i.test(text);
+      const userConfirmMsg: AIPanelMessage = { id: crypto.randomUUID(), role: "user", content: text };
+      setInput("");
+      if (confirmed) {
+        if (pendingAction === "delete" && onDeleteSlide) {
+          onDeleteSlide();
+          setMessages((prev) => [...prev, userConfirmMsg, { id: crypto.randomUUID(), role: "assistant", content: "🗑️ Slide supprimée." }]);
+        } else if (pendingAction === "reset" && onResetDeck) {
+          onResetDeck();
+          setMessages((prev) => [...prev, userConfirmMsg, { id: crypto.randomUUID(), role: "assistant", content: "♻️ Deck réinitialisé — tous les overrides et slides personnalisées ont été effacés." }]);
+        }
+      } else if (cancelled) {
+        setMessages((prev) => [...prev, userConfirmMsg, { id: crypto.randomUUID(), role: "assistant", content: "✅ Action annulée." }]);
+      } else {
+        setMessages((prev) => [...prev, userConfirmMsg, { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Réponds \`oui\` pour confirmer ou \`non\` pour annuler." }]);
+        // keep pendingAction alive — don't fall through
+        return;
+      }
+      setPendingAction(null);
+      return;
+    }
 
     // /export pptx — direct action, no AI stream
     if (text.startsWith("/export pptx")) {
@@ -437,7 +463,7 @@ export function AIPanel({
       return;
     }
 
-    // /delete slide — direct action, no AI stream
+    // /delete slide — ask for confirmation first
     if (text.startsWith("/delete slide")) {
       setInput("");
       setShowSlashMenu(false);
@@ -446,24 +472,28 @@ export function AIPanel({
         role: "user",
         content: "/delete slide",
       };
-      if (onDeleteSlide) {
-        onDeleteSlide();
-        setMessages((prev) => [
-          ...prev,
-          deleteMsg,
-          { id: crypto.randomUUID(), role: "assistant", content: "🗑️ Slide supprimée." },
-        ]);
-      } else {
+      if (!onDeleteSlide) {
         setMessages((prev) => [
           ...prev,
           deleteMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Suppression non disponible dans ce contexte." },
         ]);
+        return;
       }
+      setPendingAction("delete");
+      setMessages((prev) => [
+        ...prev,
+        deleteMsg,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `⚠️ **Confirmer la suppression de la slide "${currentSlideLabel}" ?**\n\nCette action est irréversible. Tape \`oui\` pour confirmer ou \`non\` pour annuler.`,
+        },
+      ]);
       return;
     }
 
-    // /reset deck — direct action, no AI stream
+    // /reset deck — ask for confirmation first
     if (text.startsWith("/reset deck")) {
       setInput("");
       setShowSlashMenu(false);
@@ -472,20 +502,24 @@ export function AIPanel({
         role: "user",
         content: "/reset deck",
       };
-      if (onResetDeck) {
-        onResetDeck();
-        setMessages((prev) => [
-          ...prev,
-          resetMsg,
-          { id: crypto.randomUUID(), role: "assistant", content: "♻️ Deck réinitialisé — tous les overrides et slides personnalisées ont été effacés." },
-        ]);
-      } else {
+      if (!onResetDeck) {
         setMessages((prev) => [
           ...prev,
           resetMsg,
           { id: crypto.randomUUID(), role: "assistant", content: "⚠️ Reset non disponible dans ce contexte." },
         ]);
+        return;
       }
+      setPendingAction("reset");
+      setMessages((prev) => [
+        ...prev,
+        resetMsg,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: `⚠️ **Confirmer la réinitialisation complète du deck ?**\n\nTous les overrides et slides personnalisées seront supprimés. Tape \`oui\` pour confirmer ou \`non\` pour annuler.`,
+        },
+      ]);
       return;
     }
 
