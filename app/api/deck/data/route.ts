@@ -396,11 +396,24 @@ export async function POST(req: NextRequest) {
 
   const meta = metaResult.status === "fulfilled" ? metaResult.value : null;
   const google = googleResult.status === "fulfilled" ? googleResult.value : null;
+  const metaError = metaResult.status === "rejected" ? String(metaResult.reason) : (meta === null && client.metaAccountId ? "No data parsed from relay response" : null);
+  const googleError = googleResult.status === "rejected" ? String(googleResult.reason) : (google === null && client.googleCustomerId ? "No data parsed from relay response" : null);
+
+  console.error("[deck/data] relay results:", {
+    relayUrl: RELAY_URL,
+    metaAccountId: client.metaAccountId,
+    googleCustomerId: client.googleCustomerId,
+    metaOk: !!meta,
+    googleOk: !!google,
+    metaError,
+    googleError,
+  });
 
   // If both failed, fallback to mock data entirely
   if (!meta && !google) {
     const mockData = generateMockDeckData(client, period);
-    return NextResponse.json({ data: mockData, source: "mock" });
+    const reason = [metaError, googleError].filter(Boolean).join(" | ");
+    return NextResponse.json({ data: mockData, source: "mock", reason });
   }
 
   // At least one is real — fetch AI text content in parallel with building the deck

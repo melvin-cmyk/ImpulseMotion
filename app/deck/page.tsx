@@ -329,6 +329,7 @@ export default function DeckPage() {
 
   const [deckData, setDeckData] = useState<DeckData | null>(null);
   const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
+  const [dataSourceReason, setDataSourceReason] = useState<string | null>(null);
 
   const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod, contextOverride?: string) => {
     setIsGenerating(true);
@@ -339,16 +340,19 @@ export default function DeckPage() {
         body: JSON.stringify({ client, period, userContext: contextOverride ?? userContext }),
       });
       if (res.ok) {
-        const json = await res.json() as { data: DeckData; source: "real" | "mock" };
+        const json = await res.json() as { data: DeckData; source: "real" | "mock"; reason?: string };
         setDeckData(json.data);
         setDataSource(json.source);
+        setDataSourceReason(json.reason ?? null);
       } else {
         setDeckData(generateMockDeckData(client, period));
         setDataSource("mock");
+        setDataSourceReason(`HTTP ${res.status}`);
       }
-    } catch {
+    } catch (err) {
       setDeckData(generateMockDeckData(client, period));
       setDataSource("mock");
+      setDataSourceReason(String(err));
     }
     setDeckGenerated(true);
     setCurrentSlide(0);
@@ -1182,12 +1186,15 @@ export default function DeckPage() {
 
         {/* Data source badge */}
         {dataSource && (
-          <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
-            dataSource === "real"
-              ? "bg-green-50 text-green-700 border border-green-200"
-              : "bg-amber-50 text-amber-700 border border-amber-200"
-          }`}>
-            {dataSource === "real" ? "✓ Données réelles" : "⚠ Données fictives"}
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 cursor-default ${
+              dataSource === "real"
+                ? "bg-green-50 text-green-700 border border-green-200"
+                : "bg-amber-50 text-amber-700 border border-amber-200"
+            }`}
+            title={dataSourceReason ?? undefined}
+          >
+            {dataSource === "real" ? "✓ Données réelles" : `⚠ Données fictives${dataSourceReason ? " (hover pour détails)" : ""}`}
           </span>
         )}
 
@@ -1581,7 +1588,7 @@ export default function DeckPage() {
                     key={block.id}
                     data-block-id={block.id}
                     onClick={(e) => { e.stopPropagation(); setSelectedBlockId(block.id); }}
-                    onMouseDown={(e) => { if (!isSelected) { e.stopPropagation(); handleBlockMouseDown(e, block.id); } }}
+                    onMouseDown={(e) => { e.stopPropagation(); if (!isSelected) handleBlockMouseDown(e, block.id); }}
                     style={{
                       position: "absolute",
                       left: `${block.x}%`,
@@ -1701,6 +1708,7 @@ export default function DeckPage() {
                       <div
                         className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize z-30 flex items-end justify-end"
                         style={{ background: "linear-gradient(135deg, transparent 50%, #2CA6F9 50%)", borderBottomRightRadius: 6 }}
+                        onClick={(e) => e.stopPropagation()}
                         onMouseDown={(e) => {
                           e.stopPropagation();
                           e.preventDefault();
@@ -1709,13 +1717,10 @@ export default function DeckPage() {
                           const startX = e.clientX;
                           const startY = e.clientY;
                           const origW = block.w;
-                          const origH = block.h ?? (canvasRef.current ? (canvasRef.current.getBoundingClientRect().height > 0 ? (canvasRef.current.offsetHeight > 0 ? undefined : 30) : 30) : 30);
                           const rect = canvas.getBoundingClientRect();
-                          // Measure current rendered height as % if h is not set
                           const currentBlockEl = canvas.querySelector(`[data-block-id="${block.id}"]`) as HTMLElement | null;
                           const currentHpx = currentBlockEl?.offsetHeight ?? rect.height * 0.3;
-                          const currentHpct = (currentHpx / rect.height) * 100;
-                          const startHpct = origH ?? currentHpct;
+                          const startHpct = block.h ?? (currentHpx / rect.height) * 100;
                           const onMove = (ev: MouseEvent) => {
                             const dw = ((ev.clientX - startX) / rect.width) * 100;
                             const dh = ((ev.clientY - startY) / rect.height) * 100;
@@ -1724,7 +1729,11 @@ export default function DeckPage() {
                               : b
                             ));
                           };
-                          const onUp = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+                          const onUp = (ev: MouseEvent) => {
+                            ev.stopPropagation();
+                            window.removeEventListener("mousemove", onMove);
+                            window.removeEventListener("mouseup", onUp);
+                          };
                           window.addEventListener("mousemove", onMove);
                           window.addEventListener("mouseup", onUp);
                         }}
