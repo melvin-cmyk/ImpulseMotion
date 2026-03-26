@@ -56,6 +56,9 @@ const SLASH_COMMANDS = [
   { cmd: "/add slide table", desc: "Ajouter une slide Tableau de données au deck" },
   { cmd: "/add slide kpi", desc: "Ajouter une slide KPIs au deck" },
   { cmd: "/add slide blank", desc: "Ajouter une slide vierge au deck" },
+  { cmd: "/add slide hook-rate", desc: "Ajouter une slide analyse Hook Rate & Hold Rate" },
+  { cmd: "/add slide creative-comparison", desc: "Ajouter une slide comparaison Top 3 créatifs" },
+  { cmd: "/add slide budget-split", desc: "Ajouter une slide répartition budget par format/statut" },
   { cmd: "/analyze slide", desc: "Analyser la slide actuelle et suggérer des améliorations" },
   { cmd: "/suggest next-steps", desc: "Suggérer des actions prioritaires basées sur la performance" },
   { cmd: "/summarize deck", desc: "Rédiger un résumé exécutif du deck en 3 phrases" },
@@ -97,6 +100,18 @@ const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
   blank: {
     label: "Slide personnalisée",
     content: "# Nouveau slide\n\nAjoutez votre contenu ici.",
+  },
+  "hook-rate": {
+    label: "Hook Rate & Hold Rate",
+    content: "# Analyse Hook Rate & Hold Rate\n\n| Créatif | Format | Hook Rate | Hold Rate | ROAS |\n|---------|--------|-----------|-----------|------|\n| — | — | — | — | — |\n| — | — | — | — | — |\n| — | — | — | — | — |\n\n**Référence :** Hook Rate > 30% = excellent · Hold Rate > 25% = top performer",
+  },
+  "creative-comparison": {
+    label: "Comparaison Top 3 Créatifs",
+    content: "# Top 3 Créatifs du mois\n\n| Métrique | Créatif A | Créatif B | Créatif C |\n|----------|-----------|-----------|----------|\n| Spend | — | — | — |\n| ROAS | — | — | — |\n| CTR | — | — | — |\n| CPA | — | — | — |\n| Hook Rate | — | — | — |\n| Statut | — | — | — |",
+  },
+  "budget-split": {
+    label: "Répartition Budget",
+    content: "# Répartition Budget par Format & Statut\n\n**Par format**\n\n| Format | Spend | % Budget | ROAS moy. |\n|--------|-------|----------|-----------|\n| Video | — | —% | — |\n| Image | — | —% | — |\n| Carousel | — | —% | — |\n\n**Par statut**\n\n| Statut | Spend | Nb créatifs |\n|--------|-------|-------------|\n| Winner | — | — |\n| Active | — | — |\n| Fatigued | — | — |",
   },
 };
 
