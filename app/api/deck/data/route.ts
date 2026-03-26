@@ -16,7 +16,7 @@ import {
   type TopCreative,
 } from "@/lib/deck-data";
 
-export const maxDuration = 60; // Vercel Pro: allow up to 60s
+export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
 const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
 const RELAY_URL = rawRelayUrl
@@ -25,39 +25,50 @@ const RELAY_URL = rawRelayUrl
 
 // ── Relay helpers ─────────────────────────────────────────────────────────────
 
-async function relayChat(prompt: string, timeoutMs = 50000): Promise<string> {
-  const res = await fetch(`${RELAY_URL}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+async function relayChat(prompt: string, timeoutMs = 35000): Promise<string> {
+  const urls = [RELAY_URL];
+  // Also try localhost as fallback (works when running locally)
+  if (!RELAY_URL.includes("localhost")) urls.push("http://localhost:3457");
 
-  if (!res.ok) throw new Error(`Relay responded ${res.status}`);
+  let lastError: Error | null = null;
+  for (const url of urls) {
+    try {
+      const res = await fetch(`${url}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) { lastError = new Error(`Relay ${url} responded ${res.status}`); continue; }
 
-  const reader = res.body?.getReader();
-  if (!reader) throw new Error("No response body");
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
 
-  const decoder = new TextDecoder();
-  let fullText = "";
+      const decoder = new TextDecoder();
+      let fullText = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
-    for (const line of chunk.split("\n")) {
-      if (!line.startsWith("data: ")) continue;
-      try {
-        const event = JSON.parse(line.slice(6));
-        if (event.type === "delta" && event.text) fullText += event.text;
-        if (event.type === "content" && event.content) fullText += event.content;
-      } catch {
-        // skip malformed SSE lines
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "delta" && event.text) fullText += event.text;
+            if (event.type === "content" && event.content) fullText += event.content;
+          } catch {
+            // skip malformed SSE lines
+          }
+        }
       }
+
+      return fullText;
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
     }
   }
-
-  return fullText;
+  throw lastError ?? new Error("All relay URLs failed");
 }
 
 function extractJson<T>(text: string): T | null {
@@ -283,14 +294,87 @@ After calling those tools, output ONLY this JSON (no markdown, no explanation, j
   }
 }
 
+// ── AI text content ───────────────────────────────────────────────────────────
+
+interface AiTextContent {
+  learnings: string[];
+  insightsGoogle: string[];
+  insightsMeta: string[];
+  nextStepsGlobal: string[];
+  nextStepsGoogle: string[];
+  nextStepsMeta: string[];
+}
+
+async function fetchAiTextContent(
+  data: {
+    googleOverview: PlatformMetrics;
+    metaOverview: PlatformMetrics;
+    clientName: string;
+    periodLabel: string;
+  },
+  userContext?: string
+): Promise<AiTextContent | null> {
+  const g = data.googleOverview;
+  const m = data.metaOverview;
+  const fmt = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const contextBlock = userContext ? `\n\nAdditional context from the analyst: ${userContext}` : "";
+
+  const prompt = `You are an expert digital marketing analyst. Based on the following real ad performance data for ${data.clientName} (${data.periodLabel}), generate concise bullet points for a Monthly Business Review deck.${contextBlock}
+
+Google Ads data:
+- Spend: €${fmt(g.spend)}
+- Impressions: ${Math.round(g.impressions).toLocaleString()}
+- Clicks: ${Math.round(g.clicks).toLocaleString()}
+- Conversions: ${Math.round(g.conversions)}
+- Revenue: €${fmt(g.revenue)}
+- ROAS: ${fmt(g.roas)}x
+- CPA: €${fmt(g.cpa)}
+- CTR: ${fmt(g.ctr)}%
+
+Meta Ads data:
+- Spend: €${fmt(m.spend)}
+- Impressions: ${Math.round(m.impressions).toLocaleString()}
+- Clicks: ${Math.round(m.clicks).toLocaleString()}
+- Conversions: ${Math.round(m.conversions)}
+- Revenue: €${fmt(m.revenue)}
+- ROAS: ${fmt(m.roas)}x
+- CPA: €${fmt(m.cpa)}
+- CTR: ${fmt(m.ctr)}%
+
+Generate exactly this JSON structure (no markdown, no explanation, just raw JSON):
+{
+  "learnings": ["3-4 key learnings about overall performance this month"],
+  "insightsGoogle": ["3-4 insights specific to Google Ads performance"],
+  "insightsMeta": ["3-4 insights specific to Meta Ads performance"],
+  "nextStepsGlobal": ["3-4 global action items for next month"],
+  "nextStepsGoogle": ["3-4 specific Google Ads optimisations for next month"],
+  "nextStepsMeta": ["3-4 specific Meta Ads optimisations for next month"]
+}`;
+
+  try {
+    const text = await relayChat(prompt, 18000);
+    const result = extractJson<AiTextContent>(text);
+    if (!result) return null;
+    // Validate structure
+    const keys: (keyof AiTextContent)[] = ["learnings", "insightsGoogle", "insightsMeta", "nextStepsGlobal", "nextStepsGoogle", "nextStepsMeta"];
+    for (const key of keys) {
+      if (!Array.isArray(result[key])) return null;
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  let client: DeckClient, period: DeckPeriod;
+  let client: DeckClient, period: DeckPeriod, userContext: string | undefined;
   try {
     const body = await req.json();
     client = body.client;
     period = body.period;
+    userContext = typeof body.userContext === "string" ? body.userContext : undefined;
     if (!client || !period) throw new Error("Missing client or period");
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
@@ -307,6 +391,7 @@ export async function POST(req: NextRequest) {
       ? fetchGoogleData(client.googleCustomerId, period, previousPeriod)
       : Promise.resolve(null),
   ]);
+  // Note: calls run in parallel, each capped at 35s → ~35s total (parallel)
 
   const meta = metaResult.status === "fulfilled" ? metaResult.value : null;
   const google = googleResult.status === "fulfilled" ? googleResult.value : null;
@@ -317,6 +402,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ data: mockData, source: "mock" });
   }
 
+  // At least one is real — fetch AI text content in parallel with building the deck
+
+
   // Build DeckData from real data, filling in missing parts from mock
   const mockFallback = generateMockDeckData(client, period);
 
@@ -324,6 +412,15 @@ export async function POST(req: NextRequest) {
   const metaPrevOverview = meta?.prevOverview ?? zeroMetrics();
   const googleOverview = google?.overview ?? mockFallback.googleOverview;
   const googlePrevOverview = google?.prevOverview ?? zeroMetrics();
+
+  // Fetch AI text content with a tight budget (20s max) — non-blocking if it fails
+  const aiTextPromise = Promise.race([
+    fetchAiTextContent(
+      { googleOverview, metaOverview, clientName: client.name, periodLabel: period.label },
+      userContext
+    ),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
+  ]);
 
   // Global totals
   const totalCurrent: PlatformMetrics = {
@@ -432,6 +529,7 @@ export async function POST(req: NextRequest) {
 
     budget: mockFallback.budget,
 
+    // Filled in after AI text resolves below
     learnings: mockFallback.learnings,
     insightsGoogle: mockFallback.insightsGoogle,
     insightsMeta: mockFallback.insightsMeta,
@@ -439,6 +537,17 @@ export async function POST(req: NextRequest) {
     nextStepsGoogle: mockFallback.nextStepsGoogle,
     nextStepsMeta: mockFallback.nextStepsMeta,
   };
+
+  // Await AI text content and override mock fallbacks if successful
+  const aiText = await aiTextPromise;
+  if (aiText) {
+    deckData.learnings = aiText.learnings;
+    deckData.insightsGoogle = aiText.insightsGoogle;
+    deckData.insightsMeta = aiText.insightsMeta;
+    deckData.nextStepsGlobal = aiText.nextStepsGlobal;
+    deckData.nextStepsGoogle = aiText.nextStepsGoogle;
+    deckData.nextStepsMeta = aiText.nextStepsMeta;
+  }
 
   return NextResponse.json({ data: deckData, source: "real" });
 }
