@@ -1100,6 +1100,23 @@ export default function DeckPage() {
           </select>
         </div>
 
+        {/* Section breadcrumb */}
+        {currentSlide < slides.length && (
+          <>
+            <div className="h-4 w-px bg-gray-200" />
+            <span
+              className="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 transition-all duration-300"
+              style={{
+                color: SECTION_COLORS[slides[currentSlide].section] ?? "#2CA6F9",
+                backgroundColor: `${SECTION_COLORS[slides[currentSlide].section] ?? "#2CA6F9"}18`,
+                border: `1px solid ${SECTION_COLORS[slides[currentSlide].section] ?? "#2CA6F9"}40`,
+              }}
+            >
+              {SECTION_LABELS[slides[currentSlide].section] ?? "—"}
+            </span>
+          </>
+        )}
+
         <div className="flex-1" />
 
         {/* Data source badge */}
@@ -1649,6 +1666,7 @@ export default function DeckPage() {
                 ["N", "Panneau de notes"],
                 ["F", "Filtrer slides avec notes"],
                 ["Ctrl+K", "Palette de commandes"],
+                ["Tab / ⇧Tab", "Section suiv./préc. (palette)"],
                 ["Ctrl+Shift+E", "Exporter PDF"],
                 ["Ctrl+Shift+N", "Exporter notes CSV"],
                 ["?", "Cette aide"],
@@ -1704,8 +1722,8 @@ export default function DeckPage() {
       {commandPaletteOpen && (() => {
         const q = commandPaletteQuery.trim().toLowerCase();
         const allSlides = [
-          ...slides.map((s, i) => ({ idx: i, label: s.label })),
-          ...customSlides.map((cs, i) => ({ idx: slides.length + i, label: cs.label })),
+          ...slides.map((s, i) => ({ idx: i, label: s.label, section: s.section })),
+          ...customSlides.map((cs, i) => ({ idx: slides.length + i, label: cs.label, section: -1 })),
         ];
         // If query is a pure number, prioritise by slide number (1-based) first, then by label
         const isNumericQuery = /^\d+$/.test(q);
@@ -1738,6 +1756,22 @@ export default function DeckPage() {
                   onKeyDown={e => {
                     if (e.key === "ArrowDown") { e.preventDefault(); setCommandPaletteIndex(i => Math.min(i + 1, filtered.length - 1)); }
                     else if (e.key === "ArrowUp") { e.preventDefault(); setCommandPaletteIndex(i => Math.max(i - 1, 0)); }
+                    else if (e.key === "Tab" && e.shiftKey) {
+                      e.preventDefault();
+                      const curSec = filtered[commandPaletteIndex]?.section;
+                      const curSecStart = filtered.findIndex(s => s.section === curSec);
+                      if (curSecStart > 0) {
+                        const prevSec = filtered[curSecStart - 1]?.section;
+                        const prevSecStart = filtered.findIndex(s => s.section === prevSec);
+                        setCommandPaletteIndex(prevSecStart);
+                      }
+                    }
+                    else if (e.key === "Tab") {
+                      e.preventDefault();
+                      const curSec = filtered[commandPaletteIndex]?.section;
+                      const nextIdx = filtered.findIndex((s, i) => i > commandPaletteIndex && s.section !== curSec);
+                      if (nextIdx !== -1) setCommandPaletteIndex(nextIdx);
+                    }
                     else if (e.key === "Enter") {
                       const target = filtered[commandPaletteIndex];
                       if (target) { goToSlide(target.idx); setCommandPaletteOpen(false); }
@@ -1752,27 +1786,40 @@ export default function DeckPage() {
               <div className="max-h-72 overflow-y-auto">
                 {filtered.length === 0 ? (
                   <div className="px-4 py-6 text-center text-sm text-gray-500">Aucune slide trouvée</div>
-                ) : filtered.map((s, i) => (
-                  <button
-                    key={s.idx}
-                    onClick={() => { goToSlide(s.idx); setCommandPaletteOpen(false); }}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors ${
-                      i === commandPaletteIndex ? "bg-blue-600 text-white" : "text-gray-200 hover:bg-gray-800"
-                    }`}
-                  >
-                    <span className={`text-[10px] font-mono w-6 flex-shrink-0 text-right ${i === commandPaletteIndex ? "text-blue-200" : "text-gray-500"}`}>
-                      {s.idx + 1}
-                    </span>
-                    <HighlightLabel label={s.label} search={commandPaletteQuery} />
-                  </button>
-                ))}
+                ) : filtered.map((s, i) => {
+                  const showSectionDivider = i === 0 || filtered[i - 1]?.section !== s.section;
+                  const secLabel = s.section === -1 ? "Custom" : (SECTION_LABELS[s.section] ?? `Section ${s.section}`);
+                  const secColor = s.section === -1 ? "#9CA3AF" : (SECTION_COLORS[s.section] ?? "#2CA6F9");
+                  return (
+                    <div key={s.idx}>
+                      {showSectionDivider && (
+                        <div className="px-4 pt-2 pb-1 flex items-center gap-2">
+                          <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: secColor }}>{secLabel}</span>
+                          <div className="flex-1 h-px" style={{ backgroundColor: `${secColor}30` }} />
+                        </div>
+                      )}
+                      <button
+                        onClick={() => { goToSlide(s.idx); setCommandPaletteOpen(false); }}
+                        className={`w-full flex items-center gap-3 px-4 py-2 text-sm text-left transition-colors ${
+                          i === commandPaletteIndex ? "bg-blue-600 text-white" : "text-gray-200 hover:bg-gray-800"
+                        }`}
+                      >
+                        <span className={`text-[10px] font-mono w-6 flex-shrink-0 text-right ${i === commandPaletteIndex ? "text-blue-200" : "text-gray-500"}`}>
+                          {s.idx + 1}
+                        </span>
+                        <HighlightLabel label={s.label} search={commandPaletteQuery} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
               {filtered.length > 0 && (
-                <div className="px-4 py-2 border-t border-gray-700 text-[9px] text-gray-500 flex gap-3">
+                <div className="px-4 py-2 border-t border-gray-700 text-[9px] text-gray-500 flex gap-3 flex-wrap">
                   <span>↑↓ naviguer</span>
+                  <span>Tab/⇧Tab section suivante/précédente</span>
                   <span>↵ aller</span>
                   <span>Esc fermer</span>
-                  <span>· tapez un numéro pour aller direct</span>
+                  <span>· numéro pour aller direct</span>
                 </div>
               )}
             </div>
