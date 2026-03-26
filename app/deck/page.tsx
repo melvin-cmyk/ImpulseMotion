@@ -282,6 +282,7 @@ export default function DeckPage() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
   const [commandPaletteIndex, setCommandPaletteIndex] = useState(0);
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const commandPaletteInputRef = useRef<HTMLInputElement>(null);
   const lastGTimeRef = useRef<number>(0);
   const prevSlideRef = useRef<number>(-1);
@@ -648,7 +649,9 @@ export default function DeckPage() {
       }
       // Escape : ferme la palette, le panneau de notes, ou blur la recherche
       else if (e.key === "Escape") {
-        if (commandPaletteOpen) {
+        if (shortcutHelpOpen) {
+          setShortcutHelpOpen(false);
+        } else if (commandPaletteOpen) {
           setCommandPaletteOpen(false);
         } else if (notePanelOpen) {
           setNotePanelOpen(false);
@@ -703,6 +706,12 @@ export default function DeckPage() {
           lastGTimeRef.current = now;
         }
       }
+      // ? : ouvre/ferme le panneau d'aide des raccourcis clavier
+      else if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
+        if (inInput) return;
+        e.preventDefault();
+        setShortcutHelpOpen((prev) => !prev);
+      }
       // [ : début de la section précédente, ] : début de la section suivante
       else if ((e.key === "[" || e.key === "]") && !e.ctrlKey && !e.metaKey) {
         if (inInput) return;
@@ -734,7 +743,7 @@ export default function DeckPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, handleExportPdf, setShowOnlyWithNotes, commandPaletteOpen, showToast]);
+  }, [deckGenerated, currentSlide, slides, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, handleExportPdf, setShowOnlyWithNotes, commandPaletteOpen, shortcutHelpOpen, showToast]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
@@ -1617,6 +1626,40 @@ export default function DeckPage() {
           style={{ backgroundColor: "#1a1a2e", border: "1px solid rgba(255,255,255,0.12)" }}
         >
           {toastMsg}
+        </div>
+      )}
+
+      {/* ── Keyboard shortcut help modal ────────────────────────────────── */}
+      {shortcutHelpOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShortcutHelpOpen(false)}>
+          <div className="bg-[#1a1a2e] border border-gray-700 rounded-2xl shadow-2xl w-[480px] max-w-[95vw] p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-white">Raccourcis clavier</h2>
+              <button onClick={() => setShortcutHelpOpen(false)} className="text-gray-500 hover:text-white text-xs">Esc</button>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
+              {([
+                ["←  /  ↑", "Slide précédente"],
+                ["→  /  ↓", "Slide suivante"],
+                ["[", "Début section précédente"],
+                ["]", "Début section suivante"],
+                ["G", "Dernière slide"],
+                ["gg", "Première slide"],
+                ["/", "Chercher dans filmstrip"],
+                ["N", "Panneau de notes"],
+                ["F", "Filtrer slides avec notes"],
+                ["Ctrl+K", "Palette de commandes"],
+                ["Ctrl+Shift+E", "Exporter PDF"],
+                ["Ctrl+Shift+N", "Exporter notes CSV"],
+                ["?", "Cette aide"],
+              ] as [string, string][]).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between gap-2 py-1 border-b border-gray-800/50">
+                  <kbd className="font-mono text-[10px] bg-gray-800 border border-gray-600 rounded px-1.5 py-0.5 text-gray-300 whitespace-nowrap">{key}</kbd>
+                  <span className="text-gray-400 text-right">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
