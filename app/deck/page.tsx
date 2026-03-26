@@ -664,6 +664,11 @@ export default function DeckPage() {
         filmstripSearchRef.current?.focus();
         filmstripSearchRef.current?.select();
       }
+      // Ctrl+Shift+E : exporter le deck en PDF
+      else if ((e.key === "e" || e.key === "E") && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+        e.preventDefault();
+        handleExportPdf();
+      }
       // Ctrl+Shift+N : exporter les notes speaker en CSV
       else if ((e.key === "n" || e.key === "N") && (e.ctrlKey || e.metaKey) && e.shiftKey) {
         e.preventDefault();
@@ -702,7 +707,7 @@ export default function DeckPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides.length, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, setShowOnlyWithNotes, commandPaletteOpen]);
+  }, [deckGenerated, currentSlide, slides.length, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, handleExportPdf, setShowOnlyWithNotes, commandPaletteOpen]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
@@ -1102,6 +1107,7 @@ export default function DeckPage() {
         <button
           onClick={handleExportPdf}
           disabled={!deckData}
+          title="Exporter en PDF (Ctrl+Shift+E)"
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-gray-700 flex-shrink-0 disabled:opacity-40"
         >
           <FileDown className="w-3.5 h-3.5" />
@@ -1631,7 +1637,15 @@ export default function DeckPage() {
           ...slides.map((s, i) => ({ idx: i, label: s.label })),
           ...customSlides.map((cs, i) => ({ idx: slides.length + i, label: cs.label })),
         ];
-        const filtered = q ? allSlides.filter(s => s.label.toLowerCase().includes(q)) : allSlides;
+        // If query is a pure number, prioritise by slide number (1-based) first, then by label
+        const isNumericQuery = /^\d+$/.test(q);
+        const filtered = q
+          ? isNumericQuery
+            ? allSlides
+                .filter(s => String(s.idx + 1).includes(q) || s.label.toLowerCase().includes(q))
+                .sort((a, b) => (String(a.idx + 1) === q ? -1 : String(b.idx + 1) === q ? 1 : 0))
+            : allSlides.filter(s => s.label.toLowerCase().includes(q))
+          : allSlides;
         return (
           <div
             className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/60"
@@ -1688,6 +1702,7 @@ export default function DeckPage() {
                   <span>↑↓ naviguer</span>
                   <span>↵ aller</span>
                   <span>Esc fermer</span>
+                  <span>· tapez un numéro pour aller direct</span>
                 </div>
               )}
             </div>
