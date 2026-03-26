@@ -59,6 +59,9 @@ const SLASH_COMMANDS = [
   { cmd: "/add slide hook-rate", desc: "Ajouter une slide analyse Hook Rate & Hold Rate" },
   { cmd: "/add slide creative-comparison", desc: "Ajouter une slide comparaison Top 3 créatifs" },
   { cmd: "/add slide budget-split", desc: "Ajouter une slide répartition budget par format/statut" },
+  { cmd: "/add slide audience", desc: "Ajouter une slide segmentation audience (âge, genre, device)" },
+  { cmd: "/add slide funnel", desc: "Ajouter une slide analyse funnel acquisition (impression → achat)" },
+  { cmd: "/add slide fatigue", desc: "Ajouter une slide détection fatigue créative (fréquence, CTR trend)" },
   { cmd: "/analyze slide", desc: "Analyser la slide actuelle et suggérer des améliorations" },
   { cmd: "/suggest next-steps", desc: "Suggérer des actions prioritaires basées sur la performance" },
   { cmd: "/summarize deck", desc: "Rédiger un résumé exécutif du deck en 3 phrases" },
@@ -112,6 +115,18 @@ const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
   "budget-split": {
     label: "Répartition Budget",
     content: "# Répartition Budget par Format & Statut\n\n**Par format**\n\n| Format | Spend | % Budget | ROAS moy. |\n|--------|-------|----------|-----------|\n| Video | — | —% | — |\n| Image | — | —% | — |\n| Carousel | — | —% | — |\n\n**Par statut**\n\n| Statut | Spend | Nb créatifs |\n|--------|-------|-------------|\n| Winner | — | — |\n| Active | — | — |\n| Fatigued | — | — |",
+  },
+  "audience": {
+    label: "Segmentation Audience",
+    content: "# Segmentation Audience\n\n**Par tranche d'âge**\n\n| Tranche | Impressions | CTR | CPA | ROAS |\n|---------|-------------|-----|-----|------|\n| 18–24 | — | — | — | — |\n| 25–34 | — | — | — | — |\n| 35–44 | — | — | — | — |\n| 45+ | — | — | — | — |\n\n**Par genre & device**\n\n| Segment | Spend | Conversions | CPA |\n|---------|-------|-------------|-----|\n| Femme / Mobile | — | — | — |\n| Femme / Desktop | — | — | — |\n| Homme / Mobile | — | — | — |\n| Homme / Desktop | — | — | — |\n\n**Insight :** Segment prioritaire → —",
+  },
+  "funnel": {
+    label: "Analyse Funnel",
+    content: "# Funnel Acquisition\n\n| Étape | Volume | Taux de conversion |\n|-------|--------|--------------------|\n| Impressions | — | — |\n| Clics | — | CTR : —% |\n| Landing Page Views | — | LPV/Clic : —% |\n| Ajouts panier | — | ATC/LPV : —% |\n| Achats | — | CVR : —% |\n\n**CPA :** — · **ROAS :** — · **AOV :** —\n\n**Point de friction :** —",
+  },
+  "fatigue": {
+    label: "Détection Fatigue Créative",
+    content: "# Détection Fatigue Créative\n\n| Créatif | Fréq. moy. | CTR S1 | CTR S2 | CTR S3 | Tendance | Statut |\n|---------|-----------|--------|--------|--------|----------|--------|\n| — | — | — | — | — | — | — |\n| — | — | — | — | — | — | — |\n| — | — | — | — | — | — | — |\n\n**Seuils :** Fréquence > 3.5 = risque fatigue · CTR drop > 20% = rotation recommandée\n\n**Action :** Créatifs à rafraîchir → —",
   },
 };
 
