@@ -613,7 +613,7 @@ function addBudget(pptx: PptxGen, budget: BudgetLine[], periodLabel: string) {
   });
 }
 
-function addTopCreatives(pptx: PptxGen, creatives: TopCreative[]) {
+function addTopCreatives(pptx: PptxGen, creatives: TopCreative[], thumbnailDataMap: Record<string, string> = {}) {
   const s = pptx.addSlide();
   s.background = { color: c(IA.bgWhite) };
   addBar(s, IA.violet);
@@ -638,17 +638,40 @@ function addTopCreatives(pptx: PptxGen, creatives: TopCreative[]) {
       x, y, w: cardW, h: cardH,
       fill: { color: c(IA.bgAlt) }, line: { width: 0 }, rectRadius: 0.08,
     });
+
+    // Thumbnail image (top portion of card)
+    const imgDataUrl = cr.id ? thumbnailDataMap[cr.id] : undefined;
+    const imgH = 0.85;
+    if (imgDataUrl) {
+      try {
+        s.addImage({ data: imgDataUrl, x: x + 0.1, y: y + 0.1, w: cardW - 0.2, h: imgH, sizing: { type: "cover", w: cardW - 0.2, h: imgH } });
+      } catch { /* skip if image fails */ }
+    } else {
+      // Placeholder gradient rect when no image
+      s.addShape("roundRect", {
+        x: x + 0.1, y: y + 0.1, w: cardW - 0.2, h: imgH,
+        fill: { color: c(IA.violet), alpha: 30 }, line: { width: 0 }, rectRadius: 0.05,
+      });
+      s.addText(cr.format, {
+        x: x + 0.1, y: y + 0.1, w: cardW - 0.2, h: imgH,
+        fontSize: 9, bold: true, color: c(IA.violet), fontFace: FONTS.body, align: "center", valign: "middle",
+      });
+    }
+
+    // Name below image
     s.addText(cr.name, {
-      x: x + 0.15, y: y + 0.1, w: cardW - 0.3, h: 0.35,
-      fontSize: 8, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
+      x: x + 0.15, y: y + imgH + 0.18, w: cardW - 0.3, h: 0.3,
+      fontSize: 7, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
     });
+
+    // Format badge
     s.addShape("roundRect", {
-      x: x + 0.15, y: y + 0.5, w: cardW - 0.3, h: 0.3,
+      x: x + 0.15, y: y + imgH + 0.52, w: 0.7, h: 0.22,
       fill: { color: c(IA.violet) }, line: { width: 0 }, rectRadius: 0.04,
     });
     s.addText(cr.format, {
-      x: x + 0.15, y: y + 0.5, w: cardW - 0.3, h: 0.3,
-      fontSize: 8, bold: true, color: c(IA.textWhite), fontFace: FONTS.body, align: "center",
+      x: x + 0.15, y: y + imgH + 0.52, w: 0.7, h: 0.22,
+      fontSize: 6, bold: true, color: c(IA.textWhite), fontFace: FONTS.body, align: "center",
     });
 
     const metrics = [
@@ -659,20 +682,36 @@ function addTopCreatives(pptx: PptxGen, creatives: TopCreative[]) {
     ];
     metrics.forEach((m, mi) => {
       const mx = x + 0.15 + (mi % 2) * (cardW / 2 - 0.15);
-      const my = y + 1.0 + Math.floor(mi / 2) * 0.65;
+      const my = y + imgH + 0.82 + Math.floor(mi / 2) * 0.55;
       s.addText(m.label, {
-        x: mx, y: my, w: cardW / 2 - 0.3, h: 0.25,
-        fontSize: 7, color: c(IA.textCaption), fontFace: FONTS.body,
+        x: mx, y: my, w: cardW / 2 - 0.3, h: 0.22,
+        fontSize: 6, color: c(IA.textCaption), fontFace: FONTS.body,
       });
       s.addText(m.value, {
-        x: mx, y: my + 0.22, w: cardW / 2 - 0.3, h: 0.3,
-        fontSize: 10, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
+        x: mx, y: my + 0.19, w: cardW / 2 - 0.3, h: 0.28,
+        fontSize: 9, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
       });
     });
   });
 }
 
 // ── Main export function ────────────────────────────────────────────────────
+
+async function fetchThumbnails(creatives: TopCreative[]): Promise<Record<string, string>> {
+  const result: Record<string, string> = {};
+  await Promise.all(
+    creatives.filter(cr => cr.thumbnailUrl && cr.id).map(async (cr) => {
+      try {
+        const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(cr.thumbnailUrl!)}`, { signal: AbortSignal.timeout(6000) });
+        if (res.ok) {
+          const json = await res.json() as { dataUrl?: string };
+          if (json.dataUrl) result[cr.id] = json.dataUrl;
+        }
+      } catch { /* skip */ }
+    })
+  );
+  return result;
+}
 
 export async function exportDeckToPptx(
   data: DeckData,
@@ -688,6 +727,9 @@ export async function exportDeckToPptx(
   pptx.layout = "LAYOUT_WIDE";
 
   const periodLabel = `${data.period.label} vs ${data.previousPeriod.label}`;
+
+  // Pre-fetch creative thumbnails (server-side proxy to avoid CORS)
+  const thumbnailDataMap = await fetchThumbnails(data.topCreatives ?? []);
 
   // Cover & Agenda
   addCover(pptx, data);
@@ -711,7 +753,7 @@ export async function exportDeckToPptx(
   addSectionDivider(pptx, "03", "Focus Meta Ads", "Vue globale · Campagnes · Top Créas · Learnings", IA.violet);
   addKPIOverview(pptx, "Meta Ads — Vue Globale", data.metaOverview, IA.violet, IA.violet);
   addCampaignTable(pptx, "Meta Ads — Campagnes", data.metaCampaigns, IA.violet, periodLabel);
-  addTopCreatives(pptx, data.topCreatives);
+  addTopCreatives(pptx, data.topCreatives, thumbnailDataMap);
   addLearnings(pptx, data.insightsMeta, IA.violet);
   addNextSteps(pptx, "Next Steps — Meta Ads", data.nextStepsMeta, IA.violet, IA.violet);
 
