@@ -190,7 +190,8 @@ After calling those tools, output ONLY this JSON (no markdown, no explanation, j
   "creatives": [
     {
       "id": "string", "name": "string", "format": "Video",
-      "spend": 0, "roas": 0, "ctr": 0, "cpa": 0, "impressions": 0
+      "spend": 0, "roas": 0, "ctr": 0, "cpa": 0, "impressions": 0,
+      "thumbnailUrl": "https://..."
     }
   ]
 }`;

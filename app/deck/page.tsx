@@ -671,11 +671,10 @@ export default function DeckPage() {
         setDroppedBlocks((prev) => prev.filter((b) => b.id !== selectedBlockId));
         setSelectedBlockId(null);
       }
-      // Escape : supprime le bloc sélectionné ou ferme les panels
+      // Escape : déselectionne le bloc actif ou ferme les panels
       else if (e.key === "Escape") {
         if (selectedBlockId) {
-          // Escape sur un bloc sélectionné = le supprimer (user request)
-          setDroppedBlocks((prev) => prev.filter((b) => b.id !== selectedBlockId));
+          // Escape = déselectionner seulement (Delete/Backspace = supprimer)
           setSelectedBlockId(null);
         } else if (shortcutHelpOpen) {
           setShortcutHelpOpen(false);
@@ -808,14 +807,30 @@ export default function DeckPage() {
     }
   };
 
-  // Block drag-to-reposition
+  // Block drag-to-reposition — drag only starts after 5px movement (avoids accidental drag on click)
   const handleBlockMouseDown = useCallback((e: React.MouseEvent, blockId: string) => {
     e.stopPropagation();
-    e.preventDefault();
     const block = droppedBlocks.find(b => b.id === blockId);
     if (!block) return;
     setSelectedBlockId(blockId);
-    setDraggingBlock({ id: blockId, startX: e.clientX, startY: e.clientY, origX: block.x, origY: block.y });
+    // Don't start drag immediately — wait for significant mouse movement
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let dragStarted = false;
+    const onMove = (ev: MouseEvent) => {
+      if (!dragStarted) {
+        const dist = Math.sqrt((ev.clientX - startX) ** 2 + (ev.clientY - startY) ** 2);
+        if (dist < 5) return; // threshold: 5px before drag begins
+        dragStarted = true;
+        setDraggingBlock({ id: blockId, startX, startY, origX: block.x, origY: block.y });
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }, [droppedBlocks]);
 
   useEffect(() => {
@@ -1566,13 +1581,14 @@ export default function DeckPage() {
                     key={block.id}
                     data-block-id={block.id}
                     onClick={(e) => { e.stopPropagation(); setSelectedBlockId(block.id); }}
+                    onMouseDown={(e) => { if (!isSelected) { e.stopPropagation(); handleBlockMouseDown(e, block.id); } }}
                     style={{
                       position: "absolute",
                       left: `${block.x}%`,
                       top: `${block.y}%`,
                       width: `${block.w}%`,
                       ...(block.h !== undefined ? { height: `${block.h}%` } : {}),
-                      cursor: draggingBlock?.id === block.id ? "grabbing" : "grab",
+                      cursor: draggingBlock?.id === block.id ? "grabbing" : "default",
                       zIndex: isSelected ? 20 : 10,
                       overflow: "visible",
                     }}
@@ -1597,9 +1613,9 @@ export default function DeckPage() {
                         </button>
                       </div>
                     )}
-                    {/* Drag handle (full block) */}
+                    {/* Drag handle — only top bar (8px) to avoid blocking content interaction */}
                     <div
-                      className="absolute inset-0 z-10"
+                      className="absolute top-0 left-0 right-0 h-2 z-10"
                       onMouseDown={(e) => handleBlockMouseDown(e, block.id)}
                       style={{ cursor: draggingBlock?.id === block.id ? "grabbing" : "grab" }}
                     />
@@ -1616,7 +1632,7 @@ export default function DeckPage() {
                             .block-md-${block.id} tr:nth-child(even) td { background-color: ${bStyle.rowColor}; }
                             .block-md-${block.id} table { font-size: ${bStyle.fontSize}px; font-family: ${fontFamilyCss}; border-collapse: collapse; width: 100%; }
                           `}</style>
-                          <div className={`relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none pointer-events-none block-md-${block.id}`}
+                          <div className={`relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none block-md-${block.id}`}
                             style={block.h !== undefined ? { height: "100%", overflow: "auto" } : {}}>
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
                           </div>
