@@ -62,6 +62,9 @@ const SLASH_COMMANDS = [
   { cmd: "/add slide audience", desc: "Ajouter une slide segmentation audience (âge, genre, device)" },
   { cmd: "/add slide funnel", desc: "Ajouter une slide analyse funnel acquisition (impression → achat)" },
   { cmd: "/add slide fatigue", desc: "Ajouter une slide détection fatigue créative (fréquence, CTR trend)" },
+  { cmd: "/add slide retention", desc: "Ajouter une slide rétention client & LTV (cohortes, repeat purchase, CLV)" },
+  { cmd: "/add slide competitive", desc: "Ajouter une slide benchmarking concurrentiel (CPM, CPC, CTR vs secteur)" },
+  { cmd: "/add slide monthly-trend", desc: "Ajouter une slide tendances mensuelles MoM sur 6 mois (spend, ROAS, CPA)" },
   { cmd: "/analyze slide", desc: "Analyser la slide actuelle et suggérer des améliorations" },
   { cmd: "/suggest next-steps", desc: "Suggérer des actions prioritaires basées sur la performance" },
   { cmd: "/summarize deck", desc: "Rédiger un résumé exécutif du deck en 3 phrases" },
@@ -127,6 +130,18 @@ const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
   "fatigue": {
     label: "Détection Fatigue Créative",
     content: "# Détection Fatigue Créative\n\n| Créatif | Fréq. moy. | CTR S1 | CTR S2 | CTR S3 | Tendance | Statut |\n|---------|-----------|--------|--------|--------|----------|--------|\n| — | — | — | — | — | — | — |\n| — | — | — | — | — | — | — |\n| — | — | — | — | — | — | — |\n\n**Seuils :** Fréquence > 3.5 = risque fatigue · CTR drop > 20% = rotation recommandée\n\n**Action :** Créatifs à rafraîchir → —",
+  },
+  "retention": {
+    label: "Rétention Client & LTV",
+    content: "# Rétention Client & LTV\n\n**Analyse de cohortes (30j)**\n\n| Cohorte | Nouveaux clients | J+30 | J+60 | J+90 | LTV 90j |\n|---------|-----------------|------|------|------|---------|\n| M-3 | — | —% | —% | —% | — |\n| M-2 | — | —% | —% | —% | — |\n| M-1 | — | —% | —% | —% | — |\n\n**Repeat Purchase Rate :** —% · **Avg. Orders / Client :** — · **CLV estimée :** —\n\n**Seuils :** RPR > 25% = sain · CLV / CAC > 3× = rentable\n\n**Insight :** —",
+  },
+  "competitive": {
+    label: "Benchmarking Concurrentiel",
+    content: "# Benchmarking Concurrentiel\n\n| Métrique | Notre compte | Benchmark secteur | Écart |\n|----------|-------------|-------------------|-------|\n| CPM | — | — | — |\n| CPC | — | — | — |\n| CTR | — | — | — |\n| CPA | — | — | — |\n| ROAS | — | — | — |\n| Hook Rate | — | >30% | — |\n\n**Source benchmark :** Meta Ads Insights / Secteur : —\n\n**Avantage concurrentiel :** — · **Point de vigilance :** —",
+  },
+  "monthly-trend": {
+    label: "Tendances Mensuelles (6 mois)",
+    content: "# Tendances Mensuelles — 6 mois glissants\n\n| Mois | Spend | ROAS | CPA | CTR | Nouvelles acquisitions |\n|------|-------|------|-----|-----|------------------------|\n| M-5 | — | — | — | — | — |\n| M-4 | — | — | — | — | — |\n| M-3 | — | — | — | — | — |\n| M-2 | — | — | — | — | — |\n| M-1 | — | — | — | — | — |\n| M (actuel) | — | — | — | — | — |\n\n**Tendance ROAS :** — · **Tendance CPA :** — · **Saisonnalité observée :** —\n\n**Signal fort :** —",
   },
 };
 
