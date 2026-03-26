@@ -11,6 +11,50 @@ export interface TableData {
   rows: string[][]
 }
 
+export interface TableStyle {
+  headerBg: string
+  headerText: string
+  rowBg: string
+  altRowBg: string
+  rowText: string
+  borderColor: string
+  fontSize: number
+  fontFamily: string
+}
+
+export const DEFAULT_TABLE_STYLE: TableStyle = {
+  headerBg: "#0070C0",
+  headerText: "#ffffff",
+  rowBg: "#ffffff",
+  altRowBg: "#F3F3F3",
+  rowText: "#1a1a1a",
+  borderColor: "#e5e7eb",
+  fontSize: 10,
+  fontFamily: "Inter",
+}
+
+export interface SlideElement {
+  id: string
+  type: "text" | "rect" | "circle" | "arrow" | "triangle" | "line" | "image"
+  x: number
+  y: number
+  w: number
+  h: number
+  fillColor: string
+  strokeColor: string
+  strokeWidth: number
+  opacity: number
+  text?: string
+  fontSize?: number
+  fontFamily?: string
+  fontWeight?: "normal" | "bold"
+  fontStyle?: "normal" | "italic"
+  textDecoration?: "none" | "underline"
+  textColor?: string
+  textAlign?: "left" | "center" | "right"
+  imageUrl?: string
+}
+
 export interface HighlightItem {
   label: string
   value: string
@@ -41,6 +85,10 @@ export interface Slide {
   items?: string[]
   budgetData?: { platform: string; amount: string; percentage: string }[]
   isDark?: boolean
+  // Canvas editor
+  elements?: SlideElement[]
+  tableStyle?: TableStyle
+  tablePosition?: { x: number; y: number; w: number; h: number }
 }
 
 export interface Deck {

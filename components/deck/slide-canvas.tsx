@@ -45,6 +45,8 @@ function createDefaultElement(
       return { ...base, x: xPct, y: yPct, w: 14, h: 18, fillColor: "#1e3a5f", strokeColor: "#3b82f6" }
     case "arrow":
       return { ...base, x: xPct, y: yPct, w: 24, h: 5, fillColor: "transparent", strokeColor: "#3b82f6" }
+    default:
+      return { ...base, x: xPct, y: yPct, w: 20, h: 14, fillColor: "#1e3a5f", strokeColor: "#3b82f6" }
   }
 }
 
