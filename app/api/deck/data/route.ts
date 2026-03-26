@@ -21,7 +21,7 @@ export const maxDuration = 120; // Vercel Pro: allow up to 120s
 const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
 const RELAY_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
-  : "https://guitar-instruments-missions-avatar.trycloudflare.com";
+  : "http://localhost:3457";
 
 // ── Relay helpers ─────────────────────────────────────────────────────────────
 

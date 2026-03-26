@@ -355,12 +355,7 @@ export default function DeckPage() {
     setIsGenerating(false);
   }, [userContext]);
 
-  // Auto-generate when client or period changes
-  useEffect(() => {
-    if (selectedClient) {
-      generateDeck(selectedClient, selectedPeriod);
-    }
-  }, [selectedClient?.id, selectedPeriod.month]);
+  // Do NOT auto-generate — user must click "Générer le deck" explicitly
 
   const handleGenerate = () => {
     if (selectedClient) generateDeck(selectedClient, selectedPeriod);
@@ -1579,7 +1574,7 @@ export default function DeckPage() {
                       ...(block.h !== undefined ? { height: `${block.h}%` } : {}),
                       cursor: draggingBlock?.id === block.id ? "grabbing" : "grab",
                       zIndex: isSelected ? 20 : 10,
-                      overflow: block.h !== undefined ? "auto" : "visible",
+                      overflow: "visible",
                     }}
                     className={`rounded-lg shadow-lg bg-white border-2 transition-all ${
                       isSelected ? "border-[#2CA6F9]" : "border-transparent hover:border-[#2CA6F9]/40"
@@ -1621,7 +1616,8 @@ export default function DeckPage() {
                             .block-md-${block.id} tr:nth-child(even) td { background-color: ${bStyle.rowColor}; }
                             .block-md-${block.id} table { font-size: ${bStyle.fontSize}px; font-family: ${fontFamilyCss}; border-collapse: collapse; width: 100%; }
                           `}</style>
-                          <div className={`relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none pointer-events-none block-md-${block.id}`}>
+                          <div className={`relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none pointer-events-none block-md-${block.id}`}
+                            style={block.h !== undefined ? { height: "100%", overflow: "auto" } : {}}>
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
                           </div>
                           {/* Table style panel */}
