@@ -218,6 +218,7 @@ interface DroppedBlock {
   x: number; // % of canvas width
   y: number; // % of canvas height
   w: number; // % of canvas width
+  h?: number; // % of canvas height (auto if undefined)
 }
 
 interface SlideOverride {
@@ -298,7 +299,7 @@ export default function DeckPage() {
   const activeFilmstripItemRef = useRef<HTMLButtonElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
   const [editMode, setEditMode] = useState(true);
-  const [blockStyles, setBlockStyles] = useState<Record<string, { headerColor: string; rowColor: string; fontSize: number; fontFamily: string }>>({});
+  const [blockStyles, setBlockStyles] = useState<Record<string, { headerColor: string; rowColor: string; fontSize: number; fontFamily: string; textColor: string; borderColor: string; borderWidth: number }>>({});
   const [slideElements, setSlideElements] = useState<Record<number, SlideElement[]>>({});
 
   const periods = useMemo(() => getAvailablePeriods(), []);
@@ -1530,14 +1531,17 @@ export default function DeckPage() {
                 return (
                   <div
                     key={block.id}
+                    data-block-id={block.id}
                     onClick={(e) => { e.stopPropagation(); setSelectedBlockId(block.id); }}
                     style={{
                       position: "absolute",
                       left: `${block.x}%`,
                       top: `${block.y}%`,
                       width: `${block.w}%`,
+                      ...(block.h !== undefined ? { height: `${block.h}%` } : {}),
                       cursor: draggingBlock?.id === block.id ? "grabbing" : "grab",
                       zIndex: isSelected ? 20 : 10,
+                      overflow: block.h !== undefined ? "auto" : "visible",
                     }}
                     className={`rounded-lg shadow-lg bg-white border-2 transition-all ${
                       isSelected ? "border-[#2CA6F9]" : "border-transparent hover:border-[#2CA6F9]/40"
@@ -1568,15 +1572,16 @@ export default function DeckPage() {
                     />
                     {/* Content */}
                     {(() => {
-                      const bStyle = blockStyles[block.id] ?? { headerColor: "#0070C0", rowColor: "#F3F3F3", fontSize: 10, fontFamily: "Inter" };
+                      const bStyle = blockStyles[block.id] ?? { headerColor: "#0070C0", rowColor: "#F3F3F3", fontSize: 10, fontFamily: "Inter", textColor: "#1a1a1a", borderColor: "#e5e7eb", borderWidth: 1 };
                       const isTable = block.content.includes("|");
+                      const fontFamilyCss = bStyle.fontFamily === "Mono" ? "monospace" : bStyle.fontFamily === "Georgia" ? "Georgia, serif" : bStyle.fontFamily + ", sans-serif";
                       return (
                         <>
                           <style>{`
-                            .block-md-${block.id} th { background-color: ${bStyle.headerColor} !important; color: white; padding: 2px 8px; }
-                            .block-md-${block.id} td { padding: 2px 8px; }
+                            .block-md-${block.id} th { background-color: ${bStyle.headerColor} !important; color: white; padding: 3px 8px; border: ${bStyle.borderWidth}px solid ${bStyle.borderColor}; }
+                            .block-md-${block.id} td { padding: 3px 8px; color: ${bStyle.textColor}; border: ${bStyle.borderWidth}px solid ${bStyle.borderColor}; }
                             .block-md-${block.id} tr:nth-child(even) td { background-color: ${bStyle.rowColor}; }
-                            .block-md-${block.id} table { font-size: ${bStyle.fontSize}px; font-family: ${bStyle.fontFamily === "Mono" ? "monospace" : bStyle.fontFamily === "Georgia" ? "Georgia, serif" : bStyle.fontFamily + ", sans-serif"}; }
+                            .block-md-${block.id} table { font-size: ${bStyle.fontSize}px; font-family: ${fontFamilyCss}; border-collapse: collapse; width: 100%; }
                           `}</style>
                           <div className={`relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none pointer-events-none block-md-${block.id}`}>
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
@@ -1585,50 +1590,54 @@ export default function DeckPage() {
                           {isSelected && isTable && (
                             <div
                               className="absolute left-0 z-40 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 flex items-center gap-3 flex-wrap"
-                              style={{ top: "calc(100% + 4px)", minWidth: 340, pointerEvents: "all" }}
+                              style={{ top: "calc(100% + 4px)", minWidth: 420, pointerEvents: "all" }}
                               onClick={(e) => e.stopPropagation()}
                               onMouseDown={(e) => e.stopPropagation()}
                             >
                               <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
                                 En-tête
-                                <input
-                                  type="color"
-                                  value={bStyle.headerColor}
+                                <input type="color" value={bStyle.headerColor}
                                   onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, headerColor: e.target.value } }))}
-                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200"
-                                />
+                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200" />
                               </label>
                               <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
                                 Lignes paires
-                                <input
-                                  type="color"
-                                  value={bStyle.rowColor}
+                                <input type="color" value={bStyle.rowColor}
                                   onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, rowColor: e.target.value } }))}
-                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200"
-                                />
+                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200" />
+                              </label>
+                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
+                                Texte
+                                <input type="color" value={bStyle.textColor}
+                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, textColor: e.target.value } }))}
+                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200" />
+                              </label>
+                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
+                                Bordure
+                                <input type="color" value={bStyle.borderColor}
+                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, borderColor: e.target.value } }))}
+                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200" />
+                                <input type="number" min={0} max={4} value={bStyle.borderWidth}
+                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, borderWidth: Number(e.target.value) } }))}
+                                  className="w-10 text-[10px] border border-gray-200 rounded px-1 py-0.5" />
+                                px
                               </label>
                               <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
                                 Taille
-                                <input
-                                  type="number"
-                                  min={8}
-                                  max={14}
-                                  value={bStyle.fontSize}
+                                <input type="number" min={7} max={18} value={bStyle.fontSize}
                                   onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, fontSize: Number(e.target.value) } }))}
-                                  className="w-12 text-[10px] border border-gray-200 rounded px-1 py-0.5"
-                                />
+                                  className="w-12 text-[10px] border border-gray-200 rounded px-1 py-0.5" />
                                 px
                               </label>
                               <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
                                 Police
-                                <select
-                                  value={bStyle.fontFamily}
+                                <select value={bStyle.fontFamily}
                                   onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, fontFamily: e.target.value } }))}
-                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5"
-                                >
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5">
                                   <option value="Inter">Inter</option>
                                   <option value="Raleway">Raleway</option>
                                   <option value="Georgia">Georgia</option>
+                                  <option value="Playfair">Playfair</option>
                                   <option value="Mono">Mono</option>
                                 </select>
                               </label>
@@ -1637,10 +1646,10 @@ export default function DeckPage() {
                         </>
                       );
                     })()}
-                    {/* Resize handle (bottom-right) */}
+                    {/* Resize handle (bottom-right) — width + height */}
                     {isSelected && (
                       <div
-                        className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-30"
+                        className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize z-30 flex items-end justify-end"
                         style={{ background: "linear-gradient(135deg, transparent 50%, #2CA6F9 50%)", borderBottomRightRadius: 6 }}
                         onMouseDown={(e) => {
                           e.stopPropagation();
@@ -1648,12 +1657,20 @@ export default function DeckPage() {
                           const canvas = canvasRef.current;
                           if (!canvas) return;
                           const startX = e.clientX;
+                          const startY = e.clientY;
                           const origW = block.w;
+                          const origH = block.h ?? (canvasRef.current ? (canvasRef.current.getBoundingClientRect().height > 0 ? (canvasRef.current.offsetHeight > 0 ? undefined : 30) : 30) : 30);
+                          const rect = canvas.getBoundingClientRect();
+                          // Measure current rendered height as % if h is not set
+                          const currentBlockEl = canvas.querySelector(`[data-block-id="${block.id}"]`) as HTMLElement | null;
+                          const currentHpx = currentBlockEl?.offsetHeight ?? rect.height * 0.3;
+                          const currentHpct = (currentHpx / rect.height) * 100;
+                          const startHpct = origH ?? currentHpct;
                           const onMove = (ev: MouseEvent) => {
-                            const rect = canvas.getBoundingClientRect();
                             const dw = ((ev.clientX - startX) / rect.width) * 100;
+                            const dh = ((ev.clientY - startY) / rect.height) * 100;
                             setDroppedBlocks(prev => prev.map(b => b.id === block.id
-                              ? { ...b, w: Math.max(15, Math.min(95, origW + dw)) }
+                              ? { ...b, w: Math.max(5, Math.min(95, origW + dw)), h: Math.max(5, Math.min(90, startHpct + dh)) }
                               : b
                             ));
                           };
