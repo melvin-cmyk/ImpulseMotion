@@ -703,11 +703,38 @@ export default function DeckPage() {
           lastGTimeRef.current = now;
         }
       }
+      // [ : début de la section précédente, ] : début de la section suivante
+      else if ((e.key === "[" || e.key === "]") && !e.ctrlKey && !e.metaKey) {
+        if (inInput) return;
+        e.preventDefault();
+        // Build list of section start indices from standard slides
+        const sectionStarts: number[] = [];
+        let lastSec = -1;
+        slides.forEach((s, i) => {
+          if (s.section !== lastSec) {
+            sectionStarts.push(i);
+            lastSec = s.section;
+          }
+        });
+        if (e.key === "]") {
+          const nextStart = sectionStarts.find(i => i > currentSlide);
+          if (nextStart !== undefined) {
+            goToSlide(nextStart);
+            showToast(`→ ${SECTION_LABELS[slides[nextStart].section] ?? "Section suivante"}`);
+          }
+        } else {
+          const prevStart = [...sectionStarts].reverse().find(i => i < currentSlide);
+          if (prevStart !== undefined) {
+            goToSlide(prevStart);
+            showToast(`← ${SECTION_LABELS[slides[prevStart].section] ?? "Section précédente"}`);
+          }
+        }
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides.length, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, handleExportPdf, setShowOnlyWithNotes, commandPaletteOpen]);
+  }, [deckGenerated, currentSlide, slides, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, handleExportPdf, setShowOnlyWithNotes, commandPaletteOpen, showToast]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
