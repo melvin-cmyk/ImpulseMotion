@@ -17,7 +17,14 @@ import {
   Trash2,
   GripVertical,
   Plus,
+  Edit2,
 } from "lucide-react";
+import {
+  SlideEditorToolbar,
+  SlideElementItem,
+  useSlideEditor,
+  type SlideElement,
+} from "@/components/deck/slide-editor";
 import {
   getAvailablePeriods,
   getPreviousPeriod,
@@ -290,8 +297,18 @@ export default function DeckPage() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const activeFilmstripItemRef = useRef<HTMLButtonElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
+  const [editMode, setEditMode] = useState(true);
+  const [blockStyles, setBlockStyles] = useState<Record<string, { headerColor: string; rowColor: string; fontSize: number; fontFamily: string }>>({});
+  const [slideElements, setSlideElements] = useState<Record<number, SlideElement[]>>({});
 
   const periods = useMemo(() => getAvailablePeriods(), []);
+
+  // ── Slide editor hook (elements / tools / drag) ───────────────────────────
+  const slideEditor = useSlideEditor(
+    canvasRef,
+    slideElements[currentSlide] ?? [],
+    (els) => setSlideElements((prev) => ({ ...prev, [currentSlide]: els }))
+  );
   const slides = useMemo(() => buildSlides(), []);
 
   const currentSlideId = currentSlide < slides.length
@@ -1187,6 +1204,20 @@ export default function DeckPage() {
           <Download className="w-3.5 h-3.5" />
           Google Slides
         </button>
+
+        {/* Edit mode toggle */}
+        <button
+          onClick={() => setEditMode((v) => !v)}
+          title={editMode ? "Quitter le mode édition" : "Mode édition — ajouter formes, textes…"}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors flex-shrink-0 ${
+            editMode
+              ? "bg-amber-500 text-white"
+              : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+          }`}
+        >
+          <Edit2 className="w-3.5 h-3.5" />
+          {editMode ? "Édition ON" : "Éditer"}
+        </button>
       </div>
 
       {/* ── Split layout: Slides (left) + AI Panel (right) ───────────────── */}
@@ -1416,15 +1447,27 @@ export default function DeckPage() {
           <div
             className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto"
             ref={slideContainerRef}
-            onClick={() => setSelectedBlockId(null)}
+            onClick={() => { setSelectedBlockId(null); slideEditor.setSelectedId(null); }}
           >
+            {/* Edit toolbar — outside canvas so it doesn't affect % position calculations */}
+            <div className="w-full max-w-3xl mb-0">
+              <SlideEditorToolbar
+                activeTool={slideEditor.activeTool}
+                onToolChange={slideEditor.setActiveTool}
+                selectedElement={slideEditor.selectedElement}
+                onUpdateElement={(patch) => slideEditor.selectedElement && slideEditor.updateEl(slideEditor.selectedElement.id, patch)}
+                onDeleteElement={slideEditor.deleteSelected}
+              />
+            </div>
+
             {/* 16:9 canvas */}
             <div
               className="w-full max-w-3xl transition-opacity duration-300 ease-in-out relative"
-              style={{ opacity: slideTransition ? 0 : 1 }}
+              style={{ opacity: slideTransition ? 0 : 1, cursor: editMode ? slideEditor.canvasCursor : "default" }}
               ref={canvasRef}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
+              onClick={editMode ? slideEditor.handleCanvasClick : undefined}
             >
               {/* Slide content */}
               {currentSlide < slides.length ? (
@@ -1465,6 +1508,21 @@ export default function DeckPage() {
                   ) : null;
                 })()
               )}
+
+              {/* Slide editor elements — positioned ON the canvas */}
+              {(slideElements[currentSlide] ?? []).map((el) => (
+                <SlideElementItem
+                  key={el.id}
+                  el={el}
+                  isSelected={slideEditor.selectedId === el.id}
+                  isEditing={slideEditor.editingId === el.id}
+                  onMouseDown={(e) => { if (editMode) slideEditor.handleElementMouseDown(e, el); }}
+                  onDoubleClick={(e) => { if (editMode) slideEditor.handleElementDoubleClick(e, el); }}
+                  onTextChange={(text) => slideEditor.updateEl(el.id, { text })}
+                  onBlur={() => slideEditor.setEditingId(null)}
+                  onResizeMouseDown={(e) => { if (editMode) slideEditor.handleResizeMouseDown(e, el); }}
+                />
+              ))}
 
               {/* Overlay blocks — positioned ON the canvas */}
               {currentSlideBlocks.map((block) => {
@@ -1509,9 +1567,76 @@ export default function DeckPage() {
                       style={{ cursor: draggingBlock?.id === block.id ? "grabbing" : "grab" }}
                     />
                     {/* Content */}
-                    <div className="relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none pointer-events-none [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-0.5 [&_th]:bg-[#0070C0] [&_th]:text-white [&_tr:nth-child(even)_td]:bg-[#F3F3F3]">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
-                    </div>
+                    {(() => {
+                      const bStyle = blockStyles[block.id] ?? { headerColor: "#0070C0", rowColor: "#F3F3F3", fontSize: 10, fontFamily: "Inter" };
+                      const isTable = block.content.includes("|");
+                      return (
+                        <>
+                          <style>{`
+                            .block-md-${block.id} th { background-color: ${bStyle.headerColor} !important; color: white; padding: 2px 8px; }
+                            .block-md-${block.id} td { padding: 2px 8px; }
+                            .block-md-${block.id} tr:nth-child(even) td { background-color: ${bStyle.rowColor}; }
+                            .block-md-${block.id} table { font-size: ${bStyle.fontSize}px; font-family: ${bStyle.fontFamily === "Mono" ? "monospace" : bStyle.fontFamily === "Georgia" ? "Georgia, serif" : bStyle.fontFamily + ", sans-serif"}; }
+                          `}</style>
+                          <div className={`relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none pointer-events-none block-md-${block.id}`}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
+                          </div>
+                          {/* Table style panel */}
+                          {isSelected && isTable && (
+                            <div
+                              className="absolute left-0 z-40 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 flex items-center gap-3 flex-wrap"
+                              style={{ top: "calc(100% + 4px)", minWidth: 340, pointerEvents: "all" }}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            >
+                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
+                                En-tête
+                                <input
+                                  type="color"
+                                  value={bStyle.headerColor}
+                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, headerColor: e.target.value } }))}
+                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200"
+                                />
+                              </label>
+                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
+                                Lignes paires
+                                <input
+                                  type="color"
+                                  value={bStyle.rowColor}
+                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, rowColor: e.target.value } }))}
+                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200"
+                                />
+                              </label>
+                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
+                                Taille
+                                <input
+                                  type="number"
+                                  min={8}
+                                  max={14}
+                                  value={bStyle.fontSize}
+                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, fontSize: Number(e.target.value) } }))}
+                                  className="w-12 text-[10px] border border-gray-200 rounded px-1 py-0.5"
+                                />
+                                px
+                              </label>
+                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
+                                Police
+                                <select
+                                  value={bStyle.fontFamily}
+                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, fontFamily: e.target.value } }))}
+                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5"
+                                >
+                                  <option value="Inter">Inter</option>
+                                  <option value="Raleway">Raleway</option>
+                                  <option value="Georgia">Georgia</option>
+                                  <option value="Mono">Mono</option>
+                                </select>
+                              </label>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                     {/* Resize handle (bottom-right) */}
                     {isSelected && (
                       <div
