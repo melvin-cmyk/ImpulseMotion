@@ -291,8 +291,13 @@ export default function DeckPage() {
   const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
   const [commandPaletteIndex, setCommandPaletteIndex] = useState(0);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientMeta, setNewClientMeta] = useState("");
+  const [newClientGoogle, setNewClientGoogle] = useState("");
   const commandPaletteInputRef = useRef<HTMLInputElement>(null);
   const lastGTimeRef = useRef<number>(0);
+  const [userContext, setUserContext] = useState("");
   const prevSlideRef = useRef<number>(-1);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -325,13 +330,13 @@ export default function DeckPage() {
   const [deckData, setDeckData] = useState<DeckData | null>(null);
   const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
 
-  const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod) => {
+  const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod, contextOverride?: string) => {
     setIsGenerating(true);
     try {
       const res = await fetch("/api/deck/data", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client, period }),
+        body: JSON.stringify({ client, period, userContext: contextOverride ?? userContext }),
       });
       if (res.ok) {
         const json = await res.json() as { data: DeckData; source: "real" | "mock" };
@@ -348,7 +353,7 @@ export default function DeckPage() {
     setDeckGenerated(true);
     setCurrentSlide(0);
     setIsGenerating(false);
-  }, []);
+  }, [userContext]);
 
   // Auto-generate when client or period changes
   useEffect(() => {
@@ -365,7 +370,7 @@ export default function DeckPage() {
     if (!deckData) return;
     setIsExporting(true);
     try {
-      const blob = await exportDeckToPptx(deckData);
+      const blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -665,9 +670,19 @@ export default function DeckPage() {
           return !prev;
         });
       }
-      // Escape : ferme la palette, le panneau de notes, ou blur la recherche
+      // Delete/Backspace : supprime le bloc sélectionné sur le canvas
+      else if ((e.key === "Delete" || e.key === "Backspace") && selectedBlockId && !inInput) {
+        e.preventDefault();
+        setDroppedBlocks((prev) => prev.filter((b) => b.id !== selectedBlockId));
+        setSelectedBlockId(null);
+      }
+      // Escape : supprime le bloc sélectionné ou ferme les panels
       else if (e.key === "Escape") {
-        if (shortcutHelpOpen) {
+        if (selectedBlockId) {
+          // Escape sur un bloc sélectionné = le supprimer (user request)
+          setDroppedBlocks((prev) => prev.filter((b) => b.id !== selectedBlockId));
+          setSelectedBlockId(null);
+        } else if (shortcutHelpOpen) {
           setShortcutHelpOpen(false);
         } else if (commandPaletteOpen) {
           setCommandPaletteOpen(false);
@@ -1023,6 +1038,24 @@ export default function DeckPage() {
             </div>
             <div className="mt-3 text-xs text-gray-400">
               Connectez vos comptes dans Settings pour utiliser des données réelles.
+            </div>
+          </div>
+
+          {/* User context */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
+            <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+              <Sparkles className="w-4 h-4" />
+              Contexte additionnel (optionnel)
+            </label>
+            <textarea
+              value={userContext}
+              onChange={(e) => setUserContext(e.target.value)}
+              placeholder="Ex : le client a lancé une nouvelle gamme de produits ce mois-ci, le budget a augmenté de 20%…"
+              rows={3}
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+            />
+            <div className="mt-2 text-xs text-gray-400">
+              Ce contexte sera transmis à l&apos;IA pour personnaliser les learnings et next steps.
             </div>
           </div>
 
@@ -1456,8 +1489,13 @@ export default function DeckPage() {
                 activeTool={slideEditor.activeTool}
                 onToolChange={slideEditor.setActiveTool}
                 selectedElement={slideEditor.selectedElement}
-                onUpdateElement={(patch) => slideEditor.selectedElement && slideEditor.updateEl(slideEditor.selectedElement.id, patch)}
+                onUpdateElement={(patch) => slideEditor.selectedElement && slideEditor.updateElWithHistory(slideEditor.selectedElement.id, patch)}
                 onDeleteElement={slideEditor.deleteSelected}
+                onUndo={slideEditor.undo}
+                onRedo={slideEditor.redo}
+                canUndo={slideEditor.canUndo}
+                canRedo={slideEditor.canRedo}
+                onImageUpload={slideEditor.handleImageUpload}
               />
             </div>
 

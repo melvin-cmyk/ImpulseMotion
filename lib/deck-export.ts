@@ -6,6 +6,122 @@
 import type { DeckData, PlatformMetrics, PlatformRow, CampaignRow, TopCreative, BudgetLine } from "./deck-data";
 import { IA, FONTS, SIZES, LAYOUT } from "./impulse-theme";
 
+// ── Inline types from page.tsx (for custom slides and dropped blocks) ────────
+
+interface CustomSlide {
+  id: string;
+  label: string;
+  content: string;
+  fontFamily?: string;
+}
+
+interface DroppedBlock {
+  id: string;
+  content: string;
+  slideIndex: number;
+  x: number; // % of canvas width
+  y: number; // % of canvas height
+  w: number; // % of canvas width
+  h?: number; // % of canvas height (auto if undefined)
+}
+
+interface SlideElement {
+  id: string;
+  type: "text" | "rect" | "circle" | "arrow" | "triangle" | "line" | "image";
+  x: number; // % of canvas width
+  y: number; // % of canvas height
+  w: number; // % of canvas width
+  h: number; // % of canvas height
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+  opacity: number;
+  // Text-specific
+  text?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  fontWeight?: "normal" | "bold";
+  fontStyle?: "normal" | "italic";
+  textDecoration?: "none" | "underline";
+  textColor?: string;
+  textAlign?: "left" | "center" | "right";
+  // Image-specific
+  imageUrl?: string;
+}
+
+/** Render SlideElements onto a pptxgenjs slide object */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function addSlideElements(slide: any, elements: SlideElement[], layoutW: number, layoutH: number) {
+  for (const el of elements) {
+    const x = (el.x / 100) * layoutW;
+    const y = (el.y / 100) * layoutH;
+    const w = (el.w / 100) * layoutW;
+    const h = (el.h / 100) * layoutH;
+    const fill = el.fillColor === "transparent" ? { type: "none" as const } : { color: el.fillColor.replace("#", "") };
+    const line = el.strokeWidth > 0 ? { color: el.strokeColor.replace("#", ""), width: el.strokeWidth } : undefined;
+
+    switch (el.type) {
+      case "rect":
+        slide.addShape("rect", { x, y, w, h, fill, line });
+        break;
+      case "circle":
+        slide.addShape("ellipse", { x, y, w, h, fill, line });
+        break;
+      case "triangle":
+        slide.addShape("triangle", { x, y, w, h, fill, line });
+        break;
+      case "arrow":
+        slide.addShape("line", { x, y, w, h: 0, line: { color: el.strokeColor.replace("#", ""), width: el.strokeWidth, endArrowType: "arrow" } });
+        break;
+      case "line":
+        slide.addShape("line", { x, y, w, h: 0, line: { color: el.strokeColor.replace("#", ""), width: el.strokeWidth } });
+        break;
+      case "text":
+        if (el.text) {
+          slide.addText(el.text, {
+            x, y, w, h,
+            fontSize: el.fontSize ?? 12,
+            color: (el.textColor ?? "#ffffff").replace("#", ""),
+            fontFace: el.fontFamily?.split(",")[0].trim().replace(/'/g, "") ?? "Inter",
+            bold: el.fontWeight === "bold",
+            italic: el.fontStyle === "italic",
+            underline: el.textDecoration === "underline" ? { style: "sng" } : undefined,
+            align: el.textAlign ?? "left",
+            valign: "top",
+            wrap: true,
+          });
+        }
+        break;
+      case "image":
+        if (el.imageUrl?.startsWith("data:")) {
+          try {
+            const [header, data] = el.imageUrl.split(",");
+            const ext = header.match(/image\/(\w+)/)?.[1] ?? "png";
+            slide.addImage({ data: `${header},${data}`, x, y, w, h, sizing: { type: "contain", w, h } });
+          } catch { /* skip invalid images */ }
+        }
+        break;
+    }
+  }
+}
+
+/** Strip common markdown formatting to produce plain text */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, "")       // headings
+    .replace(/\*\*(.+?)\*\*/g, "$1")    // bold
+    .replace(/\*(.+?)\*/g, "$1")        // italic
+    .replace(/`(.+?)`/g, "$1")          // inline code
+    .replace(/^[-*+]\s+/gm, "• ")       // unordered list
+    .replace(/^\d+\.\s+/gm, "")         // ordered list
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1") // links
+    .replace(/!\[.*?\]\(.+?\)/g, "")    // images
+    .replace(/^\|.+\|$/gm, "")          // tables
+    .replace(/^[-|: ]+$/gm, "")         // table separators
+    .replace(/\n{3,}/g, "\n\n")         // excessive newlines
+    .trim();
+}
+
 const c = (hex: string) => hex.replace("#", "");
 
 function fmtCur(n: number) {
@@ -558,7 +674,12 @@ function addTopCreatives(pptx: PptxGen, creatives: TopCreative[]) {
 
 // ── Main export function ────────────────────────────────────────────────────
 
-export async function exportDeckToPptx(data: DeckData): Promise<Blob> {
+export async function exportDeckToPptx(
+  data: DeckData,
+  customSlides?: CustomSlide[],
+  droppedBlocks?: DroppedBlock[],
+  slideElements?: Record<number, SlideElement[]>
+): Promise<Blob> {
   const PptxGenJS = (await import("pptxgenjs")).default;
   const pptx = new PptxGenJS();
 
@@ -598,6 +719,142 @@ export async function exportDeckToPptx(data: DeckData): Promise<Blob> {
   addSectionDivider(pptx, "04", "Next Steps & Budget", "Actions globales · Budget mensuel", IA.blue);
   addNextSteps(pptx, "Next Steps — Global", data.nextStepsGlobal, IA.blue, IA.blue);
   addBudget(pptx, data.budget, data.period.label);
+
+  // Standard slides are indices 0..17 (18 slides total above)
+  const STANDARD_SLIDE_COUNT = 18;
+
+  // ── Dropped blocks overlay on standard slides ───────────────────────────
+  if (droppedBlocks && droppedBlocks.length > 0) {
+    // pptxgenjs slide objects can't be retrieved after creation, so we process
+    // dropped blocks that fall on custom slides below. For standard slides we
+    // add them by re-using the slide reference returned from addSlide — but
+    // since the helpers above don't return the slide, we use a workaround:
+    // group blocks by slideIndex and store them for post-processing via the
+    // pptx.slides array.
+    const blocksBySlide: Record<number, DroppedBlock[]> = {};
+    for (const block of droppedBlocks) {
+      if (!blocksBySlide[block.slideIndex]) blocksBySlide[block.slideIndex] = [];
+      blocksBySlide[block.slideIndex].push(block);
+    }
+    // Access internal slides array to add overlays on already-created slides
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internalSlides: any[] = (pptx as any).slides ?? [];
+    for (const [slideIdxStr, blocks] of Object.entries(blocksBySlide)) {
+      const slideIdx = Number(slideIdxStr);
+      if (slideIdx >= STANDARD_SLIDE_COUNT) continue; // custom slides handled below
+      const slide = internalSlides[slideIdx];
+      if (!slide) continue;
+      for (const block of blocks) {
+        const xIn = (block.x / 100) * LAYOUT.width;
+        const yIn = (block.y / 100) * LAYOUT.height;
+        const wIn = (block.w / 100) * LAYOUT.width;
+        const hIn = block.h !== undefined ? (block.h / 100) * LAYOUT.height : 1.2;
+        const plainText = stripMarkdown(block.content);
+        slide.addShape("rect", {
+          x: xIn, y: yIn, w: wIn, h: hIn,
+          fill: { color: c(IA.bgDark), transparency: 15 },
+          line: { color: c(IA.blue), width: 1 },
+        });
+        slide.addText(plainText, {
+          x: xIn + 0.1, y: yIn + 0.1, w: wIn - 0.2, h: hIn - 0.2,
+          fontSize: 9, color: c(IA.textWhite), fontFace: FONTS.body,
+          valign: "top", wrap: true,
+        });
+      }
+      // SlideElements (drawn shapes/text) on this standard slide
+      const els = slideElements?.[slideIdx];
+      if (els && els.length > 0) addSlideElements(slide, els, LAYOUT.width, LAYOUT.height);
+    }
+
+    // Also handle standard slides that have elements but no dropped blocks
+    if (slideElements) {
+      for (const [idxStr, els] of Object.entries(slideElements)) {
+        const idx = Number(idxStr);
+        if (idx >= STANDARD_SLIDE_COUNT) continue;
+        if (blocksBySlide[idx]) continue; // already processed above
+        const slide = internalSlides[idx];
+        if (slide && els.length > 0) addSlideElements(slide, els, LAYOUT.width, LAYOUT.height);
+      }
+    }
+  } else if (slideElements) {
+    // No dropped blocks but may have drawn elements on standard slides
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internalSlides: any[] = (pptx as any).slides ?? [];
+    for (const [idxStr, els] of Object.entries(slideElements)) {
+      const idx = Number(idxStr);
+      if (idx >= STANDARD_SLIDE_COUNT) continue;
+      const slide = internalSlides[idx];
+      if (slide && els.length > 0) addSlideElements(slide, els, LAYOUT.width, LAYOUT.height);
+    }
+  }
+
+  // ── Custom slides ────────────────────────────────────────────────────────
+  if (customSlides && customSlides.length > 0) {
+    // Build a map of dropped blocks for custom slide indices
+    const customBlocksBySlide: Record<number, DroppedBlock[]> = {};
+    if (droppedBlocks) {
+      for (const block of droppedBlocks) {
+        if (block.slideIndex >= STANDARD_SLIDE_COUNT) {
+          if (!customBlocksBySlide[block.slideIndex]) customBlocksBySlide[block.slideIndex] = [];
+          customBlocksBySlide[block.slideIndex].push(block);
+        }
+      }
+    }
+
+    customSlides.forEach((cs, i) => {
+      const absIdx = STANDARD_SLIDE_COUNT + i;
+      const s = pptx.addSlide();
+      s.background = { color: c(IA.bgDark) };
+      addBar(s, IA.blue);
+      addFooter(s, true);
+
+      // Title (label)
+      s.addText(cs.label, {
+        x: LAYOUT.marginX + 0.3, y: 0.25, w: 11, h: 0.6,
+        fontSize: SIZES.titleMain, bold: true, color: c(IA.textWhite),
+        fontFace: cs.fontFamily ?? FONTS.title,
+      });
+      s.addShape("rect", {
+        x: LAYOUT.marginX + 0.3, y: 0.9, w: 12, h: 0.015,
+        fill: { color: c(IA.blue) }, line: { width: 0 },
+      });
+
+      // Content — render markdown as plain text
+      const plainContent = stripMarkdown(cs.content);
+      if (plainContent) {
+        s.addText(plainContent, {
+          x: LAYOUT.marginX + 0.3, y: LAYOUT.contentY + 0.2, w: 12, h: 5.5,
+          fontSize: SIZES.body, color: c(IA.textWhite),
+          fontFace: cs.fontFamily ?? FONTS.body,
+          valign: "top", wrap: true,
+        });
+      }
+
+      // Dropped blocks on this custom slide
+      const blocks = customBlocksBySlide[absIdx] ?? [];
+      for (const block of blocks) {
+        const xIn = (block.x / 100) * LAYOUT.width;
+        const yIn = (block.y / 100) * LAYOUT.height;
+        const wIn = (block.w / 100) * LAYOUT.width;
+        const hIn = block.h !== undefined ? (block.h / 100) * LAYOUT.height : 1.2;
+        const plainText = stripMarkdown(block.content);
+        s.addShape("rect", {
+          x: xIn, y: yIn, w: wIn, h: hIn,
+          fill: { color: c(IA.bgDark), transparency: 15 },
+          line: { color: c(IA.blue), width: 1 },
+        });
+        s.addText(plainText, {
+          x: xIn + 0.1, y: yIn + 0.1, w: wIn - 0.2, h: hIn - 0.2,
+          fontSize: 9, color: c(IA.textWhite), fontFace: FONTS.body,
+          valign: "top", wrap: true,
+        });
+      }
+
+      // SlideElements (drawn shapes/text) on this custom slide
+      const customEls = slideElements?.[absIdx];
+      if (customEls && customEls.length > 0) addSlideElements(s, customEls, LAYOUT.width, LAYOUT.height);
+    });
+  }
 
   // Return as Blob — caller handles download
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

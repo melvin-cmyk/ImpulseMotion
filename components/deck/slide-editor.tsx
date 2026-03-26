@@ -14,13 +14,18 @@ import {
   Bold,
   Italic,
   Underline,
+  Triangle,
+  Minus,
+  Image as ImageIcon,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SlideElement {
   id: string;
-  type: "text" | "rect" | "circle" | "arrow";
+  type: "text" | "rect" | "circle" | "arrow" | "triangle" | "line" | "image";
   x: number; // % of canvas width
   y: number; // % of canvas height
   w: number; // % of canvas width
@@ -38,9 +43,11 @@ export interface SlideElement {
   textDecoration?: "none" | "underline";
   textColor?: string;
   textAlign?: "left" | "center" | "right";
+  // Image-specific
+  imageUrl?: string;
 }
 
-export type EditorTool = "select" | "text" | "rect" | "circle" | "arrow";
+export type EditorTool = "select" | "text" | "rect" | "circle" | "arrow" | "triangle" | "line" | "image";
 
 const FONT_OPTIONS = [
   { label: "Inter", value: "Inter, sans-serif" },
@@ -75,6 +82,12 @@ export function createDefaultElement(type: SlideElement["type"], x: number, y: n
       return { ...base, w: 14, h: 18, fillColor: "#E8F0FE", strokeColor: "#0944A1" };
     case "arrow":
       return { ...base, w: 22, h: 5, fillColor: "transparent", strokeColor: "#0944A1" };
+    case "triangle":
+      return { ...base, w: 16, h: 16, fillColor: "#E8F0FE", strokeColor: "#0944A1" };
+    case "line":
+      return { ...base, w: 22, h: 2, fillColor: "transparent", strokeColor: "#0944A1" };
+    case "image":
+      return { ...base, w: 24, h: 18, fillColor: "transparent", strokeColor: "transparent", imageUrl: "" };
   }
 }
 
@@ -86,6 +99,11 @@ interface ToolbarProps {
   selectedElement: SlideElement | null;
   onUpdateElement: (patch: Partial<SlideElement>) => void;
   onDeleteElement: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onImageUpload?: (file: File) => void;
 }
 
 export function SlideEditorToolbar({
@@ -94,16 +112,45 @@ export function SlideEditorToolbar({
   selectedElement,
   onUpdateElement,
   onDeleteElement,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
+  onImageUpload,
 }: ToolbarProps) {
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
   return (
     <div className="flex items-center gap-1 mb-2 px-2 py-1 bg-white border border-gray-200 rounded-lg shadow-sm flex-wrap">
+      {/* Undo / Redo */}
+      <button
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Annuler (Ctrl+Z)"
+        className="flex items-center justify-center w-7 h-7 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-colors"
+      >
+        <Undo2 className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={onRedo}
+        disabled={!canRedo}
+        title="Rétablir (Ctrl+Y)"
+        className="flex items-center justify-center w-7 h-7 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-colors"
+      >
+        <Redo2 className="w-3.5 h-3.5" />
+      </button>
+
+      <div className="h-5 w-px bg-gray-200 mx-1" />
+
       {(
         [
           { tool: "select" as EditorTool, icon: <MousePointer2 className="w-3.5 h-3.5" />, label: "Sélectionner" },
           { tool: "text" as EditorTool, icon: <Type className="w-3.5 h-3.5" />, label: "Texte" },
           { tool: "rect" as EditorTool, icon: <Square className="w-3.5 h-3.5" />, label: "Rectangle" },
           { tool: "circle" as EditorTool, icon: <Circle className="w-3.5 h-3.5" />, label: "Cercle" },
+          { tool: "triangle" as EditorTool, icon: <Triangle className="w-3.5 h-3.5" />, label: "Triangle" },
           { tool: "arrow" as EditorTool, icon: <ArrowRight className="w-3.5 h-3.5" />, label: "Flèche" },
+          { tool: "line" as EditorTool, icon: <Minus className="w-3.5 h-3.5" />, label: "Ligne" },
         ] as { tool: EditorTool; icon: React.ReactNode; label: string }[]
       ).map(({ tool, icon, label }) => (
         <button
@@ -117,6 +164,31 @@ export function SlideEditorToolbar({
           {icon}
         </button>
       ))}
+
+      {/* Image upload */}
+      <button
+        onClick={() => {
+          if (onImageUpload) imageInputRef.current?.click();
+          else onToolChange("image");
+        }}
+        title="Insérer une image"
+        className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
+          activeTool === "image" ? "bg-[#0944A1] text-white" : "text-gray-600 hover:bg-gray-100"
+        }`}
+      >
+        <ImageIcon className="w-3.5 h-3.5" />
+      </button>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && onImageUpload) onImageUpload(file);
+          e.target.value = "";
+        }}
+      />
 
       <div className="h-5 w-px bg-gray-200 mx-1" />
 
@@ -336,6 +408,46 @@ export function SlideElementItem({
             <line x1="2" y1="10" x2="94" y2="10" stroke={el.strokeColor} strokeWidth={el.strokeWidth} markerEnd={`url(#arrow-${el.id})`} />
           </svg>
         );
+      case "triangle":
+        return (
+          <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polygon
+              points="50,2 98,98 2,98"
+              fill={el.fillColor === "transparent" ? "transparent" : el.fillColor}
+              stroke={el.strokeColor}
+              strokeWidth={el.strokeWidth}
+            />
+          </svg>
+        );
+      case "line":
+        return (
+          <svg width="100%" height="100%" viewBox="0 0 100 10" preserveAspectRatio="none">
+            <line x1="0" y1="5" x2="100" y2="5" stroke={el.strokeColor} strokeWidth={el.strokeWidth * 2} />
+          </svg>
+        );
+      case "image":
+        return el.imageUrl ? (
+          <img
+            src={el.imageUrl}
+            alt=""
+            style={{ ...shapeStyle, objectFit: "contain", display: "block" }}
+            draggable={false}
+          />
+        ) : (
+          <div
+            style={{
+              ...shapeStyle,
+              border: `2px dashed ${el.strokeColor}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#9ca3af",
+              fontSize: 11,
+            }}
+          >
+            Image
+          </div>
+        );
       case "text":
         if (isEditing) {
           return (
@@ -436,6 +548,44 @@ export function useSlideEditor(
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // Undo/redo history
+  const historyRef = useRef<SlideElement[][]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const [historyLen, setHistoryLen] = useState(0); // trigger re-render when history changes
+
+  const pushHistory = useCallback((newEls: SlideElement[]) => {
+    // Truncate forward history
+    historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
+    historyRef.current.push(newEls);
+    if (historyRef.current.length > 50) historyRef.current.shift();
+    historyIndexRef.current = historyRef.current.length - 1;
+    setHistoryLen(historyRef.current.length);
+  }, []);
+
+  const changeWithHistory = useCallback((newEls: SlideElement[]) => {
+    pushHistory(newEls);
+    onChange(newEls);
+  }, [pushHistory, onChange]);
+
+  const undo = useCallback(() => {
+    if (historyIndexRef.current <= 0) return;
+    historyIndexRef.current -= 1;
+    const prev = historyRef.current[historyIndexRef.current];
+    setHistoryLen(historyRef.current.length);
+    onChange(prev);
+  }, [onChange]);
+
+  const redo = useCallback(() => {
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    historyIndexRef.current += 1;
+    const next = historyRef.current[historyIndexRef.current];
+    setHistoryLen(historyRef.current.length);
+    onChange(next);
+  }, [onChange]);
+
+  const canUndo = historyLen > 0 && historyIndexRef.current > 0;
+  const canRedo = historyLen > 0 && historyIndexRef.current < historyRef.current.length - 1;
+
   const dragRef = useRef<{
     type: "move" | "resize";
     id: string;
@@ -451,18 +601,41 @@ export function useSlideEditor(
 
   const updateEl = useCallback(
     (id: string, patch: Partial<SlideElement>) => {
-      onChange(elements.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+      const newEls = elements.map((e) => (e.id === id ? { ...e, ...patch } : e));
+      onChange(newEls);
     },
     [elements, onChange]
   );
 
+  const updateElWithHistory = useCallback(
+    (id: string, patch: Partial<SlideElement>) => {
+      const newEls = elements.map((e) => (e.id === id ? { ...e, ...patch } : e));
+      changeWithHistory(newEls);
+    },
+    [elements, changeWithHistory]
+  );
+
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
-    onChange(elements.filter((e) => e.id !== selectedId));
+    changeWithHistory(elements.filter((e) => e.id !== selectedId));
     setSelectedId(null);
-  }, [selectedId, elements, onChange]);
+  }, [selectedId, elements, changeWithHistory]);
 
-  // Keyboard delete
+  const handleImageUpload = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const imageUrl = ev.target?.result as string;
+      const el = createDefaultElement("image", 20, 20);
+      el.imageUrl = imageUrl;
+      const newEls = [...elements, el];
+      changeWithHistory(newEls);
+      setSelectedId(el.id);
+      setActiveTool("select");
+    };
+    reader.readAsDataURL(file);
+  }, [elements, changeWithHistory]);
+
+  // Keyboard delete + undo/redo
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const inInput =
@@ -475,11 +648,16 @@ export function useSlideEditor(
       } else if (e.key === "Escape") {
         setSelectedId(null);
         setEditingId(null);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey && !inInput) {
+        e.preventDefault();
+        undo();
+      } else if (((e.ctrlKey || e.metaKey) && e.key === "y") || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z")) {
+        if (!inInput) { e.preventDefault(); redo(); }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deleteSelected, selectedId]);
+  }, [deleteSelected, selectedId, undo, redo]);
 
   // Global mouse move/up for drag
   useEffect(() => {
@@ -511,17 +689,18 @@ export function useSlideEditor(
 
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
-      if (activeTool === "select" || !canvasRef.current) return;
+      if (activeTool === "select" || activeTool === "image" || !canvasRef.current) return;
       const rect = canvasRef.current.getBoundingClientRect();
       const x = ((e.clientX - rect.left) / rect.width) * 100;
       const y = ((e.clientY - rect.top) / rect.height) * 100;
       const el = createDefaultElement(activeTool as SlideElement["type"], x - 9, y - 5);
-      onChange([...elements, el]);
+      const newEls = [...elements, el];
+      changeWithHistory(newEls);
       setSelectedId(el.id);
       setActiveTool("select");
       if (activeTool === "text") setTimeout(() => setEditingId(el.id), 50);
     },
-    [activeTool, canvasRef, elements, onChange]
+    [activeTool, canvasRef, elements, changeWithHistory]
   );
 
   const handleElementMouseDown = useCallback(
@@ -580,11 +759,17 @@ export function useSlideEditor(
     setEditingId,
     selectedElement,
     updateEl,
+    updateElWithHistory,
     deleteSelected,
     handleCanvasClick,
     handleElementMouseDown,
     handleResizeMouseDown,
     handleElementDoubleClick,
+    handleImageUpload,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     canvasCursor: activeTool !== "select" ? "crosshair" : "default",
   };
 }
