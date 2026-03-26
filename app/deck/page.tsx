@@ -279,6 +279,10 @@ export default function DeckPage() {
   const [showOnlyWithNotes, setShowOnlyWithNotes] = useState(false);
   const [filmstripSearch, setFilmstripSearch] = useState("");
   const filmstripSearchRef = useRef<HTMLInputElement>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [commandPaletteQuery, setCommandPaletteQuery] = useState("");
+  const [commandPaletteIndex, setCommandPaletteIndex] = useState(0);
+  const commandPaletteInputRef = useRef<HTMLInputElement>(null);
   const lastGTimeRef = useRef<number>(0);
   const prevSlideRef = useRef<number>(-1);
   const slideContainerRef = useRef<HTMLDivElement>(null);
@@ -611,6 +615,13 @@ export default function DeckPage() {
     }
   }, [currentSlide, showOnlyWithNotes, slides, customSlides, slideNotes]);
 
+  // ── Focus palette input when opened ─────────────────────────────────────
+  useEffect(() => {
+    if (commandPaletteOpen) {
+      setTimeout(() => commandPaletteInputRef.current?.focus(), 50);
+    }
+  }, [commandPaletteOpen]);
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
     if (!deckGenerated) return;
@@ -627,9 +638,19 @@ export default function DeckPage() {
         e.preventDefault();
         goToSlide(currentSlide + 1);
       }
-      // Escape : ferme le panneau de notes, ou blur la recherche
+      // Ctrl+K / Cmd+K : ouvre/ferme la palette de commandes
+      else if (e.key === "k" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        setCommandPaletteOpen(prev => {
+          if (!prev) { setCommandPaletteQuery(""); setCommandPaletteIndex(0); }
+          return !prev;
+        });
+      }
+      // Escape : ferme la palette, le panneau de notes, ou blur la recherche
       else if (e.key === "Escape") {
-        if (notePanelOpen) {
+        if (commandPaletteOpen) {
+          setCommandPaletteOpen(false);
+        } else if (notePanelOpen) {
           setNotePanelOpen(false);
         } else if (inInput) {
           (document.activeElement as HTMLElement)?.blur();
@@ -681,7 +702,7 @@ export default function DeckPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides.length, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, setShowOnlyWithNotes]);
+  }, [deckGenerated, currentSlide, slides.length, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, setShowOnlyWithNotes, commandPaletteOpen]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
@@ -803,6 +824,22 @@ export default function DeckPage() {
     });
     return groups;
   }, [slides]);
+
+  // Count visible filmstrip slides (standard + custom) under current search+notes filter
+  const filmstripResultCount = useMemo(() => {
+    const q = filmstripSearch.trim().toLowerCase();
+    const stdCount = slides.filter(s => {
+      if (showOnlyWithNotes && !slideNotes[s.id]) return false;
+      if (q && !s.label.toLowerCase().includes(q)) return false;
+      return true;
+    }).length;
+    const csCount = customSlides.filter(cs => {
+      if (showOnlyWithNotes && !slideNotes[cs.id]) return false;
+      if (q && !cs.label.toLowerCase().includes(q)) return false;
+      return true;
+    }).length;
+    return stdCount + csCount;
+  }, [filmstripSearch, showOnlyWithNotes, slides, customSlides, slideNotes]);
 
   // ── Setup view (before generation) ──────────────────────────────────────
   if (!deckGenerated) {
@@ -1132,6 +1169,11 @@ export default function DeckPage() {
                 title="Raccourci clavier : / pour focus"
                 className="w-full text-[10px] px-2 py-1 rounded-md border border-gray-200 bg-gray-50 text-gray-600 placeholder-gray-300 focus:outline-none focus:border-blue-300 focus:bg-white transition-colors"
               />
+              {filmstripSearch.trim() && (
+                <div className={`mt-0.5 text-[9px] px-1 ${filmstripResultCount === 0 ? "text-red-400" : "text-gray-400"}`}>
+                  {filmstripResultCount === 0 ? "Aucun résultat" : `${filmstripResultCount} résultat${filmstripResultCount !== 1 ? "s" : ""}`}
+                </div>
+              )}
             </div>
             {/* Filter: show only slides with notes */}
             <button
@@ -1581,6 +1623,77 @@ export default function DeckPage() {
           })}
         </div>
       )}
+
+      {/* ── Command Palette (Ctrl+K) ─────────────────────────────────────── */}
+      {commandPaletteOpen && (() => {
+        const q = commandPaletteQuery.trim().toLowerCase();
+        const allSlides = [
+          ...slides.map((s, i) => ({ idx: i, label: s.label })),
+          ...customSlides.map((cs, i) => ({ idx: slides.length + i, label: cs.label })),
+        ];
+        const filtered = q ? allSlides.filter(s => s.label.toLowerCase().includes(q)) : allSlides;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center pt-24 bg-black/60"
+            onClick={() => setCommandPaletteOpen(false)}
+          >
+            <div
+              className="w-full max-w-md bg-gray-900 rounded-xl shadow-2xl overflow-hidden border border-gray-700"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Input */}
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-700">
+                <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 111 11a6 6 0 0116 0z" />
+                </svg>
+                <input
+                  ref={commandPaletteInputRef}
+                  type="text"
+                  value={commandPaletteQuery}
+                  onChange={e => { setCommandPaletteQuery(e.target.value); setCommandPaletteIndex(0); }}
+                  onKeyDown={e => {
+                    if (e.key === "ArrowDown") { e.preventDefault(); setCommandPaletteIndex(i => Math.min(i + 1, filtered.length - 1)); }
+                    else if (e.key === "ArrowUp") { e.preventDefault(); setCommandPaletteIndex(i => Math.max(i - 1, 0)); }
+                    else if (e.key === "Enter") {
+                      const target = filtered[commandPaletteIndex];
+                      if (target) { goToSlide(target.idx); setCommandPaletteOpen(false); }
+                    } else if (e.key === "Escape") { setCommandPaletteOpen(false); }
+                  }}
+                  placeholder="Aller à une slide… (Ctrl+K)"
+                  className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 outline-none"
+                />
+                <kbd className="text-[9px] text-gray-500 bg-gray-800 border border-gray-600 rounded px-1 py-0.5">Esc</kbd>
+              </div>
+              {/* Results */}
+              <div className="max-h-72 overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-sm text-gray-500">Aucune slide trouvée</div>
+                ) : filtered.map((s, i) => (
+                  <button
+                    key={s.idx}
+                    onClick={() => { goToSlide(s.idx); setCommandPaletteOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors ${
+                      i === commandPaletteIndex ? "bg-blue-600 text-white" : "text-gray-200 hover:bg-gray-800"
+                    }`}
+                  >
+                    <span className={`text-[10px] font-mono w-6 flex-shrink-0 text-right ${i === commandPaletteIndex ? "text-blue-200" : "text-gray-500"}`}>
+                      {s.idx + 1}
+                    </span>
+                    <HighlightLabel label={s.label} search={commandPaletteQuery} />
+                  </button>
+                ))}
+              </div>
+              {filtered.length > 0 && (
+                <div className="px-4 py-2 border-t border-gray-700 text-[9px] text-gray-500 flex gap-3">
+                  <span>↑↓ naviguer</span>
+                  <span>↵ aller</span>
+                  <span>Esc fermer</span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
