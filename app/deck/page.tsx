@@ -333,6 +333,8 @@ export default function DeckPage() {
 
   const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod, contextOverride?: string) => {
     setIsGenerating(true);
+    setDataSource(null);
+    setDataSourceReason(null);
     const prompt = contextOverride ?? userContext;
     try {
       // Call both endpoints in parallel: deck data + AI slide generation

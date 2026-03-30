@@ -26,6 +26,9 @@ export interface DeckClientResult {
   googleCustomerId?: string;
 }
 
+let clientCache: { data: { clients: DeckClientResult[] }; ts: number } | null = null;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 async function relayChat(prompt: string, timeoutMs = 25000): Promise<string> {
   console.log("[deck/clients] RELAY_URLS:", RELAY_URLS, "timeout:", timeoutMs);
   for (const url of RELAY_URLS) {
@@ -123,6 +126,12 @@ Then return ONLY this exact JSON structure with the real data (no markdown, no e
 }
 
 export async function GET() {
+  // Return cached result if still fresh
+  if (clientCache && Date.now() - clientCache.ts < CACHE_TTL) {
+    console.log("[deck/clients] serving from cache");
+    return NextResponse.json(clientCache.data);
+  }
+
   const { meta: metaRaw, google: googleRaw } = await getAllClients();
 
   const clients: DeckClientResult[] = metaRaw.map((item) => ({
@@ -148,6 +157,9 @@ export async function GET() {
       });
     }
   }
+
+  // Store result in cache
+  clientCache = { data: { clients }, ts: Date.now() };
 
   return NextResponse.json({ clients });
 }
