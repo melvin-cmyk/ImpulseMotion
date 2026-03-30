@@ -333,21 +333,62 @@ export default function DeckPage() {
 
   const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod, contextOverride?: string) => {
     setIsGenerating(true);
+    const prompt = contextOverride ?? userContext;
     try {
-      const res = await fetch("/api/deck/data", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ client, period, userContext: contextOverride ?? userContext }),
-      });
-      if (res.ok) {
-        const json = await res.json() as { data: DeckData; source: "real" | "mock"; reason?: string };
+      // Call both endpoints in parallel: deck data + AI slide generation
+      const [dataRes, genRes] = await Promise.allSettled([
+        fetch("/api/deck/data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client, period, userContext: prompt }),
+        }),
+        prompt.trim()
+          ? fetch("/api/deck/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ client, period, userPrompt: prompt }),
+            })
+          : Promise.resolve(null),
+      ]);
+
+      // Handle deck data response
+      if (dataRes.status === "fulfilled" && dataRes.value?.ok) {
+        const json = await dataRes.value.json() as { data: DeckData; source: "real" | "mock"; reason?: string };
         setDeckData(json.data);
         setDataSource(json.source);
         setDataSourceReason(json.reason ?? null);
       } else {
         setDeckData(generateMockDeckData(client, period));
         setDataSource("mock");
-        setDataSourceReason(`HTTP ${res.status}`);
+        const reason = dataRes.status === "rejected"
+          ? String(dataRes.reason)
+          : `HTTP ${dataRes.value?.status ?? "?"}`;
+        setDataSourceReason(reason);
+      }
+
+      // Handle AI-generated slides response
+      if (genRes.status === "fulfilled" && genRes.value !== null && genRes.value.ok) {
+        const genJson = await genRes.value.json() as {
+          slides: Array<{ id: string; title: string; content: string; notes?: string }>;
+          dataSource: "real" | "mock";
+        };
+        if (genJson.slides && genJson.slides.length > 0) {
+          const aiSlides = genJson.slides.map((s) => ({
+            id: s.id,
+            label: s.title,
+            content: s.content,
+            notes: s.notes,
+          }));
+          setCustomSlides(aiSlides);
+          // Also store notes if provided
+          const noteEntries: Record<string, string> = {};
+          genJson.slides.forEach((s) => {
+            if (s.notes) noteEntries[s.id] = s.notes;
+          });
+          if (Object.keys(noteEntries).length > 0) {
+            setSlideNotes((prev) => ({ ...prev, ...noteEntries }));
+          }
+        }
       }
     } catch (err) {
       setDeckData(generateMockDeckData(client, period));
@@ -1055,21 +1096,21 @@ export default function DeckPage() {
             </div>
           </div>
 
-          {/* User context */}
+          {/* User context / slide request */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
             <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
               <Sparkles className="w-4 h-4" />
-              Contexte additionnel (optionnel)
+              Ce que vous voulez dans la présentation
             </label>
             <textarea
               value={userContext}
               onChange={(e) => setUserContext(e.target.value)}
-              placeholder="Ex : le client a lancé une nouvelle gamme de produits ce mois-ci, le budget a augmenté de 20%…"
+              placeholder="Ex: Vue d'ensemble Meta + top créatifs + analyse campagnes + prochaines étapes"
               rows={3}
               className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
             />
             <div className="mt-2 text-xs text-gray-400">
-              Ce contexte sera transmis à l&apos;IA pour personnaliser les learnings et next steps.
+              L&apos;IA construira des slides dynamiques basées sur les données réelles et votre demande.
             </div>
           </div>
 
