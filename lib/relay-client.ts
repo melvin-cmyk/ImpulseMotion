@@ -1,12 +1,15 @@
 /**
  * Relay server client for ImpulseMotion AI chat.
- * Connects to the relay server that bridges Claude CLI + MCP tools.
+ * Calls the server-side proxy /api/relay/chat instead of the relay directly.
+ * This avoids CORS issues and expired Cloudflare tunnel URLs in the browser.
  */
 
-const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
-const RELAY_URL = rawRelayUrl
-  ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
-  : "https://guitar-instruments-missions-avatar.trycloudflare.com";
+// Use the server-side proxy — always relative to the current origin.
+// The server proxy handles localhost:3457 vs Cloudflare tunnel resolution.
+// Server-side proxy URL — always reachable from the browser as a relative path.
+// The proxy handles localhost:3457 vs Cloudflare tunnel resolution server-side.
+const RELAY_CHAT_URL = "/api/relay/chat";
+const RELAY_TOOLS_URL = "/api/relay/tools";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -34,7 +37,7 @@ export async function streamChat(
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const res = await fetch(`${RELAY_URL}/api/chat`, {
+  const res = await fetch(RELAY_CHAT_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
@@ -73,7 +76,7 @@ export async function streamChat(
 }
 
 export async function getTools(): Promise<{ server: string; name: string; description: string }[]> {
-  const res = await fetch(`${RELAY_URL}/api/tools`);
+  const res = await fetch(RELAY_TOOLS_URL);
   if (!res.ok) throw new Error(`Failed to get tools: ${res.status}`);
   const data = await res.json();
   return data.tools;
