@@ -1074,28 +1074,37 @@ export default function DeckPage() {
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
             <div className="text-sm font-semibold text-gray-700 mb-3">Sources de données</div>
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  Google Ads
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                  Mock data
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#7F5AFD" }} />
-                  Meta Ads
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
-                  Mock data
-                </span>
-              </div>
+              {(() => {
+                const hasGoogle = clients.some(c => c.platform === "google");
+                const hasMeta = clients.some(c => c.platform === "meta");
+                const badge = (connected: boolean) => connected
+                  ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Connecté</span>
+                  : clientsLoading
+                    ? <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400 font-medium">Chargement…</span>
+                    : <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">Non connecté</span>;
+                return <>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      Google Ads
+                    </span>
+                    {badge(hasGoogle)}
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "#7F5AFD" }} />
+                      Meta Ads
+                    </span>
+                    {badge(hasMeta)}
+                  </div>
+                </>;
+              })()}
             </div>
-            <div className="mt-3 text-xs text-gray-400">
-              Connectez vos comptes dans Settings pour utiliser des données réelles.
-            </div>
+            {!clientsLoading && clients.length === 0 && (
+              <div className="mt-3 text-xs text-gray-400">
+                Connectez vos comptes dans Settings pour utiliser des données réelles.
+              </div>
+            )}
           </div>
 
           {/* User context / slide request */}
