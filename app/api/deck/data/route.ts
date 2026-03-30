@@ -25,7 +25,7 @@ const RELAY_URL = rawRelayUrl
 
 // ── Relay helpers ─────────────────────────────────────────────────────────────
 
-async function relayChat(prompt: string, timeoutMs = 35000): Promise<string> {
+async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
   const urls = [RELAY_URL];
   // Also try localhost as fallback (works when running locally)
   if (!RELAY_URL.includes("localhost")) urls.push("http://localhost:3457");
@@ -46,24 +46,46 @@ async function relayChat(prompt: string, timeoutMs = 35000): Promise<string> {
 
       const decoder = new TextDecoder();
       let fullText = "";
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split("\n")) {
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete lines (keep incomplete line in buffer)
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (!data || data === "[DONE]") continue;
+
           try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === "delta" && event.text) fullText += event.text;
-            if (event.type === "content" && event.content) fullText += event.content;
+            const event = JSON.parse(data);
+            // OpenClaw custom format
+            if (event.type === "delta" && typeof event.text === "string") { fullText += event.text; continue; }
+            if (event.type === "content" && typeof event.content === "string") { fullText += event.content; continue; }
+            // Anthropic standard streaming format (content_block_delta)
+            if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta?.text === "string") {
+              fullText += event.delta.text; continue;
+            }
+            // OpenAI-style (choices[0].delta.content)
+            if (event.choices?.[0]?.delta?.content) { fullText += event.choices[0].delta.content; continue; }
+            // Generic text field
+            if (event.type === "text" && typeof event.text === "string") { fullText += event.text; continue; }
+            // message.content string
+            if (event.message?.content && typeof event.message.content === "string") { fullText += event.message.content; continue; }
           } catch {
-            // skip malformed SSE lines
+            // Not JSON — treat as raw text fragment
+            fullText += data;
           }
         }
       }
 
-      return fullText;
+      if (fullText.trim()) return fullText;
+      lastError = new Error(`Empty response from ${url}`);
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
     }
@@ -72,16 +94,39 @@ async function relayChat(prompt: string, timeoutMs = 35000): Promise<string> {
 }
 
 function extractJson<T>(text: string): T | null {
-  // Try to find a JSON object or array in the text
-  const objectMatch = text.match(/\{[\s\S]*\}/);
-  const arrayMatch = text.match(/\[[\s\S]*\]/);
-  const match = objectMatch || arrayMatch;
-  if (!match) return null;
-  try {
-    return JSON.parse(match[0]) as T;
-  } catch {
-    return null;
+  // Try multiple strategies to extract JSON from relay response
+  // 1. Strip markdown code blocks first
+  const stripped = text.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
+
+  // 2. Try to find a JSON object or array (greedy match)
+  for (const candidate of [stripped, text]) {
+    const objectMatch = candidate.match(/\{[\s\S]*\}/);
+    const arrayMatch = candidate.match(/\[[\s\S]*\]/);
+    const match = objectMatch || arrayMatch;
+    if (!match) continue;
+    try {
+      return JSON.parse(match[0]) as T;
+    } catch {
+      // Try to find the last valid JSON by finding matching braces
+      const raw = match[0];
+      let depth = 0;
+      let start = -1;
+      for (let i = 0; i < raw.length; i++) {
+        if (raw[i] === "{" || raw[i] === "[") {
+          if (depth === 0) start = i;
+          depth++;
+        } else if (raw[i] === "}" || raw[i] === "]") {
+          depth--;
+          if (depth === 0 && start !== -1) {
+            try {
+              return JSON.parse(raw.slice(start, i + 1)) as T;
+            } catch { continue; }
+          }
+        }
+      }
+    }
   }
+  return null;
 }
 
 function zeroMetrics(): PlatformMetrics {
@@ -167,39 +212,26 @@ async function fetchMetaData(
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null> {
-  const prompt = `Use the MCP tools to fetch real Meta Ads data for ad account ${accountId}.
+  const prompt = `You are a data extraction agent. Call the following MCP tools for Meta Ads account ${accountId} and return ONLY a JSON object.
 
-Steps:
-1. Call mcp__meta-ads-impulse__Account_Overview1 with ad_account_id="${accountId}" and date_preset for ${period.startDate} to ${period.endDate} to get total spend, impressions, clicks, conversions, ROAS
-2. Call mcp__meta-ads-impulse__Campaign_Performance1 with ad_account_id="${accountId}" for the same period to get per-campaign data
-3. Call mcp__meta-ads-impulse__Ad_Performance1 with ad_account_id="${accountId}" to get top creatives
+REQUIRED TOOL CALLS:
+1. mcp__meta-ads-impulse__Account_Overview1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
+2. mcp__meta-ads-impulse__Campaign_Performance1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
+3. mcp__meta-ads-impulse__Ad_Performance1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
+4. mcp__meta-ads-impulse__Account_Overview1 again — params: ad_account_id="${accountId}", since="${previousPeriod.startDate}", until="${previousPeriod.endDate}" (for prev_total)
 
-Also call Account_Overview1 again for previous period ${previousPeriod.startDate} to ${previousPeriod.endDate} to get prev_total.
+CRITICAL INSTRUCTION: After calling ALL the tools above, your ENTIRE response must be ONLY the following JSON structure filled with the real numbers from the tool results. Do NOT write any text before or after the JSON. Do NOT use markdown code blocks. Start your response with { and end with }.
 
-After calling those tools, output ONLY this JSON (no markdown, no explanation, just the raw JSON):
-{
-  "total": {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0},
-  "prev_total": {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0},
-  "campaigns": [
-    {
-      "id": "string", "name": "string", "type": "string", "status": "Active",
-      "spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0,
-      "prev_spend": 0, "prev_impressions": 0, "prev_clicks": 0, "prev_conversions": 0, "prev_revenue": 0
-    }
-  ],
-  "creatives": [
-    {
-      "id": "string", "name": "string", "format": "Video",
-      "spend": 0, "roas": 0, "ctr": 0, "cpa": 0, "impressions": 0,
-      "thumbnailUrl": "https://..."
-    }
-  ]
-}`;
+{"total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"prev_total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"campaigns":[{"id":"","name":"","type":"","status":"Active","spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0,"prev_spend":0,"prev_impressions":0,"prev_clicks":0,"prev_conversions":0,"prev_revenue":0}],"creatives":[{"id":"","name":"","format":"Video","spend":0,"roas":0,"ctr":0,"cpa":0,"impressions":0,"thumbnailUrl":""}]}`;
 
   try {
     const text = await relayChat(prompt);
+    console.log("[deck/data] meta raw response (800):", text.slice(0, 800));
     const data = extractJson<RawPlatformData>(text);
-    if (!data) return null;
+    if (!data) {
+      console.error("[deck/data] meta extractJson failed. raw:", text.slice(0, 2000));
+      return null;
+    }
 
     const overview = safeMetrics(data.total ?? {});
     const prevOverview = safeMetrics(data.prev_total ?? {});
@@ -245,29 +277,24 @@ async function fetchGoogleData(
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null> {
-  const prompt = `Use the MCP tools to fetch real Google Ads data for customer ${customerId}.
+  const prompt = `You are a data extraction agent. Call the following MCP tools for Google Ads customer ${customerId} and return ONLY a JSON object.
 
-Steps:
-1. Call mcp__mcp-google-ads__Campaign_Performance with customer_id="${customerId}" and date_range="LAST_30_DAYS" to get campaign metrics
-2. Call mcp__mcp-google-ads__Conversion_Actions with customer_id="${customerId}" to get conversion data
+REQUIRED TOOL CALLS:
+1. mcp__mcp-google-ads__Campaign_Performance — params: customer_id="${customerId}", start_date="${period.startDate}", end_date="${period.endDate}"
+2. mcp__mcp-google-ads__Campaign_Performance again — params: customer_id="${customerId}", start_date="${previousPeriod.startDate}", end_date="${previousPeriod.endDate}" (for prev_total and prev_ campaign fields)
 
-After calling those tools, output ONLY this JSON (no markdown, no explanation, just the raw JSON):
-{
-  "total": {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0},
-  "prev_total": {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0},
-  "campaigns": [
-    {
-      "id": "string", "name": "string", "type": "string", "status": "Active",
-      "spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0,
-      "prev_spend": 0, "prev_impressions": 0, "prev_clicks": 0, "prev_conversions": 0, "prev_revenue": 0
-    }
-  ]
-}`;
+CRITICAL INSTRUCTION: After calling ALL the tools above, your ENTIRE response must be ONLY the following JSON structure filled with the real numbers from the tool results. Do NOT write any text before or after the JSON. Do NOT use markdown code blocks. Start your response with { and end with }.
+
+{"total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"prev_total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"campaigns":[{"id":"","name":"","type":"","status":"Active","spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0,"prev_spend":0,"prev_impressions":0,"prev_clicks":0,"prev_conversions":0,"prev_revenue":0}]}`;
 
   try {
     const text = await relayChat(prompt);
+    console.log("[deck/data] google raw response (800):", text.slice(0, 800));
     const data = extractJson<RawPlatformData>(text);
-    if (!data) return null;
+    if (!data) {
+      console.error("[deck/data] google extractJson failed. raw:", text.slice(0, 2000));
+      return null;
+    }
 
     const overview = safeMetrics(data.total ?? {});
     const prevOverview = safeMetrics(data.prev_total ?? {});
@@ -353,7 +380,7 @@ Generate exactly this JSON structure (no markdown, no explanation, just raw JSON
 }`;
 
   try {
-    const text = await relayChat(prompt, 18000);
+    const text = await relayChat(prompt, 25000);
     const result = extractJson<AiTextContent>(text);
     if (!result) return null;
     // Validate structure
@@ -433,7 +460,7 @@ export async function POST(req: NextRequest) {
       { googleOverview, metaOverview, clientName: client.name, periodLabel: period.label },
       userContext
     ),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 30000)),
   ]);
 
   // Global totals
