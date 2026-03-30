@@ -26,9 +26,10 @@ const RELAY_URL = rawRelayUrl
 // ── Relay helpers ─────────────────────────────────────────────────────────────
 
 async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
-  const urls = [RELAY_URL];
-  // Also try localhost as fallback (works when running locally)
-  if (!RELAY_URL.includes("localhost")) urls.push("http://localhost:3457");
+  // Server-side: try localhost first (relay runs locally), then configured URL
+  const urls = RELAY_URL.includes("localhost")
+    ? [RELAY_URL]
+    : ["http://localhost:3457", RELAY_URL];
 
   let lastError: Error | null = null;
   for (const url of urls) {
@@ -66,7 +67,9 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
             const event = JSON.parse(data);
             // OpenClaw custom format
             if (event.type === "delta" && typeof event.text === "string") { fullText += event.text; continue; }
-            if (event.type === "content" && typeof event.content === "string") { fullText += event.content; continue; }
+            // "content" is final complete text — replace, don't append
+            if (event.type === "content" && typeof event.text === "string") { fullText = event.text; continue; }
+            if (event.type === "content" && typeof event.content === "string") { fullText = event.content; continue; }
             // Anthropic standard streaming format (content_block_delta)
             if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta?.text === "string") {
               fullText += event.delta.text; continue;
