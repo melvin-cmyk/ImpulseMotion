@@ -234,6 +234,7 @@ export default function DeckPage() {
   const searchParams = useSearchParams();
   const [clients, setClients] = useState<DeckClient[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientsNeedAuth, setClientsNeedAuth] = useState(false);
   const [selectedClient, setSelectedClient] = useState<DeckClient | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(() => {
     const periodParam = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("period") : null;
@@ -250,7 +251,11 @@ export default function DeckPage() {
     const clientParam = searchParams.get("client");
     fetch("/api/deck/clients")
       .then((r) => r.json())
-      .then((data: { clients: DeckClient[] }) => {
+      .then((data: { clients: DeckClient[]; needsAuth?: boolean }) => {
+        if (data.needsAuth) {
+          setClientsNeedAuth(true);
+          return;
+        }
         if (data.clients && data.clients.length > 0) {
           setClients(data.clients);
           if (clientParam) {
@@ -1049,10 +1054,28 @@ export default function DeckPage() {
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Chargement des comptes...
               </div>
+            ) : clientsNeedAuth ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                <p className="text-sm font-semibold text-red-700 mb-2">Session expirée — reconnexion requise</p>
+                <a
+                  href="/login"
+                  className="inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
+                  style={{ background: "#1877F2" }}
+                >
+                  Connecter Meta Ads
+                </a>
+              </div>
             ) : clients.length === 0 ? (
-              <p className="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-                Aucun compte trouvé — connecte-toi à Meta ou Google Ads
-              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                <p className="text-sm text-amber-700 mb-2">Aucun compte trouvé</p>
+                <a
+                  href="/login"
+                  className="inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
+                  style={{ background: "#1877F2" }}
+                >
+                  Connecter Meta Ads
+                </a>
+              </div>
             ) : (
               <select
                 value={selectedClient?.id ?? ""}
