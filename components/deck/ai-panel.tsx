@@ -203,6 +203,8 @@ export function AIPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [blockFonts, setBlockFonts] = useState<Record<string, string>>({});
+  const [blockColors, setBlockColors] = useState<Record<string, string>>({});
+  const [blockFontSizes, setBlockFontSizes] = useState<Record<string, number>>({});
   const [addedBlocks, setAddedBlocks] = useState<Set<string>>(new Set());
   const [hoveredBlock, setHoveredBlock] = useState<string | null>(null);
 
@@ -785,11 +787,14 @@ export function AIPanel({
     );
   };
 
-  const handleDragStart = (e: React.DragEvent, content: string) => {
+  const handleDragStart = (e: React.DragEvent, content: string, blockId: string) => {
     e.dataTransfer.effectAllowed = "copy";
     e.dataTransfer.setData("application/json", JSON.stringify({
       type: "data-block",
       content: content,
+      fontFamily: blockFonts[blockId],
+      textColor: blockColors[blockId],
+      fontSize: blockFontSizes[blockId],
     }));
   };
 
@@ -887,6 +892,8 @@ export function AIPanel({
                         const isAdded = addedBlocks.has(blockId);
                         const font = blockFonts[blockId] || FONT_OPTIONS[0].value;
                         const isHovered = hoveredBlock === blockId;
+                        const textColor = blockColors[blockId] || "#e5e7eb";
+                        const fontSize = blockFontSizes[blockId] || 11;
                         return (
                           <div
                             key={bIdx}
@@ -894,31 +901,58 @@ export function AIPanel({
                             draggable={true}
                             onDragStart={(e) => {
                               e.stopPropagation();
-                              handleDragStart(e, block.text);
+                              handleDragStart(e, block.text, blockId);
                             }}
                             onMouseEnter={() => setHoveredBlock(blockId)}
                             onMouseLeave={() => setHoveredBlock(null)}
                             style={{ cursor: isHovered ? "grab" : "default" }}
                           >
                             <div
-                              className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_p]:mb-0 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 rounded px-1.5 py-1 transition-colors"
-                              style={{ backgroundColor: isHovered ? "rgba(31,41,55,0.5)" : "transparent" }}
+                              className="prose prose-sm prose-invert max-w-none leading-relaxed [&_p]:mb-0 [&_li]:mb-0.5 [&_h1]:text-sm [&_h2]:text-xs [&_h3]:text-xs [&_table]:text-[10px] [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 rounded px-1.5 py-1 transition-colors"
+                              style={{
+                                backgroundColor: isHovered ? "rgba(31,41,55,0.5)" : "transparent",
+                                fontSize: `${fontSize}px`,
+                              }}
                             >
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.text}</ReactMarkdown>
                             </div>
                             {isHovered && (
-                              <div className="absolute right-0 top-0.5 flex items-center gap-1 z-10">
-                                <span className="text-[9px] text-gray-500 italic select-none mr-1">⠿ drag</span>
+                              <div
+                                className="absolute right-0 top-0 flex items-center gap-1 z-10 bg-gray-900/95 border border-gray-700 rounded-lg px-1.5 py-1 shadow-lg"
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                              >
+                                <span className="text-[9px] text-gray-500 select-none">⠿</span>
+                                {/* Font */}
                                 <select
                                   value={font}
                                   onChange={(e) => setBlockFonts(prev => ({ ...prev, [blockId]: e.target.value }))}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="text-[9px] bg-gray-900 border border-gray-700 rounded px-1 py-0.5 text-gray-300 cursor-pointer"
+                                  className="text-[9px] bg-gray-800 border border-gray-600 rounded px-1 py-0.5 text-gray-300 cursor-pointer"
+                                  title="Police"
                                 >
                                   {FONT_OPTIONS.map(f => (
                                     <option key={f.value} value={f.value}>{f.label}</option>
                                   ))}
                                 </select>
+                                {/* Font size */}
+                                <input
+                                  type="number"
+                                  value={fontSize}
+                                  min={8}
+                                  max={32}
+                                  onChange={(e) => setBlockFontSizes(prev => ({ ...prev, [blockId]: Number(e.target.value) }))}
+                                  className="w-10 text-[9px] bg-gray-800 border border-gray-600 rounded px-1 py-0.5 text-gray-300 text-center"
+                                  title="Taille de police"
+                                />
+                                {/* Text color */}
+                                <input
+                                  type="color"
+                                  value={textColor}
+                                  onChange={(e) => setBlockColors(prev => ({ ...prev, [blockId]: e.target.value }))}
+                                  className="w-5 h-5 rounded cursor-pointer border border-gray-600 p-0 bg-transparent"
+                                  title="Couleur du texte"
+                                />
+                                {/* Add to slide */}
                                 <button
                                   onClick={() => {
                                     if (!isAdded && onAddCustomSlide) {
@@ -930,8 +964,8 @@ export function AIPanel({
                                     }
                                   }}
                                   disabled={isAdded}
-                                  title="Créer une nouvelle slide"
-                                  className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                                  title="Créer une nouvelle slide avec ce bloc"
+                                  className={`text-[9px] px-1.5 py-0.5 rounded font-semibold transition-colors whitespace-nowrap ${
                                     isAdded
                                       ? "bg-green-700/30 text-green-400 cursor-default"
                                       : "bg-violet-600 hover:bg-violet-700 text-white"

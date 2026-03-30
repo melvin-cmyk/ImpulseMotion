@@ -219,6 +219,9 @@ interface DroppedBlock {
   y: number; // % of canvas height
   w: number; // % of canvas width
   h?: number; // % of canvas height (auto if undefined)
+  fontFamily?: string;
+  textColor?: string;
+  fontSize?: number;
 }
 
 interface SlideOverride {
@@ -865,6 +868,9 @@ export default function DeckPage() {
           x: xPct,
           y: yPct,
           w: 60,
+          fontFamily: data.fontFamily,
+          textColor: data.textColor,
+          fontSize: data.fontSize,
         };
         setDroppedBlocks((prev) => [...prev, newBlock]);
         setSelectedBlockId(newBlock.id);
@@ -1580,6 +1586,9 @@ export default function DeckPage() {
                 selectedElement={slideEditor.selectedElement}
                 onUpdateElement={(patch) => slideEditor.selectedElement && slideEditor.updateElWithHistory(slideEditor.selectedElement.id, patch)}
                 onDeleteElement={slideEditor.deleteSelected}
+                onDuplicateElement={slideEditor.duplicateSelected}
+                onBringToFront={slideEditor.bringToFront}
+                onSendToBack={slideEditor.sendToBack}
                 onUndo={slideEditor.undo}
                 onRedo={slideEditor.redo}
                 canUndo={slideEditor.canUndo}
@@ -1700,7 +1709,15 @@ export default function DeckPage() {
                     />
                     {/* Content */}
                     {(() => {
-                      const bStyle = blockStyles[block.id] ?? { headerColor: "#0070C0", rowColor: "#F3F3F3", fontSize: 10, fontFamily: "Inter", textColor: "#1a1a1a", borderColor: "#e5e7eb", borderWidth: 1 };
+                      const bStyle = blockStyles[block.id] ?? {
+                        headerColor: "#0070C0",
+                        rowColor: "#F3F3F3",
+                        fontSize: block.fontSize ?? 10,
+                        fontFamily: block.fontFamily ?? "Inter",
+                        textColor: block.textColor ?? "#1a1a1a",
+                        borderColor: "#e5e7eb",
+                        borderWidth: 1,
+                      };
                       const isTable = block.content.includes("|");
                       const fontFamilyCss = bStyle.fontFamily === "Mono" ? "monospace" : bStyle.fontFamily === "Georgia" ? "Georgia, serif" : bStyle.fontFamily + ", sans-serif";
                       return (

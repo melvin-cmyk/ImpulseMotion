@@ -19,6 +19,10 @@ import {
   Image as ImageIcon,
   Undo2,
   Redo2,
+  RotateCw,
+  Copy,
+  BringToFront,
+  SendToBack,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -34,6 +38,8 @@ export interface SlideElement {
   strokeColor: string;
   strokeWidth: number;
   opacity: number; // 0-1
+  rotation?: number; // degrees
+  borderRadius?: number; // px, for rect only
   // Text-specific
   text?: string;
   fontSize?: number;
@@ -43,6 +49,8 @@ export interface SlideElement {
   textDecoration?: "none" | "underline";
   textColor?: string;
   textAlign?: "left" | "center" | "right";
+  lineHeight?: number; // multiplier e.g. 1.4
+  letterSpacing?: number; // px
   // Image-specific
   imageUrl?: string;
 }
@@ -99,6 +107,9 @@ interface ToolbarProps {
   selectedElement: SlideElement | null;
   onUpdateElement: (patch: Partial<SlideElement>) => void;
   onDeleteElement: () => void;
+  onDuplicateElement?: () => void;
+  onBringToFront?: () => void;
+  onSendToBack?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
@@ -112,6 +123,9 @@ export function SlideEditorToolbar({
   selectedElement,
   onUpdateElement,
   onDeleteElement,
+  onDuplicateElement,
+  onBringToFront,
+  onSendToBack,
   onUndo,
   onRedo,
   canUndo,
@@ -193,9 +207,33 @@ export function SlideEditorToolbar({
       <div className="h-5 w-px bg-gray-200 mx-1" />
 
       <button
+        onClick={onDuplicateElement}
+        disabled={!selectedElement}
+        title="Dupliquer (Ctrl+D)"
+        className="flex items-center justify-center w-7 h-7 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-colors"
+      >
+        <Copy className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={onBringToFront}
+        disabled={!selectedElement}
+        title="Mettre au premier plan"
+        className="flex items-center justify-center w-7 h-7 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-colors"
+      >
+        <BringToFront className="w-3.5 h-3.5" />
+      </button>
+      <button
+        onClick={onSendToBack}
+        disabled={!selectedElement}
+        title="Envoyer en arrière-plan"
+        className="flex items-center justify-center w-7 h-7 rounded text-gray-600 hover:bg-gray-100 disabled:opacity-30 transition-colors"
+      >
+        <SendToBack className="w-3.5 h-3.5" />
+      </button>
+      <button
         onClick={onDeleteElement}
         disabled={!selectedElement}
-        title="Supprimer l'élément"
+        title="Supprimer l'élément (Delete)"
         className="flex items-center justify-center w-7 h-7 rounded text-red-400 hover:bg-red-50 disabled:opacity-30 transition-colors"
       >
         <Trash2 className="w-3.5 h-3.5" />
@@ -251,6 +289,36 @@ export function SlideEditorToolbar({
               />
               %
             </label>
+
+            <label className="flex items-center gap-1 text-[10px] text-gray-500">
+              <RotateCw className="w-3 h-3" />
+              <input
+                type="number"
+                value={Math.round(selectedElement.rotation ?? 0)}
+                onChange={(e) => onUpdateElement({ rotation: Number(e.target.value) % 360 })}
+                min={-360}
+                max={360}
+                className="w-12 h-5 text-[10px] border border-gray-300 rounded px-1 text-center"
+                title="Rotation (degrés)"
+              />
+              °
+            </label>
+
+            {selectedElement.type === "rect" && (
+              <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                radius
+                <input
+                  type="number"
+                  value={selectedElement.borderRadius ?? 4}
+                  onChange={(e) => onUpdateElement({ borderRadius: Math.max(0, Math.min(100, Number(e.target.value))) })}
+                  min={0}
+                  max={100}
+                  className="w-10 h-5 text-[10px] border border-gray-300 rounded px-1 text-center"
+                  title="Arrondi des coins (px)"
+                />
+                px
+              </label>
+            )}
 
             {selectedElement.type === "text" && (
               <>
@@ -323,6 +391,35 @@ export function SlideEditorToolbar({
                     </button>
                   );
                 })}
+
+                <div className="h-5 w-px bg-gray-200 mx-0.5" />
+
+                <label className="flex items-center gap-1 text-[10px] text-gray-500" title="Interligne">
+                  ≡
+                  <input
+                    type="number"
+                    value={selectedElement.lineHeight ?? 1.4}
+                    onChange={(e) => onUpdateElement({ lineHeight: Math.max(0.8, Math.min(4, Number(e.target.value))) })}
+                    min={0.8}
+                    max={4}
+                    step={0.1}
+                    className="w-12 h-5 text-[10px] border border-gray-300 rounded px-1 text-center"
+                  />
+                </label>
+
+                <label className="flex items-center gap-1 text-[10px] text-gray-500" title="Espacement lettres">
+                  AV
+                  <input
+                    type="number"
+                    value={selectedElement.letterSpacing ?? 0}
+                    onChange={(e) => onUpdateElement({ letterSpacing: Number(e.target.value) })}
+                    min={-5}
+                    max={20}
+                    step={0.5}
+                    className="w-12 h-5 text-[10px] border border-gray-300 rounded px-1 text-center"
+                  />
+                  px
+                </label>
               </>
             )}
           </div>
@@ -365,6 +462,8 @@ export function SlideElementItem({
     zIndex: isSelected ? 30 : 20,
     cursor: "grab",
     boxSizing: "border-box",
+    transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+    transformOrigin: "center center",
   };
 
   const shapeStyle: React.CSSProperties = {
@@ -382,7 +481,7 @@ export function SlideElementItem({
               ...shapeStyle,
               backgroundColor: el.fillColor === "transparent" ? "transparent" : el.fillColor,
               border: `${el.strokeWidth}px solid ${el.strokeColor}`,
-              borderRadius: 4,
+              borderRadius: el.borderRadius ?? 4,
             }}
           />
         );
@@ -468,6 +567,8 @@ export function SlideElementItem({
                 fontStyle: el.fontStyle ?? "normal",
                 textDecoration: el.textDecoration ?? "none",
                 textAlign: el.textAlign ?? "left",
+                lineHeight: el.lineHeight ?? 1.4,
+                letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : undefined,
                 border: `${el.strokeWidth}px dashed ${el.strokeColor}`,
                 padding: "2px 4px",
                 wordBreak: "break-word",
@@ -489,6 +590,8 @@ export function SlideElementItem({
               fontStyle: el.fontStyle ?? "normal",
               textDecoration: el.textDecoration ?? "none",
               textAlign: el.textAlign ?? "left",
+              lineHeight: el.lineHeight ?? 1.4,
+              letterSpacing: el.letterSpacing ? `${el.letterSpacing}px` : undefined,
               border: isSelected ? `${el.strokeWidth}px dashed ${el.strokeColor}` : "none",
               padding: "2px 4px",
               wordBreak: "break-word",
@@ -621,6 +724,32 @@ export function useSlideEditor(
     setSelectedId(null);
   }, [selectedId, elements, changeWithHistory]);
 
+  const duplicateSelected = useCallback(() => {
+    if (!selectedId) return;
+    const el = elements.find((e) => e.id === selectedId);
+    if (!el) return;
+    const copy = { ...el, id: crypto.randomUUID(), x: el.x + 3, y: el.y + 3 };
+    const newEls = [...elements, copy];
+    changeWithHistory(newEls);
+    setSelectedId(copy.id);
+  }, [selectedId, elements, changeWithHistory]);
+
+  const bringToFront = useCallback(() => {
+    if (!selectedId) return;
+    const el = elements.find((e) => e.id === selectedId);
+    if (!el) return;
+    const newEls = [...elements.filter((e) => e.id !== selectedId), el];
+    changeWithHistory(newEls);
+  }, [selectedId, elements, changeWithHistory]);
+
+  const sendToBack = useCallback(() => {
+    if (!selectedId) return;
+    const el = elements.find((e) => e.id === selectedId);
+    if (!el) return;
+    const newEls = [el, ...elements.filter((e) => e.id !== selectedId)];
+    changeWithHistory(newEls);
+  }, [selectedId, elements, changeWithHistory]);
+
   const handleImageUpload = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -648,6 +777,9 @@ export function useSlideEditor(
       } else if (e.key === "Escape") {
         setSelectedId(null);
         setEditingId(null);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "d" && !inInput) {
+        e.preventDefault();
+        duplicateSelected();
       } else if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey && !inInput) {
         e.preventDefault();
         undo();
@@ -657,7 +789,7 @@ export function useSlideEditor(
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deleteSelected, selectedId, undo, redo]);
+  }, [deleteSelected, duplicateSelected, selectedId, undo, redo]);
 
   // Global mouse move/up for drag
   useEffect(() => {
@@ -761,6 +893,9 @@ export function useSlideEditor(
     updateEl,
     updateElWithHistory,
     deleteSelected,
+    duplicateSelected,
+    bringToFront,
+    sendToBack,
     handleCanvasClick,
     handleElementMouseDown,
     handleResizeMouseDown,
