@@ -280,6 +280,7 @@ export default function DeckPage() {
   const [draggingBlock, setDraggingBlock] = useState<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
   const [textStyles, setTextStyles] = useState<Record<string, TextStyle>>({});
   const [customSlides, setCustomSlides] = useState<{ id: string; label: string; content: string; fontFamily?: string }[]>([]);
+  const [aiSlidesMode, setAiSlidesMode] = useState(false);
   const [filmstripDragging, setFilmstripDragging] = useState<number | null>(null);
   const [filmstripDropTarget, setFilmstripDropTarget] = useState<number | null>(null);
   const [slideNotes, setSlideNotes] = useState<Record<string, string>>({});
@@ -315,7 +316,8 @@ export default function DeckPage() {
     slideElements[currentSlide] ?? [],
     (els) => setSlideElements((prev) => ({ ...prev, [currentSlide]: els }))
   );
-  const slides = useMemo(() => buildSlides(), []);
+  const staticSlides = useMemo(() => buildSlides(), []);
+  const slides = useMemo(() => aiSlidesMode ? [] : staticSlides, [aiSlidesMode, staticSlides]);
 
   const currentSlideId = currentSlide < slides.length
     ? (slides[currentSlide]?.id ?? `slide-${currentSlide}`)
@@ -336,60 +338,78 @@ export default function DeckPage() {
     setDataSource(null);
     setDataSourceReason(null);
     const prompt = contextOverride ?? userContext;
+    const hasPrompt = prompt.trim().length > 0;
+
     try {
-      // Call both endpoints in parallel: deck data + AI slide generation
-      const [dataRes, genRes] = await Promise.allSettled([
-        fetch("/api/deck/data", {
+      if (hasPrompt) {
+        // AI mode: generate slides exactly as requested, hide static slides
+        setAiSlidesMode(true);
+        setCustomSlides([]);
+
+        const [dataRes, genRes] = await Promise.allSettled([
+          fetch("/api/deck/data", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ client, period, userContext: prompt }),
+          }),
+          fetch("/api/deck/generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ client, period, userPrompt: prompt }),
+          }),
+        ]);
+
+        // Keep deckData for context/export even in AI mode
+        if (dataRes.status === "fulfilled" && dataRes.value?.ok) {
+          const json = await dataRes.value.json() as { data: DeckData; source: "real" | "mock"; reason?: string };
+          setDeckData(json.data);
+          setDataSource(json.source);
+          setDataSourceReason(json.reason ?? null);
+        } else {
+          setDeckData(generateMockDeckData(client, period));
+          setDataSource("mock");
+          setDataSourceReason(dataRes.status === "rejected" ? String(dataRes.reason) : `HTTP ${dataRes.value?.status ?? "?"}`);
+        }
+
+        if (genRes.status === "fulfilled" && genRes.value.ok) {
+          const genJson = await genRes.value.json() as {
+            slides: Array<{ id: string; title: string; content: string; notes?: string }>;
+            dataSource: "real" | "mock";
+          };
+          if (genJson.slides && genJson.slides.length > 0) {
+            const aiSlides = genJson.slides.map((s) => ({
+              id: s.id,
+              label: s.title,
+              content: s.content,
+            }));
+            setCustomSlides(aiSlides);
+            const noteEntries: Record<string, string> = {};
+            genJson.slides.forEach((s) => { if (s.notes) noteEntries[s.id] = s.notes; });
+            if (Object.keys(noteEntries).length > 0) {
+              setSlideNotes((prev) => ({ ...prev, ...noteEntries }));
+            }
+          }
+        }
+      } else {
+        // Basic mode: use static slides with real data
+        setAiSlidesMode(false);
+        setCustomSlides([]);
+
+        const dataRes = await fetch("/api/deck/data", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client, period, userContext: prompt }),
-        }),
-        prompt.trim()
-          ? fetch("/api/deck/generate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ client, period, userPrompt: prompt }),
-            })
-          : Promise.resolve(null),
-      ]);
+          body: JSON.stringify({ client, period, userContext: "" }),
+        });
 
-      // Handle deck data response
-      if (dataRes.status === "fulfilled" && dataRes.value?.ok) {
-        const json = await dataRes.value.json() as { data: DeckData; source: "real" | "mock"; reason?: string };
-        setDeckData(json.data);
-        setDataSource(json.source);
-        setDataSourceReason(json.reason ?? null);
-      } else {
-        setDeckData(generateMockDeckData(client, period));
-        setDataSource("mock");
-        const reason = dataRes.status === "rejected"
-          ? String(dataRes.reason)
-          : `HTTP ${dataRes.value?.status ?? "?"}`;
-        setDataSourceReason(reason);
-      }
-
-      // Handle AI-generated slides response
-      if (genRes.status === "fulfilled" && genRes.value !== null && genRes.value.ok) {
-        const genJson = await genRes.value.json() as {
-          slides: Array<{ id: string; title: string; content: string; notes?: string }>;
-          dataSource: "real" | "mock";
-        };
-        if (genJson.slides && genJson.slides.length > 0) {
-          const aiSlides = genJson.slides.map((s) => ({
-            id: s.id,
-            label: s.title,
-            content: s.content,
-            notes: s.notes,
-          }));
-          setCustomSlides(aiSlides);
-          // Also store notes if provided
-          const noteEntries: Record<string, string> = {};
-          genJson.slides.forEach((s) => {
-            if (s.notes) noteEntries[s.id] = s.notes;
-          });
-          if (Object.keys(noteEntries).length > 0) {
-            setSlideNotes((prev) => ({ ...prev, ...noteEntries }));
-          }
+        if (dataRes.ok) {
+          const json = await dataRes.json() as { data: DeckData; source: "real" | "mock"; reason?: string };
+          setDeckData(json.data);
+          setDataSource(json.source);
+          setDataSourceReason(json.reason ?? null);
+        } else {
+          setDeckData(generateMockDeckData(client, period));
+          setDataSource("mock");
+          setDataSourceReason(`HTTP ${dataRes.status}`);
         }
       }
     } catch (err) {
@@ -1468,7 +1488,7 @@ export default function DeckPage() {
             {customSlides.length > 0 && (!showOnlyWithNotes || customSlides.some(cs => !!slideNotes[cs.id])) && (
               <div>
                 <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                  Personnalisés
+                  {aiSlidesMode ? "Slides IA" : "Personnalisés"}
                 </div>
                 <TooltipProvider delayDuration={300}>
                 {customSlides.filter(cs => {
