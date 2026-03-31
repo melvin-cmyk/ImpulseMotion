@@ -313,6 +313,8 @@ export default function DeckPage() {
   const activeFilmstripItemRef = useRef<HTMLButtonElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
   const [editMode, setEditMode] = useState(true);
+  const [editingCustomSlideId, setEditingCustomSlideId] = useState<string | null>(null);
+  const [selectedGoogleCustomerId, setSelectedGoogleCustomerId] = useState<string>("");
   const [blockStyles, setBlockStyles] = useState<Record<string, { headerColor: string; rowColor: string; fontSize: number; fontFamily: string; textColor: string; borderColor: string; borderWidth: number }>>({});
   const [slideElements, setSlideElements] = useState<Record<number, SlideElement[]>>({});
 
@@ -341,16 +343,21 @@ export default function DeckPage() {
   const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
   const [dataSourceReason, setDataSourceReason] = useState<string | null>(null);
 
-  const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod, contextOverride?: string) => {
+  const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod, contextOverride?: string, googleIdOverride?: string) => {
     setIsGenerating(true);
     setDataSource(null);
     setDataSourceReason(null);
     const prompt = contextOverride ?? userContext;
     const hasPrompt = prompt.trim().length > 0;
 
+    // Merge manual Google Customer ID if provided and client doesn't already have one
+    const effectiveClient: DeckClient = googleIdOverride && !client.googleCustomerId
+      ? { ...client, googleCustomerId: googleIdOverride }
+      : client;
+
     try {
       // Fetch real data directly from browser → relay (bypasses Vercel, uses localhost:3457)
-      const realData = await fetchDeckData(client, period);
+      const realData = await fetchDeckData(effectiveClient, period);
 
       if (realData) {
         setDeckData(realData);
@@ -372,7 +379,7 @@ export default function DeckPage() {
           const genRes = await fetch("/api/deck/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ client, period, userPrompt: prompt }),
+            body: JSON.stringify({ client: effectiveClient, period, userPrompt: prompt }),
           });
 
           if (genRes.ok) {
@@ -407,7 +414,7 @@ export default function DeckPage() {
   // Do NOT auto-generate — user must click "Générer le deck" explicitly
 
   const handleGenerate = () => {
-    if (selectedClient) generateDeck(selectedClient, selectedPeriod);
+    if (selectedClient) generateDeck(selectedClient, selectedPeriod, undefined, selectedGoogleCustomerId || undefined);
   };
 
   const handleExportPptx = async () => {
@@ -1068,6 +1075,33 @@ export default function DeckPage() {
             )}
           </div>
 
+          {/* Google Ads manual association — show when selected client has no Google Customer ID */}
+          {selectedClient && !selectedClient.googleCustomerId && clients.some(c => c.platform === "google" || c.platform === "both") && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
+              <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
+                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+                Compte Google Ads (optionnel)
+              </label>
+              <select
+                value={selectedGoogleCustomerId}
+                onChange={(e) => setSelectedGoogleCustomerId(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              >
+                <option value="">— Aucun compte Google Ads —</option>
+                {clients
+                  .filter(c => (c.platform === "google" || c.platform === "both") && c.googleCustomerId)
+                  .map(c => (
+                    <option key={c.id} value={c.googleCustomerId!}>
+                      {c.name} ({c.googleCustomerId})
+                    </option>
+                  ))}
+              </select>
+              <div className="mt-2 text-xs text-gray-400">
+                Associez un compte Google Ads manuellement si le nom ne correspond pas automatiquement.
+              </div>
+            </div>
+          )}
+
           {/* Period selection */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
             <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
@@ -1632,30 +1666,50 @@ export default function DeckPage() {
                 // Custom slide
                 (() => {
                   const cs = customSlides[currentSlide - slides.length];
+                  const isEditingThis = editingCustomSlideId === cs?.id;
                   return cs ? (
                     <div className="relative" style={{ paddingBottom: "56.25%" }}>
-                      <div className="absolute inset-0 bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col">
-                        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100">
-                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Slide personnalisée</span>
-                          <input
-                            type="text"
-                            value={cs.label}
-                            onChange={(e) => setCustomSlides(prev => prev.map((s, i) => i === currentSlide - slides.length ? { ...s, label: e.target.value } : s))}
-                            className="text-sm font-semibold text-gray-800 bg-transparent border-none focus:outline-none flex-1"
-                            placeholder="Titre de la slide"
-                          />
+                      <div className={`absolute inset-0 rounded-lg shadow-sm flex flex-col overflow-hidden ${isEditingThis ? "bg-white border border-gray-200" : "bg-gray-900 border border-gray-700"}`}>
+                        {/* Toolbar */}
+                        <div className={`flex items-center gap-2 px-4 py-2 border-b ${isEditingThis ? "border-gray-100" : "border-gray-700"}`}>
+                          <span className={`text-xs font-semibold uppercase tracking-wider ${isEditingThis ? "text-gray-400" : "text-gray-500"}`}>Slide IA</span>
+                          {isEditingThis ? (
+                            <input
+                              type="text"
+                              value={cs.label}
+                              onChange={(e) => setCustomSlides(prev => prev.map((s, i) => i === currentSlide - slides.length ? { ...s, label: e.target.value } : s))}
+                              className="text-sm font-semibold text-gray-800 bg-transparent border-none focus:outline-none flex-1"
+                              placeholder="Titre de la slide"
+                            />
+                          ) : (
+                            <span className="text-sm font-semibold text-gray-300 flex-1 truncate">{cs.label}</span>
+                          )}
+                          <button
+                            onClick={() => setEditingCustomSlideId(isEditingThis ? null : cs.id)}
+                            className={`text-xs px-2 py-0.5 rounded transition-colors ${isEditingThis ? "bg-gray-100 text-gray-600 hover:bg-gray-200" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}
+                          >{isEditingThis ? "Aperçu" : "Éditer"}</button>
                           <button
                             onClick={() => { setCustomSlides(prev => prev.filter((_, i) => i !== currentSlide - slides.length)); goToSlide(Math.max(0, currentSlide - 1)); }}
                             className="text-xs text-red-400 hover:text-red-600 transition-colors"
                           >Supprimer</button>
                         </div>
-                        <textarea
-                          value={cs.content}
-                          onChange={(e) => setCustomSlides(prev => prev.map((s, i) => i === currentSlide - slides.length ? { ...s, content: e.target.value } : s))}
-                          className="flex-1 p-4 text-sm text-gray-700 resize-none focus:outline-none"
-                          style={{ fontFamily: cs.fontFamily || "inherit" }}
-                          placeholder="Contenu en Markdown…"
-                        />
+                        {/* Content */}
+                        {isEditingThis ? (
+                          <textarea
+                            value={cs.content}
+                            onChange={(e) => setCustomSlides(prev => prev.map((s, i) => i === currentSlide - slides.length ? { ...s, content: e.target.value } : s))}
+                            className="flex-1 p-4 text-sm text-gray-700 resize-none focus:outline-none"
+                            style={{ fontFamily: cs.fontFamily || "inherit" }}
+                            placeholder="Contenu en Markdown…"
+                          />
+                        ) : (
+                          <div
+                            className="flex-1 p-5 overflow-auto deck-custom-preview"
+                            style={{ fontFamily: cs.fontFamily || "inherit" }}
+                          >
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{cs.content}</ReactMarkdown>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : null;

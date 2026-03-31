@@ -26,6 +26,41 @@ interface AdAccount {
   currency?: string;
 }
 
+function GoogleAdsCard() {
+  const [status, setStatus] = useState<"loading" | "connected" | "disconnected">("loading");
+  const [accountCount, setAccountCount] = useState(0);
+
+  useEffect(() => {
+    fetch("/api/deck/clients")
+      .then(r => r.json())
+      .then((data: { clients?: Array<{ platform: string }> }) => {
+        const googleAccounts = (data.clients ?? []).filter(c => c.platform === "google" || c.platform === "both");
+        setAccountCount(googleAccounts.length);
+        setStatus(googleAccounts.length > 0 ? "connected" : "disconnected");
+      })
+      .catch(() => setStatus("disconnected"));
+  }, []);
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm bg-green-600">G</div>
+          <div>
+            <h3 className="font-semibold text-white">Google Ads</h3>
+            <p className={`text-xs ${status === "connected" ? "text-green-400" : status === "loading" ? "text-gray-500" : "text-amber-400"}`}>
+              {status === "loading" ? "● Vérification…" : status === "connected" ? `● Connecté via MCP Relay (${accountCount} compte${accountCount > 1 ? "s" : ""})` : "● Non connecté — relay inactif"}
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="text-xs text-gray-500 leading-relaxed">
+        Google Ads est accédé via le MCP Relay. Aucune OAuth requise — les données sont récupérées automatiquement via le relay local si disponible.
+      </div>
+    </div>
+  );
+}
+
 function IntegrationCard({
   platform,
   color,
@@ -256,6 +291,7 @@ export default function SettingsPage() {
               apiPath="/api/tiktok/accounts"
               storageKey="impulse_tiktok_account"
             />
+            <GoogleAdsCard />
           </div>
         </div>
       )}
