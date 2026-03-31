@@ -18,7 +18,8 @@ import {
 
 export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
-const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
+// Server-side: prefer RELAY_URL (server-only), fall back to NEXT_PUBLIC_RELAY_URL, then localhost
+const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
 const RELAY_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
   : "http://localhost:3457";
@@ -249,20 +250,48 @@ async function fetchMetaData(
     logResult("campaigns", campaignsRaw);
     logResult("creatives", creativesRaw);
 
-    // Extract overview metrics — raw MCP response has fields like spend, impressions, etc.
+    // Extract a value from Meta actions array by action_type(s)
+    function actionsValue(obj: Record<string, unknown>, ...types: string[]): number {
+      const actions = Array.isArray(obj.actions) ? obj.actions as Array<{action_type: string; value: string}> : [];
+      for (const t of types) {
+        const found = actions.find(a => a.action_type === t);
+        if (found) return toNum(found.value);
+      }
+      return 0;
+    }
+
+    // Extract revenue from action_values array
+    function actionValuesValue(obj: Record<string, unknown>, ...types: string[]): number {
+      const actionValues = Array.isArray(obj.action_values) ? obj.action_values as Array<{action_type: string; value: string}> : [];
+      for (const t of types) {
+        const found = actionValues.find(a => a.action_type === t);
+        if (found) return toNum(found.value);
+      }
+      return 0;
+    }
+
+    // Extract overview metrics — Meta Ads API returns conversions/revenue inside `actions` and `action_values` arrays
     function extractOverviewMetrics(raw: unknown): PlatformMetrics {
       if (!raw || typeof raw !== "object") return zeroMetrics();
-      // MCP Account_Overview1 response shape varies — try common structures
       const r = raw as Record<string, unknown>;
-      // Direct fields
       const data = (r.data ?? r.overview ?? r.account_overview ?? r) as Record<string, unknown>;
-      const arr = Array.isArray(data) ? data[0] : data;
+      const arr = (Array.isArray(data) ? data[0] : data) as Record<string, unknown>;
+      if (!arr || typeof arr !== "object") return zeroMetrics();
+
+      // Conversions: try direct field first, then Meta actions array (leads, purchases)
+      const conversions = toNum(arr.conversions ?? arr.purchases)
+        || actionsValue(arr, "purchase", "offsite_conversion.fb_pixel_purchase", "lead", "offsite_conversion.fb_pixel_lead", "complete_registration");
+
+      // Revenue: try direct field first, then Meta action_values array
+      const revenue = toNum(arr.revenue ?? arr.purchase_roas_value ?? arr.action_values_purchase)
+        || actionValuesValue(arr, "purchase", "offsite_conversion.fb_pixel_purchase");
+
       return safeMetrics({
-        spend: toNum(arr?.spend ?? arr?.amount_spent ?? arr?.total_spend),
-        impressions: toNum(arr?.impressions),
-        clicks: toNum(arr?.clicks ?? arr?.link_clicks),
-        conversions: toNum(arr?.conversions ?? arr?.purchases ?? arr?.actions_purchase),
-        revenue: toNum(arr?.revenue ?? arr?.purchase_roas_value ?? arr?.action_values_purchase),
+        spend: toNum(arr.spend ?? arr.amount_spent ?? arr.total_spend),
+        impressions: toNum(arr.impressions),
+        clicks: toNum(arr.clicks ?? arr.link_clicks),
+        conversions,
+        revenue,
       });
     }
 
@@ -271,9 +300,13 @@ async function fetchMetaData(
       const r = raw as Record<string, unknown>;
       const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.campaigns) ? r.campaigns : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
       return list.slice(0, 10).map((c, i) => {
+        const conversions = toNum(c.conversions ?? c.purchases)
+          || actionsValue(c, "purchase", "offsite_conversion.fb_pixel_purchase", "lead", "offsite_conversion.fb_pixel_lead");
+        const revenue = toNum(c.revenue ?? c.purchase_value)
+          || actionValuesValue(c, "purchase", "offsite_conversion.fb_pixel_purchase");
         const current = safeMetrics({
           spend: toNum(c.spend), impressions: toNum(c.impressions), clicks: toNum(c.clicks ?? c.link_clicks),
-          conversions: toNum(c.conversions ?? c.purchases), revenue: toNum(c.revenue ?? c.purchase_value),
+          conversions, revenue,
         });
         return {
           id: String(c.id ?? c.campaign_id ?? `meta-c-${i}`),
@@ -291,18 +324,24 @@ async function fetchMetaData(
       if (!raw || typeof raw !== "object") return [];
       const r = raw as Record<string, unknown>;
       const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.ads) ? r.ads : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
-      return list.slice(0, 6).map((cr, i) => ({
-        id: String(cr.id ?? cr.ad_id ?? `tc-${i}`),
-        name: String(cr.name ?? cr.ad_name ?? `Creative ${i + 1}`),
-        format: (["Video", "Image", "Carousel"].includes(String(cr.format ?? cr.creative_type ?? "")) ? String(cr.format ?? cr.creative_type) : "Image") as TopCreative["format"],
-        spend: toNum(cr.spend),
-        roas: toNum(cr.roas ?? cr.purchase_roas),
-        ctr: toNum(cr.ctr),
-        cpa: toNum(cr.cpa ?? cr.cost_per_purchase),
-        impressions: toNum(cr.impressions),
-        hookRate: cr.hook_rate !== undefined ? toNum(cr.hook_rate) : undefined,
-        thumbnailUrl: cr.thumbnail_url ? String(cr.thumbnail_url) : undefined,
-      }));
+      return list.slice(0, 6).map((cr, i) => {
+        const conversions = toNum(cr.conversions ?? cr.purchases)
+          || actionsValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase", "lead", "offsite_conversion.fb_pixel_lead");
+        const revenue = actionValuesValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase");
+        const spend = toNum(cr.spend);
+        return {
+          id: String(cr.id ?? cr.ad_id ?? `tc-${i}`),
+          name: String(cr.name ?? cr.ad_name ?? `Creative ${i + 1}`),
+          format: (["Video", "Image", "Carousel"].includes(String(cr.format ?? cr.creative_type ?? "")) ? String(cr.format ?? cr.creative_type) : "Image") as TopCreative["format"],
+          spend,
+          roas: revenue > 0 && spend > 0 ? revenue / spend : toNum(cr.roas ?? cr.purchase_roas),
+          ctr: toNum(cr.ctr),
+          cpa: conversions > 0 && spend > 0 ? spend / conversions : toNum(cr.cpa ?? cr.cost_per_purchase),
+          impressions: toNum(cr.impressions),
+          hookRate: cr.hook_rate !== undefined ? toNum(cr.hook_rate) : undefined,
+          thumbnailUrl: cr.thumbnail_url ? String(cr.thumbnail_url) : undefined,
+        };
+      });
     }
 
     const overviewData = overviewRaw.status === "fulfilled" ? overviewRaw.value : null;
