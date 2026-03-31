@@ -14,9 +14,10 @@ const RELAY_URLS = ["http://localhost:3457", ...(CONFIGURED_URL ? [CONFIGURED_UR
 
 export async function GET() {
   for (const url of RELAY_URLS) {
+    const isLocalhost = url.includes("localhost");
     try {
       const res = await fetch(`${url}/api/tools`, {
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(isLocalhost ? 3000 : 10000),
       });
       if (!res.ok) continue;
       const data = await res.json();

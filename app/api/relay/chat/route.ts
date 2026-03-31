@@ -24,12 +24,17 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
 
   for (const url of RELAY_URLS) {
+    // localhost gets a short timeout (3s) — if relay isn't local, fail fast
+    // The configured tunnel URL gets a long timeout (100s)
+    const isLocalhost = url.includes("localhost");
+    const timeoutMs = isLocalhost ? 3000 : 100000;
+
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(100000),
+        signal: AbortSignal.timeout(timeoutMs),
         // @ts-expect-error Node.js fetch option
         duplex: "half",
       });

@@ -20,26 +20,31 @@ export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
 // Server-side: prefer RELAY_URL (server-only), fall back to NEXT_PUBLIC_RELAY_URL, then localhost
 const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
-const RELAY_URL = rawRelayUrl
+const CONFIGURED_RELAY_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
-  : "http://localhost:3457";
+  : null;
+
+// Try localhost first (when running locally), then the configured tunnel URL
+const RELAY_URLS_TO_TRY = CONFIGURED_RELAY_URL
+  ? ["http://localhost:3457", CONFIGURED_RELAY_URL]
+  : ["http://localhost:3457"];
 
 // ── Relay helpers ─────────────────────────────────────────────────────────────
 
 async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
-  // Server-side: try localhost first (relay runs locally), then configured URL
-  const urls = RELAY_URL.includes("localhost")
-    ? [RELAY_URL]
-    : ["http://localhost:3457", RELAY_URL];
+  const urls = RELAY_URLS_TO_TRY;
 
   let lastError: Error | null = null;
   for (const url of urls) {
+    // localhost gets a short timeout — fail fast if relay isn't running locally
+    const isLocalhost = url.includes("localhost");
+    const actualTimeout = isLocalhost ? Math.min(timeoutMs, 5000) : timeoutMs;
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(actualTimeout),
       });
       if (!res.ok) { lastError = new Error(`Relay ${url} responded ${res.status}`); continue; }
 
@@ -48,6 +53,7 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
 
       const decoder = new TextDecoder();
       let fullText = "";
+      let toolResultText = ""; // Raw MCP tool output — more reliable than LLM-formatted text
       let buffer = "";
 
       while (true) {
@@ -66,6 +72,8 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
 
           try {
             const event = JSON.parse(data);
+            // tool_result — raw MCP output (highest priority — use directly)
+            if (event.type === "tool_result" && typeof event.content === "string") { toolResultText += event.content; continue; }
             // OpenClaw custom format
             if (event.type === "delta" && typeof event.text === "string") { fullText += event.text; continue; }
             // "content" is final complete text — replace, don't append
@@ -88,7 +96,10 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
         }
       }
 
-      if (fullText.trim()) return fullText;
+      // Prefer raw tool result over LLM-formatted text
+      const result = toolResultText.trim() || fullText.trim();
+      console.log(`[relay] ${url} toolResult=${toolResultText.length}b fullText=${fullText.length}b`);
+      if (result) return result;
       lastError = new Error(`Empty response from ${url}`);
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
@@ -243,8 +254,9 @@ async function fetchMetaData(
 
     const logResult = (name: string, r: PromiseSettledResult<unknown>) =>
       r.status === "fulfilled"
-        ? console.log(`[deck/data] ${name} ok:`, JSON.stringify(r.value).slice(0, 300))
+        ? console.log(`[deck/data] ${name} ok:`, JSON.stringify(r.value).slice(0, 500))
         : console.error(`[deck/data] ${name} failed:`, r.reason);
+    console.log(`[deck/data] relay URLs:`, RELAY_URLS_TO_TRY);
     logResult("overview", overviewRaw);
     logResult("prevOverview", prevOverviewRaw);
     logResult("campaigns", campaignsRaw);
@@ -540,7 +552,7 @@ export async function POST(req: NextRequest) {
   const googleError = googleResult.status === "rejected" ? String(googleResult.reason) : (google === null && client.googleCustomerId ? "No data parsed from relay response" : null);
 
   console.error("[deck/data] relay results:", {
-    relayUrl: RELAY_URL,
+    relayUrls: RELAY_URLS_TO_TRY,
     metaAccountId: client.metaAccountId,
     googleCustomerId: client.googleCustomerId,
     metaOk: !!meta,
