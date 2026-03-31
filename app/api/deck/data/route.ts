@@ -210,69 +210,125 @@ interface RawPlatformData {
   creatives?: RawCreative[];
 }
 
+// Make a single-tool relay call and return the raw JSON result
+async function relaySingleTool(toolName: string, params: Record<string, string>, timeoutMs = 60000): Promise<unknown> {
+  const paramStr = Object.entries(params).map(([k, v]) => `${k}="${v}"`).join(", ");
+  const prompt = `Call the tool ${toolName} with params: ${paramStr}. Return ONLY the raw JSON result from the tool. No explanation, no markdown, no text before or after. Just the raw JSON.`;
+  const text = await relayChat(prompt, timeoutMs);
+  return extractJson(text);
+}
+
 async function fetchMetaData(
   accountId: string,
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null> {
-  const prompt = `You are a data extraction agent. Call the following MCP tools for Meta Ads account ${accountId} and return ONLY a JSON object.
-
-REQUIRED TOOL CALLS:
-1. mcp__meta-ads-impulse__Account_Overview1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
-2. mcp__meta-ads-impulse__Campaign_Performance1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
-3. mcp__meta-ads-impulse__Ad_Performance1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
-4. mcp__meta-ads-impulse__Account_Overview1 again — params: ad_account_id="${accountId}", since="${previousPeriod.startDate}", until="${previousPeriod.endDate}" (for prev_total)
-
-CRITICAL INSTRUCTION: After calling ALL the tools above, your ENTIRE response must be ONLY the following JSON structure filled with the real numbers from the tool results. Do NOT write any text before or after the JSON. Do NOT use markdown code blocks. Start your response with { and end with }.
-
-{"total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"prev_total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"campaigns":[{"id":"","name":"","type":"","status":"Active","spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0,"prev_spend":0,"prev_impressions":0,"prev_clicks":0,"prev_conversions":0,"prev_revenue":0}],"creatives":[{"id":"","name":"","format":"Video","spend":0,"roas":0,"ctr":0,"cpa":0,"impressions":0,"thumbnailUrl":""}]}`;
-
   try {
-    const text = await relayChat(prompt);
-    console.log("[deck/data] meta raw response (800):", text.slice(0, 800));
-    const data = extractJson<RawPlatformData>(text);
-    if (!data) {
-      console.error("[deck/data] meta extractJson failed. raw:", text.slice(0, 2000));
-      return null;
+    // Fire 4 parallel single-tool calls — each takes ~15-25s vs 65s for sequential
+    const [overviewRaw, prevOverviewRaw, campaignsRaw, creativesRaw] = await Promise.allSettled([
+      relaySingleTool("mcp__meta-ads-impulse__Account_Overview1", {
+        ad_account_id: accountId, since: period.startDate, until: period.endDate,
+      }),
+      relaySingleTool("mcp__meta-ads-impulse__Account_Overview1", {
+        ad_account_id: accountId, since: previousPeriod.startDate, until: previousPeriod.endDate,
+      }),
+      relaySingleTool("mcp__meta-ads-impulse__Campaign_Performance1", {
+        ad_account_id: accountId, since: period.startDate, until: period.endDate,
+      }),
+      relaySingleTool("mcp__meta-ads-impulse__Ad_Performance1", {
+        ad_account_id: accountId, since: period.startDate, until: period.endDate,
+      }),
+    ]);
+
+    const logResult = (name: string, r: PromiseSettledResult<unknown>) =>
+      r.status === "fulfilled"
+        ? console.log(`[deck/data] ${name} ok:`, JSON.stringify(r.value).slice(0, 300))
+        : console.error(`[deck/data] ${name} failed:`, r.reason);
+    logResult("overview", overviewRaw);
+    logResult("prevOverview", prevOverviewRaw);
+    logResult("campaigns", campaignsRaw);
+    logResult("creatives", creativesRaw);
+
+    // Extract overview metrics — raw MCP response has fields like spend, impressions, etc.
+    function extractOverviewMetrics(raw: unknown): PlatformMetrics {
+      if (!raw || typeof raw !== "object") return zeroMetrics();
+      // MCP Account_Overview1 response shape varies — try common structures
+      const r = raw as Record<string, unknown>;
+      // Direct fields
+      const data = (r.data ?? r.overview ?? r.account_overview ?? r) as Record<string, unknown>;
+      const arr = Array.isArray(data) ? data[0] : data;
+      return safeMetrics({
+        spend: toNum(arr?.spend ?? arr?.amount_spent ?? arr?.total_spend),
+        impressions: toNum(arr?.impressions),
+        clicks: toNum(arr?.clicks ?? arr?.link_clicks),
+        conversions: toNum(arr?.conversions ?? arr?.purchases ?? arr?.actions_purchase),
+        revenue: toNum(arr?.revenue ?? arr?.purchase_roas_value ?? arr?.action_values_purchase),
+      });
     }
 
-    const overview = safeMetrics(data.total ?? {});
-    const prevOverview = safeMetrics(data.prev_total ?? {});
-
-    const campaigns: CampaignRow[] = (data.campaigns ?? []).slice(0, 10).map((c, i) => {
-      const current = safeMetrics(c);
-      const previous = safeMetrics({
-        spend: c.prev_spend, impressions: c.prev_impressions, clicks: c.prev_clicks,
-        conversions: c.prev_conversions, revenue: c.prev_revenue,
+    function extractCampaigns(raw: unknown): CampaignRow[] {
+      if (!raw || typeof raw !== "object") return [];
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.campaigns) ? r.campaigns : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      return list.slice(0, 10).map((c, i) => {
+        const current = safeMetrics({
+          spend: toNum(c.spend), impressions: toNum(c.impressions), clicks: toNum(c.clicks ?? c.link_clicks),
+          conversions: toNum(c.conversions ?? c.purchases), revenue: toNum(c.revenue ?? c.purchase_value),
+        });
+        return {
+          id: String(c.id ?? c.campaign_id ?? `meta-c-${i}`),
+          name: String(c.name ?? c.campaign_name ?? `Campagne ${i + 1}`),
+          type: c.type ? String(c.type) : undefined,
+          status: (["Active", "Paused", "Completed"].includes(String(c.status ?? c.effective_status ?? "")) ? String(c.status ?? c.effective_status) : "Active") as CampaignRow["status"],
+          current,
+          previous: zeroMetrics(),
+          delta: safeDelta(current, zeroMetrics()),
+        };
       });
-      return {
-        id: c.id ?? `meta-c-${i}`,
-        name: c.name ?? `Campagne ${i + 1}`,
-        type: c.type,
-        status: (["Active", "Paused", "Completed"].includes(c.status ?? "") ? c.status : "Active") as CampaignRow["status"],
-        current,
-        previous,
-        delta: safeDelta(current, previous),
-      };
-    });
+    }
 
-    const topCreatives: TopCreative[] = (data.creatives ?? []).slice(0, 6).map((cr, i) => ({
-      id: cr.id ?? `tc-${i}`,
-      name: cr.name ?? `Creative ${i + 1}`,
-      format: (["Video", "Image", "Carousel"].includes(cr.format ?? "") ? cr.format : "Image") as TopCreative["format"],
-      spend: cr.spend ?? 0,
-      roas: cr.roas ?? 0,
-      ctr: cr.ctr ?? 0,
-      cpa: cr.cpa ?? 0,
-      impressions: cr.impressions ?? 0,
-      hookRate: cr.hookRate ?? undefined,
-      thumbnailUrl: cr.thumbnailUrl ?? undefined,
-    }));
+    function extractCreatives(raw: unknown): TopCreative[] {
+      if (!raw || typeof raw !== "object") return [];
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.ads) ? r.ads : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      return list.slice(0, 6).map((cr, i) => ({
+        id: String(cr.id ?? cr.ad_id ?? `tc-${i}`),
+        name: String(cr.name ?? cr.ad_name ?? `Creative ${i + 1}`),
+        format: (["Video", "Image", "Carousel"].includes(String(cr.format ?? cr.creative_type ?? "")) ? String(cr.format ?? cr.creative_type) : "Image") as TopCreative["format"],
+        spend: toNum(cr.spend),
+        roas: toNum(cr.roas ?? cr.purchase_roas),
+        ctr: toNum(cr.ctr),
+        cpa: toNum(cr.cpa ?? cr.cost_per_purchase),
+        impressions: toNum(cr.impressions),
+        hookRate: cr.hook_rate !== undefined ? toNum(cr.hook_rate) : undefined,
+        thumbnailUrl: cr.thumbnail_url ? String(cr.thumbnail_url) : undefined,
+      }));
+    }
+
+    const overviewData = overviewRaw.status === "fulfilled" ? overviewRaw.value : null;
+    const prevOverviewData = prevOverviewRaw.status === "fulfilled" ? prevOverviewRaw.value : null;
+    const campaignsData = campaignsRaw.status === "fulfilled" ? campaignsRaw.value : null;
+    const creativesData = creativesRaw.status === "fulfilled" ? creativesRaw.value : null;
+
+    // Need at least the overview to return real data
+    if (!overviewData) return null;
+
+    const overview = extractOverviewMetrics(overviewData);
+    const prevOverview = extractOverviewMetrics(prevOverviewData);
+    const campaigns = extractCampaigns(campaignsData);
+    const topCreatives = extractCreatives(creativesData);
 
     return { overview, campaigns, topCreatives, prevOverview };
-  } catch {
+  } catch (e) {
+    console.error("[deck/data] fetchMetaData error:", e);
     return null;
   }
+}
+
+function toNum(v: unknown): number {
+  if (v === null || v === undefined) return 0;
+  const n = typeof v === "string" ? parseFloat(v.replace(/[^0-9.-]/g, "")) : Number(v);
+  return isFinite(n) ? n : 0;
 }
 
 async function fetchGoogleData(
@@ -280,47 +336,62 @@ async function fetchGoogleData(
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null> {
-  const prompt = `You are a data extraction agent. Call the following MCP tools for Google Ads customer ${customerId} and return ONLY a JSON object.
-
-REQUIRED TOOL CALLS:
-1. mcp__mcp-google-ads__Campaign_Performance — params: customer_id="${customerId}", start_date="${period.startDate}", end_date="${period.endDate}"
-2. mcp__mcp-google-ads__Campaign_Performance again — params: customer_id="${customerId}", start_date="${previousPeriod.startDate}", end_date="${previousPeriod.endDate}" (for prev_total and prev_ campaign fields)
-
-CRITICAL INSTRUCTION: After calling ALL the tools above, your ENTIRE response must be ONLY the following JSON structure filled with the real numbers from the tool results. Do NOT write any text before or after the JSON. Do NOT use markdown code blocks. Start your response with { and end with }.
-
-{"total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"prev_total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"campaigns":[{"id":"","name":"","type":"","status":"Active","spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0,"prev_spend":0,"prev_impressions":0,"prev_clicks":0,"prev_conversions":0,"prev_revenue":0}]}`;
-
   try {
-    const text = await relayChat(prompt);
-    console.log("[deck/data] google raw response (800):", text.slice(0, 800));
-    const data = extractJson<RawPlatformData>(text);
-    if (!data) {
-      console.error("[deck/data] google extractJson failed. raw:", text.slice(0, 2000));
-      return null;
-    }
+    const [campaignsRaw, prevCampaignsRaw] = await Promise.allSettled([
+      relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
+        customer_id: customerId, start_date: period.startDate, end_date: period.endDate,
+      }),
+      relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
+        customer_id: customerId, start_date: previousPeriod.startDate, end_date: previousPeriod.endDate,
+      }),
+    ]);
 
-    const overview = safeMetrics(data.total ?? {});
-    const prevOverview = safeMetrics(data.prev_total ?? {});
+    console.log("[deck/data] google campaigns ok:", campaignsRaw.status);
 
-    const campaigns: CampaignRow[] = (data.campaigns ?? []).slice(0, 10).map((c, i) => {
-      const current = safeMetrics(c);
-      const previous = safeMetrics({
-        spend: c.prev_spend, impressions: c.prev_impressions, clicks: c.prev_clicks,
-        conversions: c.prev_conversions, revenue: c.prev_revenue,
+    function extractGoogleCampaigns(raw: unknown): { campaigns: CampaignRow[]; overview: PlatformMetrics } {
+      if (!raw || typeof raw !== "object") return { campaigns: [], overview: zeroMetrics() };
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.campaigns) ? r.campaigns : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0, totalRevenue = 0;
+      const campaigns = list.slice(0, 10).map((c, i) => {
+        // Google Ads costs are in micros — divide by 1,000,000
+        const spendRaw = toNum(c.cost_micros ?? c.spend ?? c.cost);
+        const spend = spendRaw > 10000 ? spendRaw / 1_000_000 : spendRaw;
+        const impressions = toNum(c.impressions);
+        const clicks = toNum(c.clicks);
+        const conversions = toNum(c.conversions);
+        const revenue = toNum(c.conversions_value ?? c.revenue ?? c.conversion_value);
+        totalSpend += spend; totalImpressions += impressions; totalClicks += clicks;
+        totalConversions += conversions; totalRevenue += revenue;
+        const current = safeMetrics({ spend, impressions, clicks, conversions, revenue });
+        return {
+          id: String(c.id ?? c.campaign_id ?? (c.campaign as Record<string,unknown>)?.id ?? `google-c-${i}`),
+          name: String(c.name ?? c.campaign_name ?? (c.campaign as Record<string,unknown>)?.name ?? `Campagne ${i + 1}`),
+          type: c.type ? String(c.type) : undefined,
+          status: (["Active", "Paused", "Completed"].includes(String(c.status ?? c.campaign_status ?? "ENABLED")) ? String(c.status ?? c.campaign_status) : "Active") as CampaignRow["status"],
+          current,
+          previous: zeroMetrics(),
+          delta: safeDelta(current, zeroMetrics()),
+        };
       });
       return {
-        id: c.id ?? `google-c-${i}`,
-        name: c.name ?? `Campagne ${i + 1}`,
-        type: c.type,
-        status: (["Active", "Paused", "Completed"].includes(c.status ?? "") ? c.status : "Active") as CampaignRow["status"],
-        current,
-        previous,
-        delta: safeDelta(current, previous),
+        campaigns,
+        overview: safeMetrics({ spend: totalSpend, impressions: totalImpressions, clicks: totalClicks, conversions: totalConversions, revenue: totalRevenue }),
       };
-    });
+    }
 
-    return { overview, campaigns, prevOverview };
-  } catch {
+    const currentData = campaignsRaw.status === "fulfilled" ? extractGoogleCampaigns(campaignsRaw.value) : null;
+    const prevData = prevCampaignsRaw.status === "fulfilled" ? extractGoogleCampaigns(prevCampaignsRaw.value) : null;
+
+    if (!currentData) return null;
+
+    return {
+      overview: currentData.overview,
+      campaigns: currentData.campaigns,
+      prevOverview: prevData?.overview ?? zeroMetrics(),
+    };
+  } catch (e) {
+    console.error("[deck/data] fetchGoogleData error:", e);
     return null;
   }
 }
