@@ -387,13 +387,15 @@ async function fetchGoogleData(
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null> {
+  // Google Ads tools require customer_id without dashes (e.g. "1234567890" not "123-456-7890")
+  const cleanId = customerId.replace(/-/g, "");
   try {
     const [campaignsRaw, prevCampaignsRaw] = await Promise.allSettled([
       relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
-        customer_id: customerId, start_date: period.startDate, end_date: period.endDate,
+        customer_id: cleanId, start_date: period.startDate, end_date: period.endDate,
       }),
       relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
-        customer_id: customerId, start_date: previousPeriod.startDate, end_date: previousPeriod.endDate,
+        customer_id: cleanId, start_date: previousPeriod.startDate, end_date: previousPeriod.endDate,
       }),
     ]);
 
