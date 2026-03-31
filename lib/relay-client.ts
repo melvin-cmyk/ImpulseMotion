@@ -1,15 +1,37 @@
 /**
  * Relay server client for ImpulseMotion AI chat.
- * Calls the server-side proxy /api/relay/chat instead of the relay directly.
- * This avoids CORS issues and expired Cloudflare tunnel URLs in the browser.
+ *
+ * Strategy:
+ * 1. Try http://localhost:3457 directly from the browser (CORS: * on the relay).
+ *    This always works when the browser and relay are on the same machine.
+ * 2. Fall back to the server-side proxy /api/relay/chat (uses configured tunnel URL).
+ *
+ * Detection is cached so it only happens once per page load.
  */
 
-// Use the server-side proxy — always relative to the current origin.
-// The server proxy handles localhost:3457 vs Cloudflare tunnel resolution.
-// Server-side proxy URL — always reachable from the browser as a relative path.
-// The proxy handles localhost:3457 vs Cloudflare tunnel resolution server-side.
-const RELAY_CHAT_URL = "/api/relay/chat";
-const RELAY_TOOLS_URL = "/api/relay/tools";
+const RELAY_DIRECT = "http://localhost:3457";
+const RELAY_PROXY_CHAT = "/api/relay/chat";
+const RELAY_PROXY_TOOLS = "/api/relay/tools";
+
+// null = unknown, "" = use proxy, "http://..." = use direct
+let _relayBase: string | null = null;
+
+/** Detect if the relay is reachable directly from the browser. Cached. */
+export async function detectRelayBase(): Promise<string> {
+  if (_relayBase !== null) return _relayBase;
+  try {
+    const res = await fetch(`${RELAY_DIRECT}/api/tools`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    // 200, 404 or 405 all mean the server is alive
+    if (res.status < 500) {
+      _relayBase = RELAY_DIRECT;
+      return _relayBase;
+    }
+  } catch { /* connection refused or timeout */ }
+  _relayBase = ""; // use server proxy
+  return _relayBase;
+}
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -30,24 +52,16 @@ export interface StreamEvent {
   turns?: number;
   duration?: number;
   message?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  delta?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  choices?: any[];
 }
 
-export async function streamChat(
-  messages: ChatMessage[],
-  onEvent: (event: StreamEvent) => void,
-  signal?: AbortSignal
+async function readStream(
+  res: Response,
+  onEvent: (event: StreamEvent) => void
 ): Promise<void> {
-  const res = await fetch(RELAY_CHAT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
-    signal,
-  });
-
-  if (!res.ok) {
-    throw new Error(`Relay error: ${res.status}`);
-  }
-
   const reader = res.body?.getReader();
   if (!reader) throw new Error("No response body");
 
@@ -75,8 +89,33 @@ export async function streamChat(
   }
 }
 
+export async function streamChat(
+  messages: ChatMessage[],
+  onEvent: (event: StreamEvent) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const base = await detectRelayBase();
+  const url = base ? `${base}/api/chat` : RELAY_PROXY_CHAT;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+    signal,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Relay error: ${res.status}`);
+  }
+
+  await readStream(res, onEvent);
+}
+
 export async function getTools(): Promise<{ server: string; name: string; description: string }[]> {
-  const res = await fetch(RELAY_TOOLS_URL);
+  const base = await detectRelayBase();
+  const url = base ? `${base}/api/tools` : RELAY_PROXY_TOOLS;
+
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to get tools: ${res.status}`);
   const data = await res.json();
   return data.tools;

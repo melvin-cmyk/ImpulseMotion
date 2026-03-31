@@ -28,11 +28,11 @@ import {
 import {
   getAvailablePeriods,
   getPreviousPeriod,
-  generateMockDeckData,
   type DeckClient,
   type DeckPeriod,
   type DeckData,
 } from "@/lib/deck-data";
+import { fetchDeckData } from "@/lib/deck-relay";
 import {
   CoverSlide,
   AgendaSlide,
@@ -349,79 +349,53 @@ export default function DeckPage() {
     const hasPrompt = prompt.trim().length > 0;
 
     try {
+      // Fetch real data directly from browser → relay (bypasses Vercel, uses localhost:3457)
+      const realData = await fetchDeckData(client, period);
+
+      if (realData) {
+        setDeckData(realData);
+        setDataSource("real");
+        setDataSourceReason(null);
+      } else {
+        // Relay unreachable — show nothing, no mock data
+        setDeckData(null);
+        setDataSource("mock");
+        setDataSourceReason("Relay non connecté — vérifiez que le relay tourne sur localhost:3457");
+      }
+
       if (hasPrompt) {
-        // AI mode: generate slides exactly as requested, hide static slides
+        // AI mode: generate slides from user prompt + real data
         setAiSlidesMode(true);
         setCustomSlides([]);
 
-        const [dataRes, genRes] = await Promise.allSettled([
-          fetch("/api/deck/data", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ client, period, userContext: prompt }),
-          }),
-          fetch("/api/deck/generate", {
+        if (realData) {
+          const genRes = await fetch("/api/deck/generate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ client, period, userPrompt: prompt }),
-          }),
-        ]);
+          });
 
-        // Keep deckData for context/export even in AI mode
-        if (dataRes.status === "fulfilled" && dataRes.value?.ok) {
-          const json = await dataRes.value.json() as { data: DeckData; source: "real" | "mock"; reason?: string };
-          setDeckData(json.data);
-          setDataSource(json.source);
-          setDataSourceReason(json.reason ?? null);
-        } else {
-          setDeckData(generateMockDeckData(client, period));
-          setDataSource("mock");
-          setDataSourceReason(dataRes.status === "rejected" ? String(dataRes.reason) : `HTTP ${dataRes.value?.status ?? "?"}`);
-        }
-
-        if (genRes.status === "fulfilled" && genRes.value.ok) {
-          const genJson = await genRes.value.json() as {
-            slides: Array<{ id: string; title: string; content: string; notes?: string }>;
-            dataSource: "real" | "mock";
-          };
-          if (genJson.slides && genJson.slides.length > 0) {
-            const aiSlides = genJson.slides.map((s) => ({
-              id: s.id,
-              label: s.title,
-              content: s.content,
-            }));
-            setCustomSlides(aiSlides);
-            const noteEntries: Record<string, string> = {};
-            genJson.slides.forEach((s) => { if (s.notes) noteEntries[s.id] = s.notes; });
-            if (Object.keys(noteEntries).length > 0) {
-              setSlideNotes((prev) => ({ ...prev, ...noteEntries }));
+          if (genRes.ok) {
+            const genJson = await genRes.json() as {
+              slides: Array<{ id: string; title: string; content: string; notes?: string }>;
+            };
+            if (genJson.slides && genJson.slides.length > 0) {
+              setCustomSlides(genJson.slides.map((s) => ({ id: s.id, label: s.title, content: s.content })));
+              const noteEntries: Record<string, string> = {};
+              genJson.slides.forEach((s) => { if (s.notes) noteEntries[s.id] = s.notes; });
+              if (Object.keys(noteEntries).length > 0) {
+                setSlideNotes((prev) => ({ ...prev, ...noteEntries }));
+              }
             }
           }
         }
       } else {
-        // Basic mode: use static slides with real data
+        // Basic mode: static slides with real data
         setAiSlidesMode(false);
         setCustomSlides([]);
-
-        const dataRes = await fetch("/api/deck/data", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client, period, userContext: "" }),
-        });
-
-        if (dataRes.ok) {
-          const json = await dataRes.json() as { data: DeckData; source: "real" | "mock"; reason?: string };
-          setDeckData(json.data);
-          setDataSource(json.source);
-          setDataSourceReason(json.reason ?? null);
-        } else {
-          setDeckData(generateMockDeckData(client, period));
-          setDataSource("mock");
-          setDataSourceReason(`HTTP ${dataRes.status}`);
-        }
       }
     } catch (err) {
-      setDeckData(generateMockDeckData(client, period));
+      setDeckData(null);
       setDataSource("mock");
       setDataSourceReason(String(err));
     }
@@ -1194,6 +1168,25 @@ export default function DeckPage() {
             )}
           </button>
         </div>
+      </div>
+    );
+  }
+
+  // ── Relay error — no data ────────────────────────────────────────────────
+  if (deckGenerated && !deckData) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center bg-gray-950 text-white gap-4 p-8">
+        <div className="text-5xl">⚠️</div>
+        <h2 className="text-xl font-semibold">Relay non connecté</h2>
+        <p className="text-gray-400 text-center max-w-md text-sm">
+          {dataSourceReason ?? "Impossible de récupérer les données. Vérifiez que le relay OpenClaw tourne sur localhost:3457 et réessayez."}
+        </p>
+        <button
+          onClick={() => setDeckGenerated(false)}
+          className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium"
+        >
+          ← Retour
+        </button>
       </div>
     );
   }
