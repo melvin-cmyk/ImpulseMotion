@@ -51,6 +51,8 @@ import { AIPanel } from "@/components/deck/ai-panel";
 import { exportDeckToPptx } from "@/lib/deck-export";
 import { SlideStyleContext, type TextStyle } from "@/components/deck/slide-style-context";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DynamicDeck } from "@/components/deck/DynamicDeck";
+import type { SlideData } from "@/types/deck";
 
 // ── Section config ───────────────────────────────────────────────────────────
 
@@ -289,6 +291,14 @@ export default function DeckPage() {
   const [textStyles, setTextStyles] = useState<Record<string, TextStyle>>({});
   const [customSlides, setCustomSlides] = useState<{ id: string; label: string; content: string; fontFamily?: string }[]>([]);
   const [aiSlidesMode, setAiSlidesMode] = useState(false);
+  // ── AI Dynamic Deck mode ─────────────────────────────────────────────────
+  const [slideMode, setSlideMode] = useState<"static" | "ai">(() => {
+    if (typeof window === "undefined") return "static";
+    return new URLSearchParams(window.location.search).get("mode") === "ai" ? "ai" : "static";
+  });
+  const [aiDynamicSlides, setAiDynamicSlides] = useState<SlideData[]>([]);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
   const [filmstripDragging, setFilmstripDragging] = useState<number | null>(null);
   const [filmstripDropTarget, setFilmstripDropTarget] = useState<number | null>(null);
   const [slideNotes, setSlideNotes] = useState<Record<string, string>>({});
@@ -439,12 +449,62 @@ export default function DeckPage() {
     const hasBuilderParams = p.has("client") && p.has("period");
     if (!hasBuilderParams || !selectedClient || clientsLoading) return;
     autoGenerateRef.current = true;
-    generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined);
-  }, [selectedClient, clientsLoading, generateDeck, selectedPeriod, userContext, selectedGoogleCustomerId]);
+    const isAiMode = p.get("mode") === "ai";
+    if (isAiMode) {
+      handleGenerateAiDeck();
+    } else {
+      generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined);
+    }
+  }, [selectedClient, clientsLoading, generateDeck, handleGenerateAiDeck, selectedPeriod, userContext, selectedGoogleCustomerId]);
 
   const handleGenerate = () => {
     if (selectedClient) generateDeck(selectedClient, selectedPeriod, undefined, selectedGoogleCustomerId || undefined);
   };
+
+  // ── AI Dynamic Deck generation ──────────────────────────────────────────
+  const handleGenerateAiDeck = useCallback(async () => {
+    if (!selectedClient) return;
+    setIsGeneratingAi(true);
+    setAiGenerateError(null);
+    try {
+      const sectionsParam = typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("sections")
+        : null;
+      const sections = sectionsParam ? sectionsParam.split(",") : ["global", "google", "meta", "budget", "learnings"];
+      const budgetsParam = typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("budgets")
+        : null;
+      const budgets = budgetsParam ? JSON.parse(budgetsParam) : {};
+
+      const res = await fetch("/api/deck/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: selectedClient.id,
+          platform: selectedClient.platform ?? "both",
+          dateRange: selectedPeriod.label,
+          sections,
+          context: userContext || undefined,
+          budgets,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => `Erreur ${res.status}`);
+        throw new Error(errText || `Erreur ${res.status}`);
+      }
+
+      const json = await res.json() as { slides?: SlideData[] };
+      if (!json.slides || json.slides.length === 0) {
+        throw new Error("L'IA n'a retourné aucune slide. Réessayez.");
+      }
+      setAiDynamicSlides(json.slides);
+    } catch (err) {
+      setAiGenerateError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  }, [selectedClient, selectedPeriod, userContext]);
 
   const handleExportPptx = async () => {
     if (!deckData) return;
@@ -1360,21 +1420,53 @@ export default function DeckPage() {
           </span>
         )}
 
+        {/* Mode toggle: Slides statiques | Slides IA */}
+        <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden flex-shrink-0 text-xs font-medium">
+          <button
+            onClick={() => setSlideMode("static")}
+            className={`px-2.5 py-1.5 transition-colors ${slideMode === "static" ? "bg-[#0944A1] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+          >
+            Slides statiques
+          </button>
+          <button
+            onClick={() => setSlideMode("ai")}
+            className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${slideMode === "ai" ? "bg-[#0944A1] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
+          >
+            <Sparkles className="w-3 h-3" />
+            Slides IA
+          </button>
+        </div>
+
         {/* Slide counter */}
         <span className="text-xs text-gray-400 flex-shrink-0">
           Slide {currentSlide + 1} / {slides.length + customSlides.length}
         </span>
 
-        {/* Generate button */}
-        <button
-          onClick={handleGenerate}
-          disabled={isGenerating}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
-          style={{ backgroundColor: "#0944A1" }}
-        >
-          {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-          Générer
-        </button>
+        {/* Generate button — static mode */}
+        {slideMode === "static" && (
+          <button
+            onClick={handleGenerate}
+            disabled={isGenerating}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
+            style={{ backgroundColor: "#0944A1" }}
+          >
+            {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            Générer
+          </button>
+        )}
+
+        {/* Generate button — AI mode */}
+        {slideMode === "ai" && (
+          <button
+            onClick={handleGenerateAiDeck}
+            disabled={isGeneratingAi}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
+            style={{ backgroundColor: "#7F5AFD" }}
+          >
+            {isGeneratingAi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {isGeneratingAi ? "L'IA analyse..." : "Générer le deck"}
+          </button>
+        )}
 
         {/* Export PPTX */}
         <button
@@ -1662,6 +1754,52 @@ export default function DeckPage() {
             ref={slideContainerRef}
             onClick={() => { setSelectedBlockId(null); slideEditor.setSelectedId(null); }}
           >
+            {/* ── AI Dynamic Deck rendering ───────────────────────────────── */}
+            {slideMode === "ai" && (
+              <div className="w-full max-w-3xl">
+                {isGeneratingAi ? (
+                  <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-500">
+                    <Loader2 className="w-8 h-8 animate-spin text-[#7F5AFD]" />
+                    <p className="text-sm font-medium">L&apos;IA analyse vos données...</p>
+                    <p className="text-xs text-gray-400">Cela peut prendre 10–15 secondes</p>
+                  </div>
+                ) : aiGenerateError ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+                    <div className="text-3xl">⚠️</div>
+                    <p className="text-sm font-semibold text-red-600">Erreur lors de la génération IA</p>
+                    <p className="text-xs text-gray-500 max-w-sm">{aiGenerateError}</p>
+                    <button
+                      onClick={handleGenerateAiDeck}
+                      className="mt-2 text-xs px-4 py-2 rounded-lg bg-[#7F5AFD] text-white font-medium hover:bg-[#6b48e8] transition-colors"
+                    >
+                      Réessayer
+                    </button>
+                  </div>
+                ) : aiDynamicSlides.length > 0 ? (
+                  <DynamicDeck
+                    slides={aiDynamicSlides}
+                    title={selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "Performance Deck"}
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-400">
+                    <Sparkles className="w-10 h-10 opacity-30" />
+                    <p className="text-sm font-medium">Aucune slide IA générée</p>
+                    <p className="text-xs opacity-70">Cliquez sur &quot;Générer le deck&quot; pour créer des slides avec l&apos;IA</p>
+                    <button
+                      onClick={handleGenerateAiDeck}
+                      className="mt-1 text-xs px-4 py-2 rounded-lg bg-[#7F5AFD] text-white font-medium hover:bg-[#6b48e8] transition-colors"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 inline mr-1" />
+                      Générer le deck IA
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Static slide rendering ──────────────────────────────────── */}
+            {slideMode === "static" && (
+            <>
             {/* Edit toolbar — outside canvas so it doesn't affect % position calculations */}
             <div className="w-full max-w-3xl mb-0">
               <SlideEditorToolbar
@@ -2003,6 +2141,8 @@ export default function DeckPage() {
                 />
               )}
             </div>
+            </>
+            )}
           </div>
         </div>
 
