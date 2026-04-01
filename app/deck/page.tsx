@@ -306,7 +306,10 @@ export default function DeckPage() {
   const [newClientGoogle, setNewClientGoogle] = useState("");
   const commandPaletteInputRef = useRef<HTMLInputElement>(null);
   const lastGTimeRef = useRef<number>(0);
-  const [userContext, setUserContext] = useState("");
+  const [userContext, setUserContext] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("context") ?? "";
+  });
   const prevSlideRef = useRef<number>(-1);
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -427,7 +430,17 @@ export default function DeckPage() {
     setIsGenerating(false);
   }, [userContext]);
 
-  // Do NOT auto-generate — user must click "Générer le deck" explicitly
+  // Auto-generate if coming from builder (client + period in URL params)
+  const autoGenerateRef = useRef(false);
+  useEffect(() => {
+    if (autoGenerateRef.current) return;
+    const p = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    if (!p) return;
+    const hasBuilderParams = p.has("client") && p.has("period");
+    if (!hasBuilderParams || !selectedClient || clientsLoading) return;
+    autoGenerateRef.current = true;
+    generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined);
+  }, [selectedClient, clientsLoading, generateDeck, selectedPeriod, userContext, selectedGoogleCustomerId]);
 
   const handleGenerate = () => {
     if (selectedClient) generateDeck(selectedClient, selectedPeriod, undefined, selectedGoogleCustomerId || undefined);
@@ -1029,6 +1042,11 @@ export default function DeckPage() {
             </div>
           )}
           <div className="text-center mb-8">
+            <div className="mb-3">
+              <a href="/deck/builder" className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                ← Configurer le deck
+              </a>
+            </div>
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4" style={{ backgroundColor: "#0944A1" }}>
               <Presentation className="w-8 h-8 text-white" />
             </div>
