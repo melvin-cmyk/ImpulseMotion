@@ -4,12 +4,14 @@
  * Strategy:
  * 1. Try http://localhost:3457 directly from the browser (CORS: * on the relay).
  *    This always works when the browser and relay are on the same machine.
- * 2. Fall back to the server-side proxy /api/relay/chat (uses configured tunnel URL).
+ * 2. Try the public relay IP directly from the browser (CORS: * is enabled).
+ * 3. Fall back to the server-side proxy /api/relay/chat.
  *
  * Detection is cached so it only happens once per page load.
  */
 
 const RELAY_DIRECT = "http://localhost:3457";
+const RELAY_PUBLIC_IP = "http://72.62.29.196:3457";
 const RELAY_PROXY_CHAT = "/api/relay/chat";
 const RELAY_PROXY_TOOLS = "/api/relay/tools";
 
@@ -19,16 +21,29 @@ let _relayBase: string | null = null;
 /** Detect if the relay is reachable directly from the browser. Cached. */
 export async function detectRelayBase(): Promise<string> {
   if (_relayBase !== null) return _relayBase;
+
+  // Try localhost first (fast path when browser and relay are co-located)
   try {
     const res = await fetch(`${RELAY_DIRECT}/api/tools`, {
       signal: AbortSignal.timeout(2000),
     });
-    // 200, 404 or 405 all mean the server is alive
     if (res.status < 500) {
       _relayBase = RELAY_DIRECT;
       return _relayBase;
     }
   } catch { /* connection refused or timeout */ }
+
+  // Try public IP directly (CORS: * enabled on relay)
+  try {
+    const res = await fetch(`${RELAY_PUBLIC_IP}/api/tools`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.status < 500) {
+      _relayBase = RELAY_PUBLIC_IP;
+      return _relayBase;
+    }
+  } catch { /* unreachable */ }
+
   _relayBase = ""; // use server proxy
   return _relayBase;
 }

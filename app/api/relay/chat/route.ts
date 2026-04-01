@@ -12,13 +12,18 @@ import { NextRequest } from "next/server";
 
 export const maxDuration = 120;
 
-const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
+const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
 const CONFIGURED_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
   : null;
 
-// Always try localhost first (relay runs on the same machine), then tunnel as fallback
-const RELAY_URLS = ["http://localhost:3457", ...(CONFIGURED_URL ? [CONFIGURED_URL] : [])];
+// Try localhost first (works when app and relay are co-located), then configured URL, then hardcoded public IP
+const FALLBACK_URL = "http://72.62.29.196:3457";
+const RELAY_URLS = [
+  "http://localhost:3457",
+  ...(CONFIGURED_URL && CONFIGURED_URL !== FALLBACK_URL ? [CONFIGURED_URL] : []),
+  FALLBACK_URL,
+];
 
 export async function POST(req: NextRequest) {
   const body = await req.json();

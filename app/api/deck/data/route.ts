@@ -18,16 +18,19 @@ import {
 
 export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
-// Server-side: prefer RELAY_URL (server-only), fall back to NEXT_PUBLIC_RELAY_URL, then localhost
+// Server-side: prefer RELAY_URL (server-only), fall back to NEXT_PUBLIC_RELAY_URL, then hardcoded public IP
 const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
 const CONFIGURED_RELAY_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
   : null;
 
-// Try localhost first (when running locally), then the configured tunnel URL
-const RELAY_URLS_TO_TRY = CONFIGURED_RELAY_URL
-  ? ["http://localhost:3457", CONFIGURED_RELAY_URL]
-  : ["http://localhost:3457"];
+const RELAY_FALLBACK_URL = "http://72.62.29.196:3457";
+// Try localhost first (when running locally), then configured URL, then hardcoded public IP
+const RELAY_URLS_TO_TRY = [
+  "http://localhost:3457",
+  ...(CONFIGURED_RELAY_URL && CONFIGURED_RELAY_URL !== RELAY_FALLBACK_URL ? [CONFIGURED_RELAY_URL] : []),
+  RELAY_FALLBACK_URL,
+];
 
 // ── Relay helpers ─────────────────────────────────────────────────────────────
 
@@ -387,13 +390,15 @@ async function fetchGoogleData(
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null> {
+  // Google Ads tools require customer_id without dashes (e.g. "1234567890" not "123-456-7890")
+  const cleanId = customerId.replace(/-/g, "");
   try {
     const [campaignsRaw, prevCampaignsRaw] = await Promise.allSettled([
       relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
-        customer_id: customerId, start_date: period.startDate, end_date: period.endDate,
+        customer_id: cleanId, start_date: period.startDate, end_date: period.endDate,
       }),
       relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
-        customer_id: customerId, start_date: previousPeriod.startDate, end_date: previousPeriod.endDate,
+        customer_id: cleanId, start_date: previousPeriod.startDate, end_date: previousPeriod.endDate,
       }),
     ]);
 

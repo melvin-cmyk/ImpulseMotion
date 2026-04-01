@@ -1,13 +1,16 @@
 /**
  * POST /api/deck/generate
  * Fetches real Meta Ads + Google Ads data via the relay proxy MCP,
- * then asks the AI to build slides dynamically based on the user's prompt.
+ * then calls Anthropic API directly to generate a structured JSON slide plan.
+ *
+ * Body: { customerId, platform, dateRange, sections[], context, budgets }
+ * Returns: { slides: Slide[], dataSource: "real"|"partial"|"mock" }
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import {
   getPreviousPeriod,
-  type DeckClient,
   type DeckPeriod,
   type PlatformMetrics,
   type CampaignRow,
@@ -16,25 +19,60 @@ import {
 
 export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
-const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
-const RELAY_URL = rawRelayUrl
-  ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
-  : "http://localhost:3457";
+// ── Relay URL resolution (same pattern as data/route.ts) ──────────────────────
 
-// ── Relay helpers ─────────────────────────────────────────────────────────────
+const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
+const CONFIGURED_RELAY_URL = rawRelayUrl
+  ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
+  : null;
+
+const RELAY_FALLBACK_URL = "http://72.62.29.196:3457";
+// Try localhost first (fast fail when not running locally), then configured, then hardcoded public IP
+const RELAY_URLS_TO_TRY = [
+  "http://localhost:3457",
+  ...(CONFIGURED_RELAY_URL && CONFIGURED_RELAY_URL !== RELAY_FALLBACK_URL ? [CONFIGURED_RELAY_URL] : []),
+  RELAY_FALLBACK_URL,
+];
+
+// ── Slide types ───────────────────────────────────────────────────────────────
+
+export interface SlideKpi {
+  label: string;
+  value: string;
+  delta?: string;
+  trend?: "up" | "down" | "flat";
+}
+
+export interface SlideChart {
+  type: "bar" | "line" | "pie" | "funnel";
+  data: Record<string, unknown>;
+}
+
+export interface Slide {
+  id: string;
+  type: "overview" | "performance" | "creative" | "funnel" | "alert" | "recommendation" | "comparison";
+  title: string;
+  subtitle?: string;
+  kpis?: SlideKpi[];
+  insights?: string[];
+  chart?: SlideChart;
+  recommendation?: string;
+  severity?: "ok" | "warning" | "alert";
+}
+
+// ── Relay helpers (same as data/route.ts) ─────────────────────────────────────
 
 async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
-  const urls = [RELAY_URL];
-  if (!RELAY_URL.includes("localhost")) urls.push("http://localhost:3457");
-
   let lastError: Error | null = null;
-  for (const url of urls) {
+  for (const url of RELAY_URLS_TO_TRY) {
+    const isLocalhost = url.includes("localhost");
+    const actualTimeout = isLocalhost ? Math.min(timeoutMs, 5000) : timeoutMs;
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(actualTimeout),
       });
       if (!res.ok) { lastError = new Error(`Relay ${url} responded ${res.status}`); continue; }
 
@@ -43,6 +81,7 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
 
       const decoder = new TextDecoder();
       let fullText = "";
+      let toolResultText = ""; // Raw MCP tool output — more reliable than LLM-formatted text
       let buffer = "";
 
       while (true) {
@@ -60,8 +99,10 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
 
           try {
             const event = JSON.parse(data);
+            if (event.type === "tool_result" && typeof event.content === "string") { toolResultText += event.content; continue; }
             if (event.type === "delta" && typeof event.text === "string") { fullText += event.text; continue; }
-            if (event.type === "content" && typeof event.content === "string") { fullText += event.content; continue; }
+            if (event.type === "content" && typeof event.text === "string") { fullText = event.text; continue; }
+            if (event.type === "content" && typeof event.content === "string") { fullText = event.content; continue; }
             if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta?.text === "string") {
               fullText += event.delta.text; continue;
             }
@@ -74,7 +115,9 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
         }
       }
 
-      if (fullText.trim()) return fullText;
+      const result = toolResultText.trim() || fullText.trim();
+      console.log(`[deck/generate] relay ${url} toolResult=${toolResultText.length}b fullText=${fullText.length}b`);
+      if (result) return result;
       lastError = new Error(`Empty response from ${url}`);
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
@@ -87,8 +130,8 @@ function extractJson<T>(text: string): T | null {
   const stripped = text.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
 
   for (const candidate of [stripped, text]) {
-    const objectMatch = candidate.match(/\{[\s\S]*\}/);
     const arrayMatch = candidate.match(/\[[\s\S]*\]/);
+    const objectMatch = candidate.match(/\{[\s\S]*\}/);
     const match = arrayMatch || objectMatch;
     if (!match) continue;
     try {
@@ -113,6 +156,12 @@ function extractJson<T>(text: string): T | null {
     }
   }
   return null;
+}
+
+function toNum(v: unknown): number {
+  if (v === null || v === undefined) return 0;
+  const n = typeof v === "string" ? parseFloat(v.replace(/[^0-9.-]/g, "")) : Number(v);
+  return isFinite(n) ? n : 0;
 }
 
 function zeroMetrics(): PlatformMetrics {
@@ -149,18 +198,25 @@ function safeDelta(current: PlatformMetrics, previous: PlatformMetrics): Record<
   return delta;
 }
 
-// ── Data fetchers ─────────────────────────────────────────────────────────────
+// ── Raw types for MCP responses ───────────────────────────────────────────────
 
 interface RawCampaign {
   id?: string;
+  campaign_id?: string;
   name?: string;
+  campaign_name?: string;
   type?: string;
   status?: string;
+  campaign_status?: string;
+  effective_status?: string;
   spend?: number;
   impressions?: number;
   clicks?: number;
+  link_clicks?: number;
   conversions?: number;
+  purchases?: number;
   revenue?: number;
+  purchase_value?: number;
   cpm?: number;
   ctr?: number;
   cpc?: number;
@@ -171,6 +227,14 @@ interface RawCampaign {
   prev_clicks?: number;
   prev_conversions?: number;
   prev_revenue?: number;
+  // Google Ads micros format
+  cost_micros?: number;
+  cost?: number;
+  conversions_value?: number;
+  conversion_value?: number;
+  // Meta actions
+  actions?: Array<{ action_type: string; value: string }>;
+  action_values?: Array<{ action_type: string; value: string }>;
 }
 
 interface RawCreative {
@@ -184,299 +248,480 @@ interface RawCreative {
   impressions?: number;
   hookRate?: number;
   thumbnailUrl?: string;
+  conversions?: number;
+  purchases?: number;
+  // Meta actions arrays
+  actions?: Array<{ action_type: string; value: string }>;
+  action_values?: Array<{ action_type: string; value: string }>;
 }
 
-interface RawPlatformData {
-  total?: Partial<PlatformMetrics>;
-  prev_total?: Partial<PlatformMetrics>;
-  campaigns?: RawCampaign[];
-  creatives?: RawCreative[];
+// ── MCP single-tool call helper ───────────────────────────────────────────────
+
+async function relaySingleTool(toolName: string, params: Record<string, string>, timeoutMs = 60000): Promise<unknown> {
+  const paramStr = Object.entries(params).map(([k, v]) => `${k}="${v}"`).join(", ");
+  const prompt = `Call the tool ${toolName} with params: ${paramStr}. Return ONLY the raw JSON result from the tool. No explanation, no markdown, no text before or after. Just the raw JSON.`;
+  const text = await relayChat(prompt, timeoutMs);
+  return extractJson(text);
 }
+
+// ── Meta Ads data fetcher ─────────────────────────────────────────────────────
 
 async function fetchMetaData(
   accountId: string,
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null> {
-  const prompt = `You are a data extraction agent. Call the following MCP tools for Meta Ads account ${accountId} and return ONLY a JSON object.
-
-REQUIRED TOOL CALLS:
-1. mcp__meta-ads-impulse__Account_Overview1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
-2. mcp__meta-ads-impulse__Campaign_Performance1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
-3. mcp__meta-ads-impulse__Ad_Performance1 — params: ad_account_id="${accountId}", since="${period.startDate}", until="${period.endDate}"
-4. mcp__meta-ads-impulse__Account_Overview1 again — params: ad_account_id="${accountId}", since="${previousPeriod.startDate}", until="${previousPeriod.endDate}" (for prev_total)
-
-CRITICAL INSTRUCTION: After calling ALL the tools above, your ENTIRE response must be ONLY the following JSON structure filled with the real numbers from the tool results. Do NOT write any text before or after the JSON. Do NOT use markdown code blocks. Start your response with { and end with }.
-
-{"total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"prev_total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"campaigns":[{"id":"","name":"","type":"","status":"Active","spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0,"prev_spend":0,"prev_impressions":0,"prev_clicks":0,"prev_conversions":0,"prev_revenue":0}],"creatives":[{"id":"","name":"","format":"Video","spend":0,"roas":0,"ctr":0,"cpa":0,"impressions":0,"thumbnailUrl":""}]}`;
-
   try {
-    const text = await relayChat(prompt);
-    console.log("[deck/generate] meta raw response (800):", text.slice(0, 800));
-    const data = extractJson<RawPlatformData>(text);
-    if (!data) {
-      console.error("[deck/generate] meta extractJson failed. raw:", text.slice(0, 2000));
-      return null;
+    const [overviewRaw, prevOverviewRaw, campaignsRaw, creativesRaw] = await Promise.allSettled([
+      relaySingleTool("mcp__meta-ads-impulse__Account_Overview1", {
+        ad_account_id: accountId, since: period.startDate, until: period.endDate,
+      }),
+      relaySingleTool("mcp__meta-ads-impulse__Account_Overview1", {
+        ad_account_id: accountId, since: previousPeriod.startDate, until: previousPeriod.endDate,
+      }),
+      relaySingleTool("mcp__meta-ads-impulse__Campaign_Performance1", {
+        ad_account_id: accountId, since: period.startDate, until: period.endDate,
+      }),
+      relaySingleTool("mcp__meta-ads-impulse__Ad_Performance1", {
+        ad_account_id: accountId, since: period.startDate, until: period.endDate,
+      }),
+    ]);
+
+    const logResult = (name: string, r: PromiseSettledResult<unknown>) =>
+      r.status === "fulfilled"
+        ? console.log(`[deck/generate] ${name} ok:`, JSON.stringify(r.value).slice(0, 300))
+        : console.error(`[deck/generate] ${name} failed:`, r.reason);
+
+    logResult("meta/overview", overviewRaw);
+    logResult("meta/prevOverview", prevOverviewRaw);
+    logResult("meta/campaigns", campaignsRaw);
+    logResult("meta/creatives", creativesRaw);
+
+    function actionsValue(obj: Record<string, unknown>, ...types: string[]): number {
+      const actions = Array.isArray(obj.actions) ? obj.actions as Array<{ action_type: string; value: string }> : [];
+      for (const t of types) {
+        const found = actions.find(a => a.action_type === t);
+        if (found) return toNum(found.value);
+      }
+      return 0;
     }
 
-    const overview = safeMetrics(data.total ?? {});
-    const prevOverview = safeMetrics(data.prev_total ?? {});
+    function actionValuesValue(obj: Record<string, unknown>, ...types: string[]): number {
+      const actionValues = Array.isArray(obj.action_values) ? obj.action_values as Array<{ action_type: string; value: string }> : [];
+      for (const t of types) {
+        const found = actionValues.find(a => a.action_type === t);
+        if (found) return toNum(found.value);
+      }
+      return 0;
+    }
 
-    const campaigns: CampaignRow[] = (data.campaigns ?? []).slice(0, 10).map((c, i) => {
-      const current = safeMetrics(c);
-      const previous = safeMetrics({
-        spend: c.prev_spend, impressions: c.prev_impressions, clicks: c.prev_clicks,
-        conversions: c.prev_conversions, revenue: c.prev_revenue,
+    function extractOverviewMetrics(raw: unknown): PlatformMetrics {
+      if (!raw || typeof raw !== "object") return zeroMetrics();
+      const r = raw as Record<string, unknown>;
+      const data = (r.data ?? r.overview ?? r.account_overview ?? r) as Record<string, unknown>;
+      const arr = (Array.isArray(data) ? data[0] : data) as Record<string, unknown>;
+      if (!arr || typeof arr !== "object") return zeroMetrics();
+
+      const conversions = toNum(arr.conversions ?? arr.purchases)
+        || actionsValue(arr, "purchase", "offsite_conversion.fb_pixel_purchase", "lead", "offsite_conversion.fb_pixel_lead", "complete_registration");
+
+      const revenue = toNum(arr.revenue ?? arr.purchase_roas_value ?? arr.action_values_purchase)
+        || actionValuesValue(arr, "purchase", "offsite_conversion.fb_pixel_purchase");
+
+      return safeMetrics({
+        spend: toNum(arr.spend ?? arr.amount_spent ?? arr.total_spend),
+        impressions: toNum(arr.impressions),
+        clicks: toNum(arr.clicks ?? arr.link_clicks),
+        conversions,
+        revenue,
       });
-      return {
-        id: c.id ?? `meta-c-${i}`,
-        name: c.name ?? `Campagne ${i + 1}`,
-        type: c.type,
-        status: (["Active", "Paused", "Completed"].includes(c.status ?? "") ? c.status : "Active") as CampaignRow["status"],
-        current,
-        previous,
-        delta: safeDelta(current, previous),
-      };
-    });
+    }
 
-    const topCreatives: TopCreative[] = (data.creatives ?? []).slice(0, 6).map((cr, i) => ({
-      id: cr.id ?? `tc-${i}`,
-      name: cr.name ?? `Creative ${i + 1}`,
-      format: (["Video", "Image", "Carousel"].includes(cr.format ?? "") ? cr.format : "Image") as TopCreative["format"],
-      spend: cr.spend ?? 0,
-      roas: cr.roas ?? 0,
-      ctr: cr.ctr ?? 0,
-      cpa: cr.cpa ?? 0,
-      impressions: cr.impressions ?? 0,
-      hookRate: cr.hookRate ?? undefined,
-      thumbnailUrl: cr.thumbnailUrl ?? undefined,
-    }));
+    function extractCampaigns(raw: unknown): CampaignRow[] {
+      if (!raw || typeof raw !== "object") return [];
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.campaigns) ? r.campaigns : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      return list.slice(0, 10).map((c, i) => {
+        const conversions = toNum(c.conversions ?? c.purchases)
+          || actionsValue(c, "purchase", "offsite_conversion.fb_pixel_purchase", "lead", "offsite_conversion.fb_pixel_lead");
+        const revenue = toNum(c.revenue ?? c.purchase_value)
+          || actionValuesValue(c, "purchase", "offsite_conversion.fb_pixel_purchase");
+        const current = safeMetrics({
+          spend: toNum(c.spend), impressions: toNum(c.impressions), clicks: toNum(c.clicks ?? c.link_clicks),
+          conversions, revenue,
+        });
+        return {
+          id: String(c.id ?? c.campaign_id ?? `meta-c-${i}`),
+          name: String(c.name ?? c.campaign_name ?? `Campaign ${i + 1}`),
+          type: c.type ? String(c.type) : undefined,
+          status: (["Active", "Paused", "Completed"].includes(String(c.status ?? c.effective_status ?? "")) ? String(c.status ?? c.effective_status) : "Active") as CampaignRow["status"],
+          current,
+          previous: zeroMetrics(),
+          delta: safeDelta(current, zeroMetrics()),
+        };
+      });
+    }
 
-    return { overview, campaigns, topCreatives, prevOverview };
-  } catch {
+    function extractCreatives(raw: unknown): TopCreative[] {
+      if (!raw || typeof raw !== "object") return [];
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.ads) ? r.ads : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      return list.slice(0, 6).map((cr, i) => {
+        const rc = cr as RawCreative;
+        const conversions = toNum(rc.conversions ?? rc.purchases)
+          || (rc.actions ? actionsValue(cr as Record<string, unknown>, "purchase", "offsite_conversion.fb_pixel_purchase", "lead") : 0);
+        const revenue = rc.action_values ? actionValuesValue(cr as Record<string, unknown>, "purchase", "offsite_conversion.fb_pixel_purchase") : 0;
+        const spend = toNum(rc.spend);
+        return {
+          id: String(rc.id ?? `tc-${i}`),
+          name: String(rc.name ?? `Creative ${i + 1}`),
+          format: (["Video", "Image", "Carousel"].includes(String(rc.format ?? "")) ? String(rc.format) : "Image") as TopCreative["format"],
+          spend,
+          roas: revenue > 0 && spend > 0 ? revenue / spend : toNum(rc.roas),
+          ctr: toNum(rc.ctr),
+          cpa: conversions > 0 && spend > 0 ? spend / conversions : toNum(rc.cpa),
+          impressions: toNum(rc.impressions),
+          hookRate: rc.hookRate !== undefined ? toNum(rc.hookRate) : undefined,
+          thumbnailUrl: rc.thumbnailUrl ? String(rc.thumbnailUrl) : undefined,
+        };
+      });
+    }
+
+    const overviewData = overviewRaw.status === "fulfilled" ? overviewRaw.value : null;
+    const prevOverviewData = prevOverviewRaw.status === "fulfilled" ? prevOverviewRaw.value : null;
+    const campaignsData = campaignsRaw.status === "fulfilled" ? campaignsRaw.value : null;
+    const creativesData = creativesRaw.status === "fulfilled" ? creativesRaw.value : null;
+
+    if (!overviewData) return null;
+
+    return {
+      overview: extractOverviewMetrics(overviewData),
+      prevOverview: extractOverviewMetrics(prevOverviewData),
+      campaigns: extractCampaigns(campaignsData),
+      topCreatives: extractCreatives(creativesData),
+    };
+  } catch (e) {
+    console.error("[deck/generate] fetchMetaData error:", e);
     return null;
   }
 }
+
+// ── Google Ads data fetcher ───────────────────────────────────────────────────
 
 async function fetchGoogleData(
   customerId: string,
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null> {
-  const prompt = `You are a data extraction agent. Call the following MCP tools for Google Ads customer ${customerId} and return ONLY a JSON object.
-
-REQUIRED TOOL CALLS:
-1. mcp__mcp-google-ads__Campaign_Performance — params: customer_id="${customerId}", start_date="${period.startDate}", end_date="${period.endDate}"
-2. mcp__mcp-google-ads__Campaign_Performance again — params: customer_id="${customerId}", start_date="${previousPeriod.startDate}", end_date="${previousPeriod.endDate}" (for prev_total and prev_ campaign fields)
-
-CRITICAL INSTRUCTION: After calling ALL the tools above, your ENTIRE response must be ONLY the following JSON structure filled with the real numbers from the tool results. Do NOT write any text before or after the JSON. Do NOT use markdown code blocks. Start your response with { and end with }.
-
-{"total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"prev_total":{"spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0},"campaigns":[{"id":"","name":"","type":"","status":"Active","spend":0,"impressions":0,"clicks":0,"conversions":0,"revenue":0,"prev_spend":0,"prev_impressions":0,"prev_clicks":0,"prev_conversions":0,"prev_revenue":0}]}`;
-
+  const cleanId = customerId.replace(/-/g, "");
   try {
-    const text = await relayChat(prompt);
-    console.log("[deck/generate] google raw response (800):", text.slice(0, 800));
-    const data = extractJson<RawPlatformData>(text);
-    if (!data) {
-      console.error("[deck/generate] google extractJson failed. raw:", text.slice(0, 2000));
-      return null;
-    }
+    const [campaignsRaw, prevCampaignsRaw] = await Promise.allSettled([
+      relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
+        customer_id: cleanId, start_date: period.startDate, end_date: period.endDate,
+      }),
+      relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
+        customer_id: cleanId, start_date: previousPeriod.startDate, end_date: previousPeriod.endDate,
+      }),
+    ]);
 
-    const overview = safeMetrics(data.total ?? {});
-    const prevOverview = safeMetrics(data.prev_total ?? {});
+    console.log("[deck/generate] google campaigns:", campaignsRaw.status);
 
-    const campaigns: CampaignRow[] = (data.campaigns ?? []).slice(0, 10).map((c, i) => {
-      const current = safeMetrics(c);
-      const previous = safeMetrics({
-        spend: c.prev_spend, impressions: c.prev_impressions, clicks: c.prev_clicks,
-        conversions: c.prev_conversions, revenue: c.prev_revenue,
+    function extractGoogleCampaigns(raw: unknown): { campaigns: CampaignRow[]; overview: PlatformMetrics } {
+      if (!raw || typeof raw !== "object") return { campaigns: [], overview: zeroMetrics() };
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.campaigns) ? r.campaigns : Array.isArray(raw) ? raw : []) as RawCampaign[];
+      let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0, totalRevenue = 0;
+      const campaigns = list.slice(0, 10).map((c, i) => {
+        const spendRaw = toNum(c.cost_micros ?? c.spend ?? c.cost);
+        const spend = spendRaw > 10000 ? spendRaw / 1_000_000 : spendRaw;
+        const impressions = toNum(c.impressions);
+        const clicks = toNum(c.clicks);
+        const conversions = toNum(c.conversions);
+        const revenue = toNum(c.conversions_value ?? c.revenue ?? c.conversion_value);
+        totalSpend += spend; totalImpressions += impressions; totalClicks += clicks;
+        totalConversions += conversions; totalRevenue += revenue;
+        const current = safeMetrics({ spend, impressions, clicks, conversions, revenue });
+        return {
+          id: String(c.id ?? c.campaign_id ?? `google-c-${i}`),
+          name: String(c.name ?? c.campaign_name ?? `Campaign ${i + 1}`),
+          type: c.type ? String(c.type) : undefined,
+          status: (["Active", "Paused", "Completed"].includes(String(c.status ?? "ENABLED")) ? String(c.status) : "Active") as CampaignRow["status"],
+          current,
+          previous: zeroMetrics(),
+          delta: safeDelta(current, zeroMetrics()),
+        };
       });
       return {
-        id: c.id ?? `google-c-${i}`,
-        name: c.name ?? `Campagne ${i + 1}`,
-        type: c.type,
-        status: (["Active", "Paused", "Completed"].includes(c.status ?? "") ? c.status : "Active") as CampaignRow["status"],
-        current,
-        previous,
-        delta: safeDelta(current, previous),
+        campaigns,
+        overview: safeMetrics({ spend: totalSpend, impressions: totalImpressions, clicks: totalClicks, conversions: totalConversions, revenue: totalRevenue }),
       };
-    });
+    }
 
-    return { overview, campaigns, prevOverview };
-  } catch {
+    const currentData = campaignsRaw.status === "fulfilled" ? extractGoogleCampaigns(campaignsRaw.value) : null;
+    const prevData = prevCampaignsRaw.status === "fulfilled" ? extractGoogleCampaigns(prevCampaignsRaw.value) : null;
+
+    if (!currentData) return null;
+
+    return {
+      overview: currentData.overview,
+      campaigns: currentData.campaigns,
+      prevOverview: prevData?.overview ?? zeroMetrics(),
+    };
+  } catch (e) {
+    console.error("[deck/generate] fetchGoogleData error:", e);
     return null;
   }
 }
 
-// ── Slide generation ──────────────────────────────────────────────────────────
+// ── Anthropic slide generation ────────────────────────────────────────────────
 
-export interface GeneratedSlide {
-  id: string;
-  title: string;
-  content: string;
-  notes?: string;
-  type: "custom";
+interface GenerateConfig {
+  customerId: string;
+  platform: string;
+  dateRange: { startDate: string; endDate: string; label?: string };
+  sections: string[];
+  context?: string;
+  budgets?: Record<string, number>;
 }
 
-interface RawSlide {
-  title?: string;
-  content?: string;
-  notes?: string;
-}
-
-async function generateSlides(
-  clientName: string,
-  periodLabel: string,
+async function generateSlidePlan(
+  config: GenerateConfig,
   meta: { overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null,
   google: { overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null,
-  userPrompt: string
-): Promise<GeneratedSlide[]> {
+): Promise<Slide[]> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
+
+  const anthropic = new Anthropic({ apiKey });
+
   const fmt = (n: number) => `€${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtPct = (n: number) => `${n.toFixed(2)}%`;
-  const fmtRoas = (n: number) => `${n.toFixed(2)}x`;
+  const fmtX = (n: number) => `${n.toFixed(2)}x`;
+  const delta = (curr: number, prev: number) => prev > 0 ? `${curr >= prev ? "+" : ""}${(((curr - prev) / prev) * 100).toFixed(1)}%` : "N/A";
 
-  let metaSection = "META ADS: (no data available)";
+  // Build a compact data summary for the prompt
+  let dataSummary = "";
+
   if (meta) {
     const m = meta.overview;
-    const campaignLines = meta.campaigns
-      .slice(0, 5)
-      .map(c => `  - ${c.name} | spend: ${fmt(c.current.spend)} | ROAS: ${fmtRoas(c.current.roas)} | CTR: ${fmtPct(c.current.ctr)} | CPA: ${fmt(c.current.cpa)} | status: ${c.status}`)
-      .join("\n");
-    const creativeLines = meta.topCreatives
-      .slice(0, 5)
-      .map(cr => `  - ${cr.name} | format: ${cr.format} | spend: ${fmt(cr.spend)} | ROAS: ${fmtRoas(cr.roas)} | CTR: ${fmtPct(cr.ctr)} | CPA: ${fmt(cr.cpa)}`)
-      .join("\n");
+    const pm = meta.prevOverview;
+    dataSummary += `
+META ADS (${config.dateRange.label ?? `${config.dateRange.startDate} to ${config.dateRange.endDate}`}):
+  Spend: ${fmt(m.spend)} (prev: ${fmt(pm.spend)}, Δ: ${delta(m.spend, pm.spend)})
+  Impressions: ${Math.round(m.impressions).toLocaleString()} (prev: ${Math.round(pm.impressions).toLocaleString()})
+  Clicks: ${Math.round(m.clicks).toLocaleString()} | CTR: ${fmtPct(m.ctr)}
+  Conversions: ${Math.round(m.conversions)} (prev: ${Math.round(pm.conversions)}, Δ: ${delta(m.conversions, pm.conversions)})
+  Revenue: ${fmt(m.revenue)} | ROAS: ${fmtX(m.roas)} (prev: ${fmtX(pm.roas)})
+  CPA: ${fmt(m.cpa)} | CPM: ${fmt(m.cpm)}
 
-    metaSection = `META ADS:
-- Total Spend: ${fmt(m.spend)}
-- Impressions: ${Math.round(m.impressions).toLocaleString()}
-- Clicks: ${Math.round(m.clicks).toLocaleString()}
-- Conversions: ${Math.round(m.conversions)}
-- Revenue: ${fmt(m.revenue)}
-- ROAS: ${fmtRoas(m.roas)}
-- CPA: ${fmt(m.cpa)}
-- CTR: ${fmtPct(m.ctr)}
-- CPM: ${fmt(m.cpm)}
+TOP META CAMPAIGNS:
+${meta.campaigns.slice(0, 5).map(c =>
+  `  - ${c.name} | Spend: ${fmt(c.current.spend)} | ROAS: ${fmtX(c.current.roas)} | CPA: ${fmt(c.current.cpa)} | CTR: ${fmtPct(c.current.ctr)} | Status: ${c.status}`
+).join("\n")}
 
-TOP CAMPAIGNS (Meta):
-${campaignLines || "  (none)"}
-
-TOP CREATIVES:
-${creativeLines || "  (none)"}`;
+TOP META CREATIVES:
+${meta.topCreatives.slice(0, 5).map(cr =>
+  `  - ${cr.name} (${cr.format}) | Spend: ${fmt(cr.spend)} | ROAS: ${fmtX(cr.roas)} | CTR: ${fmtPct(cr.ctr)} | CPA: ${fmt(cr.cpa)}`
+).join("\n")}`;
+  } else {
+    dataSummary += "\nMETA ADS: No data available.";
   }
 
-  let googleSection = "GOOGLE ADS: (no data available)";
   if (google) {
     const g = google.overview;
-    const campaignLines = google.campaigns
-      .slice(0, 5)
-      .map(c => `  - ${c.name} | spend: ${fmt(c.current.spend)} | ROAS: ${fmtRoas(c.current.roas)} | CTR: ${fmtPct(c.current.ctr)} | CPA: ${fmt(c.current.cpa)} | status: ${c.status}`)
-      .join("\n");
+    const pg = google.prevOverview;
+    dataSummary += `
 
-    googleSection = `GOOGLE ADS:
-- Total Spend: ${fmt(g.spend)}
-- Impressions: ${Math.round(g.impressions).toLocaleString()}
-- Clicks: ${Math.round(g.clicks).toLocaleString()}
-- Conversions: ${Math.round(g.conversions)}
-- Revenue: ${fmt(g.revenue)}
-- ROAS: ${fmtRoas(g.roas)}
-- CPA: ${fmt(g.cpa)}
-- CTR: ${fmtPct(g.ctr)}
-- CPM: ${fmt(g.cpm)}
+GOOGLE ADS (${config.dateRange.label ?? `${config.dateRange.startDate} to ${config.dateRange.endDate}`}):
+  Spend: ${fmt(g.spend)} (prev: ${fmt(pg.spend)}, Δ: ${delta(g.spend, pg.spend)})
+  Impressions: ${Math.round(g.impressions).toLocaleString()} (prev: ${Math.round(pg.impressions).toLocaleString()})
+  Clicks: ${Math.round(g.clicks).toLocaleString()} | CTR: ${fmtPct(g.ctr)}
+  Conversions: ${Math.round(g.conversions)} (prev: ${Math.round(pg.conversions)}, Δ: ${delta(g.conversions, pg.conversions)})
+  Revenue: ${fmt(g.revenue)} | ROAS: ${fmtX(g.roas)} (prev: ${fmtX(pg.roas)})
+  CPA: ${fmt(g.cpa)} | CPM: ${fmt(g.cpm)}
 
-TOP CAMPAIGNS (Google):
-${campaignLines || "  (none)"}`;
+TOP GOOGLE CAMPAIGNS:
+${google.campaigns.slice(0, 5).map(c =>
+  `  - ${c.name} | Spend: ${fmt(c.current.spend)} | ROAS: ${fmtX(c.current.roas)} | CPA: ${fmt(c.current.cpa)} | CTR: ${fmtPct(c.current.ctr)} | Status: ${c.status}`
+).join("\n")}`;
+  } else {
+    dataSummary += "\nGOOGLE ADS: No data available.";
   }
 
-  const prompt = `You are a digital marketing analyst building a presentation deck.
+  if (config.budgets && Object.keys(config.budgets).length > 0) {
+    dataSummary += `\n\nBUDGETS:\n${Object.entries(config.budgets).map(([k, v]) => `  ${k}: ${fmt(v)}`).join("\n")}`;
+  }
 
-REAL DATA for ${clientName} (${periodLabel}):
+  const sectionsInstruction = config.sections.length > 0
+    ? `Required slide sections (in order): ${config.sections.join(", ")}.`
+    : "Generate a complete deck covering: overview, performance, creative, alerts, and recommendations.";
 
-${metaSection}
+  const contextBlock = config.context
+    ? `\nAdditional analyst context: ${config.context}`
+    : "";
 
-${googleSection}
+  const systemPrompt = `You are a media buying analyst. Your job is to generate structured slide deck plans for digital advertising performance reviews. You always respond with valid JSON only — no markdown, no explanation, no text outside the JSON array.`;
 
-ANALYST REQUEST:
-${userPrompt}
+  const userPrompt = `Based on the real advertising data below, generate a JSON array of slides for a performance deck.
 
-Based on the REAL data above, build exactly the slides requested. Return ONLY a JSON array (no markdown, no text before/after):
-[{"title":"...","content":"...markdown with real numbers...","notes":"optional presenter note"}]
+ACCOUNT: ${config.customerId}
+PLATFORM: ${config.platform}
+PERIOD: ${config.dateRange.label ?? `${config.dateRange.startDate} to ${config.dateRange.endDate}`}
+${sectionsInstruction}${contextBlock}
+
+REAL DATA:
+${dataSummary}
+
+Return a JSON array where each element has this exact shape (all fields optional except id, type, title):
+{
+  "id": "slide-1",
+  "type": "overview" | "performance" | "creative" | "funnel" | "alert" | "recommendation" | "comparison",
+  "title": "Slide title",
+  "subtitle": "Optional subtitle",
+  "kpis": [{ "label": "ROAS", "value": "3.42x", "delta": "+12%", "trend": "up" | "down" | "flat" }],
+  "insights": ["Key insight 1", "Key insight 2"],
+  "chart": { "type": "bar" | "line" | "pie" | "funnel", "data": {} },
+  "recommendation": "Action to take",
+  "severity": "ok" | "warning" | "alert"
+}
 
 Rules:
-- Use ONLY the real numbers from the data above. Never invent data.
-- Make content rich: tables, bullet points, bold KPIs
-- Format: €X for money, X% for percentages, Xx for ROAS
-- 2-8 slides max
-- Each slide content is markdown`;
+- Use ONLY the real numbers from the data provided above. Never invent data.
+- Generate between 4 and 8 slides.
+- Each slide must have at least a title and either kpis or insights.
+- Format money as €X,XXX.XX, percentages as X.XX%, ROAS as X.XXx.
+- Severity "alert" = something urgently needs attention, "warning" = watch this, "ok" = performing well.
+- For "comparison" slides, include period-over-period delta in kpis.
+- Return ONLY the JSON array. No markdown. No explanation.`;
 
-  const text = await relayChat(prompt, 60000);
-  console.log("[deck/generate] slides raw response (800):", text.slice(0, 800));
+  const message = await anthropic.messages.create({
+    model: "claude-opus-4-6",
+    max_tokens: 4096,
+    messages: [{ role: "user", content: userPrompt }],
+    system: systemPrompt,
+  });
 
-  const rawSlides = extractJson<RawSlide[]>(text);
-  if (!rawSlides || !Array.isArray(rawSlides)) {
-    console.error("[deck/generate] slides extractJson failed. raw:", text.slice(0, 2000));
+  const rawText = message.content
+    .filter(block => block.type === "text")
+    .map(block => (block as { type: "text"; text: string }).text)
+    .join("");
+
+  console.log(`[deck/generate] Anthropic response (500):`, rawText.slice(0, 500));
+
+  const parsed = extractJson<Slide[]>(rawText);
+  if (!parsed || !Array.isArray(parsed)) {
+    console.error("[deck/generate] Failed to parse Anthropic slide JSON. Raw:", rawText.slice(0, 2000));
     return [];
   }
 
-  return rawSlides
-    .filter((s): s is RawSlide & { title: string; content: string } => !!s.title && !!s.content)
+  // Validate and normalise each slide
+  const validTypes = ["overview", "performance", "creative", "funnel", "alert", "recommendation", "comparison"] as const;
+  return parsed
+    .filter((s): s is Slide => !!s && typeof s.title === "string")
     .map((s, i) => ({
-      id: `ai-slide-${Date.now()}-${i}`,
-      title: s.title,
-      content: s.content,
-      notes: s.notes,
-      type: "custom" as const,
+      ...s,
+      id: s.id ?? `slide-${i + 1}`,
+      type: validTypes.includes(s.type) ? s.type : "overview",
     }));
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  let client: DeckClient, period: DeckPeriod, userPrompt: string;
+  let config: GenerateConfig;
   try {
     const body = await req.json();
-    client = body.client;
-    period = body.period;
-    userPrompt = typeof body.userPrompt === "string" ? body.userPrompt : "Génère une vue d'ensemble des performances.";
-    if (!client || !period) throw new Error("Missing client or period");
-  } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    // Support both the new config shape and the legacy client/period shape
+    if (body.customerId) {
+      config = {
+        customerId: body.customerId,
+        platform: body.platform ?? "both",
+        dateRange: body.dateRange ?? { startDate: body.period?.startDate ?? "", endDate: body.period?.endDate ?? "", label: body.period?.label },
+        sections: Array.isArray(body.sections) ? body.sections : [],
+        context: typeof body.context === "string" ? body.context : undefined,
+        budgets: typeof body.budgets === "object" && body.budgets !== null ? body.budgets : undefined,
+      };
+    } else if (body.client && body.period) {
+      // Legacy shape: { client: { metaAccountId, googleCustomerId, name }, period }
+      const c = body.client;
+      config = {
+        customerId: c.metaAccountId ?? c.googleCustomerId ?? c.id ?? "unknown",
+        platform: c.metaAccountId && c.googleCustomerId ? "both" : c.metaAccountId ? "meta" : "google",
+        dateRange: { startDate: body.period.startDate, endDate: body.period.endDate, label: body.period.label },
+        sections: [],
+        context: typeof body.userPrompt === "string" ? body.userPrompt : undefined,
+      };
+    } else {
+      throw new Error("Missing required fields: customerId (or client + period)");
+    }
+
+    if (!config.dateRange.startDate || !config.dateRange.endDate) {
+      throw new Error("Missing dateRange.startDate or dateRange.endDate");
+    }
+  } catch (e) {
+    return NextResponse.json({ error: `Invalid request body: ${e instanceof Error ? e.message : String(e)}` }, { status: 400 });
   }
 
+  // Derive "month" field (YYYY-MM) from the start date for DeckPeriod compatibility
+  const monthStr = config.dateRange.startDate.slice(0, 7); // e.g. "2026-02"
+  const period: DeckPeriod = {
+    month: monthStr,
+    startDate: config.dateRange.startDate,
+    endDate: config.dateRange.endDate,
+    label: config.dateRange.label ?? `${config.dateRange.startDate} – ${config.dateRange.endDate}`,
+  };
   const previousPeriod = getPreviousPeriod(period);
 
-  // Fetch real data in parallel
+  // Determine which platforms to fetch
+  const fetchMeta = config.platform === "meta" || config.platform === "both";
+  const fetchGoogle = config.platform === "google" || config.platform === "both";
+
+  // Fetch raw data from MCP in parallel (partial data is ok)
   const [metaResult, googleResult] = await Promise.allSettled([
-    client.metaAccountId
-      ? fetchMetaData(client.metaAccountId, period, previousPeriod)
+    fetchMeta
+      ? fetchMetaData(config.customerId, period, previousPeriod)
       : Promise.resolve(null),
-    client.googleCustomerId
-      ? fetchGoogleData(client.googleCustomerId, period, previousPeriod)
+    fetchGoogle
+      ? fetchGoogleData(config.customerId, period, previousPeriod)
       : Promise.resolve(null),
   ]);
 
   const meta = metaResult.status === "fulfilled" ? metaResult.value : null;
   const google = googleResult.status === "fulfilled" ? googleResult.value : null;
-  const hasRealData = !!(meta || google);
 
-  console.error("[deck/generate] relay results:", {
-    relayUrl: RELAY_URL,
-    metaAccountId: client.metaAccountId,
-    googleCustomerId: client.googleCustomerId,
+  const metaError = metaResult.status === "rejected" ? String(metaResult.reason) : null;
+  const googleError = googleResult.status === "rejected" ? String(googleResult.reason) : null;
+
+  console.log("[deck/generate] relay results:", {
+    relayUrls: RELAY_URLS_TO_TRY,
+    customerId: config.customerId,
+    platform: config.platform,
     metaOk: !!meta,
     googleOk: !!google,
+    metaError,
+    googleError,
   });
 
-  // Generate slides from AI using real data (or fallback prompt if no data)
-  let slides: GeneratedSlide[] = [];
+  const hasRealData = !!(meta || google);
+  const dataSource = hasRealData
+    ? (meta && google) || (!fetchMeta && google) || (!fetchGoogle && meta) ? "real" : "partial"
+    : "mock";
+
+  // Generate slide plan via Anthropic API
+  let slides: Slide[] = [];
+  let generateError: string | null = null;
   try {
-    slides = await generateSlides(client.name, period.label, meta, google, userPrompt);
+    slides = await generateSlidePlan(config, meta, google);
   } catch (err) {
-    console.error("[deck/generate] generateSlides failed:", err);
+    generateError = err instanceof Error ? err.message : String(err);
+    console.error("[deck/generate] generateSlidePlan failed:", generateError);
   }
 
   return NextResponse.json({
     slides,
-    dataSource: hasRealData ? "real" : "mock",
+    dataSource,
+    ...(generateError ? { generateError } : {}),
+    ...(metaError ? { metaError } : {}),
+    ...(googleError ? { googleError } : {}),
   });
 }

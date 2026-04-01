@@ -9,15 +9,18 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getAdAccounts } from "@/lib/meta-api";
 
-const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
-const RELAY_URL = rawRelayUrl
+// Server-side: prefer RELAY_URL (server-only), fall back to NEXT_PUBLIC_RELAY_URL, then hardcoded public IP
+const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
+const CONFIGURED_RELAY_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
-  : "http://localhost:3457";
+  : null;
 
-// Server-side: try localhost first (direct), then configured tunnel URL
-const RELAY_URLS = RELAY_URL.includes("localhost")
-  ? [RELAY_URL]
-  : ["http://localhost:3457", RELAY_URL];
+const RELAY_FALLBACK_URL = "http://72.62.29.196:3457";
+const RELAY_URLS = [
+  "http://localhost:3457",
+  ...(CONFIGURED_RELAY_URL && CONFIGURED_RELAY_URL !== RELAY_FALLBACK_URL ? [CONFIGURED_RELAY_URL] : []),
+  RELAY_FALLBACK_URL,
+];
 
 export interface DeckClientResult {
   id: string;
@@ -30,29 +33,27 @@ export interface DeckClientResult {
 let clientCache: { data: { clients: DeckClientResult[] }; ts: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-/** Call the relay for Google Ads customers list — optional, times out gracefully */
-async function fetchGoogleCustomers(timeoutMs = 40000): Promise<Array<{ id?: string; name?: string }>> {
+/** Robust relay chat — same logic as data/route.ts, extracts tool_result events preferentially */
+async function relayChat(prompt: string, timeoutMs = 60000): Promise<string> {
+  let lastError: Error | null = null;
   for (const url of RELAY_URLS) {
+    const isLocalhost = url.includes("localhost");
+    const actualTimeout = isLocalhost ? Math.min(timeoutMs, 5000) : timeoutMs;
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [{
-            role: "user",
-            content: `Call mcp__mcp-google-ads__List_Customers with no params. Return ONLY the raw JSON tool result.`,
-          }],
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
+        body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+        signal: AbortSignal.timeout(actualTimeout),
       });
-      if (!res.ok) continue;
+      if (!res.ok) { lastError = new Error(`Relay ${url} responded ${res.status}`); continue; }
 
       const reader = res.body?.getReader();
-      if (!reader) continue;
+      if (!reader) throw new Error("No response body");
 
       const decoder = new TextDecoder();
       let fullText = "";
-      let toolResultText = ""; // Raw MCP tool output — more reliable
+      let toolResultText = "";
       let buffer = "";
 
       while (true) {
@@ -67,65 +68,59 @@ async function fetchGoogleCustomers(timeoutMs = 40000): Promise<Array<{ id?: str
           if (!data || data === "[DONE]") continue;
           try {
             const event = JSON.parse(data);
-            // tool_result — raw MCP output (highest priority)
+            // Raw MCP tool output — highest priority
             if (event.type === "tool_result" && typeof event.content === "string") { toolResultText += event.content; continue; }
             if (event.type === "delta" && typeof event.text === "string") { fullText += event.text; continue; }
             if (event.type === "content" && typeof event.text === "string") { fullText = event.text; continue; }
             if (event.type === "content" && typeof event.content === "string") { fullText = event.content; continue; }
             if (event.type === "content_block_delta" && event.delta?.type === "text_delta") { fullText += event.delta.text; continue; }
             if (event.choices?.[0]?.delta?.content) { fullText += event.choices[0].delta.content; continue; }
-          } catch { /* skip */ }
+            if (event.type === "text" && typeof event.text === "string") { fullText += event.text; continue; }
+          } catch { fullText += data; }
         }
       }
 
-      // Prefer raw tool result over AI-formatted text
-      const textToParse = toolResultText.trim() || fullText.trim();
-      if (!textToParse) continue;
-
-      console.log(`[deck/clients] google raw (${toolResultText ? "tool_result" : "fullText"}):`, textToParse.slice(0, 300));
-
-      // Try to extract customers from various formats:
-      // 1. GAQL format: [{"customer.id":"...","customer.descriptive_name":"..."}]
-      // 2. Simplified: [{"id":"...","name":"..."}]
-      // 3. Nested: {"results":[...]}
-      const stripped = textToParse.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
-      for (const candidate of [stripped, textToParse]) {
-        // Try object with results array
-        const objMatch = candidate.match(/\{[\s\S]*\}/);
-        if (objMatch) {
-          try {
-            const obj = JSON.parse(objMatch[0]) as Record<string, unknown>;
-            const arr = (obj.results || obj.customers || obj.data) as unknown[] | undefined;
-            if (Array.isArray(arr)) {
-              return arr.map((r) => {
-                const row = r as Record<string, unknown>;
-                const id = (row["customer.id"] || row["customer_id"] || row["id"] || "") as string;
-                const name = (row["customer.descriptive_name"] || row["customer_name"] || row["name"] || id) as string;
-                return { id: id.replace(/-/g, ""), name };
-              });
-            }
-          } catch { /* try array */ }
-        }
-        // Try direct array
-        const arrMatch = candidate.match(/\[[\s\S]*\]/);
-        if (!arrMatch) continue;
-        try {
-          const parsed = JSON.parse(arrMatch[0]) as unknown[];
-          if (Array.isArray(parsed)) {
-            return parsed.map((r) => {
-              const row = r as Record<string, unknown>;
-              const id = (row["customer.id"] || row["customer_id"] || row["id"] || "") as string;
-              const name = (row["customer.descriptive_name"] || row["customer_name"] || row["name"] || id) as string;
-              return { id: id.replace(/-/g, ""), name };
-            });
-          }
-        } catch { /* try next candidate */ }
-      }
+      const result = toolResultText.trim() || fullText.trim();
+      console.log(`[deck/clients] relay ${url} toolResult=${toolResultText.length}b fullText=${fullText.length}b`);
+      if (result) return result;
+      lastError = new Error(`Empty response from ${url}`);
     } catch (e) {
-      console.log("[deck/clients] google relay error:", String(e));
+      lastError = e instanceof Error ? e : new Error(String(e));
+      console.log(`[deck/clients] relay ${url} error:`, String(e));
     }
   }
-  return [];
+  throw lastError ?? new Error("All relay URLs failed");
+}
+
+function extractJson<T>(text: string): T | null {
+  const stripped = text.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
+  for (const candidate of [stripped, text]) {
+    const objectMatch = candidate.match(/\{[\s\S]*\}/);
+    const arrayMatch = candidate.match(/\[[\s\S]*\]/);
+    const match = objectMatch || arrayMatch;
+    if (!match) continue;
+    try { return JSON.parse(match[0]) as T; } catch { /* try next */ }
+  }
+  return null;
+}
+
+/** Call the relay for Google Ads customers list — optional, times out gracefully */
+async function fetchGoogleCustomers(timeoutMs = 45000): Promise<Array<{ id?: string; name?: string }>> {
+  try {
+    const text = await relayChat(
+      `Call the tool mcp__mcp-google-ads__List_Customers with no parameters. ` +
+      `Return ONLY a valid JSON array of objects with "id" (format "XXX-XXX-XXXX") and "name" (descriptive_name) fields. ` +
+      `No explanation, no markdown, no text before or after. Example: [{"id":"123-456-7890","name":"My Account"}]`,
+      timeoutMs
+    );
+    const parsed = extractJson<Array<{ id?: string; name?: string }>>(text);
+    if (Array.isArray(parsed)) return parsed;
+    console.log("[deck/clients] Google Ads response not array, raw:", text.slice(0, 300));
+    return [];
+  } catch (e) {
+    console.log("[deck/clients] fetchGoogleCustomers failed:", String(e));
+    return [];
+  }
 }
 
 export async function GET() {
@@ -154,10 +149,13 @@ export async function GET() {
       console.log("[deck/clients] Meta direct API error:", String(e));
       return [];
     }),
-    fetchGoogleCustomers(40000),
+    fetchGoogleCustomers(45000),
   ]);
 
   console.log(`[deck/clients] Meta: ${metaAccounts.length} accounts, Google: ${googleRaw.length} customers`);
+  if (googleRaw.length > 0) {
+    console.log("[deck/clients] Google customers sample:", JSON.stringify(googleRaw.slice(0, 3)));
+  }
 
   const clients: DeckClientResult[] = metaAccounts.map((acc) => ({
     id: `meta-${acc.id}`,
@@ -166,19 +164,27 @@ export async function GET() {
     metaAccountId: acc.id,
   }));
 
-  // Merge Google: if same name exists in Meta, mark as "both"
+  // Merge Google: if same name exists in Meta, mark as "both"; otherwise add as Google-only
   for (const item of googleRaw) {
-    const name = (item.name || item.id || "Google Ads Account") as string;
-    const existing = clients.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    const rawId = (item.id || "") as string;
+    // Display: "Account Name (ID)" or just "ID" if no name
+    const accountName = (item.name && item.name !== rawId) ? item.name : null;
+    const displayName = accountName ? `${accountName} (${rawId})` : (rawId || "Google Ads Account");
+
+    const existing = clients.find((c) =>
+      c.name.toLowerCase() === (accountName || rawId).toLowerCase()
+    );
     if (existing) {
       existing.platform = "both";
-      existing.googleCustomerId = item.id;
+      existing.googleCustomerId = rawId;
+      // Update display name to include ID
+      existing.name = `${existing.name} (${rawId})`;
     } else {
       clients.push({
-        id: `google-${item.id || Math.random()}`,
-        name,
+        id: `google-${rawId || Math.random()}`,
+        name: displayName,
         platform: "google",
-        googleCustomerId: item.id,
+        googleCustomerId: rawId,
       });
     }
   }
