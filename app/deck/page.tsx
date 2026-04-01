@@ -32,7 +32,7 @@ import {
   type DeckPeriod,
   type DeckData,
 } from "@/lib/deck-data";
-import { fetchDeckData } from "@/lib/deck-relay";
+// fetchDeckData removed — now using /api/deck/data (server-side, avoids mixed content)
 import {
   CoverSlide,
   AgendaSlide,
@@ -356,18 +356,34 @@ export default function DeckPage() {
       : client;
 
     try {
-      // Fetch real data directly from browser → relay (bypasses Vercel, uses localhost:3457)
-      const realData = await fetchDeckData(effectiveClient, period);
+      // Fetch real data via server-side route (avoids browser mixed content issues)
+      const dataRes = await fetch("/api/deck/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client: effectiveClient, period, userContext: prompt || undefined }),
+      });
 
-      if (realData) {
+      let realData: DeckData | null = null;
+      let source: "real" | "mock" = "mock";
+      let reason: string | null = null;
+
+      if (dataRes.ok) {
+        const dataJson = await dataRes.json() as { data: DeckData; source: string; reason?: string };
+        realData = dataJson.data ?? null;
+        source = (dataJson.source === "real" ? "real" : "mock") as "real" | "mock";
+        reason = dataJson.reason ?? null;
+      } else {
+        reason = `Erreur serveur: ${dataRes.status}`;
+      }
+
+      if (realData && source === "real") {
         setDeckData(realData);
         setDataSource("real");
         setDataSourceReason(null);
       } else {
-        // Relay unreachable — show nothing, no mock data
         setDeckData(null);
         setDataSource("mock");
-        setDataSourceReason("Relay non connecté — vérifiez que le relay tourne sur localhost:3457");
+        setDataSourceReason(reason ?? "Relay non connecté — vérifiez que le relay tourne sur localhost:3457");
       }
 
       if (hasPrompt) {
