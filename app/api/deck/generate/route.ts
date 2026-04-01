@@ -560,6 +560,32 @@ ${google.campaigns.slice(0, 5).map(c =>
     ? `\nAdditional analyst context: ${config.context}`
     : "";
 
+  // ── Pre-analysis: detect alerts ───────────────────────────────────────────
+  const alerts: string[] = [];
+
+  if (meta) {
+    const m = meta.overview;
+    const pm = meta.prevOverview;
+    if (m.roas > 0 && m.roas < 1) alerts.push(`ROAS Meta: ${fmtX(m.roas)} — SOUS 1x, chaque € dépensé génère moins de 1€ de revenue`);
+    if (pm.cpa > 0 && m.cpa > pm.cpa * 1.3) alerts.push(`CPA Meta: ${fmt(m.cpa)} vs ${fmt(pm.cpa)} période préc. — hausse de ${delta(m.cpa, pm.cpa)}`);
+    if (m.ctr > 0 && m.ctr < 0.5) alerts.push(`CTR Meta: ${fmtPct(m.ctr)} — Fatigue créative détectée (seuil: 0.5%)`);
+    if (pm.spend > 0 && Math.abs(m.spend - pm.spend) / pm.spend > 0.3) alerts.push(`Budget Meta: ${fmt(m.spend)} vs ${fmt(pm.spend)} — variation de ${delta(m.spend, pm.spend)}`);
+    if (pm.conversions > 0 && m.conversions < pm.conversions * 0.8) alerts.push(`Conversions Meta: ${Math.round(m.conversions)} vs ${Math.round(pm.conversions)} — chute de ${delta(m.conversions, pm.conversions)}`);
+  }
+
+  if (google) {
+    const g = google.overview;
+    const pg = google.prevOverview;
+    if (g.roas > 0 && g.roas < 1) alerts.push(`ROAS Google: ${fmtX(g.roas)} — SOUS 1x`);
+    if (pg.cpa > 0 && g.cpa > pg.cpa * 1.3) alerts.push(`CPA Google: ${fmt(g.cpa)} vs ${fmt(pg.cpa)} — hausse de ${delta(g.cpa, pg.cpa)}`);
+    if (g.ctr > 0 && g.ctr < 0.5) alerts.push(`CTR Google: ${fmtPct(g.ctr)} — CTR bas (seuil: 0.5%)`);
+    if (pg.spend > 0 && Math.abs(g.spend - pg.spend) / pg.spend > 0.3) alerts.push(`Budget Google: ${fmt(g.spend)} vs ${fmt(pg.spend)} — variation de ${delta(g.spend, pg.spend)}`);
+  }
+
+  const alertsBlock = alerts.length > 0
+    ? `\n\nSIGNAUX CRITIQUES DÉTECTÉS (génère des slides "alert" pour ces points en priorité):\n${alerts.map(a => `- ${a}`).join("\n")}`
+    : "";
+
   const systemPrompt = `You are a media buying analyst. Your job is to generate structured slide deck plans for digital advertising performance reviews. You always respond with valid JSON only — no markdown, no explanation, no text outside the JSON array.`;
 
   const userPrompt = `Based on the real advertising data below, generate a JSON array of slides for a performance deck.
@@ -567,7 +593,7 @@ ${google.campaigns.slice(0, 5).map(c =>
 ACCOUNT: ${config.customerId}
 PLATFORM: ${config.platform}
 PERIOD: ${config.dateRange.label ?? `${config.dateRange.startDate} to ${config.dateRange.endDate}`}
-${sectionsInstruction}${contextBlock}
+${sectionsInstruction}${contextBlock}${alertsBlock}
 
 REAL DATA:
 ${dataSummary}

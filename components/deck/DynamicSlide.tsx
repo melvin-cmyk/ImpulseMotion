@@ -14,6 +14,12 @@ const colors = {
   deltaNeg: "#C53929",
   bgAlt: "#F2F9FE",
   caption: "#CCCCCC",
+  alertBg: "#FFF0F0",
+  alertBorder: "#C53929",
+  warningBg: "#FFFBEA",
+  warningBorder: "#F9A825",
+  okBg: "#F0FFF4",
+  okBorder: "#0B8043",
 };
 
 // ── KPI Card ─────────────────────────────────────────────────────────────────
@@ -312,10 +318,26 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
   const hasSeverity = !!slide.severity;
   const sev = slide.severity;
   const sevStyle = sev ? severityStyles(sev) : null;
+  const isAlert = sev === "alert" || slide.type === "alert";
+  const isWarning = sev === "warning";
+  const isOk = sev === "ok";
+  const isRecommendation = slide.type === "recommendation";
 
   // Accent colour: alert slides get a red tint via border override, others blue
   const accent: "blue" | "violet" | undefined =
     slide.type === "recommendation" ? "violet" : "blue";
+
+  // Compute inline style overrides for severity-based background + left border
+  const severityContainerStyle: React.CSSProperties = isAlert
+    ? { background: colors.alertBg, borderLeft: `4px solid ${colors.alertBorder}` }
+    : isWarning
+    ? { background: colors.warningBg, borderLeft: `4px solid ${colors.warningBorder}` }
+    : isOk
+    ? { background: colors.okBg, borderLeft: `4px solid ${colors.okBorder}` }
+    : {};
+
+  // Prefix icon for title
+  const titlePrefix = isAlert ? "⚠️ " : isRecommendation ? "💡 " : "";
 
   return (
     <SlideShell
@@ -329,16 +351,16 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
       source={`${TYPE_LABELS[slide.type] ?? slide.type} · Impulse Analytics`}
     >
       {/* Optional severity overlay tint */}
-      {sevStyle && sev !== "ok" && (
+      {sevStyle && sev !== "ok" && !isAlert && (
         <div
           className="absolute inset-0 pointer-events-none"
           style={{ background: sevStyle.background, opacity: 0.25 }}
         />
       )}
 
-      <div className="relative flex flex-col h-full">
+      <div className="relative flex flex-col h-full" style={severityContainerStyle}>
         <SlideHeader
-          title={slide.title}
+          title={`${titlePrefix}${slide.title}`}
           subtitle={slide.subtitle}
           severity={slide.severity}
           slideNumber={slideNumber}
