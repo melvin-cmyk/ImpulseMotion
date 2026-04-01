@@ -467,7 +467,7 @@ export default function DeckPage() {
         body: JSON.stringify({
           customerId: selectedClient.id,
           platform: selectedClient.platform ?? "both",
-          dateRange: selectedPeriod.label,
+          dateRange: { startDate: selectedPeriod.startDate, endDate: selectedPeriod.endDate, label: selectedPeriod.label },
           sections,
           context: userContext || undefined,
           budgets,
