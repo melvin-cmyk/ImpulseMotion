@@ -5,12 +5,17 @@
 
 import { NextResponse } from "next/server";
 
-const rawRelayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
+const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
 const CONFIGURED_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
   : null;
 
-const RELAY_URLS = ["http://localhost:3457", ...(CONFIGURED_URL ? [CONFIGURED_URL] : [])];
+const FALLBACK_URL = "http://72.62.29.196:3457";
+const RELAY_URLS = [
+  "http://localhost:3457",
+  ...(CONFIGURED_URL && CONFIGURED_URL !== FALLBACK_URL ? [CONFIGURED_URL] : []),
+  FALLBACK_URL,
+];
 
 export async function GET() {
   for (const url of RELAY_URLS) {
