@@ -492,10 +492,32 @@ export default function DeckPage() {
   }, [selectedClient, selectedPeriod, userContext]);
 
   // Auto-generate if coming from builder (client + period in URL params)
+  // OR load from history if historyId is in URL params
   useEffect(() => {
     if (autoGenerateRef.current) return;
     const p = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     if (!p) return;
+
+    // History mode: load a previously saved deck
+    const historyId = p.get("historyId");
+    if (historyId) {
+      autoGenerateRef.current = true;
+      setSlideMode("ai");
+      setIsGeneratingAi(true);
+      fetch(`/api/deck/history?id=${encodeURIComponent(historyId)}`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.entry?.slides?.length > 0) {
+            setAiDynamicSlides(d.entry.slides);
+          } else {
+            setAiGenerateError("Deck introuvable ou vide.");
+          }
+        })
+        .catch((err) => setAiGenerateError(String(err)))
+        .finally(() => setIsGeneratingAi(false));
+      return;
+    }
+
     const hasBuilderParams = p.has("client") && p.has("period");
     if (!hasBuilderParams || !selectedClient || clientsLoading) return;
     autoGenerateRef.current = true;

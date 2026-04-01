@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Presentation, ChevronRight, CheckSquare, Square } from "lucide-react";
+import { Loader2, Presentation, ChevronRight, CheckSquare, Square, Clock, ExternalLink } from "lucide-react";
 import { getAvailablePeriods, type DeckPeriod } from "@/lib/deck-data";
 import type { DeckClientResult } from "@/app/api/deck/clients/route";
+import type { DeckHistoryEntry } from "@/lib/deck-history-storage";
 
 const SECTIONS = [
   { id: "global", label: "Vue globale (highlights, tableau, NC)" },
@@ -26,6 +27,8 @@ export default function DeckBuilderPage() {
   const [context, setContext] = useState("");
   const [budgetMeta, setBudgetMeta] = useState("");
   const [budgetGoogle, setBudgetGoogle] = useState("");
+  const [history, setHistory] = useState<DeckHistoryEntry[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const periods = getAvailablePeriods();
 
@@ -41,6 +44,17 @@ export default function DeckBuilderPage() {
 
     if (periods.length > 1) setSelectedPeriod(periods[1].month);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reload history when selected client changes
+  useEffect(() => {
+    if (!selectedClientId) { setHistory([]); return; }
+    setLoadingHistory(true);
+    fetch(`/api/deck/history?clientId=${encodeURIComponent(selectedClientId)}&limit=12`)
+      .then((r) => r.json())
+      .then((d) => setHistory(d.entries || []))
+      .catch(() => setHistory([]))
+      .finally(() => setLoadingHistory(false));
+  }, [selectedClientId]);
 
   function toggleSection(id: string) {
     setEnabledSections((prev) => {
@@ -226,6 +240,50 @@ export default function DeckBuilderPage() {
             Générer le deck
             <ChevronRight className="w-5 h-5" />
           </button>
+
+          {/* Historique des decks */}
+          {selectedClientId && (
+            <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="w-4 h-4 text-gray-400" />
+                <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Decks précédents</h2>
+              </div>
+
+              {loadingHistory ? (
+                <div className="flex items-center gap-2 text-gray-500">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Chargement...</span>
+                </div>
+              ) : history.length === 0 ? (
+                <p className="text-sm text-gray-600">Aucun deck sauvegardé pour ce client.</p>
+              ) : (
+                <div className="space-y-2">
+                  {history.map((entry) => {
+                    const date = new Date(entry.createdAt);
+                    const dateStr = date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+                    return (
+                      <div
+                        key={entry.id}
+                        className="flex items-center justify-between gap-3 bg-gray-800 rounded-xl px-4 py-3 hover:bg-gray-750 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-white truncate">{entry.period || `${entry.startDate} – ${entry.endDate}`}</p>
+                          <p className="text-xs text-gray-500">{dateStr} · {entry.slides.length} slides · {entry.platform}</p>
+                        </div>
+                        <button
+                          onClick={() => router.push(`/deck?historyId=${entry.id}`)}
+                          className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 shrink-0 transition-colors"
+                        >
+                          Voir
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

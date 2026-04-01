@@ -16,6 +16,7 @@ import {
   type CampaignRow,
   type TopCreative,
 } from "@/lib/deck-data";
+import { getDeckHistory, saveDeckHistory } from "@/lib/deck-history-storage";
 
 export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
@@ -488,6 +489,7 @@ async function generateSlidePlan(
   config: GenerateConfig,
   meta: { overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null,
   google: { overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null,
+  previousDeckMetrics?: Record<string, unknown> | null,
 ): Promise<Slide[]> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
@@ -586,6 +588,34 @@ ${google.campaigns.slice(0, 5).map(c =>
     ? `\n\nSIGNAUX CRITIQUES DÉTECTÉS (génère des slides "alert" pour ces points en priorité):\n${alerts.map(a => `- ${a}`).join("\n")}`
     : "";
 
+  // Build a previous-deck comparison block if we have historical data from our deck storage
+  let previousDeckBlock = "";
+  if (previousDeckMetrics && typeof previousDeckMetrics === "object") {
+    const pm = previousDeckMetrics as Record<string, unknown>;
+    const lines: string[] = [];
+    if (pm.period) lines.push(`  Period: ${pm.period}`);
+    if (pm.meta && typeof pm.meta === "object") {
+      const m = pm.meta as Record<string, unknown>;
+      lines.push("  META (previous deck):");
+      if (m.spend !== undefined) lines.push(`    Spend: ${fmt(Number(m.spend))}`);
+      if (m.roas !== undefined) lines.push(`    ROAS: ${fmtX(Number(m.roas))}`);
+      if (m.cpa !== undefined) lines.push(`    CPA: ${fmt(Number(m.cpa))}`);
+      if (m.conversions !== undefined) lines.push(`    Conversions: ${Math.round(Number(m.conversions))}`);
+      if (m.ctr !== undefined) lines.push(`    CTR: ${fmtPct(Number(m.ctr))}`);
+    }
+    if (pm.google && typeof pm.google === "object") {
+      const g = pm.google as Record<string, unknown>;
+      lines.push("  GOOGLE (previous deck):");
+      if (g.spend !== undefined) lines.push(`    Spend: ${fmt(Number(g.spend))}`);
+      if (g.roas !== undefined) lines.push(`    ROAS: ${fmtX(Number(g.roas))}`);
+      if (g.cpa !== undefined) lines.push(`    CPA: ${fmt(Number(g.cpa))}`);
+      if (g.conversions !== undefined) lines.push(`    Conversions: ${Math.round(Number(g.conversions))}`);
+      if (g.ctr !== undefined) lines.push(`    CTR: ${fmtPct(Number(g.ctr))}`);
+    }
+    if (lines.length > 0) {
+      previousDeckBlock = `\n\nPREVIOUS DECK METRICS (for M-1 comparisons — use these to highlight deltas vs current period):\n${lines.join("\n")}`;
+    }
+  }
   const systemPrompt = `You are a media buying analyst. Your job is to generate structured slide deck plans for digital advertising performance reviews. You always respond with valid JSON only — no markdown, no explanation, no text outside the JSON array.`;
 
   const userPrompt = `Based on the real advertising data below, generate a JSON array of slides for a performance deck.
@@ -596,7 +626,7 @@ PERIOD: ${config.dateRange.label ?? `${config.dateRange.startDate} to ${config.d
 ${sectionsInstruction}${contextBlock}${alertsBlock}
 
 REAL DATA:
-${dataSummary}
+${dataSummary}${previousDeckBlock}
 
 Return a JSON array where each element has this exact shape (all fields optional except id, type, title):
 {
@@ -618,6 +648,7 @@ Rules:
 - Format money as €X,XXX.XX, percentages as X.XX%, ROAS as X.XXx.
 - Severity "alert" = something urgently needs attention, "warning" = watch this, "ok" = performing well.
 - For "comparison" slides, include period-over-period delta in kpis.
+- If PREVIOUS DECK METRICS are provided, add explicit M-1 comparisons in kpi deltas (e.g. "ROAS 2.3x vs 1.8x M-1 (+28%)") and include at least one "comparison" type slide.
 - Return ONLY the JSON array. No markdown. No explanation.`;
 
   const message = await anthropic.messages.create({
@@ -733,14 +764,50 @@ export async function POST(req: NextRequest) {
     ? (meta && google) || (!fetchMeta && google) || (!fetchGoogle && meta) ? "real" : "partial"
     : "mock";
 
+  // Fetch previous deck from history for M-1 comparisons
+  let previousDeckMetrics: Record<string, unknown> | null = null;
+  try {
+    const history = await getDeckHistory(config.customerId, 1);
+    if (history.length > 0) {
+      previousDeckMetrics = history[0].metrics;
+      console.log("[deck/generate] found previous deck for M-1 comparison, period:", history[0].period);
+    }
+  } catch (err) {
+    console.warn("[deck/generate] could not fetch deck history:", err);
+  }
+
   // Generate slide plan via Anthropic API
   let slides: Slide[] = [];
   let generateError: string | null = null;
   try {
-    slides = await generateSlidePlan(config, meta, google);
+    slides = await generateSlidePlan(config, meta, google, previousDeckMetrics);
   } catch (err) {
     generateError = err instanceof Error ? err.message : String(err);
     console.error("[deck/generate] generateSlidePlan failed:", generateError);
+  }
+
+  // Save this deck to history (fire-and-forget, do not block response)
+  if (slides.length > 0) {
+    const metricsSnapshot: Record<string, unknown> = {
+      period: period.label,
+      startDate: period.startDate,
+      endDate: period.endDate,
+    };
+    if (meta) metricsSnapshot.meta = meta.overview;
+    if (google) metricsSnapshot.google = google.overview;
+
+    saveDeckHistory({
+      id: `${config.customerId}-${period.startDate}-${Date.now().toString(36)}`,
+      clientId: config.customerId,
+      clientName: config.customerId, // will be enriched client-side if needed
+      platform: config.platform,
+      period: period.label,
+      startDate: period.startDate,
+      endDate: period.endDate,
+      slides,
+      metrics: metricsSnapshot,
+      createdAt: new Date().toISOString(),
+    }).catch(err => console.warn("[deck/generate] failed to save deck history:", err));
   }
 
   return NextResponse.json({

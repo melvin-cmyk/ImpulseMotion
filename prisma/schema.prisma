@@ -66,3 +66,19 @@ model VerificationToken {
 
   @@unique([identifier, token])
 }
+
+model DeckHistory {
+  id          String   @id @default(cuid())
+  clientId    String
+  clientName  String
+  platform    String
+  period      String
+  startDate   DateTime
+  endDate     DateTime
+  slidesJson  String   @db.Text
+  metricsJson String   @db.Text
+  createdAt   DateTime @default(now())
+  userId      String?
+
+  @@index([clientId, createdAt])
+}
