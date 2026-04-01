@@ -40,7 +40,7 @@ async function fetchGoogleCustomers(timeoutMs = 40000): Promise<Array<{ id?: str
         body: JSON.stringify({
           messages: [{
             role: "user",
-            content: `Call mcp__mcp-google-ads__List_Customers (no params). Return ONLY valid JSON array (no markdown): [{"id":"123-456-7890","name":"Client Name"}]`,
+            content: `Call mcp__mcp-google-ads__List_Customers with no params. Return ONLY the raw JSON tool result.`,
           }],
         }),
         signal: AbortSignal.timeout(timeoutMs),
@@ -52,6 +52,7 @@ async function fetchGoogleCustomers(timeoutMs = 40000): Promise<Array<{ id?: str
 
       const decoder = new TextDecoder();
       let fullText = "";
+      let toolResultText = ""; // Raw MCP tool output — more reliable
       let buffer = "";
 
       while (true) {
@@ -66,6 +67,8 @@ async function fetchGoogleCustomers(timeoutMs = 40000): Promise<Array<{ id?: str
           if (!data || data === "[DONE]") continue;
           try {
             const event = JSON.parse(data);
+            // tool_result — raw MCP output (highest priority)
+            if (event.type === "tool_result" && typeof event.content === "string") { toolResultText += event.content; continue; }
             if (event.type === "delta" && typeof event.text === "string") { fullText += event.text; continue; }
             if (event.type === "content" && typeof event.text === "string") { fullText = event.text; continue; }
             if (event.type === "content" && typeof event.content === "string") { fullText = event.content; continue; }
@@ -75,17 +78,48 @@ async function fetchGoogleCustomers(timeoutMs = 40000): Promise<Array<{ id?: str
         }
       }
 
-      if (!fullText.trim()) continue;
+      // Prefer raw tool result over AI-formatted text
+      const textToParse = toolResultText.trim() || fullText.trim();
+      if (!textToParse) continue;
 
-      // Parse JSON array from response
-      const stripped = fullText.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
-      for (const candidate of [stripped, fullText]) {
-        const match = candidate.match(/\[[\s\S]*\]/);
-        if (!match) continue;
+      console.log(`[deck/clients] google raw (${toolResultText ? "tool_result" : "fullText"}):`, textToParse.slice(0, 300));
+
+      // Try to extract customers from various formats:
+      // 1. GAQL format: [{"customer.id":"...","customer.descriptive_name":"..."}]
+      // 2. Simplified: [{"id":"...","name":"..."}]
+      // 3. Nested: {"results":[...]}
+      const stripped = textToParse.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
+      for (const candidate of [stripped, textToParse]) {
+        // Try object with results array
+        const objMatch = candidate.match(/\{[\s\S]*\}/);
+        if (objMatch) {
+          try {
+            const obj = JSON.parse(objMatch[0]) as Record<string, unknown>;
+            const arr = (obj.results || obj.customers || obj.data) as unknown[] | undefined;
+            if (Array.isArray(arr)) {
+              return arr.map((r) => {
+                const row = r as Record<string, unknown>;
+                const id = (row["customer.id"] || row["customer_id"] || row["id"] || "") as string;
+                const name = (row["customer.descriptive_name"] || row["customer_name"] || row["name"] || id) as string;
+                return { id: id.replace(/-/g, ""), name };
+              });
+            }
+          } catch { /* try array */ }
+        }
+        // Try direct array
+        const arrMatch = candidate.match(/\[[\s\S]*\]/);
+        if (!arrMatch) continue;
         try {
-          const parsed = JSON.parse(match[0]);
-          if (Array.isArray(parsed)) return parsed;
-        } catch { /* try next */ }
+          const parsed = JSON.parse(arrMatch[0]) as unknown[];
+          if (Array.isArray(parsed)) {
+            return parsed.map((r) => {
+              const row = r as Record<string, unknown>;
+              const id = (row["customer.id"] || row["customer_id"] || row["id"] || "") as string;
+              const name = (row["customer.descriptive_name"] || row["customer_name"] || row["name"] || id) as string;
+              return { id: id.replace(/-/g, ""), name };
+            });
+          }
+        } catch { /* try next candidate */ }
       }
     } catch (e) {
       console.log("[deck/clients] google relay error:", String(e));

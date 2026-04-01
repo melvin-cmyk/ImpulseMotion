@@ -411,7 +411,22 @@ export default function DeckPage() {
     setIsGenerating(false);
   }, [userContext]);
 
-  // Do NOT auto-generate — user must click "Générer le deck" explicitly
+  // Auto-generate when coming from /deck/builder (mode=ai param)
+  useEffect(() => {
+    const mode = searchParams.get("mode");
+    const contextParam = searchParams.get("context");
+    const googleIdParam = searchParams.get("googleId");
+    if (mode !== "ai") return;
+    if (clientsLoading || !selectedClient) return;
+    if (contextParam) setUserContext(contextParam);
+    const timer = setTimeout(() => {
+      const gId = googleIdParam || selectedGoogleCustomerId || undefined;
+      generateDeck(selectedClient, selectedPeriod, contextParam ?? undefined, gId || undefined);
+    }, 300);
+    return () => clearTimeout(timer);
+    // Only run once when clients finish loading and mode=ai
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientsLoading, selectedClient]);
 
   const handleGenerate = () => {
     if (selectedClient) generateDeck(selectedClient, selectedPeriod, undefined, selectedGoogleCustomerId || undefined);
@@ -1022,6 +1037,13 @@ export default function DeckPage() {
             <p className="text-sm text-gray-500 mt-2">
               Génère un deck de 20+ slides à partir des données Meta Ads & Google Ads
             </p>
+            <a
+              href="/deck/builder"
+              className="inline-flex items-center gap-1.5 text-xs text-purple-600 hover:text-purple-700 mt-2 font-medium"
+            >
+              <Sparkles className="w-3 h-3" />
+              ⚙ Configurer avec le Deck Builder
+            </a>
           </div>
 
           {/* Client selection */}
