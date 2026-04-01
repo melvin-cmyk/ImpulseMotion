@@ -5,7 +5,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   // Public paths — never redirect these
-  const publicPaths = ["/login", "/api/auth", "/_next", "/favicon"];
+  const publicPaths = ["/login", "/api/auth", "/api/relay", "/_next", "/favicon"];
   if (publicPaths.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
