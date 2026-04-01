@@ -2,139 +2,142 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Building2,
-  Calendar,
-  Loader2,
-  ChevronRight,
-  LayoutDashboard,
-  Target,
-  Users,
-  TrendingUp,
-  MessageSquare,
-  DollarSign,
-} from "lucide-react";
-import { getAvailablePeriods, type DeckClient, type DeckPeriod } from "@/lib/deck-data";
+import { Loader2, Presentation, ChevronRight, CheckSquare, Square } from "lucide-react";
+import { getAvailablePeriods, type DeckPeriod } from "@/lib/deck-data";
+import type { DeckClientResult } from "@/app/api/deck/clients/route";
 
-const SECTION_OPTIONS = [
-  { id: "overview", label: "Résumé global", description: "Highlights, tableau consolidé toutes plateformes", icon: LayoutDashboard, defaultOn: true },
-  { id: "meta", label: "Meta Ads", description: "KPIs, campagnes, top créatifs Facebook/Instagram", icon: Target, defaultOn: true },
-  { id: "google", label: "Google Ads", description: "KPIs, campagnes Search/Shopping/Display", icon: TrendingUp, defaultOn: true },
-  { id: "nc", label: "Nouveaux clients", description: "Acquisition NC, CP-NC, % NC par plateforme", icon: Users, defaultOn: false },
-  { id: "learnings", label: "Learnings & next steps", description: "Enseignements du mois et plan d'actions", icon: MessageSquare, defaultOn: false },
+const SECTIONS = [
+  { id: "global", label: "Vue globale (highlights, tableau, NC)" },
+  { id: "google", label: "Google Ads (KPIs, campagnes, insights, next steps)" },
+  { id: "meta", label: "Meta Ads (KPIs, campagnes, créatives, insights, next steps)" },
+  { id: "budget", label: "Budget prévisionnel" },
+  { id: "learnings", label: "Learnings & recommandations globales" },
 ];
 
 export default function DeckBuilderPage() {
   const router = useRouter();
-  const periods = getAvailablePeriods();
-
-  const [clients, setClients] = useState<DeckClient[]>([]);
+  const [clients, setClients] = useState<DeckClientResult[]>([]);
   const [loadingClients, setLoadingClients] = useState(true);
   const [selectedClientId, setSelectedClientId] = useState("");
-  const [selectedPeriod, setSelectedPeriod] = useState(periods[1]?.month ?? periods[0]?.month ?? "");
-  const [sections, setSections] = useState<Record<string, boolean>>(
-    Object.fromEntries(SECTION_OPTIONS.map((s) => [s.id, s.defaultOn]))
+  const [selectedPeriod, setSelectedPeriod] = useState("");
+  const [enabledSections, setEnabledSections] = useState<Set<string>>(
+    new Set(SECTIONS.map((s) => s.id))
   );
   const [context, setContext] = useState("");
-  const [metaBudget, setMetaBudget] = useState("");
-  const [googleBudget, setGoogleBudget] = useState("");
+  const [budgetMeta, setBudgetMeta] = useState("");
+  const [budgetGoogle, setBudgetGoogle] = useState("");
+
+  const periods = getAvailablePeriods();
 
   useEffect(() => {
     fetch("/api/deck/clients")
       .then((r) => r.json())
-      .then((data: { clients?: DeckClient[]; needsAuth?: boolean }) => {
-        if (data.needsAuth) {
-          router.push("/login");
-          return;
-        }
-        const list = data.clients ?? [];
-        setClients(list);
-        if (list.length > 0) setSelectedClientId(list[0].id);
+      .then((d) => {
+        setClients(d.clients || []);
+        if (d.clients?.length > 0) setSelectedClientId(d.clients[0].id);
       })
-      .catch(console.error)
+      .catch(() => setClients([]))
       .finally(() => setLoadingClients(false));
-  }, [router]);
 
-  const selectedClient = clients.find((c) => c.id === selectedClientId);
-  const selectedPeriodObj = periods.find((p) => p.month === selectedPeriod);
+    if (periods.length > 1) setSelectedPeriod(periods[1].month);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function clientLabel(c: DeckClient): string {
-    if (c.platform === "google") return `${c.name} (${c.googleCustomerId}) — Google Ads`;
-    if (c.platform === "both") return `${c.name} — Meta + Google Ads`;
-    return `${c.name} — Meta Ads`;
+  function toggleSection(id: string) {
+    setEnabledSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function handleGenerate() {
     if (!selectedClientId || !selectedPeriod) return;
 
-    const enabledSections = Object.entries(sections)
-      .filter(([, on]) => on)
-      .map(([id]) => id)
-      .join(",");
+    const client = clients.find((c) => c.id === selectedClientId);
+    if (!client) return;
 
     const params = new URLSearchParams({
-      clientId: selectedClientId,
+      client: selectedClientId,
       period: selectedPeriod,
-      sections: enabledSections,
+      sections: Array.from(enabledSections).join(","),
     });
+
     if (context.trim()) params.set("context", context.trim());
-    if (metaBudget) params.set("metaBudget", metaBudget);
-    if (googleBudget) params.set("googleBudget", googleBudget);
+
+    // Encode budget in URL if specified
+    const budgets: Record<string, string> = {};
+    if (budgetMeta.trim()) budgets.meta = budgetMeta.trim();
+    if (budgetGoogle.trim()) budgets.google = budgetGoogle.trim();
+    if (Object.keys(budgets).length > 0) params.set("budgets", JSON.stringify(budgets));
 
     router.push(`/deck?${params.toString()}`);
   }
 
-  const canGenerate = !!selectedClientId && !!selectedPeriod && Object.values(sections).some(Boolean);
+  const selectedClient = clients.find((c) => c.id === selectedClientId);
+  const platformHint = selectedClient?.platform === "google"
+    ? "Google Ads uniquement"
+    : selectedClient?.platform === "meta"
+    ? "Meta Ads uniquement"
+    : selectedClient?.platform === "both"
+    ? "Meta Ads + Google Ads"
+    : null;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-gray-950 text-white">
+      <div className="max-w-2xl mx-auto px-4 py-12">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Deck Builder</h1>
-          <p className="text-sm text-gray-500 mt-1">Configure ton rapport mensuel avant génération</p>
+        <div className="flex items-center gap-3 mb-10">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+            <Presentation className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold">Deck Builder</h1>
+            <p className="text-sm text-gray-400">Configure ton rapport avant génération</p>
+          </div>
         </div>
 
-        <div className="space-y-4">
-          {/* Client */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
-              <Building2 size={16} className="text-blue-500" />
-              Compte publicitaire
-            </label>
+        <div className="space-y-6">
+          {/* Client selection */}
+          <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Client</h2>
             {loadingClients ? (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <Loader2 size={14} className="animate-spin" />
-                Chargement des comptes…
+              <div className="flex items-center gap-2 text-gray-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">Chargement des comptes...</span>
               </div>
+            ) : clients.length === 0 ? (
+              <p className="text-sm text-gray-500">Aucun compte trouvé. Vérifie ta connexion Meta Ads.</p>
             ) : (
-              <select
-                value={selectedClientId}
-                onChange={(e) => setSelectedClientId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                {clients.length === 0 && <option value="">— Aucun compte disponible —</option>}
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {clientLabel(c)}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                <select
+                  value={selectedClientId}
+                  onChange={(e) => setSelectedClientId(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white"
+                >
+                  {clients.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                      {c.platform === "both" ? " · Meta + Google" : c.platform === "google" ? " · Google Ads" : " · Meta Ads"}
+                    </option>
+                  ))}
+                </select>
+                {platformHint && (
+                  <p className="text-xs text-gray-500 pl-1">{platformHint}</p>
+                )}
+              </div>
             )}
           </div>
 
           {/* Period */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
-              <Calendar size={16} className="text-blue-500" />
-              Période
-            </label>
+          <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Période</h2>
             <select
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white"
             >
-              {periods.map((p) => (
+              {periods.map((p: DeckPeriod) => (
                 <option key={p.month} value={p.month}>
                   {p.label}
                 </option>
@@ -143,97 +146,84 @@ export default function DeckBuilderPage() {
           </div>
 
           {/* Sections */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <p className="text-sm font-semibold text-gray-700 mb-4">Sections à inclure</p>
+          <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">Sections à inclure</h2>
             <div className="space-y-3">
-              {SECTION_OPTIONS.map((s) => {
-                const Icon = s.icon;
+              {SECTIONS.map((s) => {
+                const enabled = enabledSections.has(s.id);
+                // Hide google section if client is meta-only
+                if (s.id === "google" && selectedClient?.platform === "meta") return null;
+                // Hide meta section if client is google-only
+                if (s.id === "meta" && selectedClient?.platform === "google") return null;
                 return (
-                  <label
+                  <button
                     key={s.id}
-                    className="flex items-start gap-3 cursor-pointer group"
+                    onClick={() => toggleSection(s.id)}
+                    className="w-full flex items-center gap-3 text-left hover:bg-gray-800 rounded-xl p-3 -m-1 transition-colors"
                   >
-                    <input
-                      type="checkbox"
-                      checked={sections[s.id] ?? false}
-                      onChange={(e) => setSections((prev) => ({ ...prev, [s.id]: e.target.checked }))}
-                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <Icon size={14} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                        <span className="text-sm font-medium text-gray-800">{s.label}</span>
-                      </div>
-                      <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>
-                    </div>
-                  </label>
+                    {enabled
+                      ? <CheckSquare className="w-4 h-4 text-blue-400 shrink-0" />
+                      : <Square className="w-4 h-4 text-gray-500 shrink-0" />}
+                    <span className={`text-sm ${enabled ? "text-white" : "text-gray-500"}`}>{s.label}</span>
+                  </button>
                 );
               })}
             </div>
           </div>
 
-          {/* Contexte métier */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
-              <MessageSquare size={16} className="text-blue-500" />
-              Contexte métier
-              <span className="text-xs font-normal text-gray-400">(optionnel)</span>
-            </label>
+          {/* Budget previsionnel */}
+          <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-1">Budget prévisionnel (optionnel)</h2>
+            <p className="text-xs text-gray-500 mb-4">Pour comparer planifié vs réel dans les slides budget</p>
+            <div className="grid grid-cols-2 gap-3">
+              {(selectedClient?.platform !== "google") && (
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Meta Ads (€)</label>
+                  <input
+                    type="number"
+                    placeholder="ex: 5000"
+                    value={budgetMeta}
+                    onChange={(e) => setBudgetMeta(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600"
+                  />
+                </div>
+              )}
+              {(selectedClient?.platform !== "meta") && (
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Google Ads (€)</label>
+                  <input
+                    type="number"
+                    placeholder="ex: 3000"
+                    value={budgetGoogle}
+                    onChange={(e) => setBudgetGoogle(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Contexte metier */}
+          <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
+            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-1">Contexte métier (optionnel)</h2>
+            <p className="text-xs text-gray-500 mb-4">Info utile pour l&apos;analyse IA : promo lancée, changement de stratégie, saisonnalité...</p>
             <textarea
               value={context}
               onChange={(e) => setContext(e.target.value)}
-              placeholder="Ex: Promo lancée le 15 mars, objectif Black Friday, nouveau créatif UGC testé en semaine 2…"
               rows={3}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none placeholder:text-gray-300"
+              placeholder="ex: On a lancé une promo -20% du 15 au 22 du mois. Budget Google augmenté de 30%..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 text-white placeholder-gray-600 resize-none"
             />
           </div>
 
-          {/* Budgets */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-4">
-              <DollarSign size={16} className="text-blue-500" />
-              Budget prévisionnel
-              <span className="text-xs font-normal text-gray-400">(optionnel)</span>
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Meta Ads (€)</label>
-                <input
-                  type="number"
-                  value={metaBudget}
-                  onChange={(e) => setMetaBudget(e.target.value)}
-                  placeholder="Ex: 5000"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Google Ads (€)</label>
-                <input
-                  type="number"
-                  value={googleBudget}
-                  onChange={(e) => setGoogleBudget(e.target.value)}
-                  placeholder="Ex: 3000"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Summary + CTA */}
-          {selectedClient && selectedPeriodObj && (
-            <div className="bg-blue-50 rounded-xl border border-blue-100 p-4 text-sm text-blue-700">
-              <strong>{selectedClient.name}</strong> — {selectedPeriodObj.label} —{" "}
-              {Object.values(sections).filter(Boolean).length} section(s) sélectionnée(s)
-            </div>
-          )}
-
+          {/* CTA */}
           <button
             onClick={handleGenerate}
-            disabled={!canGenerate}
-            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm"
+            disabled={!selectedClientId || !selectedPeriod || enabledSections.size === 0}
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl px-6 py-4 font-semibold text-base transition-colors"
           >
             Générer le deck
-            <ChevronRight size={16} />
+            <ChevronRight className="w-5 h-5" />
           </button>
         </div>
       </div>
