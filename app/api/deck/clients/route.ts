@@ -104,6 +104,32 @@ function extractJson<T>(text: string): T | null {
   return null;
 }
 
+/** Normalize a raw parsed value (array or GAQL object) into {id, name} pairs */
+function normalizeGoogleCustomers(raw: unknown): Array<{ id?: string; name?: string }> {
+  // Direct array (already in simplified format or GAQL format)
+  if (Array.isArray(raw)) {
+    return raw.map((r) => {
+      const row = r as Record<string, unknown>;
+      // GAQL format: {"customer.id": "...", "customer.descriptive_name": "..."}
+      const gaqlId = (row["customer.id"] || row["customer_id"] || "") as string;
+      const gaqlName = (row["customer.descriptive_name"] || row["customer_name"] || "") as string;
+      // Simplified format: {"id": "...", "name": "..."}
+      const simpleId = (row["id"] || "") as string;
+      const simpleName = (row["name"] || "") as string;
+      const id = gaqlId || simpleId;
+      const name = gaqlName || simpleName || id;
+      return { id: id.replace(/-/g, ""), name };
+    });
+  }
+  // Object with results/customers/data array
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    const arr = obj.results || obj.customers || obj.data;
+    if (Array.isArray(arr)) return normalizeGoogleCustomers(arr);
+  }
+  return [];
+}
+
 /** Call the relay for Google Ads customers list — optional, times out gracefully */
 async function fetchGoogleCustomers(timeoutMs = 45000): Promise<Array<{ id?: string; name?: string }>> {
   try {
@@ -113,9 +139,12 @@ async function fetchGoogleCustomers(timeoutMs = 45000): Promise<Array<{ id?: str
       `No explanation, no markdown, no text before or after. Example: [{"id":"123-456-7890","name":"My Account"}]`,
       timeoutMs
     );
-    const parsed = extractJson<Array<{ id?: string; name?: string }>>(text);
-    if (Array.isArray(parsed)) return parsed;
-    console.log("[deck/clients] Google Ads response not array, raw:", text.slice(0, 300));
+    const parsed = extractJson<unknown>(text);
+    if (parsed) {
+      const normalized = normalizeGoogleCustomers(parsed);
+      if (normalized.length > 0) return normalized;
+    }
+    console.log("[deck/clients] Google Ads response not parseable, raw:", text.slice(0, 300));
     return [];
   } catch (e) {
     console.log("[deck/clients] fetchGoogleCustomers failed:", String(e));
