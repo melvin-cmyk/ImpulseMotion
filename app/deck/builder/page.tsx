@@ -71,6 +71,7 @@ export default function DeckBuilderPage() {
     if (budgetGoogle.trim()) budgets.google = budgetGoogle.trim();
     if (Object.keys(budgets).length > 0) params.set("budgets", JSON.stringify(budgets));
 
+    params.set("mode", "ai");
     router.push(`/deck?${params.toString()}`);
   }
 

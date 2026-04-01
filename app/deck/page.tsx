@@ -440,22 +440,7 @@ export default function DeckPage() {
     setIsGenerating(false);
   }, [userContext]);
 
-  // Auto-generate if coming from builder (client + period in URL params)
   const autoGenerateRef = useRef(false);
-  useEffect(() => {
-    if (autoGenerateRef.current) return;
-    const p = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-    if (!p) return;
-    const hasBuilderParams = p.has("client") && p.has("period");
-    if (!hasBuilderParams || !selectedClient || clientsLoading) return;
-    autoGenerateRef.current = true;
-    const isAiMode = p.get("mode") === "ai";
-    if (isAiMode) {
-      handleGenerateAiDeck();
-    } else {
-      generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined);
-    }
-  }, [selectedClient, clientsLoading, generateDeck, handleGenerateAiDeck, selectedPeriod, userContext, selectedGoogleCustomerId]);
 
   const handleGenerate = () => {
     if (selectedClient) generateDeck(selectedClient, selectedPeriod, undefined, selectedGoogleCustomerId || undefined);
@@ -505,6 +490,22 @@ export default function DeckPage() {
       setIsGeneratingAi(false);
     }
   }, [selectedClient, selectedPeriod, userContext]);
+
+  // Auto-generate if coming from builder (client + period in URL params)
+  useEffect(() => {
+    if (autoGenerateRef.current) return;
+    const p = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    if (!p) return;
+    const hasBuilderParams = p.has("client") && p.has("period");
+    if (!hasBuilderParams || !selectedClient || clientsLoading) return;
+    autoGenerateRef.current = true;
+    const isAiMode = p.get("mode") === "ai";
+    if (isAiMode) {
+      handleGenerateAiDeck();
+    } else {
+      generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined);
+    }
+  }, [selectedClient, clientsLoading, generateDeck, handleGenerateAiDeck, selectedPeriod, userContext, selectedGoogleCustomerId]);
 
   const handleExportPptx = async () => {
     if (!deckData) return;
