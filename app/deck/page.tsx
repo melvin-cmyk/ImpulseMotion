@@ -238,6 +238,7 @@ export default function DeckPage() {
   const [clients, setClients] = useState<DeckClient[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientsNeedAuth, setClientsNeedAuth] = useState(false);
+  const [metaNeedsReconnect, setMetaNeedsReconnect] = useState(false);
   const [selectedClient, setSelectedClient] = useState<DeckClient | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(() => {
     const periodParam = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("period") : null;
@@ -254,11 +255,12 @@ export default function DeckPage() {
     const clientParam = searchParams.get("client");
     fetch("/api/deck/clients")
       .then((r) => r.json())
-      .then((data: { clients: DeckClient[]; needsAuth?: boolean }) => {
+      .then((data: { clients: DeckClient[]; needsAuth?: boolean; metaNeedsReconnect?: boolean }) => {
         if (data.needsAuth) {
           setClientsNeedAuth(true);
           return;
         }
+        if (data.metaNeedsReconnect) setMetaNeedsReconnect(true);
         if (data.clients && data.clients.length > 0) {
           setClients(data.clients);
           if (clientParam) {
@@ -1192,6 +1194,20 @@ export default function DeckPage() {
               </select>
             )}
           </div>
+
+          {/* Meta reconnect banner — shown when Meta token expired but Google still works */}
+          {metaNeedsReconnect && !clientsNeedAuth && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 flex items-center justify-between gap-4">
+              <p className="text-sm text-amber-700">Token Meta Ads expiré — les comptes Google Ads restent disponibles</p>
+              <button
+                onClick={() => signIn("facebook", { callbackUrl: "/deck" })}
+                className="shrink-0 inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition-all hover:opacity-90"
+                style={{ background: "#1877F2" }}
+              >
+                Reconnecter Meta
+              </button>
+            </div>
+          )}
 
           {/* Google Ads manual association — show when selected client has no Google Customer ID */}
           {selectedClient && !selectedClient.googleCustomerId && clients.some(c => c.platform === "google" || c.platform === "both") && (

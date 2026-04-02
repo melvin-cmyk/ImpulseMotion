@@ -167,29 +167,23 @@ export async function GET() {
     return NextResponse.json({ clients: [], needsAuth: true, reason: "no_session" });
   }
 
-  // Session exists but no Meta token → user needs to reconnect Meta
-  if (!metaToken) {
-    return NextResponse.json({ clients: [], needsAuth: true, reason: "no_meta_token" });
-  }
+  // Session exists but no Meta token → fetch Google Ads anyway, but flag Meta as needing reconnect
+  let metaAuthExpired = !metaToken;
 
-  // Fetch Meta accounts directly (fast, ~1s) + Google via relay in parallel
-  let metaAuthExpired = false;
+  // Fetch Meta + Google in parallel (skip Meta if no token)
   const [metaAccounts, googleRaw] = await Promise.all([
-    getAdAccounts(metaToken).catch((e) => {
-      const msg = String(e);
-      console.log("[deck/clients] Meta direct API error:", msg);
-      // Detect expired/invalid token (Facebook error codes 190, 102, 2500)
-      if (msg.includes("190") || msg.includes("Invalid OAuth") || msg.includes("token") || msg.includes("401") || msg.includes("OAuthException")) {
-        metaAuthExpired = true;
-      }
-      return [] as import("@/lib/meta-api").MetaAdAccount[];
-    }),
+    metaToken
+      ? getAdAccounts(metaToken).catch((e) => {
+          const msg = String(e);
+          console.log("[deck/clients] Meta direct API error:", msg);
+          if (msg.includes("190") || msg.includes("Invalid OAuth") || msg.includes("token") || msg.includes("401") || msg.includes("OAuthException")) {
+            metaAuthExpired = true;
+          }
+          return [] as import("@/lib/meta-api").MetaAdAccount[];
+        })
+      : Promise.resolve([] as import("@/lib/meta-api").MetaAdAccount[]),
     fetchGoogleCustomers(45000),
   ]);
-
-  if (metaAuthExpired) {
-    return NextResponse.json({ clients: [], needsAuth: true, reason: "token_expired" });
-  }
 
   console.log(`[deck/clients] Meta: ${metaAccounts.length} accounts, Google: ${googleRaw.length} customers`);
   if (googleRaw.length > 0) {
@@ -228,8 +222,19 @@ export async function GET() {
     }
   }
 
-  // Store result in cache
-  clientCache = { data: { clients }, ts: Date.now() };
+  // If Meta expired AND no Google accounts either → full needsAuth
+  if (metaAuthExpired && clients.length === 0 && googleRaw.length === 0) {
+    return NextResponse.json({ clients: [], needsAuth: true, reason: metaToken ? "token_expired" : "no_meta_token" });
+  }
 
-  return NextResponse.json({ clients });
+  // Store result in cache (only when not partially degraded)
+  const responseData = {
+    clients,
+    ...(metaAuthExpired ? { metaNeedsReconnect: true } : {}),
+  };
+  if (!metaAuthExpired) {
+    clientCache = { data: { clients }, ts: Date.now() };
+  }
+
+  return NextResponse.json(responseData);
 }

@@ -21,6 +21,7 @@ export default function DeckBuilderPage() {
   const [clients, setClients] = useState<DeckClientResult[]>([]);
   const [loadingClients, setLoadingClients] = useState(true);
   const [clientsNeedAuth, setClientsNeedAuth] = useState(false);
+  const [metaNeedsReconnect, setMetaNeedsReconnect] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const [enabledSections, setEnabledSections] = useState<Set<string>>(
@@ -39,6 +40,7 @@ export default function DeckBuilderPage() {
       .then((r) => r.json())
       .then((d) => {
         if (d.needsAuth) { setClientsNeedAuth(true); return; }
+        if (d.metaNeedsReconnect) setMetaNeedsReconnect(true);
         setClients(d.clients || []);
         if (d.clients?.length > 0) setSelectedClientId(d.clients[0].id);
       })
@@ -157,6 +159,20 @@ export default function DeckBuilderPage() {
               </div>
             )}
           </div>
+
+          {/* Meta reconnect banner when token expired but Google accounts still available */}
+          {metaNeedsReconnect && !clientsNeedAuth && (
+            <div className="bg-amber-900/30 border border-amber-700/50 rounded-2xl px-4 py-3 flex items-center justify-between gap-4">
+              <p className="text-sm text-amber-300">Token Meta Ads expiré — comptes Google Ads disponibles</p>
+              <button
+                onClick={() => signIn("facebook", { callbackUrl: "/deck/builder" })}
+                className="shrink-0 inline-flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-xl text-white transition-all hover:opacity-90"
+                style={{ background: "#1877F2" }}
+              >
+                Reconnecter Meta
+              </button>
+            </div>
+          )}
 
           {/* Period */}
           <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800">
