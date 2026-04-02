@@ -36,17 +36,24 @@ export async function GET(request: Request) {
   const metaProviderAccountId =
     searchParams.get("metaProviderAccountId") ?? "122096593670983907";
 
-  // Remove all existing facebook accounts for this user (avoids stale records from old test sessions)
-  await prisma.account.deleteMany({ where: { userId: user.id, provider: "facebook" } });
-  await prisma.account.create({
-    data: {
-      userId: user.id,
-      type: "oauth",
-      provider: "facebook",
-      providerAccountId: metaProviderAccountId,
-      access_token: metaToken,
-    },
-  });
+  // Update or create the facebook account for this user with the real token
+  const existingAccount = await prisma.account.findFirst({ where: { userId: user.id, provider: "facebook" } });
+  if (existingAccount) {
+    await prisma.account.update({
+      where: { id: existingAccount.id },
+      data: { access_token: metaToken, providerAccountId: metaProviderAccountId },
+    });
+  } else {
+    await prisma.account.create({
+      data: {
+        userId: user.id,
+        type: "oauth",
+        provider: "facebook",
+        providerAccountId: metaProviderAccountId,
+        access_token: metaToken,
+      },
+    });
+  }
 
   // Create session (30 days)
   const sessionToken = randomUUID();
