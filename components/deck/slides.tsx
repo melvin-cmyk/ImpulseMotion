@@ -516,14 +516,19 @@ export function CampaignTableSlide({
         )}
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
+        {campaigns.length === 0 ? (
+          <div className="flex items-center justify-center py-[4%] text-[1.4%]" style={{ color: colors.caption }}>
+            Aucune campagne disponible pour cette période.
+          </div>
+        ) : (
         <table className="w-full text-[1.1%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
-              <th className="text-left px-[0.8%] py-[0.6%] font-semibold">Campaign</th>
-              <th className="text-center px-[0.5%] py-[0.6%] font-semibold">Status</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Spend</th>
+              <th className="text-left px-[0.8%] py-[0.6%] font-semibold">Campagne</th>
+              <th className="text-center px-[0.5%] py-[0.6%] font-semibold">Statut</th>
+              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Dépense</th>
               <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Impr.</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Clicks</th>
+              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Clics</th>
               <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Conv.</th>
               <th className="text-right px-[0.5%] py-[0.6%] font-semibold">CPA</th>
               <th className="text-right px-[0.5%] py-[0.6%] font-semibold">ROAS</th>
@@ -563,6 +568,7 @@ export function CampaignTableSlide({
             })}
           </tbody>
         </table>
+        )}
       </div>
     </SlideShell>
   );

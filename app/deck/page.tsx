@@ -342,7 +342,12 @@ export default function DeckPage() {
     slideElements[currentSlide] ?? [],
     (els) => setSlideElements((prev) => ({ ...prev, [currentSlide]: els }))
   );
-  const staticSlides = useMemo(() => buildSlides(), []);
+  const staticSlides = useMemo(() => {
+    const all = buildSlides();
+    // If the selected client has no Google Ads, hide Google Ads section (slides 8-12)
+    const hasGoogle = selectedClient?.googleCustomerId || selectedClient?.platform === "google" || selectedClient?.platform === "both";
+    return hasGoogle ? all : all.filter(s => s.section !== 2);
+  }, [selectedClient]);
   const slides = useMemo(() => aiSlidesMode ? [] : staticSlides, [aiSlidesMode, staticSlides]);
 
   const currentSlideId = currentSlide < slides.length

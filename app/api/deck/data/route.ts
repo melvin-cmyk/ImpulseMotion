@@ -709,11 +709,11 @@ export async function POST(req: NextRequest) {
     ncTable: mockFallback.ncTable,
 
     googleOverview,
-    googleCampaigns: google?.campaigns ?? mockFallback.googleCampaigns,
+    googleCampaigns: (google?.campaigns?.length ? google.campaigns : null) ?? mockFallback.googleCampaigns,
 
     metaOverview,
-    metaCampaigns: meta?.campaigns ?? mockFallback.metaCampaigns,
-    topCreatives: meta?.topCreatives ?? mockFallback.topCreatives,
+    metaCampaigns: (meta?.campaigns?.length ? meta.campaigns : null) ?? mockFallback.metaCampaigns,
+    topCreatives: (meta?.topCreatives?.length ? meta.topCreatives : null) ?? mockFallback.topCreatives,
 
     budget: mockFallback.budget,
 
