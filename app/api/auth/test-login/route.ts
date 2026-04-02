@@ -26,17 +26,29 @@ export async function GET(request: Request) {
     });
   }
 
-  // Inject a fake Facebook account so metaAccessToken is non-null in the session callback.
-  // Pass ?meta_token=<real_token> to test with a real Meta token.
-  const metaToken = searchParams.get("meta_token") ?? "FAKE_META_TOKEN_TEST";
+  // Inject a Facebook account so metaAccessToken is non-null in the session callback.
+  // Pass ?metaToken=<real_token> (or legacy ?meta_token=<real_token>) to use a real Meta token.
+  // Pass ?metaProviderAccountId=<id> to set the real Meta provider account ID.
+  const metaToken =
+    searchParams.get("metaToken") ??
+    searchParams.get("meta_token") ??
+    "FAKE_META_TOKEN_TEST";
+  const metaProviderAccountId =
+    searchParams.get("metaProviderAccountId") ?? "122096593670983907";
+
   await prisma.account.upsert({
-    where: { provider_providerAccountId: { provider: "facebook", providerAccountId: user.id } },
+    where: {
+      provider_providerAccountId: {
+        provider: "facebook",
+        providerAccountId: metaProviderAccountId,
+      },
+    },
     update: { access_token: metaToken },
     create: {
       userId: user.id,
       type: "oauth",
       provider: "facebook",
-      providerAccountId: user.id,
+      providerAccountId: metaProviderAccountId,
       access_token: metaToken,
     },
   });
