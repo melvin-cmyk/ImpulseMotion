@@ -8,7 +8,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import {
   getPreviousPeriod,
   type DeckPeriod,
@@ -491,11 +490,6 @@ async function generateSlidePlan(
   google: { overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null,
   previousDeckMetrics?: Record<string, unknown> | null,
 ): Promise<Slide[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-
-  const anthropic = new Anthropic({ apiKey });
-
   const fmt = (n: number) => `€${n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fmtPct = (n: number) => `${n.toFixed(2)}%`;
   const fmtX = (n: number) => `${n.toFixed(2)}x`;
@@ -651,23 +645,16 @@ Rules:
 - If PREVIOUS DECK METRICS are provided, add explicit M-1 comparisons in kpi deltas (e.g. "ROAS 2.3x vs 1.8x M-1 (+28%)") and include at least one "comparison" type slide.
 - Return ONLY the JSON array. No markdown. No explanation.`;
 
-  const message = await anthropic.messages.create({
-    model: "claude-opus-4-6",
-    max_tokens: 4096,
-    messages: [{ role: "user", content: userPrompt }],
-    system: systemPrompt,
-  });
+  // Route through the relay (which has Claude access) instead of calling Anthropic SDK directly.
+  // This avoids needing ANTHROPIC_API_KEY in Vercel environment variables.
+  const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+  const rawText = await relayChat(fullPrompt, 90000);
 
-  const rawText = message.content
-    .filter(block => block.type === "text")
-    .map(block => (block as { type: "text"; text: string }).text)
-    .join("");
-
-  console.log(`[deck/generate] Anthropic response (500):`, rawText.slice(0, 500));
+  console.log(`[deck/generate] Relay response (500):`, rawText.slice(0, 500));
 
   const parsed = extractJson<Slide[]>(rawText);
   if (!parsed || !Array.isArray(parsed)) {
-    console.error("[deck/generate] Failed to parse Anthropic slide JSON. Raw:", rawText.slice(0, 2000));
+    console.error("[deck/generate] Failed to parse relay slide JSON. Raw:", rawText.slice(0, 2000));
     return [];
   }
 
