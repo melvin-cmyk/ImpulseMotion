@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { Loader2, Presentation, ChevronRight, CheckSquare, Square, Clock, ExternalLink } from "lucide-react";
 import { getAvailablePeriods, type DeckPeriod } from "@/lib/deck-data";
 import type { DeckClientResult } from "@/app/api/deck/clients/route";
@@ -19,6 +20,7 @@ export default function DeckBuilderPage() {
   const router = useRouter();
   const [clients, setClients] = useState<DeckClientResult[]>([]);
   const [loadingClients, setLoadingClients] = useState(true);
+  const [clientsNeedAuth, setClientsNeedAuth] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const [enabledSections, setEnabledSections] = useState<Set<string>>(
@@ -36,6 +38,7 @@ export default function DeckBuilderPage() {
     fetch("/api/deck/clients")
       .then((r) => r.json())
       .then((d) => {
+        if (d.needsAuth) { setClientsNeedAuth(true); return; }
         setClients(d.clients || []);
         if (d.clients?.length > 0) setSelectedClientId(d.clients[0].id);
       })
@@ -120,6 +123,17 @@ export default function DeckBuilderPage() {
               <div className="flex items-center gap-2 text-gray-400">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-sm">Chargement des comptes...</span>
+              </div>
+            ) : clientsNeedAuth ? (
+              <div>
+                <p className="text-sm text-red-400 mb-3">Session Meta expirée — reconnexion requise</p>
+                <button
+                  onClick={() => signIn("facebook", { callbackUrl: "/deck/builder" })}
+                  className="inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-xl text-white transition-all hover:opacity-90"
+                  style={{ background: "#1877F2" }}
+                >
+                  Reconnecter Meta Ads
+                </button>
               </div>
             ) : clients.length === 0 ? (
               <p className="text-sm text-gray-500">Aucun compte trouvé. Vérifie ta connexion Meta Ads.</p>
