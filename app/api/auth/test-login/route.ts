@@ -36,15 +36,10 @@ export async function GET(request: Request) {
   const metaProviderAccountId =
     searchParams.get("metaProviderAccountId") ?? "122096593670983907";
 
-  await prisma.account.upsert({
-    where: {
-      provider_providerAccountId: {
-        provider: "facebook",
-        providerAccountId: metaProviderAccountId,
-      },
-    },
-    update: { access_token: metaToken },
-    create: {
+  // Remove all existing facebook accounts for this user (avoids stale records from old test sessions)
+  await prisma.account.deleteMany({ where: { userId: user.id, provider: "facebook" } });
+  await prisma.account.create({
+    data: {
       userId: user.id,
       type: "oauth",
       provider: "facebook",
