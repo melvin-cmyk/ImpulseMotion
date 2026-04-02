@@ -131,7 +131,7 @@ function normalizeGoogleCustomers(raw: unknown): Array<{ id?: string; name?: str
 }
 
 /** Call the relay for Google Ads customers list — optional, times out gracefully */
-async function fetchGoogleCustomers(timeoutMs = 45000): Promise<Array<{ id?: string; name?: string }>> {
+async function fetchGoogleCustomers(timeoutMs = 8000): Promise<Array<{ id?: string; name?: string }>> {
   try {
     const text = await relayChat(
       `Call the tool mcp__mcp-google-ads__List_Customers with no parameters. ` +
@@ -182,7 +182,8 @@ export async function GET() {
           return [] as import("@/lib/meta-api").MetaAdAccount[];
         })
       : Promise.resolve([] as import("@/lib/meta-api").MetaAdAccount[]),
-    fetchGoogleCustomers(45000),
+    // Keep Google Ads timeout short (8s) so the route responds within Vercel's serverless limits
+    fetchGoogleCustomers(8000),
   ]);
 
   console.log(`[deck/clients] Meta: ${metaAccounts.length} accounts, Google: ${googleRaw.length} customers`);
