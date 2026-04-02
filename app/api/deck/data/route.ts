@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 import {
   generateMockDeckData,
   getPreviousPeriod,
@@ -236,30 +237,43 @@ async function relaySingleTool(toolName: string, params: Record<string, string>,
 async function fetchMetaData(
   accountId: string,
   period: DeckPeriod,
-  previousPeriod: DeckPeriod
+  previousPeriod: DeckPeriod,
+  metaToken: string
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null> {
   try {
-    // Fire 4 parallel single-tool calls — each takes ~15-25s vs 65s for sequential
+    // Normalise account ID to act_XXXXX format
+    const rawId = accountId.startsWith("act_") ? accountId.slice(4) : accountId;
+    const actId = `act_${rawId}`;
+
+    const BASE = "https://graph.facebook.com/v22.0";
+    const timeRange = (p: DeckPeriod) => encodeURIComponent(JSON.stringify({ since: p.startDate, until: p.endDate }));
+    const tok = encodeURIComponent(metaToken);
+
+    async function metaFetch(url: string): Promise<unknown> {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Meta API ${res.status}: ${body.slice(0, 200)}`);
+      }
+      return res.json();
+    }
+
+    const overviewFields = "impressions,reach,clicks,spend,ctr,cpc,cpm,actions,action_values";
+    const campaignFields = "campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
+    const adFields = "ad_name,adset_name,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
+
+    // Fire 4 parallel direct Graph API calls
     const [overviewRaw, prevOverviewRaw, campaignsRaw, creativesRaw] = await Promise.allSettled([
-      relaySingleTool("mcp__meta-ads-impulse__Account_Overview1", {
-        ad_account_id: accountId, since: period.startDate, until: period.endDate,
-      }),
-      relaySingleTool("mcp__meta-ads-impulse__Account_Overview1", {
-        ad_account_id: accountId, since: previousPeriod.startDate, until: previousPeriod.endDate,
-      }),
-      relaySingleTool("mcp__meta-ads-impulse__Campaign_Performance1", {
-        ad_account_id: accountId, since: period.startDate, until: period.endDate,
-      }),
-      relaySingleTool("mcp__meta-ads-impulse__Ad_Performance1", {
-        ad_account_id: accountId, since: period.startDate, until: period.endDate,
-      }),
+      metaFetch(`${BASE}/${actId}/insights?fields=${overviewFields}&time_range=${timeRange(period)}&level=account&access_token=${tok}`),
+      metaFetch(`${BASE}/${actId}/insights?fields=${overviewFields}&time_range=${timeRange(previousPeriod)}&level=account&access_token=${tok}`),
+      metaFetch(`${BASE}/${actId}/insights?level=campaign&fields=${campaignFields}&time_range=${timeRange(period)}&access_token=${tok}`),
+      metaFetch(`${BASE}/${actId}/insights?level=ad&fields=${adFields}&time_range=${timeRange(period)}&sort=spend_descending&limit=10&access_token=${tok}`),
     ]);
 
     const logResult = (name: string, r: PromiseSettledResult<unknown>) =>
       r.status === "fulfilled"
-        ? console.log(`[deck/data] ${name} ok:`, JSON.stringify(r.value).slice(0, 500))
-        : console.error(`[deck/data] ${name} failed:`, r.reason);
-    console.log(`[deck/data] relay URLs:`, RELAY_URLS_TO_TRY);
+        ? console.log(`[deck/data] meta ${name} ok:`, JSON.stringify(r.value).slice(0, 500))
+        : console.error(`[deck/data] meta ${name} failed:`, r.reason);
     logResult("overview", overviewRaw);
     logResult("prevOverview", prevOverviewRaw);
     logResult("campaigns", campaignsRaw);
@@ -538,12 +552,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
+  const session = await auth();
+  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken ?? null;
+
   const previousPeriod = getPreviousPeriod(period);
 
   // Try to fetch real data in parallel
   const [metaResult, googleResult] = await Promise.allSettled([
-    client.metaAccountId
-      ? fetchMetaData(client.metaAccountId, period, previousPeriod)
+    client.metaAccountId && metaToken
+      ? fetchMetaData(client.metaAccountId, period, previousPeriod, metaToken)
       : Promise.resolve(null),
     client.googleCustomerId
       ? fetchGoogleData(client.googleCustomerId, period, previousPeriod)
