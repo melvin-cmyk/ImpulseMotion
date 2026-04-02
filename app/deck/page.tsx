@@ -1128,9 +1128,13 @@ export default function DeckPage() {
             </div>
           )}
           <div className="text-center mb-8">
-            <div className="mb-3">
+            <div className="mb-3 flex items-center justify-center gap-4">
               <a href="/deck/builder" className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
                 ← Configurer le deck
+              </a>
+              <span className="text-gray-300 text-xs">|</span>
+              <a href="/deck/history" className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                Historique
               </a>
             </div>
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4" style={{ backgroundColor: "#0944A1" }}>
