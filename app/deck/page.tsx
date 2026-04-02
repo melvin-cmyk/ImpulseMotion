@@ -1188,7 +1188,7 @@ export default function DeckPage() {
                   const c = clients.find((cl) => cl.id === e.target.value);
                   if (c) setSelectedClient(c);
                 }}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -1223,7 +1223,7 @@ export default function DeckPage() {
               <select
                 value={selectedGoogleCustomerId}
                 onChange={(e) => setSelectedGoogleCustomerId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
               >
                 <option value="">— Aucun compte Google Ads —</option>
                 {clients
@@ -1252,7 +1252,7 @@ export default function DeckPage() {
                 const p = periods.find((pp) => pp.month === e.target.value);
                 if (p) setSelectedPeriod(p);
               }}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               {periods.map((p) => (
                 <option key={p.month} value={p.month}>
@@ -1313,7 +1313,7 @@ export default function DeckPage() {
               onChange={(e) => setUserContext(e.target.value)}
               placeholder="Ex: Vue d'ensemble Meta + top créatifs + analyse campagnes + prochaines étapes"
               rows={3}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
             />
             <div className="mt-2 text-xs text-gray-400">
               L&apos;IA construira des slides dynamiques basées sur les données réelles et votre demande.
