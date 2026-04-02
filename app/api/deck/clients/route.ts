@@ -173,13 +173,23 @@ export async function GET() {
   }
 
   // Fetch Meta accounts directly (fast, ~1s) + Google via relay in parallel
+  let metaAuthExpired = false;
   const [metaAccounts, googleRaw] = await Promise.all([
     getAdAccounts(metaToken).catch((e) => {
-      console.log("[deck/clients] Meta direct API error:", String(e));
-      return [];
+      const msg = String(e);
+      console.log("[deck/clients] Meta direct API error:", msg);
+      // Detect expired/invalid token (Facebook error codes 190, 102, 2500)
+      if (msg.includes("190") || msg.includes("Invalid OAuth") || msg.includes("token") || msg.includes("401") || msg.includes("OAuthException")) {
+        metaAuthExpired = true;
+      }
+      return [] as import("@/lib/meta-api").MetaAdAccount[];
     }),
     fetchGoogleCustomers(45000),
   ]);
+
+  if (metaAuthExpired) {
+    return NextResponse.json({ clients: [], needsAuth: true, reason: "token_expired" });
+  }
 
   console.log(`[deck/clients] Meta: ${metaAccounts.length} accounts, Google: ${googleRaw.length} customers`);
   if (googleRaw.length > 0) {
