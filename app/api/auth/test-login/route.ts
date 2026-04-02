@@ -26,6 +26,21 @@ export async function GET(request: Request) {
     });
   }
 
+  // Inject a fake Facebook account so metaAccessToken is non-null in the session callback.
+  // Pass ?meta_token=<real_token> to test with a real Meta token.
+  const metaToken = searchParams.get("meta_token") ?? "FAKE_META_TOKEN_TEST";
+  await prisma.account.upsert({
+    where: { provider_providerAccountId: { provider: "facebook", providerAccountId: user.id } },
+    update: { access_token: metaToken },
+    create: {
+      userId: user.id,
+      type: "oauth",
+      provider: "facebook",
+      providerAccountId: user.id,
+      access_token: metaToken,
+    },
+  });
+
   // Create session (30 days)
   const sessionToken = randomUUID();
   const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
