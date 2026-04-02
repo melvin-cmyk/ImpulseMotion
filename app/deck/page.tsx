@@ -1261,7 +1261,7 @@ export default function DeckPage() {
             >
               {periods.map((p) => (
                 <option key={p.month} value={p.month}>
-                  {p.label} ({p.startDate} → {p.endDate})
+                  {p.label}
                 </option>
               ))}
             </select>
