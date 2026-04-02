@@ -633,8 +633,8 @@ export function TopCreativesSlide({
                 </div>
               </div>
               <div className="p-[6%]">
-                <div className="text-[1.2%] font-bold truncate mb-[4%]">{c.name}</div>
-                <div className="grid grid-cols-2 gap-[4%] text-[1%]">
+                <div className="text-[1.6%] font-bold truncate mb-[4%]">{c.name}</div>
+                <div className="grid grid-cols-2 gap-[4%] text-[1.4%]">
                   <div>
                     <span style={{ color: colors.caption }}>Spend</span>
                     <div className="font-semibold">{fmtCur(c.spend)}</div>
@@ -893,11 +893,11 @@ export function KPIOverviewSlide({
 } & EditCallbacks) {
   const sn = slideNumber ?? 0;
   const kpis = [
-    { label: "Spend", key: "spend", value: fmtCur(metrics.spend) },
+    { label: "Dépense", key: "spend", value: fmtCur(metrics.spend) },
     { label: "Impressions", key: "impressions", value: fmtK(metrics.impressions) },
-    { label: "Clicks", key: "clicks", value: fmtK(metrics.clicks) },
+    { label: "Clics", key: "clicks", value: fmtK(metrics.clicks) },
     { label: "Conversions", key: "conversions", value: String(Math.round(metrics.conversions)) },
-    { label: "Revenue", key: "revenue", value: fmtCur(metrics.revenue) },
+    { label: "Revenus", key: "revenue", value: fmtCur(metrics.revenue) },
     { label: "ROAS", key: "roas", value: fmtDec(metrics.roas) + "×" },
     { label: "CPA", key: "cpa", value: "€" + fmtDec(metrics.cpa) },
     { label: "CTR", key: "ctr", value: fmtPct(metrics.ctr) },
@@ -922,11 +922,11 @@ export function KPIOverviewSlide({
             const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
             return (
             <div key={k.label} className="rounded-[8px] p-[5%] text-center" style={{ backgroundColor: colors.bgAlt }}>
-              <div className="text-[1.2%] mb-[4%]" style={{ color: colors.caption }}>
+              <div className="text-[1.8%] mb-[3%] font-medium" style={{ color: colors.caption }}>
                 {k.label}
               </div>
               <div
-                className="text-[2.8%] font-black"
+                className="text-[3.2%] font-black"
                 style={{ fontFamily: "'Mulish', 'Arial Black', sans-serif", color: accentColor }}
               >
                 {onEdit ? <EditableText field={`kpi.${k.key}`} slideIndex={sn} currentValue={override} onEdit={onEdit}>{override}</EditableText> : override}

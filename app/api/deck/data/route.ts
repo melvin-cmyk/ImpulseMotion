@@ -260,7 +260,7 @@ async function fetchMetaData(
 
     const overviewFields = "impressions,reach,clicks,spend,ctr,cpc,cpm,actions,action_values";
     const campaignFields = "campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
-    const adFields = "ad_name,adset_name,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
+    const adFields = "ad_name,adset_name,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values,creative{thumbnail_url,image_url}";
 
     // Fire 4 parallel direct Graph API calls
     const [overviewRaw, prevOverviewRaw, campaignsRaw, creativesRaw] = await Promise.allSettled([
@@ -368,7 +368,14 @@ async function fetchMetaData(
           cpa: conversions > 0 && spend > 0 ? spend / conversions : toNum(cr.cpa ?? cr.cost_per_purchase),
           impressions: toNum(cr.impressions),
           hookRate: cr.hook_rate !== undefined ? toNum(cr.hook_rate) : undefined,
-          thumbnailUrl: cr.thumbnail_url ? String(cr.thumbnail_url) : undefined,
+          thumbnailUrl: (() => {
+            // Direct thumbnail_url field OR nested creative object
+            if (cr.thumbnail_url) return String(cr.thumbnail_url);
+            const creative = cr.creative as Record<string, unknown> | undefined;
+            if (creative?.thumbnail_url) return String(creative.thumbnail_url);
+            if (creative?.image_url) return String(creative.image_url);
+            return undefined;
+          })(),
         };
       });
     }
