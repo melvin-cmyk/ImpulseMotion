@@ -161,7 +161,11 @@ interface SlideConfig {
   }) => React.ReactNode;
 }
 
-function buildSlides(): SlideConfig[] {
+function buildSlides(hasGoogle: boolean): SlideConfig[] {
+  // Section numbers adapt: if Google Ads is hidden, Meta becomes 02, Budget becomes 03
+  const metaNum = hasGoogle ? "03" : "02";
+  const budgetNum = hasGoogle ? "04" : "03";
+
   return [
     // Cover & Agenda
     { id: "cover", label: "Cover", section: 0, dark: true, render: (d, n, cb) => <CoverSlide data={d} slideNumber={n} {...cb} /> },
@@ -181,16 +185,16 @@ function buildSlides(): SlideConfig[] {
     { id: "insights-google", label: "Insights Google", section: 2, render: (d, n, cb) => <LearningsSlide learnings={d.insightsGoogle} slideNumber={n} {...cb} /> },
     { id: "next-google", label: "Next Steps Google", section: 2, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Google Ads" steps={d.nextStepsGoogle} slideNumber={n} {...cb} /> },
 
-    // Section 3 — Meta Ads
-    { id: "s3-div", label: "Section 3", section: 3, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="03" title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Learnings" slideNumber={n} {...cb} /> },
+    // Section 3 — Meta Ads (or 02 if no Google)
+    { id: "s3-div", label: `Section ${hasGoogle ? 3 : 2}`, section: 3, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={metaNum} title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Learnings" slideNumber={n} {...cb} /> },
     { id: "meta-kpi", label: "Meta KPIs", section: 3, render: (d, n, cb) => <KPIOverviewSlide title="Meta Ads — Vue Globale" metrics={d.metaOverview} accent="violet" slideNumber={n} {...cb} /> },
     { id: "meta-campaigns", label: "Campagnes Meta", section: 3, render: (d, n, cb) => <CampaignTableSlide title="Meta Ads — Campagnes" campaigns={d.metaCampaigns} accent="violet" slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} {...cb} /> },
     { id: "top-creatives", label: "Top Créatives", section: 3, render: (d, n) => <TopCreativesSlide creatives={d.topCreatives} slideNumber={n} /> },
     { id: "insights-meta", label: "Insights Meta", section: 3, render: (d, n, cb) => <LearningsSlide learnings={d.insightsMeta} accent="violet" slideNumber={n} {...cb} /> },
     { id: "next-meta", label: "Next Steps Meta", section: 3, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Meta Ads" steps={d.nextStepsMeta} accent="violet" slideNumber={n} {...cb} /> },
 
-    // Section 4 — Next Steps & Budget
-    { id: "s4-div", label: "Section 4", section: 4, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="04" title="Next Steps & Budget" subtitle="Actions globales · Budget mensuel" slideNumber={n} {...cb} /> },
+    // Section 4 — Next Steps & Budget (or 03 if no Google)
+    { id: "s4-div", label: `Section ${hasGoogle ? 4 : 3}`, section: 4, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={budgetNum} title="Next Steps & Budget" subtitle="Actions globales · Budget mensuel" slideNumber={n} {...cb} /> },
     { id: "next-global", label: "Next Steps Global", section: 4, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Global" steps={d.nextStepsGlobal} slideNumber={n} {...cb} /> },
     { id: "budget", label: "Budget", section: 4, render: (d, n, cb) => <BudgetSlide budget={d.budget} period={d.period.label} slideNumber={n} {...cb} /> },
   ];
@@ -343,9 +347,9 @@ export default function DeckPage() {
     (els) => setSlideElements((prev) => ({ ...prev, [currentSlide]: els }))
   );
   const staticSlides = useMemo(() => {
-    const all = buildSlides();
     // If the selected client has no Google Ads, hide Google Ads section (slides 8-12)
-    const hasGoogle = selectedClient?.googleCustomerId || selectedClient?.platform === "google" || selectedClient?.platform === "both";
+    const hasGoogle = !!(selectedClient?.googleCustomerId || selectedClient?.platform === "google" || selectedClient?.platform === "both");
+    const all = buildSlides(hasGoogle);
     return hasGoogle ? all : all.filter(s => s.section !== 2);
   }, [selectedClient]);
   const slides = useMemo(() => aiSlidesMode ? [] : staticSlides, [aiSlidesMode, staticSlides]);

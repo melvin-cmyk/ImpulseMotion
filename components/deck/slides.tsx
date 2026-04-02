@@ -601,19 +601,36 @@ export function TopCreativesSlide({
               className="rounded-[8px] overflow-hidden"
               style={{ backgroundColor: colors.bgAlt }}
             >
-              {/* Thumbnail placeholder */}
+              {/* Thumbnail */}
               <div
-                className="w-full aspect-[16/10] flex items-center justify-center"
+                className="w-full aspect-[16/10] flex items-center justify-center relative overflow-hidden"
                 style={{ backgroundColor: "#E0E7FF" }}
               >
                 {c.thumbnailUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.thumbnailUrl} alt={c.name} className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-[1.4%] font-semibold" style={{ color: colors.violet }}>
+                  <img
+                    src={c.thumbnailUrl}
+                    alt={c.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      target.style.display = "none";
+                      const fallback = target.nextElementSibling as HTMLElement;
+                      if (fallback) fallback.style.display = "flex";
+                    }}
+                  />
+                ) : null}
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-[4%]"
+                  style={{ display: c.thumbnailUrl ? "none" : "flex" }}
+                >
+                  <span className="text-[2.4%]">
+                    {c.format === "Video" ? "🎬" : c.format === "Carousel" ? "🎠" : "🖼️"}
+                  </span>
+                  <span className="text-[1.2%] font-semibold text-center px-[8%]" style={{ color: colors.violet }}>
                     {c.format}
                   </span>
-                )}
+                </div>
               </div>
               <div className="p-[6%]">
                 <div className="text-[1.2%] font-bold truncate mb-[4%]">{c.name}</div>
