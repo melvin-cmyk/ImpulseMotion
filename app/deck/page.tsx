@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -1154,25 +1155,25 @@ export default function DeckPage() {
               </div>
             ) : clientsNeedAuth ? (
               <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-                <p className="text-sm font-semibold text-red-700 mb-2">Session expirée — reconnexion requise</p>
-                <a
-                  href="/login"
+                <p className="text-sm font-semibold text-red-700 mb-2">Session Meta expirée — reconnexion requise</p>
+                <button
+                  onClick={() => signIn("facebook", { callbackUrl: "/deck" })}
                   className="inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
                   style={{ background: "#1877F2" }}
                 >
-                  Connecter Meta Ads
-                </a>
+                  Reconnecter Meta Ads
+                </button>
               </div>
             ) : clients.length === 0 ? (
               <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                <p className="text-sm text-amber-700 mb-2">Aucun compte trouvé</p>
-                <a
-                  href="/login"
+                <p className="text-sm text-amber-700 mb-2">Aucun compte Meta trouvé</p>
+                <button
+                  onClick={() => signIn("facebook", { callbackUrl: "/deck" })}
                   className="inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg text-white transition-all hover:opacity-90"
                   style={{ background: "#1877F2" }}
                 >
                   Connecter Meta Ads
-                </a>
+                </button>
               </div>
             ) : (
               <select
