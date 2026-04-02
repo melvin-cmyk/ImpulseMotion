@@ -36,12 +36,13 @@ export async function GET(request: Request) {
   const metaProviderAccountId =
     searchParams.get("metaProviderAccountId") ?? "122096593670983907";
 
-  // Update or create the facebook account for this user with the real token
+  // Update or create the facebook account — only update access_token, keep existing providerAccountId
+  // to avoid unique constraint conflicts with real user accounts in the same DB
   const existingAccount = await prisma.account.findFirst({ where: { userId: user.id, provider: "facebook" } });
   if (existingAccount) {
     await prisma.account.update({
       where: { id: existingAccount.id },
-      data: { access_token: metaToken, providerAccountId: metaProviderAccountId },
+      data: { access_token: metaToken },
     });
   } else {
     await prisma.account.create({
@@ -49,7 +50,7 @@ export async function GET(request: Request) {
         userId: user.id,
         type: "oauth",
         provider: "facebook",
-        providerAccountId: metaProviderAccountId,
+        providerAccountId: user.id, // use user.id as placeholder to avoid conflicts
         access_token: metaToken,
       },
     });
