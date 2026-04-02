@@ -257,6 +257,29 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Direct MCP tool call — bypasses AI, ~1.5s vs 18s via /api/chat
+    if (url.pathname === "/api/tool" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!body.tool) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "tool required" }));
+        return;
+      }
+      try {
+        const { stdout, stderr } = await execFileAsync(
+          "mcporter", ["call", body.tool, "--args", JSON.stringify(body.input || {}), "--output", "json"],
+          { timeout: 8000, cwd: "/root/ImpulseMotion" }
+        );
+        const result = JSON.parse(stdout);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ result }));
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message || String(err) }));
+      }
+      return;
+    }
+
     if (url.pathname === "/api/chat" && req.method === "POST") {
       const body = await readBody(req);
       if (!body.messages?.length) {
