@@ -33,75 +33,29 @@ export interface DeckClientResult {
 let clientCache: { data: { clients: DeckClientResult[] }; ts: number } | null = null;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-/** Robust relay chat — same logic as data/route.ts, extracts tool_result events preferentially */
-async function relayChat(prompt: string, timeoutMs = 60000): Promise<string> {
+/** Direct MCP tool call via /api/tool — bypasses AI, ~1s vs 18s via /api/chat */
+async function relaySingleTool(tool: string, input: Record<string, unknown> = {}, timeoutMs = 6000): Promise<unknown> {
   let lastError: Error | null = null;
   for (const url of RELAY_URLS) {
     const isLocalhost = url.includes("localhost");
-    const actualTimeout = isLocalhost ? Math.min(timeoutMs, 5000) : timeoutMs;
+    const actualTimeout = isLocalhost ? Math.min(timeoutMs, 2000) : timeoutMs;
     try {
-      const res = await fetch(`${url}/api/chat`, {
+      const res = await fetch(`${url}/api/tool`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ tool, input }),
         signal: AbortSignal.timeout(actualTimeout),
       });
-      if (!res.ok) { lastError = new Error(`Relay ${url} responded ${res.status}`); continue; }
-
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("No response body");
-
-      const decoder = new TextDecoder();
-      let fullText = "";
-      let toolResultText = "";
-      let buffer = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6).trim();
-          if (!data || data === "[DONE]") continue;
-          try {
-            const event = JSON.parse(data);
-            // Raw MCP tool output — highest priority
-            if (event.type === "tool_result" && typeof event.content === "string") { toolResultText += event.content; continue; }
-            if (event.type === "delta" && typeof event.text === "string") { fullText += event.text; continue; }
-            if (event.type === "content" && typeof event.text === "string") { fullText = event.text; continue; }
-            if (event.type === "content" && typeof event.content === "string") { fullText = event.content; continue; }
-            if (event.type === "content_block_delta" && event.delta?.type === "text_delta") { fullText += event.delta.text; continue; }
-            if (event.choices?.[0]?.delta?.content) { fullText += event.choices[0].delta.content; continue; }
-            if (event.type === "text" && typeof event.text === "string") { fullText += event.text; continue; }
-          } catch { fullText += data; }
-        }
-      }
-
-      const result = toolResultText.trim() || fullText.trim();
-      console.log(`[deck/clients] relay ${url} toolResult=${toolResultText.length}b fullText=${fullText.length}b`);
-      if (result) return result;
-      lastError = new Error(`Empty response from ${url}`);
+      if (!res.ok) { lastError = new Error(`Relay ${url} /api/tool responded ${res.status}`); continue; }
+      const json = await res.json() as { result?: unknown; error?: string };
+      if (json.error) { lastError = new Error(json.error); continue; }
+      return json.result;
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
-      console.log(`[deck/clients] relay ${url} error:`, String(e));
+      console.log(`[deck/clients] relay ${url} /api/tool error:`, String(e));
     }
   }
-  throw lastError ?? new Error("All relay URLs failed");
-}
-
-function extractJson<T>(text: string): T | null {
-  const stripped = text.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
-  for (const candidate of [stripped, text]) {
-    const objectMatch = candidate.match(/\{[\s\S]*\}/);
-    const arrayMatch = candidate.match(/\[[\s\S]*\]/);
-    const match = objectMatch || arrayMatch;
-    if (!match) continue;
-    try { return JSON.parse(match[0]) as T; } catch { /* try next */ }
-  }
-  return null;
+  throw lastError ?? new Error("All relay URLs failed for /api/tool");
 }
 
 /** Normalize a raw parsed value (array or GAQL object) into {id, name} pairs */
@@ -130,22 +84,50 @@ function normalizeGoogleCustomers(raw: unknown): Array<{ id?: string; name?: str
   return [];
 }
 
-/** Call the relay for Google Ads customers list — optional, times out gracefully */
-async function fetchGoogleCustomers(timeoutMs = 8000): Promise<Array<{ id?: string; name?: string }>> {
+/** Fetch Google Ads account name via GAQL for a single customer_id */
+async function fetchGoogleAccountName(customerId: string, timeoutMs = 4000): Promise<string | null> {
   try {
-    const text = await relayChat(
-      `Call the tool mcp__mcp-google-ads__List_Customers with no parameters. ` +
-      `Return ONLY a valid JSON array of objects with "id" (format "XXX-XXX-XXXX") and "name" (descriptive_name) fields. ` +
-      `No explanation, no markdown, no text before or after. Example: [{"id":"123-456-7890","name":"My Account"}]`,
-      timeoutMs
-    );
-    const parsed = extractJson<unknown>(text);
-    if (parsed) {
-      const normalized = normalizeGoogleCustomers(parsed);
+    const gaql = JSON.stringify({
+      customer_id: customerId,
+      gaql_query: "SELECT customer.id, customer.descriptive_name FROM customer",
+    });
+    const result = await relaySingleTool("mcp-google-ads.Custom_GAQL_Query", { input: gaql }, timeoutMs);
+    if (Array.isArray(result)) {
+      const row = result[0]?.results?.[0]?.customer;
+      return row?.descriptiveName || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Call the relay for Google Ads customers list via direct /api/tool — fast (~2s) */
+async function fetchGoogleCustomers(timeoutMs = 6000): Promise<Array<{ id?: string; name?: string }>> {
+  try {
+    const result = await relaySingleTool("mcp-google-ads.List_Customers", { input: "{}" }, timeoutMs);
+    let ids: string[] = [];
+
+    // Format: {"resourceNames": ["customers/XXX"]}
+    if (result && typeof result === "object" && Array.isArray((result as { resourceNames?: string[] }).resourceNames)) {
+      ids = ((result as { resourceNames: string[] }).resourceNames).map((rn: string) => rn.replace("customers/", ""));
+    } else {
+      const normalized = normalizeGoogleCustomers(result);
       if (normalized.length > 0) return normalized;
     }
-    console.log("[deck/clients] Google Ads response not parseable, raw:", text.slice(0, 300));
-    return [];
+
+    if (ids.length === 0) return [];
+
+    // Fetch names in parallel (with per-account fallback to ID if GAQL fails)
+    const perAccountTimeout = Math.max(2000, Math.floor((timeoutMs - 2000) / ids.length));
+    const customers = await Promise.all(
+      ids.map(async (id) => {
+        const name = await fetchGoogleAccountName(id, perAccountTimeout);
+        return { id, name: name || id };
+      })
+    );
+    console.log("[deck/clients] Google customers with names:", JSON.stringify(customers));
+    return customers;
   } catch (e) {
     console.log("[deck/clients] fetchGoogleCustomers failed:", String(e));
     return [];
