@@ -333,6 +333,7 @@ export default function DeckPage() {
   const activeFilmstripItemRef = useRef<HTMLButtonElement>(null);
   const [slideTransition, setSlideTransition] = useState(false);
   const [editMode, setEditMode] = useState(true);
+  const [showAiPanel, setShowAiPanel] = useState(true);
   const [editingCustomSlideId, setEditingCustomSlideId] = useState<string | null>(null);
   const [selectedGoogleCustomerId, setSelectedGoogleCustomerId] = useState<string>("");
   const [blockStyles, setBlockStyles] = useState<Record<string, { headerColor: string; rowColor: string; fontSize: number; fontFamily: string; textColor: string; borderColor: string; borderWidth: number }>>({});
@@ -1563,6 +1564,20 @@ export default function DeckPage() {
           Google Slides
         </button>
 
+        {/* AI panel toggle */}
+        <button
+          onClick={() => setShowAiPanel((v) => !v)}
+          title={showAiPanel ? "Masquer l'assistant IA" : "Afficher l'assistant IA"}
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors flex-shrink-0 ${
+            showAiPanel
+              ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+              : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          {showAiPanel ? "IA ▶" : "IA ◀"}
+        </button>
+
         {/* Edit mode toggle */}
         <button
           onClick={() => setEditMode((v) => !v)}
@@ -1583,7 +1598,7 @@ export default function DeckPage() {
       <div className="flex-1 flex overflow-hidden">
 
         {/* ── LEFT: Filmstrip + Slide Viewer (60-65%) ───────────────────── */}
-        <div className="flex-1 flex overflow-hidden" style={{ flex: "0 0 62%" }}>
+        <div className="flex-1 flex overflow-hidden" style={{ flex: showAiPanel ? "0 0 62%" : "1 1 100%" }}>
           {/* Filmstrip sidebar */}
           <div className="w-48 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
             {/* Filmstrip progress indicator */}
@@ -2200,7 +2215,7 @@ export default function DeckPage() {
         </div>
 
         {/* ── RIGHT: AI Panel (38%) ─────────────────────────────────────── */}
-        <div style={{ flex: "0 0 38%" }} className="overflow-hidden">
+        {showAiPanel && <div style={{ flex: "0 0 38%" }} className="overflow-hidden">
           <AIPanel
             deckData={deckData}
             currentSlideIndex={currentSlide}
@@ -2219,7 +2234,7 @@ export default function DeckPage() {
             onSetNote={handleSetNote}
             currentSlideNote={currentSlideNote}
           />
-        </div>
+        </div>}
       </div>
       </SlideStyleContext.Provider>
 
