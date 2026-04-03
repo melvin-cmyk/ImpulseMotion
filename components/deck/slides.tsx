@@ -104,8 +104,12 @@ export function CoverSlide({ data, slideNumber, onEdit, getOverride }: { data: D
 // ── 2. Agenda Slide ──────────────────────────────────────────────────────────
 
 export function AgendaSlide({ data }: { data: DeckData }) {
-  const hasGoogle = (data.googleOverview?.spend ?? 0) > 0;
-  const hasMeta = (data.metaOverview?.spend ?? 0) > 0;
+  // Use client account config, not spend, to determine active platforms
+  // (spend can be 0 on first render before data loads)
+  const platform = data.client.platform;
+  const hasGoogle = !!(data.client.googleCustomerId || platform === "google" || platform === "both");
+  const hasMeta = !!(data.client.metaAccountId || platform === "meta" || platform === "both")
+    || (!hasGoogle && !data.client.metaAccountId && !data.client.googleCustomerId); // fallback: assume Meta if nothing set
   let sectionNum = 1;
   const sections = [
     { num: String(sectionNum++).padStart(2, "0"), title: "Vue Globale", sub: "Highlights · Tableau Global · NC/CP-NC" },
