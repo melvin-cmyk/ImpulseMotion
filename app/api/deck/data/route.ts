@@ -484,6 +484,107 @@ interface AiTextContent {
   nextStepsMeta: string[];
 }
 
+// Deterministic insight generator — no relay/AI call needed, always correct
+function generateInsightsFromData(
+  data: {
+    googleOverview: PlatformMetrics | null;
+    metaOverview: PlatformMetrics | null;
+    clientName: string;
+    periodLabel: string;
+  }
+): AiTextContent {
+  const fmtC = (n: number) => `${n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`;
+  const fmtX = (n: number) => `${n.toFixed(2)}x`;
+  const fmtPct = (n: number) => `${n.toFixed(2)}%`;
+  const pctDelta = (curr: number, prev: number) => prev > 0 ? ((curr - prev) / prev) * 100 : 0;
+  const sign = (n: number) => n >= 0 ? "+" : "";
+
+  const m = data.metaOverview;
+  const g = data.googleOverview;
+
+  // ── Meta insights ─────────────────────────────────────────────────────────
+  const insightsMeta: string[] = [];
+  const nextStepsMeta: string[] = [];
+  if (m && m.spend > 0) {
+    // ROAS assessment
+    if (m.roas >= 4) insightsMeta.push(`ROAS Meta excellent à ${fmtX(m.roas)} — pour ${fmtC(m.spend)} dépensés, ${fmtC(m.revenue)} générés.`);
+    else if (m.roas >= 2) insightsMeta.push(`ROAS Meta correct à ${fmtX(m.roas)} — marge de progression vers les 4x.`);
+    else if (m.roas >= 1) insightsMeta.push(`ROAS Meta insuffisant à ${fmtX(m.roas)} — rentabilité à améliorer en priorité.`);
+    else insightsMeta.push(`ROAS Meta négatif à ${fmtX(m.roas)} — les campagnes coûtent plus qu'elles ne rapportent. Action urgente.`);
+
+    // CPA
+    insightsMeta.push(`CPA Meta à ${fmtC(m.cpa)} pour ${Math.round(m.conversions)} conversions — ${m.ctr >= 1 ? "CTR sain à " + fmtPct(m.ctr) : "CTR faible à " + fmtPct(m.ctr) + " (fatigue créative probable)"}.`);
+
+    // Spend / volume
+    insightsMeta.push(`Budget Meta investi : ${fmtC(m.spend)} pour ${Math.round(m.impressions / 1000)}k impressions et ${Math.round(m.clicks / 1000 * 10) / 10}k clics.`);
+
+    // Next steps Meta
+    if (m.roas < 2) nextStepsMeta.push("Revoir le mix créatif Meta — tester des angles UGC et témoignages pour améliorer le ROAS.");
+    if (m.ctr < 0.5) nextStepsMeta.push("Rafraîchir les créatives Meta : CTR sous 0,5% signale une fatigue. Rotation recommandée.");
+    else nextStepsMeta.push("Maintenir la cadence créative actuelle et tester 2-3 nouvelles variantes par campagne active.");
+    nextStepsMeta.push(`Scaler les campagnes avec CPA < ${fmtC(m.cpa * 0.8)} et mettre en pause celles au-dessus de ${fmtC(m.cpa * 1.3)}.`);
+    if (m.roas >= 3) nextStepsMeta.push("Augmenter le budget des campagnes top performers de +15-20% pour capitaliser sur le ROAS actuel.");
+  }
+
+  // ── Google insights ───────────────────────────────────────────────────────
+  const insightsGoogle: string[] = [];
+  const nextStepsGoogle: string[] = [];
+  if (g && g.spend > 0) {
+    if (g.roas >= 4) insightsGoogle.push(`ROAS Google excellent à ${fmtX(g.roas)} — pour ${fmtC(g.spend)} dépensés, ${fmtC(g.revenue)} générés.`);
+    else if (g.roas >= 2) insightsGoogle.push(`ROAS Google correct à ${fmtX(g.roas)} — optimisation possible vers les 4x.`);
+    else if (g.roas >= 1) insightsGoogle.push(`ROAS Google insuffisant à ${fmtX(g.roas)} — rentabilité à revoir.`);
+    else insightsGoogle.push(`ROAS Google négatif à ${fmtX(g.roas)} — campagnes non rentables. Action urgente.`);
+
+    insightsGoogle.push(`CPA Google à ${fmtC(g.cpa)} pour ${Math.round(g.conversions)} conversions — CTR ${g.ctr >= 2 ? "sain" : "faible"} à ${fmtPct(g.ctr)}.`);
+    insightsGoogle.push(`Budget Google investi : ${fmtC(g.spend)} pour ${Math.round(g.impressions / 1000)}k impressions et ${Math.round(g.clicks / 1000 * 10) / 10}k clics.`);
+
+    if (g.ctr < 2) nextStepsGoogle.push("Optimiser les annonces avec CTR faible — tester de nouveaux titres et descriptions.");
+    nextStepsGoogle.push(`Identifier et ajouter des negative keywords pour réduire le CPA actuel de ${fmtC(g.cpa)}.`);
+    if (g.roas >= 3) nextStepsGoogle.push("Augmenter les enchères sur les mots-clés à fort ROAS et réduire sur les non-convertisseurs.");
+    else nextStepsGoogle.push("Revoir la stratégie d'enchères — passer en Target CPA ou Target ROAS si volume suffisant.");
+  }
+
+  // ── Global learnings ──────────────────────────────────────────────────────
+  const learnings: string[] = [];
+  const nextStepsGlobal: string[] = [];
+
+  const hasMeta = m !== null && m.spend > 0;
+  const hasGoogle = g !== null && g.spend > 0;
+  const totalSpend = (m?.spend ?? 0) + (g?.spend ?? 0);
+  const totalRevenue = (m?.revenue ?? 0) + (g?.revenue ?? 0);
+  const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  const totalConv = Math.round((m?.conversions ?? 0) + (g?.conversions ?? 0));
+
+  if (hasMeta && hasGoogle) {
+    learnings.push(`ROAS global ${fmtX(globalRoas)} sur un budget total de ${fmtC(totalSpend)} — ${totalConv} conversions générées toutes plateformes.`);
+    const metaPct = Math.round(m!.spend / totalSpend * 100);
+    learnings.push(`Répartition budget : Meta ${metaPct}% / Google ${100 - metaPct}% — ${m!.roas > g!.roas ? "Meta plus rentable (ROAS " + fmtX(m!.roas) + " vs " + fmtX(g!.roas) + ")" : "Google plus rentable (ROAS " + fmtX(g!.roas) + " vs " + fmtX(m!.roas) + ")"}.`);
+    learnings.push(`${totalConv} conversions totales pour un investissement moyen de ${fmtC(totalSpend / totalConv)} par conversion.`);
+    nextStepsGlobal.push(`Réallouer budget vers la plateforme la plus rentable : ${m!.roas > g!.roas ? "augmenter Meta, réduire Google" : "augmenter Google, réduire Meta"}.`);
+    nextStepsGlobal.push("Définir des objectifs CPA cibles par plateforme et ajuster les budgets en conséquence.");
+    nextStepsGlobal.push(`Maintenir la dynamique actuelle : ${globalRoas >= 3 ? "excellent ROAS global, chercher à scaler" : "optimiser la rentabilité avant de scaler"}.`);
+  } else if (hasMeta) {
+    learnings.push(`Investissement Meta Ads de ${fmtC(m!.spend)} pour ${fmtC(m!.revenue)} de revenus générés — ROAS ${fmtX(m!.roas)}.`);
+    learnings.push(`${totalConv} conversions Meta à un CPA de ${fmtC(m!.cpa)} — ${m!.roas >= 3 ? "performance solide" : "marge d'amélioration identifiée"}.`);
+    learnings.push(`CTR Meta à ${fmtPct(m!.ctr)} — ${m!.ctr >= 1 ? "audiences bien ciblées, créatives performantes" : "signal de fatigue créative, rotation recommandée"}.`);
+    nextStepsGlobal.push(`${m!.roas >= 3 ? "Scaler le budget Meta de +15-20% sur les campagnes performantes" : "Optimiser le ROAS Meta avant d'augmenter le budget"}.`);
+    nextStepsGlobal.push("Tester l'activation de Google Ads pour diversifier les canaux d'acquisition.");
+    nextStepsGlobal.push("Analyser les créatives top performers et produire de nouvelles itérations.");
+  } else if (hasGoogle) {
+    learnings.push(`Investissement Google Ads de ${fmtC(g!.spend)} pour ${fmtC(g!.revenue)} de revenus — ROAS ${fmtX(g!.roas)}.`);
+    learnings.push(`${totalConv} conversions Google à un CPA de ${fmtC(g!.cpa)} — ${g!.roas >= 3 ? "performance solide" : "optimisation nécessaire"}.`);
+    learnings.push(`CTR Google à ${fmtPct(g!.ctr)} — ${g!.ctr >= 2 ? "annonces pertinentes" : "annonces à optimiser pour améliorer le CTR"}.`);
+    nextStepsGlobal.push(`${g!.roas >= 3 ? "Augmenter le budget Google Ads sur les campagnes rentables" : "Optimiser les campagnes avant de scaler"}.`);
+    nextStepsGlobal.push("Envisager d'activer Meta Ads pour diversifier les canaux d'acquisition.");
+    nextStepsGlobal.push("Auditer les mots-clés non-convertisseurs et les exclure.");
+  }
+
+  void pctDelta; void sign; // suppress unused var warnings
+
+  return { learnings, insightsGoogle, insightsMeta, nextStepsGlobal, nextStepsGoogle, nextStepsMeta };
+}
+
+// Keep as async to preserve interface compatibility; no longer calls relay
 async function fetchAiTextContent(
   data: {
     googleOverview: PlatformMetrics | null;
@@ -491,68 +592,8 @@ async function fetchAiTextContent(
     clientName: string;
     periodLabel: string;
   },
-  userContext?: string
 ): Promise<AiTextContent | null> {
-  const fmt = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const contextBlock = userContext ? `\n\nAdditional context from the analyst: ${userContext}` : "";
-
-  const hasGoogle = data.googleOverview !== null && data.googleOverview.spend > 0;
-  const hasMeta = data.metaOverview !== null && data.metaOverview.spend > 0;
-
-  const activePlatforms = [hasGoogle && "Google Ads", hasMeta && "Meta Ads"].filter(Boolean).join(" and ");
-  const platformNote = `ACTIVE PLATFORMS FOR THIS CLIENT: ${activePlatforms || "none"}. Generate insights ONLY for active platforms. Do NOT mention inactive platforms as if they have data.`;
-
-  const googleBlock = hasGoogle && data.googleOverview ? `
-Google Ads data (ACTIVE):
-- Spend: €${fmt(data.googleOverview.spend)}
-- Impressions: ${Math.round(data.googleOverview.impressions).toLocaleString()}
-- Clicks: ${Math.round(data.googleOverview.clicks).toLocaleString()}
-- Conversions: ${Math.round(data.googleOverview.conversions)}
-- Revenue: €${fmt(data.googleOverview.revenue)}
-- ROAS: ${fmt(data.googleOverview.roas)}x
-- CPA: €${fmt(data.googleOverview.cpa)}
-- CTR: ${fmt(data.googleOverview.ctr)}%` : "\nGoogle Ads: NOT ACTIVE for this client. insightsGoogle and nextStepsGoogle must be empty arrays [].";
-
-  const metaBlock = hasMeta && data.metaOverview ? `
-Meta Ads data (ACTIVE):
-- Spend: €${fmt(data.metaOverview.spend)}
-- Impressions: ${Math.round(data.metaOverview.impressions).toLocaleString()}
-- Clicks: ${Math.round(data.metaOverview.clicks).toLocaleString()}
-- Conversions: ${Math.round(data.metaOverview.conversions)}
-- Revenue: €${fmt(data.metaOverview.revenue)}
-- ROAS: ${fmt(data.metaOverview.roas)}x
-- CPA: €${fmt(data.metaOverview.cpa)}
-- CTR: ${fmt(data.metaOverview.ctr)}%` : "\nMeta Ads: NOT ACTIVE for this client. insightsMeta and nextStepsMeta must be empty arrays [].";
-
-  const prompt = `You are an expert digital marketing analyst. Based on the following real ad performance data for ${data.clientName} (${data.periodLabel}), generate concise bullet points for a Monthly Business Review deck.${contextBlock}
-
-${platformNote}
-${googleBlock}
-${metaBlock}
-
-Generate exactly this JSON structure (no markdown, no explanation, just raw JSON):
-{
-  "learnings": ["3-4 key learnings about overall performance this month based ONLY on active platforms"],
-  "insightsGoogle": ["3-4 insights specific to Google Ads — empty array [] if Google not active"],
-  "insightsMeta": ["3-4 insights specific to Meta Ads — empty array [] if Meta not active"],
-  "nextStepsGlobal": ["3-4 global action items for next month based ONLY on active platforms"],
-  "nextStepsGoogle": ["3-4 specific Google Ads optimisations — empty array [] if Google not active"],
-  "nextStepsMeta": ["3-4 specific Meta Ads optimisations — empty array [] if Meta not active"]
-}`;
-
-  try {
-    const text = await relayChat(prompt, 25000);
-    const result = extractJson<AiTextContent>(text);
-    if (!result) return null;
-    // Validate structure
-    const keys: (keyof AiTextContent)[] = ["learnings", "insightsGoogle", "insightsMeta", "nextStepsGlobal", "nextStepsGoogle", "nextStepsMeta"];
-    for (const key of keys) {
-      if (!Array.isArray(result[key])) return null;
-    }
-    return result;
-  } catch {
-    return null;
-  }
+  return generateInsightsFromData(data);
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -621,19 +662,13 @@ export async function POST(req: NextRequest) {
   const googlePrevOverview = google?.prevOverview ?? zeroMetrics();
 
   // Fetch AI text content with a tight budget (20s max) — non-blocking if it fails
-  const aiTextPromise = Promise.race([
-    fetchAiTextContent(
-      {
-        // Pass null when there's no account — tells AI "not active"
-        googleOverview: client.googleCustomerId ? googleOverview : null,
-        metaOverview: client.metaAccountId ? metaOverview : null,
-        clientName: client.name,
-        periodLabel: period.label,
-      },
-      userContext
-    ),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), 30000)),
-  ]);
+  const aiTextPromise = fetchAiTextContent({
+    // Pass null when there's no account — generator skips that platform
+    googleOverview: client.googleCustomerId ? googleOverview : null,
+    metaOverview: client.metaAccountId ? metaOverview : null,
+    clientName: client.name,
+    periodLabel: period.label,
+  });
 
   // Global totals
   const totalCurrent: PlatformMetrics = {
