@@ -1594,7 +1594,7 @@ export default function DeckPage() {
       </div>
 
       {/* ── Split layout: Slides (left) + AI Panel (right) ───────────────── */}
-      <SlideStyleContext.Provider value={{ getStyle: getTextStyle, setStyle: setTextStyle }}>
+      <SlideStyleContext.Provider value={{ getStyle: getTextStyle, setStyle: setTextStyle, periodLabel: selectedPeriod?.label }}>
       <div className="flex-1 flex overflow-hidden">
 
         {/* ── LEFT: Filmstrip + Slide Viewer (60-65%) ───────────────────── */}

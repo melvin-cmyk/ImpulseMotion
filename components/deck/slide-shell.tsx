@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { usePeriodLabel } from "./slide-style-context";
 
 /**
  * SlideShell — wrapper that renders a 16:9 slide preview card
@@ -19,6 +20,8 @@ interface SlideShellProps {
   slideNumber?: number;
   /** Source label in footer */
   source?: string;
+  /** Period label shown in footer (e.g. "Mars 2026") — replaces current date */
+  periodLabel?: string;
 }
 
 export function SlideShell({
@@ -28,8 +31,11 @@ export function SlideShell({
   className,
   slideNumber,
   source,
+  periodLabel: periodLabelProp,
 }: SlideShellProps) {
   const accentColor = accent === "violet" ? "#7F5AFD" : "#2CA6F9";
+  const contextPeriodLabel = usePeriodLabel();
+  const periodLabel = periodLabelProp ?? contextPeriodLabel;
 
   return (
     <div
@@ -62,7 +68,7 @@ export function SlideShell({
             Impulse Analytics.
           </span>
           <span style={{ color: "#CCCCCC", fontStyle: "italic" }}>
-            {source || `Source : Meta Ads & Google Ads — ${new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
+            {source || `Source : Meta Ads & Google Ads — ${periodLabel ?? new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}`}
             {slideNumber != null && ` · Slide ${slideNumber}`}
           </span>
         </div>

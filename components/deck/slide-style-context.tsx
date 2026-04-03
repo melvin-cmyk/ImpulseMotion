@@ -11,10 +11,16 @@ export interface TextStyle {
 interface SlideStyleContextType {
   getStyle: (slideIndex: number, field: string) => TextStyle;
   setStyle: (slideIndex: number, field: string, style: Partial<TextStyle>) => void;
+  periodLabel?: string;
 }
 
 export const SlideStyleContext = createContext<SlideStyleContextType | null>(null);
 
 export function useSlideStyle() {
   return useContext(SlideStyleContext);
+}
+
+/** Read the period label from the nearest SlideStyleContext */
+export function usePeriodLabel() {
+  return useContext(SlideStyleContext)?.periodLabel;
 }
