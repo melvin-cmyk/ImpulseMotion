@@ -13,7 +13,7 @@ const SECTIONS = [
   { id: "google", label: "Google Ads (KPIs, campagnes, insights, next steps)" },
   { id: "meta", label: "Meta Ads (KPIs, campagnes, créatives, insights, next steps)" },
   { id: "budget", label: "Budget prévisionnel" },
-  { id: "learnings", label: "Learnings & recommandations globales" },
+  { id: "learnings", label: "Points Clés & recommandations globales" },
 ];
 
 export default function DeckBuilderPage() {

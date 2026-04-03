@@ -1,6 +1,6 @@
 /**
  * GET /api/deck/proxy-image?url=...
- * Fetches an external image server-side (avoids browser CORS) and returns it as base64.
+ * Fetches an external image server-side (avoids browser CORS/mixed-content) and streams it back.
  */
 import { NextRequest, NextResponse } from "next/server";
 
@@ -14,8 +14,12 @@ export async function GET(req: NextRequest) {
 
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
     const buffer = await res.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
-    return NextResponse.json({ dataUrl: `data:${contentType};base64,${base64}` });
+    return new NextResponse(buffer, {
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=86400",
+      },
+    });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 502 });
   }

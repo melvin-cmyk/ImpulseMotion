@@ -348,7 +348,7 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
         </div>
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
-        <table className="w-full text-[1.2%] border-collapse">
+        <table className="w-full text-[1.4%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
               <th className="text-left px-[1%] py-[0.8%] font-semibold">Plateforme</th>
@@ -522,7 +522,7 @@ export function CampaignTableSlide({
             Aucune campagne disponible pour cette période.
           </div>
         ) : (
-        <table className="w-full text-[1.1%] border-collapse">
+        <table className="w-full text-[1.3%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
               <th className="text-left px-[0.8%] py-[0.6%] font-semibold">Campagne</th>
@@ -610,7 +610,7 @@ export function TopCreativesSlide({
                 {c.thumbnailUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={c.thumbnailUrl}
+                    src={`/api/deck/proxy-image?url=${encodeURIComponent(c.thumbnailUrl)}`}
                     alt={c.name}
                     className="w-full h-full object-cover"
                     onError={(e) => {
@@ -682,13 +682,13 @@ export function LearningsSlide({
           className="text-[2.8%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
         >
-          Learnings
+          Points Clés
         </h2>
         <div className="w-full h-[1px] mb-[3%]" style={{ backgroundColor: colors.caption }} />
 
         <div className="rounded-[12px] p-[4%]" style={{ backgroundColor: colors.blueDeep }}>
           <div className="text-[1.4%] font-bold mb-[2%]" style={{ color: colors.blueSignature }}>
-            // LEARNINGS
+            // POINTS CLÉS
           </div>
           <ul className="space-y-[2%]">
             {learnings.map((l, i) => {

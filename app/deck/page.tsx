@@ -90,7 +90,7 @@ function extractSlideMarkdown(slideId: string, label: string, data: DeckData): s
     }
 
     case "learnings-global":
-      return `# Learnings Global — ${data.period.label}\n\n${data.learnings.map(l => `- ${l}`).join("\n")}`;
+      return `# Points Clés Global — ${data.period.label}\n\n${data.learnings.map(l => `- ${l}`).join("\n")}`;
 
     case "google-kpi": {
       const m = data.googleOverview;
@@ -172,25 +172,25 @@ function buildSlides(hasGoogle: boolean): SlideConfig[] {
     { id: "agenda", label: "Agenda", section: 0, render: (d) => <AgendaSlide data={d} /> },
 
     // Section 1 — Global Overview
-    { id: "s1-div", label: "Section 1", section: 1, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="01" title="Global Overview" subtitle="Highlights · Performance · Nouveaux Clients" slideNumber={n} {...cb} /> },
+    { id: "s1-div", label: "Section 1", section: 1, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="01" title="Vue Globale" subtitle="Highlights · Performance · Nouveaux Clients" slideNumber={n} {...cb} /> },
     { id: "highlights", label: "Highlights", section: 1, render: (d, n, cb) => <HighlightsSlide data={d} slideNumber={n} {...cb} /> },
     { id: "global-table", label: "Tableau Global", section: 1, render: (d, n, cb) => <GlobalTableSlide data={d} slideNumber={n} {...cb} /> },
     { id: "nc-table", label: "NC / CP-NC", section: 1, render: (d, n, cb) => <NCSlide data={d} slideNumber={n} {...cb} /> },
-    { id: "learnings-global", label: "Learnings Global", section: 1, render: (d, n, cb) => <LearningsSlide learnings={d.learnings} slideNumber={n} {...cb} /> },
+    { id: "learnings-global", label: "Points Clés Global", section: 1, render: (d, n, cb) => <LearningsSlide learnings={d.learnings} slideNumber={n} {...cb} /> },
 
     // Section 2 — Google Ads
     { id: "s2-div", label: "Section 2", section: 2, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="02" title="Focus Google Ads" subtitle="Vue globale · Campagnes · Brand Search · Pmax" slideNumber={n} {...cb} /> },
     { id: "google-kpi", label: "Google KPIs", section: 2, render: (d, n, cb) => <KPIOverviewSlide title="Google Ads — Vue Globale" metrics={d.googleOverview} slideNumber={n} {...cb} /> },
     { id: "google-campaigns", label: "Campagnes Google", section: 2, render: (d, n, cb) => <CampaignTableSlide title="Google Ads — Campagnes" campaigns={d.googleCampaigns} slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} {...cb} /> },
-    { id: "insights-google", label: "Insights Google", section: 2, render: (d, n, cb) => <LearningsSlide learnings={d.insightsGoogle} slideNumber={n} {...cb} /> },
+    { id: "insights-google", label: "Points Clés Google", section: 2, render: (d, n, cb) => <LearningsSlide learnings={d.insightsGoogle} slideNumber={n} {...cb} /> },
     { id: "next-google", label: "Next Steps Google", section: 2, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Google Ads" steps={d.nextStepsGoogle} slideNumber={n} {...cb} /> },
 
     // Section 3 — Meta Ads (or 02 if no Google)
-    { id: "s3-div", label: `Section ${hasGoogle ? 3 : 2}`, section: 3, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={metaNum} title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Learnings" slideNumber={n} {...cb} /> },
+    { id: "s3-div", label: `Section ${hasGoogle ? 3 : 2}`, section: 3, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={metaNum} title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Points Clés" slideNumber={n} {...cb} /> },
     { id: "meta-kpi", label: "Meta KPIs", section: 3, render: (d, n, cb) => <KPIOverviewSlide title="Meta Ads — Vue Globale" metrics={d.metaOverview} accent="violet" slideNumber={n} {...cb} /> },
     { id: "meta-campaigns", label: "Campagnes Meta", section: 3, render: (d, n, cb) => <CampaignTableSlide title="Meta Ads — Campagnes" campaigns={d.metaCampaigns} accent="violet" slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} {...cb} /> },
     { id: "top-creatives", label: "Top Créatives", section: 3, render: (d, n) => <TopCreativesSlide creatives={d.topCreatives} slideNumber={n} /> },
-    { id: "insights-meta", label: "Insights Meta", section: 3, render: (d, n, cb) => <LearningsSlide learnings={d.insightsMeta} accent="violet" slideNumber={n} {...cb} /> },
+    { id: "insights-meta", label: "Points Clés Meta", section: 3, render: (d, n, cb) => <LearningsSlide learnings={d.insightsMeta} accent="violet" slideNumber={n} {...cb} /> },
     { id: "next-meta", label: "Next Steps Meta", section: 3, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Meta Ads" steps={d.nextStepsMeta} accent="violet" slideNumber={n} {...cb} /> },
 
     // Section 4 — Next Steps & Budget (or 03 if no Google)
@@ -202,7 +202,7 @@ function buildSlides(hasGoogle: boolean): SlideConfig[] {
 
 const SECTION_LABELS = [
   "Intro",
-  "Global Overview",
+  "Vue Globale",
   "Google Ads",
   "Meta Ads",
   "Next Steps & Budget",

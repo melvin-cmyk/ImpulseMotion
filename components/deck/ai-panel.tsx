@@ -84,8 +84,8 @@ const SLASH_COMMANDS = [
 
 const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
   learnings: {
-    label: "Learnings",
-    content: "# Learnings\n\n1. **Learning 1** — description de l'insight\n2. **Learning 2** — description de l'insight\n3. **Learning 3** — description de l'insight",
+    label: "Points Clés",
+    content: "# Points Clés\n\n1. **Point 1** — description de l'insight\n2. **Point 2** — description de l'insight\n3. **Point 3** — description de l'insight",
   },
   "next-steps": {
     label: "Next Steps",
