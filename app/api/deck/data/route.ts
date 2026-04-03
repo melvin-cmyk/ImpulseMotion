@@ -486,48 +486,58 @@ interface AiTextContent {
 
 async function fetchAiTextContent(
   data: {
-    googleOverview: PlatformMetrics;
-    metaOverview: PlatformMetrics;
+    googleOverview: PlatformMetrics | null;
+    metaOverview: PlatformMetrics | null;
     clientName: string;
     periodLabel: string;
   },
   userContext?: string
 ): Promise<AiTextContent | null> {
-  const g = data.googleOverview;
-  const m = data.metaOverview;
   const fmt = (n: number) => n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const contextBlock = userContext ? `\n\nAdditional context from the analyst: ${userContext}` : "";
 
+  const hasGoogle = data.googleOverview !== null && data.googleOverview.spend > 0;
+  const hasMeta = data.metaOverview !== null && data.metaOverview.spend > 0;
+
+  const activePlatforms = [hasGoogle && "Google Ads", hasMeta && "Meta Ads"].filter(Boolean).join(" and ");
+  const platformNote = `ACTIVE PLATFORMS FOR THIS CLIENT: ${activePlatforms || "none"}. Generate insights ONLY for active platforms. Do NOT mention inactive platforms as if they have data.`;
+
+  const googleBlock = hasGoogle && data.googleOverview ? `
+Google Ads data (ACTIVE):
+- Spend: €${fmt(data.googleOverview.spend)}
+- Impressions: ${Math.round(data.googleOverview.impressions).toLocaleString()}
+- Clicks: ${Math.round(data.googleOverview.clicks).toLocaleString()}
+- Conversions: ${Math.round(data.googleOverview.conversions)}
+- Revenue: €${fmt(data.googleOverview.revenue)}
+- ROAS: ${fmt(data.googleOverview.roas)}x
+- CPA: €${fmt(data.googleOverview.cpa)}
+- CTR: ${fmt(data.googleOverview.ctr)}%` : "\nGoogle Ads: NOT ACTIVE for this client. insightsGoogle and nextStepsGoogle must be empty arrays [].";
+
+  const metaBlock = hasMeta && data.metaOverview ? `
+Meta Ads data (ACTIVE):
+- Spend: €${fmt(data.metaOverview.spend)}
+- Impressions: ${Math.round(data.metaOverview.impressions).toLocaleString()}
+- Clicks: ${Math.round(data.metaOverview.clicks).toLocaleString()}
+- Conversions: ${Math.round(data.metaOverview.conversions)}
+- Revenue: €${fmt(data.metaOverview.revenue)}
+- ROAS: ${fmt(data.metaOverview.roas)}x
+- CPA: €${fmt(data.metaOverview.cpa)}
+- CTR: ${fmt(data.metaOverview.ctr)}%` : "\nMeta Ads: NOT ACTIVE for this client. insightsMeta and nextStepsMeta must be empty arrays [].";
+
   const prompt = `You are an expert digital marketing analyst. Based on the following real ad performance data for ${data.clientName} (${data.periodLabel}), generate concise bullet points for a Monthly Business Review deck.${contextBlock}
 
-Google Ads data:
-- Spend: €${fmt(g.spend)}
-- Impressions: ${Math.round(g.impressions).toLocaleString()}
-- Clicks: ${Math.round(g.clicks).toLocaleString()}
-- Conversions: ${Math.round(g.conversions)}
-- Revenue: €${fmt(g.revenue)}
-- ROAS: ${fmt(g.roas)}x
-- CPA: €${fmt(g.cpa)}
-- CTR: ${fmt(g.ctr)}%
-
-Meta Ads data:
-- Spend: €${fmt(m.spend)}
-- Impressions: ${Math.round(m.impressions).toLocaleString()}
-- Clicks: ${Math.round(m.clicks).toLocaleString()}
-- Conversions: ${Math.round(m.conversions)}
-- Revenue: €${fmt(m.revenue)}
-- ROAS: ${fmt(m.roas)}x
-- CPA: €${fmt(m.cpa)}
-- CTR: ${fmt(m.ctr)}%
+${platformNote}
+${googleBlock}
+${metaBlock}
 
 Generate exactly this JSON structure (no markdown, no explanation, just raw JSON):
 {
-  "learnings": ["3-4 key learnings about overall performance this month"],
-  "insightsGoogle": ["3-4 insights specific to Google Ads performance"],
-  "insightsMeta": ["3-4 insights specific to Meta Ads performance"],
-  "nextStepsGlobal": ["3-4 global action items for next month"],
-  "nextStepsGoogle": ["3-4 specific Google Ads optimisations for next month"],
-  "nextStepsMeta": ["3-4 specific Meta Ads optimisations for next month"]
+  "learnings": ["3-4 key learnings about overall performance this month based ONLY on active platforms"],
+  "insightsGoogle": ["3-4 insights specific to Google Ads — empty array [] if Google not active"],
+  "insightsMeta": ["3-4 insights specific to Meta Ads — empty array [] if Meta not active"],
+  "nextStepsGlobal": ["3-4 global action items for next month based ONLY on active platforms"],
+  "nextStepsGoogle": ["3-4 specific Google Ads optimisations — empty array [] if Google not active"],
+  "nextStepsMeta": ["3-4 specific Meta Ads optimisations — empty array [] if Meta not active"]
 }`;
 
   try {
@@ -605,13 +615,21 @@ export async function POST(req: NextRequest) {
 
   const metaOverview = meta?.overview ?? mockFallback.metaOverview;
   const metaPrevOverview = meta?.prevOverview ?? zeroMetrics();
-  const googleOverview = google?.overview ?? mockFallback.googleOverview;
+  // When google is null (no Google Ads account linked), use zeros — NOT mock data
+  // Using mock data would confuse the AI into thinking Google Ads is active
+  const googleOverview = google?.overview ?? zeroMetrics();
   const googlePrevOverview = google?.prevOverview ?? zeroMetrics();
 
   // Fetch AI text content with a tight budget (20s max) — non-blocking if it fails
   const aiTextPromise = Promise.race([
     fetchAiTextContent(
-      { googleOverview, metaOverview, clientName: client.name, periodLabel: period.label },
+      {
+        // Pass null when there's no account — tells AI "not active"
+        googleOverview: client.googleCustomerId ? googleOverview : null,
+        metaOverview: client.metaAccountId ? metaOverview : null,
+        clientName: client.name,
+        periodLabel: period.label,
+      },
       userContext
     ),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), 30000)),
@@ -693,20 +711,20 @@ export async function POST(req: NextRequest) {
     ],
 
     globalTable: [
-      {
-        platform: "Google",
+      ...(google ? [{
+        platform: "Google" as const,
         current: googleOverview,
         previous: googlePrevOverview,
         delta: safeDelta(googleOverview, googlePrevOverview),
-      },
-      {
-        platform: "Meta",
+      }] : []),
+      ...(meta ? [{
+        platform: "Meta" as const,
         current: metaOverview,
         previous: metaPrevOverview,
         delta: safeDelta(metaOverview, metaPrevOverview),
-      },
+      }] : []),
       {
-        platform: "Total",
+        platform: "Total" as const,
         current: totalCurrent,
         previous: totalPrevious,
         delta: safeDelta(totalCurrent, totalPrevious),

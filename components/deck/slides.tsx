@@ -104,11 +104,14 @@ export function CoverSlide({ data, slideNumber, onEdit, getOverride }: { data: D
 // ── 2. Agenda Slide ──────────────────────────────────────────────────────────
 
 export function AgendaSlide({ data }: { data: DeckData }) {
+  const hasGoogle = (data.googleOverview?.spend ?? 0) > 0;
+  const hasMeta = (data.metaOverview?.spend ?? 0) > 0;
+  let sectionNum = 1;
   const sections = [
-    { num: "01", title: "Vue Globale", sub: "Highlights · Tableau Global · NC/CP-NC" },
-    { num: "02", title: "Focus Google Ads", sub: "Vue globale · Campagnes · Brand Search · Pmax" },
-    { num: "03", title: "Focus Meta Ads", sub: "Vue globale · Campagnes · Top Créas · Insights" },
-    { num: "04", title: "Prochaines Étapes & Budget", sub: "Actions prioritaires · Budget mensuel" },
+    { num: String(sectionNum++).padStart(2, "0"), title: "Vue Globale", sub: "Highlights · Tableau Global · NC/CP-NC" },
+    ...(hasGoogle ? [{ num: String(sectionNum++).padStart(2, "0"), title: "Focus Google Ads", sub: "Vue globale · Campagnes · Brand Search · Pmax" }] : []),
+    ...(hasMeta ? [{ num: String(sectionNum++).padStart(2, "0"), title: "Focus Meta Ads", sub: "Vue globale · Campagnes · Top Créas · Points Clés" }] : []),
+    { num: String(sectionNum++).padStart(2, "0"), title: "Prochaines Étapes & Budget", sub: "Actions prioritaires · Budget mensuel" },
   ];
   return (
     <SlideShell accent="blue" slideNumber={2}>
