@@ -824,7 +824,7 @@ export function BudgetSlide({
         <table className="w-full text-[1.4%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
-              <th className="text-left px-[2%] py-[1%] font-semibold">Platform</th>
+              <th className="text-left px-[2%] py-[1%] font-semibold">Plateforme</th>
               <th className="text-right px-[2%] py-[1%] font-semibold">Budget prévu</th>
               <th className="text-right px-[2%] py-[1%] font-semibold">Dépensé</th>
               <th className="text-right px-[2%] py-[1%] font-semibold">Écart</th>

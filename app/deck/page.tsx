@@ -1240,7 +1240,7 @@ export default function DeckPage() {
                   .filter(c => (c.platform === "google" || c.platform === "both") && c.googleCustomerId)
                   .map(c => (
                     <option key={c.id} value={c.googleCustomerId!}>
-                      {c.name} ({c.googleCustomerId})
+                      {c.name.includes(c.googleCustomerId!) ? c.name : `${c.name} (${c.googleCustomerId})`}
                     </option>
                   ))}
               </select>

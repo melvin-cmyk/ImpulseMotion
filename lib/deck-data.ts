@@ -319,7 +319,7 @@ export function generateMockDeckData(client: DeckClient, period: DeckPeriod): De
       ),
     },
     {
-      id: "mc-3", name: "Broad — UGC Creatives", type: "Broad", status: "Active",
+      id: "mc-3", name: "Broad — UGC Créatives", type: "Broad", status: "Active",
       current: computeMetrics({ spend: 5100, impressions: 380000, clicks: 7600, conversions: 108, revenue: 16260 }),
       previous: computeMetrics({ spend: 4800, impressions: 370000, clicks: 6800, conversions: 95, revenue: 13680 }),
       delta: computeDelta(
@@ -349,31 +349,31 @@ export function generateMockDeckData(client: DeckClient, period: DeckPeriod): De
 
   const highlights: DeckHighlight[] = [
     {
-      title: "Total Revenue",
-      value: "€121,500",
+      title: "Revenus Totaux",
+      value: "121 500 €",
       delta: 16.4,
-      description: `Revenue grew +16.4% vs ${previousPeriod.label}, driven by Meta Lookalike and Google Pmax campaigns.`,
+      description: `Revenus en hausse +16,4% vs ${previousPeriod.label}, portés par les campagnes Lookalike Meta et Pmax Google.`,
       icon: "roas",
     },
     {
-      title: "Blended ROAS",
-      value: "3.96×",
+      title: "ROAS Global",
+      value: "3,96×",
       delta: 8.2,
-      description: "ROAS improved across both platforms thanks to better creative rotation and audience optimization.",
+      description: "ROAS en amélioration sur les deux plateformes grâce à une meilleure rotation créative.",
       icon: "roas",
     },
     {
-      title: "New Clients",
+      title: "Nouveaux Clients",
       value: "499",
       delta: 12.6,
-      description: "NC acquisition up +12.6% MoM. Meta drove 62.5% of new clients at a lower CP-NC.",
+      description: `NC en hausse +12,6% MoM. Meta a généré 62,5% des nouveaux clients à un CP-NC inférieur.`,
       icon: "conversions",
     },
     {
-      title: "Blended CPA",
-      value: "€39.28",
+      title: "CPA Global",
+      value: "39,28 €",
       delta: -7.1,
-      description: "CPA down -7.1% thanks to improved conversion rates on retargeting campaigns.",
+      description: "CPA en baisse -7,1% grâce à l'amélioration des taux de conversion sur les campagnes retargeting.",
       icon: "cpa",
     },
   ];

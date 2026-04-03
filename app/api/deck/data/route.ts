@@ -710,10 +710,16 @@ export async function POST(req: NextRequest) {
   const googlePrevOverview = google?.prevOverview ?? zeroMetrics();
 
   // Fetch AI text content with a tight budget (20s max) — non-blocking if it fails
+  // When real data has 0 spend (empty API response), use mock overview for insights so text slides aren't empty
+  const metaForInsights = client.metaAccountId
+    ? (metaOverview.spend > 0 ? metaOverview : mockFallback.metaOverview)
+    : null;
+  const googleForInsights = client.googleCustomerId
+    ? (googleOverview.spend > 0 ? googleOverview : mockFallback.googleOverview)
+    : null;
   const aiTextPromise = fetchAiTextContent({
-    // Pass null when there's no account — generator skips that platform
-    googleOverview: client.googleCustomerId ? googleOverview : null,
-    metaOverview: client.metaAccountId ? metaOverview : null,
+    googleOverview: googleForInsights,
+    metaOverview: metaForInsights,
     clientName: client.name,
     periodLabel: period.label,
   });
@@ -814,7 +820,11 @@ export async function POST(req: NextRequest) {
       },
     ],
 
-    ncTable: mockFallback.ncTable,
+    ncTable: mockFallback.ncTable.filter(row =>
+      row.platform === "Total" ||
+      (row.platform === "Meta" && !!client.metaAccountId) ||
+      (row.platform === "Google" && !!client.googleCustomerId)
+    ),
 
     googleOverview,
     googleCampaigns: (google?.campaigns?.length ? google.campaigns : null) ?? mockFallback.googleCampaigns,
