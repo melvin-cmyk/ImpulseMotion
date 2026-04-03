@@ -53,6 +53,7 @@ function fmtK(n: number) {
 }
 
 function DeltaBadge({ value, invert }: { value: number; invert?: boolean }) {
+  if (value === 999) return <span style={{ color: colors.caption, fontWeight: 600, fontSize: "inherit" }}>N/A</span>;
   const positive = invert ? value < 0 : value > 0;
   const color = positive ? colors.deltaPos : value === 0 ? colors.caption : colors.deltaNeg;
   const arrow = value > 0 ? "+" : "";
@@ -69,7 +70,7 @@ export function CoverSlide({ data, slideNumber, onEdit, getOverride }: { data: D
   const sn = slideNumber ?? 0;
   const clientName = getOverride?.(sn, "clientName") ?? data.client.name;
   const period = getOverride?.(sn, "period") ?? data.period.label;
-  const subtitle = getOverride?.(sn, "subtitle") ?? "Prepared by Impulse Analytics";
+  const subtitle = getOverride?.(sn, "subtitle") ?? "Préparé par Impulse Analytics";
   return (
     <SlideShell dark slideNumber={slideNumber}>
       <div className="flex flex-col items-center justify-center h-full text-center gap-[3%]">
@@ -104,10 +105,10 @@ export function CoverSlide({ data, slideNumber, onEdit, getOverride }: { data: D
 
 export function AgendaSlide({ data }: { data: DeckData }) {
   const sections = [
-    { num: "01", title: "Global Overview", sub: "Highlights · Tableau Global · NC/CP-NC" },
+    { num: "01", title: "Vue Globale", sub: "Highlights · Tableau Global · NC/CP-NC" },
     { num: "02", title: "Focus Google Ads", sub: "Vue globale · Campagnes · Brand Search · Pmax" },
-    { num: "03", title: "Focus Meta Ads", sub: "Vue globale · Campagnes · Top Créas · Learnings" },
-    { num: "04", title: "Next Steps & Budget", sub: "Actions · Budget mensuel" },
+    { num: "03", title: "Focus Meta Ads", sub: "Vue globale · Campagnes · Top Créas · Insights" },
+    { num: "04", title: "Prochaines Étapes & Budget", sub: "Actions prioritaires · Budget mensuel" },
   ];
   return (
     <SlideShell accent="blue" slideNumber={2}>
@@ -318,11 +319,11 @@ function HighlightCard({
 export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { data: DeckData; slideNumber?: number } & EditCallbacks) {
   const sn = slideNumber ?? 0;
   const cols: { label: string; key: keyof import("@/lib/deck-data").PlatformMetrics; fmt: (n: number) => string; invert?: boolean }[] = [
-    { label: "Spend", key: "spend", fmt: fmtCur },
+    { label: "Dépense", key: "spend", fmt: fmtCur },
     { label: "Impr.", key: "impressions", fmt: fmtK },
-    { label: "Clicks", key: "clicks", fmt: fmtK },
+    { label: "Clics", key: "clicks", fmt: fmtK },
     { label: "Conv.", key: "conversions", fmt: (n) => String(Math.round(n)) },
-    { label: "Revenue", key: "revenue", fmt: fmtCur },
+    { label: "Revenu", key: "revenue", fmt: fmtCur },
     { label: "CPM", key: "cpm", fmt: (n) => fmtCur(n) },
     { label: "CTR", key: "ctr", fmt: fmtPct },
     { label: "CPC", key: "cpc", fmt: (n) => "€" + fmtDec(n) },
@@ -350,7 +351,7 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
         <table className="w-full text-[1.2%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
-              <th className="text-left px-[1%] py-[0.8%] font-semibold">Platform</th>
+              <th className="text-left px-[1%] py-[0.8%] font-semibold">Plateforme</th>
               {cols.map((c) => (
                 <th key={c.key} className="text-right px-[0.8%] py-[0.8%] font-semibold">
                   {c.label}
@@ -448,7 +449,7 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
         <table className="w-full text-[1.4%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
-              <th className="text-left px-[1.5%] py-[1%] font-semibold">Platform</th>
+              <th className="text-left px-[1.5%] py-[1%] font-semibold">Plateforme</th>
               <th className="text-right px-[1.5%] py-[1%] font-semibold">NC</th>
               <th className="text-right px-[1.5%] py-[1%] font-semibold">Delta</th>
               <th className="text-right px-[1.5%] py-[1%] font-semibold">CP-NC</th>
@@ -551,7 +552,7 @@ export function CampaignTableSlide({
                       color: c.status === "Active" ? colors.deltaPos : "#E65100",
                     }}
                   >
-                    {c.status}
+                    {c.status === "Active" ? "Actif" : c.status === "Paused" ? "En pause" : c.status}
                   </span>
                 </td>
                 <td className="text-right px-[0.5%] py-[0.5%]">{onEdit ? <EditableText field={`c${idx}.spend`} slideIndex={sn} currentValue={campaignSpend} onEdit={onEdit}>{campaignSpend}</EditableText> : campaignSpend}</td>
@@ -636,7 +637,7 @@ export function TopCreativesSlide({
                 <div className="text-[1.6%] font-bold truncate mb-[4%]">{c.name}</div>
                 <div className="grid grid-cols-2 gap-[4%] text-[1.4%]">
                   <div>
-                    <span style={{ color: colors.caption }}>Spend</span>
+                    <span style={{ color: colors.caption }}>Dépense</span>
                     <div className="font-semibold">{fmtCur(c.spend)}</div>
                   </div>
                   <div>

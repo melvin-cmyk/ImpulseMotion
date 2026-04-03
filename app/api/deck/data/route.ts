@@ -177,7 +177,7 @@ function safeDelta(current: PlatformMetrics, previous: PlatformMetrics): Record<
   for (const key of Object.keys(current) as (keyof PlatformMetrics)[]) {
     const prev = previous[key];
     const curr = current[key];
-    delta[key] = prev !== 0 ? ((curr - prev) / Math.abs(prev)) * 100 : curr !== 0 ? 100 : 0;
+    delta[key] = prev !== 0 ? ((curr - prev) / Math.abs(prev)) * 100 : curr !== 0 ? 999 : 0;
   }
   return delta;
 }
