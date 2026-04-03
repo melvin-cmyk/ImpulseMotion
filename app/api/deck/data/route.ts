@@ -234,6 +234,30 @@ async function relaySingleTool(toolName: string, params: Record<string, string>,
   return extractJson(text);
 }
 
+/** Direct /api/tool call — bypasses AI, much faster (~1-2s) for Google Ads MCP tools */
+async function relayDirectTool(tool: string, input: Record<string, unknown>, timeoutMs = 15000): Promise<unknown> {
+  let lastError: Error | null = null;
+  for (const url of RELAY_URLS_TO_TRY) {
+    const isLocalhost = url.includes("localhost");
+    const actualTimeout = isLocalhost ? Math.min(timeoutMs, 2000) : timeoutMs;
+    try {
+      const res = await fetch(`${url}/api/tool`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool, input }),
+        signal: AbortSignal.timeout(actualTimeout),
+      });
+      if (!res.ok) { lastError = new Error(`Relay ${url} /api/tool ${res.status}`); continue; }
+      const json = await res.json() as { result?: unknown; error?: string };
+      if (json.error) { lastError = new Error(json.error); continue; }
+      return json.result;
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  throw lastError ?? new Error("All relay URLs failed for /api/tool");
+}
+
 async function fetchMetaData(
   accountId: string,
   period: DeckPeriod,
@@ -411,46 +435,70 @@ async function fetchGoogleData(
   period: DeckPeriod,
   previousPeriod: DeckPeriod
 ): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null> {
-  // Google Ads tools require customer_id without dashes (e.g. "1234567890" not "123-456-7890")
+  // Google Ads tools require customer_id without dashes
   const cleanId = customerId.replace(/-/g, "");
   try {
+    const inputFn = (p: DeckPeriod) => JSON.stringify({
+      customer_id: cleanId, start_date: p.startDate, end_date: p.endDate,
+    });
     const [campaignsRaw, prevCampaignsRaw] = await Promise.allSettled([
-      relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
-        customer_id: cleanId, start_date: period.startDate, end_date: period.endDate,
-      }),
-      relaySingleTool("mcp__mcp-google-ads__Campaign_Performance", {
-        customer_id: cleanId, start_date: previousPeriod.startDate, end_date: previousPeriod.endDate,
-      }),
+      relayDirectTool("mcp-google-ads.Campaign_Performance", { input: inputFn(period) }, 15000),
+      relayDirectTool("mcp-google-ads.Campaign_Performance", { input: inputFn(previousPeriod) }, 15000),
     ]);
 
-    console.log("[deck/data] google campaigns ok:", campaignsRaw.status);
+    console.log("[deck/data] google campaigns:", campaignsRaw.status);
 
     function extractGoogleCampaigns(raw: unknown): { campaigns: CampaignRow[]; overview: PlatformMetrics } {
-      if (!raw || typeof raw !== "object") return { campaigns: [], overview: zeroMetrics() };
-      const r = raw as Record<string, unknown>;
-      const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.campaigns) ? r.campaigns : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      if (!raw) return { campaigns: [], overview: zeroMetrics() };
+
+      // Structure: [{results: [{campaign: {...}, metrics: {...}}]}]  (from /api/tool)
+      // or flat array of campaign objects
+      let rows: Array<{ campaign?: Record<string, unknown>; metrics?: Record<string, unknown> }> = [];
+      if (Array.isArray(raw)) {
+        const first = (raw as unknown[])[0];
+        if (first && typeof first === "object" && Array.isArray((first as Record<string, unknown>).results)) {
+          rows = ((first as Record<string, unknown>).results as typeof rows);
+        } else {
+          // Flat array of campaign objects
+          rows = (raw as typeof rows);
+        }
+      } else if (typeof raw === "object") {
+        const r = raw as Record<string, unknown>;
+        const arr = r.results || r.data || r.campaigns;
+        if (Array.isArray(arr)) rows = arr as typeof rows;
+      }
+
       let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0, totalRevenue = 0;
-      const campaigns = list.slice(0, 10).map((c, i) => {
-        // Google Ads costs are in micros — divide by 1,000,000
-        const spendRaw = toNum(c.cost_micros ?? c.spend ?? c.cost);
-        const spend = spendRaw > 10000 ? spendRaw / 1_000_000 : spendRaw;
-        const impressions = toNum(c.impressions);
-        const clicks = toNum(c.clicks);
-        const conversions = toNum(c.conversions);
-        const revenue = toNum(c.conversions_value ?? c.revenue ?? c.conversion_value);
+      const campaigns = rows.slice(0, 10).map((row, i) => {
+        const c = row.campaign ?? row as Record<string, unknown>;
+        const m = row.metrics ?? row as Record<string, unknown>;
+
+        // Google Ads costs in micros — divide by 1,000,000
+        const costRaw = toNum(m.costMicros ?? m.cost_micros ?? m.cost ?? 0);
+        const spend = costRaw > 10000 ? costRaw / 1_000_000 : costRaw;
+        const impressions = toNum(m.impressions ?? 0);
+        const clicks = toNum(m.clicks ?? 0);
+        const conversions = toNum(m.conversions ?? m.allConversions ?? 0);
+        const revenue = toNum(m.conversionsValue ?? m.conversions_value ?? m.revenue ?? 0);
+
         totalSpend += spend; totalImpressions += impressions; totalClicks += clicks;
         totalConversions += conversions; totalRevenue += revenue;
+
         const current = safeMetrics({ spend, impressions, clicks, conversions, revenue });
+        const rawStatus = String(c.status ?? m.status ?? "ENABLED").toUpperCase();
+        const status: CampaignRow["status"] = rawStatus === "PAUSED" ? "Paused" : rawStatus === "REMOVED" ? "Completed" : "Active";
+
         return {
-          id: String(c.id ?? c.campaign_id ?? (c.campaign as Record<string,unknown>)?.id ?? `google-c-${i}`),
-          name: String(c.name ?? c.campaign_name ?? (c.campaign as Record<string,unknown>)?.name ?? `Campagne ${i + 1}`),
-          type: c.type ? String(c.type) : undefined,
-          status: (["Active", "Paused", "Completed"].includes(String(c.status ?? c.campaign_status ?? "ENABLED")) ? String(c.status ?? c.campaign_status) : "Active") as CampaignRow["status"],
+          id: String(c.id ?? c.campaign_id ?? `google-c-${i}`),
+          name: String(c.name ?? c.campaign_name ?? `Campagne ${i + 1}`),
+          type: c.advertisingChannelType ? String(c.advertisingChannelType) : undefined,
+          status,
           current,
           previous: zeroMetrics(),
           delta: safeDelta(current, zeroMetrics()),
         };
       });
+
       return {
         campaigns,
         overview: safeMetrics({ spend: totalSpend, impressions: totalImpressions, clicks: totalClicks, conversions: totalConversions, revenue: totalRevenue }),

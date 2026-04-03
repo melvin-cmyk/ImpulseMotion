@@ -90,7 +90,7 @@ async function fetchSubAccountsFromMCC(mccId: string, timeoutMs = 6000): Promise
     const gaql = JSON.stringify({
       customer_id: mccId,
       gaql_query:
-        "SELECT customer_client.id, customer_client.descriptive_name, customer_client.level FROM customer_client WHERE customer_client.level = 1 AND customer_client.status = 'ENABLED'",
+        "SELECT customer_client.id, customer_client.descriptive_name, customer_client.level FROM customer_client WHERE customer_client.level = 1",
     });
     const result = await relaySingleTool("mcp-google-ads.Custom_GAQL_Query", { input: gaql }, timeoutMs);
     if (!Array.isArray(result) || result.length === 0) return [];
