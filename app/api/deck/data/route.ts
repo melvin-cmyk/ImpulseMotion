@@ -648,13 +648,13 @@ export async function POST(req: NextRequest) {
 
   // Highlights from real data
   const spendDelta = totalPrevious.spend > 0
-    ? ((totalCurrent.spend - totalPrevious.spend) / totalPrevious.spend) * 100 : 0;
+    ? ((totalCurrent.spend - totalPrevious.spend) / totalPrevious.spend) * 100 : null;
   const roasDelta = totalPrevious.roas > 0
-    ? ((totalCurrent.roas - totalPrevious.roas) / totalPrevious.roas) * 100 : 0;
+    ? ((totalCurrent.roas - totalPrevious.roas) / totalPrevious.roas) * 100 : null;
   const cpaDelta = totalPrevious.cpa > 0
-    ? ((totalCurrent.cpa - totalPrevious.cpa) / totalPrevious.cpa) * 100 : 0;
+    ? ((totalCurrent.cpa - totalPrevious.cpa) / totalPrevious.cpa) * 100 : null;
   const convDelta = totalPrevious.conversions > 0
-    ? ((totalCurrent.conversions - totalPrevious.conversions) / totalPrevious.conversions) * 100 : 0;
+    ? ((totalCurrent.conversions - totalPrevious.conversions) / totalPrevious.conversions) * 100 : null;
 
   const deckData: DeckData = {
     client,
@@ -665,29 +665,29 @@ export async function POST(req: NextRequest) {
       {
         title: "Spend Total",
         value: `${totalCurrent.spend.toLocaleString("fr-FR", { minimumFractionDigits: 0 })} €`,
-        delta: Math.round(spendDelta),
-        description: `${totalCurrent.spend > totalPrevious.spend ? "+" : ""}${spendDelta.toFixed(1)}% vs ${previousPeriod.label}`,
+        delta: spendDelta !== null ? Math.round(spendDelta) : undefined,
+        description: spendDelta !== null ? `${spendDelta >= 0 ? "+" : ""}${spendDelta.toFixed(1)}% vs ${previousPeriod.label}` : `vs ${previousPeriod.label}`,
         icon: "spend",
       },
       {
         title: "ROAS Global",
         value: `x${totalCurrent.roas.toFixed(2)}`,
-        delta: Math.round(roasDelta),
-        description: `${roasDelta >= 0 ? "+" : ""}${roasDelta.toFixed(1)}% vs ${previousPeriod.label}`,
+        delta: roasDelta !== null ? Math.round(roasDelta) : undefined,
+        description: roasDelta !== null ? `${roasDelta >= 0 ? "+" : ""}${roasDelta.toFixed(1)}% vs ${previousPeriod.label}` : `vs ${previousPeriod.label}`,
         icon: "roas",
       },
       {
         title: "CPA Moyen",
         value: `${totalCurrent.cpa.toFixed(2)} €`,
-        delta: Math.round(-cpaDelta), // negative delta is good for CPA
-        description: `${cpaDelta >= 0 ? "+" : ""}${cpaDelta.toFixed(1)}% vs ${previousPeriod.label}`,
+        delta: cpaDelta !== null ? Math.round(-cpaDelta) : undefined, // negative delta is good for CPA
+        description: cpaDelta !== null ? `${cpaDelta >= 0 ? "+" : ""}${cpaDelta.toFixed(1)}% vs ${previousPeriod.label}` : `vs ${previousPeriod.label}`,
         icon: "cpa",
       },
       {
         title: "Conversions",
         value: totalCurrent.conversions.toLocaleString("fr-FR"),
-        delta: Math.round(convDelta),
-        description: `${convDelta >= 0 ? "+" : ""}${convDelta.toFixed(1)}% vs ${previousPeriod.label}`,
+        delta: convDelta !== null ? Math.round(convDelta) : undefined,
+        description: convDelta !== null ? `${convDelta >= 0 ? "+" : ""}${convDelta.toFixed(1)}% vs ${previousPeriod.label}` : `vs ${previousPeriod.label}`,
         icon: "conversions",
       },
     ],
