@@ -31,7 +31,7 @@ export interface DeckClientResult {
 }
 
 let clientCache: { data: { clients: DeckClientResult[] }; ts: number } | null = null;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 /** Direct MCP tool call via /api/tool — bypasses AI, ~1s vs 18s via /api/chat */
 async function relaySingleTool(tool: string, input: Record<string, unknown> = {}, timeoutMs = 6000): Promise<unknown> {
@@ -84,49 +84,81 @@ function normalizeGoogleCustomers(raw: unknown): Array<{ id?: string; name?: str
   return [];
 }
 
-/** Fetch Google Ads account name via GAQL for a single customer_id */
-async function fetchGoogleAccountName(customerId: string, timeoutMs = 4000): Promise<string | null> {
+/** Fetch all client sub-accounts from the MCC via customer_client GAQL */
+async function fetchSubAccountsFromMCC(mccId: string, timeoutMs = 6000): Promise<Array<{ id: string; name: string }>> {
   try {
     const gaql = JSON.stringify({
-      customer_id: customerId,
-      gaql_query: "SELECT customer.id, customer.descriptive_name FROM customer",
+      customer_id: mccId,
+      gaql_query:
+        "SELECT customer_client.id, customer_client.descriptive_name, customer_client.level FROM customer_client WHERE customer_client.level = 1 AND customer_client.status = 'ENABLED'",
     });
     const result = await relaySingleTool("mcp-google-ads.Custom_GAQL_Query", { input: gaql }, timeoutMs);
-    if (Array.isArray(result)) {
-      const row = result[0]?.results?.[0]?.customer;
-      return row?.descriptiveName || null;
-    }
-    return null;
-  } catch {
-    return null;
+    if (!Array.isArray(result) || result.length === 0) return [];
+    const rows = (result[0] as { results?: Array<{ customerClient?: { id?: string; descriptiveName?: string } }> })?.results || [];
+    return rows
+      .map((r) => {
+        const cc = r.customerClient;
+        const id = String(cc?.id || "").replace(/-/g, "");
+        const name = cc?.descriptiveName || id;
+        return { id, name };
+      })
+      .filter((c) => c.id);
+  } catch (e) {
+    console.log(`[deck/clients] fetchSubAccountsFromMCC(${mccId}) failed:`, String(e));
+    return [];
   }
 }
 
-/** Call the relay for Google Ads customers list via direct /api/tool — fast (~2s) */
-async function fetchGoogleCustomers(timeoutMs = 6000): Promise<Array<{ id?: string; name?: string }>> {
+/** Fetch Google Ads accounts: tries sub-accounts from MCC first, then falls back to direct account names */
+async function fetchGoogleCustomers(timeoutMs = 8000): Promise<Array<{ id?: string; name?: string }>> {
   try {
-    const result = await relaySingleTool("mcp-google-ads.List_Customers", { input: "{}" }, timeoutMs);
-    let ids: string[] = [];
+    const listResult = await relaySingleTool("mcp-google-ads.List_Customers", { input: "{}" }, Math.min(timeoutMs, 4000));
+    let rootIds: string[] = [];
 
     // Format: {"resourceNames": ["customers/XXX"]}
-    if (result && typeof result === "object" && Array.isArray((result as { resourceNames?: string[] }).resourceNames)) {
-      ids = ((result as { resourceNames: string[] }).resourceNames).map((rn: string) => rn.replace("customers/", ""));
+    if (listResult && typeof listResult === "object" && Array.isArray((listResult as { resourceNames?: string[] }).resourceNames)) {
+      rootIds = ((listResult as { resourceNames: string[] }).resourceNames).map((rn: string) => rn.replace("customers/", ""));
     } else {
-      const normalized = normalizeGoogleCustomers(result);
+      const normalized = normalizeGoogleCustomers(listResult);
       if (normalized.length > 0) return normalized;
     }
 
-    if (ids.length === 0) return [];
+    if (rootIds.length === 0) return [];
 
-    // Fetch names in parallel (with per-account fallback to ID if GAQL fails)
-    const perAccountTimeout = Math.max(2000, Math.floor((timeoutMs - 2000) / ids.length));
+    // Try to get sub-accounts from each root ID (in case it's a MCC)
+    const perMccTimeout = Math.max(3000, Math.floor((timeoutMs - 4000) / rootIds.length));
+    const subAccountArrays = await Promise.all(
+      rootIds.map((id) => fetchSubAccountsFromMCC(id, perMccTimeout))
+    );
+
+    // Flatten and deduplicate
+    const allSubAccounts = subAccountArrays.flat();
+    const seen = new Set<string>();
+    const unique = allSubAccounts.filter((c) => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+
+    if (unique.length > 0) {
+      console.log(`[deck/clients] Found ${unique.length} Google sub-accounts via MCC`);
+      return unique;
+    }
+
+    // Fallback: return root IDs with their names via simple GAQL
     const customers = await Promise.all(
-      ids.map(async (id) => {
-        const name = await fetchGoogleAccountName(id, perAccountTimeout);
-        return { id, name: name || id };
+      rootIds.map(async (id) => {
+        try {
+          const gaql = JSON.stringify({ customer_id: id, gaql_query: "SELECT customer.id, customer.descriptive_name FROM customer" });
+          const res = await relaySingleTool("mcp-google-ads.Custom_GAQL_Query", { input: gaql }, 3000);
+          if (Array.isArray(res) && res.length > 0) {
+            const name = (res[0] as { results?: Array<{ customer?: { descriptiveName?: string } }> })?.results?.[0]?.customer?.descriptiveName;
+            return { id, name: name || id };
+          }
+        } catch { /* ignore */ }
+        return { id, name: id };
       })
     );
-    console.log("[deck/clients] Google customers with names:", JSON.stringify(customers));
     return customers;
   } catch (e) {
     console.log("[deck/clients] fetchGoogleCustomers failed:", String(e));
