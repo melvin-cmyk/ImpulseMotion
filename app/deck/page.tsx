@@ -242,6 +242,7 @@ export default function DeckPage() {
   const [clients, setClients] = useState<DeckClient[]>([]);
   const [clientsLoading, setClientsLoading] = useState(true);
   const [clientsNeedAuth, setClientsNeedAuth] = useState(false);
+  const [clientsFetchError, setClientsFetchError] = useState<string | null>(null);
   const [metaNeedsReconnect, setMetaNeedsReconnect] = useState(false);
   const [selectedClient, setSelectedClient] = useState<DeckClient | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<DeckPeriod>(() => {
@@ -275,7 +276,9 @@ export default function DeckPage() {
           }
         }
       })
-      .catch(() => {/* relay not available */})
+      .catch((err) => {
+        setClientsFetchError(err instanceof Error ? err.message : "Impossible de charger les comptes. Vérifiez votre connexion réseau.");
+      })
       .finally(() => setClientsLoading(false));
   }, [searchParams]);
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -322,6 +325,7 @@ export default function DeckPage() {
   const [newClientMeta, setNewClientMeta] = useState("");
   const [newClientGoogle, setNewClientGoogle] = useState("");
   const commandPaletteInputRef = useRef<HTMLInputElement>(null);
+  const commandPaletteListRef = useRef<HTMLDivElement>(null);
   const lastGTimeRef = useRef<number>(0);
   const [userContext, setUserContext] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -331,7 +335,7 @@ export default function DeckPage() {
   const slideContainerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const activeFilmstripItemRef = useRef<HTMLButtonElement>(null);
-  const [slideTransition, setSlideTransition] = useState(false);
+  const [slideTransition, setSlideTransition] = useState<"none" | "fade-out" | "fade-in">("none");
   const [editMode, setEditMode] = useState(true);
   const [showAiPanel, setShowAiPanel] = useState(true);
   const [editingCustomSlideId, setEditingCustomSlideId] = useState<string | null>(null);
@@ -782,10 +786,11 @@ export default function DeckPage() {
   const goToSlide = (idx: number) => {
     const newIdx = Math.max(0, Math.min(slides.length + customSlides.length - 1, idx));
     if (newIdx !== currentSlide) {
-      setSlideTransition(true);
+      setSlideTransition("fade-out");
       setTimeout(() => {
         setCurrentSlide(newIdx);
-        setTimeout(() => setSlideTransition(false), 50);
+        setSlideTransition("fade-in");
+        setTimeout(() => setSlideTransition("none"), 200);
       }, 150);
     }
   };
@@ -821,6 +826,16 @@ export default function DeckPage() {
       setTimeout(() => commandPaletteInputRef.current?.focus(), 50);
     }
   }, [commandPaletteOpen]);
+
+  // ── Scroll active command palette item into view ─────────────────────────
+  useEffect(() => {
+    if (!commandPaletteOpen || !commandPaletteListRef.current) return;
+    const container = commandPaletteListRef.current;
+    const active = container.querySelector(`[data-palette-idx="${commandPaletteIndex}"]`);
+    if (active) {
+      (active as HTMLElement).scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [commandPaletteIndex, commandPaletteOpen]);
 
   // ── Keyboard shortcuts ───────────────────────────────────────────────────
   useEffect(() => {
@@ -1169,6 +1184,29 @@ export default function DeckPage() {
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Chargement des comptes...
               </div>
+            ) : clientsFetchError ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                <p className="text-sm font-semibold text-red-700 mb-1">Erreur de chargement</p>
+                <p className="text-xs text-red-600 mb-2">{clientsFetchError}</p>
+                <button
+                  onClick={() => {
+                    setClientsFetchError(null);
+                    setClientsLoading(true);
+                    fetch("/api/deck/clients")
+                      .then((r) => r.json())
+                      .then((data: { clients: DeckClient[]; needsAuth?: boolean; metaNeedsReconnect?: boolean }) => {
+                        if (data.needsAuth) { setClientsNeedAuth(true); return; }
+                        if (data.metaNeedsReconnect) setMetaNeedsReconnect(true);
+                        if (data.clients?.length > 0) { setClients(data.clients); setSelectedClient(data.clients[0]); }
+                      })
+                      .catch((err) => setClientsFetchError(err instanceof Error ? err.message : "Erreur réseau"))
+                      .finally(() => setClientsLoading(false));
+                  }}
+                  className="inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-lg text-white bg-red-600 hover:bg-red-700 transition-all"
+                >
+                  Réessayer
+                </button>
+              </div>
             ) : clientsNeedAuth ? (
               <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
                 <p className="text-sm font-semibold text-red-700 mb-2">Session Meta expirée — reconnexion requise</p>
@@ -1356,19 +1394,36 @@ export default function DeckPage() {
 
   // ── Relay error — no data ────────────────────────────────────────────────
   if (deckGenerated && !deckData) {
+    const isServerError = dataSourceReason?.startsWith("Erreur serveur");
+    const isNetworkError = dataSourceReason?.includes("fetch") || dataSourceReason?.includes("TypeError") || dataSourceReason?.includes("NetworkError");
+    const errorTitle = isServerError
+      ? "Erreur serveur"
+      : isNetworkError
+      ? "Erreur réseau"
+      : "Relay non connecté";
     return (
       <div className="h-full flex flex-col items-center justify-center bg-gray-950 text-white gap-4 p-8">
-        <div className="text-5xl">⚠️</div>
-        <h2 className="text-xl font-semibold">Relay non connecté</h2>
+        <div className="text-5xl">{isServerError ? "🔴" : isNetworkError ? "🌐" : "⚠️"}</div>
+        <h2 className="text-xl font-semibold">{errorTitle}</h2>
         <p className="text-gray-400 text-center max-w-md text-sm">
           {dataSourceReason ?? "Impossible de récupérer les données. Vérifiez que le relay OpenClaw tourne sur localhost:3457 et réessayez."}
         </p>
-        <button
-          onClick={() => setDeckGenerated(false)}
-          className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium"
-        >
-          ← Retour
-        </button>
+        <div className="flex gap-3 mt-4">
+          <button
+            onClick={() => {
+              if (selectedClient) generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined);
+            }}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium"
+          >
+            Réessayer
+          </button>
+          <button
+            onClick={() => setDeckGenerated(false)}
+            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm font-medium"
+          >
+            ← Retour
+          </button>
+        </div>
       </div>
     );
   }
@@ -1889,8 +1944,13 @@ export default function DeckPage() {
 
             {/* 16:9 canvas */}
             <div
-              className="w-full max-w-3xl transition-opacity duration-300 ease-in-out relative"
-              style={{ opacity: slideTransition ? 0 : 1, cursor: editMode ? slideEditor.canvasCursor : "default" }}
+              className="w-full max-w-3xl relative"
+              style={{
+                opacity: slideTransition === "fade-out" ? 0 : 1,
+                transform: slideTransition === "fade-out" ? "scale(0.97)" : slideTransition === "fade-in" ? "scale(1)" : "scale(1)",
+                transition: slideTransition === "none" ? "none" : "opacity 150ms ease-out, transform 150ms ease-out",
+                cursor: editMode ? slideEditor.canvasCursor : "default",
+              }}
               ref={canvasRef}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -2385,7 +2445,7 @@ export default function DeckPage() {
                 <kbd className="text-[9px] text-gray-500 bg-gray-800 border border-gray-600 rounded px-1 py-0.5">Esc</kbd>
               </div>
               {/* Results */}
-              <div className="max-h-72 overflow-y-auto">
+              <div className="max-h-72 overflow-y-auto" ref={commandPaletteListRef}>
                 {filtered.length === 0 ? (
                   <div className="px-4 py-6 text-center text-sm text-gray-500">Aucune slide trouvée</div>
                 ) : filtered.map((s, i) => {
@@ -2401,6 +2461,7 @@ export default function DeckPage() {
                         </div>
                       )}
                       <button
+                        data-palette-idx={i}
                         onClick={() => { goToSlide(s.idx); setCommandPaletteOpen(false); }}
                         className={`w-full flex items-center gap-3 px-4 py-2 text-sm text-left transition-colors ${
                           i === commandPaletteIndex ? "bg-blue-600 text-white" : "text-gray-200 hover:bg-gray-800"
