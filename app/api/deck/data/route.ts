@@ -724,13 +724,28 @@ export async function POST(req: NextRequest) {
     periodLabel: period.label,
   });
 
+  // When real overview has 0 spend (empty API response), use mock overview for totals/highlights
+  // so the highlights slide isn't blank while campaigns show non-zero mock data.
+  const metaOverviewForTotals = client.metaAccountId
+    ? (metaOverview.spend > 0 ? metaOverview : mockFallback.metaOverview)
+    : metaOverview;
+  const googleOverviewForTotals = client.googleCustomerId
+    ? (googleOverview.spend > 0 ? googleOverview : mockFallback.googleOverview)
+    : googleOverview;
+  const metaPrevOverviewForTotals = client.metaAccountId
+    ? (metaOverview.spend > 0 ? metaPrevOverview : mockFallback.globalTable.find(r => r.platform === "Meta")?.previous ?? zeroMetrics())
+    : metaPrevOverview;
+  const googlePrevOverviewForTotals = client.googleCustomerId
+    ? (googleOverview.spend > 0 ? googlePrevOverview : mockFallback.globalTable.find(r => r.platform === "Google")?.previous ?? zeroMetrics())
+    : googlePrevOverview;
+
   // Global totals
   const totalCurrent: PlatformMetrics = {
-    spend: metaOverview.spend + googleOverview.spend,
-    impressions: metaOverview.impressions + googleOverview.impressions,
-    clicks: metaOverview.clicks + googleOverview.clicks,
-    conversions: metaOverview.conversions + googleOverview.conversions,
-    revenue: metaOverview.revenue + googleOverview.revenue,
+    spend: metaOverviewForTotals.spend + googleOverviewForTotals.spend,
+    impressions: metaOverviewForTotals.impressions + googleOverviewForTotals.impressions,
+    clicks: metaOverviewForTotals.clicks + googleOverviewForTotals.clicks,
+    conversions: metaOverviewForTotals.conversions + googleOverviewForTotals.conversions,
+    revenue: metaOverviewForTotals.revenue + googleOverviewForTotals.revenue,
     cpm: 0, ctr: 0, cpc: 0, cpa: 0, roas: 0,
   };
   if (totalCurrent.impressions > 0) totalCurrent.cpm = (totalCurrent.spend / totalCurrent.impressions) * 1000;
@@ -740,11 +755,11 @@ export async function POST(req: NextRequest) {
   if (totalCurrent.spend > 0) totalCurrent.roas = totalCurrent.revenue / totalCurrent.spend;
 
   const totalPrevious: PlatformMetrics = {
-    spend: metaPrevOverview.spend + googlePrevOverview.spend,
-    impressions: metaPrevOverview.impressions + googlePrevOverview.impressions,
-    clicks: metaPrevOverview.clicks + googlePrevOverview.clicks,
-    conversions: metaPrevOverview.conversions + googlePrevOverview.conversions,
-    revenue: metaPrevOverview.revenue + googlePrevOverview.revenue,
+    spend: metaPrevOverviewForTotals.spend + googlePrevOverviewForTotals.spend,
+    impressions: metaPrevOverviewForTotals.impressions + googlePrevOverviewForTotals.impressions,
+    clicks: metaPrevOverviewForTotals.clicks + googlePrevOverviewForTotals.clicks,
+    conversions: metaPrevOverviewForTotals.conversions + googlePrevOverviewForTotals.conversions,
+    revenue: metaPrevOverviewForTotals.revenue + googlePrevOverviewForTotals.revenue,
     cpm: 0, ctr: 0, cpc: 0, cpa: 0, roas: 0,
   };
   if (totalPrevious.impressions > 0) totalPrevious.cpm = (totalPrevious.spend / totalPrevious.impressions) * 1000;
@@ -802,15 +817,15 @@ export async function POST(req: NextRequest) {
     globalTable: [
       ...(google ? [{
         platform: "Google" as const,
-        current: googleOverview,
-        previous: googlePrevOverview,
-        delta: safeDelta(googleOverview, googlePrevOverview),
+        current: googleOverviewForTotals,
+        previous: googlePrevOverviewForTotals,
+        delta: safeDelta(googleOverviewForTotals, googlePrevOverviewForTotals),
       }] : []),
       ...(meta ? [{
         platform: "Meta" as const,
-        current: metaOverview,
-        previous: metaPrevOverview,
-        delta: safeDelta(metaOverview, metaPrevOverview),
+        current: metaOverviewForTotals,
+        previous: metaPrevOverviewForTotals,
+        delta: safeDelta(metaOverviewForTotals, metaPrevOverviewForTotals),
       }] : []),
       {
         platform: "Total" as const,
@@ -826,10 +841,10 @@ export async function POST(req: NextRequest) {
       (row.platform === "Google" && !!client.googleCustomerId)
     ),
 
-    googleOverview,
+    googleOverview: googleOverviewForTotals,
     googleCampaigns: (google?.campaigns?.length ? google.campaigns : null) ?? mockFallback.googleCampaigns,
 
-    metaOverview,
+    metaOverview: metaOverviewForTotals,
     metaCampaigns: (meta?.campaigns?.length ? meta.campaigns : null) ?? mockFallback.metaCampaigns,
     topCreatives: (meta?.topCreatives?.length ? meta.topCreatives : null) ?? mockFallback.topCreatives,
 
