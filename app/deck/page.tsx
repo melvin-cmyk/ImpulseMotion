@@ -309,6 +309,8 @@ export default function DeckPage() {
   const [aiDynamicSlides, setAiDynamicSlides] = useState<SlideData[]>([]);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
+  const [isDragOverCanvas, setIsDragOverCanvas] = useState(false);
+  const [showAddSlideMenu, setShowAddSlideMenu] = useState(false);
   const [filmstripDragging, setFilmstripDragging] = useState<number | null>(null);
   const [filmstripDropTarget, setFilmstripDropTarget] = useState<number | null>(null);
   const [slideNotes, setSlideNotes] = useState<Record<string, string>>({});
@@ -973,10 +975,12 @@ export default function DeckPage() {
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
+    setIsDragOverCanvas(true);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setIsDragOverCanvas(false);
 
     // Handle deck-template drops (from AI panel templates)
     const templateContent = e.dataTransfer.getData("application/deck-template");
@@ -1871,13 +1875,42 @@ export default function DeckPage() {
             </div>
 
             {/* Add slide button */}
-            <button
-              onClick={addCustomSlide}
-              className="flex items-center justify-center gap-1.5 w-full py-2.5 text-xs text-gray-500 hover:text-[#0944A1] hover:bg-blue-50 border-t border-gray-200 transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Ajouter une slide
-            </button>
+            <div className="relative border-t border-gray-200">
+              <div className="flex">
+                <button
+                  onClick={addCustomSlide}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-gray-500 hover:text-[#0944A1] hover:bg-blue-50 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Ajouter une slide
+                </button>
+                <button
+                  onClick={() => setShowAddSlideMenu(v => !v)}
+                  className="px-2.5 text-xs text-gray-400 hover:text-[#0944A1] hover:bg-blue-50 border-l border-gray-200 transition-colors font-semibold"
+                  title="Choisir un type de slide"
+                >
+                  ▾
+                </button>
+              </div>
+              {showAddSlideMenu && (
+                <div className="absolute bottom-full left-0 right-0 bg-white border border-gray-200 rounded-t-lg shadow-lg z-20 py-1">
+                  {[
+                    { label: "📊 Tableau KPIs", content: "# Tableau KPIs\n\n| KPI | Valeur | Variation |\n|---|---|---|\n| CPM | — | — |\n| CTR | — | — |\n| CPA | — | — |" },
+                    { label: "💡 Learnings", content: "# Points Clés\n\n1. **Point 1** — description de l'insight\n2. **Point 2** — description de l'insight\n3. **Point 3** — description de l'insight" },
+                    { label: "✅ Next Steps", content: "# Next Steps\n\n1. ✅ **Action 1** — impact attendu (Owner)\n2. ✅ **Action 2** — impact attendu (Owner)\n3. ✅ **Action 3** — impact attendu (Owner)" },
+                    { label: "📄 Slide vierge", content: "# Nouveau slide\n\nAjoutez votre contenu ici." },
+                  ].map(item => (
+                    <button
+                      key={item.label}
+                      onClick={() => { handleAddCustomSlide(item.label.replace(/^[^\w]+/, "").trim(), item.content); setShowAddSlideMenu(false); }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-blue-50 hover:text-[#0944A1] transition-colors"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Slide preview */}
@@ -1963,8 +1996,17 @@ export default function DeckPage() {
               ref={canvasRef}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
+              onDragLeave={(e) => { if (!canvasRef.current?.contains(e.relatedTarget as Node)) setIsDragOverCanvas(false); }}
               onClick={editMode ? slideEditor.handleCanvasClick : undefined}
             >
+              {/* Drop overlay */}
+              {isDragOverCanvas && (
+                <div className="absolute inset-0 z-50 pointer-events-none rounded-lg border-4 border-violet-500 bg-violet-500/10 flex items-center justify-center">
+                  <div className="bg-violet-600 text-white text-sm font-semibold px-4 py-2 rounded-full shadow-lg">
+                    📥 Déposer pour créer un slide
+                  </div>
+                </div>
+              )}
               {/* Slide content */}
               {currentSlide < slides.length ? (
                 slides[currentSlide].render(deckData, currentSlide + 1, {

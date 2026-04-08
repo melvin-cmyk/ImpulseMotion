@@ -900,28 +900,39 @@ export function AIPanel({
 
       {/* Draggable Templates */}
       <div className="flex-shrink-0 px-4 py-2 border-b border-gray-800">
-        <p className="text-[10px] text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Templates</p>
-        <div className="grid grid-cols-2 gap-1.5">
-          {[
-            { icon: "\u{1F4CA}", label: "Tableau KPIs", content: "## Tableau KPIs\n\n| KPI | Valeur | Variation |\n|---|---|---|\n| CPM | \u2014 | \u2014 |\n| CTR | \u2014 | \u2014 |\n| CPA | \u2014 | \u2014 |" },
-            { icon: "\u{1F4AC}", label: "Commentaire", content: "## Commentaire IA\n\n_Analyse : ..._" },
-            { icon: "\u{1F3AF}", label: "Recommandation", content: "## Recommandation\n\n**Action :** ...\n\n**Justification :** ..." },
-            { icon: "\u{1F4C8}", label: "Tendance", content: "## Tendance\n\n\u2197 Hausse de X% cette semaine" },
-          ].map((tpl) => (
-            <div
-              key={tpl.label}
-              draggable={true}
-              onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = "copy";
-                e.dataTransfer.setData("application/deck-template", tpl.content);
-              }}
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-gray-700 bg-gray-900 hover:border-violet-600 hover:bg-gray-800 cursor-grab active:cursor-grabbing transition-colors select-none"
-            >
-              <span className="text-sm">{tpl.icon}</span>
-              <span className="text-[10px] text-gray-300 truncate">{tpl.label}</span>
-            </div>
-          ))}
+        <p className="text-[10px] text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Templates — glisse sur le canvas</p>
+        <div className="grid grid-cols-2 gap-1.5 max-h-[180px] overflow-y-auto pr-0.5">
+          {(Object.entries(SLIDE_TEMPLATES) as [string, { label: string; content: string }][]).map(([key, tpl]) => {
+            const icons: Record<string, string> = {
+              learnings: "💡", "next-steps": "✅", highlights: "⭐", table: "📊",
+              kpi: "📈", blank: "📄", "hook-rate": "🎣", "creative-comparison": "🎨",
+              "budget-split": "💰", audience: "👥", funnel: "🔻", fatigue: "⚠️",
+              retention: "🔄", competitive: "🏆", "monthly-trend": "📅",
+            };
+            return (
+              <div
+                key={key}
+                draggable={true}
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = "copy";
+                  e.dataTransfer.setData("application/deck-template", tpl.content);
+                }}
+                className="flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-gray-700 bg-gray-900 hover:border-violet-600 hover:bg-gray-800 cursor-grab active:cursor-grabbing transition-colors select-none"
+              >
+                <span className="text-sm">{icons[key] ?? "📋"}</span>
+                <span className="text-[10px] text-gray-300 truncate">{tpl.label}</span>
+              </div>
+            );
+          })}
         </div>
+        {onAddCustomSlide && (
+          <button
+            onClick={() => onAddCustomSlide("Nouveau slide", "# Nouveau slide\n\nAjoutez votre contenu ici.")}
+            className="mt-2 w-full text-[10px] py-1.5 rounded-md bg-violet-600 hover:bg-violet-500 text-white font-medium transition-colors"
+          >
+            + Créer un slide vierge
+          </button>
+        )}
       </div>
 
       {/* Messages */}
@@ -933,10 +944,13 @@ export function AIPanel({
             </div>
             <h3 className="text-sm font-semibold text-white mb-1">Assistant IA</h3>
             <p className="text-xs text-gray-500 mb-4">
-              Tape <code className="text-violet-400 font-mono text-[11px]">/fetch meta</code> pour charger les données Meta Ads
+              Décris ce que tu veux ou utilise une commande rapide
             </p>
             <div className="w-full space-y-1.5">
-              {SLASH_COMMANDS.map((sc) => (
+              {SLASH_COMMANDS.filter(sc => [
+                "/fetch meta", "/fetch google", "/add slide kpi", "/add slide table",
+                "/add slide learnings", "/analyze slide", "/export pptx", "/summarize deck",
+              ].includes(sc.cmd)).map((sc) => (
                 <button
                   key={sc.cmd}
                   onClick={() => setInput(sc.cmd)}
