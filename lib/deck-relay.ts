@@ -175,7 +175,20 @@ function extractCampaigns(raw: unknown): CampaignRow[] {
   });
 }
 
-function extractCreatives(raw: unknown): TopCreative[] {
+function buildThumbnailMap(raw: unknown): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!raw || typeof raw !== "object") return map;
+  const r = raw as Record<string, unknown>;
+  const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.creatives) ? r.creatives : Array.isArray(r.ads) ? r.ads : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+  for (const cr of list) {
+    const id = String(cr.ad_id ?? cr.id ?? "");
+    const url = String(cr.thumbnail_url ?? cr.image_url ?? cr.creative_url ?? cr.picture ?? "");
+    if (id && url && url !== "undefined") map.set(id, url);
+  }
+  return map;
+}
+
+function extractCreatives(raw: unknown, thumbnailMap?: Map<string, string>): TopCreative[] {
   if (!raw || typeof raw !== "object") return [];
   const r = raw as Record<string, unknown>;
   const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.ads) ? r.ads : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
@@ -183,8 +196,11 @@ function extractCreatives(raw: unknown): TopCreative[] {
     const conversions = toNum(cr.conversions ?? cr.purchases) || actionsValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase", "lead", "offsite_conversion.fb_pixel_lead");
     const revenue = actionValuesValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase");
     const spend = toNum(cr.spend);
+    const id = String(cr.id ?? cr.ad_id ?? `tc-${i}`);
+    const inlineThumbnail = cr.thumbnail_url ? String(cr.thumbnail_url) : undefined;
+    const mappedThumbnail = thumbnailMap?.get(id);
     return {
-      id: String(cr.id ?? cr.ad_id ?? `tc-${i}`),
+      id,
       name: String(cr.name ?? cr.ad_name ?? `Creative ${i + 1}`),
       format: (["Video", "Image", "Carousel"].includes(String(cr.format ?? cr.creative_type ?? "")) ? String(cr.format ?? cr.creative_type) : "Image") as TopCreative["format"],
       spend,
@@ -193,7 +209,7 @@ function extractCreatives(raw: unknown): TopCreative[] {
       cpa: conversions > 0 && spend > 0 ? spend / conversions : toNum(cr.cpa ?? cr.cost_per_purchase),
       impressions: toNum(cr.impressions),
       hookRate: cr.hook_rate !== undefined ? toNum(cr.hook_rate) : undefined,
-      thumbnailUrl: cr.thumbnail_url ? String(cr.thumbnail_url) : undefined,
+      thumbnailUrl: inlineThumbnail ?? mappedThumbnail,
     };
   });
 }
