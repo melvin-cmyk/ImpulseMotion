@@ -977,6 +977,15 @@ export default function DeckPage() {
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+
+    // Handle deck-template drops (from AI panel templates)
+    const templateContent = e.dataTransfer.getData("application/deck-template");
+    if (templateContent) {
+      const label = templateContent.match(/^##?\s+(.+)/m)?.[1] || "Template";
+      handleAddCustomSlide(label, templateContent);
+      return;
+    }
+
     try {
       const data = JSON.parse(e.dataTransfer.getData("application/json"));
       if (data.type === "data-block" && data.content) {

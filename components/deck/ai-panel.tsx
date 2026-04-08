@@ -654,6 +654,86 @@ export function AIPanel({
       return;
     }
 
+    // ── Natural language slide generation ────────────────────────────────────
+    const slideGenMatch = text.match(/^(?:cr[ée]{1,2}e?|g[ée]n[èe]re|ajoute)\s+(?:un\s+)?slide\s+(?:sur\s+)?(.+)/i);
+    if (slideGenMatch && onAddCustomSlide) {
+      const subject = slideGenMatch[1].trim();
+      const userMsg: AIPanelMessage = { id: crypto.randomUUID(), role: "user", content: text };
+      const assistantMsg: AIPanelMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: "",
+        isStreaming: true,
+      };
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setInput("");
+      setShowSlashMenu(false);
+      setIsLoading(true);
+
+      const abort = new AbortController();
+      abortRef.current = abort;
+
+      const dataContext = deckData ? JSON.stringify(deckData).slice(0, 500) : "Aucune donnée disponible";
+      const genPrompt = `Génère du contenu Markdown structuré pour un slide de présentation sur le sujet : "${subject}".\n\nFormat attendu : un titre H2, puis des tableaux, bullets ou commentaires pertinents. Sois concis et professionnel.\n\nDonnées du deck (contexte) :\n${dataContext}`;
+
+      const history: ChatMessage[] = [
+        { role: "user" as const, content: genPrompt },
+      ];
+
+      try {
+        let finalContent = "";
+        await streamChat(
+          history,
+          (event: StreamEvent) => {
+            setMessages((prev) => {
+              const updated = [...prev];
+              const last = { ...updated[updated.length - 1] };
+              if (event.type === "delta" || event.type === "content") {
+                if (event.type === "delta") last.content += event.text || "";
+                else if (!last.content) last.content = event.text || "";
+                finalContent = last.content;
+              } else if (event.type === "error") {
+                last.content += `\n\n**Erreur:** ${event.message}`;
+                finalContent = last.content;
+              }
+              updated[updated.length - 1] = last;
+              return updated;
+            });
+          },
+          abort.signal
+        );
+
+        if (finalContent) {
+          onAddCustomSlide(subject, finalContent);
+          setMessages((prev) => [
+            ...prev,
+            { id: crypto.randomUUID(), role: "assistant", content: `✅ Slide **"${subject}"** générée et ajoutée au deck.` },
+          ]);
+        }
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = { ...updated[updated.length - 1] };
+            last.content += `\n\n**Erreur de connexion:** ${(err as Error).message}`;
+            updated[updated.length - 1] = last;
+            return updated;
+          });
+        }
+      } finally {
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = { ...updated[updated.length - 1] };
+          last.isStreaming = false;
+          updated[updated.length - 1] = last;
+          return updated;
+        });
+        setIsLoading(false);
+        abortRef.current = null;
+      }
+      return;
+    }
+
     const originalInput = text;
     const isFetchCommand = text.startsWith("/fetch meta") || text.startsWith("/fetch google");
     const matchedCmd = SLASH_COMMANDS.find((sc) => text.startsWith(sc.cmd));
@@ -816,6 +896,32 @@ export function AIPanel({
             Slide {currentSlideIndex + 1}
           </div>
         )}
+      </div>
+
+      {/* Draggable Templates */}
+      <div className="flex-shrink-0 px-4 py-2 border-b border-gray-800">
+        <p className="text-[10px] text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Templates</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {[
+            { icon: "\u{1F4CA}", label: "Tableau KPIs", content: "## Tableau KPIs\n\n| KPI | Valeur | Variation |\n|---|---|---|\n| CPM | \u2014 | \u2014 |\n| CTR | \u2014 | \u2014 |\n| CPA | \u2014 | \u2014 |" },
+            { icon: "\u{1F4AC}", label: "Commentaire", content: "## Commentaire IA\n\n_Analyse : ..._" },
+            { icon: "\u{1F3AF}", label: "Recommandation", content: "## Recommandation\n\n**Action :** ...\n\n**Justification :** ..." },
+            { icon: "\u{1F4C8}", label: "Tendance", content: "## Tendance\n\n\u2197 Hausse de X% cette semaine" },
+          ].map((tpl) => (
+            <div
+              key={tpl.label}
+              draggable={true}
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "copy";
+                e.dataTransfer.setData("application/deck-template", tpl.content);
+              }}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-gray-700 bg-gray-900 hover:border-violet-600 hover:bg-gray-800 cursor-grab active:cursor-grabbing transition-colors select-none"
+            >
+              <span className="text-sm">{tpl.icon}</span>
+              <span className="text-[10px] text-gray-300 truncate">{tpl.label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Messages */}
