@@ -704,8 +704,14 @@ async function fetchThumbnails(creatives: TopCreative[]): Promise<Record<string,
       try {
         const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(cr.thumbnailUrl!)}&format=base64`, { signal: AbortSignal.timeout(6000) });
         if (res.ok) {
-          const json = await res.json() as { dataUrl?: string };
-          if (json.dataUrl) result[cr.id] = json.dataUrl;
+          const blob = await res.blob();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          if (dataUrl) result[cr.id] = dataUrl;
         }
       } catch { /* skip */ }
     })

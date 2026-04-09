@@ -42,6 +42,7 @@ interface AIPanelProps {
   onDeleteSlide?: () => void;
   onSetNote?: (note: string) => void;
   currentSlideNote?: string;
+  onGenerateAiSlides?: (userPrompt: string) => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -193,6 +194,7 @@ export function AIPanel({
   onDeleteSlide,
   onSetNote,
   currentSlideNote,
+  onGenerateAiSlides,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -655,9 +657,34 @@ export function AIPanel({
     }
 
     // ── Natural language slide generation ────────────────────────────────────
-    const slideGenMatch = text.match(/^(?:cr[ée]{1,2}e?|g[ée]n[èe]re|ajoute)\s+(?:un\s+)?slide\s+(?:sur\s+)?(.+)/i);
-    if (slideGenMatch && onAddCustomSlide) {
+    const slideGenMatch = text.match(/^(?:cr[ée]{1,2}e?|g[ée]n[èe]re|ajoute)\s+(?:un\s+)?(?:les?\s+)?(?:slides?|deck)\s*(?:sur\s+|avec\s+|pour\s+)?(.+)/i)
+      || text.match(/^(?:modifie|mets?\s+[àa]\s+jour|reconstrui[st]|refai[st])\s+(?:les?\s+)?(?:slides?|deck)\s*(?:avec\s+|pour\s+)?(.+)/i);
+    if (slideGenMatch) {
       const subject = slideGenMatch[1].trim();
+
+      // Use structured AI slide generation when available
+      if (onGenerateAiSlides) {
+        const userMsg: AIPanelMessage = { id: crypto.randomUUID(), role: "user", content: text };
+        setMessages((prev) => [...prev, userMsg, {
+          id: crypto.randomUUID(), role: "assistant",
+          content: "🔄 Génération des slides avec les données réelles...", isStreaming: true,
+        }]);
+        setInput("");
+        setIsLoading(true);
+        onGenerateAiSlides(subject);
+        setMessages((prev) => {
+          const updated = [...prev];
+          const last = { ...updated[updated.length - 1] };
+          last.content = "✅ Slides générées avec les données réelles. Basculez en mode **IA** pour les voir.";
+          last.isStreaming = false;
+          updated[updated.length - 1] = last;
+          return updated;
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      if (!onAddCustomSlide) return;
       const userMsg: AIPanelMessage = { id: crypto.randomUUID(), role: "user", content: text };
       const assistantMsg: AIPanelMessage = {
         id: crypto.randomUUID(),
@@ -673,7 +700,7 @@ export function AIPanel({
       const abort = new AbortController();
       abortRef.current = abort;
 
-      const dataContext = deckData ? JSON.stringify(deckData).slice(0, 500) : "Aucune donnée disponible";
+      const dataContext = deckData ? JSON.stringify(deckData).slice(0, 8000) : "Aucune donnée disponible";
       const genPrompt = `Génère du contenu Markdown structuré pour un slide de présentation sur le sujet : "${subject}".\n\nFormat attendu : un titre H2, puis des tableaux, bullets ou commentaires pertinents. Sois concis et professionnel.\n\nDonnées du deck (contexte) :\n${dataContext}`;
 
       const history: ChatMessage[] = [

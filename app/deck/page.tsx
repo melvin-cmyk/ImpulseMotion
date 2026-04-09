@@ -545,10 +545,10 @@ export default function DeckPage() {
         reason = `Erreur serveur: ${dataRes.status}`;
       }
 
-      if (realData && source === "real") {
+      if (realData) {
         setDeckData(realData);
-        setDataSource("real");
-        setDataSourceReason(null);
+        setDataSource(source);
+        setDataSourceReason(source === "mock" ? (reason ?? "Données de démonstration") : null);
       } else {
         setDeckData(null);
         setDataSource("mock");
@@ -2549,6 +2549,28 @@ export default function DeckPage() {
             onDeleteSlide={handleDeleteSlide}
             onSetNote={handleSetNote}
             currentSlideNote={currentSlideNote}
+            onGenerateAiSlides={(userPrompt: string) => {
+              if (!selectedClient) return;
+              fetch("/api/deck/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  customerId: selectedClient.id,
+                  platform: selectedClient.platform ?? "both",
+                  dateRange: { startDate: selectedPeriod.startDate, endDate: selectedPeriod.endDate, label: selectedPeriod.label },
+                  sections: ["global", "google", "meta", "budget", "learnings"],
+                  context: userPrompt,
+                }),
+              })
+                .then(res => res.json())
+                .then((json: { slides?: SlideData[] }) => {
+                  if (json.slides && json.slides.length > 0) {
+                    setAiDynamicSlides(json.slides);
+                    setSlideMode("ai");
+                  }
+                })
+                .catch(console.error);
+            }}
           />
         </div>}
       </div>
