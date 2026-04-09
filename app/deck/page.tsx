@@ -121,26 +121,24 @@ function buildSlidesFromDeckData(data: DeckData): SlideData[] {
     });
   }
 
-  // 4. Top Creatives — one slide per creative for clear, full-size display
+  // 4. Top Creatives — grid of creatives with thumbnails and KPIs underneath
   if (data.topCreatives.length > 0) {
-    data.topCreatives.slice(0, 6).forEach((c, i) => {
-      slides.push({
-        id: `auto-creative-${i}`,
-        type: "creative",
-        title: `Créative #${i + 1} — ${c.name}`,
-        subtitle: `${c.format} · Spend: ${fmtCur(c.spend)}`,
-        images: c.thumbnailUrl ? [{
-          url: c.thumbnailUrl,
-          label: c.name,
-          metrics: `ROAS ${fmtX(c.roas)} · CPA ${fmtCur(c.cpa)} · CTR ${fmtPct(c.ctr)} · ${fmtNum(c.impressions)} impressions`,
-        }] : [],
-        kpis: [
-          { label: "Spend", value: fmtCur(c.spend) },
-          { label: "ROAS", value: fmtX(c.roas), trend: c.roas >= 1 ? "up" as const : "down" as const },
-          { label: "CTR", value: fmtPct(c.ctr) },
-          { label: "CPA", value: fmtCur(c.cpa), trend: c.cpa < 30 ? "up" as const : "down" as const },
-        ],
-      });
+    slides.push({
+      id: "auto-creatives",
+      type: "creative",
+      title: "Top Créatives — Performance",
+      subtitle: `Top ${Math.min(data.topCreatives.length, 6)} créatives par spend`,
+      images: data.topCreatives.slice(0, 6).filter(c => c.thumbnailUrl).map(c => ({
+        url: c.thumbnailUrl!,
+        label: c.name,
+        metrics: `Spend ${fmtCur(c.spend)} · ROAS ${fmtX(c.roas)} · CTR ${fmtPct(c.ctr)} · CPA ${fmtCur(c.cpa)}`,
+      })),
+      kpis: data.topCreatives.slice(0, 4).map(c => ({
+        label: c.name.length > 20 ? c.name.slice(0, 17) + "…" : c.name,
+        value: fmtX(c.roas),
+        delta: fmtCur(c.spend),
+        trend: c.roas >= 1 ? "up" as const : "down" as const,
+      })),
     });
   }
 

@@ -190,52 +190,52 @@ function ChartBlock({ chart }: { chart: ChartData }) {
 // ── Image Gallery (for creative/ad thumbnails) ──────────────────────────────
 
 function ImageGallery({ images }: { images: SlideImage[] }) {
-  const single = images.length === 1;
-  const cols = single ? 1 : Math.min(images.length, 3);
+  const cols = Math.min(images.length, 3);
   return (
     <div
-      className={single ? "flex mt-2" : "grid gap-2 mt-2"}
-      style={single ? {} : { gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+      className="grid gap-2 mt-2"
+      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
     >
       {images.map((img, i) => (
         <div
           key={i}
-          className={cn(
-            "flex rounded-lg overflow-hidden",
-            single ? "gap-3 items-start" : "flex-col gap-1"
-          )}
-          style={{ background: colors.bgAlt }}
+          className="flex flex-col rounded-lg overflow-hidden border"
+          style={{ background: "#fff", borderColor: "#E8EDF3" }}
         >
-          {/* Image container — constrained to not overflow the slide */}
+          {/* Creative image — card style like MBR Top Performers */}
           <div
-            className={cn(
-              "relative flex-shrink-0 overflow-hidden rounded-lg",
-              single ? "w-[40%]" : "w-full"
-            )}
-            style={{ paddingBottom: single ? "30%" : "75%" }}
+            className="relative w-full overflow-hidden"
+            style={{ paddingBottom: cols >= 3 ? "90%" : "65%", background: "#F5F7FA" }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={img.url.startsWith("http") ? `/api/deck/proxy-image?url=${encodeURIComponent(img.url)}` : img.url}
               alt={img.label ?? `Creative ${i + 1}`}
-              className="absolute inset-0 w-full h-full object-contain bg-gray-50"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              className="absolute inset-0 w-full h-full object-contain"
+              onError={(e) => {
+                const target = e.currentTarget;
+                target.style.display = "none";
+                const fb = target.nextElementSibling as HTMLElement;
+                if (fb) fb.style.display = "flex";
+              }}
             />
-          </div>
-          {(img.label || img.metrics) && (
-            <div className={single ? "flex-1 py-1" : "px-2 py-1.5"}>
-              {img.label && (
-                <p className="font-semibold leading-tight" style={{ color: colors.blueDeep, fontSize: "max(1.3%, 11px)" }}>
-                  {img.label}
-                </p>
-              )}
-              {img.metrics && (
-                <p className="mt-1" style={{ color: "#555", fontSize: "max(1.1%, 10px)", lineHeight: 1.5 }}>
-                  {img.metrics}
-                </p>
-              )}
+            <div className="absolute inset-0 flex-col items-center justify-center gap-1 hidden" style={{ background: "#F5F7FA" }}>
+              <span style={{ fontSize: "max(2%, 16px)" }}>🖼️</span>
             </div>
-          )}
+          </div>
+          {/* Name + metrics underneath */}
+          <div className="px-1.5 py-1 border-t" style={{ borderColor: "#E8EDF3" }}>
+            {img.label && (
+              <p className="font-semibold leading-tight truncate" style={{ color: colors.blueDeep, fontSize: "max(1.1%, 9px)" }}>
+                {img.label}
+              </p>
+            )}
+            {img.metrics && (
+              <p className="mt-0.5 leading-snug" style={{ color: "#666", fontSize: "max(0.9%, 8px)" }}>
+                {img.metrics}
+              </p>
+            )}
+          </div>
         </div>
       ))}
     </div>
