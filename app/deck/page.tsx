@@ -2154,11 +2154,31 @@ export default function DeckPage() {
                     </button>
                   </div>
                 ) : aiDynamicSlides.length > 0 ? (
-                  <DynamicDeck
-                    slides={aiDynamicSlides}
-                    title={selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "Performance Deck"}
-                    onExport={handleExportPptx}
-                  />
+                  <div className="w-full">
+                    {/* Editor toolbar for AI slides */}
+                    <div className="mb-0">
+                      <SlideEditorToolbar
+                        activeTool={slideEditor.activeTool}
+                        onToolChange={slideEditor.setActiveTool}
+                        selectedElement={slideEditor.selectedElement}
+                        onUpdateElement={(patch) => slideEditor.selectedElement && slideEditor.updateElWithHistory(slideEditor.selectedElement.id, patch)}
+                        onDeleteElement={slideEditor.deleteSelected}
+                        onDuplicateElement={slideEditor.duplicateSelected}
+                        onBringToFront={slideEditor.bringToFront}
+                        onSendToBack={slideEditor.sendToBack}
+                        onUndo={slideEditor.undo}
+                        onRedo={slideEditor.redo}
+                        canUndo={slideEditor.canUndo}
+                        canRedo={slideEditor.canRedo}
+                        onImageUpload={slideEditor.handleImageUpload}
+                      />
+                    </div>
+                    <DynamicDeck
+                      slides={aiDynamicSlides}
+                      title={selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "Performance Deck"}
+                      onExport={handleExportPptx}
+                    />
+                  </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-400">
                     <Sparkles className="w-10 h-10 opacity-30" />

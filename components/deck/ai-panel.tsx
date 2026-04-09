@@ -146,6 +146,41 @@ const SLIDE_TEMPLATES: Record<string, { label: string; content: string }> = {
   },
 };
 
+// ── Fill template with real data ─────────────────────────────────────────────
+
+function fillTemplateWithData(content: string, slideType: string, data: DeckData | null): string {
+  if (!data) return content;
+  const fmtCur = (n: number) => `€${n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmtPct = (n: number) => `${n.toFixed(2)}%`;
+  const fmtX = (n: number) => `${n.toFixed(2)}x`;
+  const fmtNum = (n: number) => n.toLocaleString("fr-FR");
+  const m = data.metaOverview;
+  const g = data.googleOverview;
+
+  switch (slideType) {
+    case "kpi":
+      return `# KPIs clés\n\n- **Spend total :** ${fmtCur(m.spend + g.spend)}\n- **ROAS global :** ${fmtX((m.revenue + g.revenue) / Math.max(m.spend + g.spend, 1))}\n- **CTR moyen :** ${fmtPct((m.ctr + g.ctr) / 2)}\n- **CPA moyen :** ${fmtCur((m.cpa + g.cpa) / (m.cpa > 0 && g.cpa > 0 ? 2 : 1))}\n- **Conversions :** ${fmtNum(Math.round(m.conversions + g.conversions))}`;
+    case "highlights":
+      return `# Highlights du mois\n\n| Métrique | Valeur | vs M-1 |\n|----------|--------|--------|\n| ROAS Meta | ${fmtX(m.roas)} | ${data.highlights[0]?.delta != null ? (data.highlights[0].delta >= 0 ? "+" : "") + data.highlights[0].delta.toFixed(1) + "%" : "—"} |\n| Spend total | ${fmtCur(m.spend + g.spend)} | — |\n| Conversions | ${fmtNum(Math.round(m.conversions + g.conversions))} | — |`;
+    case "table":
+      return `# Tableau de données\n\n| Plateforme | Spend | ROAS | CTR | CPA |\n|-----------|-------|------|-----|-----|\n| Google | ${fmtCur(g.spend)} | ${fmtX(g.roas)} | ${fmtPct(g.ctr)} | ${fmtCur(g.cpa)} |\n| Meta | ${fmtCur(m.spend)} | ${fmtX(m.roas)} | ${fmtPct(m.ctr)} | ${fmtCur(m.cpa)} |\n| **Total** | ${fmtCur(m.spend + g.spend)} | ${fmtX((m.revenue + g.revenue) / Math.max(m.spend + g.spend, 1))} | ${fmtPct((m.ctr + g.ctr) / 2)} | ${fmtCur((m.spend + g.spend) / Math.max(m.conversions + g.conversions, 1))} |`;
+    case "learnings":
+      return `# Points Clés\n\n${data.learnings.length > 0 ? data.learnings.map((l, i) => `${i + 1}. ${l}`).join("\n") : `1. **ROAS Meta** à ${fmtX(m.roas)} — ${m.roas >= 2 ? "performance solide" : m.roas >= 1 ? "objectif atteint" : "en dessous de l'objectif"}\n2. **Spend total** de ${fmtCur(m.spend + g.spend)} pour ${fmtNum(Math.round(m.conversions + g.conversions))} conversions\n3. **CPA moyen** à ${fmtCur((m.spend + g.spend) / Math.max(m.conversions + g.conversions, 1))}`}`;
+    case "next-steps":
+      return `# Next Steps\n\n${data.nextStepsGlobal.length > 0 ? data.nextStepsGlobal.map((s, i) => `${i + 1}. ✅ ${s}`).join("\n") : `1. ✅ **Optimiser le CPA** — objectif : passer de ${fmtCur((m.spend + g.spend) / Math.max(m.conversions + g.conversions, 1))} à ${fmtCur(((m.spend + g.spend) / Math.max(m.conversions + g.conversions, 1)) * 0.85)}\n2. ✅ **Tester de nouveaux créatifs** — ${data.topCreatives.length} créatifs actifs\n3. ✅ **Réévaluer la répartition budget** — Meta: ${fmtCur(m.spend)} / Google: ${fmtCur(g.spend)}`}`;
+    case "creative-comparison":
+      if (data.topCreatives.length >= 3) {
+        const [a, b, c] = data.topCreatives;
+        return `# Top 3 Créatifs du mois\n\n| Métrique | ${a.name.slice(0, 20)} | ${b.name.slice(0, 20)} | ${c.name.slice(0, 20)} |\n|----------|-----------|-----------|----------|\n| Spend | ${fmtCur(a.spend)} | ${fmtCur(b.spend)} | ${fmtCur(c.spend)} |\n| ROAS | ${fmtX(a.roas)} | ${fmtX(b.roas)} | ${fmtX(c.roas)} |\n| CTR | ${fmtPct(a.ctr)} | ${fmtPct(b.ctr)} | ${fmtPct(c.ctr)} |\n| CPA | ${fmtCur(a.cpa)} | ${fmtCur(b.cpa)} | ${fmtCur(c.cpa)} |`;
+      }
+      return content;
+    case "funnel":
+      return `# Funnel Acquisition\n\n| Étape | Volume | Taux de conversion |\n|-------|--------|--------------------|\n| Impressions | ${fmtNum(m.impressions + g.impressions)} | — |\n| Clics | ${fmtNum(m.clicks + g.clicks)} | CTR : ${fmtPct((m.clicks + g.clicks) / Math.max(m.impressions + g.impressions, 1) * 100)} |\n| Conversions | ${fmtNum(Math.round(m.conversions + g.conversions))} | CVR : ${fmtPct((m.conversions + g.conversions) / Math.max(m.clicks + g.clicks, 1) * 100)} |\n\n**CPA :** ${fmtCur((m.spend + g.spend) / Math.max(m.conversions + g.conversions, 1))} · **ROAS :** ${fmtX((m.revenue + g.revenue) / Math.max(m.spend + g.spend, 1))}`;
+    default:
+      return content;
+  }
+}
+
 // ── Font options ─────────────────────────────────────────────────────────────
 
 const FONT_OPTIONS = [
@@ -460,12 +495,14 @@ export function AIPanel({
         ]);
         return;
       }
+      // Fill template with real data when available
+      const filledContent = fillTemplateWithData(template.content, slideType, deckData);
       if (onAddCustomSlide) {
-        onAddCustomSlide(template.label, template.content);
+        onAddCustomSlide(template.label, filledContent);
         setMessages((prev) => [
           ...prev,
           addMsg,
-          { id: crypto.randomUUID(), role: "assistant", content: `✅ Slide **${template.label}** ajoutée au deck — accès direct via le filmstrip.` },
+          { id: crypto.randomUUID(), role: "assistant", content: `✅ Slide **${template.label}** ajoutée au deck ${deckData ? "avec les données réelles" : "(template vierge)"} — accès direct via le filmstrip.` },
         ]);
       } else {
         setMessages((prev) => [
@@ -942,7 +979,7 @@ export function AIPanel({
                 draggable={true}
                 onDragStart={(e) => {
                   e.dataTransfer.effectAllowed = "copy";
-                  e.dataTransfer.setData("application/deck-template", tpl.content);
+                  e.dataTransfer.setData("application/deck-template", fillTemplateWithData(tpl.content, key, deckData));
                 }}
                 className="flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-gray-700 bg-gray-900 hover:border-violet-600 hover:bg-gray-800 cursor-grab active:cursor-grabbing transition-colors select-none"
               >

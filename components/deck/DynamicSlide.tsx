@@ -37,28 +37,29 @@ function KpiCard({ kpi }: { kpi: KPI }) {
 
   return (
     <div
-      className="flex flex-col gap-[4%] rounded-md px-[6%] py-[5%]"
+      className="flex flex-col gap-1 rounded-lg px-3 py-2.5"
       style={{ background: colors.bgAlt, minWidth: 0 }}
     >
       <span
-        className="text-[1.4%] font-semibold uppercase tracking-widest truncate"
-        style={{ color: colors.caption }}
+        className="font-semibold uppercase tracking-wider"
+        style={{ color: colors.caption, fontSize: "max(1.4%, 10px)" }}
       >
         {kpi.label}
       </span>
       <span
-        className="text-[3.5%] font-extrabold leading-none truncate"
+        className="font-extrabold leading-tight"
         style={{
           fontFamily: "'Raleway', 'Trebuchet MS', sans-serif",
           color: colors.blueDeep,
+          fontSize: "max(3.5%, 18px)",
         }}
       >
         {kpi.value}
       </span>
       {kpi.delta && (
         <span
-          className="text-[1.4%] font-semibold flex items-center gap-[4%]"
-          style={{ color: trendColor }}
+          className="font-semibold flex items-center gap-1"
+          style={{ color: trendColor, fontSize: "max(1.4%, 10px)" }}
         >
           <span>{trendArrow}</span>
           <span>{kpi.delta}</span>
@@ -72,16 +73,16 @@ function KpiCard({ kpi }: { kpi: KPI }) {
 
 function InsightsList({ insights }: { insights: string[] }) {
   return (
-    <ul className="flex flex-col gap-[1.5%] mt-[2%]">
+    <ul className="flex flex-col gap-1 mt-2">
       {insights.map((insight, i) => (
-        <li key={i} className="flex items-start gap-[1.5%]">
+        <li key={i} className="flex items-start gap-1.5">
           <span
-            className="text-[1.6%] mt-[0.3%] flex-shrink-0"
-            style={{ color: colors.blueSignature }}
+            className="mt-0.5 flex-shrink-0"
+            style={{ color: colors.blueSignature, fontSize: "max(1.6%, 11px)" }}
           >
             •
           </span>
-          <span className="text-[1.6%] leading-snug" style={{ color: "#333" }}>
+          <span className="leading-snug" style={{ color: "#333", fontSize: "max(1.6%, 11px)" }}>
             {insight}
           </span>
         </li>
@@ -101,8 +102,8 @@ function ChartBlock({ chart }: { chart: ChartData }) {
   if (entries.length === 0) {
     return (
       <div
-        className="text-[1.4%] italic mt-[2%]"
-        style={{ color: colors.caption }}
+        className="italic mt-2"
+        style={{ color: colors.caption, fontSize: "max(1.4%, 10px)" }}
       >
         Chart data unavailable
       </div>
@@ -113,18 +114,18 @@ function ChartBlock({ chart }: { chart: ChartData }) {
 
   if (chart.type === "bar" || chart.type === "funnel") {
     return (
-      <div className="mt-[2%] flex flex-col gap-[1%]">
+      <div className="mt-2 flex flex-col gap-1">
         {entries.map(([label, value]) => {
           const pct = max > 0 ? (value / max) * 100 : 0;
           return (
-            <div key={label} className="flex items-center gap-[2%]">
+            <div key={label} className="flex items-center gap-2">
               <span
-                className="text-[1.3%] text-right flex-shrink-0"
-                style={{ width: "18%", color: "#555" }}
+                className="text-right flex-shrink-0"
+                style={{ width: "18%", color: "#555", fontSize: "max(1.3%, 10px)" }}
               >
                 {label}
               </span>
-              <div className="flex-1 h-[1.5vh] rounded-sm overflow-hidden bg-gray-100">
+              <div className="flex-1 h-4 rounded-sm overflow-hidden bg-gray-100">
                 <div
                   className="h-full rounded-sm transition-all"
                   style={{
@@ -134,8 +135,8 @@ function ChartBlock({ chart }: { chart: ChartData }) {
                 />
               </div>
               <span
-                className="text-[1.3%] flex-shrink-0"
-                style={{ width: "12%", color: "#333", textAlign: "right" }}
+                className="flex-shrink-0"
+                style={{ width: "12%", color: "#333", textAlign: "right", fontSize: "max(1.3%, 10px)" }}
               >
                 {value.toLocaleString()}
               </span>
@@ -148,14 +149,14 @@ function ChartBlock({ chart }: { chart: ChartData }) {
 
   // Fallback: simple data table
   return (
-    <div className="mt-[2%] overflow-auto">
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "1.2%" }}>
+    <div className="mt-2 overflow-auto">
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "max(1.2%, 10px)" }}>
         <tbody>
           {entries.map(([label, value]) => (
             <tr key={label}>
               <td
                 style={{
-                  padding: "2px 6px",
+                  padding: "4px 8px",
                   color: "#555",
                   borderBottom: "1px solid #eee",
                 }}
@@ -164,7 +165,7 @@ function ChartBlock({ chart }: { chart: ChartData }) {
               </td>
               <td
                 style={{
-                  padding: "2px 6px",
+                  padding: "4px 8px",
                   fontWeight: 600,
                   color: colors.blueDeep,
                   textAlign: "right",
@@ -202,14 +203,14 @@ function ImageGallery({ images }: { images: SlideImage[] }) {
             />
           </div>
           {(img.label || img.metrics) && (
-            <div className="px-[6%] py-[4%]">
+            <div className="px-2 py-1.5">
               {img.label && (
-                <p className="text-[1.3%] font-semibold leading-tight truncate" style={{ color: colors.blueDeep }}>
+                <p className="font-semibold leading-tight truncate" style={{ color: colors.blueDeep, fontSize: "max(1.3%, 10px)" }}>
                   {img.label}
                 </p>
               )}
               {img.metrics && (
-                <p className="text-[1.1%] mt-[2%]" style={{ color: "#555" }}>
+                <p className="mt-0.5" style={{ color: "#555", fontSize: "max(1.1%, 9px)" }}>
                   {img.metrics}
                 </p>
               )}
@@ -226,16 +227,16 @@ function ImageGallery({ images }: { images: SlideImage[] }) {
 function RecommendationBox({ text }: { text: string }) {
   return (
     <div
-      className="mt-[2%] rounded-md px-[3%] py-[2%] flex items-start gap-[2%]"
+      className="mt-2 rounded-md px-3 py-2 flex items-start gap-2"
       style={{
         background: "#EFF6FF",
         borderLeft: `4px solid ${colors.blueSignature}`,
       }}
     >
-      <span className="text-[1.8%] flex-shrink-0" style={{ color: colors.blueSignature }}>
+      <span className="flex-shrink-0" style={{ color: colors.blueSignature, fontSize: "max(1.8%, 13px)" }}>
         ➜
       </span>
-      <span className="text-[1.5%] font-medium leading-snug" style={{ color: colors.blueDeep }}>
+      <span className="font-medium leading-snug" style={{ color: colors.blueDeep, fontSize: "max(1.5%, 11px)" }}>
         {text}
       </span>
     </div>
@@ -281,40 +282,42 @@ function SlideHeader({
   slideNumber?: number;
 }) {
   return (
-    <div className="flex items-start justify-between mb-[2%]">
-      <div>
+    <div className="flex items-start justify-between mb-2">
+      <div className="min-w-0 flex-1">
         <h2
-          className="text-[2.8%] font-extrabold leading-tight"
+          className="font-extrabold leading-tight"
           style={{
             fontFamily: "'Raleway', 'Trebuchet MS', sans-serif",
             color: colors.blueDeep,
+            fontSize: "max(2.8%, 16px)",
           }}
         >
           {title}
         </h2>
         {subtitle && (
           <p
-            className="text-[1.5%] mt-[0.5%]"
-            style={{ color: colors.caption }}
+            className="mt-0.5"
+            style={{ color: colors.caption, fontSize: "max(1.5%, 10px)" }}
           >
             {subtitle}
           </p>
         )}
       </div>
-      <div className="flex items-center gap-[2%] flex-shrink-0 ml-[2%]">
+      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
         {severity && severity !== "ok" && (
           <span
-            className="text-[1.1%] font-bold uppercase tracking-wider px-[4%] py-[1%] rounded-full"
+            className="font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
             style={{
               background: severityStyles(severity).badge.bg,
               color: "#fff",
+              fontSize: "max(1.1%, 9px)",
             }}
           >
             {severityStyles(severity).badge.text}
           </span>
         )}
         {slideNumber != null && (
-          <span className="text-[1.2%]" style={{ color: colors.caption }}>
+          <span style={{ color: colors.caption, fontSize: "max(1.2%, 9px)" }}>
             #{slideNumber}
           </span>
         )}
@@ -328,7 +331,7 @@ function SlideHeader({
 function Divider() {
   return (
     <div
-      className="w-full h-[1px] mb-[2%]"
+      className="w-full h-[1px] mb-2"
       style={{ backgroundColor: colors.caption, opacity: 0.4 }}
     />
   );

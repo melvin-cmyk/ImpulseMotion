@@ -51,19 +51,19 @@ export function SlideShell({
       {/* Left accent bar */}
       {accent && (
         <div
-          className="absolute left-0 top-0 bottom-0 w-[7px]"
+          className="absolute left-0 top-0 bottom-0 w-[6px]"
           style={{ backgroundColor: accentColor }}
         />
       )}
 
       {/* Content area */}
-      <div className={cn("relative h-full flex flex-col", accent ? "pl-[20px] pr-[14px]" : "px-[14px]")}>
-        <div className="flex-1 pt-[6%]">
+      <div className={cn("relative h-full flex flex-col", accent ? "pl-[24px] pr-[16px]" : "px-[16px]")}>
+        <div className="flex-1 pt-[5%] overflow-hidden">
           {children}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pb-[2%] text-[6px]">
+        <div className="flex items-center justify-between pb-[2%] text-[0.7%] min-h-[2%]" style={{ fontSize: "max(0.7%, 8px)" }}>
           <span style={{ color: "#2CA6F9", fontWeight: 700 }}>
             Impulse Analytics.
           </span>
