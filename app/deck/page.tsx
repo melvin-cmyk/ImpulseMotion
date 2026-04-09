@@ -52,7 +52,6 @@ import { AIPanel } from "@/components/deck/ai-panel";
 import { exportDeckToPptx, exportAiSlidesToPptx } from "@/lib/deck-export";
 import { SlideStyleContext, type TextStyle } from "@/components/deck/slide-style-context";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { DynamicDeck } from "@/components/deck/DynamicDeck";
 import { DynamicSlide } from "@/components/deck/DynamicSlide";
 import type { SlideData } from "@/types/deck";
 
@@ -441,10 +440,6 @@ export default function DeckPage() {
   const [customSlides, setCustomSlides] = useState<{ id: string; label: string; content: string; fontFamily?: string }[]>([]);
   const [aiSlidesMode, setAiSlidesMode] = useState(false);
   // ── AI Dynamic Deck mode ─────────────────────────────────────────────────
-  const [slideMode, setSlideMode] = useState<"static" | "ai">(() => {
-    if (typeof window === "undefined") return "static";
-    return new URLSearchParams(window.location.search).get("mode") === "ai" ? "ai" : "static";
-  });
   const [aiDynamicSlides, setAiDynamicSlides] = useState<SlideData[]>([]);
   const [currentAiSlide, setCurrentAiSlide] = useState(0);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
@@ -487,14 +482,6 @@ export default function DeckPage() {
 
   const periods = useMemo(() => getAvailablePeriods(), []);
 
-  // ── Slide editor hook (elements / tools / drag) ───────────────────────────
-  // Use a unified index: in AI mode, offset by 1000 to avoid collision with static slide indices
-  const editorSlideIndex = slideMode === "ai" ? 1000 + currentAiSlide : currentSlide;
-  const slideEditor = useSlideEditor(
-    canvasRef,
-    slideElements[editorSlideIndex] ?? [],
-    (els) => setSlideElements((prev) => ({ ...prev, [editorSlideIndex]: els }))
-  );
   const staticSlides = useMemo(() => {
     // If the selected client has no Google Ads, hide Google Ads section (slides 8-12)
     const hasGoogle = !!(selectedClient?.googleCustomerId || selectedClient?.platform === "google" || selectedClient?.platform === "both");
@@ -503,9 +490,22 @@ export default function DeckPage() {
   }, [selectedClient]);
   const slides = useMemo(() => staticSlides, [staticSlides]);
 
+  // ── Slide editor hook (elements / tools / drag) ───────────────────────────
+  // Use a unified index: for AI slides, offset by 1000 to avoid collision with static slide indices
+  const isOnAiSlide = currentSlide >= slides.length + customSlides.length && aiDynamicSlides.length > 0;
+  const aiSlideIndex = currentSlide - slides.length - customSlides.length;
+  const editorSlideIndex = isOnAiSlide ? 1000 + aiSlideIndex : currentSlide;
+  const slideEditor = useSlideEditor(
+    canvasRef,
+    slideElements[editorSlideIndex] ?? [],
+    (els) => setSlideElements((prev) => ({ ...prev, [editorSlideIndex]: els }))
+  );
+
   const currentSlideId = currentSlide < slides.length
     ? (slides[currentSlide]?.id ?? `slide-${currentSlide}`)
-    : (customSlides[currentSlide - slides.length]?.id ?? `custom-${currentSlide}`);
+    : currentSlide < slides.length + customSlides.length
+      ? (customSlides[currentSlide - slides.length]?.id ?? `custom-${currentSlide}`)
+      : (aiDynamicSlides[currentSlide - slides.length - customSlides.length]?.id ?? `ai-${currentSlide}`);
   const currentSlideNote = slideNotes[currentSlideId] ?? "";
 
   const slidesWithNotesCount = useMemo(
@@ -565,7 +565,6 @@ export default function DeckPage() {
 
       if (isAiMode) {
         // AI mode: generate dynamic slides with kpis/insights via Anthropic
-        setSlideMode("ai");
         setAiSlidesMode(true);
         setCustomSlides([]);
 
@@ -718,7 +717,6 @@ export default function DeckPage() {
     const historyId = p.get("historyId");
     if (historyId) {
       autoGenerateRef.current = true;
-      setSlideMode("ai");
       setIsGeneratingAi(true);
       fetch(`/api/deck/history?id=${encodeURIComponent(historyId)}`)
         .then((r) => r.json())
@@ -748,12 +746,7 @@ export default function DeckPage() {
       let blob: Blob;
       let filename: string;
 
-      if (slideMode === "ai" && aiDynamicSlides.length > 0) {
-        // Export AI dynamic slides
-        const title = selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "AI Performance Deck";
-        blob = await exportAiSlidesToPptx(aiDynamicSlides, title);
-        filename = `AI_Deck_${selectedClient?.name.replace(/\s+/g, "_") ?? "export"}_${selectedPeriod.month}.pptx`;
-      } else if (deckData) {
+      if (deckData) {
         // Export static slides
         blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements);
         filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
@@ -994,8 +987,9 @@ export default function DeckPage() {
     return shareUrl;
   }, [selectedClient, selectedPeriod, showToast]);
 
+  const totalSlideCount = slides.length + customSlides.length + aiDynamicSlides.length;
   const goToSlide = (idx: number) => {
-    const newIdx = Math.max(0, Math.min(slides.length + customSlides.length - 1, idx));
+    const newIdx = Math.max(0, Math.min(totalSlideCount - 1, idx));
     if (newIdx !== currentSlide) {
       setSlideTransition("fade-out");
       setTimeout(() => {
@@ -1128,14 +1122,13 @@ export default function DeckPage() {
         if (inInput) return;
         e.preventDefault();
         const now = Date.now();
-        const totalSlides = slides.length + customSlides.length;
         if (e.key === "g" && now - lastGTimeRef.current < 400) {
           // gg → first slide
           goToSlide(0);
           lastGTimeRef.current = 0;
         } else if (e.key === "G") {
           // G → last slide
-          goToSlide(totalSlides - 1);
+          goToSlide(totalSlideCount - 1);
         } else {
           lastGTimeRef.current = now;
         }
@@ -1177,7 +1170,7 @@ export default function DeckPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [deckGenerated, currentSlide, slides, customSlides.length, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, handleExportPdf, setShowOnlyWithNotes, commandPaletteOpen, shortcutHelpOpen, showToast]);
+  }, [deckGenerated, currentSlide, slides, customSlides.length, aiDynamicSlides.length, totalSlideCount, notePanelOpen, setNotePanelOpen, handleExportCsvNotes, handleExportPdf, setShowOnlyWithNotes, commandPaletteOpen, shortcutHelpOpen, showToast]);
 
   // ── Drag & drop handlers ─────────────────────────────────────────────────
 
@@ -1352,8 +1345,12 @@ export default function DeckPage() {
       if (q && !cs.label.toLowerCase().includes(q)) return false;
       return true;
     }).length;
-    return stdCount + csCount;
-  }, [filmstripSearch, showOnlyWithNotes, slides, customSlides, slideNotes]);
+    const aiCount = aiDynamicSlides.filter(ai => {
+      if (q && !ai.title.toLowerCase().includes(q)) return false;
+      return true;
+    }).length;
+    return stdCount + csCount + aiCount;
+  }, [filmstripSearch, showOnlyWithNotes, slides, customSlides, slideNotes, aiDynamicSlides]);
 
   // ── Setup view (before generation) ──────────────────────────────────────
   if (!deckGenerated) {
@@ -1624,7 +1621,7 @@ export default function DeckPage() {
   }
 
   // ── Relay error — no data (but not in AI mode with slides already loaded) ─
-  if (deckGenerated && !deckData && !(slideMode === "ai" && (aiDynamicSlides.length > 0 || isGeneratingAi))) {
+  if (deckGenerated && !deckData && !(aiDynamicSlides.length > 0 || isGeneratingAi)) {
     const isServerError = dataSourceReason?.startsWith("Erreur serveur");
     const isNetworkError = dataSourceReason?.includes("fetch") || dataSourceReason?.includes("TypeError") || dataSourceReason?.includes("NetworkError");
     const errorTitle = isServerError
@@ -1660,7 +1657,7 @@ export default function DeckPage() {
   }
 
   // ── Deck viewer — Split layout ─────────────────────────────────────────
-  if (!deckData && !(slideMode === "ai" && (aiDynamicSlides.length > 0 || isGeneratingAi))) return null;
+  if (!deckData && !(aiDynamicSlides.length > 0 || isGeneratingAi)) return null;
 
   /** Highlight matching search term in a slide label */
   function HighlightLabel({ label, search }: { label: string; search: string }) {
@@ -1760,53 +1757,21 @@ export default function DeckPage() {
           </span>
         )}
 
-        {/* Mode toggle: Slides statiques | Slides IA */}
-        <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden flex-shrink-0 text-xs font-medium">
-          <button
-            onClick={() => setSlideMode("static")}
-            className={`px-2.5 py-1.5 transition-colors ${slideMode === "static" ? "bg-[#0944A1] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-          >
-            Slides statiques
-          </button>
-          <button
-            onClick={() => setSlideMode("ai")}
-            className={`flex items-center gap-1 px-2.5 py-1.5 transition-colors ${slideMode === "ai" ? "bg-[#0944A1] text-white" : "bg-white text-gray-600 hover:bg-gray-50"}`}
-          >
-            <Sparkles className="w-3 h-3" />
-            Slides IA
-          </button>
-        </div>
-
         {/* Slide counter */}
         <span className="text-xs text-gray-400 flex-shrink-0">
-          Slide {currentSlide + 1} / {slides.length + customSlides.length}
+          Slide {currentSlide + 1} / {totalSlideCount}
         </span>
 
-        {/* Generate button — static mode */}
-        {slideMode === "static" && (
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
-            style={{ backgroundColor: "#0944A1" }}
-          >
-            {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            Générer
-          </button>
-        )}
-
-        {/* Generate button — AI mode */}
-        {slideMode === "ai" && (
-          <button
-            onClick={() => { if (selectedClient) generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined); }}
-            disabled={isGeneratingAi || isGenerating}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
-            style={{ backgroundColor: "#7F5AFD" }}
-          >
-            {(isGeneratingAi || isGenerating) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            {(isGeneratingAi || isGenerating) ? "L'IA analyse..." : "Générer le deck"}
-          </button>
-        )}
+        {/* Generate button */}
+        <button
+          onClick={handleGenerate}
+          disabled={isGenerating}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
+          style={{ backgroundColor: "#0944A1" }}
+        >
+          {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+          Générer
+        </button>
 
         {/* Export PPTX */}
         <button
@@ -1888,19 +1853,19 @@ export default function DeckPage() {
           {/* Filmstrip sidebar */}
           <div className="w-48 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
             {/* Filmstrip progress indicator */}
-            {(slides.length + customSlides.length) > 0 && (
+            {totalSlideCount > 0 && (
               <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Progression</span>
                   <span className="text-[10px] font-bold text-gray-600">
-                    {currentSlide + 1} / {slides.length + customSlides.length}
+                    {currentSlide + 1} / {totalSlideCount}
                   </span>
                 </div>
                 <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-300"
                     style={{
-                      width: `${((currentSlide + 1) / (slides.length + customSlides.length)) * 100}%`,
+                      width: `${((currentSlide + 1) / totalSlideCount) * 100}%`,
                       backgroundColor: "#7F5AFD",
                     }}
                   />
@@ -1937,45 +1902,9 @@ export default function DeckPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />
               {showOnlyWithNotes
                 ? `${slidesWithNotesCount} slide${slidesWithNotesCount !== 1 ? "s" : ""} avec notes`
-                : slideMode === "ai" && aiDynamicSlides.length > 0
-                  ? `Slides IA (${aiDynamicSlides.length})`
-                  : `Toutes les slides (${slides.length + customSlides.length})`}
+                  : `Toutes les slides (${totalSlideCount})`}
             </button>
             <div key={String(showOnlyWithNotes)} className="flex-1 animate-in fade-in duration-150">
-            {slideMode === "ai" && aiDynamicSlides.length > 0 ? (
-              <div>
-                <div className="px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-wider" style={{ color: "#7F5AFD" }}>
-                  Slides IA générées
-                </div>
-                {aiDynamicSlides.map((aiSlide, i) => {
-                  const isActive = currentAiSlide === i;
-                  return (
-                    <button
-                      key={aiSlide.id ?? i}
-                      onClick={() => setCurrentAiSlide(i)}
-                      className={`w-full text-left px-2 py-1.5 transition-all ${isActive ? "bg-violet-50" : "hover:bg-gray-50"}`}
-                      style={isActive ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "5px" } : undefined}
-                    >
-                      <div
-                        className="w-full aspect-[16/9] rounded overflow-hidden relative mb-1"
-                        style={{ background: "#f1f5f9", boxShadow: isActive ? "0 0 0 1.5px #7F5AFD" : "0 0 0 1px rgba(0,0,0,0.08)" }}
-                      >
-                        <span className="absolute top-0.5 left-1 text-[7px] font-bold" style={{ color: "#94a3b8" }}>
-                          {i + 1}
-                        </span>
-                        <div className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ background: "#7F5AFD", opacity: 0.7 }} />
-                        <div className="absolute top-[28%] left-[10%] right-[10%] h-[8%] rounded-sm" style={{ background: "#7F5AFD", opacity: 0.15 }} />
-                        <div className="absolute top-[45%] left-[10%] right-[30%] h-[5%] rounded-sm bg-gray-300 opacity-40" />
-                        <div className="absolute top-[55%] left-[10%] right-[20%] h-[5%] rounded-sm bg-gray-300 opacity-30" />
-                      </div>
-                      <span className={`block text-[10px] leading-tight truncate ${isActive ? "text-violet-700 font-semibold" : "text-gray-500"}`}>
-                        {aiSlide.title}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
             <>
             <TooltipProvider delayDuration={300}>
             {Object.entries(sectionSlides).map(([secStr, items]) => {
@@ -2127,8 +2056,46 @@ export default function DeckPage() {
                 )}
               </div>
             )}
-            </>
+
+            {/* AI Generated slides */}
+            {aiDynamicSlides.length > 0 && (
+              <div>
+                <div className="px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-wider" style={{ color: "#7F5AFD" }}>
+                  Slides IA ({aiDynamicSlides.length})
+                </div>
+                {aiDynamicSlides.map((aiSlide, i) => {
+                  const aiAbsIdx = slides.length + customSlides.length + i;
+                  const isActive = currentSlide === aiAbsIdx;
+                  const searchLower = filmstripSearch.trim().toLowerCase();
+                  if (searchLower && !aiSlide.title.toLowerCase().includes(searchLower)) return null;
+                  return (
+                    <button
+                      key={aiSlide.id ?? `ai-${i}`}
+                      onClick={() => goToSlide(aiAbsIdx)}
+                      className={`w-full text-left px-2 py-1.5 transition-all ${isActive ? "bg-violet-50" : "hover:bg-gray-50"}`}
+                      style={isActive ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "5px" } : undefined}
+                    >
+                      <div
+                        className="w-full aspect-[16/9] rounded overflow-hidden relative mb-1"
+                        style={{ background: "#f1f5f9", boxShadow: isActive ? "0 0 0 1.5px #7F5AFD" : "0 0 0 1px rgba(0,0,0,0.08)" }}
+                      >
+                        <span className="absolute top-0.5 left-1 text-[7px] font-bold" style={{ color: "#94a3b8" }}>
+                          {aiAbsIdx + 1}
+                        </span>
+                        <div className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ background: "#7F5AFD", opacity: 0.7 }} />
+                        <div className="absolute top-[28%] left-[10%] right-[10%] h-[8%] rounded-sm" style={{ background: "#7F5AFD", opacity: 0.15 }} />
+                        <div className="absolute top-[45%] left-[10%] right-[30%] h-[5%] rounded-sm bg-gray-300 opacity-40" />
+                        <div className="absolute top-[55%] left-[10%] right-[20%] h-[5%] rounded-sm bg-gray-300 opacity-30" />
+                      </div>
+                      <span className={`block text-[10px] leading-tight truncate ${isActive ? "text-violet-700 font-semibold" : "text-gray-500"}`}>
+                        {aiSlide.title}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
+            </>
             </div>
 
             {/* Add slide button */}
@@ -2176,127 +2143,6 @@ export default function DeckPage() {
             ref={slideContainerRef}
             onClick={() => { setSelectedBlockId(null); slideEditor.setSelectedId(null); }}
           >
-            {/* ── AI Dynamic Deck rendering ───────────────────────────────── */}
-            {slideMode === "ai" && (
-              <div className="w-full max-w-3xl">
-                {isGeneratingAi ? (
-                  <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-500">
-                    <Loader2 className="w-8 h-8 animate-spin text-[#7F5AFD]" />
-                    <p className="text-sm font-medium">L&apos;IA analyse vos données...</p>
-                    <p className="text-xs text-gray-400">Cela peut prendre 10–15 secondes</p>
-                  </div>
-                ) : aiGenerateError ? (
-                  <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
-                    <div className="text-3xl">⚠️</div>
-                    <p className="text-sm font-semibold text-red-600">Erreur lors de la génération IA</p>
-                    <p className="text-xs text-gray-500 max-w-sm">{aiGenerateError}</p>
-                    <button
-                      onClick={() => { if (selectedClient) generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined); }}
-                      className="mt-2 text-xs px-4 py-2 rounded-lg bg-[#7F5AFD] text-white font-medium hover:bg-[#6b48e8] transition-colors"
-                    >
-                      Réessayer
-                    </button>
-                  </div>
-                ) : aiDynamicSlides.length > 0 ? (
-                  <div className="w-full max-w-3xl">
-                    {/* Editor toolbar for AI slides */}
-                    <div className="mb-0">
-                      <SlideEditorToolbar
-                        activeTool={slideEditor.activeTool}
-                        onToolChange={slideEditor.setActiveTool}
-                        selectedElement={slideEditor.selectedElement}
-                        onUpdateElement={(patch) => slideEditor.selectedElement && slideEditor.updateElWithHistory(slideEditor.selectedElement.id, patch)}
-                        onDeleteElement={slideEditor.deleteSelected}
-                        onDuplicateElement={slideEditor.duplicateSelected}
-                        onBringToFront={slideEditor.bringToFront}
-                        onSendToBack={slideEditor.sendToBack}
-                        onUndo={slideEditor.undo}
-                        onRedo={slideEditor.redo}
-                        canUndo={slideEditor.canUndo}
-                        canRedo={slideEditor.canRedo}
-                        onImageUpload={slideEditor.handleImageUpload}
-                      />
-                    </div>
-                    {/* Navigation */}
-                    <div className="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm mb-2">
-                      <span className="text-sm font-semibold text-[#0944A1] truncate">
-                        {selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "Performance Deck"}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => setCurrentAiSlide(i => Math.max(0, i - 1))} disabled={currentAiSlide === 0} className="w-8 h-8 flex items-center justify-center rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-30">
-                          <ChevronLeft className="w-4 h-4" />
-                        </button>
-                        <span className="text-sm font-medium tabular-nums text-gray-700">{currentAiSlide + 1} / {aiDynamicSlides.length}</span>
-                        <button onClick={() => setCurrentAiSlide(i => Math.min(aiDynamicSlides.length - 1, i + 1))} disabled={currentAiSlide === aiDynamicSlides.length - 1} className="w-8 h-8 flex items-center justify-center rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-30">
-                          <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <button onClick={handleExportPptx} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#0944A1] text-white hover:bg-[#07338a]">
-                        Export
-                      </button>
-                    </div>
-                    {/* Canvas with AI slide + editor overlay */}
-                    <div
-                      className="w-full relative"
-                      style={{ cursor: slideEditor.canvasCursor }}
-                      ref={canvasRef}
-                      onClick={(e) => {
-                        // Always handle canvas click for editor tools
-                        slideEditor.handleCanvasClick(e);
-                      }}
-                      onMouseDown={(e) => {
-                        // Deselect when clicking empty area
-                        if (slideEditor.activeTool === "select" && e.target === e.currentTarget) {
-                          slideEditor.setSelectedId(null);
-                        }
-                      }}
-                      onDragOver={handleDragOver}
-                      onDrop={handleDrop}
-                    >
-                      {/* DynamicSlide rendered below, editor elements on top */}
-                      <div style={{ pointerEvents: slideEditor.activeTool !== "select" ? "none" : "auto" }}>
-                        <DynamicSlide
-                          slide={aiDynamicSlides[Math.min(currentAiSlide, aiDynamicSlides.length - 1)]}
-                          slideNumber={currentAiSlide + 1}
-                        />
-                      </div>
-                      {/* Editor elements overlay */}
-                      <div className="absolute inset-0 z-10">
-                        {(slideElements[1000 + currentAiSlide] ?? []).map((el) => (
-                          <SlideElementItem
-                            key={el.id}
-                            el={el}
-                            isSelected={slideEditor.selectedId === el.id}
-                            isEditing={slideEditor.editingId === el.id}
-                            onMouseDown={(e) => slideEditor.handleElementMouseDown(e, el)}
-                            onDoubleClick={(e) => slideEditor.handleElementDoubleClick(e, el)}
-                            onTextChange={(text) => slideEditor.updateElWithHistory(el.id, { text })}
-                            onBlur={() => slideEditor.setEditingId(null)}
-                            onResizeMouseDown={(e) => slideEditor.handleResizeMouseDown(e, el)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-400">
-                    <Sparkles className="w-10 h-10 opacity-30" />
-                    <p className="text-sm font-medium">Aucune slide IA générée</p>
-                    <p className="text-xs opacity-70">Cliquez sur &quot;Générer le deck&quot; pour créer des slides avec l&apos;IA</p>
-                    <button
-                      onClick={() => { if (selectedClient) generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined); }}
-                      className="mt-1 text-xs px-4 py-2 rounded-lg bg-[#7F5AFD] text-white font-medium hover:bg-[#6b48e8] transition-colors"
-                    >
-                      <Sparkles className="w-3.5 h-3.5 inline mr-1" />
-                      Générer le deck IA
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Static slide rendering ──────────────────────────────────── */}
-            {slideMode === "static" && (
             <>
             {/* Edit toolbar — outside canvas so it doesn't affect % position calculations */}
             <div className="w-full max-w-3xl mb-0">
@@ -2346,7 +2192,7 @@ export default function DeckPage() {
                   onEdit: handleInlineEdit,
                   getOverride: getSlideOverride,
                 })
-              ) : (
+              ) : currentSlide < slides.length + customSlides.length ? (
                 // Custom slide
                 (() => {
                   const cs = customSlides[currentSlide - slides.length];
@@ -2398,10 +2244,22 @@ export default function DeckPage() {
                     </div>
                   ) : null;
                 })()
+              ) : (
+                // AI Dynamic slide
+                (() => {
+                  const aiIdx = currentSlide - slides.length - customSlides.length;
+                  const aiSlide = aiDynamicSlides[aiIdx];
+                  return aiSlide ? (
+                    <DynamicSlide
+                      slide={aiSlide}
+                      slideNumber={currentSlide + 1}
+                    />
+                  ) : null;
+                })()
               )}
 
               {/* Slide editor elements — positioned ON the canvas */}
-              {(slideElements[currentSlide] ?? []).map((el) => (
+              {(slideElements[editorSlideIndex] ?? []).map((el) => (
                 <SlideElementItem
                   key={el.id}
                   el={el}
@@ -2619,7 +2477,7 @@ export default function DeckPage() {
 
               <button
                 onClick={() => goToSlide(currentSlide + 1)}
-                disabled={currentSlide === slides.length + customSlides.length - 1}
+                disabled={currentSlide === totalSlideCount - 1}
                 className="p-2 rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
               >
                 <ChevronRight className="w-4 h-4 text-gray-600" />
@@ -2627,7 +2485,7 @@ export default function DeckPage() {
 
               {/* Slide counter */}
               <span className="text-xs text-gray-400 ml-1 tabular-nums select-none">
-                {currentSlide + 1} / {slides.length + customSlides.length}
+                {currentSlide + 1} / {totalSlideCount}
               </span>
             </div>
 
@@ -2654,7 +2512,6 @@ export default function DeckPage() {
               )}
             </div>
             </>
-            )}
           </div>
         </div>
 
@@ -2663,7 +2520,7 @@ export default function DeckPage() {
           <AIPanel
             deckData={deckData}
             currentSlideIndex={currentSlide}
-            currentSlideLabel={currentSlide < slides.length ? (slides[currentSlide]?.label ?? "") : (customSlides[currentSlide - slides.length]?.label ?? "")}
+            currentSlideLabel={currentSlide < slides.length ? (slides[currentSlide]?.label ?? "") : currentSlide < slides.length + customSlides.length ? (customSlides[currentSlide - slides.length]?.label ?? "") : (aiDynamicSlides[currentSlide - slides.length - customSlides.length]?.title ?? "")}
             onSlideUpdate={handleSlideUpdate}
             onRefreshDeckData={handleGenerate}
             onExportPptx={handleExportPptx}
@@ -2694,7 +2551,8 @@ export default function DeckPage() {
                 .then((json: { slides?: SlideData[] }) => {
                   if (json.slides && json.slides.length > 0) {
                     setAiDynamicSlides(json.slides);
-                    setSlideMode("ai");
+                    // Navigate to the first AI slide (appended after static + custom)
+                    goToSlide(slides.length + customSlides.length);
                   }
                 })
                 .catch(console.error);

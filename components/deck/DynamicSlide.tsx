@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { SlideShell } from "./slide-shell";
-import type { SlideData, SlideImage, KPI, ChartData, SlideSeverity } from "@/types/deck";
+import type { SlideData, SlideImage, SlideTable, KPI, ChartData, SlideSeverity } from "@/types/deck";
 
 // ── Design tokens (matches slides.tsx) ───────────────────────────────────────
 
@@ -242,6 +242,68 @@ function ImageGallery({ images }: { images: SlideImage[] }) {
   );
 }
 
+// ── Data Table (MBR style) ────────────────────────────────────────────────────
+
+function DataTableBlock({ table }: { table: SlideTable }) {
+  return (
+    <div className="mt-2 rounded-lg border overflow-hidden" style={{ borderColor: "#E8EDF3" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            {table.headers.map((h, i) => (
+              <th
+                key={i}
+                style={{
+                  padding: "5px 8px",
+                  background: colors.blueDeep,
+                  color: "#fff",
+                  fontWeight: 600,
+                  textAlign: i === 0 ? "left" : "right",
+                  fontSize: "max(1.1%, 9px)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, ri) => (
+            <tr
+              key={ri}
+              style={{
+                background: row.highlight ? "#EFF6FF" : ri % 2 === 0 ? "#FAFBFD" : "#fff",
+                fontWeight: row.isHeader ? 700 : 400,
+              }}
+            >
+              {row.cells.map((cell, ci) => (
+                <td
+                  key={ci}
+                  style={{
+                    padding: "4px 8px",
+                    textAlign: ci === 0 ? "left" : "right",
+                    borderBottom: "1px solid #E8EDF3",
+                    fontSize: "max(1%, 9px)",
+                    color: cell.startsWith("+") ? colors.deltaPos : cell.startsWith("-") ? colors.deltaNeg : ci === 0 ? "#333" : colors.blueDeep,
+                    fontWeight: cell.startsWith("+") || cell.startsWith("-") ? 600 : ci === 0 ? 500 : 600,
+                    fontFamily: ci > 0 ? "'Raleway', sans-serif" : "inherit",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Recommendation Box ────────────────────────────────────────────────────────
 
 function RecommendationBox({ text }: { text: string }) {
@@ -459,6 +521,9 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
 
         {/* Chart */}
         {slide.chart && <ChartBlock chart={slide.chart} />}
+
+        {/* Data table */}
+        {slide.table && <DataTableBlock table={slide.table} />}
 
         {/* Creative images */}
         {slide.images && slide.images.length > 0 && (

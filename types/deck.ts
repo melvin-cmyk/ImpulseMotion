@@ -33,6 +33,17 @@ export interface SlideImage {
   metrics?: string;
 }
 
+export interface SlideTableRow {
+  cells: string[];
+  isHeader?: boolean;
+  highlight?: boolean;
+}
+
+export interface SlideTable {
+  headers: string[];
+  rows: SlideTableRow[];
+}
+
 export interface SlideData {
   id: string;
   type: SlideType;
@@ -41,6 +52,7 @@ export interface SlideData {
   kpis?: KPI[];
   insights?: string[];
   chart?: ChartData;
+  table?: SlideTable;
   recommendation?: string;
   severity?: SlideSeverity;
   /** Creative/ad images to display (thumbnails from Meta Ads etc.) */
