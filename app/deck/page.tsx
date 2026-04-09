@@ -1805,9 +1805,39 @@ export default function DeckPage() {
           Notes .csv
         </button>
 
-        {/* Export Google Slides */}
+        {/* Export Google Slides — downloads PPTX then opens Google Slides for import */}
         <button
-          onClick={() => alert("Google Slides export coming soon — connect your Google account in Settings.")}
+          onClick={async () => {
+            if (!deckData) { alert("Aucun deck à exporter."); return; }
+            setIsExporting(true);
+            try {
+              const blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements);
+              const filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
+
+              // Download the PPTX file
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+              // Open Google Slides — user imports the downloaded PPTX
+              setTimeout(() => {
+                window.open("https://docs.google.com/presentation/u/0/create", "_blank");
+              }, 1000);
+
+              showToast("PPTX téléchargé ! Dans Google Slides : Fichier → Importer des diapositives → Importer → sélectionner le fichier .pptx");
+            } catch (err) {
+              console.error("Google Slides export failed:", err);
+              alert("Erreur : " + (err instanceof Error ? err.message : String(err)));
+            } finally {
+              setIsExporting(false);
+            }
+          }}
+          disabled={isExporting}
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
           style={{ backgroundColor: "#0944A1" }}
         >
