@@ -63,7 +63,7 @@ export function SlideShell({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pb-[2%] text-[0.7%] min-h-[2%]" style={{ fontSize: "max(0.7%, 8px)" }}>
+        <div className="flex items-center justify-between pb-[2%] text-[0.7%] min-h-[2%]" style={{ fontSize: "max(0.8%, 9px)" }}>
           <span style={{ color: "#2CA6F9", fontWeight: 700 }}>
             Impulse Analytics.
           </span>

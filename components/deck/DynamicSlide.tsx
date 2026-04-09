@@ -42,7 +42,7 @@ function KpiCard({ kpi }: { kpi: KPI }) {
     >
       <span
         className="font-semibold uppercase tracking-wider"
-        style={{ color: "#8A9BB5", fontSize: "max(1.2%, 9px)", letterSpacing: "0.05em" }}
+        style={{ color: "#8A9BB5", fontSize: "max(1.4%, 11px)", letterSpacing: "0.05em" }}
       >
         {kpi.label}
       </span>
@@ -51,7 +51,7 @@ function KpiCard({ kpi }: { kpi: KPI }) {
         style={{
           fontFamily: "'Raleway', 'Trebuchet MS', sans-serif",
           color: colors.blueDeep,
-          fontSize: "max(3.2%, 16px)",
+          fontSize: "max(3.8%, 20px)",
         }}
       >
         {kpi.value}
@@ -61,7 +61,7 @@ function KpiCard({ kpi }: { kpi: KPI }) {
           className="font-semibold flex items-center gap-1 rounded-full px-1.5 py-0.5 w-fit"
           style={{
             color: trendColor,
-            fontSize: "max(1.2%, 9px)",
+            fontSize: "max(1.3%, 10px)",
             background: kpi.trend === "up" ? "#E8F5E9" : kpi.trend === "down" ? "#FFEBEE" : "#F5F5F5",
           }}
         >

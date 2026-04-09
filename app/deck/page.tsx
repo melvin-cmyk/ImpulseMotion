@@ -1939,9 +1939,46 @@ export default function DeckPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />
               {showOnlyWithNotes
                 ? `${slidesWithNotesCount} slide${slidesWithNotesCount !== 1 ? "s" : ""} avec notes`
-                : `Toutes les slides (${slides.length + customSlides.length})`}
+                : slideMode === "ai" && aiDynamicSlides.length > 0
+                  ? `Slides IA (${aiDynamicSlides.length})`
+                  : `Toutes les slides (${slides.length + customSlides.length})`}
             </button>
             <div key={String(showOnlyWithNotes)} className="flex-1 animate-in fade-in duration-150">
+            {slideMode === "ai" && aiDynamicSlides.length > 0 ? (
+              <div>
+                <div className="px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-wider" style={{ color: "#7F5AFD" }}>
+                  Slides IA générées
+                </div>
+                {aiDynamicSlides.map((aiSlide, i) => {
+                  const isActive = currentAiSlide === i;
+                  return (
+                    <button
+                      key={aiSlide.id ?? i}
+                      onClick={() => setCurrentAiSlide(i)}
+                      className={`w-full text-left px-2 py-1.5 transition-all ${isActive ? "bg-violet-50" : "hover:bg-gray-50"}`}
+                      style={isActive ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "5px" } : undefined}
+                    >
+                      <div
+                        className="w-full aspect-[16/9] rounded overflow-hidden relative mb-1"
+                        style={{ background: "#f1f5f9", boxShadow: isActive ? "0 0 0 1.5px #7F5AFD" : "0 0 0 1px rgba(0,0,0,0.08)" }}
+                      >
+                        <span className="absolute top-0.5 left-1 text-[7px] font-bold" style={{ color: "#94a3b8" }}>
+                          {i + 1}
+                        </span>
+                        <div className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ background: "#7F5AFD", opacity: 0.7 }} />
+                        <div className="absolute top-[28%] left-[10%] right-[10%] h-[8%] rounded-sm" style={{ background: "#7F5AFD", opacity: 0.15 }} />
+                        <div className="absolute top-[45%] left-[10%] right-[30%] h-[5%] rounded-sm bg-gray-300 opacity-40" />
+                        <div className="absolute top-[55%] left-[10%] right-[20%] h-[5%] rounded-sm bg-gray-300 opacity-30" />
+                      </div>
+                      <span className={`block text-[10px] leading-tight truncate ${isActive ? "text-violet-700 font-semibold" : "text-gray-500"}`}>
+                        {aiSlide.title}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+            <>
             <TooltipProvider delayDuration={300}>
             {Object.entries(sectionSlides).map(([secStr, items]) => {
               const sec = Number(secStr);
@@ -2091,6 +2128,8 @@ export default function DeckPage() {
                   />
                 )}
               </div>
+            )}
+            </>
             )}
             </div>
 

@@ -771,7 +771,7 @@ Rules:
 - Severity "alert" = something urgently needs attention, "warning" = watch this, "ok" = performing well.
 - For "comparison" slides, include period-over-period delta in kpis.
 - If PREVIOUS DECK METRICS are provided, add explicit M-1 comparisons in kpi deltas (e.g. "ROAS 2.3x vs 1.8x M-1 (+28%)") and include at least one "comparison" type slide.
-- For "creative" type slides: if thumbnail URLs are provided in the creative data, include them in the "images" array with the creative name as "label" and key metrics (ROAS, CPA, CTR) as "metrics" string.
+- For "creative" type slides: you MUST include an "images" array. Use the thumbnail URLs from the TOP CREATIVES data above (the "thumbnail:" field). Each image entry must have "url" set to the thumbnail URL, "label" set to the creative name, and "metrics" set to a summary string like "ROAS 3.4x · CPA €12 · CTR 1.2%". Always include at least the top 3 creatives with their real thumbnail URLs.
 - Return ONLY the JSON array. No markdown. No explanation.`;
 
   // Route through the relay (which has Claude access) instead of calling Anthropic SDK directly.
