@@ -48,6 +48,12 @@ export interface SlideChart {
   data: Record<string, unknown>;
 }
 
+export interface SlideImage {
+  url: string;
+  label?: string;
+  metrics?: string;
+}
+
 export interface Slide {
   id: string;
   type: "overview" | "performance" | "creative" | "funnel" | "alert" | "recommendation" | "comparison";
@@ -56,6 +62,7 @@ export interface Slide {
   kpis?: SlideKpi[];
   insights?: string[];
   chart?: SlideChart;
+  images?: SlideImage[];
   recommendation?: string;
   severity?: "ok" | "warning" | "alert";
 }
@@ -517,7 +524,7 @@ ${meta.campaigns.slice(0, 5).map(c =>
 
 TOP META CREATIVES:
 ${meta.topCreatives.slice(0, 5).map(cr =>
-  `  - ${cr.name} (${cr.format}) | Spend: ${fmt(cr.spend)} | ROAS: ${fmtX(cr.roas)} | CTR: ${fmtPct(cr.ctr)} | CPA: ${fmt(cr.cpa)}`
+  `  - ${cr.name} (${cr.format}) | Spend: ${fmt(cr.spend)} | ROAS: ${fmtX(cr.roas)} | CTR: ${fmtPct(cr.ctr)} | CPA: ${fmt(cr.cpa)}${cr.thumbnailUrl ? ` | thumbnail: ${cr.thumbnailUrl}` : ""}`
 ).join("\n")}`;
   } else {
     dataSummary += "\nMETA ADS: No data available.";
@@ -631,6 +638,7 @@ Return a JSON array where each element has this exact shape (all fields optional
   "kpis": [{ "label": "ROAS", "value": "3.42x", "delta": "+12%", "trend": "up" | "down" | "flat" }],
   "insights": ["Key insight 1", "Key insight 2"],
   "chart": { "type": "bar" | "line" | "pie" | "funnel", "data": {} },
+  "images": [{ "url": "https://...", "label": "Creative name", "metrics": "ROAS 3.4x · CPA €12" }],
   "recommendation": "Action to take",
   "severity": "ok" | "warning" | "alert"
 }
@@ -643,6 +651,7 @@ Rules:
 - Severity "alert" = something urgently needs attention, "warning" = watch this, "ok" = performing well.
 - For "comparison" slides, include period-over-period delta in kpis.
 - If PREVIOUS DECK METRICS are provided, add explicit M-1 comparisons in kpi deltas (e.g. "ROAS 2.3x vs 1.8x M-1 (+28%)") and include at least one "comparison" type slide.
+- For "creative" type slides: if thumbnail URLs are provided in the creative data, include them in the "images" array with the creative name as "label" and key metrics (ROAS, CPA, CTR) as "metrics" string.
 - Return ONLY the JSON array. No markdown. No explanation.`;
 
   // Route through the relay (which has Claude access) instead of calling Anthropic SDK directly.

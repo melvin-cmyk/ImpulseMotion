@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { SlideShell } from "./slide-shell";
-import type { SlideData, KPI, ChartData, SlideSeverity } from "@/types/deck";
+import type { SlideData, SlideImage, KPI, ChartData, SlideSeverity } from "@/types/deck";
 
 // ── Design tokens (matches slides.tsx) ───────────────────────────────────────
 
@@ -177,6 +177,46 @@ function ChartBlock({ chart }: { chart: ChartData }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── Image Gallery (for creative/ad thumbnails) ──────────────────────────────
+
+function ImageGallery({ images }: { images: SlideImage[] }) {
+  const cols = Math.min(images.length, 3);
+  return (
+    <div
+      className="grid gap-[2%] mt-[2%]"
+      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+    >
+      {images.map((img, i) => (
+        <div key={i} className="flex flex-col gap-[1%] rounded-md overflow-hidden" style={{ background: colors.bgAlt }}>
+          <div className="relative w-full" style={{ paddingBottom: "100%" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={img.url.startsWith("http") ? `/api/deck/proxy-image?url=${encodeURIComponent(img.url)}` : img.url}
+              alt={img.label ?? `Creative ${i + 1}`}
+              className="absolute inset-0 w-full h-full object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
+          {(img.label || img.metrics) && (
+            <div className="px-[6%] py-[4%]">
+              {img.label && (
+                <p className="text-[1.3%] font-semibold leading-tight truncate" style={{ color: colors.blueDeep }}>
+                  {img.label}
+                </p>
+              )}
+              {img.metrics && (
+                <p className="text-[1.1%] mt-[2%]" style={{ color: "#555" }}>
+                  {img.metrics}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -383,6 +423,11 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
 
         {/* Chart */}
         {slide.chart && <ChartBlock chart={slide.chart} />}
+
+        {/* Creative images */}
+        {slide.images && slide.images.length > 0 && (
+          <ImageGallery images={slide.images} />
+        )}
 
         {/* Insights */}
         {slide.insights && slide.insights.length > 0 && (

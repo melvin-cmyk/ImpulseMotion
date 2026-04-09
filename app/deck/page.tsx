@@ -49,7 +49,7 @@ import {
   BudgetSlide,
 } from "@/components/deck/slides";
 import { AIPanel } from "@/components/deck/ai-panel";
-import { exportDeckToPptx } from "@/lib/deck-export";
+import { exportDeckToPptx, exportAiSlidesToPptx } from "@/lib/deck-export";
 import { SlideStyleContext, type TextStyle } from "@/components/deck/slide-style-context";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DynamicDeck } from "@/components/deck/DynamicDeck";
@@ -419,29 +419,36 @@ export default function DeckPage() {
       }
 
       if (hasPrompt) {
-        // AI mode: generate slides from user prompt + real data
+        // AI mode: generate dynamic slides with kpis/insights via Anthropic
+        setSlideMode("ai");
         setAiSlidesMode(true);
         setCustomSlides([]);
 
         if (realData) {
-          const genRes = await fetch("/api/deck/generate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ client: effectiveClient, period, userPrompt: prompt }),
-          });
+          setIsGeneratingAi(true);
+          setAiGenerateError(null);
+          try {
+            const genRes = await fetch("/api/deck/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ client: effectiveClient, period, userPrompt: prompt }),
+            });
 
-          if (genRes.ok) {
-            const genJson = await genRes.json() as {
-              slides: Array<{ id: string; title: string; content: string; notes?: string }>;
-            };
-            if (genJson.slides && genJson.slides.length > 0) {
-              setCustomSlides(genJson.slides.map((s) => ({ id: s.id, label: s.title, content: s.content })));
-              const noteEntries: Record<string, string> = {};
-              genJson.slides.forEach((s) => { if (s.notes) noteEntries[s.id] = s.notes; });
-              if (Object.keys(noteEntries).length > 0) {
-                setSlideNotes((prev) => ({ ...prev, ...noteEntries }));
+            if (genRes.ok) {
+              const genJson = await genRes.json() as { slides?: SlideData[] };
+              if (genJson.slides && genJson.slides.length > 0) {
+                setAiDynamicSlides(genJson.slides);
+              } else {
+                setAiGenerateError("L'IA n'a retourné aucune slide.");
               }
+            } else {
+              const errText = await genRes.text().catch(() => `Erreur ${genRes.status}`);
+              setAiGenerateError(errText || `Erreur ${genRes.status}`);
             }
+          } catch (err) {
+            setAiGenerateError(err instanceof Error ? err.message : String(err));
+          } finally {
+            setIsGeneratingAi(false);
           }
         }
       } else {
@@ -549,14 +556,29 @@ export default function DeckPage() {
   }, [selectedClient, clientsLoading, generateDeck, handleGenerateAiDeck, selectedPeriod, userContext, selectedGoogleCustomerId]);
 
   const handleExportPptx = async () => {
-    if (!deckData) return;
     setIsExporting(true);
     try {
-      const blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements);
+      let blob: Blob;
+      let filename: string;
+
+      if (slideMode === "ai" && aiDynamicSlides.length > 0) {
+        // Export AI dynamic slides
+        const title = selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "AI Performance Deck";
+        blob = await exportAiSlidesToPptx(aiDynamicSlides, title);
+        filename = `AI_Deck_${selectedClient?.name.replace(/\s+/g, "_") ?? "export"}_${selectedPeriod.month}.pptx`;
+      } else if (deckData) {
+        // Export static slides
+        blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements);
+        filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
+      } else {
+        alert("Aucun deck à exporter.");
+        return;
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -575,9 +597,9 @@ export default function DeckPage() {
   }, []);
 
   const handleExportPdf = useCallback(() => {
-    if (!deckData) return;
+    if (!deckData && aiDynamicSlides.length === 0) return;
     setIsPrintingPdf(true);
-  }, [deckData]);
+  }, [deckData, aiDynamicSlides.length]);
 
   const handleExportCsvNotes = useCallback(() => {
     const totalSlides = slides.length + customSlides.length;
@@ -1405,8 +1427,8 @@ export default function DeckPage() {
     );
   }
 
-  // ── Relay error — no data ────────────────────────────────────────────────
-  if (deckGenerated && !deckData) {
+  // ── Relay error — no data (but not in AI mode with slides already loaded) ─
+  if (deckGenerated && !deckData && !(slideMode === "ai" && (aiDynamicSlides.length > 0 || isGeneratingAi))) {
     const isServerError = dataSourceReason?.startsWith("Erreur serveur");
     const isNetworkError = dataSourceReason?.includes("fetch") || dataSourceReason?.includes("TypeError") || dataSourceReason?.includes("NetworkError");
     const errorTitle = isServerError
@@ -1442,7 +1464,7 @@ export default function DeckPage() {
   }
 
   // ── Deck viewer — Split layout ─────────────────────────────────────────
-  if (!deckData) return null;
+  if (!deckData && !(slideMode === "ai" && (aiDynamicSlides.length > 0 || isGeneratingAi))) return null;
 
   /** Highlight matching search term in a slide label */
   function HighlightLabel({ label, search }: { label: string; search: string }) {
@@ -1603,7 +1625,7 @@ export default function DeckPage() {
         {/* Export PDF */}
         <button
           onClick={handleExportPdf}
-          disabled={!deckData}
+          disabled={!deckData && aiDynamicSlides.length === 0}
           title="Exporter en PDF (Ctrl+Shift+E)"
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-gray-700 flex-shrink-0 disabled:opacity-40"
         >
@@ -1944,6 +1966,7 @@ export default function DeckPage() {
                   <DynamicDeck
                     slides={aiDynamicSlides}
                     title={selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "Performance Deck"}
+                    onExport={handleExportPptx}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-400">
@@ -2008,7 +2031,7 @@ export default function DeckPage() {
                 </div>
               )}
               {/* Slide content */}
-              {currentSlide < slides.length ? (
+              {currentSlide < slides.length && deckData ? (
                 slides[currentSlide].render(deckData, currentSlide + 1, {
                   onEdit: handleInlineEdit,
                   getOverride: getSlideOverride,

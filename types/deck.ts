@@ -26,6 +26,13 @@ export type SlideType =
 
 export type SlideSeverity = "ok" | "warning" | "alert";
 
+export interface SlideImage {
+  url: string;
+  label?: string;
+  /** Optional metrics displayed below the image */
+  metrics?: string;
+}
+
 export interface SlideData {
   id: string;
   type: SlideType;
@@ -36,4 +43,6 @@ export interface SlideData {
   chart?: ChartData;
   recommendation?: string;
   severity?: SlideSeverity;
+  /** Creative/ad images to display (thumbnails from Meta Ads etc.) */
+  images?: SlideImage[];
 }

@@ -702,7 +702,7 @@ async function fetchThumbnails(creatives: TopCreative[]): Promise<Record<string,
   await Promise.all(
     creatives.filter(cr => cr.thumbnailUrl && cr.id).map(async (cr) => {
       try {
-        const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(cr.thumbnailUrl!)}`, { signal: AbortSignal.timeout(6000) });
+        const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(cr.thumbnailUrl!)}&format=base64`, { signal: AbortSignal.timeout(6000) });
         if (res.ok) {
           const json = await res.json() as { dataUrl?: string };
           if (json.dataUrl) result[cr.id] = json.dataUrl;
@@ -899,6 +899,227 @@ export async function exportDeckToPptx(
   }
 
   // Return as Blob — caller handles download
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blob = await (pptx as any).write({ outputType: "blob" }) as Blob;
+  return blob;
+}
+
+// ── Export AI Dynamic Slides to PPTX ────────────────────────────────────────
+
+export async function exportAiSlidesToPptx(
+  slides: import("@/types/deck").SlideData[],
+  title?: string,
+): Promise<Blob> {
+  const PptxGenJS = (await import("pptxgenjs")).default;
+  const pptx = new PptxGenJS();
+
+  pptx.author = "Impulse Analytics";
+  pptx.title = title ?? "AI Performance Deck";
+  pptx.layout = "LAYOUT_WIDE";
+
+  const severityBg: Record<string, string> = {
+    alert: "FFF0F0",
+    warning: "FFFBEA",
+    ok: "F0FFF4",
+  };
+  const severityBorder: Record<string, string> = {
+    alert: "C53929",
+    warning: "F9A825",
+    ok: "0B8043",
+  };
+
+  // Pre-fetch any creative images
+  const allImages = slides.flatMap(s => s.images ?? []);
+  const imageDataMap: Record<string, string> = {};
+  await Promise.all(
+    allImages.filter(img => img.url).map(async (img) => {
+      try {
+        const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(img.url)}&format=base64`, { signal: AbortSignal.timeout(6000) });
+        if (res.ok) {
+          const json = await res.json() as { dataUrl?: string };
+          if (json.dataUrl) imageDataMap[img.url] = json.dataUrl;
+        }
+      } catch { /* skip */ }
+    })
+  );
+
+  for (const slide of slides) {
+    const s = pptx.addSlide();
+    const isAlert = slide.severity === "alert" || slide.type === "alert";
+    const bgColor = slide.severity && severityBg[slide.severity] ? severityBg[slide.severity] : c(IA.bgWhite);
+    s.background = { color: bgColor };
+
+    // Left accent bar
+    const barColor = slide.type === "recommendation" ? IA.violet : IA.blue;
+    addBar(s, barColor);
+    addFooter(s, false);
+
+    // Severity left border
+    if (slide.severity && severityBorder[slide.severity]) {
+      s.addShape("rect", {
+        x: LAYOUT.barWidth, y: 0, w: 0.04, h: LAYOUT.height,
+        fill: { color: severityBorder[slide.severity] }, line: { width: 0 },
+      });
+    }
+
+    // Title
+    const titlePrefix = isAlert ? "⚠️ " : slide.type === "recommendation" ? "💡 " : "";
+    s.addText(`${titlePrefix}${slide.title}`, {
+      x: LAYOUT.marginX + 0.3, y: 0.25, w: 10, h: 0.6,
+      fontSize: SIZES.titleMain, bold: true, color: c(IA.blueDark), fontFace: FONTS.title,
+    });
+
+    // Severity badge
+    if (slide.severity && slide.severity !== "ok") {
+      s.addShape("roundRect", {
+        x: 11, y: 0.3, w: 1.2, h: 0.35,
+        fill: { color: severityBorder[slide.severity] }, line: { width: 0 }, rectRadius: 0.06,
+      });
+      s.addText(slide.severity.toUpperCase(), {
+        x: 11, y: 0.3, w: 1.2, h: 0.35,
+        fontSize: 8, bold: true, color: c(IA.textWhite), fontFace: FONTS.body, align: "center",
+      });
+    }
+
+    // Subtitle
+    if (slide.subtitle) {
+      s.addText(slide.subtitle, {
+        x: LAYOUT.marginX + 0.3, y: 0.85, w: 11, h: 0.3,
+        fontSize: 10, italic: true, color: c(IA.textCaption), fontFace: FONTS.body,
+      });
+    }
+
+    // Divider
+    s.addShape("rect", {
+      x: LAYOUT.marginX + 0.3, y: 1.15, w: 12, h: 0.015,
+      fill: { color: c(IA.textCaption) }, line: { width: 0 },
+    });
+
+    let yPos = 1.35;
+
+    // KPIs
+    if (slide.kpis && slide.kpis.length > 0) {
+      const kpiCount = Math.min(slide.kpis.length, 4);
+      const kpiW = 2.8;
+      const kpiGap = 0.25;
+      const kpiStartX = (LAYOUT.width - (kpiCount * kpiW + (kpiCount - 1) * kpiGap)) / 2;
+
+      slide.kpis.slice(0, 4).forEach((kpi, i) => {
+        const x = kpiStartX + i * (kpiW + kpiGap);
+        s.addShape("roundRect", {
+          x, y: yPos, w: kpiW, h: 1.5,
+          fill: { color: c(IA.bgAlt) }, line: { width: 0 }, rectRadius: 0.08,
+        });
+        s.addText(kpi.label, {
+          x, y: yPos + 0.15, w: kpiW, h: 0.25,
+          fontSize: 8, color: c(IA.textCaption), fontFace: FONTS.body, align: "center",
+        });
+        s.addText(kpi.value, {
+          x, y: yPos + 0.45, w: kpiW, h: 0.6,
+          fontSize: 22, bold: true, color: c(IA.blueDark), fontFace: FONTS.kpi, align: "center",
+        });
+        if (kpi.delta) {
+          const trendColor = kpi.trend === "up" ? c(IA.deltaPos) : kpi.trend === "down" ? c(IA.deltaNeg) : c(IA.textCaption);
+          const arrow = kpi.trend === "up" ? "▲ " : kpi.trend === "down" ? "▼ " : "";
+          s.addText(`${arrow}${kpi.delta}`, {
+            x, y: yPos + 1.05, w: kpiW, h: 0.3,
+            fontSize: 9, bold: true, color: trendColor, fontFace: FONTS.body, align: "center",
+          });
+        }
+      });
+      yPos += 1.7;
+    }
+
+    // Images (creatives)
+    if (slide.images && slide.images.length > 0) {
+      const imgCount = Math.min(slide.images.length, 3);
+      const imgW = 3.0;
+      const imgH = 2.2;
+      const imgGap = 0.3;
+      const imgStartX = (LAYOUT.width - (imgCount * imgW + (imgCount - 1) * imgGap)) / 2;
+
+      slide.images.slice(0, 3).forEach((img, i) => {
+        const x = imgStartX + i * (imgW + imgGap);
+        s.addShape("roundRect", {
+          x, y: yPos, w: imgW, h: imgH,
+          fill: { color: c(IA.bgAlt) }, line: { width: 0 }, rectRadius: 0.08,
+        });
+        const dataUrl = imageDataMap[img.url];
+        if (dataUrl) {
+          try {
+            s.addImage({ data: dataUrl, x: x + 0.1, y: yPos + 0.1, w: imgW - 0.2, h: imgH - 0.8, sizing: { type: "cover", w: imgW - 0.2, h: imgH - 0.8 } });
+          } catch { /* skip */ }
+        }
+        if (img.label) {
+          s.addText(img.label, {
+            x: x + 0.1, y: yPos + imgH - 0.65, w: imgW - 0.2, h: 0.25,
+            fontSize: 7, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
+          });
+        }
+        if (img.metrics) {
+          s.addText(img.metrics, {
+            x: x + 0.1, y: yPos + imgH - 0.4, w: imgW - 0.2, h: 0.3,
+            fontSize: 7, color: c(IA.textCaption), fontFace: FONTS.body,
+          });
+        }
+      });
+      yPos += 2.4;
+    }
+
+    // Chart (basic bar)
+    if (slide.chart) {
+      const entries = Object.entries(slide.chart.data).filter(([, v]) => typeof v === "number") as [string, number][];
+      if (entries.length > 0) {
+        const max = Math.max(...entries.map(([, v]) => v));
+        const barH = 0.3;
+        entries.forEach(([label, value], i) => {
+          const y = yPos + i * (barH + 0.1);
+          const pct = max > 0 ? (value / max) * 8 : 0;
+          s.addText(label, {
+            x: LAYOUT.marginX + 0.3, y, w: 2, h: barH,
+            fontSize: 8, color: c(IA.textBlack), fontFace: FONTS.body, align: "right",
+          });
+          s.addShape("rect", {
+            x: LAYOUT.marginX + 2.5, y, w: 8, h: barH,
+            fill: { color: c(IA.bgRowAlt) }, line: { width: 0 },
+          });
+          s.addShape("rect", {
+            x: LAYOUT.marginX + 2.5, y, w: pct, h: barH,
+            fill: { color: c(IA.blue) }, line: { width: 0 },
+          });
+          s.addText(value.toLocaleString(), {
+            x: LAYOUT.marginX + 10.8, y, w: 1.5, h: barH,
+            fontSize: 8, bold: true, color: c(IA.textBlack), fontFace: FONTS.body, align: "right",
+          });
+        });
+        yPos += entries.length * (barH + 0.1) + 0.2;
+      }
+    }
+
+    // Insights
+    if (slide.insights && slide.insights.length > 0) {
+      slide.insights.forEach((insight, i) => {
+        s.addText(`• ${insight}`, {
+          x: LAYOUT.marginX + 0.5, y: yPos + i * 0.5, w: 11, h: 0.45,
+          fontSize: 9, color: c(IA.textBlack), fontFace: FONTS.body, valign: "top",
+        });
+      });
+      yPos += slide.insights.length * 0.5 + 0.1;
+    }
+
+    // Recommendation
+    if (slide.recommendation) {
+      s.addShape("roundRect", {
+        x: LAYOUT.marginX + 0.3, y: yPos, w: 12, h: 0.7,
+        fill: { color: "EFF6FF" }, line: { color: c(IA.blue), width: 1 }, rectRadius: 0.06,
+      });
+      s.addText(`➜ ${slide.recommendation}`, {
+        x: LAYOUT.marginX + 0.5, y: yPos, w: 11.5, h: 0.7,
+        fontSize: 9, bold: true, color: c(IA.blueDark), fontFace: FONTS.body, valign: "middle",
+      });
+    }
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blob = await (pptx as any).write({ outputType: "blob" }) as Blob;
   return blob;
