@@ -24,6 +24,9 @@ const colors = {
 
 // ── KPI Card ─────────────────────────────────────────────────────────────────
 
+// Editable text helper — click to edit any text in the slide
+const editable = { contentEditable: true, suppressContentEditableWarning: true, style: { outline: "none", cursor: "text" } as React.CSSProperties, className: "focus:ring-1 focus:ring-blue-300 focus:bg-blue-50/20 rounded-sm" };
+
 function KpiCard({ kpi }: { kpi: KPI }) {
   const trendColor =
     kpi.trend === "up"
@@ -41,14 +44,17 @@ function KpiCard({ kpi }: { kpi: KPI }) {
       style={{ background: "#fff", borderColor: "#E8EDF3", minWidth: 0 }}
     >
       <span
-        className="font-semibold uppercase tracking-wider"
-        style={{ color: "#8A9BB5", fontSize: "max(1.4%, 11px)", letterSpacing: "0.05em" }}
+        {...editable}
+        className={`font-semibold uppercase tracking-wider ${editable.className}`}
+        style={{ ...editable.style, color: "#8A9BB5", fontSize: "max(1.4%, 11px)", letterSpacing: "0.05em" }}
       >
         {kpi.label}
       </span>
       <span
-        className="font-extrabold leading-tight"
+        {...editable}
+        className={`font-extrabold leading-tight ${editable.className}`}
         style={{
+          ...editable.style,
           fontFamily: "'Raleway', 'Trebuchet MS', sans-serif",
           color: colors.blueDeep,
           fontSize: "max(3.8%, 20px)",
@@ -66,7 +72,7 @@ function KpiCard({ kpi }: { kpi: KPI }) {
           }}
         >
           <span>{trendArrow}</span>
-          <span>{kpi.delta}</span>
+          <span {...editable} style={editable.style}>{kpi.delta}</span>
         </span>
       )}
     </div>
@@ -90,7 +96,7 @@ function InsightsList({ insights }: { insights: string[] }) {
           >
             {i + 1}
           </span>
-          <span className="leading-snug" style={{ color: "#333", fontSize: "max(1.5%, 11px)" }}>
+          <span {...editable} className={`leading-snug ${editable.className}`} style={{ ...editable.style, color: "#333", fontSize: "max(1.5%, 11px)" }}>
             {insight}
           </span>
         </div>
@@ -253,6 +259,8 @@ function DataTableBlock({ table }: { table: SlideTable }) {
             {table.headers.map((h, i) => (
               <th
                 key={i}
+                contentEditable={true}
+                suppressContentEditableWarning={true}
                 style={{
                   padding: "5px 8px",
                   background: colors.blueDeep,
@@ -263,6 +271,8 @@ function DataTableBlock({ table }: { table: SlideTable }) {
                   textTransform: "uppercase",
                   letterSpacing: "0.04em",
                   whiteSpace: "nowrap",
+                  outline: "none",
+                  cursor: "text",
                 }}
               >
                 {h}
@@ -323,7 +333,7 @@ function RecommendationBox({ text }: { text: string }) {
       <span className="flex-shrink-0" style={{ color: colors.blueSignature, fontSize: "max(1.8%, 13px)" }}>
         ➜
       </span>
-      <span className="font-medium leading-snug" style={{ color: colors.blueDeep, fontSize: "max(1.5%, 11px)" }}>
+      <span {...editable} className={`font-medium leading-snug ${editable.className}`} style={{ ...editable.style, color: colors.blueDeep, fontSize: "max(1.5%, 11px)" }}>
         {text}
       </span>
     </div>
@@ -392,14 +402,14 @@ function SlideHeader({
             fontSize: "max(2.8%, 16px)",
           }}
         >
-          {title}
+          <span {...editable} style={editable.style}>{title}</span>
         </h2>
         {subtitle && (
           <p
             className="mt-0.5"
             style={{ color: colors.caption, fontSize: "max(1.5%, 10px)" }}
           >
-            {subtitle}
+            <span {...editable} style={editable.style}>{subtitle}</span>
           </p>
         )}
       </div>
