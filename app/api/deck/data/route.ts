@@ -284,15 +284,51 @@ async function fetchMetaData(
 
     const overviewFields = "impressions,reach,clicks,spend,ctr,cpc,cpm,actions,action_values";
     const campaignFields = "campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
-    const adFields = "ad_name,adset_name,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values,creative{thumbnail_url,image_url}";
+    // Note: creative{} is NOT supported on /insights endpoint — must use /ads endpoint separately
+    const adInsightFields = "ad_id,ad_name,adset_name,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
 
     // Fire 4 parallel direct Graph API calls
     const [overviewRaw, prevOverviewRaw, campaignsRaw, creativesRaw] = await Promise.allSettled([
       metaFetch(`${BASE}/${actId}/insights?fields=${overviewFields}&time_range=${timeRange(period)}&level=account&access_token=${tok}`),
       metaFetch(`${BASE}/${actId}/insights?fields=${overviewFields}&time_range=${timeRange(previousPeriod)}&level=account&access_token=${tok}`),
       metaFetch(`${BASE}/${actId}/insights?level=campaign&fields=${campaignFields}&time_range=${timeRange(period)}&access_token=${tok}`),
-      metaFetch(`${BASE}/${actId}/insights?level=ad&fields=${adFields}&time_range=${timeRange(period)}&sort=spend_descending&limit=10&access_token=${tok}`),
+      metaFetch(`${BASE}/${actId}/insights?level=ad&fields=${adInsightFields}&time_range=${timeRange(period)}&sort=spend_descending&limit=10&access_token=${tok}`),
     ]);
+
+    // Fetch creative thumbnails for the top ads (separate API call since /insights doesn't support creative{})
+    let adCreativeMap: Record<string, { thumbnail_url?: string; image_url?: string }> = {};
+    if (creativesRaw.status === "fulfilled") {
+      try {
+        const creativesData = creativesRaw.value as Record<string, unknown>;
+        const adIds = (Array.isArray(creativesData.data) ? creativesData.data : [])
+          .map((ad: Record<string, unknown>) => String(ad.ad_id ?? ad.id ?? ""))
+          .filter(Boolean)
+          .slice(0, 10);
+        if (adIds.length > 0) {
+          // Batch fetch creative data for all top ads
+          const creativeResults = await Promise.allSettled(
+            adIds.map((adId: string) =>
+              metaFetch(`${BASE}/${adId}?fields=creative%7Bthumbnail_url,image_url%7D&access_token=${tok}`)
+            )
+          );
+          creativeResults.forEach((r, i) => {
+            if (r.status === "fulfilled") {
+              const data = r.value as Record<string, unknown>;
+              const creative = data.creative as Record<string, unknown> | undefined;
+              if (creative) {
+                adCreativeMap[adIds[i]] = {
+                  thumbnail_url: creative.thumbnail_url ? String(creative.thumbnail_url) : undefined,
+                  image_url: creative.image_url ? String(creative.image_url) : undefined,
+                };
+              }
+            }
+          });
+          console.log(`[deck/data] fetched creatives for ${Object.keys(adCreativeMap).length}/${adIds.length} ads`);
+        }
+      } catch (e) {
+        console.warn("[deck/data] creative fetch failed (non-blocking):", e);
+      }
+    }
 
     const logResult = (name: string, r: PromiseSettledResult<unknown>) =>
       r.status === "fulfilled"
@@ -373,7 +409,7 @@ async function fetchMetaData(
       });
     }
 
-    function extractCreatives(raw: unknown): TopCreative[] {
+    function extractCreatives(raw: unknown, creativeMap: Record<string, { thumbnail_url?: string; image_url?: string }>): TopCreative[] {
       if (!raw || typeof raw !== "object") return [];
       const r = raw as Record<string, unknown>;
       const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.ads) ? r.ads : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
@@ -382,8 +418,11 @@ async function fetchMetaData(
           || actionsValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase", "lead", "offsite_conversion.fb_pixel_lead");
         const revenue = actionValuesValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase");
         const spend = toNum(cr.spend);
+        const adId = String(cr.id ?? cr.ad_id ?? "");
+        // Look up creative thumbnail from the separate /ads API call
+        const creativeData = adId ? creativeMap[adId] : undefined;
         return {
-          id: String(cr.id ?? cr.ad_id ?? `tc-${i}`),
+          id: adId || `tc-${i}`,
           name: String(cr.name ?? cr.ad_name ?? `Creative ${i + 1}`),
           format: (["Video", "Image", "Carousel"].includes(String(cr.format ?? cr.creative_type ?? "")) ? String(cr.format ?? cr.creative_type) : "Image") as TopCreative["format"],
           spend,
@@ -393,7 +432,10 @@ async function fetchMetaData(
           impressions: toNum(cr.impressions),
           hookRate: cr.hook_rate !== undefined ? toNum(cr.hook_rate) : undefined,
           thumbnailUrl: (() => {
-            // Direct thumbnail_url field OR nested creative object
+            // 1. From separate /ads API creative fetch
+            if (creativeData?.thumbnail_url) return creativeData.thumbnail_url;
+            if (creativeData?.image_url) return creativeData.image_url;
+            // 2. Fallback: direct fields or nested creative (from relay/MCP responses)
             if (cr.thumbnail_url) return String(cr.thumbnail_url);
             const creative = cr.creative as Record<string, unknown> | undefined;
             if (creative?.thumbnail_url) return String(creative.thumbnail_url);
@@ -415,7 +457,7 @@ async function fetchMetaData(
     const overview = extractOverviewMetrics(overviewData);
     const prevOverview = extractOverviewMetrics(prevOverviewData);
     const campaigns = extractCampaigns(campaignsData);
-    const topCreatives = extractCreatives(creativesData);
+    const topCreatives = extractCreatives(creativesData, adCreativeMap);
 
     return { overview, campaigns, topCreatives, prevOverview };
   } catch (e) {

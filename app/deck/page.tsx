@@ -1186,6 +1186,15 @@ export default function DeckPage() {
     e.preventDefault();
     setIsDragOverCanvas(false);
 
+    // Handle image file drops — add as slide editor elements
+    const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    if (imageFiles.length > 0 && editMode) {
+      imageFiles.forEach((file) => {
+        slideEditor.handleImageUpload(file);
+      });
+      return;
+    }
+
     // Handle deck-template drops (from AI panel templates)
     const templateContent = e.dataTransfer.getData("application/deck-template");
     if (templateContent) {
@@ -2208,7 +2217,7 @@ export default function DeckPage() {
               {isDragOverCanvas && (
                 <div className="absolute inset-0 z-50 pointer-events-none rounded-lg border-4 border-violet-500 bg-violet-500/10 flex items-center justify-center">
                   <div className="bg-violet-600 text-white text-sm font-semibold px-4 py-2 rounded-full shadow-lg">
-                    📥 Déposer pour créer un slide
+                    {editMode ? "📷 Déposer l'image sur le canvas" : "📥 Déposer pour créer un slide"}
                   </div>
                 </div>
               )}

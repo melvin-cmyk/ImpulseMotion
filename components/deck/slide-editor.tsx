@@ -23,6 +23,8 @@ import {
   Copy,
   BringToFront,
   SendToBack,
+  Link,
+  Replace,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -133,6 +135,7 @@ export function SlideEditorToolbar({
   onImageUpload,
 }: ToolbarProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const replaceImageInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div className="flex items-center gap-1 mb-2 px-2 py-1 bg-white border border-gray-200 rounded-lg shadow-sm flex-wrap">
@@ -185,7 +188,7 @@ export function SlideEditorToolbar({
           if (onImageUpload) imageInputRef.current?.click();
           else onToolChange("image");
         }}
-        title="Insérer une image"
+        title="Insérer une image (fichier)"
         className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
           activeTool === "image" ? "bg-[#0944A1] text-white" : "text-gray-600 hover:bg-gray-100"
         }`}
@@ -203,6 +206,30 @@ export function SlideEditorToolbar({
           e.target.value = "";
         }}
       />
+      {/* Image from URL */}
+      <button
+        onClick={() => {
+          const url = prompt("URL de l'image :");
+          if (url && url.trim()) {
+            onUpdateElement({ type: "image", imageUrl: url.trim() } as Partial<SlideElement>);
+            // If no element is selected, this creates a new one via onImageUpload path
+            if (!selectedElement && onImageUpload) {
+              // Fetch the image and pass as file
+              fetch(`/api/deck/proxy-image?url=${encodeURIComponent(url.trim())}`)
+                .then(res => res.blob())
+                .then(blob => {
+                  const file = new File([blob], "image-from-url.jpg", { type: blob.type || "image/jpeg" });
+                  onImageUpload(file);
+                })
+                .catch(() => alert("Impossible de charger l'image depuis cette URL."));
+            }
+          }
+        }}
+        title="Insérer une image depuis une URL"
+        className="flex items-center justify-center w-7 h-7 rounded text-gray-600 hover:bg-gray-100 transition-colors"
+      >
+        <Link className="w-3.5 h-3.5" />
+      </button>
 
       <div className="h-5 w-px bg-gray-200 mx-1" />
 
@@ -318,6 +345,57 @@ export function SlideEditorToolbar({
                 />
                 px
               </label>
+            )}
+
+            {selectedElement.type === "image" && (
+              <>
+                <div className="h-5 w-px bg-gray-200 mx-0.5" />
+                <button
+                  onClick={() => replaceImageInputRef.current?.click()}
+                  title="Remplacer l'image"
+                  className="flex items-center gap-1 px-1.5 h-5 rounded text-[10px] text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  <Replace className="w-3 h-3" />
+                  Remplacer
+                </button>
+                <input
+                  ref={replaceImageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        onUpdateElement({ imageUrl: reader.result as string });
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const url = prompt("Nouvelle URL de l'image :", selectedElement.imageUrl ?? "");
+                    if (url && url.trim()) {
+                      fetch(`/api/deck/proxy-image?url=${encodeURIComponent(url.trim())}`)
+                        .then(res => res.blob())
+                        .then(blob => {
+                          const reader = new FileReader();
+                          reader.onloadend = () => onUpdateElement({ imageUrl: reader.result as string });
+                          reader.readAsDataURL(blob);
+                        })
+                        .catch(() => onUpdateElement({ imageUrl: url.trim() }));
+                    }
+                  }}
+                  title="Changer l'URL de l'image"
+                  className="flex items-center gap-1 px-1.5 h-5 rounded text-[10px] text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  <Link className="w-3 h-3" />
+                  URL
+                </button>
+              </>
             )}
 
             {selectedElement.type === "text" && (
@@ -882,6 +960,34 @@ export function useSlideEditor(
     []
   );
 
+  // Drag-and-drop image files onto the canvas
+  const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  const handleCanvasDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    if (files.length === 0) return;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const dropX = rect ? ((e.clientX - rect.left) / rect.width) * 100 : 20;
+    const dropY = rect ? ((e.clientY - rect.top) / rect.height) * 100 : 20;
+    files.forEach((file, i) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const imageUrl = ev.target?.result as string;
+        const el = createDefaultElement("image", Math.min(80, dropX + i * 5), Math.min(80, dropY + i * 5));
+        el.imageUrl = imageUrl;
+        const newEls = [...elements, el];
+        changeWithHistory(newEls);
+        setSelectedId(el.id);
+        setActiveTool("select");
+      };
+      reader.readAsDataURL(file);
+    });
+  }, [elements, changeWithHistory]);
+
   return {
     activeTool,
     setActiveTool,
@@ -901,6 +1007,8 @@ export function useSlideEditor(
     handleResizeMouseDown,
     handleElementDoubleClick,
     handleImageUpload,
+    handleCanvasDragOver,
+    handleCanvasDrop,
     undo,
     redo,
     canUndo,
