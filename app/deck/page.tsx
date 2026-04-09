@@ -2279,7 +2279,9 @@ export default function DeckPage() {
                   const aiIdx = currentSlide - slides.length - customSlides.length;
                   const aiSlide = aiDynamicSlides[aiIdx];
                   return aiSlide ? (
-                    <div style={{ pointerEvents: slideEditor.activeTool !== "select" ? "none" : "auto" }}>
+                    <div className="relative z-0" style={{
+                      pointerEvents: slideEditor.activeTool !== "select" || (slideElements[editorSlideIndex] ?? []).length > 0 ? "none" : "auto"
+                    }}>
                       <DynamicSlide
                         slide={aiSlide}
                         slideNumber={currentSlide + 1}
@@ -2290,21 +2292,23 @@ export default function DeckPage() {
               )}
 
               {/* Slide editor elements — positioned ON the canvas */}
-              <div className="absolute inset-0 z-10" style={{ pointerEvents: "none" }}>
-                {(slideElements[editorSlideIndex] ?? []).map((el) => (
-                  <SlideElementItem
-                    key={el.id}
-                    el={el}
-                    isSelected={slideEditor.selectedId === el.id}
-                    isEditing={slideEditor.editingId === el.id}
-                    onMouseDown={(e) => { if (editMode) slideEditor.handleElementMouseDown(e, el); }}
-                    onDoubleClick={(e) => { if (editMode) slideEditor.handleElementDoubleClick(e, el); }}
-                    onTextChange={(text) => slideEditor.updateEl(el.id, { text })}
-                    onBlur={() => slideEditor.setEditingId(null)}
-                    onResizeMouseDown={(e) => { if (editMode) slideEditor.handleResizeMouseDown(e, el); }}
-                  />
-                ))}
-              </div>
+              {editMode && (slideElements[editorSlideIndex] ?? []).length > 0 && (
+                <div className="absolute inset-0 z-10">
+                  {(slideElements[editorSlideIndex] ?? []).map((el) => (
+                    <SlideElementItem
+                      key={el.id}
+                      el={el}
+                      isSelected={slideEditor.selectedId === el.id}
+                      isEditing={slideEditor.editingId === el.id}
+                      onMouseDown={(e) => slideEditor.handleElementMouseDown(e, el)}
+                      onDoubleClick={(e) => slideEditor.handleElementDoubleClick(e, el)}
+                      onTextChange={(text) => slideEditor.updateEl(el.id, { text })}
+                      onBlur={() => slideEditor.setEditingId(null)}
+                      onResizeMouseDown={(e) => slideEditor.handleResizeMouseDown(e, el)}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* Overlay blocks — positioned ON the canvas */}
               {currentSlideBlocks.map((block) => {
