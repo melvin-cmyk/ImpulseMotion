@@ -2203,14 +2203,26 @@ export default function DeckPage() {
                       className="w-full relative"
                       style={{ cursor: slideEditor.canvasCursor }}
                       ref={canvasRef}
-                      onClick={slideEditor.handleCanvasClick}
+                      onClick={(e) => {
+                        // Always handle canvas click for editor tools
+                        slideEditor.handleCanvasClick(e);
+                      }}
+                      onMouseDown={(e) => {
+                        // Deselect when clicking empty area
+                        if (slideEditor.activeTool === "select" && e.target === e.currentTarget) {
+                          slideEditor.setSelectedId(null);
+                        }
+                      }}
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
                     >
-                      <DynamicSlide
-                        slide={aiDynamicSlides[Math.min(currentAiSlide, aiDynamicSlides.length - 1)]}
-                        slideNumber={currentAiSlide + 1}
-                      />
+                      {/* DynamicSlide rendered below, editor elements on top */}
+                      <div style={{ pointerEvents: slideEditor.activeTool !== "select" ? "none" : "auto" }}>
+                        <DynamicSlide
+                          slide={aiDynamicSlides[Math.min(currentAiSlide, aiDynamicSlides.length - 1)]}
+                          slideNumber={currentAiSlide + 1}
+                        />
+                      </div>
                       {/* Editor elements overlay */}
                       <div className="absolute inset-0">
                         {(slideElements[1000 + currentAiSlide] ?? []).map((el) => (

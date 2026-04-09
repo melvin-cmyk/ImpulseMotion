@@ -156,31 +156,27 @@ function ChartBlock({ chart }: { chart: ChartData }) {
     );
   }
 
-  // Fallback: simple data table
+  // Fallback: MBR-style data table (inspired by Impulse Analytics MBR decks)
   return (
-    <div className="mt-2 overflow-auto">
+    <div className="mt-2 overflow-auto rounded-lg border" style={{ borderColor: "#E8EDF3" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "max(1.2%, 10px)" }}>
+        <thead>
+          <tr>
+            <th style={{ padding: "6px 10px", background: colors.blueDeep, color: "#fff", fontWeight: 600, textAlign: "left", fontSize: "max(1.1%, 9px)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Métrique
+            </th>
+            <th style={{ padding: "6px 10px", background: colors.blueDeep, color: "#fff", fontWeight: 600, textAlign: "right", fontSize: "max(1.1%, 9px)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Valeur
+            </th>
+          </tr>
+        </thead>
         <tbody>
-          {entries.map(([label, value]) => (
-            <tr key={label}>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  color: "#555",
-                  borderBottom: "1px solid #eee",
-                }}
-              >
+          {entries.map(([label, value], idx) => (
+            <tr key={label} style={{ background: idx % 2 === 0 ? "#FAFBFD" : "#fff" }}>
+              <td style={{ padding: "5px 10px", color: "#333", fontWeight: 500, borderBottom: "1px solid #E8EDF3" }}>
                 {label}
               </td>
-              <td
-                style={{
-                  padding: "4px 8px",
-                  fontWeight: 600,
-                  color: colors.blueDeep,
-                  textAlign: "right",
-                  borderBottom: "1px solid #eee",
-                }}
-              >
+              <td style={{ padding: "5px 10px", fontWeight: 700, color: colors.blueDeep, textAlign: "right", borderBottom: "1px solid #E8EDF3", fontFamily: "'Raleway', sans-serif" }}>
                 {value.toLocaleString()}
               </td>
             </tr>
@@ -251,9 +247,9 @@ function ImageGallery({ images }: { images: SlideImage[] }) {
 function RecommendationBox({ text }: { text: string }) {
   return (
     <div
-      className="mt-2 rounded-md px-3 py-2 flex items-start gap-2"
+      className="mt-2 rounded-lg px-3 py-2 flex items-start gap-2"
       style={{
-        background: "#EFF6FF",
+        background: "linear-gradient(135deg, #EFF6FF, #F0F0FF)",
         borderLeft: `4px solid ${colors.blueSignature}`,
       }}
     >
@@ -263,6 +259,19 @@ function RecommendationBox({ text }: { text: string }) {
       <span className="font-medium leading-snug" style={{ color: colors.blueDeep, fontSize: "max(1.5%, 11px)" }}>
         {text}
       </span>
+    </div>
+  );
+}
+
+// ── Section divider (MBR style "// OVERVIEW") ─────────────────────────────────
+
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 mt-3 mb-1">
+      <span className="font-bold uppercase tracking-wider" style={{ color: colors.blueDeep, fontSize: "max(1.3%, 10px)" }}>
+        // {label}
+      </span>
+      <div className="flex-1 h-[2px]" style={{ background: `linear-gradient(90deg, ${colors.blueSignature}, transparent)` }} />
     </div>
   );
 }
@@ -437,7 +446,7 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
         {/* KPIs */}
         {slide.kpis && slide.kpis.length > 0 && (
           <div
-            className="grid gap-[2%] mb-[2%]"
+            className="grid gap-2 mb-2"
             style={{
               gridTemplateColumns: `repeat(${Math.min(slide.kpis.length, 4)}, 1fr)`,
             }}
@@ -454,6 +463,11 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
         {/* Creative images */}
         {slide.images && slide.images.length > 0 && (
           <ImageGallery images={slide.images} />
+        )}
+
+        {/* Section divider before insights */}
+        {slide.insights && slide.insights.length > 0 && (slide.kpis?.length || slide.chart || slide.images?.length) && (
+          <SectionDivider label="Analyse" />
         )}
 
         {/* Insights */}

@@ -48,11 +48,11 @@ export function SlideShell({
       )}
       style={{ fontFamily: "'Open Sans', Calibri, sans-serif" }}
     >
-      {/* Left accent bar */}
+      {/* Left accent bar — gradient style matching Impulse Analytics MBR */}
       {accent && (
         <div
           className="absolute left-0 top-0 bottom-0 w-[6px]"
-          style={{ backgroundColor: accentColor }}
+          style={{ background: accent === "violet" ? `linear-gradient(180deg, #7F5AFD, #2CA6F9)` : `linear-gradient(180deg, #2CA6F9, #0944A1)` }}
         />
       )}
 
