@@ -723,7 +723,8 @@ export async function exportDeckToPptx(
   data: DeckData,
   customSlides?: CustomSlide[],
   droppedBlocks?: DroppedBlock[],
-  slideElements?: Record<number, SlideElement[]>
+  slideElements?: Record<number, SlideElement[]>,
+  aiSlides?: import("@/types/deck").SlideData[]
 ): Promise<Blob> {
   const PptxGenJS = (await import("pptxgenjs")).default;
   const pptx = new PptxGenJS();
@@ -902,6 +903,157 @@ export async function exportDeckToPptx(
       const customEls = slideElements?.[absIdx];
       if (customEls && customEls.length > 0) addSlideElements(s, customEls, LAYOUT.width, LAYOUT.height);
     });
+  }
+
+  // ── AI Dynamic Slides ──────────────────────────────────────────────────────
+  if (aiSlides && aiSlides.length > 0) {
+    // Section divider for AI slides
+    addSectionDivider(pptx, "AI", "Slides IA", "Slides générées par l'intelligence artificielle", IA.violet);
+
+    for (let aiIdx = 0; aiIdx < aiSlides.length; aiIdx++) {
+      const slide = aiSlides[aiIdx];
+      const s = pptx.addSlide();
+      s.background = { color: c(IA.bgWhite) };
+      const barColor = slide.type === "recommendation" ? IA.violet : IA.blue;
+      addBar(s, barColor);
+      addFooter(s, false);
+
+      // Title
+      s.addText(slide.title, {
+        x: LAYOUT.marginX + 0.3, y: 0.25, w: 11, h: 0.5,
+        fontSize: SIZES.titleMain, bold: true, color: c(IA.textBlack),
+        fontFace: FONTS.title,
+      });
+      if (slide.subtitle) {
+        s.addText(slide.subtitle, {
+          x: LAYOUT.marginX + 0.3, y: 0.75, w: 11, h: 0.3,
+          fontSize: SIZES.subtitle, color: c(IA.textCaption),
+          fontFace: FONTS.body, italic: true,
+        });
+      }
+
+      // KPIs as cards in a row
+      if (slide.kpis && slide.kpis.length > 0) {
+        const kpiCount = Math.min(slide.kpis.length, 4);
+        const kpiW = 11.5 / kpiCount;
+        slide.kpis.slice(0, 4).forEach((kpi, ki) => {
+          const xPos = LAYOUT.marginX + 0.3 + ki * kpiW;
+          s.addShape("rect", {
+            x: xPos, y: 1.15, w: kpiW - 0.15, h: 0.85,
+            fill: { color: "F5F7FA" }, line: { color: "E8EDF3", width: 1 },
+            rectRadius: 0.06,
+          });
+          s.addText(kpi.label.toUpperCase(), {
+            x: xPos + 0.1, y: 1.2, w: kpiW - 0.35, h: 0.2,
+            fontSize: 7, bold: true, color: "8A9BB5",
+            fontFace: FONTS.body,
+          });
+          s.addText(kpi.value, {
+            x: xPos + 0.1, y: 1.4, w: kpiW - 0.35, h: 0.35,
+            fontSize: 18, bold: true, color: c(IA.blue),
+            fontFace: FONTS.title,
+          });
+          if (kpi.delta) {
+            const deltaColor = kpi.trend === "up" ? "0B8043" : kpi.trend === "down" ? "C53929" : "999999";
+            const arrow = kpi.trend === "up" ? "▲ " : kpi.trend === "down" ? "▼ " : "";
+            s.addText(`${arrow}${kpi.delta}`, {
+              x: xPos + 0.1, y: 1.75, w: kpiW - 0.35, h: 0.2,
+              fontSize: 7, bold: true, color: deltaColor,
+              fontFace: FONTS.body,
+            });
+          }
+        });
+      }
+
+      let yPos = slide.kpis && slide.kpis.length > 0 ? 2.15 : 1.15;
+
+      // Table
+      if (slide.table) {
+        const tbl = slide.table;
+        const rows: Array<Array<{ text: string; options: Record<string, unknown> }>> = [];
+        // Header row
+        rows.push(tbl.headers.map((h, hi) => ({
+          text: h,
+          options: {
+            bold: true, color: "FFFFFF", fill: { color: c(IA.blue) },
+            fontSize: 8, fontFace: FONTS.body,
+            align: hi === 0 ? "left" : "right",
+          },
+        })));
+        // Data rows
+        tbl.rows.forEach((row, ri) => {
+          rows.push(row.cells.map((cell, ci) => ({
+            text: cell,
+            options: {
+              bold: row.isHeader || false,
+              color: cell.startsWith("+") ? "0B8043" : cell.startsWith("-") ? "C53929" : ci === 0 ? "333333" : c(IA.blue),
+              fill: { color: row.highlight ? "EFF6FF" : ri % 2 === 0 ? "FAFBFD" : "FFFFFF" },
+              fontSize: 8, fontFace: ci > 0 ? FONTS.title : FONTS.body,
+              align: ci === 0 ? "left" : "right",
+            },
+          })));
+        });
+        s.addTable(rows, {
+          x: LAYOUT.marginX + 0.3, y: yPos, w: 11.5,
+          border: { type: "solid", pt: 0.5, color: "E8EDF3" },
+          colW: Array(tbl.headers.length).fill(11.5 / tbl.headers.length),
+          rowH: 0.3,
+        });
+        yPos += (rows.length * 0.3) + 0.2;
+      }
+
+      // Insights
+      if (slide.insights && slide.insights.length > 0) {
+        // Section divider line
+        s.addText("// ANALYSE", {
+          x: LAYOUT.marginX + 0.3, y: yPos, w: 3, h: 0.25,
+          fontSize: 8, bold: true, color: c(IA.blue), fontFace: FONTS.body,
+        });
+        s.addShape("rect", {
+          x: LAYOUT.marginX + 2.2, y: yPos + 0.12, w: 9.6, h: 0.015,
+          fill: { color: c(IA.blue) }, line: { width: 0 },
+        });
+        yPos += 0.35;
+
+        slide.insights.forEach((insight, ii) => {
+          s.addShape("ellipse", {
+            x: LAYOUT.marginX + 0.3, y: yPos + 0.03, w: 0.2, h: 0.2,
+            fill: { color: c(IA.blue) },
+          });
+          s.addText(String(ii + 1), {
+            x: LAYOUT.marginX + 0.3, y: yPos + 0.03, w: 0.2, h: 0.2,
+            fontSize: 7, bold: true, color: "FFFFFF", align: "center", valign: "middle",
+            fontFace: FONTS.body,
+          });
+          s.addText(insight, {
+            x: LAYOUT.marginX + 0.6, y: yPos, w: 11.2, h: 0.28,
+            fontSize: 9, color: "333333", fontFace: FONTS.body,
+            valign: "middle", wrap: true,
+          });
+          yPos += 0.32;
+        });
+      }
+
+      // Recommendation
+      if (slide.recommendation) {
+        s.addShape("rect", {
+          x: LAYOUT.marginX + 0.3, y: yPos + 0.1, w: 11.5, h: 0.4,
+          fill: { color: "EFF6FF" },
+          line: { color: c(IA.blue), width: 0.5 },
+          rectRadius: 0.04,
+        });
+        s.addText(`➜ ${slide.recommendation}`, {
+          x: LAYOUT.marginX + 0.5, y: yPos + 0.1, w: 11.1, h: 0.4,
+          fontSize: 9, bold: true, color: c(IA.blue), fontFace: FONTS.body,
+          valign: "middle", wrap: true,
+        });
+      }
+
+      // Editor elements overlay on this AI slide
+      const aiEditorIdx = 1000 + aiIdx;
+      const els = slideElements?.[aiEditorIdx];
+      if (els && els.length > 0) addSlideElements(s, els, LAYOUT.width, LAYOUT.height);
+    }
   }
 
   // Return as Blob — caller handles download

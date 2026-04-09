@@ -772,7 +772,7 @@ export default function DeckPage() {
 
       if (deckData) {
         // Export static slides
-        blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements);
+        blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined);
         filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
       } else {
         alert("Aucun deck à exporter.");
@@ -1810,7 +1810,7 @@ export default function DeckPage() {
             if (!deckData) { alert("Aucun deck à exporter."); return; }
             setIsExporting(true);
             try {
-              const blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements);
+              const blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined);
               const filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
 
               // Download the PPTX file
