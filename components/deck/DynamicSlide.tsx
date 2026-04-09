@@ -282,6 +282,8 @@ function DataTableBlock({ table }: { table: SlideTable }) {
               {row.cells.map((cell, ci) => (
                 <td
                   key={ci}
+                  contentEditable={true}
+                  suppressContentEditableWarning={true}
                   style={{
                     padding: "4px 8px",
                     textAlign: ci === 0 ? "left" : "right",
@@ -291,7 +293,10 @@ function DataTableBlock({ table }: { table: SlideTable }) {
                     fontWeight: cell.startsWith("+") || cell.startsWith("-") ? 600 : ci === 0 ? 500 : 600,
                     fontFamily: ci > 0 ? "'Raleway', sans-serif" : "inherit",
                     whiteSpace: "nowrap",
+                    outline: "none",
+                    cursor: "text",
                   }}
+                  className="focus:ring-1 focus:ring-blue-300 focus:bg-blue-50/30 rounded-sm"
                 >
                   {cell}
                 </td>
@@ -453,26 +458,16 @@ export interface DynamicSlideProps {
 }
 
 export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProps) {
-  const hasSeverity = !!slide.severity;
   const sev = slide.severity;
-  const sevStyle = sev ? severityStyles(sev) : null;
   const isAlert = sev === "alert" || slide.type === "alert";
-  const isWarning = sev === "warning";
-  const isOk = sev === "ok";
   const isRecommendation = slide.type === "recommendation";
 
   // Accent colour: alert slides get a red tint via border override, others blue
   const accent: "blue" | "violet" | undefined =
     slide.type === "recommendation" ? "violet" : "blue";
 
-  // Compute inline style overrides for severity-based background + left border
-  const severityContainerStyle: React.CSSProperties = isAlert
-    ? { background: colors.alertBg, borderLeft: `4px solid ${colors.alertBorder}` }
-    : isWarning
-    ? { background: colors.warningBg, borderLeft: `4px solid ${colors.warningBorder}` }
-    : isOk
-    ? { background: colors.okBg, borderLeft: `4px solid ${colors.okBorder}` }
-    : {};
+  // Severity container style — no colored backgrounds, just clean layout
+  const severityContainerStyle: React.CSSProperties = {};
 
   // Prefix icon for title
   const titlePrefix = isAlert ? "⚠️ " : isRecommendation ? "💡 " : "";
@@ -481,22 +476,10 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
     <SlideShell
       accent={accent}
       slideNumber={slideNumber}
-      className={cn(
-        className,
-        hasSeverity && sev !== "ok" && sev !== "alert" ? "ring-2" : hasSeverity && sev === "alert" ? "ring-1" : "",
-        sev === "alert" ? "ring-red-500" : sev === "warning" ? "ring-yellow-400" : ""
-      )}
+      className={cn(className)}
       source={`${TYPE_LABELS[slide.type] ?? slide.type} · Impulse Analytics`}
     >
-      {/* Optional severity overlay tint */}
-      {sevStyle && sev !== "ok" && !isAlert && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{ background: sevStyle.background, opacity: 0.25 }}
-        />
-      )}
-
-      <div className="relative flex flex-col h-full" style={severityContainerStyle}>
+      <div className="relative flex flex-col h-full overflow-auto" style={severityContainerStyle}>
         <SlideHeader
           title={`${titlePrefix}${slide.title}`}
           subtitle={slide.subtitle}

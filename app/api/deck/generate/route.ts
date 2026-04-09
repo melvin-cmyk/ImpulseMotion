@@ -692,7 +692,7 @@ ${google.campaigns.slice(0, 5).map(c =>
     : "Generate a complete deck covering: overview, performance, creative, alerts, and recommendations.";
 
   const contextBlock = config.context
-    ? `\nAdditional analyst context: ${config.context}`
+    ? `\n\nIMPORTANT — USER REQUEST: The user specifically asked for: "${config.context}". You MUST create slides that directly address this request. Prioritize content that fulfills what the user asked for above all else.`
     : "";
 
   // ── Pre-analysis: detect alerts ───────────────────────────────────────────

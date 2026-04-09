@@ -58,7 +58,7 @@ export function SlideShell({
 
       {/* Content area */}
       <div className={cn("relative h-full flex flex-col", accent ? "pl-[24px] pr-[16px]" : "px-[16px]")}>
-        <div className="flex-1 pt-[5%] overflow-hidden">
+        <div className="flex-1 pt-[5%] overflow-auto">
           {children}
         </div>
 

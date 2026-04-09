@@ -482,12 +482,36 @@ export default function DeckPage() {
 
   const periods = useMemo(() => getAvailablePeriods(), []);
 
+  // Auto-match Google Ads account: if selected client has no googleCustomerId,
+  // find a client with matching name that does have one
+  useEffect(() => {
+    if (!selectedClient) return;
+    if (selectedClient.googleCustomerId) {
+      // Client already has a Google Ads ID — auto-set it
+      setSelectedGoogleCustomerId(selectedClient.googleCustomerId);
+      return;
+    }
+    // Try to find a matching Google Ads account by name
+    const baseName = selectedClient.name.replace(/\s*\(.*\)\s*$/, "").trim().toLowerCase();
+    const match = clients.find(
+      (c) =>
+        c.id !== selectedClient.id &&
+        c.googleCustomerId &&
+        c.name.replace(/\s*\(.*\)\s*$/, "").trim().toLowerCase() === baseName
+    );
+    if (match?.googleCustomerId) {
+      setSelectedGoogleCustomerId(match.googleCustomerId);
+    } else {
+      setSelectedGoogleCustomerId("");
+    }
+  }, [selectedClient, clients]);
+
   const staticSlides = useMemo(() => {
     // If the selected client has no Google Ads, hide Google Ads section (slides 8-12)
-    const hasGoogle = !!(selectedClient?.googleCustomerId || selectedClient?.platform === "google" || selectedClient?.platform === "both");
+    const hasGoogle = !!(selectedClient?.googleCustomerId || selectedGoogleCustomerId || selectedClient?.platform === "google" || selectedClient?.platform === "both");
     const all = buildSlides(hasGoogle);
     return hasGoogle ? all : all.filter(s => s.section !== 2);
-  }, [selectedClient]);
+  }, [selectedClient, selectedGoogleCustomerId]);
   const slides = useMemo(() => staticSlides, [staticSlides]);
 
   // ── Slide editor hook (elements / tools / drag) ───────────────────────────
@@ -1468,7 +1492,7 @@ export default function DeckPage() {
               >
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} {c.platform ? `— ${c.platform}` : ""}
+                    {c.name}
                   </option>
                 ))}
               </select>
@@ -1489,32 +1513,7 @@ export default function DeckPage() {
             </div>
           )}
 
-          {/* Google Ads manual association — show when selected client has no Google Customer ID */}
-          {selectedClient && !selectedClient.googleCustomerId && clients.some(c => c.platform === "google" || c.platform === "both") && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
-              <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 mb-3">
-                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-                Compte Google Ads (optionnel)
-              </label>
-              <select
-                value={selectedGoogleCustomerId}
-                onChange={(e) => setSelectedGoogleCustomerId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-              >
-                <option value="">— Aucun compte Google Ads —</option>
-                {clients
-                  .filter(c => (c.platform === "google" || c.platform === "both") && c.googleCustomerId)
-                  .map(c => (
-                    <option key={c.id} value={c.googleCustomerId!}>
-                      {c.name.includes(c.googleCustomerId!) ? c.name : `${c.name} (${c.googleCustomerId})`}
-                    </option>
-                  ))}
-              </select>
-              <div className="mt-2 text-xs text-gray-400">
-                Associez un compte Google Ads manuellement si le nom ne correspond pas automatiquement.
-              </div>
-            </div>
-          )}
+          {/* Google Ads auto-matched from client — no manual selector needed */}
 
           {/* Period selection */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
@@ -2280,28 +2279,32 @@ export default function DeckPage() {
                   const aiIdx = currentSlide - slides.length - customSlides.length;
                   const aiSlide = aiDynamicSlides[aiIdx];
                   return aiSlide ? (
-                    <DynamicSlide
-                      slide={aiSlide}
-                      slideNumber={currentSlide + 1}
-                    />
+                    <div style={{ pointerEvents: slideEditor.activeTool !== "select" ? "none" : "auto" }}>
+                      <DynamicSlide
+                        slide={aiSlide}
+                        slideNumber={currentSlide + 1}
+                      />
+                    </div>
                   ) : null;
                 })()
               )}
 
               {/* Slide editor elements — positioned ON the canvas */}
-              {(slideElements[editorSlideIndex] ?? []).map((el) => (
-                <SlideElementItem
-                  key={el.id}
-                  el={el}
-                  isSelected={slideEditor.selectedId === el.id}
-                  isEditing={slideEditor.editingId === el.id}
-                  onMouseDown={(e) => { if (editMode) slideEditor.handleElementMouseDown(e, el); }}
-                  onDoubleClick={(e) => { if (editMode) slideEditor.handleElementDoubleClick(e, el); }}
-                  onTextChange={(text) => slideEditor.updateEl(el.id, { text })}
-                  onBlur={() => slideEditor.setEditingId(null)}
-                  onResizeMouseDown={(e) => { if (editMode) slideEditor.handleResizeMouseDown(e, el); }}
-                />
-              ))}
+              <div className="absolute inset-0 z-10" style={{ pointerEvents: "none" }}>
+                {(slideElements[editorSlideIndex] ?? []).map((el) => (
+                  <SlideElementItem
+                    key={el.id}
+                    el={el}
+                    isSelected={slideEditor.selectedId === el.id}
+                    isEditing={slideEditor.editingId === el.id}
+                    onMouseDown={(e) => { if (editMode) slideEditor.handleElementMouseDown(e, el); }}
+                    onDoubleClick={(e) => { if (editMode) slideEditor.handleElementDoubleClick(e, el); }}
+                    onTextChange={(text) => slideEditor.updateEl(el.id, { text })}
+                    onBlur={() => slideEditor.setEditingId(null)}
+                    onResizeMouseDown={(e) => { if (editMode) slideEditor.handleResizeMouseDown(e, el); }}
+                  />
+                ))}
+              </div>
 
               {/* Overlay blocks — positioned ON the canvas */}
               {currentSlideBlocks.map((block) => {
