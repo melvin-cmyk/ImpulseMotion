@@ -1492,7 +1492,7 @@ export default function DeckPage() {
               >
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}
+                    {c.name.replace(/\s*\(\d+\)\s*$/, "")}
                   </option>
                 ))}
               </select>
