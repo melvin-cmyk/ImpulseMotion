@@ -305,24 +305,69 @@ async function fetchMetaData(
           .filter(Boolean)
           .slice(0, 10);
         if (adIds.length > 0) {
-          // Batch fetch creative data for all top ads
+          // Batch fetch creative data + image_hash for all top ads
           const creativeResults = await Promise.allSettled(
             adIds.map((adId: string) =>
-              metaFetch(`${BASE}/${adId}?fields=creative%7Bthumbnail_url,image_url%7D&access_token=${tok}`)
+              metaFetch(`${BASE}/${adId}?fields=creative%7Bthumbnail_url,image_url,image_hash,asset_feed_spec%7D&access_token=${tok}`)
             )
           );
+          // Collect image hashes for high-res resolution
+          const imageHashes: string[] = [];
           creativeResults.forEach((r, i) => {
             if (r.status === "fulfilled") {
               const data = r.value as Record<string, unknown>;
               const creative = data.creative as Record<string, unknown> | undefined;
               if (creative) {
+                const hash = creative.image_hash as string | undefined;
+                // Also try to get hash from asset_feed_spec.images[0].hash
+                const assetFeed = creative.asset_feed_spec as Record<string, unknown> | undefined;
+                const feedImages = assetFeed?.images as Array<{ hash?: string }> | undefined;
+                const feedHash = feedImages?.[0]?.hash;
+                const resolvedHash = hash || feedHash;
                 adCreativeMap[adIds[i]] = {
                   thumbnail_url: creative.thumbnail_url ? String(creative.thumbnail_url) : undefined,
                   image_url: creative.image_url ? String(creative.image_url) : undefined,
                 };
+                if (resolvedHash) imageHashes.push(resolvedHash);
               }
             }
           });
+
+          // Resolve image hashes to full-size URLs via adimages endpoint
+          if (imageHashes.length > 0) {
+            try {
+              const hashesParam = encodeURIComponent(JSON.stringify([...new Set(imageHashes)]));
+              const adImagesRes = await metaFetch(`${BASE}/${actId}/adimages?hashes=${hashesParam}&fields=url,url_128&access_token=${tok}`);
+              const adImagesData = adImagesRes as Record<string, unknown>;
+              const adImagesList = Array.isArray(adImagesData.data) ? adImagesData.data as Array<Record<string, unknown>> : [];
+              const hashToUrl: Record<string, string> = {};
+              adImagesList.forEach((img) => {
+                const id = String(img.id ?? "");
+                const hash = id.split(":")[1] || "";
+                if (hash && img.url) hashToUrl[hash] = String(img.url);
+              });
+              // Update adCreativeMap with high-res URLs
+              creativeResults.forEach((r, i) => {
+                if (r.status === "fulfilled") {
+                  const data = r.value as Record<string, unknown>;
+                  const creative = data.creative as Record<string, unknown> | undefined;
+                  if (creative) {
+                    const hash = (creative.image_hash as string) ||
+                      ((creative.asset_feed_spec as Record<string, unknown>)?.images as Array<{ hash?: string }>)?.[0]?.hash;
+                    if (hash && hashToUrl[hash]) {
+                      adCreativeMap[adIds[i]] = {
+                        ...adCreativeMap[adIds[i]],
+                        image_url: hashToUrl[hash], // Full-size URL from adimages
+                      };
+                    }
+                  }
+                }
+              });
+              console.log(`[deck/data] resolved ${Object.keys(hashToUrl).length} image hashes to full-res URLs`);
+            } catch (e) {
+              console.warn("[deck/data] adimages hash resolution failed (non-blocking):", e);
+            }
+          }
           console.log(`[deck/data] fetched creatives for ${Object.keys(adCreativeMap).length}/${adIds.length} ads`);
         }
       } catch (e) {
@@ -432,9 +477,9 @@ async function fetchMetaData(
           impressions: toNum(cr.impressions),
           hookRate: cr.hook_rate !== undefined ? toNum(cr.hook_rate) : undefined,
           thumbnailUrl: (() => {
-            // 1. From separate /ads API creative fetch
-            if (creativeData?.thumbnail_url) return creativeData.thumbnail_url;
+            // 1. From separate /ads API creative fetch — prefer full-res image_url over 64px thumbnail
             if (creativeData?.image_url) return creativeData.image_url;
+            if (creativeData?.thumbnail_url) return creativeData.thumbnail_url;
             // 2. Fallback: direct fields or nested creative (from relay/MCP responses)
             if (cr.thumbnail_url) return String(cr.thumbnail_url);
             const creative = cr.creative as Record<string, unknown> | undefined;

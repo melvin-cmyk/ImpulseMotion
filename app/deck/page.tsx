@@ -53,6 +53,7 @@ import { exportDeckToPptx, exportAiSlidesToPptx } from "@/lib/deck-export";
 import { SlideStyleContext, type TextStyle } from "@/components/deck/slide-style-context";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DynamicDeck } from "@/components/deck/DynamicDeck";
+import { DynamicSlide } from "@/components/deck/DynamicSlide";
 import type { SlideData } from "@/types/deck";
 
 // ── Build AI-style slides from DeckData (client-side fallback) ───────────────
@@ -61,6 +62,7 @@ function buildSlidesFromDeckData(data: DeckData): SlideData[] {
   const fmtCur = (n: number) => `€${n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   const fmtPct = (n: number) => `${n.toFixed(2)}%`;
   const fmtX = (n: number) => `${n.toFixed(2)}x`;
+  const fmtNum = (n: number) => n.toLocaleString("fr-FR");
   const slides: SlideData[] = [];
 
   // 1. Overview slide with highlights
@@ -119,24 +121,26 @@ function buildSlidesFromDeckData(data: DeckData): SlideData[] {
     });
   }
 
-  // 4. Top Creatives with images
+  // 4. Top Creatives — one slide per creative for clear, full-size display
   if (data.topCreatives.length > 0) {
-    slides.push({
-      id: "auto-creatives",
-      type: "creative",
-      title: "Top Créatives — Performance",
-      subtitle: `Top ${Math.min(data.topCreatives.length, 6)} créatives par spend`,
-      images: data.topCreatives.slice(0, 6).filter(c => c.thumbnailUrl).map(c => ({
-        url: c.thumbnailUrl!,
-        label: c.name,
-        metrics: `ROAS ${fmtX(c.roas)} · CPA ${fmtCur(c.cpa)} · CTR ${fmtPct(c.ctr)}`,
-      })),
-      kpis: data.topCreatives.slice(0, 4).map(c => ({
-        label: c.name.length > 20 ? c.name.slice(0, 17) + "…" : c.name,
-        value: fmtX(c.roas),
-        delta: fmtCur(c.spend),
-        trend: c.roas >= 1 ? "up" as const : "down" as const,
-      })),
+    data.topCreatives.slice(0, 6).forEach((c, i) => {
+      slides.push({
+        id: `auto-creative-${i}`,
+        type: "creative",
+        title: `Créative #${i + 1} — ${c.name}`,
+        subtitle: `${c.format} · Spend: ${fmtCur(c.spend)}`,
+        images: c.thumbnailUrl ? [{
+          url: c.thumbnailUrl,
+          label: c.name,
+          metrics: `ROAS ${fmtX(c.roas)} · CPA ${fmtCur(c.cpa)} · CTR ${fmtPct(c.ctr)} · ${fmtNum(c.impressions)} impressions`,
+        }] : [],
+        kpis: [
+          { label: "Spend", value: fmtCur(c.spend) },
+          { label: "ROAS", value: fmtX(c.roas), trend: c.roas >= 1 ? "up" as const : "down" as const },
+          { label: "CTR", value: fmtPct(c.ctr) },
+          { label: "CPA", value: fmtCur(c.cpa), trend: c.cpa < 30 ? "up" as const : "down" as const },
+        ],
+      });
     });
   }
 
@@ -444,6 +448,7 @@ export default function DeckPage() {
     return new URLSearchParams(window.location.search).get("mode") === "ai" ? "ai" : "static";
   });
   const [aiDynamicSlides, setAiDynamicSlides] = useState<SlideData[]>([]);
+  const [currentAiSlide, setCurrentAiSlide] = useState(0);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [aiGenerateError, setAiGenerateError] = useState<string | null>(null);
   const [isDragOverCanvas, setIsDragOverCanvas] = useState(false);
@@ -2154,7 +2159,7 @@ export default function DeckPage() {
                     </button>
                   </div>
                 ) : aiDynamicSlides.length > 0 ? (
-                  <div className="w-full">
+                  <div className="w-full max-w-3xl">
                     {/* Editor toolbar for AI slides */}
                     <div className="mb-0">
                       <SlideEditorToolbar
@@ -2173,11 +2178,54 @@ export default function DeckPage() {
                         onImageUpload={slideEditor.handleImageUpload}
                       />
                     </div>
-                    <DynamicDeck
-                      slides={aiDynamicSlides}
-                      title={selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "Performance Deck"}
-                      onExport={handleExportPptx}
-                    />
+                    {/* Navigation */}
+                    <div className="flex items-center justify-between px-3 py-2 bg-white border border-gray-200 rounded-lg shadow-sm mb-2">
+                      <span className="text-sm font-semibold text-[#0944A1] truncate">
+                        {selectedClient ? `${selectedClient.name} — ${selectedPeriod.label}` : "Performance Deck"}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setCurrentAiSlide(i => Math.max(0, i - 1))} disabled={currentAiSlide === 0} className="w-8 h-8 flex items-center justify-center rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-30">
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="text-sm font-medium tabular-nums text-gray-700">{currentAiSlide + 1} / {aiDynamicSlides.length}</span>
+                        <button onClick={() => setCurrentAiSlide(i => Math.min(aiDynamicSlides.length - 1, i + 1))} disabled={currentAiSlide === aiDynamicSlides.length - 1} className="w-8 h-8 flex items-center justify-center rounded-md text-gray-600 hover:bg-gray-100 disabled:opacity-30">
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <button onClick={handleExportPptx} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md bg-[#0944A1] text-white hover:bg-[#07338a]">
+                        Export
+                      </button>
+                    </div>
+                    {/* Canvas with AI slide + editor overlay */}
+                    <div
+                      className="w-full relative"
+                      style={{ cursor: slideEditor.canvasCursor }}
+                      ref={canvasRef}
+                      onClick={slideEditor.handleCanvasClick}
+                      onDragOver={handleDragOver}
+                      onDrop={handleDrop}
+                    >
+                      <DynamicSlide
+                        slide={aiDynamicSlides[Math.min(currentAiSlide, aiDynamicSlides.length - 1)]}
+                        slideNumber={currentAiSlide + 1}
+                      />
+                      {/* Editor elements overlay */}
+                      <div className="absolute inset-0">
+                        {(slideElements[currentAiSlide] ?? []).map((el) => (
+                          <SlideElementItem
+                            key={el.id}
+                            el={el}
+                            isSelected={slideEditor.selectedId === el.id}
+                            isEditing={slideEditor.editingId === el.id}
+                            onMouseDown={(e) => slideEditor.handleElementMouseDown(e, el)}
+                            onDoubleClick={(e) => slideEditor.handleElementDoubleClick(e, el)}
+                            onTextChange={(text) => slideEditor.updateElWithHistory(el.id, { text })}
+                            onBlur={() => slideEditor.setEditingId(null)}
+                            onResizeMouseDown={(e) => slideEditor.handleResizeMouseDown(e, el)}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-20 gap-4 text-gray-400">
