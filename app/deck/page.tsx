@@ -503,7 +503,7 @@ export default function DeckPage() {
     const all = buildSlides(hasGoogle);
     return hasGoogle ? all : all.filter(s => s.section !== 2);
   }, [selectedClient]);
-  const slides = useMemo(() => aiSlidesMode ? [] : staticSlides, [aiSlidesMode, staticSlides]);
+  const slides = useMemo(() => staticSlides, [staticSlides]);
 
   const currentSlideId = currentSlide < slides.length
     ? (slides[currentSlide]?.id ?? `slide-${currentSlide}`)
@@ -2263,7 +2263,7 @@ export default function DeckPage() {
                         />
                       </div>
                       {/* Editor elements overlay */}
-                      <div className="absolute inset-0">
+                      <div className="absolute inset-0 z-10">
                         {(slideElements[1000 + currentAiSlide] ?? []).map((el) => (
                           <SlideElementItem
                             key={el.id}

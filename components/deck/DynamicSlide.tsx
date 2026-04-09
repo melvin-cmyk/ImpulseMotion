@@ -14,7 +14,7 @@ const colors = {
   deltaNeg: "#C53929",
   bgAlt: "#F2F9FE",
   caption: "#CCCCCC",
-  alertBg: "#FFF0F0",
+  alertBg: "#FFF8F8",
   alertBorder: "#C53929",
   warningBg: "#FFFBEA",
   warningBorder: "#F9A825",
@@ -421,7 +421,7 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
       slideNumber={slideNumber}
       className={cn(
         className,
-        hasSeverity && sev !== "ok" ? "ring-2" : "",
+        hasSeverity && sev !== "ok" && sev !== "alert" ? "ring-2" : hasSeverity && sev === "alert" ? "ring-1" : "",
         sev === "alert" ? "ring-red-500" : sev === "warning" ? "ring-yellow-400" : ""
       )}
       source={`${TYPE_LABELS[slide.type] ?? slide.type} · Impulse Analytics`}
