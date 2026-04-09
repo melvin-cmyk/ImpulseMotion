@@ -37,12 +37,12 @@ function KpiCard({ kpi }: { kpi: KPI }) {
 
   return (
     <div
-      className="flex flex-col gap-1 rounded-lg px-3 py-2.5"
-      style={{ background: colors.bgAlt, minWidth: 0 }}
+      className="flex flex-col gap-0.5 rounded-lg px-3 py-2 border"
+      style={{ background: "#fff", borderColor: "#E8EDF3", minWidth: 0 }}
     >
       <span
         className="font-semibold uppercase tracking-wider"
-        style={{ color: colors.caption, fontSize: "max(1.4%, 10px)" }}
+        style={{ color: "#8A9BB5", fontSize: "max(1.2%, 9px)", letterSpacing: "0.05em" }}
       >
         {kpi.label}
       </span>
@@ -51,15 +51,19 @@ function KpiCard({ kpi }: { kpi: KPI }) {
         style={{
           fontFamily: "'Raleway', 'Trebuchet MS', sans-serif",
           color: colors.blueDeep,
-          fontSize: "max(3.5%, 18px)",
+          fontSize: "max(3.2%, 16px)",
         }}
       >
         {kpi.value}
       </span>
       {kpi.delta && (
         <span
-          className="font-semibold flex items-center gap-1"
-          style={{ color: trendColor, fontSize: "max(1.4%, 10px)" }}
+          className="font-semibold flex items-center gap-1 rounded-full px-1.5 py-0.5 w-fit"
+          style={{
+            color: trendColor,
+            fontSize: "max(1.2%, 9px)",
+            background: kpi.trend === "up" ? "#E8F5E9" : kpi.trend === "down" ? "#FFEBEE" : "#F5F5F5",
+          }}
         >
           <span>{trendArrow}</span>
           <span>{kpi.delta}</span>
@@ -73,21 +77,25 @@ function KpiCard({ kpi }: { kpi: KPI }) {
 
 function InsightsList({ insights }: { insights: string[] }) {
   return (
-    <ul className="flex flex-col gap-1 mt-2">
+    <div className="mt-2 rounded-lg border overflow-hidden" style={{ borderColor: "#E8EDF3" }}>
       {insights.map((insight, i) => (
-        <li key={i} className="flex items-start gap-1.5">
+        <div
+          key={i}
+          className="flex items-start gap-2 px-3 py-1.5"
+          style={{ borderBottom: i < insights.length - 1 ? "1px solid #E8EDF3" : "none", background: i % 2 === 0 ? "#FAFBFD" : "#fff" }}
+        >
           <span
-            className="mt-0.5 flex-shrink-0"
-            style={{ color: colors.blueSignature, fontSize: "max(1.6%, 11px)" }}
+            className="mt-0.5 flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center"
+            style={{ background: colors.blueSignature, color: "#fff", fontSize: "8px", fontWeight: 700 }}
           >
-            •
+            {i + 1}
           </span>
-          <span className="leading-snug" style={{ color: "#333", fontSize: "max(1.6%, 11px)" }}>
+          <span className="leading-snug" style={{ color: "#333", fontSize: "max(1.5%, 11px)" }}>
             {insight}
           </span>
-        </li>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -113,30 +121,31 @@ function ChartBlock({ chart }: { chart: ChartData }) {
   const max = Math.max(...entries.map(([, v]) => v));
 
   if (chart.type === "bar" || chart.type === "funnel") {
+    const barColors = ["#2CA6F9", "#0944A1", "#7F5AFD", "#00C49F", "#FF8042", "#8884D8"];
     return (
-      <div className="mt-2 flex flex-col gap-1">
-        {entries.map(([label, value]) => {
+      <div className="mt-2 flex flex-col gap-1.5 rounded-lg border p-2" style={{ borderColor: "#E8EDF3" }}>
+        {entries.map(([label, value], idx) => {
           const pct = max > 0 ? (value / max) * 100 : 0;
           return (
             <div key={label} className="flex items-center gap-2">
               <span
-                className="text-right flex-shrink-0"
-                style={{ width: "18%", color: "#555", fontSize: "max(1.3%, 10px)" }}
+                className="text-right flex-shrink-0 font-medium"
+                style={{ width: "20%", color: "#555", fontSize: "max(1.3%, 10px)" }}
               >
                 {label}
               </span>
-              <div className="flex-1 h-4 rounded-sm overflow-hidden bg-gray-100">
+              <div className="flex-1 h-5 rounded overflow-hidden" style={{ background: "#F0F4F8" }}>
                 <div
-                  className="h-full rounded-sm transition-all"
+                  className="h-full rounded transition-all"
                   style={{
-                    width: `${pct}%`,
-                    background: colors.blueSignature,
+                    width: `${Math.max(pct, 2)}%`,
+                    background: `linear-gradient(90deg, ${barColors[idx % barColors.length]}CC, ${barColors[idx % barColors.length]})`,
                   }}
                 />
               </div>
               <span
-                className="flex-shrink-0"
-                style={{ width: "12%", color: "#333", textAlign: "right", fontSize: "max(1.3%, 10px)" }}
+                className="flex-shrink-0 font-semibold tabular-nums"
+                style={{ width: "14%", color: "#333", textAlign: "right", fontSize: "max(1.3%, 10px)" }}
               >
                 {value.toLocaleString()}
               </span>
@@ -185,32 +194,47 @@ function ChartBlock({ chart }: { chart: ChartData }) {
 // ── Image Gallery (for creative/ad thumbnails) ──────────────────────────────
 
 function ImageGallery({ images }: { images: SlideImage[] }) {
-  const cols = Math.min(images.length, 3);
+  const single = images.length === 1;
+  const cols = single ? 1 : Math.min(images.length, 3);
   return (
     <div
-      className="grid gap-[2%] mt-[2%]"
-      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
+      className={single ? "flex mt-2" : "grid gap-2 mt-2"}
+      style={single ? {} : { gridTemplateColumns: `repeat(${cols}, 1fr)` }}
     >
       {images.map((img, i) => (
-        <div key={i} className="flex flex-col gap-[1%] rounded-md overflow-hidden" style={{ background: colors.bgAlt }}>
-          <div className="relative w-full" style={{ paddingBottom: "100%" }}>
+        <div
+          key={i}
+          className={cn(
+            "flex rounded-lg overflow-hidden",
+            single ? "gap-3 items-start" : "flex-col gap-1"
+          )}
+          style={{ background: colors.bgAlt }}
+        >
+          {/* Image container — constrained to not overflow the slide */}
+          <div
+            className={cn(
+              "relative flex-shrink-0 overflow-hidden rounded-lg",
+              single ? "w-[40%]" : "w-full"
+            )}
+            style={{ paddingBottom: single ? "30%" : "75%" }}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={img.url.startsWith("http") ? `/api/deck/proxy-image?url=${encodeURIComponent(img.url)}` : img.url}
               alt={img.label ?? `Creative ${i + 1}`}
-              className="absolute inset-0 w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-contain bg-gray-50"
               onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
             />
           </div>
           {(img.label || img.metrics) && (
-            <div className="px-2 py-1.5">
+            <div className={single ? "flex-1 py-1" : "px-2 py-1.5"}>
               {img.label && (
-                <p className="font-semibold leading-tight truncate" style={{ color: colors.blueDeep, fontSize: "max(1.3%, 10px)" }}>
+                <p className="font-semibold leading-tight" style={{ color: colors.blueDeep, fontSize: "max(1.3%, 11px)" }}>
                   {img.label}
                 </p>
               )}
               {img.metrics && (
-                <p className="mt-0.5" style={{ color: "#555", fontSize: "max(1.1%, 9px)" }}>
+                <p className="mt-1" style={{ color: "#555", fontSize: "max(1.1%, 10px)", lineHeight: 1.5 }}>
                   {img.metrics}
                 </p>
               )}

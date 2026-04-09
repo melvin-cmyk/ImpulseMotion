@@ -490,10 +490,12 @@ export default function DeckPage() {
   const periods = useMemo(() => getAvailablePeriods(), []);
 
   // ── Slide editor hook (elements / tools / drag) ───────────────────────────
+  // Use a unified index: in AI mode, offset by 1000 to avoid collision with static slide indices
+  const editorSlideIndex = slideMode === "ai" ? 1000 + currentAiSlide : currentSlide;
   const slideEditor = useSlideEditor(
     canvasRef,
-    slideElements[currentSlide] ?? [],
-    (els) => setSlideElements((prev) => ({ ...prev, [currentSlide]: els }))
+    slideElements[editorSlideIndex] ?? [],
+    (els) => setSlideElements((prev) => ({ ...prev, [editorSlideIndex]: els }))
   );
   const staticSlides = useMemo(() => {
     // If the selected client has no Google Ads, hide Google Ads section (slides 8-12)
@@ -2211,7 +2213,7 @@ export default function DeckPage() {
                       />
                       {/* Editor elements overlay */}
                       <div className="absolute inset-0">
-                        {(slideElements[currentAiSlide] ?? []).map((el) => (
+                        {(slideElements[1000 + currentAiSlide] ?? []).map((el) => (
                           <SlideElementItem
                             key={el.id}
                             el={el}
