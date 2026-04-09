@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
 import {
   getPreviousPeriod,
   type DeckPeriod,
@@ -413,6 +414,123 @@ async function fetchMetaData(
   }
 }
 
+// ── Direct Meta Graph API fetcher (faster and more reliable than relay MCP) ──
+
+async function fetchMetaDataDirect(
+  accountId: string,
+  period: DeckPeriod,
+  previousPeriod: DeckPeriod,
+  metaToken: string
+): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null> {
+  try {
+    const rawId = accountId.startsWith("act_") ? accountId.slice(4) : accountId;
+    const actId = `act_${rawId}`;
+    const BASE = "https://graph.facebook.com/v22.0";
+    const timeRange = (p: DeckPeriod) => encodeURIComponent(JSON.stringify({ since: p.startDate, until: p.endDate }));
+    const tok = encodeURIComponent(metaToken);
+
+    async function metaFetch(url: string): Promise<unknown> {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Meta API ${res.status}: ${body.slice(0, 200)}`);
+      }
+      return res.json();
+    }
+
+    const overviewFields = "impressions,reach,clicks,spend,ctr,cpc,cpm,actions,action_values";
+    const campaignFields = "campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
+    const adFields = "ad_name,adset_name,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values,creative{thumbnail_url,image_url}";
+
+    const [overviewRaw, prevOverviewRaw, campaignsRaw, creativesRaw] = await Promise.allSettled([
+      metaFetch(`${BASE}/${actId}/insights?fields=${overviewFields}&time_range=${timeRange(period)}&level=account&access_token=${tok}`),
+      metaFetch(`${BASE}/${actId}/insights?fields=${overviewFields}&time_range=${timeRange(previousPeriod)}&level=account&access_token=${tok}`),
+      metaFetch(`${BASE}/${actId}/insights?level=campaign&fields=${campaignFields}&time_range=${timeRange(period)}&access_token=${tok}`),
+      metaFetch(`${BASE}/${actId}/insights?level=ad&fields=${adFields}&time_range=${timeRange(period)}&sort=spend_descending&limit=10&access_token=${tok}`),
+    ]);
+
+    function actionsValue(obj: Record<string, unknown>, ...types: string[]): number {
+      const actions = Array.isArray(obj.actions) ? obj.actions as Array<{ action_type: string; value: string }> : [];
+      for (const t of types) { const f = actions.find(a => a.action_type === t); if (f) return toNum(f.value); }
+      return 0;
+    }
+
+    function actionValuesValue(obj: Record<string, unknown>, ...types: string[]): number {
+      const vals = Array.isArray(obj.action_values) ? obj.action_values as Array<{ action_type: string; value: string }> : [];
+      for (const t of types) { const f = vals.find(a => a.action_type === t); if (f) return toNum(f.value); }
+      return 0;
+    }
+
+    function extractOverview(raw: unknown): PlatformMetrics {
+      if (!raw || typeof raw !== "object") return zeroMetrics();
+      const r = raw as Record<string, unknown>;
+      const data = (r.data ?? r) as Record<string, unknown>;
+      const arr = (Array.isArray(data) ? data[0] : data) as Record<string, unknown>;
+      if (!arr || typeof arr !== "object") return zeroMetrics();
+      const conversions = toNum(arr.conversions ?? arr.purchases)
+        || actionsValue(arr, "purchase", "offsite_conversion.fb_pixel_purchase", "lead", "offsite_conversion.fb_pixel_lead", "complete_registration");
+      const revenue = toNum(arr.revenue ?? arr.purchase_roas_value)
+        || actionValuesValue(arr, "purchase", "offsite_conversion.fb_pixel_purchase");
+      return safeMetrics({ spend: toNum(arr.spend), impressions: toNum(arr.impressions), clicks: toNum(arr.clicks), conversions, revenue });
+    }
+
+    function extractCamps(raw: unknown): CampaignRow[] {
+      if (!raw || typeof raw !== "object") return [];
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      return list.slice(0, 10).map((c, i) => {
+        const conversions = toNum(c.conversions) || actionsValue(c, "purchase", "offsite_conversion.fb_pixel_purchase", "lead");
+        const revenue = actionValuesValue(c, "purchase", "offsite_conversion.fb_pixel_purchase");
+        const current = safeMetrics({ spend: toNum(c.spend), impressions: toNum(c.impressions), clicks: toNum(c.clicks), conversions, revenue });
+        return {
+          id: String(c.campaign_id ?? `meta-c-${i}`),
+          name: String(c.campaign_name ?? `Campagne ${i + 1}`),
+          status: "Active" as CampaignRow["status"],
+          current, previous: zeroMetrics(), delta: safeDelta(current, zeroMetrics()),
+        };
+      });
+    }
+
+    function extractCreats(raw: unknown): TopCreative[] {
+      if (!raw || typeof raw !== "object") return [];
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      return list.slice(0, 6).map((cr, i) => {
+        const conversions = toNum(cr.conversions) || actionsValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase", "lead");
+        const revenue = actionValuesValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase");
+        const spend = toNum(cr.spend);
+        const creative = cr.creative as Record<string, unknown> | undefined;
+        const thumbnailUrl = creative?.thumbnail_url ? String(creative.thumbnail_url)
+          : creative?.image_url ? String(creative.image_url)
+          : (cr.thumbnail_url ? String(cr.thumbnail_url) : undefined);
+        return {
+          id: String(cr.ad_id ?? cr.id ?? `tc-${i}`),
+          name: String(cr.ad_name ?? cr.name ?? `Creative ${i + 1}`),
+          format: "Image" as TopCreative["format"],
+          spend, roas: revenue > 0 && spend > 0 ? revenue / spend : 0,
+          ctr: toNum(cr.ctr), cpa: conversions > 0 && spend > 0 ? spend / conversions : 0,
+          impressions: toNum(cr.impressions), thumbnailUrl,
+        };
+      });
+    }
+
+    const overviewData = overviewRaw.status === "fulfilled" ? overviewRaw.value : null;
+    const prevOverviewData = prevOverviewRaw.status === "fulfilled" ? prevOverviewRaw.value : null;
+    if (!overviewData) return null;
+
+    console.log("[deck/generate] direct Meta API ok, overview:", JSON.stringify(overviewData).slice(0, 300));
+    return {
+      overview: extractOverview(overviewData),
+      prevOverview: extractOverview(prevOverviewData),
+      campaigns: extractCamps(campaignsRaw.status === "fulfilled" ? campaignsRaw.value : null),
+      topCreatives: extractCreats(creativesRaw.status === "fulfilled" ? creativesRaw.value : null),
+    };
+  } catch (e) {
+    console.error("[deck/generate] fetchMetaDataDirect error:", e);
+    return null;
+  }
+}
+
 // ── Google Ads data fetcher ───────────────────────────────────────────────────
 
 async function fetchGoogleData(
@@ -485,6 +603,8 @@ async function fetchGoogleData(
 interface GenerateConfig {
   customerId: string;
   platform: string;
+  metaAccountId?: string;
+  googleCustomerId?: string;
   dateRange: { startDate: string; endDate: string; label?: string };
   sections: string[];
   context?: string;
@@ -686,9 +806,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     // Support both the new config shape and the legacy client/period shape
     if (body.customerId) {
+      // Extract real account IDs: prefer explicit fields, fall back to parsing customerId prefix
+      const rawId = body.customerId as string;
+      const metaId = body.metaAccountId ?? (rawId.startsWith("meta-") ? rawId.slice(5) : undefined);
+      const googleId = body.googleCustomerId ?? (rawId.startsWith("google-") ? rawId.slice(7) : undefined);
       config = {
-        customerId: body.customerId,
+        customerId: rawId,
         platform: body.platform ?? "both",
+        metaAccountId: metaId,
+        googleCustomerId: googleId,
         dateRange: body.dateRange ?? { startDate: body.period?.startDate ?? "", endDate: body.period?.endDate ?? "", label: body.period?.label },
         sections: Array.isArray(body.sections) ? body.sections : [],
         context: typeof body.context === "string" ? body.context : undefined,
@@ -700,6 +826,8 @@ export async function POST(req: NextRequest) {
       config = {
         customerId: c.metaAccountId ?? c.googleCustomerId ?? c.id ?? "unknown",
         platform: c.metaAccountId && c.googleCustomerId ? "both" : c.metaAccountId ? "meta" : "google",
+        metaAccountId: c.metaAccountId,
+        googleCustomerId: c.googleCustomerId,
         dateRange: { startDate: body.period.startDate, endDate: body.period.endDate, label: body.period.label },
         sections: [],
         context: typeof body.userPrompt === "string" ? body.userPrompt : undefined,
@@ -725,17 +853,28 @@ export async function POST(req: NextRequest) {
   };
   const previousPeriod = getPreviousPeriod(period);
 
-  // Determine which platforms to fetch
-  const fetchMeta = config.platform === "meta" || config.platform === "both";
-  const fetchGoogle = config.platform === "google" || config.platform === "both";
+  // Determine which platforms to fetch and resolve actual account IDs
+  const metaAccId = config.metaAccountId ?? (config.customerId.startsWith("meta-") ? config.customerId.slice(5) : config.customerId);
+  const googleAccId = config.googleCustomerId ?? (config.customerId.startsWith("google-") ? config.customerId.slice(7) : config.customerId);
+  const fetchMeta = (config.platform === "meta" || config.platform === "both") && !!metaAccId;
+  const fetchGoogle = (config.platform === "google" || config.platform === "both") && !!googleAccId;
 
-  // Fetch raw data from MCP in parallel (partial data is ok)
+  // Get session for Meta token (direct API is faster and more reliable than relay)
+  const session = await auth();
+  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken ?? null;
+
+  console.log("[deck/generate] resolved IDs:", { metaAccId, googleAccId, fetchMeta, fetchGoogle, hasMetaToken: !!metaToken });
+
+  // Fetch raw data in parallel — use direct Meta Graph API when token is available, relay MCP otherwise
   const [metaResult, googleResult] = await Promise.allSettled([
     fetchMeta
-      ? fetchMetaData(config.customerId, period, previousPeriod)
+      ? (metaToken
+          ? fetchMetaDataDirect(metaAccId, period, previousPeriod, metaToken)
+              .then(r => r ?? fetchMetaData(metaAccId, period, previousPeriod)) // fallback to relay
+          : fetchMetaData(metaAccId, period, previousPeriod))
       : Promise.resolve(null),
     fetchGoogle
-      ? fetchGoogleData(config.customerId, period, previousPeriod)
+      ? fetchGoogleData(googleAccId, period, previousPeriod)
       : Promise.resolve(null),
   ]);
 

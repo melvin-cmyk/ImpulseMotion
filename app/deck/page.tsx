@@ -55,6 +55,143 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { DynamicDeck } from "@/components/deck/DynamicDeck";
 import type { SlideData } from "@/types/deck";
 
+// ── Build AI-style slides from DeckData (client-side fallback) ───────────────
+
+function buildSlidesFromDeckData(data: DeckData): SlideData[] {
+  const fmtCur = (n: number) => `€${n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmtPct = (n: number) => `${n.toFixed(2)}%`;
+  const fmtX = (n: number) => `${n.toFixed(2)}x`;
+  const slides: SlideData[] = [];
+
+  // 1. Overview slide with highlights
+  slides.push({
+    id: "auto-overview",
+    type: "overview",
+    title: `${data.client.name} — ${data.period.label}`,
+    subtitle: "Vue d'ensemble des performances publicitaires",
+    kpis: data.highlights.map(h => ({
+      label: h.title,
+      value: h.value,
+      delta: h.delta != null ? `${h.delta >= 0 ? "+" : ""}${h.delta.toFixed(1)}%` : undefined,
+      trend: h.delta != null ? (h.delta > 0 ? "up" as const : h.delta < 0 ? "down" as const : "flat" as const) : undefined,
+    })),
+    severity: "ok",
+  });
+
+  // 2. Meta KPIs slide
+  if (data.metaOverview.spend > 0) {
+    const m = data.metaOverview;
+    slides.push({
+      id: "auto-meta-kpi",
+      type: "performance",
+      title: "Meta Ads — Performance",
+      subtitle: data.period.label,
+      kpis: [
+        { label: "Spend", value: fmtCur(m.spend) },
+        { label: "ROAS", value: fmtX(m.roas), trend: m.roas >= 1 ? "up" : "down" },
+        { label: "CPA", value: fmtCur(m.cpa) },
+        { label: "CTR", value: fmtPct(m.ctr) },
+      ],
+      insights: data.insightsMeta.length > 0 ? data.insightsMeta : [
+        `${Math.round(m.conversions)} conversions pour ${fmtCur(m.spend)} de spend`,
+        `Revenue total: ${fmtCur(m.revenue)}`,
+      ],
+      severity: m.roas < 1 ? "alert" : m.roas < 2 ? "warning" : "ok",
+    });
+  }
+
+  // 3. Meta campaigns
+  if (data.metaCampaigns.length > 0) {
+    slides.push({
+      id: "auto-meta-campaigns",
+      type: "performance",
+      title: "Meta Ads — Top Campagnes",
+      subtitle: `${data.metaCampaigns.length} campagnes actives`,
+      kpis: data.metaCampaigns.slice(0, 4).map(c => ({
+        label: c.name.length > 25 ? c.name.slice(0, 22) + "…" : c.name,
+        value: fmtX(c.current.roas),
+        delta: fmtCur(c.current.spend),
+        trend: c.current.roas >= 1 ? "up" as const : "down" as const,
+      })),
+      insights: data.metaCampaigns.slice(0, 3).map(c =>
+        `${c.name}: ${fmtCur(c.current.spend)} spend, ${Math.round(c.current.conversions)} conv., ROAS ${fmtX(c.current.roas)}`
+      ),
+    });
+  }
+
+  // 4. Top Creatives with images
+  if (data.topCreatives.length > 0) {
+    slides.push({
+      id: "auto-creatives",
+      type: "creative",
+      title: "Top Créatives — Performance",
+      subtitle: `Top ${Math.min(data.topCreatives.length, 6)} créatives par spend`,
+      images: data.topCreatives.slice(0, 6).filter(c => c.thumbnailUrl).map(c => ({
+        url: c.thumbnailUrl!,
+        label: c.name,
+        metrics: `ROAS ${fmtX(c.roas)} · CPA ${fmtCur(c.cpa)} · CTR ${fmtPct(c.ctr)}`,
+      })),
+      kpis: data.topCreatives.slice(0, 4).map(c => ({
+        label: c.name.length > 20 ? c.name.slice(0, 17) + "…" : c.name,
+        value: fmtX(c.roas),
+        delta: fmtCur(c.spend),
+        trend: c.roas >= 1 ? "up" as const : "down" as const,
+      })),
+    });
+  }
+
+  // 5. Google KPIs
+  if (data.googleOverview.spend > 0) {
+    const g = data.googleOverview;
+    slides.push({
+      id: "auto-google-kpi",
+      type: "performance",
+      title: "Google Ads — Performance",
+      subtitle: data.period.label,
+      kpis: [
+        { label: "Spend", value: fmtCur(g.spend) },
+        { label: "ROAS", value: fmtX(g.roas), trend: g.roas >= 1 ? "up" : "down" },
+        { label: "CPA", value: fmtCur(g.cpa) },
+        { label: "CTR", value: fmtPct(g.ctr) },
+      ],
+      insights: data.insightsGoogle.length > 0 ? data.insightsGoogle : [
+        `${Math.round(g.conversions)} conversions pour ${fmtCur(g.spend)} de spend`,
+        `Revenue total: ${fmtCur(g.revenue)}`,
+      ],
+      severity: g.roas < 1 ? "alert" : g.roas < 2 ? "warning" : "ok",
+    });
+  }
+
+  // 6. Learnings
+  if (data.learnings.length > 0) {
+    slides.push({
+      id: "auto-learnings",
+      type: "recommendation",
+      title: "Learnings & Insights",
+      insights: data.learnings,
+      recommendation: data.nextStepsGlobal[0] ?? undefined,
+    });
+  }
+
+  // 7. Next Steps
+  if (data.nextStepsGlobal.length > 0 || data.nextStepsMeta.length > 0 || data.nextStepsGoogle.length > 0) {
+    const allSteps = [
+      ...data.nextStepsGlobal,
+      ...data.nextStepsMeta.slice(0, 2),
+      ...data.nextStepsGoogle.slice(0, 2),
+    ];
+    slides.push({
+      id: "auto-next-steps",
+      type: "recommendation",
+      title: "Next Steps & Recommandations",
+      subtitle: "Actions prioritaires pour la prochaine période",
+      insights: allSteps.slice(0, 6),
+    });
+  }
+
+  return slides;
+}
+
 // ── Section config ───────────────────────────────────────────────────────────
 
 /** Generate contextual Markdown from real deck data for a given slide id. */
@@ -418,7 +555,10 @@ export default function DeckPage() {
         setDataSourceReason(reason ?? "Relay non connecté — vérifiez que le relay tourne sur localhost:3457");
       }
 
-      if (hasPrompt) {
+      // Check if AI mode is requested (via URL param or user prompt)
+      const isAiMode = hasPrompt || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "ai");
+
+      if (isAiMode) {
         // AI mode: generate dynamic slides with kpis/insights via Anthropic
         setSlideMode("ai");
         setAiSlidesMode(true);
@@ -428,10 +568,26 @@ export default function DeckPage() {
           setIsGeneratingAi(true);
           setAiGenerateError(null);
           try {
+            // Read sections and budgets from URL params if present
+            const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+            const sectionsParam = urlParams?.get("sections");
+            const sections = sectionsParam ? sectionsParam.split(",") : ["global", "google", "meta", "budget", "learnings"];
+            const budgetsParam = urlParams?.get("budgets");
+            const budgets = budgetsParam ? JSON.parse(budgetsParam) : {};
+
             const genRes = await fetch("/api/deck/generate", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ client: effectiveClient, period, userPrompt: prompt }),
+              body: JSON.stringify({
+                customerId: effectiveClient.id,
+                platform: effectiveClient.platform ?? "both",
+                metaAccountId: effectiveClient.metaAccountId,
+                googleCustomerId: effectiveClient.googleCustomerId,
+                dateRange: { startDate: period.startDate, endDate: period.endDate, label: period.label },
+                sections,
+                context: prompt || undefined,
+                budgets,
+              }),
             });
 
             if (genRes.ok) {
@@ -439,17 +595,44 @@ export default function DeckPage() {
               if (genJson.slides && genJson.slides.length > 0) {
                 setAiDynamicSlides(genJson.slides);
               } else {
-                setAiGenerateError("L'IA n'a retourné aucune slide.");
+                // Fallback: build slides from the real deck data client-side
+                const fallbackSlides = buildSlidesFromDeckData(realData);
+                if (fallbackSlides.length > 0) {
+                  setAiDynamicSlides(fallbackSlides);
+                } else {
+                  setAiGenerateError("L'IA n'a retourné aucune slide.");
+                }
               }
             } else {
               const errText = await genRes.text().catch(() => `Erreur ${genRes.status}`);
-              setAiGenerateError(errText || `Erreur ${genRes.status}`);
+              // Fallback: build slides from the real deck data
+              const fallbackSlides = buildSlidesFromDeckData(realData);
+              if (fallbackSlides.length > 0) {
+                setAiDynamicSlides(fallbackSlides);
+                console.warn("[deck] AI generate failed, using client-side fallback:", errText);
+              } else {
+                setAiGenerateError(errText || `Erreur ${genRes.status}`);
+              }
             }
           } catch (err) {
-            setAiGenerateError(err instanceof Error ? err.message : String(err));
+            // Fallback: build slides from the real deck data
+            if (realData) {
+              const fallbackSlides = buildSlidesFromDeckData(realData);
+              if (fallbackSlides.length > 0) {
+                setAiDynamicSlides(fallbackSlides);
+                console.warn("[deck] AI generate error, using client-side fallback:", err);
+              } else {
+                setAiGenerateError(err instanceof Error ? err.message : String(err));
+              }
+            } else {
+              setAiGenerateError(err instanceof Error ? err.message : String(err));
+            }
           } finally {
             setIsGeneratingAi(false);
           }
+        } else {
+          // No real data at all — show error
+          setAiGenerateError("Aucune donnée disponible. Vérifiez la connexion Meta/Google Ads.");
         }
       } else {
         // Basic mode: static slides with real data
@@ -493,6 +676,8 @@ export default function DeckPage() {
         body: JSON.stringify({
           customerId: selectedClient.id,
           platform: selectedClient.platform ?? "both",
+          metaAccountId: selectedClient.metaAccountId,
+          googleCustomerId: selectedClient.googleCustomerId,
           dateRange: { startDate: selectedPeriod.startDate, endDate: selectedPeriod.endDate, label: selectedPeriod.label },
           sections,
           context: userContext || undefined,
@@ -547,12 +732,9 @@ export default function DeckPage() {
     const hasBuilderParams = p.has("client") && p.has("period");
     if (!hasBuilderParams || !selectedClient || clientsLoading) return;
     autoGenerateRef.current = true;
-    const isAiMode = p.get("mode") === "ai";
-    if (isAiMode) {
-      handleGenerateAiDeck();
-    } else {
-      generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined);
-    }
+    // Always use generateDeck which handles both static and AI mode
+    // (AI mode is detected from URL param mode=ai or from userContext)
+    generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined);
   }, [selectedClient, clientsLoading, generateDeck, handleGenerateAiDeck, selectedPeriod, userContext, selectedGoogleCustomerId]);
 
   const handleExportPptx = async () => {
@@ -1602,13 +1784,13 @@ export default function DeckPage() {
         {/* Generate button — AI mode */}
         {slideMode === "ai" && (
           <button
-            onClick={handleGenerateAiDeck}
-            disabled={isGeneratingAi}
+            onClick={() => { if (selectedClient) generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined); }}
+            disabled={isGeneratingAi || isGenerating}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
             style={{ backgroundColor: "#7F5AFD" }}
           >
-            {isGeneratingAi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            {isGeneratingAi ? "L'IA analyse..." : "Générer le deck"}
+            {(isGeneratingAi || isGenerating) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {(isGeneratingAi || isGenerating) ? "L'IA analyse..." : "Générer le deck"}
           </button>
         )}
 
@@ -1956,7 +2138,7 @@ export default function DeckPage() {
                     <p className="text-sm font-semibold text-red-600">Erreur lors de la génération IA</p>
                     <p className="text-xs text-gray-500 max-w-sm">{aiGenerateError}</p>
                     <button
-                      onClick={handleGenerateAiDeck}
+                      onClick={() => { if (selectedClient) generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined); }}
                       className="mt-2 text-xs px-4 py-2 rounded-lg bg-[#7F5AFD] text-white font-medium hover:bg-[#6b48e8] transition-colors"
                     >
                       Réessayer
@@ -1974,7 +2156,7 @@ export default function DeckPage() {
                     <p className="text-sm font-medium">Aucune slide IA générée</p>
                     <p className="text-xs opacity-70">Cliquez sur &quot;Générer le deck&quot; pour créer des slides avec l&apos;IA</p>
                     <button
-                      onClick={handleGenerateAiDeck}
+                      onClick={() => { if (selectedClient) generateDeck(selectedClient, selectedPeriod, userContext || undefined, selectedGoogleCustomerId || undefined); }}
                       className="mt-1 text-xs px-4 py-2 rounded-lg bg-[#7F5AFD] text-white font-medium hover:bg-[#6b48e8] transition-colors"
                     >
                       <Sparkles className="w-3.5 h-3.5 inline mr-1" />
