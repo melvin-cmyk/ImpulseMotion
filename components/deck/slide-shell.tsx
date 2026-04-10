@@ -61,12 +61,12 @@ export function SlideShell({
 
       {/* Content area */}
       <div className={cn("relative h-full flex flex-col", accent ? "pl-[24px] pr-[16px]" : "px-[16px]")}>
-        <div className="flex-1 pt-[5%] overflow-auto">
+        <div className="flex-1 pt-[3%] pb-[1%] overflow-hidden">
           {children}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pb-[2%] text-[0.7%] min-h-[2%]" style={{ fontSize: "max(0.8%, 9px)" }}>
+        <div className="flex items-center justify-between pb-[1.5%] min-h-[2%]" style={{ fontSize: "max(0.9%, 10px)" }}>
           <span style={{ color: "#2CA6F9", fontWeight: 700 }}>
             Impulse Analytics.
           </span>

@@ -77,14 +77,14 @@ export function CoverSlide({ data, slideNumber, onEdit, getOverride }: { data: D
         {/* Title block */}
         <div className="flex flex-col items-center gap-[2%]">
           <div
-            className="text-[2%] font-bold tracking-[0.2em] uppercase opacity-80"
+            className="text-[2.5%] font-bold tracking-[0.2em] uppercase opacity-80"
             style={{ fontFamily: "'Open Sans', Calibri, sans-serif" }}
           >
             Monthly Business Review
           </div>
-          <div className="text-[1.6%] opacity-60">Media</div>
+          <div className="text-[2%] opacity-60">Media</div>
           <div
-            className="text-[4.5%] font-extrabold mt-[2%]"
+            className="text-[5.5%] font-extrabold mt-[2%]"
             style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
           >
             {onEdit ? <EditableText field="clientName" slideIndex={sn} currentValue={clientName} onEdit={onEdit}>{clientName}</EditableText> : clientName}
@@ -97,7 +97,7 @@ export function CoverSlide({ data, slideNumber, onEdit, getOverride }: { data: D
         {/* Bottom branding */}
         <div className="absolute bottom-[6%] left-0 right-0 flex items-end justify-between px-[5%]">
           <div>
-            <div className="text-[1.8%] font-extrabold" style={{ color: "#fff" }}>
+            <div className="text-[2%] font-extrabold" style={{ color: "#fff" }}>
               Impulse Analytics.
             </div>
             <div className="text-[1.1%] italic opacity-60">Growing Faster</div>
@@ -137,31 +137,31 @@ export function AgendaSlide({ data }: { data: DeckData }) {
         >
           Agenda du jour
         </h2>
-        <div className="flex flex-col gap-[3%]">
+        <div className="flex flex-col gap-[4%] mt-[2%]">
           {sections.map((s, i) => (
             <div key={s.num} className="flex items-center gap-[2%]">
               {/* Number circle */}
               <div
-                className="flex-shrink-0 w-[5%] aspect-square rounded-full flex items-center justify-center border-2"
+                className="flex-shrink-0 w-[6%] aspect-square rounded-full flex items-center justify-center border-2"
                 style={{ borderColor: barColors[i % barColors.length], color: barColors[i % barColors.length] }}
               >
-                <span className="text-[1.8%] font-bold">{parseInt(s.num)}</span>
+                <span className="text-[2.5%] font-bold">{parseInt(s.num)}</span>
               </div>
               {/* Colored bar with title */}
               <div
-                className="flex-shrink-0 rounded-lg px-[3%] py-[1.5%]"
-                style={{ backgroundColor: barColors[i % barColors.length], minWidth: "30%" }}
+                className="flex-shrink-0 rounded-lg px-[3%] py-[2%]"
+                style={{ backgroundColor: barColors[i % barColors.length], minWidth: "32%" }}
               >
-                <span className="text-[1.8%] font-bold text-white uppercase tracking-wider">
+                <span className="text-[2.2%] font-bold text-white uppercase tracking-wider">
                   {s.title}
                 </span>
               </div>
               {/* Description box */}
               <div
-                className="flex-1 rounded-lg px-[3%] py-[1.5%]"
+                className="flex-1 rounded-lg px-[3%] py-[2%]"
                 style={{ backgroundColor: "#F3F4F6" }}
               >
-                <ul className="text-[1.4%]" style={{ color: "#333" }}>
+                <ul className="text-[2%]" style={{ color: "#333" }}>
                   {s.sub.split(" · ").map((item, j) => (
                     <li key={j} className="flex items-start gap-[1%]">
                       <span style={{ color: "#333" }}>&#8226;</span>
@@ -201,11 +201,11 @@ export function SectionDividerSlide({
       <div className="flex items-center justify-center h-full">
         {/* White rounded box centered */}
         <div
-          className="bg-white rounded-2xl px-[8%] py-[4%] flex items-center justify-center gap-[2%] shadow-lg"
-          style={{ minWidth: "40%" }}
+          className="bg-white rounded-2xl px-[10%] py-[5%] flex items-center justify-center gap-[2%] shadow-lg"
+          style={{ minWidth: "45%" }}
         >
           <span
-            className="text-[3%] font-extrabold"
+            className="text-[4%] font-extrabold"
             style={{ color: "#000", fontFamily: "'Raleway', 'Trebuchet MS', sans-serif" }}
           >
             {onEdit ? (
@@ -237,7 +237,7 @@ export function HighlightsSlide({
     <SlideShell accent="blue" slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[3%]"
+          className="text-[3.5%] font-extrabold mb-[3%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           Elements cles du mois
@@ -282,13 +282,13 @@ function HighlightCard({
     >
       {/* Large background number */}
       <span
-        className="absolute top-[4%] left-[6%] text-[6%] font-black leading-none"
+        className="absolute top-[4%] left-[6%] text-[8%] font-black leading-none"
         style={{ color: "#D1D5DB", fontFamily: "'Raleway', sans-serif" }}
       >
         {index + 1}
       </span>
-      <div className="relative mt-[4%] text-center">
-        <div className="text-[1.8%] font-bold leading-snug" style={{ color: "#111" }}>
+      <div className="relative mt-[3%] text-center">
+        <div className="text-[2.2%] font-bold leading-snug" style={{ color: "#111" }}>
           {onEdit ? (
             <EditableText
               field={titleField}
@@ -304,18 +304,18 @@ function HighlightCard({
         </div>
         <div className="flex items-center justify-center gap-[4%] mt-[4%]">
           <span
-            className="text-[3%] font-black"
+            className="text-[4%] font-black"
             style={{ fontFamily: "'Raleway', sans-serif", color: colors.text }}
           >
             {highlight.value}
           </span>
           {highlight.delta != null && (
-            <span className="text-[1.6%]">
+            <span className="text-[2%]">
               <DeltaBadge value={highlight.delta} invert={highlight.icon === "cpa"} />
             </span>
           )}
         </div>
-        <div className="text-[1.3%] mt-[3%]" style={{ color: "#555" }}>
+        <div className="text-[2%] mt-[3%]" style={{ color: "#555" }}>
           {onEdit ? (
             <EditableText
               field={descField}
@@ -358,16 +358,16 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
     <SlideShell accent="blue" slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[0.5%]"
+          className="text-[3.5%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={title} onEdit={onEdit}>{title}</EditableText> : title}
         </h2>
-        <div className="text-[1.4%] mb-[1.5%]" style={{ color: colors.caption }}>
+        <div className="text-[2%] mb-[1.5%]" style={{ color: colors.caption }}>
           {onEdit ? <EditableText field="period" slideIndex={sn} currentValue={periodStr} onEdit={onEdit}>{periodStr}</EditableText> : periodStr}
         </div>
 
-        <table className="w-full text-[1.4%] border-collapse">
+        <table className="w-full text-[2%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
               <th className="text-left px-[1%] py-[0.8%] font-semibold">Plateforme</th>
@@ -458,14 +458,14 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
     <SlideShell accent="blue" slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[0.5%]"
+          className="text-[3.5%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={title} onEdit={onEdit}>{title}</EditableText> : title}
         </h2>
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
-        <table className="w-full text-[1.4%] border-collapse">
+        <table className="w-full text-[2%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
               <th className="text-left px-[1.5%] py-[1%] font-semibold">Plateforme</th>
@@ -526,22 +526,22 @@ export function CampaignTableSlide({
     <SlideShell accent={accent} slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[0.5%]"
+          className="text-[3.5%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={actualTitle} onEdit={onEdit}>{actualTitle}</EditableText> : actualTitle}
         </h2>
         {periodLabel && (
-          <div className="text-[1.4%] mb-[1%]" style={{ color: colors.caption }}>{periodLabel}</div>
+          <div className="text-[2%] mb-[1%]" style={{ color: colors.caption }}>{periodLabel}</div>
         )}
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
         {campaigns.length === 0 ? (
-          <div className="flex items-center justify-center py-[4%] text-[1.4%]" style={{ color: colors.caption }}>
+          <div className="flex items-center justify-center py-[4%] text-[2%]" style={{ color: colors.caption }}>
             Aucune campagne disponible pour cette période.
           </div>
         ) : (
-        <table className="w-full text-[1.3%] border-collapse">
+        <table className="w-full text-[2%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
               <th className="text-left px-[0.8%] py-[0.6%] font-semibold">Campagne</th>
@@ -607,7 +607,7 @@ export function TopCreativesSlide({
     <SlideShell accent="violet" slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[2%]"
+          className="text-[3.5%] font-extrabold mb-[2%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           Top Performers creatives
@@ -643,14 +643,14 @@ export function TopCreativesSlide({
                   className="absolute inset-0 flex flex-col items-center justify-center gap-[4%]"
                   style={{ display: c.thumbnailUrl ? "none" : "flex" }}
                 >
-                  <span className="text-[1.4%] font-semibold text-center px-[8%]" style={{ color: colors.violet }}>
+                  <span className="text-[2%] font-semibold text-center px-[8%]" style={{ color: colors.violet }}>
                     {c.format}
                   </span>
                 </div>
               </div>
               <div className="p-[6%]">
-                <div className="text-[1.6%] font-bold truncate mb-[4%]">{c.name}</div>
-                <div className="grid grid-cols-2 gap-[4%] text-[1.4%]">
+                <div className="text-[2%] font-bold truncate mb-[4%]">{c.name}</div>
+                <div className="grid grid-cols-2 gap-[4%] text-[2%]">
                   <div>
                     <span style={{ color: colors.caption }}>Dépense</span>
                     <div className="font-semibold">{fmtCur(c.spend)}</div>
@@ -694,7 +694,7 @@ export function LearningsSlide({
     <SlideShell accent={accent} slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[2%]"
+          className="text-[3.5%] font-extrabold mb-[2%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           Points Cles
@@ -702,7 +702,7 @@ export function LearningsSlide({
 
         {/* // LEARNINGS section header */}
         <div className="mb-[2%]">
-          <div className="text-[1.6%] font-bold" style={{ color: colors.blueDeep }}>
+          <div className="text-[2.2%] font-bold" style={{ color: colors.blueDeep }}>
             // LEARNINGS
           </div>
           <div className="w-[15%] h-[3px] mt-[0.5%]" style={{ backgroundColor: colors.blueSignature }} />
@@ -713,7 +713,7 @@ export function LearningsSlide({
             const field = `learning${i}`;
             const actualValue = getOverride?.(slideNumber ?? 0, field) ?? l;
             return (
-              <li key={i} className="flex gap-[2%] text-[1.5%]" style={{ color: "#333" }}>
+              <li key={i} className="flex gap-[2%] text-[2%]" style={{ color: "#333" }}>
                 <span style={{ color: colors.blueDeep }} className="font-bold flex-shrink-0">
                   &#8226;
                 </span>
@@ -759,7 +759,7 @@ export function NextStepsSlide({
     <SlideShell accent={accent} slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[2%]"
+          className="text-[3.5%] font-extrabold mb-[2%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           {title}
@@ -767,7 +767,7 @@ export function NextStepsSlide({
 
         {/* // NEXT STEPS section header */}
         <div className="mb-[2%]">
-          <div className="text-[1.6%] font-bold" style={{ color: colors.blueDeep }}>
+          <div className="text-[2.2%] font-bold" style={{ color: colors.blueDeep }}>
             // NEXT STEPS
           </div>
           <div className="w-[15%] h-[3px] mt-[0.5%]" style={{ backgroundColor: colors.blueSignature }} />
@@ -780,7 +780,7 @@ export function NextStepsSlide({
             return (
               <li
                 key={i}
-                className="flex gap-[2%] items-start text-[1.5%]"
+                className="flex gap-[2%] items-start text-[2%]"
                 style={{ color: "#333" }}
               >
                 <span className="font-bold flex-shrink-0" style={{ color: colors.blueDeep }}>
@@ -828,14 +828,14 @@ export function BudgetSlide({
     <SlideShell accent="blue" slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[0.5%]"
+          className="text-[3.5%] font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           Budget — {onEdit ? <EditableText field="period" slideIndex={sn} currentValue={titlePeriod} onEdit={onEdit}>{titlePeriod}</EditableText> : titlePeriod}
         </h2>
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
-        <table className="w-full text-[1.4%] border-collapse">
+        <table className="w-full text-[2%] border-collapse">
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
               <th className="text-left px-[2%] py-[1%] font-semibold">Plateforme</th>
@@ -932,7 +932,7 @@ export function KPIOverviewSlide({
     <SlideShell accent={accent} slideNumber={slideNumber}>
       <div>
         <h2
-          className="text-[3%] font-extrabold mb-[1%]"
+          className="text-[3.5%] font-extrabold mb-[1%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature }}
         >
           {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={actualTitle} onEdit={onEdit}>{actualTitle}</EditableText> : actualTitle}
@@ -953,11 +953,11 @@ export function KPIOverviewSlide({
             const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
             return (
             <div key={k.label} className="text-center py-[2%] border-b-2" style={{ borderColor: "#E5E7EB" }}>
-              <div className="text-[1.4%] font-semibold uppercase tracking-wider mb-[2%]" style={{ color: "#8A9BB5" }}>
+              <div className="text-[2%] font-semibold uppercase tracking-wider mb-[1%]" style={{ color: "#8A9BB5" }}>
                 {k.label}
               </div>
               <div
-                className="text-[3.5%] font-extrabold"
+                className="text-[4%] font-extrabold"
                 style={{ fontFamily: "'Raleway', sans-serif", color: colors.blueDeep }}
               >
                 {onEdit ? <EditableText field={`kpi.${k.key}`} slideIndex={sn} currentValue={override} onEdit={onEdit}>{override}</EditableText> : override}
