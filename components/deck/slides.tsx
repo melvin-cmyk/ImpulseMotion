@@ -686,7 +686,7 @@ export function TopCreativesSlide({
             >
               {/* Thumbnail */}
               <div
-                className="w-full aspect-square flex items-center justify-center relative overflow-hidden"
+                className="w-full aspect-[4/3] flex items-center justify-center relative overflow-hidden"
                 style={{ backgroundColor: "#F5F7FA" }}
               >
                 {c.thumbnailUrl ? (
@@ -712,9 +712,9 @@ export function TopCreativesSlide({
                   </span>
                 </div>
               </div>
-              <div className="p-[5%]">
-                <div className="font-bold mb-[3%]" style={{ fontSize: fs.body, lineHeight: 1.3 }}>{c.name}</div>
-                <div className="grid grid-cols-2 gap-[4%]" style={{ fontSize: fs.body }}>
+              <div className="p-[4%]">
+                <div className="font-bold mb-[2%] line-clamp-2" style={{ fontSize: fs.small, lineHeight: 1.3 }}>{c.name}</div>
+                <div className="grid grid-cols-2 gap-[3%]" style={{ fontSize: fs.small }}>
                   <div>
                     <span style={{ color: colors.caption }}>Dépense</span>
                     <div className="font-semibold">{fmtCur(c.spend)}</div>
@@ -777,7 +777,7 @@ export function LearningsSlide({
             const field = `learning${i}`;
             const actualValue = getOverride?.(slideNumber ?? 0, field) ?? l;
             return (
-              <div key={i} className="flex gap-[2%] rounded-lg p-[2.5%]" style={{ color: "#333", fontSize: fs.body, backgroundColor: i % 2 === 0 ? "#F5F7FA" : "#fff", border: "1px solid #E8EDF3" }}>
+              <div key={i} className="flex gap-[2%] rounded-lg p-[2%]" style={{ color: "#333", fontSize: fs.body, backgroundColor: i % 2 === 0 ? "#F5F7FA" : "#fff", border: "1px solid #E8EDF3" }}>
                 <span style={{ color: colors.blueDeep }} className="font-bold flex-shrink-0">
                   &#8226;
                 </span>
@@ -844,7 +844,7 @@ export function NextStepsSlide({
             return (
               <div
                 key={i}
-                className="flex gap-[2%] items-start rounded-lg p-[2.5%]"
+                className="flex gap-[2%] items-start rounded-lg p-[2%]"
                 style={{ color: "#333", fontSize: fs.body, backgroundColor: "#EFF6FF", borderLeft: `4px solid ${colors.blueSignature}` }}
               >
                 <span className="font-bold flex-shrink-0" style={{ color: colors.blueSignature }}>
@@ -922,10 +922,10 @@ export function BudgetSlide({
                     color: isTotal ? colors.blueDeep : colors.text,
                   }}
                 >
-                  <td className="px-[2%] py-[0.8%]">{b.platform}</td>
-                  <td className="text-right px-[2%] py-[0.8%]">{onEdit ? <EditableText field={`b${idx}.planned`} slideIndex={sn} currentValue={planned} onEdit={onEdit}>{planned}</EditableText> : planned}</td>
-                  <td className="text-right px-[2%] py-[0.8%]">{onEdit ? <EditableText field={`b${idx}.actual`} slideIndex={sn} currentValue={actual} onEdit={onEdit}>{actual}</EditableText> : actual}</td>
-                  <td className="text-right px-[2%] py-[0.8%]">
+                  <td className="px-[2%] py-[1.5%]">{b.platform}</td>
+                  <td className="text-right px-[2%] py-[1.5%]">{onEdit ? <EditableText field={`b${idx}.planned`} slideIndex={sn} currentValue={planned} onEdit={onEdit}>{planned}</EditableText> : planned}</td>
+                  <td className="text-right px-[2%] py-[1.5%]">{onEdit ? <EditableText field={`b${idx}.actual`} slideIndex={sn} currentValue={actual} onEdit={onEdit}>{actual}</EditableText> : actual}</td>
+                  <td className="text-right px-[2%] py-[1.5%]">
                     <DeltaBadge value={b.variance} />
                   </td>
                 </tr>
@@ -935,13 +935,13 @@ export function BudgetSlide({
         </table>
 
         {/* Budget bar chart */}
-        <div className="mt-[4%] flex gap-[3%]">
+        <div className="mt-[4%] flex gap-[4%]">
           {budget.filter((b) => b.platform !== "Total").map((b) => (
-            <div key={b.platform} className="flex-1">
-              <div className="text-[1.2%] font-semibold mb-[1%]" style={{ color: colors.blueDeep }}>
+            <div key={b.platform} className="flex-1 rounded-lg p-[3%]" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+              <div className="font-semibold mb-[2%]" style={{ color: colors.blueDeep, fontSize: fs.body }}>
                 {b.platform}
               </div>
-              <div className="h-[8px] w-full rounded-full overflow-hidden" style={{ backgroundColor: colors.bgRow }}>
+              <div className="h-[14px] w-full rounded-full overflow-hidden" style={{ backgroundColor: "#E5E7EB" }}>
                 <div
                   className="h-full rounded-full"
                   style={{
@@ -950,8 +950,8 @@ export function BudgetSlide({
                   }}
                 />
               </div>
-              <div className="flex justify-between text-[1%] mt-[0.5%]" style={{ color: colors.caption }}>
-                <span>{fmtCur(b.actual)}</span>
+              <div className="flex justify-between mt-[2%]" style={{ color: "#555", fontSize: fs.small }}>
+                <span className="font-semibold">{fmtCur(b.actual)}</span>
                 <span>/ {fmtCur(b.planned)}</span>
               </div>
             </div>
