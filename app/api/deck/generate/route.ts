@@ -565,12 +565,75 @@ async function fetchMetaDataDirect(
     if (!overviewData) return null;
 
     console.log("[deck/generate] direct Meta API ok, overview:", JSON.stringify(overviewData).slice(0, 300));
+
+    // Extract creatives first, then enrich with thumbnails from /ads endpoint
+    let topCreatives = extractCreats(creativesRaw.status === "fulfilled" ? creativesRaw.value : null);
+
+    // Fetch thumbnail URLs from /ads endpoint (creative{} is NOT supported on /insights)
+    if (topCreatives.length > 0) {
+      try {
+        const adIds = topCreatives.map(c => c.id).filter(id => id && !id.startsWith("tc-"));
+        if (adIds.length > 0) {
+          const adsRes = await metaFetch(
+            `${BASE}/${actId}/ads?ids=${adIds.join(",")}&fields=id,name,creative{thumbnail_url,image_url,image_hash}&access_token=${tok}`
+          ) as Record<string, unknown>;
+          const adsData = (Array.isArray(adsRes) ? adsRes : (adsRes as Record<string, unknown>).data ?? []) as Record<string, unknown>[];
+
+          // Build a map of ad_id -> thumbnail_url
+          const thumbMap: Record<string, string> = {};
+          for (const ad of adsData) {
+            const adId = String(ad.id ?? "");
+            const creative = ad.creative as Record<string, unknown> | undefined;
+            const thumb = creative?.image_url ?? creative?.thumbnail_url;
+            if (adId && thumb) thumbMap[adId] = String(thumb);
+          }
+
+          // Also try resolving image_hash -> full-res URL via /adimages
+          const hashes = adsData
+            .map(ad => (ad.creative as Record<string, unknown> | undefined)?.image_hash)
+            .filter((h): h is string => typeof h === "string" && h.length > 0);
+          if (hashes.length > 0) {
+            try {
+              const imgRes = await metaFetch(
+                `${BASE}/${actId}/adimages?hashes=${JSON.stringify(hashes)}&fields=hash,url,url_128&access_token=${tok}`
+              ) as Record<string, unknown>;
+              const imgData = imgRes.data as Record<string, Record<string, unknown>> | undefined;
+              if (imgData && typeof imgData === "object") {
+                for (const [hash, img] of Object.entries(imgData)) {
+                  const fullUrl = img.url ?? img.url_128;
+                  if (fullUrl) {
+                    // Find which ad uses this hash and set its thumbnail
+                    for (const ad of adsData) {
+                      const cr = ad.creative as Record<string, unknown> | undefined;
+                      if (cr?.image_hash === hash) {
+                        thumbMap[String(ad.id)] = String(fullUrl);
+                      }
+                    }
+                  }
+                }
+              }
+            } catch { /* adimages optional */ }
+          }
+
+          // Apply thumbnails to creatives
+          topCreatives = topCreatives.map(c => ({
+            ...c,
+            thumbnailUrl: c.thumbnailUrl || thumbMap[c.id] || undefined,
+          }));
+
+          console.log(`[deck/generate] enriched ${Object.keys(thumbMap).length} creatives with thumbnails`);
+        }
+      } catch (e) {
+        console.warn("[deck/generate] creative thumbnail enrichment failed:", e instanceof Error ? e.message : String(e));
+      }
+    }
+
     return {
       overview: extractOverview(overviewData),
       prevOverview: extractOverview(prevOverviewData),
       campaigns: extractCamps(campaignsRaw.status === "fulfilled" ? campaignsRaw.value : null),
       adsets: extractAdsets(adsetsRaw.status === "fulfilled" ? adsetsRaw.value : null),
-      topCreatives: extractCreats(creativesRaw.status === "fulfilled" ? creativesRaw.value : null),
+      topCreatives,
     };
   } catch (e) {
     console.error("[deck/generate] fetchMetaDataDirect error:", e);

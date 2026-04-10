@@ -339,12 +339,12 @@ export function generateMockDeckData(client: DeckClient, period: DeckPeriod): De
   ];
 
   const topCreatives: TopCreative[] = [
-    { id: "tc-1", name: "UGC_Testimonial_Sarah_V2", format: "Video", spend: 3200, roas: 5.8, ctr: 3.7, cpa: 12.4, impressions: 284000, hookRate: 65 },
-    { id: "tc-2", name: "Promo_40OFF_Weekend", format: "Image", spend: 2750, roas: 4.9, ctr: 2.9, cpa: 18.2, impressions: 192000 },
-    { id: "tc-3", name: "BeforeAfter_30Days_V1", format: "Video", spend: 2100, roas: 4.2, ctr: 3.4, cpa: 22.1, impressions: 178000, hookRate: 58 },
-    { id: "tc-4", name: "Carousel_BestSellers_Q1", format: "Carousel", spend: 1890, roas: 3.6, ctr: 2.3, cpa: 24.5, impressions: 143000 },
-    { id: "tc-5", name: "Story_HowTo_3Steps", format: "Video", spend: 1450, roas: 3.0, ctr: 2.6, cpa: 32.1, impressions: 112000, hookRate: 44 },
-    { id: "tc-6", name: "Static_Lifestyle_Spring", format: "Image", spend: 980, roas: 2.8, ctr: 1.9, cpa: 38.7, impressions: 78000 },
+    { id: "tc-1", name: "UGC_Testimonial_Sarah_V2", format: "Video", spend: 3200, roas: 5.8, ctr: 3.7, cpa: 12.4, impressions: 284000, hookRate: 65, thumbnailUrl: "https://picsum.photos/seed/tc1/400/300" },
+    { id: "tc-2", name: "Promo_40OFF_Weekend", format: "Image", spend: 2750, roas: 4.9, ctr: 2.9, cpa: 18.2, impressions: 192000, thumbnailUrl: "https://picsum.photos/seed/tc2/400/300" },
+    { id: "tc-3", name: "BeforeAfter_30Days_V1", format: "Video", spend: 2100, roas: 4.2, ctr: 3.4, cpa: 22.1, impressions: 178000, hookRate: 58, thumbnailUrl: "https://picsum.photos/seed/tc3/400/300" },
+    { id: "tc-4", name: "Carousel_BestSellers_Q1", format: "Carousel", spend: 1890, roas: 3.6, ctr: 2.3, cpa: 24.5, impressions: 143000, thumbnailUrl: "https://picsum.photos/seed/tc4/400/300" },
+    { id: "tc-5", name: "Story_HowTo_3Steps", format: "Video", spend: 1450, roas: 3.0, ctr: 2.6, cpa: 32.1, impressions: 112000, hookRate: 44, thumbnailUrl: "https://picsum.photos/seed/tc5/400/300" },
+    { id: "tc-6", name: "Static_Lifestyle_Spring", format: "Image", spend: 980, roas: 2.8, ctr: 1.9, cpa: 38.7, impressions: 78000, thumbnailUrl: "https://picsum.photos/seed/tc6/400/300" },
   ];
 
   const highlights: DeckHighlight[] = [
