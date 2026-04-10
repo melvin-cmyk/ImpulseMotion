@@ -17,6 +17,7 @@ import {
   type TopCreative,
 } from "@/lib/deck-data";
 import { getDeckHistory, saveDeckHistory } from "@/lib/deck-history-storage";
+import { buildFullPrompt, type DeckPromptInput } from "@/lib/deck-prompt";
 
 export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
@@ -284,13 +285,25 @@ async function relaySingleTool(toolName: string, params: Record<string, string>,
   return extractJson(text);
 }
 
+// ── Shared Meta data shape ────────────────────────────────────────────────────
+
+interface AdsetRow { name: string; campaign: string; spend: number; roas: number; ctr: number; cpa: number; impressions: number; conversions: number }
+
+type MetaData = {
+  overview: PlatformMetrics;
+  prevOverview: PlatformMetrics;
+  campaigns: CampaignRow[];
+  adsets?: AdsetRow[];
+  topCreatives: (TopCreative & { adsetName?: string })[];
+};
+
 // ── Meta Ads data fetcher ─────────────────────────────────────────────────────
 
 async function fetchMetaData(
   accountId: string,
   period: DeckPeriod,
   previousPeriod: DeckPeriod
-): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null> {
+): Promise<MetaData | null> {
   try {
     const [overviewRaw, prevOverviewRaw, campaignsRaw, creativesRaw] = await Promise.allSettled([
       relaySingleTool("mcp__meta-ads-impulse__Account_Overview1", {
@@ -433,7 +446,7 @@ async function fetchMetaDataDirect(
   period: DeckPeriod,
   previousPeriod: DeckPeriod,
   metaToken: string
-): Promise<{ overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null> {
+): Promise<MetaData | null> {
   try {
     const rawId = accountId.startsWith("act_") ? accountId.slice(4) : accountId;
     const actId = `act_${rawId}`;
@@ -452,12 +465,14 @@ async function fetchMetaDataDirect(
 
     const overviewFields = "impressions,reach,clicks,spend,ctr,cpc,cpm,actions,action_values";
     const campaignFields = "campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
+    const adsetFields = "adset_name,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values";
     const adFields = "ad_name,adset_name,campaign_name,impressions,clicks,spend,ctr,cpc,cpm,actions,action_values,creative{thumbnail_url,image_url}";
 
-    const [overviewRaw, prevOverviewRaw, campaignsRaw, creativesRaw] = await Promise.allSettled([
+    const [overviewRaw, prevOverviewRaw, campaignsRaw, adsetsRaw, creativesRaw] = await Promise.allSettled([
       metaFetch(`${BASE}/${actId}/insights?fields=${overviewFields}&time_range=${timeRange(period)}&level=account&access_token=${tok}`),
       metaFetch(`${BASE}/${actId}/insights?fields=${overviewFields}&time_range=${timeRange(previousPeriod)}&level=account&access_token=${tok}`),
       metaFetch(`${BASE}/${actId}/insights?level=campaign&fields=${campaignFields}&time_range=${timeRange(period)}&access_token=${tok}`),
+      metaFetch(`${BASE}/${actId}/insights?level=adset&fields=${adsetFields}&time_range=${timeRange(period)}&sort=spend_descending&limit=10&access_token=${tok}`),
       metaFetch(`${BASE}/${actId}/insights?level=ad&fields=${adFields}&time_range=${timeRange(period)}&sort=spend_descending&limit=10&access_token=${tok}`),
     ]);
 
@@ -503,7 +518,25 @@ async function fetchMetaDataDirect(
       });
     }
 
-    function extractCreats(raw: unknown): TopCreative[] {
+    function extractAdsets(raw: unknown): AdsetRow[] {
+      if (!raw || typeof raw !== "object") return [];
+      const r = raw as Record<string, unknown>;
+      const list = (Array.isArray(r.data) ? r.data : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+      return list.slice(0, 10).map(as => {
+        const conversions = toNum(as.conversions) || actionsValue(as, "purchase", "offsite_conversion.fb_pixel_purchase", "lead");
+        const revenue = actionValuesValue(as, "purchase", "offsite_conversion.fb_pixel_purchase");
+        const spend = toNum(as.spend);
+        return {
+          name: String(as.adset_name ?? "Unknown"),
+          campaign: String(as.campaign_name ?? ""),
+          spend, roas: revenue > 0 && spend > 0 ? revenue / spend : 0,
+          ctr: toNum(as.ctr), cpa: conversions > 0 && spend > 0 ? spend / conversions : 0,
+          impressions: toNum(as.impressions), conversions,
+        };
+      });
+    }
+
+    function extractCreats(raw: unknown): (TopCreative & { adsetName?: string })[] {
       if (!raw || typeof raw !== "object") return [];
       const r = raw as Record<string, unknown>;
       const list = (Array.isArray(r.data) ? r.data : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
@@ -518,6 +551,7 @@ async function fetchMetaDataDirect(
         return {
           id: String(cr.ad_id ?? cr.id ?? `tc-${i}`),
           name: String(cr.ad_name ?? cr.name ?? `Creative ${i + 1}`),
+          adsetName: cr.adset_name ? String(cr.adset_name) : undefined,
           format: "Image" as TopCreative["format"],
           spend, roas: revenue > 0 && spend > 0 ? revenue / spend : 0,
           ctr: toNum(cr.ctr), cpa: conversions > 0 && spend > 0 ? spend / conversions : 0,
@@ -535,6 +569,7 @@ async function fetchMetaDataDirect(
       overview: extractOverview(overviewData),
       prevOverview: extractOverview(prevOverviewData),
       campaigns: extractCamps(campaignsRaw.status === "fulfilled" ? campaignsRaw.value : null),
+      adsets: extractAdsets(adsetsRaw.status === "fulfilled" ? adsetsRaw.value : null),
       topCreatives: extractCreats(creativesRaw.status === "fulfilled" ? creativesRaw.value : null),
     };
   } catch (e) {
@@ -625,7 +660,7 @@ interface GenerateConfig {
 
 async function generateSlidePlan(
   config: GenerateConfig,
-  meta: { overview: PlatformMetrics; campaigns: CampaignRow[]; topCreatives: TopCreative[]; prevOverview: PlatformMetrics } | null,
+  meta: MetaData | null,
   google: { overview: PlatformMetrics; campaigns: CampaignRow[]; prevOverview: PlatformMetrics } | null,
   previousDeckMetrics?: Record<string, unknown> | null,
 ): Promise<Slide[]> {
@@ -654,9 +689,14 @@ ${meta.campaigns.slice(0, 5).map(c =>
   `  - ${c.name} | Spend: ${fmt(c.current.spend)} | ROAS: ${fmtX(c.current.roas)} | CPA: ${fmt(c.current.cpa)} | CTR: ${fmtPct(c.current.ctr)} | Status: ${c.status}`
 ).join("\n")}
 
-TOP META CREATIVES:
+TOP META ADSETS:
+${(meta.adsets ?? []).slice(0, 8).map(as =>
+  `  - ${as.name} (${as.campaign}) | Spend: ${fmt(as.spend)} | ROAS: ${fmtX(as.roas)} | CTR: ${fmtPct(as.ctr)} | CPA: ${fmt(as.cpa)} | Conv: ${Math.round(as.conversions)}`
+).join("\n") || "  No adset data available."}
+
+TOP META CREATIVES (ads):
 ${meta.topCreatives.slice(0, 5).map(cr =>
-  `  - ${cr.name} (${cr.format}) | Spend: ${fmt(cr.spend)} | ROAS: ${fmtX(cr.roas)} | CTR: ${fmtPct(cr.ctr)} | CPA: ${fmt(cr.cpa)}${cr.thumbnailUrl ? ` | thumbnail: ${cr.thumbnailUrl}` : ""}`
+  `  - ${cr.name} (${cr.format})${cr.adsetName ? ` [Adset: ${cr.adsetName}]` : ""} | Spend: ${fmt(cr.spend)} | ROAS: ${fmtX(cr.roas)} | CTR: ${fmtPct(cr.ctr)} | CPA: ${fmt(cr.cpa)}${cr.thumbnailUrl ? ` | thumbnail: ${cr.thumbnailUrl}` : ""}`
 ).join("\n")}`;
   } else {
     dataSummary += "\nMETA ADS: No data available.";
@@ -749,60 +789,18 @@ ${google.campaigns.slice(0, 5).map(c =>
       previousDeckBlock = `\n\nPREVIOUS DECK METRICS (for M-1 comparisons — use these to highlight deltas vs current period):\n${lines.join("\n")}`;
     }
   }
-  const systemPrompt = `You are a media buying analyst. Your job is to generate structured slide deck plans for digital advertising performance reviews. You always respond with valid JSON only — no markdown, no explanation, no text outside the JSON array.`;
-
-  const userPrompt = `Based on the real advertising data below, generate a JSON array of slides for a performance deck.
-
-ACCOUNT: ${config.customerId}
-PLATFORM: ${config.platform}
-PERIOD: ${config.dateRange.label ?? `${config.dateRange.startDate} to ${config.dateRange.endDate}`}
-${sectionsInstruction}${contextBlock}${alertsBlock}
-
-REAL DATA:
-${dataSummary}${previousDeckBlock}
-
-Return a JSON array where each element has this exact shape (all fields optional except id, type, title):
-{
-  "id": "slide-1",
-  "type": "overview" | "performance" | "creative" | "funnel" | "alert" | "recommendation" | "comparison",
-  "title": "Slide title",
-  "subtitle": "Optional subtitle",
-  "kpis": [{ "label": "ROAS", "value": "3.42x", "delta": "+12%", "trend": "up" | "down" | "flat" }],
-  "insights": ["Key insight 1", "Key insight 2"],
-  "chart": { "type": "bar" | "line" | "pie" | "funnel", "data": {} },
-  "table": { "headers": ["Platform", "Spend", "ROAS", "CPA"], "rows": [{ "cells": ["Meta", "€5,000", "2.3x", "€42"], "highlight": false }, { "cells": ["Total", "€8,000", "2.1x", "€45"], "isHeader": true }] },
-  "images": [{ "url": "https://...", "label": "Creative name", "metrics": "ROAS 3.4x · CPA €12" }],
-  "recommendation": "Action to take",
-  "severity": "ok" | "warning" | "alert"
-}
-
-Rules:
-- Use ONLY the real numbers from the data provided above. Never invent data.
-- Generate between 4 and 8 slides.
-- Each slide must have at least a title and either kpis, insights, or a table.
-- Format money as €X,XXX.XX, percentages as X.XX%, ROAS as X.XXx.
-- Severity "alert" = something urgently needs attention, "warning" = watch this, "ok" = performing well.
-- For "comparison" slides, include period-over-period delta in kpis.
-- If PREVIOUS DECK METRICS are provided, add explicit M-1 comparisons in kpi deltas (e.g. "ROAS 2.3x vs 1.8x M-1 (+28%)") and include at least one "comparison" type slide.
-- TABLES: When the user asks for tables, comparisons, or detailed breakdowns, you MUST use the "table" field. Create proper data tables with headers and rows using real data. Use tables for: campaign breakdowns, platform comparisons, monthly trends, creative performance comparisons. Mark the total/summary row with "isHeader": true. Mark important rows with "highlight": true.
-- For "creative" type slides: you MUST include an "images" array. Use the thumbnail URLs from the TOP CREATIVES data above (the "thumbnail:" field). Each image entry must have "url" set to the thumbnail URL, "label" set to the creative name, and "metrics" set to a summary string like "ROAS 3.4x · CPA €12 · CTR 1.2%". Always include at least the top 3 creatives with their real thumbnail URLs.
-- When user mentions "tableau", "table", "comparaison", "breakdown", or "détail campagnes" — ALWAYS include a table slide.
-
-PPTX EXPORT CONSTRAINTS (critical — slides will be exported to PowerPoint):
-- Each slide is rendered at 16:9 ratio (13.33" × 7.5"). ALL content MUST fit within this space — nothing should overflow or be truncated.
-- Keep insight texts SHORT (max 1–2 lines each, under 120 characters). Do not write long paragraphs.
-- Maximum 5 insights per slide. If you have more, keep only the most important ones.
-- Recommendation text must be concise (max 1 line, under 100 characters).
-- KPI labels should be short (max 3 words). KPI values short (e.g. "€12,345" not "€12,345.67 euros").
-- Subtitle text must be under 80 characters.
-- Do NOT combine too many content blocks on one slide (e.g. KPIs + table + insights + recommendation is too much). Split into separate slides if needed.
-- Prefer fewer, cleaner slides over cramming data. Each slide should have breathing room.
-
-- Return ONLY the JSON array. No markdown. No explanation.`;
-
-  // Route through the relay (which has Claude access) instead of calling Anthropic SDK directly.
-  // This avoids needing ANTHROPIC_API_KEY in Vercel environment variables.
-  const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+  // Build prompt from the external template (lib/deck-prompt.ts)
+  const promptInput: DeckPromptInput = {
+    accountId: config.customerId,
+    platform: config.platform,
+    periodLabel: config.dateRange.label ?? `${config.dateRange.startDate} to ${config.dateRange.endDate}`,
+    sectionsInstruction,
+    contextBlock,
+    alertsBlock,
+    dataSummary,
+    previousDeckBlock,
+  };
+  const fullPrompt = buildFullPrompt(promptInput);
   const rawText = await relayChat(fullPrompt, 90000);
 
   console.log(`[deck/generate] Relay response (500):`, rawText.slice(0, 500));
