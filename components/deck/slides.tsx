@@ -540,6 +540,28 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
             })}
           </tbody>
         </table>
+
+        {/* // OVERVIEW section */}
+        <div className="mt-[4%]">
+          <div className="font-bold" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
+            // OVERVIEW
+          </div>
+          <div className="w-[15%] h-[3px] mt-[0.5%] mb-[2%]" style={{ backgroundColor: colors.blueSignature }} />
+          <ul className="space-y-[1.5%]" style={{ fontSize: fs.body }}>
+            {data.ncTable.filter(r => r.platform !== "Total").map((row) => {
+              const ncDelta = row.delta.newClients !== 999 ? ` (${row.delta.newClients > 0 ? "+" : ""}${fmtDec(row.delta.newClients, 1)}%)` : "";
+              return (
+                <li key={row.platform} className="flex gap-[1.5%]" style={{ color: "#333" }}>
+                  <span className="font-bold flex-shrink-0" style={{ color: colors.blueDeep }}>&#8226;</span>
+                  <span>
+                    <strong>{row.platform}</strong> : {row.current.newClients} nouveaux clients{ncDelta},
+                    CP-NC {fmtCur(Math.round(row.current.cpNc))}, %NC {fmtPct(row.current.percentNc)}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       </div>
     </SlideShell>
   );
@@ -604,7 +626,7 @@ export function CampaignTableSlide({
               const campaignRoas = getOverride?.(sn, `c${idx}.roas`) ?? `${fmtDec(c.current.roas)}×`;
               return (
               <tr key={c.id} style={{ backgroundColor: idx % 2 === 1 ? colors.bgRow : "#fff" }}>
-                <td className="px-[1%] py-[1%] font-medium">{onEdit ? <EditableText field={`c${idx}.name`} slideIndex={sn} currentValue={campaignName} onEdit={onEdit}>{campaignName}</EditableText> : campaignName}</td>
+                <td className="px-[1%] py-[1.5%] font-medium">{onEdit ? <EditableText field={`c${idx}.name`} slideIndex={sn} currentValue={campaignName} onEdit={onEdit}>{campaignName}</EditableText> : campaignName}</td>
                 <td className="text-center px-[0.5%] py-[1%]">
                   <span
                     className="inline-block px-[4px] py-[1px] rounded text-[0.9%] font-semibold"
@@ -991,11 +1013,11 @@ export function KPIOverviewSlide({
         </div>
 
         {/* Row 1: first 4 KPIs */}
-        <div className="grid grid-cols-4 gap-[2%] mb-[3%]">
+        <div className="grid grid-cols-4 gap-[2%] mb-[4%]">
           {kpis.slice(0, 4).map((k) => {
             const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
             return (
-            <div key={k.label} className="text-center py-[3%] rounded-lg" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+            <div key={k.label} className="text-center py-[4%] rounded-lg" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
               <div className="font-semibold uppercase tracking-wider mb-[2%]" style={{ color: "#8A9BB5", fontSize: fs.kpiLabel }}>
                 {k.label}
               </div>
@@ -1016,7 +1038,7 @@ export function KPIOverviewSlide({
             {kpis.slice(4).map((k) => {
               const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
               return (
-              <div key={k.label} className="text-center py-[3%] rounded-lg" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+              <div key={k.label} className="text-center py-[4%] rounded-lg" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
                 <div className="font-semibold uppercase tracking-wider mb-[2%]" style={{ color: "#8A9BB5", fontSize: fs.kpiLabel }}>
                   {k.label}
                 </div>
