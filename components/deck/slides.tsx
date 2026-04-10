@@ -392,9 +392,9 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
         <table className="w-full border-collapse" style={{ fontSize: fs.body }}>
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
-              <th className="text-left px-[1%] py-[0.8%] font-semibold">Plateforme</th>
+              <th className="text-left px-[1.2%] py-[1.2%] font-semibold">Plateforme</th>
               {cols.map((c) => (
-                <th key={c.key} className="text-right px-[0.8%] py-[0.8%] font-semibold">
+                <th key={c.key} className="text-right px-[1%] py-[1.2%] font-semibold">
                   {c.label}
                 </th>
               ))}
@@ -406,6 +406,26 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
             ))}
           </tbody>
         </table>
+
+        {/* // OVERVIEW section */}
+        <div className="mt-[4%]">
+          <div className="font-bold" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
+            // OVERVIEW
+          </div>
+          <div className="w-[15%] h-[3px] mt-[0.5%] mb-[2%]" style={{ backgroundColor: colors.blueSignature }} />
+          <ul className="space-y-[1%]" style={{ fontSize: fs.body }}>
+            {data.globalTable.filter(r => r.platform !== "Total").map((row) => (
+              <li key={row.platform} className="flex gap-[1.5%]" style={{ color: "#333" }}>
+                <span className="font-bold flex-shrink-0" style={{ color: colors.blueDeep }}>&#8226;</span>
+                <span>
+                  <strong>{row.platform}</strong> : {fmtCur(row.current.spend)} investis pour {fmtCur(row.current.revenue)} de revenus
+                  {row.current.roas > 0 && <> — ROAS {fmtDec(row.current.roas)}x</>}
+                  {row.current.conversions > 0 && <> ({Math.round(row.current.conversions)} conversions)</>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </SlideShell>
   );
@@ -435,7 +455,7 @@ function PlatformTableRow({
   return (
     <>
       <tr style={{ backgroundColor: bg, color: textColor, fontWeight: weight }}>
-        <td className="px-[1%] py-[0.6%]">
+        <td className="px-[1.2%] py-[1%]">
           {onEdit ? (
             <EditableText field={`row${rowIdx}.platform`} slideIndex={slideIndex} currentValue={getOverride?.(slideIndex, `row${rowIdx}.platform`) ?? row.platform} onEdit={onEdit}>
               {getOverride?.(slideIndex, `row${rowIdx}.platform`) ?? row.platform}
@@ -447,7 +467,7 @@ function PlatformTableRow({
           const formatted = c.fmt(row.current[c.key]);
           const override = getOverride?.(slideIndex, field);
           return (
-            <td key={c.key} className="text-right px-[0.8%] py-[0.6%]">
+            <td key={c.key} className="text-right px-[1%] py-[1%]">
               {onEdit ? (
                 <EditableText field={field} slideIndex={slideIndex} currentValue={override ?? formatted} onEdit={onEdit}>
                   {override ?? formatted}
@@ -508,13 +528,13 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
               const pnc = getOverride?.(sn, `nc${idx}.pnc`) ?? fmtPct(row.current.percentNc);
               return (
                 <tr key={row.platform} style={{ backgroundColor: bg, fontWeight: isTotal ? 700 : 400, color: isTotal ? colors.blueDeep : colors.text }}>
-                  <td className="px-[1.5%] py-[0.8%]">{row.platform}</td>
-                  <td className="text-right px-[1.5%] py-[0.8%]">{onEdit ? <EditableText field={`nc${idx}.nc`} slideIndex={sn} currentValue={nc} onEdit={onEdit}>{nc}</EditableText> : nc}</td>
-                  <td className="text-right px-[1.5%] py-[0.8%]"><DeltaBadge value={row.delta.newClients} /></td>
-                  <td className="text-right px-[1.5%] py-[0.8%]">{onEdit ? <EditableText field={`nc${idx}.cpnc`} slideIndex={sn} currentValue={cpnc} onEdit={onEdit}>{cpnc}</EditableText> : cpnc}</td>
-                  <td className="text-right px-[1.5%] py-[0.8%]"><DeltaBadge value={row.delta.cpNc} invert /></td>
-                  <td className="text-right px-[1.5%] py-[0.8%]">{onEdit ? <EditableText field={`nc${idx}.pnc`} slideIndex={sn} currentValue={pnc} onEdit={onEdit}>{pnc}</EditableText> : pnc}</td>
-                  <td className="text-right px-[1.5%] py-[0.8%]"><DeltaBadge value={row.delta.percentNc} /></td>
+                  <td className="px-[1.5%] py-[1.5%]">{row.platform}</td>
+                  <td className="text-right px-[1.5%] py-[1.5%]">{onEdit ? <EditableText field={`nc${idx}.nc`} slideIndex={sn} currentValue={nc} onEdit={onEdit}>{nc}</EditableText> : nc}</td>
+                  <td className="text-right px-[1.5%] py-[1.5%]"><DeltaBadge value={row.delta.newClients} /></td>
+                  <td className="text-right px-[1.5%] py-[1.5%]">{onEdit ? <EditableText field={`nc${idx}.cpnc`} slideIndex={sn} currentValue={cpnc} onEdit={onEdit}>{cpnc}</EditableText> : cpnc}</td>
+                  <td className="text-right px-[1.5%] py-[1.5%]"><DeltaBadge value={row.delta.cpNc} invert /></td>
+                  <td className="text-right px-[1.5%] py-[1.5%]">{onEdit ? <EditableText field={`nc${idx}.pnc`} slideIndex={sn} currentValue={pnc} onEdit={onEdit}>{pnc}</EditableText> : pnc}</td>
+                  <td className="text-right px-[1.5%] py-[1.5%]"><DeltaBadge value={row.delta.percentNc} /></td>
                 </tr>
               );
             })}
@@ -566,15 +586,15 @@ export function CampaignTableSlide({
         <table className="w-full border-collapse" style={{ fontSize: fs.body }}>
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
-              <th className="text-left px-[0.8%] py-[0.6%] font-semibold">Campagne</th>
-              <th className="text-center px-[0.5%] py-[0.6%] font-semibold">Statut</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Dépense</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Impr.</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Clics</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Conv.</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">CPA</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">ROAS</th>
-              <th className="text-right px-[0.5%] py-[0.6%] font-semibold">Δ ROAS</th>
+              <th className="text-left px-[1%] py-[1.2%] font-semibold">Campagne</th>
+              <th className="text-center px-[0.5%] py-[1.2%] font-semibold">Statut</th>
+              <th className="text-right px-[0.8%] py-[1.2%] font-semibold">Depense</th>
+              <th className="text-right px-[0.8%] py-[1.2%] font-semibold">Impr.</th>
+              <th className="text-right px-[0.8%] py-[1.2%] font-semibold">Clics</th>
+              <th className="text-right px-[0.8%] py-[1.2%] font-semibold">Conv.</th>
+              <th className="text-right px-[0.8%] py-[1.2%] font-semibold">CPA</th>
+              <th className="text-right px-[0.8%] py-[1.2%] font-semibold">ROAS</th>
+              <th className="text-right px-[0.8%] py-[1.2%] font-semibold">Delta</th>
             </tr>
           </thead>
           <tbody>
@@ -584,8 +604,8 @@ export function CampaignTableSlide({
               const campaignRoas = getOverride?.(sn, `c${idx}.roas`) ?? `${fmtDec(c.current.roas)}×`;
               return (
               <tr key={c.id} style={{ backgroundColor: idx % 2 === 1 ? colors.bgRow : "#fff" }}>
-                <td className="px-[0.8%] py-[0.5%] font-medium">{onEdit ? <EditableText field={`c${idx}.name`} slideIndex={sn} currentValue={campaignName} onEdit={onEdit}>{campaignName}</EditableText> : campaignName}</td>
-                <td className="text-center px-[0.5%] py-[0.5%]">
+                <td className="px-[1%] py-[1%] font-medium">{onEdit ? <EditableText field={`c${idx}.name`} slideIndex={sn} currentValue={campaignName} onEdit={onEdit}>{campaignName}</EditableText> : campaignName}</td>
+                <td className="text-center px-[0.5%] py-[1%]">
                   <span
                     className="inline-block px-[4px] py-[1px] rounded text-[0.9%] font-semibold"
                     style={{
@@ -970,12 +990,13 @@ export function KPIOverviewSlide({
           </span>
         </div>
 
-        <div className="grid grid-cols-4 gap-[1.5%]">
-          {kpis.map((k) => {
+        {/* Row 1: first 4 KPIs */}
+        <div className="grid grid-cols-4 gap-[2%] mb-[3%]">
+          {kpis.slice(0, 4).map((k) => {
             const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
             return (
-            <div key={k.label} className="text-center py-[2%] border-b-2" style={{ borderColor: "#E5E7EB" }}>
-              <div className="font-semibold uppercase tracking-wider mb-[1%]" style={{ color: "#8A9BB5", fontSize: fs.kpiLabel }}>
+            <div key={k.label} className="text-center py-[3%] rounded-lg" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+              <div className="font-semibold uppercase tracking-wider mb-[2%]" style={{ color: "#8A9BB5", fontSize: fs.kpiLabel }}>
                 {k.label}
               </div>
               <div
@@ -988,6 +1009,28 @@ export function KPIOverviewSlide({
             );
           })}
         </div>
+
+        {/* Row 2: remaining KPIs */}
+        {kpis.length > 4 && (
+          <div className="grid grid-cols-4 gap-[2%]">
+            {kpis.slice(4).map((k) => {
+              const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
+              return (
+              <div key={k.label} className="text-center py-[3%] rounded-lg" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+                <div className="font-semibold uppercase tracking-wider mb-[2%]" style={{ color: "#8A9BB5", fontSize: fs.kpiLabel }}>
+                  {k.label}
+                </div>
+                <div
+                  className="font-extrabold"
+                  style={{ fontFamily: "'Raleway', sans-serif", color: colors.blueDeep, fontSize: fs.kpiValue }}
+                >
+                  {onEdit ? <EditableText field={`kpi.${k.key}`} slideIndex={sn} currentValue={override} onEdit={onEdit}>{override}</EditableText> : override}
+                </div>
+              </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </SlideShell>
   );
