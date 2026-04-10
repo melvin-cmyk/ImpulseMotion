@@ -42,11 +42,14 @@ export function SlideShell({
       className={cn(
         "relative w-full aspect-[16/9] rounded-lg overflow-hidden shadow-lg border",
         dark
-          ? "bg-[#0944A1] text-white border-[#0944A1]"
+          ? "text-white border-transparent"
           : "bg-white text-black border-gray-200",
         className
       )}
-      style={{ fontFamily: "'Open Sans', Calibri, sans-serif" }}
+      style={{
+        fontFamily: "'Open Sans', Calibri, sans-serif",
+        ...(dark ? { background: "linear-gradient(135deg, #0944A1 0%, #1a6dd4 30%, #2CA6F9 55%, #7F5AFD 100%)" } : {}),
+      }}
     >
       {/* Left accent bar — gradient style matching Impulse Analytics MBR */}
       {accent && (
