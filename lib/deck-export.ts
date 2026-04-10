@@ -1002,7 +1002,7 @@ export async function exportDeckToPptx(
         yPos += (rows.length * 0.3) + 0.2;
       }
 
-      // Insights
+      // Insights — auto-scale font when many items or limited space
       if (slide.insights && slide.insights.length > 0) {
         // Section divider line
         s.addText("// ANALYSE", {
@@ -1015,22 +1015,27 @@ export async function exportDeckToPptx(
         });
         yPos += 0.35;
 
+        const remainingH = LAYOUT.height - yPos - 1.0; // leave room for recommendation + footer
+        const insightCount = slide.insights.length;
+        const rowH = Math.min(0.32, remainingH / insightCount);
+        const insightFontSize = insightCount > 4 || rowH < 0.25 ? 7 : 9;
+
         slide.insights.forEach((insight, ii) => {
           s.addShape("ellipse", {
-            x: LAYOUT.marginX + 0.3, y: yPos + 0.03, w: 0.2, h: 0.2,
+            x: LAYOUT.marginX + 0.3, y: yPos + 0.03, w: 0.18, h: 0.18,
             fill: { color: c(IA.blue) },
           });
           s.addText(String(ii + 1), {
-            x: LAYOUT.marginX + 0.3, y: yPos + 0.03, w: 0.2, h: 0.2,
-            fontSize: 7, bold: true, color: "FFFFFF", align: "center", valign: "middle",
+            x: LAYOUT.marginX + 0.3, y: yPos + 0.03, w: 0.18, h: 0.18,
+            fontSize: Math.min(7, insightFontSize), bold: true, color: "FFFFFF", align: "center", valign: "middle",
             fontFace: FONTS.body,
           });
           s.addText(insight, {
-            x: LAYOUT.marginX + 0.6, y: yPos, w: 11.2, h: 0.28,
-            fontSize: 9, color: "333333", fontFace: FONTS.body,
-            valign: "middle", wrap: true,
+            x: LAYOUT.marginX + 0.6, y: yPos, w: 11.2, h: rowH,
+            fontSize: insightFontSize, color: "333333", fontFace: FONTS.body,
+            valign: "middle", wrap: true, shrinkText: true,
           });
-          yPos += 0.32;
+          yPos += rowH;
         });
       }
 
@@ -1045,7 +1050,7 @@ export async function exportDeckToPptx(
         s.addText(`➜ ${slide.recommendation}`, {
           x: LAYOUT.marginX + 0.5, y: yPos + 0.1, w: 11.1, h: 0.4,
           fontSize: 9, bold: true, color: c(IA.blue), fontFace: FONTS.body,
-          valign: "middle", wrap: true,
+          valign: "middle", wrap: true, shrinkText: true,
         });
       }
 
@@ -1254,15 +1259,20 @@ export async function exportAiSlidesToPptx(
       }
     }
 
-    // Insights
+    // Insights — auto-scale font when many items or limited space
     if (slide.insights && slide.insights.length > 0) {
+      const remainingH = LAYOUT.height - yPos - 1.0;
+      const insightCount = slide.insights.length;
+      const rowH = Math.min(0.45, remainingH / insightCount);
+      const insightFontSize = insightCount > 4 || rowH < 0.35 ? 7 : 9;
       slide.insights.forEach((insight, i) => {
         s.addText(`• ${insight}`, {
-          x: LAYOUT.marginX + 0.5, y: yPos + i * 0.5, w: 11, h: 0.45,
-          fontSize: 9, color: c(IA.textBlack), fontFace: FONTS.body, valign: "top",
+          x: LAYOUT.marginX + 0.5, y: yPos + i * rowH, w: 11, h: rowH,
+          fontSize: insightFontSize, color: c(IA.textBlack), fontFace: FONTS.body, valign: "top",
+          shrinkText: true,
         });
       });
-      yPos += slide.insights.length * 0.5 + 0.1;
+      yPos += insightCount * rowH + 0.1;
     }
 
     // Recommendation
@@ -1274,6 +1284,7 @@ export async function exportAiSlidesToPptx(
       s.addText(`➜ ${slide.recommendation}`, {
         x: LAYOUT.marginX + 0.5, y: yPos, w: 11.5, h: 0.7,
         fontSize: 9, bold: true, color: c(IA.blueDark), fontFace: FONTS.body, valign: "middle",
+        shrinkText: true,
       });
     }
   }

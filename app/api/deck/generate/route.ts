@@ -787,6 +787,17 @@ Rules:
 - TABLES: When the user asks for tables, comparisons, or detailed breakdowns, you MUST use the "table" field. Create proper data tables with headers and rows using real data. Use tables for: campaign breakdowns, platform comparisons, monthly trends, creative performance comparisons. Mark the total/summary row with "isHeader": true. Mark important rows with "highlight": true.
 - For "creative" type slides: you MUST include an "images" array. Use the thumbnail URLs from the TOP CREATIVES data above (the "thumbnail:" field). Each image entry must have "url" set to the thumbnail URL, "label" set to the creative name, and "metrics" set to a summary string like "ROAS 3.4x · CPA €12 · CTR 1.2%". Always include at least the top 3 creatives with their real thumbnail URLs.
 - When user mentions "tableau", "table", "comparaison", "breakdown", or "détail campagnes" — ALWAYS include a table slide.
+
+PPTX EXPORT CONSTRAINTS (critical — slides will be exported to PowerPoint):
+- Each slide is rendered at 16:9 ratio (13.33" × 7.5"). ALL content MUST fit within this space — nothing should overflow or be truncated.
+- Keep insight texts SHORT (max 1–2 lines each, under 120 characters). Do not write long paragraphs.
+- Maximum 5 insights per slide. If you have more, keep only the most important ones.
+- Recommendation text must be concise (max 1 line, under 100 characters).
+- KPI labels should be short (max 3 words). KPI values short (e.g. "€12,345" not "€12,345.67 euros").
+- Subtitle text must be under 80 characters.
+- Do NOT combine too many content blocks on one slide (e.g. KPIs + table + insights + recommendation is too much). Split into separate slides if needed.
+- Prefer fewer, cleaner slides over cramming data. Each slide should have breathing room.
+
 - Return ONLY the JSON array. No markdown. No explanation.`;
 
   // Route through the relay (which has Claude access) instead of calling Anthropic SDK directly.

@@ -82,12 +82,15 @@ function KpiCard({ kpi }: { kpi: KPI }) {
 // ── Insights List ─────────────────────────────────────────────────────────────
 
 function InsightsList({ insights }: { insights: string[] }) {
+  // Scale font down when there are many insights to prevent overflow
+  const fontSize = insights.length > 4 ? "max(1.2%, 9px)" : "max(1.5%, 11px)";
+  const padding = insights.length > 4 ? "px-2 py-1" : "px-3 py-1.5";
   return (
     <div className="mt-2 rounded-lg border overflow-hidden" style={{ borderColor: "#E8EDF3" }}>
       {insights.map((insight, i) => (
         <div
           key={i}
-          className="flex items-start gap-2 px-3 py-1.5"
+          className={`flex items-start gap-2 ${padding}`}
           style={{ borderBottom: i < insights.length - 1 ? "1px solid #E8EDF3" : "none", background: i % 2 === 0 ? "#FAFBFD" : "#fff" }}
         >
           <span
@@ -96,7 +99,7 @@ function InsightsList({ insights }: { insights: string[] }) {
           >
             {i + 1}
           </span>
-          <span {...editable} className={`leading-snug ${editable.className}`} style={{ ...editable.style, color: "#333", fontSize: "max(1.5%, 11px)" }}>
+          <span {...editable} className={`leading-snug ${editable.className}`} style={{ ...editable.style, color: "#333", fontSize }}>
             {insight}
           </span>
         </div>
