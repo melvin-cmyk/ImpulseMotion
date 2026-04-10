@@ -90,7 +90,9 @@ function DeltaBadge({ value, invert }: { value: number; invert?: boolean }) {
 
 export function CoverSlide({ data, slideNumber, onEdit, getOverride }: { data: DeckData; slideNumber?: number } & EditCallbacks) {
   const sn = slideNumber ?? 0;
-  const clientName = getOverride?.(sn, "clientName") ?? data.client.name;
+  const rawName = data.client.name;
+  // Strip account ID suffix like "Bazile (5221764839)"
+  const clientName = getOverride?.(sn, "clientName") ?? rawName.replace(/\s*\(\d+\)\s*$/, "");
   const period = getOverride?.(sn, "period") ?? data.period.label;
   const subtitle = getOverride?.(sn, "subtitle") ?? "Préparé par Impulse Analytics";
   return (
@@ -418,7 +420,8 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
               <li key={row.platform} className="flex gap-[1.5%]" style={{ color: "#333" }}>
                 <span className="font-bold flex-shrink-0" style={{ color: colors.blueDeep }}>&#8226;</span>
                 <span>
-                  <strong>{row.platform}</strong> : {fmtCur(row.current.spend)} investis pour {fmtCur(row.current.revenue)} de revenus
+                  <strong>{row.platform}</strong> : {fmtCur(row.current.spend)} investis
+                  {row.current.revenue > 0 && <> pour {fmtCur(row.current.revenue)} de revenus</>}
                   {row.current.roas > 0 && <> — ROAS {fmtDec(row.current.roas)}x</>}
                   {row.current.conversions > 0 && <> ({Math.round(row.current.conversions)} conversions)</>}
                 </span>
@@ -629,8 +632,9 @@ export function CampaignTableSlide({
                 <td className="px-[1%] py-[1.5%] font-medium">{onEdit ? <EditableText field={`c${idx}.name`} slideIndex={sn} currentValue={campaignName} onEdit={onEdit}>{campaignName}</EditableText> : campaignName}</td>
                 <td className="text-center px-[0.5%] py-[1%]">
                   <span
-                    className="inline-block px-[4px] py-[1px] rounded text-[0.9%] font-semibold"
+                    className="inline-block px-[6px] py-[2px] rounded font-semibold"
                     style={{
+                      fontSize: fs.small,
                       backgroundColor: c.status === "Active" ? "#E8F5E9" : "#FFF3E0",
                       color: c.status === "Active" ? colors.deltaPos : "#E65100",
                     }}
