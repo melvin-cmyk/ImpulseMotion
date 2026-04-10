@@ -159,19 +159,19 @@ export function AgendaSlide({ data }: { data: DeckData }) {
         >
           Agenda du jour
         </h2>
-        <div className="flex flex-col gap-[4%] mt-[2%]">
+        <div className="flex flex-col gap-[5%] mt-[4%]">
           {sections.map((s, i) => (
             <div key={s.num} className="flex items-center gap-[2%]">
               {/* Number circle */}
               <div
-                className="flex-shrink-0 w-[6%] aspect-square rounded-full flex items-center justify-center border-2"
+                className="flex-shrink-0 w-[7%] aspect-square rounded-full flex items-center justify-center border-2"
                 style={{ borderColor: barColors[i % barColors.length], color: barColors[i % barColors.length] }}
               >
                 <span className="text-[2.5%] font-bold">{parseInt(s.num)}</span>
               </div>
               {/* Colored bar with title */}
               <div
-                className="flex-shrink-0 rounded-lg px-[3%] py-[2%]"
+                className="flex-shrink-0 rounded-lg px-[3%] py-[2.5%]"
                 style={{ backgroundColor: barColors[i % barColors.length], minWidth: "32%" }}
               >
                 <span className="text-[2.2%] font-bold text-white uppercase tracking-wider">
@@ -528,13 +528,13 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
               const pnc = getOverride?.(sn, `nc${idx}.pnc`) ?? fmtPct(row.current.percentNc);
               return (
                 <tr key={row.platform} style={{ backgroundColor: bg, fontWeight: isTotal ? 700 : 400, color: isTotal ? colors.blueDeep : colors.text }}>
-                  <td className="px-[1.5%] py-[1.5%]">{row.platform}</td>
-                  <td className="text-right px-[1.5%] py-[1.5%]">{onEdit ? <EditableText field={`nc${idx}.nc`} slideIndex={sn} currentValue={nc} onEdit={onEdit}>{nc}</EditableText> : nc}</td>
-                  <td className="text-right px-[1.5%] py-[1.5%]"><DeltaBadge value={row.delta.newClients} /></td>
-                  <td className="text-right px-[1.5%] py-[1.5%]">{onEdit ? <EditableText field={`nc${idx}.cpnc`} slideIndex={sn} currentValue={cpnc} onEdit={onEdit}>{cpnc}</EditableText> : cpnc}</td>
-                  <td className="text-right px-[1.5%] py-[1.5%]"><DeltaBadge value={row.delta.cpNc} invert /></td>
-                  <td className="text-right px-[1.5%] py-[1.5%]">{onEdit ? <EditableText field={`nc${idx}.pnc`} slideIndex={sn} currentValue={pnc} onEdit={onEdit}>{pnc}</EditableText> : pnc}</td>
-                  <td className="text-right px-[1.5%] py-[1.5%]"><DeltaBadge value={row.delta.percentNc} /></td>
+                  <td className="px-[2%] py-[2%]">{row.platform}</td>
+                  <td className="text-right px-[2%] py-[2%]">{onEdit ? <EditableText field={`nc${idx}.nc`} slideIndex={sn} currentValue={nc} onEdit={onEdit}>{nc}</EditableText> : nc}</td>
+                  <td className="text-right px-[2%] py-[2%]"><DeltaBadge value={row.delta.newClients} /></td>
+                  <td className="text-right px-[2%] py-[2%]">{onEdit ? <EditableText field={`nc${idx}.cpnc`} slideIndex={sn} currentValue={cpnc} onEdit={onEdit}>{cpnc}</EditableText> : cpnc}</td>
+                  <td className="text-right px-[2%] py-[2%]"><DeltaBadge value={row.delta.cpNc} invert /></td>
+                  <td className="text-right px-[2%] py-[2%]">{onEdit ? <EditableText field={`nc${idx}.pnc`} slideIndex={sn} currentValue={pnc} onEdit={onEdit}>{pnc}</EditableText> : pnc}</td>
+                  <td className="text-right px-[2%] py-[2%]"><DeltaBadge value={row.delta.percentNc} /></td>
                 </tr>
               );
             })}
@@ -743,19 +743,19 @@ export function LearningsSlide({
         </h2>
 
         {/* // LEARNINGS section header */}
-        <div className="mb-[2%]">
+        <div className="mb-[3%]">
           <div className="font-bold" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
             // LEARNINGS
           </div>
           <div className="w-[15%] h-[3px] mt-[0.5%]" style={{ backgroundColor: colors.blueSignature }} />
         </div>
 
-        <ul className="space-y-[1.5%]">
+        <div className="space-y-[3%]">
           {learnings.map((l, i) => {
             const field = `learning${i}`;
             const actualValue = getOverride?.(slideNumber ?? 0, field) ?? l;
             return (
-              <li key={i} className="flex gap-[2%]" style={{ color: "#333", fontSize: fs.body }}>
+              <div key={i} className="flex gap-[2%] rounded-lg p-[2.5%]" style={{ color: "#333", fontSize: fs.body, backgroundColor: i % 2 === 0 ? "#F5F7FA" : "#fff", border: "1px solid #E8EDF3" }}>
                 <span style={{ color: colors.blueDeep }} className="font-bold flex-shrink-0">
                   &#8226;
                 </span>
@@ -773,10 +773,10 @@ export function LearningsSlide({
                     actualValue
                   )}
                 </span>
-              </li>
+              </div>
               );
             })}
-          </ul>
+          </div>
       </div>
     </SlideShell>
   );
@@ -808,24 +808,24 @@ export function NextStepsSlide({
         </h2>
 
         {/* // NEXT STEPS section header */}
-        <div className="mb-[2%]">
+        <div className="mb-[3%]">
           <div className="font-bold" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
             // NEXT STEPS
           </div>
           <div className="w-[15%] h-[3px] mt-[0.5%]" style={{ backgroundColor: colors.blueSignature }} />
         </div>
 
-        <ul className="space-y-[1.5%]">
+        <div className="space-y-[3%]">
           {steps.map((s, i) => {
             const field = `step${i}`;
             const actualValue = getOverride?.(slideNumber ?? 0, field) ?? s;
             return (
-              <li
+              <div
                 key={i}
-                className="flex gap-[2%] items-start"
-                style={{ color: "#333", fontSize: fs.body }}
+                className="flex gap-[2%] items-start rounded-lg p-[2.5%]"
+                style={{ color: "#333", fontSize: fs.body, backgroundColor: "#EFF6FF", borderLeft: `4px solid ${colors.blueSignature}` }}
               >
-                <span className="font-bold flex-shrink-0" style={{ color: colors.blueDeep }}>
+                <span className="font-bold flex-shrink-0" style={{ color: colors.blueSignature }}>
                   &#8594;
                 </span>
                 <span>
@@ -842,10 +842,10 @@ export function NextStepsSlide({
                     actualValue
                   )}
                 </span>
-              </li>
+              </div>
             );
           })}
-        </ul>
+        </div>
       </div>
     </SlideShell>
   );
