@@ -1000,7 +1000,7 @@ export function AIPanel({
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto px-4 py-3 space-y-3">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500/20 to-purple-700/20 flex items-center justify-center mb-3">

@@ -1675,7 +1675,7 @@ export default function DeckPage() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-gray-100 overflow-hidden">
+    <div className="h-screen flex flex-col bg-gray-100 overflow-hidden">
       {/* ── Full-width Header ────────────────────────────────────────────── */}
       <div className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-3">
         {/* Back button */}
@@ -2553,7 +2553,7 @@ export default function DeckPage() {
         </div>
 
         {/* ── RIGHT: AI Panel (38%) ─────────────────────────────────────── */}
-        {showAiPanel && <div style={{ flex: "0 0 38%" }} className="overflow-hidden">
+        {showAiPanel && <div style={{ flex: "0 0 38%" }} className="h-full overflow-hidden">
           <AIPanel
             deckData={deckData}
             currentSlideIndex={currentSlide}
