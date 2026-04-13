@@ -2,8 +2,10 @@
 /**
  * /deck/preview — visual preview of all static slides with mock data.
  * Useful for quickly reviewing slide design without going through the full deck flow.
+ * Add ?slide=<id> to render a single slide full-bleed (handy for screenshots).
  */
 import { useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   CoverSlide,
   AgendaSlide,
@@ -21,6 +23,8 @@ import {
 import { mockClients, buildPeriod, generateMockDeckData } from "@/lib/deck-data";
 
 export default function DeckPreviewPage() {
+  const searchParams = useSearchParams();
+  const onlyId = searchParams.get("slide");
   const data = useMemo(() => {
     const client = mockClients[0];
     const period = buildPeriod(2026, 3);
@@ -46,6 +50,16 @@ export default function DeckPreviewPage() {
     { id: "budget", title: "Budget", node: <BudgetSlide budget={data.budget} period={data.period.label} slideNumber={16} /> },
     { id: "nextGlobal", title: "Next steps global", node: <NextStepsSlide title="Next Steps — Global" steps={data.nextStepsGlobal} slideNumber={17} /> },
   ];
+
+  if (onlyId) {
+    const single = slides.find((s) => s.id === onlyId);
+    if (!single) return <div className="p-8">Slide &quot;{onlyId}&quot; introuvable</div>;
+    return (
+      <div className="min-h-screen bg-white">
+        <div className="w-screen" style={{ aspectRatio: "16 / 9" }}>{single.node}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
