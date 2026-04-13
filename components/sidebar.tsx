@@ -8,6 +8,7 @@ import {
   Zap,
   Sparkles,
   Presentation,
+  Bot,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -21,7 +22,7 @@ const ANALYSE_ROUTES = [
   "/top-landing-page", "/fatigue", "/naming",
 ]
 
-const DECK_ROUTES = ["/deck", "/create/weekly", "/create/monthly", "/reports", "/ai"]
+const DECK_ROUTES = ["/deck", "/create/weekly", "/create/monthly", "/reports"]
 
 const navItems: NavItem[] = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard", match: (p) => p === "/" },
@@ -37,6 +38,7 @@ const navItems: NavItem[] = [
     label: "Deck Builder",
     match: (p) => DECK_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
   },
+  { href: "/ai", icon: Bot, label: "AI Assistant", match: (p) => p.startsWith("/ai") },
   { href: "/settings", icon: Settings, label: "Réglages", match: (p) => p.startsWith("/settings") },
 ]
 
