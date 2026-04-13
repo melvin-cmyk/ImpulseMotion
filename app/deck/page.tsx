@@ -304,6 +304,10 @@ interface SlideConfig {
 // scroll inside a slide.
 const TOP_CREATIVES_PER_SLIDE = 3;
 const CAMPAIGNS_PER_SLIDE = 8;
+// Keep learnings/next-steps lists short enough that each card can breathe
+// inside a 16:9 slide. Above this count, buildSlides emits additional
+// pages to prevent any card from being clipped by the slide footer.
+const BULLETS_PER_SLIDE = 5;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   if (!arr?.length) return [[]];
@@ -352,6 +356,83 @@ function buildSlides(hasGoogle: boolean, data: DeckData | null): SlideConfig[] {
     ),
   }));
 
+  const paginateBullets = (
+    idBase: string,
+    labelBase: string,
+    section: number,
+    pick: (d: DeckData) => string[],
+    makeTitle: (page: number, total: number) => string,
+    Comp: "learnings" | "next-steps",
+    accent?: "blue" | "violet",
+    nextStepTitle?: string,
+  ): SlideConfig[] => {
+    const pageCount = data ? Math.max(1, chunk(pick(data), BULLETS_PER_SLIDE).length) : 1;
+    return Array.from({ length: pageCount }, (_, i) => ({
+      id: pageCount > 1 ? `${idBase}-${i + 1}` : idBase,
+      label: pageCount > 1 ? `${labelBase} ${i + 1}/${pageCount}` : labelBase,
+      section,
+      render: (d, n, cb) => {
+        const slice = pick(d).slice(i * BULLETS_PER_SLIDE, (i + 1) * BULLETS_PER_SLIDE);
+        if (Comp === "learnings") {
+          return <LearningsSlide learnings={slice} accent={accent} slideNumber={n} {...cb} />;
+        }
+        return (
+          <NextStepsSlide
+            title={pageCount > 1 ? `${makeTitle(i + 1, pageCount)}` : (nextStepTitle ?? labelBase)}
+            steps={slice}
+            accent={accent}
+            slideNumber={n}
+            {...cb}
+          />
+        );
+      },
+    }));
+  };
+
+  const learningsGlobalSlides = paginateBullets(
+    "learnings-global", "Points Clés Global", 1,
+    (d) => d.learnings,
+    (p, t) => `Points Clés — Global (${p}/${t})`,
+    "learnings",
+  );
+  const insightsGoogleSlides = paginateBullets(
+    "insights-google", "Points Clés Google", 2,
+    (d) => d.insightsGoogle,
+    (p, t) => `Points Clés — Google (${p}/${t})`,
+    "learnings",
+  );
+  const insightsMetaSlides = paginateBullets(
+    "insights-meta", "Points Clés Meta", 3,
+    (d) => d.insightsMeta,
+    (p, t) => `Points Clés — Meta (${p}/${t})`,
+    "learnings",
+    "violet",
+  );
+  const nextGoogleSlides = paginateBullets(
+    "next-google", "Next Steps Google", 2,
+    (d) => d.nextStepsGoogle,
+    (p, t) => `Next Steps — Google Ads (${p}/${t})`,
+    "next-steps",
+    undefined,
+    "Next Steps — Google Ads",
+  );
+  const nextMetaSlides = paginateBullets(
+    "next-meta", "Next Steps Meta", 3,
+    (d) => d.nextStepsMeta,
+    (p, t) => `Next Steps — Meta Ads (${p}/${t})`,
+    "next-steps",
+    "violet",
+    "Next Steps — Meta Ads",
+  );
+  const nextGlobalSlides = paginateBullets(
+    "next-global", "Next Steps Global", 4,
+    (d) => d.nextStepsGlobal,
+    (p, t) => `Next Steps — Global (${p}/${t})`,
+    "next-steps",
+    undefined,
+    "Next Steps — Global",
+  );
+
   const metaCampaignsSlides: SlideConfig[] = Array.from({ length: metaCampaignsPages }, (_, i) => ({
     id: metaCampaignsPages > 1 ? `meta-campaigns-${i + 1}` : "meta-campaigns",
     label: metaCampaignsPages > 1 ? `Campagnes Meta ${i + 1}/${metaCampaignsPages}` : "Campagnes Meta",
@@ -378,26 +459,26 @@ function buildSlides(hasGoogle: boolean, data: DeckData | null): SlideConfig[] {
     { id: "highlights", label: "Highlights", section: 1, render: (d, n, cb) => <HighlightsSlide data={d} slideNumber={n} {...cb} /> },
     { id: "global-table", label: "Tableau Global", section: 1, render: (d, n, cb) => <GlobalTableSlide data={d} slideNumber={n} {...cb} /> },
     { id: "nc-table", label: "NC / CP-NC", section: 1, render: (d, n, cb) => <NCSlide data={d} slideNumber={n} {...cb} /> },
-    { id: "learnings-global", label: "Points Clés Global", section: 1, render: (d, n, cb) => <LearningsSlide learnings={d.learnings} slideNumber={n} {...cb} /> },
+    ...learningsGlobalSlides,
 
     // Section 2 — Google Ads
     { id: "s2-div", label: "Section 2", section: 2, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="02" title="Focus Google Ads" subtitle="Vue globale · Campagnes · Brand Search · Pmax" slideNumber={n} {...cb} /> },
     { id: "google-kpi", label: "Google KPIs", section: 2, render: (d, n, cb) => <KPIOverviewSlide title="Google Ads — Vue Globale" metrics={d.googleOverview} slideNumber={n} {...cb} /> },
     ...googleCampaignsSlides,
-    { id: "insights-google", label: "Points Clés Google", section: 2, render: (d, n, cb) => <LearningsSlide learnings={d.insightsGoogle} slideNumber={n} {...cb} /> },
-    { id: "next-google", label: "Next Steps Google", section: 2, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Google Ads" steps={d.nextStepsGoogle} slideNumber={n} {...cb} /> },
+    ...insightsGoogleSlides,
+    ...nextGoogleSlides,
 
     // Section 3 — Meta Ads (or 02 if no Google)
     { id: "s3-div", label: `Section ${hasGoogle ? 3 : 2}`, section: 3, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={metaNum} title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Points Clés" slideNumber={n} {...cb} /> },
     { id: "meta-kpi", label: "Meta KPIs", section: 3, render: (d, n, cb) => <KPIOverviewSlide title="Meta Ads — Vue Globale" metrics={d.metaOverview} accent="violet" slideNumber={n} {...cb} /> },
     ...metaCampaignsSlides,
     ...topCreativesSlides,
-    { id: "insights-meta", label: "Points Clés Meta", section: 3, render: (d, n, cb) => <LearningsSlide learnings={d.insightsMeta} accent="violet" slideNumber={n} {...cb} /> },
-    { id: "next-meta", label: "Next Steps Meta", section: 3, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Meta Ads" steps={d.nextStepsMeta} accent="violet" slideNumber={n} {...cb} /> },
+    ...insightsMetaSlides,
+    ...nextMetaSlides,
 
     // Section 4 — Next Steps & Budget (or 03 if no Google)
     { id: "s4-div", label: `Section ${hasGoogle ? 4 : 3}`, section: 4, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={budgetNum} title="Next Steps & Budget" subtitle="Actions globales · Budget mensuel" slideNumber={n} {...cb} /> },
-    { id: "next-global", label: "Next Steps Global", section: 4, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Global" steps={d.nextStepsGlobal} slideNumber={n} {...cb} /> },
+    ...nextGlobalSlides,
     { id: "budget", label: "Budget", section: 4, render: (d, n, cb) => <BudgetSlide budget={d.budget} period={d.period.label} slideNumber={n} {...cb} /> },
   ];
 }
