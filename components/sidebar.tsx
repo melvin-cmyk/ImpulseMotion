@@ -24,32 +24,56 @@ import {
   Presentation,
   CalendarDays,
   CalendarRange,
-  LayoutPanelLeft,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const navItems = [
-  { href: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { href: "/creatives", icon: Grid2X2, label: "Creatives" },
-  { href: "/launch", icon: Rocket, label: "Launch Analysis" },
-  { href: "/top-charts", icon: BarChart3, label: "Top Charts" },
-  { href: "/compare", icon: GitCompareArrows, label: "A/B Compare" },
-  { href: "/comparaisons", icon: PieChart, label: "Comparaisons" },
-  { href: "/patterns", icon: Layers, label: "Patterns" },
-  { href: "/angles", icon: MessageSquare, label: "Angles" },
-  { href: "/audience", icon: Users, label: "Intended Audience" },
-  { href: "/top-copy", icon: FileText, label: "Top Copy" },
-  { href: "/visual-format", icon: Monitor, label: "Visual Format" },
-  { href: "/top-landing-page", icon: Globe, label: "Top Landing Pages" },
-  { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
-  { href: "/naming", icon: Tag, label: "Naming Convention" },
-  { href: "/ai", icon: Bot, label: "AI Assistant" },
-  { href: "/deck", icon: Presentation, label: "Slide Builder" },
-  { href: "/reports", icon: Share2, label: "Reports" },
-  { href: "/create/weekly", icon: CalendarDays, label: "Weekly Overview" },
-  { href: "/create/monthly", icon: CalendarRange, label: "Monthly Overview" },
-  { href: "/deck", icon: LayoutPanelLeft, label: "Deck Builder" },
-  { href: "/settings", icon: Settings, label: "Settings" },
+type NavItem = { href: string; icon: React.ElementType; label: string }
+type NavSection = { title: string; items: NavItem[] }
+
+// Grouped navigation. Sections are separated by a thin divider so the
+// sidebar reads as distinct compartments: Analyse Ads on top, Reporting &
+// Deck Builder in the middle, Settings at the bottom.
+const navSections: NavSection[] = [
+  {
+    title: "Dashboard",
+    items: [
+      { href: "/", icon: LayoutDashboard, label: "Dashboard" },
+    ],
+  },
+  {
+    title: "Analyse Ads",
+    items: [
+      { href: "/creatives", icon: Grid2X2, label: "Creatives" },
+      { href: "/launch", icon: Rocket, label: "Launch Analysis" },
+      { href: "/top-charts", icon: BarChart3, label: "Top Charts" },
+      { href: "/compare", icon: GitCompareArrows, label: "A/B Compare" },
+      { href: "/comparaisons", icon: PieChart, label: "Comparaisons" },
+      { href: "/patterns", icon: Layers, label: "Patterns" },
+      { href: "/angles", icon: MessageSquare, label: "Angles" },
+      { href: "/audience", icon: Users, label: "Intended Audience" },
+      { href: "/top-copy", icon: FileText, label: "Top Copy" },
+      { href: "/visual-format", icon: Monitor, label: "Visual Format" },
+      { href: "/top-landing-page", icon: Globe, label: "Top Landing Pages" },
+      { href: "/fatigue", icon: AlertTriangle, label: "Fatigue" },
+      { href: "/naming", icon: Tag, label: "Naming Convention" },
+    ],
+  },
+  {
+    title: "Reporting & Deck Builder",
+    items: [
+      { href: "/deck", icon: Presentation, label: "Deck Builder" },
+      { href: "/create/weekly", icon: CalendarDays, label: "Weekly Overview" },
+      { href: "/create/monthly", icon: CalendarRange, label: "Monthly Overview" },
+      { href: "/reports", icon: Share2, label: "Reports" },
+      { href: "/ai", icon: Bot, label: "AI Assistant" },
+    ],
+  },
+  {
+    title: "Réglages",
+    items: [
+      { href: "/settings", icon: Settings, label: "Settings" },
+    ],
+  },
 ]
 
 export function Sidebar() {
@@ -61,20 +85,25 @@ export function Sidebar() {
         <Zap className="w-5 h-5 text-white" />
       </div>
 
-      {navItems.map(({ href, icon: Icon, label }) => (
-        <Link
-          key={href}
-          href={href}
-          title={label}
-          className={cn(
-            "w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150",
-            pathname === href
-              ? "bg-violet-600 text-white"
-              : "text-gray-500 hover:text-gray-200 hover:bg-gray-800"
-          )}
-        >
-          <Icon className="w-5 h-5" />
-        </Link>
+      {navSections.map((section, sIdx) => (
+        <div key={section.title} className="flex flex-col items-center gap-1 w-full">
+          {sIdx > 0 && <div className="w-8 h-px bg-gray-800 my-2" aria-hidden />}
+          {section.items.map(({ href, icon: Icon, label }) => (
+            <Link
+              key={href}
+              href={href}
+              title={`${section.title} · ${label}`}
+              className={cn(
+                "w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-150",
+                pathname === href
+                  ? "bg-violet-600 text-white"
+                  : "text-gray-500 hover:text-gray-200 hover:bg-gray-800"
+              )}
+            >
+              <Icon className="w-5 h-5" />
+            </Link>
+          ))}
+        </div>
       ))}
 
       <div className="mt-auto">

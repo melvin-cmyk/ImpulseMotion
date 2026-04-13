@@ -155,7 +155,7 @@ export function AgendaSlide({ data }: { data: DeckData }) {
   const barColors = ["#2CA6F9", "#1a8fd4", "#0944A1", "#7F5AFD"];
   return (
     <SlideShell accent="blue" slideNumber={2}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[3%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -276,7 +276,7 @@ export function HighlightsSlide({
 } & EditCallbacks) {
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[3%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -397,7 +397,7 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
 
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -518,7 +518,7 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
   const title = getOverride?.(sn, "title") ?? "Nouveaux Clients — NC / CP-NC / %NC";
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -608,7 +608,7 @@ export function CampaignTableSlide({
   const actualTitle = getOverride?.(sn, "title") ?? title;
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -700,7 +700,7 @@ export function TopCreativesSlide({
   const actualTitle = getOverride?.(sn, "title") ?? title;
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[2%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -787,7 +787,7 @@ export function LearningsSlide({
 } & EditCallbacks) {
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[2%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -803,12 +803,12 @@ export function LearningsSlide({
           <div className="w-[15%] h-[3px] mt-[0.5%]" style={{ backgroundColor: colors.blueSignature }} />
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col gap-[2%]">
+        <div className="flex-1 min-h-0 flex flex-col gap-[1.2%]">
           {learnings.map((l, i) => {
             const field = `learning${i}`;
             const actualValue = getOverride?.(slideNumber ?? 0, field) ?? l;
             return (
-              <div key={i} className="flex-1 flex gap-[2%] items-center rounded-lg p-[2.5%]" style={{ color: "#333", fontSize: fs.body, backgroundColor: i % 2 === 0 ? "#F5F7FA" : "#fff", border: "1px solid #E8EDF3" }}>
+              <div key={i} className="flex-1 min-h-0 flex gap-[2%] items-center rounded-lg p-[1.5%] overflow-hidden" style={{ color: "#333", fontSize: fs.body, backgroundColor: i % 2 === 0 ? "#F5F7FA" : "#fff", border: "1px solid #E8EDF3" }}>
                 <span style={{ color: colors.blueDeep }} className="font-bold flex-shrink-0">
                   &#8226;
                 </span>
@@ -852,7 +852,7 @@ export function NextStepsSlide({
 } & EditCallbacks) {
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[2%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -868,14 +868,14 @@ export function NextStepsSlide({
           <div className="w-[15%] h-[3px] mt-[0.5%]" style={{ backgroundColor: colors.blueSignature }} />
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col gap-[2%]">
+        <div className="flex-1 min-h-0 flex flex-col gap-[1.2%]">
           {steps.map((s, i) => {
             const field = `step${i}`;
             const actualValue = getOverride?.(slideNumber ?? 0, field) ?? s;
             return (
               <div
                 key={i}
-                className="flex-1 flex gap-[2%] items-center rounded-lg p-[2.5%]"
+                className="flex-1 min-h-0 flex gap-[2%] items-center rounded-lg p-[1.5%] overflow-hidden"
                 style={{ color: "#333", fontSize: fs.body, backgroundColor: "#EFF6FF", borderLeft: `4px solid ${colors.blueSignature}` }}
               >
                 <span className="font-bold flex-shrink-0" style={{ color: colors.blueSignature }}>
@@ -921,7 +921,7 @@ export function BudgetSlide({
   const titlePeriod = getOverride?.(sn, "period") ?? period;
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -968,7 +968,7 @@ export function BudgetSlide({
         {/* Budget bar chart — fills remaining vertical space */}
         <div className="flex-1 min-h-0 mt-[3%] flex gap-[4%] items-stretch">
           {budget.filter((b) => b.platform !== "Total").map((b) => (
-            <div key={b.platform} className="flex-1 rounded-lg p-[3%] flex flex-col justify-center gap-[6%]" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+            <div key={b.platform} className="flex-1 min-h-0 rounded-lg p-[2%] flex flex-col justify-center gap-[4%] overflow-hidden" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
               <div className="font-semibold" style={{ color: colors.blueDeep, fontSize: fs.bodyLg }}>
                 {b.platform}
               </div>
@@ -1026,7 +1026,7 @@ export function KPIOverviewSlide({
   const renderCard = (k: { label: string; key: string; value: string }) => {
     const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
     return (
-      <div key={k.label} className="text-center px-[2%] py-[6%] rounded-lg flex flex-col justify-between items-center" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+      <div key={k.label} className="text-center px-[2%] py-[2.5%] min-h-0 rounded-lg flex flex-col justify-between items-center overflow-hidden" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
         <div className="font-semibold uppercase tracking-wider" style={{ color: "#8A9BB5", fontSize: fs.kpiLabel }}>
           {k.label}
         </div>
@@ -1042,7 +1042,7 @@ export function KPIOverviewSlide({
 
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
-      <div className="flex flex-col h-full">
+      <div className="flex-1 min-h-0 flex flex-col">
         <h2
           className="font-extrabold mb-[1%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
