@@ -726,15 +726,43 @@ export function TopCreativesSlide({
                     src={`/api/deck/proxy-image?url=${encodeURIComponent(c.thumbnailUrl)}`}
                     alt={c.name}
                     className="w-full h-full object-cover"
+                    decoding="async"
+                    style={{ imageRendering: "auto" }}
+                    onLoad={(e) => {
+                      const img = e.currentTarget;
+                      const smallest = Math.min(img.naturalWidth, img.naturalHeight);
+                      if (smallest > 0 && smallest < 240) {
+                        const badge = img.parentElement?.querySelector<HTMLElement>(
+                          "[data-lowres-badge]"
+                        );
+                        if (badge) badge.style.display = "flex";
+                      }
+                    }}
                     onError={(e) => {
                       const target = e.currentTarget;
                       target.style.display = "none";
-                      const fallback = target.nextElementSibling as HTMLElement;
+                      const fallback = target.parentElement?.querySelector<HTMLElement>(
+                        "[data-fallback]"
+                      );
                       if (fallback) fallback.style.display = "flex";
                     }}
                   />
                 ) : null}
                 <div
+                  data-lowres-badge
+                  className="absolute top-[4%] right-[4%] items-center gap-[3px] rounded px-[6px] py-[2px] font-semibold"
+                  style={{
+                    display: "none",
+                    backgroundColor: "rgba(197, 57, 41, 0.92)",
+                    color: "#fff",
+                    fontSize: "max(0.95%, 9px)",
+                  }}
+                  title="Créa basse résolution — la source Meta n'expose pas de version haute-déf"
+                >
+                  ⚠ low-res
+                </div>
+                <div
+                  data-fallback
                   className="absolute inset-0 flex flex-col items-center justify-center gap-[4%]"
                   style={{ display: c.thumbnailUrl ? "none" : "flex" }}
                 >

@@ -8,6 +8,7 @@
 "use client";
 
 import { streamChat } from "./relay-client";
+import { upgradeImageUrl } from "./image-upgrade";
 import {
   getPreviousPeriod,
   type DeckClient,
@@ -182,7 +183,10 @@ function buildThumbnailMap(raw: unknown): Map<string, string> {
   const list = (Array.isArray(r.data) ? r.data : Array.isArray(r.creatives) ? r.creatives : Array.isArray(r.ads) ? r.ads : Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
   for (const cr of list) {
     const id = String(cr.ad_id ?? cr.id ?? "");
-    const url = String(cr.thumbnail_url ?? cr.image_url ?? cr.creative_url ?? cr.picture ?? "");
+    // Prefer image_url over thumbnail_url — Meta's image_url is the full-size
+    // asset while thumbnail_url is the 64–128px preview that pixelates.
+    const rawUrl = String(cr.image_url ?? cr.thumbnail_url ?? cr.creative_url ?? cr.picture ?? "");
+    const url = upgradeImageUrl(rawUrl) ?? rawUrl;
     if (id && url && url !== "undefined") map.set(id, url);
   }
   return map;
@@ -197,7 +201,8 @@ function extractCreatives(raw: unknown, thumbnailMap?: Map<string, string>): Top
     const revenue = actionValuesValue(cr, "purchase", "offsite_conversion.fb_pixel_purchase");
     const spend = toNum(cr.spend);
     const id = String(cr.id ?? cr.ad_id ?? `tc-${i}`);
-    const inlineThumbnail = cr.thumbnail_url ? String(cr.thumbnail_url) : undefined;
+    const inlineRaw = cr.image_url ?? cr.thumbnail_url;
+    const inlineThumbnail = inlineRaw ? (upgradeImageUrl(String(inlineRaw)) ?? String(inlineRaw)) : undefined;
     const mappedThumbnail = thumbnailMap?.get(id);
     return {
       id,
