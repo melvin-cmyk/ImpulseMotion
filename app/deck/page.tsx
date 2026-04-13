@@ -359,7 +359,12 @@ const SECTION_COLORS: Record<number, string> = {
 interface DroppedBlock {
   id: string;
   content: string;
-  slideIndex: number;
+  slideIndex: number;             // absolute index in the page slide list at drop time
+  /** Slide group at drop time — lets the export resolve correctly when */
+  /** the page slide count differs from the export slide count (e.g. when */
+  /** the page filtered out the Google section but the export still adds it). */
+  kind?: "standard" | "custom" | "ai";
+  localIdx?: number;              // index within the kind group
   x: number; // % of canvas width
   y: number; // % of canvas height
   w: number; // % of canvas width
@@ -1213,6 +1218,13 @@ export default function DeckPage() {
     setIsDragOverCanvas(true);
   };
 
+  /** Map an absolute page slide index to its kind ("standard"/"custom"/"ai") and local index. */
+  const resolveSlideKind = (absIdx: number): { kind: "standard" | "custom" | "ai"; localIdx: number } => {
+    if (absIdx < slides.length) return { kind: "standard", localIdx: absIdx };
+    if (absIdx < slides.length + customSlides.length) return { kind: "custom", localIdx: absIdx - slides.length };
+    return { kind: "ai", localIdx: absIdx - slides.length - customSlides.length };
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOverCanvas(false);
@@ -1239,10 +1251,12 @@ export default function DeckPage() {
         xPct = Math.max(0, Math.min(50, ((e.clientX - rect.left) / rect.width) * 100 - 25));
         yPct = Math.max(0, Math.min(50, ((e.clientY - rect.top) / rect.height) * 100 - 20));
       }
+      const { kind, localIdx } = resolveSlideKind(currentSlide);
       const newBlock: DroppedBlock = {
         id: crypto.randomUUID(),
         content: templateContent,
         slideIndex: currentSlide,
+        kind, localIdx,
         x: xPct,
         y: yPct,
         w: 50,
@@ -1263,10 +1277,12 @@ export default function DeckPage() {
           xPct = Math.max(0, Math.min(60, ((e.clientX - rect.left) / rect.width) * 100));
           yPct = Math.max(0, Math.min(60, ((e.clientY - rect.top) / rect.height) * 100));
         }
+        const { kind, localIdx } = resolveSlideKind(currentSlide);
         const newBlock: DroppedBlock = {
           id: crypto.randomUUID(),
           content: data.content,
           slideIndex: currentSlide,
+          kind, localIdx,
           x: xPct,
           y: yPct,
           w: 60,

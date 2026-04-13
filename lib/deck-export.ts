@@ -19,6 +19,8 @@ interface DroppedBlock {
   id: string;
   content: string;
   slideIndex: number;
+  kind?: "standard" | "custom" | "ai";
+  localIdx?: number;
   x: number; // % of canvas width
   y: number; // % of canvas height
   w: number; // % of canvas width
@@ -98,7 +100,7 @@ function parseMarkdownBlocks(md: string): MdBlock[] {
       out.push({ type: "table", rows });
       continue;
     }
-    // List
+    // Unordered list
     if (/^\s*[-*]\s+/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
@@ -108,10 +110,20 @@ function parseMarkdownBlocks(md: string): MdBlock[] {
       out.push({ type: "list", items });
       continue;
     }
+    // Ordered list (1. 2. 3. ...). Strip the number so the renderer uses bullets.
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*\d+[.)]\s+/, "").trim());
+        i++;
+      }
+      out.push({ type: "list", items });
+      continue;
+    }
     // Paragraph (collect consecutive non-blank lines)
     const para: string[] = [line];
     i++;
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|\s*[-*]\s|\|)/.test(lines[i])) {
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|\s*[-*]\s|\s*\d+[.)]\s|\|)/.test(lines[i])) {
       para.push(lines[i]);
       i++;
     }
@@ -140,14 +152,7 @@ function addDroppedBlock(slide: any, block: DroppedBlock, style: BlockStyle | un
   const xIn = (block.x / 100) * layoutW;
   const yIn = (block.y / 100) * layoutH;
   const wIn = (block.w / 100) * layoutW;
-  const hIn = block.h !== undefined ? (block.h / 100) * layoutH : 2.0;
-
-  // White card background to mirror the on-screen look
-  slide.addShape("rect", {
-    x: xIn, y: yIn, w: wIn, h: hIn,
-    fill: { color: "FFFFFF" },
-    line: { color: "E5E7EB", width: 0.5 },
-  });
+  const allocatedH = block.h !== undefined ? (block.h / 100) * layoutH : layoutH * 0.5;
 
   const blocks = parseMarkdownBlocks(block.content);
   const fontFace = style?.fontFamily === "Mono" ? "Courier New"
@@ -158,6 +163,40 @@ function addDroppedBlock(slide: any, block: DroppedBlock, style: BlockStyle | un
 
   const padX = 0.12;
   const padY = 0.12;
+
+  // Estimate natural content height so the card shrinks to fit small content
+  // (avoids huge empty white area when only a 3-row table is dropped).
+  // Estimate ~2.0 chars per em width for typical fonts at body size.
+  const innerWForEstimate = wIn - padX * 2;
+  const charsPerLine = Math.max(20, Math.floor((innerWForEstimate * 72) / (baseSize * 0.55)));
+  const lineH = (baseSize * 1.35) / 72;
+  let naturalH = padY * 2;
+  for (const b of blocks) {
+    if (b.type === "heading") {
+      const size = b.level === 1 ? Math.max(baseSize + 6, 14) : Math.max(baseSize + 3, 12);
+      naturalH += (size * 1.5) / 72 + 0.05;
+    } else if (b.type === "paragraph") {
+      const lines = Math.max(1, Math.ceil((b.text ?? "").length / charsPerLine));
+      naturalH += lines * lineH + 0.1;
+    } else if (b.type === "list") {
+      for (const item of b.items ?? []) {
+        const lines = Math.max(1, Math.ceil((item.length + 2) / charsPerLine));
+        naturalH += lines * lineH + 0.04;
+      }
+    } else if (b.type === "table") {
+      naturalH += ((b.rows?.length ?? 0) * (baseSize + 6)) / 72 + 0.15;
+    }
+  }
+  // Honour the allocated height as an upper bound, but if natural is less, shrink.
+  const hIn = block.h !== undefined ? Math.min(allocatedH, Math.max(naturalH, baseSize / 72 + 0.4)) : Math.min(allocatedH, naturalH);
+
+  // White card background to mirror the on-screen look
+  slide.addShape("rect", {
+    x: xIn, y: yIn, w: wIn, h: hIn,
+    fill: { color: "FFFFFF" },
+    line: { color: "E5E7EB", width: 0.5 },
+  });
+
   let cursorY = yIn + padY;
   const innerW = wIn - padX * 2;
   const maxY = yIn + hIn - padY;
@@ -175,8 +214,8 @@ function addDroppedBlock(slide: any, block: DroppedBlock, style: BlockStyle | un
       });
       cursorY += h + 0.05;
     } else if (b.type === "paragraph") {
-      const lines = Math.max(1, Math.ceil(((b.text ?? "").length * (baseSize * 0.55)) / (innerW * 72)));
-      const h = Math.min(maxY - cursorY, (lines * baseSize) / 72 + 0.1);
+      const lines = Math.max(1, Math.ceil((b.text ?? "").length / charsPerLine));
+      const h = Math.min(maxY - cursorY, lines * lineH + 0.1);
       slide.addText(stripInline(b.text ?? ""), {
         x: xIn + padX, y: cursorY, w: innerW, h,
         fontSize: baseSize, color: baseColor, fontFace,
@@ -187,13 +226,14 @@ function addDroppedBlock(slide: any, block: DroppedBlock, style: BlockStyle | un
       const items = b.items ?? [];
       for (const item of items) {
         if (cursorY >= maxY) break;
-        const h = (baseSize * 1.6) / 72;
+        const lines = Math.max(1, Math.ceil((stripInline(item).length + 2) / charsPerLine));
+        const h = Math.min(maxY - cursorY, lines * lineH + 0.05);
         slide.addText("• " + stripInline(item), {
           x: xIn + padX, y: cursorY, w: innerW, h,
           fontSize: baseSize, color: baseColor, fontFace,
-          valign: "top",
+          valign: "top", wrap: true,
         });
-        cursorY += h + 0.02;
+        cursorY += h + 0.04;
       }
     } else if (b.type === "table") {
       const rows = b.rows ?? [];
@@ -987,17 +1027,23 @@ export async function exportDeckToPptx(
     // since the helpers above don't return the slide, we use a workaround:
     // group blocks by slideIndex and store them for post-processing via the
     // pptx.slides array.
+    // Group standard-slide drops by their LOCAL standard index. New blocks
+    // carry kind/localIdx; legacy blocks fall back to the absolute slideIndex
+    // (which was correct when the page slide count == export slide count).
     const blocksBySlide: Record<number, DroppedBlock[]> = {};
     for (const block of droppedBlocks) {
-      if (!blocksBySlide[block.slideIndex]) blocksBySlide[block.slideIndex] = [];
-      blocksBySlide[block.slideIndex].push(block);
+      const isStandard = block.kind ? block.kind === "standard" : block.slideIndex < STANDARD_SLIDE_COUNT;
+      if (!isStandard) continue;
+      const idx = block.kind === "standard" && block.localIdx != null ? block.localIdx : block.slideIndex;
+      if (!blocksBySlide[idx]) blocksBySlide[idx] = [];
+      blocksBySlide[idx].push(block);
     }
     // Access internal slides array to add overlays on already-created slides
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const internalSlides: any[] = (pptx as any).slides ?? [];
     for (const [slideIdxStr, blocks] of Object.entries(blocksBySlide)) {
       const slideIdx = Number(slideIdxStr);
-      if (slideIdx >= STANDARD_SLIDE_COUNT) continue; // custom slides handled below
+      if (slideIdx >= STANDARD_SLIDE_COUNT) continue;
       const slide = internalSlides[slideIdx];
       if (!slide) continue;
       for (const block of blocks) {
@@ -1032,13 +1078,20 @@ export async function exportDeckToPptx(
 
   // ── Custom slides ────────────────────────────────────────────────────────
   if (customSlides && customSlides.length > 0) {
-    // Build a map of dropped blocks for custom slide indices
+    // Build a map of dropped blocks for custom slides, keyed by LOCAL custom
+    // index (so it's robust to page filter differences).
     const customBlocksBySlide: Record<number, DroppedBlock[]> = {};
     if (droppedBlocks) {
       for (const block of droppedBlocks) {
-        if (block.slideIndex >= STANDARD_SLIDE_COUNT) {
-          if (!customBlocksBySlide[block.slideIndex]) customBlocksBySlide[block.slideIndex] = [];
-          customBlocksBySlide[block.slideIndex].push(block);
+        let localIdx: number | null = null;
+        if (block.kind === "custom" && block.localIdx != null) localIdx = block.localIdx;
+        else if (!block.kind && block.slideIndex >= STANDARD_SLIDE_COUNT) {
+          // Legacy block — assume export-coordinates
+          localIdx = block.slideIndex - STANDARD_SLIDE_COUNT;
+        }
+        if (localIdx != null) {
+          if (!customBlocksBySlide[localIdx]) customBlocksBySlide[localIdx] = [];
+          customBlocksBySlide[localIdx].push(block);
         }
       }
     }
@@ -1082,7 +1135,7 @@ export async function exportDeckToPptx(
       }
 
       // Dropped blocks on this custom slide
-      const blocks = customBlocksBySlide[absIdx] ?? [];
+      const blocks = customBlocksBySlide[i] ?? [];
       for (const block of blocks) {
         addDroppedBlock(s, block, blockStyles?.[block.id], LAYOUT.width, LAYOUT.height);
       }
@@ -1322,13 +1375,15 @@ export async function exportDeckToPptx(
       const els = slideElements?.[aiEditorIdx];
       if (els && els.length > 0) addSlideElements(s, els, LAYOUT.width, LAYOUT.height);
 
-      // Dropped blocks targeting this AI slide. The page indexes AI slides as
-      // STANDARD_SLIDE_COUNT + customSlides.length + aiIdx in the absolute
-      // slide order, so look up by that.
+      // Dropped blocks targeting this AI slide — match by kind+localIdx.
+      // Legacy fallback: absolute slideIndex was STANDARD_SLIDE_COUNT + customs + aiIdx,
+      // but that only worked when the page slide count matched the export count.
       if (droppedBlocks) {
-        const aiAbsIdx = STANDARD_SLIDE_COUNT + (customSlides?.length ?? 0) + aiIdx;
         for (const block of droppedBlocks) {
-          if (block.slideIndex === aiAbsIdx) {
+          let isThisAiSlide = false;
+          if (block.kind === "ai" && block.localIdx === aiIdx) isThisAiSlide = true;
+          else if (!block.kind && block.slideIndex === STANDARD_SLIDE_COUNT + (customSlides?.length ?? 0) + aiIdx) isThisAiSlide = true;
+          if (isThisAiSlide) {
             addDroppedBlock(s, block, blockStyles?.[block.id], LAYOUT.width, LAYOUT.height);
           }
         }
