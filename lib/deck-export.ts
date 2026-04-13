@@ -892,25 +892,35 @@ function addTopCreatives(pptx: PptxGen, creatives: TopCreative[], thumbnailDataM
 
 // ── Main export function ────────────────────────────────────────────────────
 
-async function fetchThumbnails(creatives: TopCreative[]): Promise<Record<string, string>> {
+async function fetchOneThumbnail(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(url)}&format=base64`, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function fetchThumbnails(creatives: TopCreative[], extraUrls: string[] = []): Promise<Record<string, string>> {
   const result: Record<string, string> = {};
-  await Promise.all(
-    creatives.filter(cr => cr.thumbnailUrl && cr.id).map(async (cr) => {
-      try {
-        const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(cr.thumbnailUrl!)}&format=base64`, { signal: AbortSignal.timeout(6000) });
-        if (res.ok) {
-          const blob = await res.blob();
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-          if (dataUrl) result[cr.id] = dataUrl;
-        }
-      } catch { /* skip */ }
-    })
-  );
+  await Promise.all([
+    ...creatives.filter(cr => cr.thumbnailUrl && cr.id).map(async (cr) => {
+      const dataUrl = await fetchOneThumbnail(cr.thumbnailUrl!);
+      if (dataUrl) result[cr.id] = dataUrl;
+    }),
+    // AI slide images keyed by the URL itself
+    ...extraUrls.filter(Boolean).map(async (u) => {
+      const dataUrl = await fetchOneThumbnail(u);
+      if (dataUrl) result[u] = dataUrl;
+    }),
+  ]);
   return result;
 }
 
@@ -931,8 +941,9 @@ export async function exportDeckToPptx(
 
   const periodLabel = `${data.period.label} vs ${data.previousPeriod.label}`;
 
-  // Pre-fetch creative thumbnails (server-side proxy to avoid CORS)
-  const thumbnailDataMap = await fetchThumbnails(data.topCreatives ?? []);
+  // Pre-fetch creative thumbnails + any AI-slide image URLs (server-side proxy avoids CORS)
+  const aiImageUrls = (aiSlides ?? []).flatMap((sl) => (sl.images ?? []).map((i) => i.url));
+  const thumbnailDataMap = await fetchThumbnails(data.topCreatives ?? [], aiImageUrls);
 
   // Cover & Agenda
   addCover(pptx, data);
@@ -1179,6 +1190,81 @@ export async function exportDeckToPptx(
         yPos += (rows.length * 0.3) + 0.2;
       }
 
+      // Chart (basic horizontal bar) — was only in the dead exportAiSlidesToPptx
+      if (slide.chart) {
+        const entries = Object.entries(slide.chart.data).filter(([, v]) => typeof v === "number") as [string, number][];
+        if (entries.length > 0) {
+          const max = Math.max(...entries.map(([, v]) => v));
+          const barH = 0.28;
+          const barTrackW = 8.5;
+          entries.forEach(([label, value], i) => {
+            const y = yPos + i * (barH + 0.08);
+            const pct = max > 0 ? (value / max) * barTrackW : 0;
+            s.addText(label, {
+              x: LAYOUT.marginX + 0.3, y, w: 2.2, h: barH,
+              fontSize: 8, color: "333333", fontFace: FONTS.body, align: "right", valign: "middle",
+            });
+            s.addShape("rect", {
+              x: LAYOUT.marginX + 2.7, y: y + barH * 0.2, w: barTrackW, h: barH * 0.6,
+              fill: { color: "F0F4F8" }, line: { width: 0 }, rectRadius: 0.03,
+            });
+            s.addShape("rect", {
+              x: LAYOUT.marginX + 2.7, y: y + barH * 0.2, w: pct, h: barH * 0.6,
+              fill: { color: c(IA.blue) }, line: { width: 0 }, rectRadius: 0.03,
+            });
+            s.addText(typeof value === "number" ? value.toLocaleString("fr-FR") : String(value), {
+              x: LAYOUT.marginX + 11.4, y, w: 1.5, h: barH,
+              fontSize: 8, bold: true, color: c(IA.blueDeep), fontFace: FONTS.title, align: "right", valign: "middle",
+            });
+          });
+          yPos += entries.length * (barH + 0.08) + 0.15;
+        }
+      }
+
+      // Creative images (thumbnails) — was missing from export
+      if (slide.images && slide.images.length > 0) {
+        const imgs = slide.images.slice(0, 3);
+        const totalW = 11.5;
+        const gap = 0.2;
+        const imgW = (totalW - gap * (imgs.length - 1)) / imgs.length;
+        const imgH = Math.min(2.4, LAYOUT.height - yPos - 1.5);
+        for (let ii = 0; ii < imgs.length; ii++) {
+          const img = imgs[ii];
+          const x = LAYOUT.marginX + 0.3 + ii * (imgW + gap);
+          // Background card
+          s.addShape("rect", {
+            x, y: yPos, w: imgW, h: imgH,
+            fill: { color: "F5F7FA" }, line: { color: "E8EDF3", width: 0.5 },
+            rectRadius: 0.04,
+          });
+          // Image — pptxgenjs accepts URLs but external fetches fail; if we
+          // have a thumbnailDataMap entry use that
+          const dataUrl = thumbnailDataMap[img.url];
+          if (dataUrl) {
+            s.addImage({ data: dataUrl, x: x + 0.05, y: yPos + 0.05, w: imgW - 0.1, h: imgH - 0.5 });
+          } else {
+            s.addText(img.label || "Image", {
+              x: x + 0.05, y: yPos + 0.05, w: imgW - 0.1, h: imgH - 0.5,
+              fontSize: 9, color: "8A9BB5", fontFace: FONTS.body,
+              align: "center", valign: "middle", italic: true,
+            });
+          }
+          if (img.label) {
+            s.addText(img.label, {
+              x: x + 0.05, y: yPos + imgH - 0.4, w: imgW - 0.1, h: 0.2,
+              fontSize: 8, bold: true, color: c(IA.textBlack), fontFace: FONTS.body, align: "left",
+            });
+          }
+          if (img.metrics) {
+            s.addText(img.metrics, {
+              x: x + 0.05, y: yPos + imgH - 0.2, w: imgW - 0.1, h: 0.18,
+              fontSize: 7, color: c(IA.textCaption), fontFace: FONTS.body, align: "left",
+            });
+          }
+        }
+        yPos += imgH + 0.2;
+      }
+
       // Insights — auto-scale font when many items or limited space
       if (slide.insights && slide.insights.length > 0) {
         // Section divider line
@@ -1235,6 +1321,18 @@ export async function exportDeckToPptx(
       const aiEditorIdx = 1000 + aiIdx;
       const els = slideElements?.[aiEditorIdx];
       if (els && els.length > 0) addSlideElements(s, els, LAYOUT.width, LAYOUT.height);
+
+      // Dropped blocks targeting this AI slide. The page indexes AI slides as
+      // STANDARD_SLIDE_COUNT + customSlides.length + aiIdx in the absolute
+      // slide order, so look up by that.
+      if (droppedBlocks) {
+        const aiAbsIdx = STANDARD_SLIDE_COUNT + (customSlides?.length ?? 0) + aiIdx;
+        for (const block of droppedBlocks) {
+          if (block.slideIndex === aiAbsIdx) {
+            addDroppedBlock(s, block, blockStyles?.[block.id], LAYOUT.width, LAYOUT.height);
+          }
+        }
+      }
     }
   }
 
