@@ -318,17 +318,17 @@ function HighlightCard({
 
   return (
     <div
-      className="relative rounded-xl p-[4%] flex flex-col justify-center"
+      className="relative rounded-xl p-[5%] flex flex-col justify-around overflow-hidden"
       style={{ backgroundColor: "#F3F4F6" }}
     >
       {/* Large background number */}
       <span
-        className="absolute top-[4%] left-[6%] font-black leading-none"
-        style={{ color: "#D1D5DB", fontFamily: "'Raleway', sans-serif", fontSize: fs.bgNumber }}
+        className="absolute top-[2%] left-[5%] font-black leading-none pointer-events-none select-none"
+        style={{ color: "#D8DEE6", fontFamily: "'Raleway', sans-serif", fontSize: fs.bgNumber }}
       >
         {index + 1}
       </span>
-      <div className="relative mt-[3%] text-center">
+      <div className="relative text-center">
         <div className="font-bold leading-snug" style={{ color: "#111", fontSize: fs.highlightTitle }}>
           {onEdit ? (
             <EditableText
@@ -426,13 +426,13 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
           </tbody>
         </table>
 
-        {/* // OVERVIEW section — flex-1 fills remaining space */}
-        <div className="flex-1 min-h-0 mt-[3%] flex flex-col">
+        {/* // OVERVIEW section — flex-1 fills remaining space, content centered */}
+        <div className="flex-1 min-h-0 mt-[3%] flex flex-col justify-center">
           <div className="font-bold" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
             // OVERVIEW
           </div>
           <div className="w-[15%] h-[3px] mt-[0.5%] mb-[2%]" style={{ backgroundColor: colors.blueSignature }} />
-          <ul className="flex-1 flex flex-col justify-around" style={{ fontSize: fs.body }}>
+          <ul className="flex flex-col gap-[2%]" style={{ fontSize: fs.body }}>
             {data.globalTable.filter(r => r.platform !== "Total").map((row) => (
               <li key={row.platform} className="flex gap-[1.5%]" style={{ color: "#333" }}>
                 <span className="font-bold flex-shrink-0" style={{ color: colors.blueDeep }}>&#8226;</span>
@@ -548,26 +548,26 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
               const pnc = getOverride?.(sn, `nc${idx}.pnc`) ?? fmtPct(row.current.percentNc);
               return (
                 <tr key={row.platform} style={{ backgroundColor: bg, fontWeight: isTotal ? 700 : 400, color: isTotal ? colors.blueDeep : colors.text }}>
-                  <td className="px-[2%] py-[2%]">{row.platform}</td>
-                  <td className="text-right px-[2%] py-[2%]">{onEdit ? <EditableText field={`nc${idx}.nc`} slideIndex={sn} currentValue={nc} onEdit={onEdit}>{nc}</EditableText> : nc}</td>
-                  <td className="text-right px-[2%] py-[2%]"><DeltaBadge value={row.delta.newClients} /></td>
-                  <td className="text-right px-[2%] py-[2%]">{onEdit ? <EditableText field={`nc${idx}.cpnc`} slideIndex={sn} currentValue={cpnc} onEdit={onEdit}>{cpnc}</EditableText> : cpnc}</td>
-                  <td className="text-right px-[2%] py-[2%]"><DeltaBadge value={row.delta.cpNc} invert /></td>
-                  <td className="text-right px-[2%] py-[2%]">{onEdit ? <EditableText field={`nc${idx}.pnc`} slideIndex={sn} currentValue={pnc} onEdit={onEdit}>{pnc}</EditableText> : pnc}</td>
-                  <td className="text-right px-[2%] py-[2%]"><DeltaBadge value={row.delta.percentNc} /></td>
+                  <td className="px-[2%] py-[3%]">{row.platform}</td>
+                  <td className="text-right px-[2%] py-[3%]">{onEdit ? <EditableText field={`nc${idx}.nc`} slideIndex={sn} currentValue={nc} onEdit={onEdit}>{nc}</EditableText> : nc}</td>
+                  <td className="text-right px-[2%] py-[3%]"><DeltaBadge value={row.delta.newClients} /></td>
+                  <td className="text-right px-[2%] py-[3%]">{onEdit ? <EditableText field={`nc${idx}.cpnc`} slideIndex={sn} currentValue={cpnc} onEdit={onEdit}>{cpnc}</EditableText> : cpnc}</td>
+                  <td className="text-right px-[2%] py-[3%]"><DeltaBadge value={row.delta.cpNc} invert /></td>
+                  <td className="text-right px-[2%] py-[3%]">{onEdit ? <EditableText field={`nc${idx}.pnc`} slideIndex={sn} currentValue={pnc} onEdit={onEdit}>{pnc}</EditableText> : pnc}</td>
+                  <td className="text-right px-[2%] py-[3%]"><DeltaBadge value={row.delta.percentNc} /></td>
                 </tr>
               );
             })}
           </tbody>
         </table>
 
-        {/* // OVERVIEW section — flex-1 fills remaining space */}
-        <div className="flex-1 min-h-0 mt-[3%] flex flex-col">
+        {/* // OVERVIEW section — flex-1 fills remaining space, content centered */}
+        <div className="flex-1 min-h-0 mt-[3%] flex flex-col justify-center">
           <div className="font-bold" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
             // OVERVIEW
           </div>
           <div className="w-[15%] h-[3px] mt-[0.5%] mb-[2%]" style={{ backgroundColor: colors.blueSignature }} />
-          <ul className="flex-1 flex flex-col justify-around" style={{ fontSize: fs.body }}>
+          <ul className="flex flex-col gap-[2%]" style={{ fontSize: fs.body }}>
             {data.ncTable.filter(r => r.platform !== "Total").map((row) => {
               const ncDelta = row.delta.newClients !== 999 ? ` (${row.delta.newClients > 0 ? "+" : ""}${fmtDec(row.delta.newClients, 1)}%)` : "";
               return (
@@ -712,12 +712,12 @@ export function TopCreativesSlide({
           {creatives.slice(0, 3).map((c) => (
             <div
               key={c.id}
-              className="rounded-lg overflow-hidden border"
+              className="rounded-lg overflow-hidden border flex flex-col"
               style={{ backgroundColor: "#fff", borderColor: "#E8EDF3" }}
             >
-              {/* Thumbnail */}
+              {/* Thumbnail — flex-1 so it fills the card vertically */}
               <div
-                className="w-full aspect-[4/3] flex items-center justify-center relative overflow-hidden"
+                className="w-full flex-1 min-h-0 flex items-center justify-center relative overflow-hidden"
                 style={{ backgroundColor: "#F5F7FA" }}
               >
                 {c.thumbnailUrl ? (
@@ -743,7 +743,7 @@ export function TopCreativesSlide({
                   </span>
                 </div>
               </div>
-              <div className="p-[4%]">
+              <div className="p-[4%] flex-shrink-0">
                 <div className="font-bold mb-[2%] line-clamp-2" style={{ fontSize: fs.small, lineHeight: 1.3 }}>{c.name}</div>
                 <div className="grid grid-cols-2 gap-[3%]" style={{ fontSize: fs.small }}>
                   <div>
@@ -1026,7 +1026,7 @@ export function KPIOverviewSlide({
   const renderCard = (k: { label: string; key: string; value: string }) => {
     const override = getOverride?.(sn, `kpi.${k.key}`) ?? k.value;
     return (
-      <div key={k.label} className="text-center px-[2%] py-[3%] rounded-lg flex flex-col justify-center items-center gap-[8%]" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+      <div key={k.label} className="text-center px-[2%] py-[6%] rounded-lg flex flex-col justify-between items-center" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
         <div className="font-semibold uppercase tracking-wider" style={{ color: "#8A9BB5", fontSize: fs.kpiLabel }}>
           {k.label}
         </div>
