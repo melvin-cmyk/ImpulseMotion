@@ -772,7 +772,7 @@ export default function DeckPage() {
 
       if (deckData) {
         // Export static slides
-        blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined);
+        blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined, blockStyles);
         filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
       } else {
         alert("Aucun deck à exporter.");
@@ -975,6 +975,15 @@ export default function DeckPage() {
 
   const handleFilmstripDrop = useCallback((e: React.DragEvent, targetIdx: number) => {
     e.preventDefault();
+    // Template dropped on the filmstrip → create a new custom slide
+    const tplContent = e.dataTransfer.getData("application/deck-template");
+    if (tplContent) {
+      const label = tplContent.match(/^##?\s+(.+)/m)?.[1] || "Template";
+      handleAddCustomSlide(label, tplContent);
+      setFilmstripDragging(null);
+      setFilmstripDropTarget(null);
+      return;
+    }
     const fromIdx = filmstripDragging;
     if (fromIdx === null || fromIdx === targetIdx) {
       setFilmstripDragging(null);
@@ -993,7 +1002,7 @@ export default function DeckPage() {
     setFilmstripDragging(null);
     setFilmstripDropTarget(null);
     showToast("↕️ Slide réordonnée");
-  }, [filmstripDragging, slides.length, showToast]);
+  }, [filmstripDragging, slides.length, showToast, handleAddCustomSlide]);
 
   const handleFilmstripDragEnd = useCallback(() => {
     setFilmstripDragging(null);
@@ -1218,10 +1227,29 @@ export default function DeckPage() {
     }
 
     // Handle deck-template drops (from AI panel templates)
+    // Behaviour: drop on the canvas overlays the template as a DroppedBlock on
+    // the current slide (works on both standard and custom slides). To create
+    // a brand-new slide, drop on the filmstrip instead.
     const templateContent = e.dataTransfer.getData("application/deck-template");
     if (templateContent) {
-      const label = templateContent.match(/^##?\s+(.+)/m)?.[1] || "Template";
-      handleAddCustomSlide(label, templateContent);
+      const canvas = canvasRef.current;
+      let xPct = 5, yPct = 12;
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect();
+        xPct = Math.max(0, Math.min(50, ((e.clientX - rect.left) / rect.width) * 100 - 25));
+        yPct = Math.max(0, Math.min(50, ((e.clientY - rect.top) / rect.height) * 100 - 20));
+      }
+      const newBlock: DroppedBlock = {
+        id: crypto.randomUUID(),
+        content: templateContent,
+        slideIndex: currentSlide,
+        x: xPct,
+        y: yPct,
+        w: 50,
+        h: 40,
+      };
+      setDroppedBlocks((prev) => [...prev, newBlock]);
+      setSelectedBlockId(newBlock.id);
       return;
     }
 
@@ -1810,7 +1838,7 @@ export default function DeckPage() {
             if (!deckData) { alert("Aucun deck à exporter."); return; }
             setIsExporting(true);
             try {
-              const blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined);
+              const blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined, blockStyles);
               const filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
 
               // Download the PPTX file

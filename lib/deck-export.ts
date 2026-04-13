@@ -23,6 +23,20 @@ interface DroppedBlock {
   y: number; // % of canvas height
   w: number; // % of canvas width
   h?: number; // % of canvas height (auto if undefined)
+  fontFamily?: string;
+  fontSize?: number;
+  textColor?: string;
+}
+
+// Style overrides maintained in page state for tables inside dropped blocks
+export interface BlockStyle {
+  headerColor: string;
+  rowColor: string;
+  fontSize: number;
+  fontFamily: string;
+  textColor: string;
+  borderColor: string;
+  borderWidth: number;
 }
 
 interface SlideElement {
@@ -47,6 +61,187 @@ interface SlideElement {
   textAlign?: "left" | "center" | "right";
   // Image-specific
   imageUrl?: string;
+}
+
+// ── Dropped-block renderer (markdown → real pptx shapes) ────────────────────
+
+interface MdBlock {
+  type: "heading" | "paragraph" | "list" | "table";
+  level?: number;            // heading level
+  text?: string;             // heading/paragraph
+  items?: string[];          // list items
+  rows?: string[][];         // table rows (first = header)
+}
+
+function parseMarkdownBlocks(md: string): MdBlock[] {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const out: MdBlock[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // Skip blank lines
+    if (!line.trim()) { i++; continue; }
+    // Heading
+    const h = line.match(/^(#{1,6})\s+(.+)$/);
+    if (h) { out.push({ type: "heading", level: h[1].length, text: h[2].trim() }); i++; continue; }
+    // Table — line starts with `|` and next line is separator `| --- |`
+    if (line.trim().startsWith("|") && i + 1 < lines.length && /^\s*\|?\s*[-:]+/.test(lines[i + 1])) {
+      const rows: string[][] = [];
+      const headerCells = line.split("|").map((c) => c.trim()).filter((c, idx, arr) => !(idx === 0 && c === "") && !(idx === arr.length - 1 && c === ""));
+      rows.push(headerCells);
+      i += 2; // skip header and separator
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        const cells = lines[i].split("|").map((c) => c.trim()).filter((c, idx, arr) => !(idx === 0 && c === "") && !(idx === arr.length - 1 && c === ""));
+        if (cells.length > 0) rows.push(cells);
+        i++;
+      }
+      out.push({ type: "table", rows });
+      continue;
+    }
+    // List
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*[-*]\s+/, "").trim());
+        i++;
+      }
+      out.push({ type: "list", items });
+      continue;
+    }
+    // Paragraph (collect consecutive non-blank lines)
+    const para: string[] = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|\s*[-*]\s|\|)/.test(lines[i])) {
+      para.push(lines[i]);
+      i++;
+    }
+    out.push({ type: "paragraph", text: para.join(" ").trim() });
+  }
+  return out;
+}
+
+/** Strip simple inline markdown (bold/italic/code) for display in pptx text. */
+function stripInline(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+}
+
+/**
+ * Render a dropped block (markdown content with optional table) onto a slide.
+ * Honours the user-customised block style for tables (header/row colours, font).
+ * Returns true on success.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function addDroppedBlock(slide: any, block: DroppedBlock, style: BlockStyle | undefined, layoutW: number, layoutH: number) {
+  const xIn = (block.x / 100) * layoutW;
+  const yIn = (block.y / 100) * layoutH;
+  const wIn = (block.w / 100) * layoutW;
+  const hIn = block.h !== undefined ? (block.h / 100) * layoutH : 2.0;
+
+  // White card background to mirror the on-screen look
+  slide.addShape("rect", {
+    x: xIn, y: yIn, w: wIn, h: hIn,
+    fill: { color: "FFFFFF" },
+    line: { color: "E5E7EB", width: 0.5 },
+  });
+
+  const blocks = parseMarkdownBlocks(block.content);
+  const fontFace = style?.fontFamily === "Mono" ? "Courier New"
+    : style?.fontFamily === "Georgia" ? "Georgia"
+    : style?.fontFamily ?? block.fontFamily ?? FONTS.body;
+  const baseColor = (style?.textColor ?? block.textColor ?? "#1a1a1a").replace("#", "");
+  const baseSize = style?.fontSize ?? block.fontSize ?? 11;
+
+  const padX = 0.12;
+  const padY = 0.12;
+  let cursorY = yIn + padY;
+  const innerW = wIn - padX * 2;
+  const maxY = yIn + hIn - padY;
+
+  for (const b of blocks) {
+    if (cursorY >= maxY) break;
+    if (b.type === "heading") {
+      const size = b.level === 1 ? Math.max(baseSize + 6, 14) : Math.max(baseSize + 3, 12);
+      const h = (size / 72) * 1.5;
+      if (cursorY + h > maxY) break;
+      slide.addText(stripInline(b.text ?? ""), {
+        x: xIn + padX, y: cursorY, w: innerW, h,
+        fontSize: size, bold: true, color: baseColor, fontFace,
+        valign: "top",
+      });
+      cursorY += h + 0.05;
+    } else if (b.type === "paragraph") {
+      const lines = Math.max(1, Math.ceil(((b.text ?? "").length * (baseSize * 0.55)) / (innerW * 72)));
+      const h = Math.min(maxY - cursorY, (lines * baseSize) / 72 + 0.1);
+      slide.addText(stripInline(b.text ?? ""), {
+        x: xIn + padX, y: cursorY, w: innerW, h,
+        fontSize: baseSize, color: baseColor, fontFace,
+        valign: "top", wrap: true,
+      });
+      cursorY += h + 0.05;
+    } else if (b.type === "list") {
+      const items = b.items ?? [];
+      for (const item of items) {
+        if (cursorY >= maxY) break;
+        const h = (baseSize * 1.6) / 72;
+        slide.addText("• " + stripInline(item), {
+          x: xIn + padX, y: cursorY, w: innerW, h,
+          fontSize: baseSize, color: baseColor, fontFace,
+          valign: "top",
+        });
+        cursorY += h + 0.02;
+      }
+    } else if (b.type === "table") {
+      const rows = b.rows ?? [];
+      if (rows.length === 0) continue;
+      const colCount = Math.max(...rows.map((r) => r.length));
+      const headerColor = (style?.headerColor ?? "#0070C0").replace("#", "");
+      const rowAltColor = (style?.rowColor ?? "#F3F3F3").replace("#", "");
+      const borderColor = (style?.borderColor ?? "#E5E7EB").replace("#", "");
+      const borderW = style?.borderWidth ?? 1;
+      const tableRows = rows.map((r, rIdx) => {
+        // Pad short rows to colCount
+        const cells = [...r];
+        while (cells.length < colCount) cells.push("");
+        return cells.map((cell) => ({
+          text: stripInline(cell),
+          options: rIdx === 0
+            ? {
+                fill: { color: headerColor },
+                color: "FFFFFF",
+                bold: true,
+                fontSize: baseSize,
+                fontFace,
+                align: "left" as const,
+                valign: "middle" as const,
+                border: { type: "solid" as const, color: borderColor, pt: borderW * 0.75 },
+              }
+            : {
+                fill: { color: rIdx % 2 === 0 ? "FFFFFF" : rowAltColor },
+                color: baseColor,
+                fontSize: baseSize,
+                fontFace,
+                align: "left" as const,
+                valign: "middle" as const,
+                border: { type: "solid" as const, color: borderColor, pt: borderW * 0.75 },
+              },
+        }));
+      });
+      const remaining = maxY - cursorY;
+      const tableH = Math.min(remaining, ((rows.length * (baseSize + 6)) / 72) + 0.1);
+      slide.addTable(tableRows, {
+        x: xIn + padX, y: cursorY, w: innerW, h: tableH,
+        fontSize: baseSize, fontFace,
+        autoPage: false,
+        rowH: tableH / rows.length,
+      });
+      cursorY += tableH + 0.05;
+    }
+  }
 }
 
 /** Render SlideElements onto a pptxgenjs slide object */
@@ -724,7 +919,8 @@ export async function exportDeckToPptx(
   customSlides?: CustomSlide[],
   droppedBlocks?: DroppedBlock[],
   slideElements?: Record<number, SlideElement[]>,
-  aiSlides?: import("@/types/deck").SlideData[]
+  aiSlides?: import("@/types/deck").SlideData[],
+  blockStyles?: Record<string, BlockStyle>
 ): Promise<Blob> {
   const PptxGenJS = (await import("pptxgenjs")).default;
   const pptx = new PptxGenJS();
@@ -794,21 +990,7 @@ export async function exportDeckToPptx(
       const slide = internalSlides[slideIdx];
       if (!slide) continue;
       for (const block of blocks) {
-        const xIn = (block.x / 100) * LAYOUT.width;
-        const yIn = (block.y / 100) * LAYOUT.height;
-        const wIn = (block.w / 100) * LAYOUT.width;
-        const hIn = block.h !== undefined ? (block.h / 100) * LAYOUT.height : 1.2;
-        const plainText = stripMarkdown(block.content);
-        slide.addShape("rect", {
-          x: xIn, y: yIn, w: wIn, h: hIn,
-          fill: { color: c(IA.bgDark), transparency: 15 },
-          line: { color: c(IA.blue), width: 1 },
-        });
-        slide.addText(plainText, {
-          x: xIn + 0.1, y: yIn + 0.1, w: wIn - 0.2, h: hIn - 0.2,
-          fontSize: 9, color: c(IA.textWhite), fontFace: FONTS.body,
-          valign: "top", wrap: true,
-        });
+        addDroppedBlock(slide, block, blockStyles?.[block.id], LAYOUT.width, LAYOUT.height);
       }
       // SlideElements (drawn shapes/text) on this standard slide
       const els = slideElements?.[slideIdx];
@@ -868,35 +1050,30 @@ export async function exportDeckToPptx(
         fill: { color: c(IA.blue) }, line: { width: 0 },
       });
 
-      // Content — render markdown as plain text
-      const plainContent = stripMarkdown(cs.content);
-      if (plainContent) {
-        s.addText(plainContent, {
-          x: LAYOUT.marginX + 0.3, y: LAYOUT.contentY + 0.2, w: 12, h: 5.5,
-          fontSize: SIZES.body, color: c(IA.textWhite),
-          fontFace: cs.fontFamily ?? FONTS.body,
-          valign: "top", wrap: true,
-        });
+      // Content — render markdown content (tables, headings, lists) as a
+      // block on a white background so it matches the on-screen preview.
+      // Strip a leading H1 if it matches the slide label (avoids duplicating
+      // the title that's already shown in the slide header).
+      if (cs.content && cs.content.trim()) {
+        let content = cs.content;
+        const firstHeading = content.match(/^\s*#\s+(.+?)\s*$/m);
+        if (firstHeading && firstHeading[1].trim() === cs.label.trim()) {
+          content = content.replace(firstHeading[0], "").trimStart();
+        }
+        const contentBlock: DroppedBlock = {
+          id: `cs-${cs.id}`,
+          content,
+          slideIndex: absIdx,
+          x: 2.5, y: 13, w: 95, h: 80,
+          fontFamily: cs.fontFamily,
+        };
+        addDroppedBlock(s, contentBlock, undefined, LAYOUT.width, LAYOUT.height);
       }
 
       // Dropped blocks on this custom slide
       const blocks = customBlocksBySlide[absIdx] ?? [];
       for (const block of blocks) {
-        const xIn = (block.x / 100) * LAYOUT.width;
-        const yIn = (block.y / 100) * LAYOUT.height;
-        const wIn = (block.w / 100) * LAYOUT.width;
-        const hIn = block.h !== undefined ? (block.h / 100) * LAYOUT.height : 1.2;
-        const plainText = stripMarkdown(block.content);
-        s.addShape("rect", {
-          x: xIn, y: yIn, w: wIn, h: hIn,
-          fill: { color: c(IA.bgDark), transparency: 15 },
-          line: { color: c(IA.blue), width: 1 },
-        });
-        s.addText(plainText, {
-          x: xIn + 0.1, y: yIn + 0.1, w: wIn - 0.2, h: hIn - 0.2,
-          fontSize: 9, color: c(IA.textWhite), fontFace: FONTS.body,
-          valign: "top", wrap: true,
-        });
+        addDroppedBlock(s, block, blockStyles?.[block.id], LAYOUT.width, LAYOUT.height);
       }
 
       // SlideElements (drawn shapes/text) on this custom slide
