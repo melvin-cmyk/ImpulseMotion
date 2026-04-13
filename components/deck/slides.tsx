@@ -221,26 +221,42 @@ export function SectionDividerSlide({
   const actualTitle = getOverride?.(slideNumber ?? 0, "title") ?? title;
   const actualSubtitle = getOverride?.(slideNumber ?? 0, "subtitle") ?? subtitle;
 
+  const sn = slideNumber ?? 0;
   return (
     <SlideShell dark slideNumber={slideNumber}>
       <div className="flex items-center justify-center h-full">
-        {/* White rounded box centered */}
         <div
-          className="bg-white rounded-2xl px-[10%] py-[5%] flex items-center justify-center gap-[2%] shadow-lg"
-          style={{ minWidth: "45%" }}
+          className="bg-white rounded-2xl px-[8%] py-[6%] flex flex-col items-center justify-center gap-[2%] shadow-2xl text-center"
+          style={{ minWidth: "55%", maxWidth: "75%" }}
         >
-          <span
+          <div
+            className="font-black tracking-widest"
+            style={{ color: "#2CA6F9", fontFamily: "'Raleway', sans-serif", fontSize: "max(2.2%, 14px)" }}
+          >
+            SECTION {sectionNumber}
+          </div>
+          <div
             className="font-extrabold"
-            style={{ color: "#000", fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", fontSize: fs.section }}
+            style={{ color: "#0944A1", fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", fontSize: fs.section, lineHeight: 1.1 }}
           >
             {onEdit ? (
-              <EditableText field="title" slideIndex={slideNumber ?? 0} currentValue={`${sectionNumber} - ${actualTitle}`} onEdit={onEdit}>
-                {sectionNumber} - {actualTitle}
+              <EditableText field="title" slideIndex={sn} currentValue={actualTitle} onEdit={onEdit}>
+                {actualTitle}
               </EditableText>
-            ) : (
-              <>{sectionNumber} - {actualTitle}</>
-            )}
-          </span>
+            ) : actualTitle}
+          </div>
+          {actualSubtitle && (
+            <div
+              className="italic"
+              style={{ color: "#5B6B82", fontSize: fs.subtitle }}
+            >
+              {onEdit ? (
+                <EditableText field="subtitle" slideIndex={sn} currentValue={actualSubtitle} onEdit={onEdit}>
+                  {actualSubtitle}
+                </EditableText>
+              ) : actualSubtitle}
+            </div>
+          )}
         </div>
       </div>
     </SlideShell>
@@ -381,7 +397,7 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
 
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
-      <div>
+      <div className="flex flex-col h-full">
         <h2
           className="font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -410,13 +426,13 @@ export function GlobalTableSlide({ data, slideNumber, onEdit, getOverride }: { d
           </tbody>
         </table>
 
-        {/* // OVERVIEW section */}
-        <div className="mt-[4%]">
+        {/* // OVERVIEW section — flex-1 fills remaining space */}
+        <div className="flex-1 min-h-0 mt-[3%] flex flex-col">
           <div className="font-bold" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
             // OVERVIEW
           </div>
           <div className="w-[15%] h-[3px] mt-[0.5%] mb-[2%]" style={{ backgroundColor: colors.blueSignature }} />
-          <ul className="space-y-[1%]" style={{ fontSize: fs.body }}>
+          <ul className="flex-1 flex flex-col justify-around" style={{ fontSize: fs.body }}>
             {data.globalTable.filter(r => r.platform !== "Total").map((row) => (
               <li key={row.platform} className="flex gap-[1.5%]" style={{ color: "#333" }}>
                 <span className="font-bold flex-shrink-0" style={{ color: colors.blueDeep }}>&#8226;</span>
@@ -502,7 +518,7 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
   const title = getOverride?.(sn, "title") ?? "Nouveaux Clients — NC / CP-NC / %NC";
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
-      <div>
+      <div className="flex flex-col h-full">
         <h2
           className="font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -545,13 +561,13 @@ export function NCSlide({ data, slideNumber, onEdit, getOverride }: { data: Deck
           </tbody>
         </table>
 
-        {/* // OVERVIEW section */}
-        <div className="mt-[4%]">
+        {/* // OVERVIEW section — flex-1 fills remaining space */}
+        <div className="flex-1 min-h-0 mt-[3%] flex flex-col">
           <div className="font-bold" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
             // OVERVIEW
           </div>
           <div className="w-[15%] h-[3px] mt-[0.5%] mb-[2%]" style={{ backgroundColor: colors.blueSignature }} />
-          <ul className="space-y-[1.5%]" style={{ fontSize: fs.body }}>
+          <ul className="flex-1 flex flex-col justify-around" style={{ fontSize: fs.body }}>
             {data.ncTable.filter(r => r.platform !== "Total").map((row) => {
               const ncDelta = row.delta.newClients !== 999 ? ` (${row.delta.newClients > 0 ? "+" : ""}${fmtDec(row.delta.newClients, 1)}%)` : "";
               return (
@@ -592,7 +608,7 @@ export function CampaignTableSlide({
   const actualTitle = getOverride?.(sn, "title") ?? title;
   return (
     <SlideShell accent={accent} slideNumber={slideNumber}>
-      <div>
+      <div className="flex flex-col h-full">
         <h2
           className="font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -605,10 +621,11 @@ export function CampaignTableSlide({
         <div className="w-full h-[1px] mb-[2%]" style={{ backgroundColor: colors.caption }} />
 
         {campaigns.length === 0 ? (
-          <div className="flex items-center justify-center py-[4%]" style={{ color: colors.caption, fontSize: fs.body }}>
+          <div className="flex-1 flex items-center justify-center" style={{ color: colors.caption, fontSize: fs.body }}>
             Aucune campagne disponible pour cette période.
           </div>
         ) : (
+        <div className="flex-1 min-h-0 flex flex-col justify-center">
         <table className="w-full border-collapse" style={{ fontSize: fs.body }}>
           <thead>
             <tr style={{ backgroundColor: colors.blueHeader, color: "#fff" }}>
@@ -657,6 +674,7 @@ export function CampaignTableSlide({
             })}
           </tbody>
         </table>
+        </div>
         )}
       </div>
     </SlideShell>
@@ -785,12 +803,12 @@ export function LearningsSlide({
           <div className="w-[15%] h-[3px] mt-[0.5%]" style={{ backgroundColor: colors.blueSignature }} />
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col justify-around gap-[1.5%]">
+        <div className="flex-1 min-h-0 flex flex-col gap-[2%]">
           {learnings.map((l, i) => {
             const field = `learning${i}`;
             const actualValue = getOverride?.(slideNumber ?? 0, field) ?? l;
             return (
-              <div key={i} className="flex gap-[2%] items-center rounded-lg p-[1.5%]" style={{ color: "#333", fontSize: fs.body, backgroundColor: i % 2 === 0 ? "#F5F7FA" : "#fff", border: "1px solid #E8EDF3" }}>
+              <div key={i} className="flex-1 flex gap-[2%] items-center rounded-lg p-[2.5%]" style={{ color: "#333", fontSize: fs.body, backgroundColor: i % 2 === 0 ? "#F5F7FA" : "#fff", border: "1px solid #E8EDF3" }}>
                 <span style={{ color: colors.blueDeep }} className="font-bold flex-shrink-0">
                   &#8226;
                 </span>
@@ -850,14 +868,14 @@ export function NextStepsSlide({
           <div className="w-[15%] h-[3px] mt-[0.5%]" style={{ backgroundColor: colors.blueSignature }} />
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col justify-around gap-[1.5%]">
+        <div className="flex-1 min-h-0 flex flex-col gap-[2%]">
           {steps.map((s, i) => {
             const field = `step${i}`;
             const actualValue = getOverride?.(slideNumber ?? 0, field) ?? s;
             return (
               <div
                 key={i}
-                className="flex gap-[2%] items-center rounded-lg p-[1.5%]"
+                className="flex-1 flex gap-[2%] items-center rounded-lg p-[2.5%]"
                 style={{ color: "#333", fontSize: fs.body, backgroundColor: "#EFF6FF", borderLeft: `4px solid ${colors.blueSignature}` }}
               >
                 <span className="font-bold flex-shrink-0" style={{ color: colors.blueSignature }}>
@@ -903,7 +921,7 @@ export function BudgetSlide({
   const titlePeriod = getOverride?.(sn, "period") ?? period;
   return (
     <SlideShell accent="blue" slideNumber={slideNumber}>
-      <div>
+      <div className="flex flex-col h-full">
         <h2
           className="font-extrabold mb-[0.5%]"
           style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: colors.blueSignature, fontSize: fs.title }}
@@ -947,14 +965,14 @@ export function BudgetSlide({
           </tbody>
         </table>
 
-        {/* Budget bar chart */}
-        <div className="mt-[4%] flex gap-[4%]">
+        {/* Budget bar chart — fills remaining vertical space */}
+        <div className="flex-1 min-h-0 mt-[3%] flex gap-[4%] items-stretch">
           {budget.filter((b) => b.platform !== "Total").map((b) => (
-            <div key={b.platform} className="flex-1 rounded-lg p-[3%]" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
-              <div className="font-semibold mb-[2%]" style={{ color: colors.blueDeep, fontSize: fs.body }}>
+            <div key={b.platform} className="flex-1 rounded-lg p-[3%] flex flex-col justify-center gap-[6%]" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+              <div className="font-semibold" style={{ color: colors.blueDeep, fontSize: fs.bodyLg }}>
                 {b.platform}
               </div>
-              <div className="h-[14px] w-full rounded-full overflow-hidden" style={{ backgroundColor: "#E5E7EB" }}>
+              <div className="h-[18px] w-full rounded-full overflow-hidden" style={{ backgroundColor: "#E5E7EB" }}>
                 <div
                   className="h-full rounded-full"
                   style={{
@@ -963,7 +981,7 @@ export function BudgetSlide({
                   }}
                 />
               </div>
-              <div className="flex justify-between mt-[2%]" style={{ color: "#555", fontSize: fs.small }}>
+              <div className="flex justify-between" style={{ color: "#555", fontSize: fs.small }}>
                 <span className="font-semibold">{fmtCur(b.actual)}</span>
                 <span>/ {fmtCur(b.planned)}</span>
               </div>
