@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/sidebar";
+import { Sidebar, SecondaryNav } from "@/components/sidebar";
 import { SessionProvider } from "next-auth/react";
 import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
@@ -39,7 +39,8 @@ export default async function RootLayout({
                     <AccountSwitcher />
                     <UserNav session={session} />
                   </header>
-                  <main className="flex-1 overflow-auto">
+                  <SecondaryNav />
+                  <main className="flex-1 overflow-auto min-h-0">
                     {children}
                   </main>
                 </div>
