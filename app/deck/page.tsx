@@ -299,10 +299,74 @@ interface SlideConfig {
   }) => React.ReactNode;
 }
 
-function buildSlides(hasGoogle: boolean): SlideConfig[] {
+// Page sizes for the list-style slides. When a dataset is longer than the
+// page size, buildSlides emits one slide per chunk so the list never has to
+// scroll inside a slide.
+const TOP_CREATIVES_PER_SLIDE = 3;
+const CAMPAIGNS_PER_SLIDE = 8;
+
+function chunk<T>(arr: T[], size: number): T[][] {
+  if (!arr?.length) return [[]];
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+function buildSlides(hasGoogle: boolean, data: DeckData | null): SlideConfig[] {
   // Section numbers adapt: if Google Ads is hidden, Meta becomes 02, Budget becomes 03
   const metaNum = hasGoogle ? "03" : "02";
   const budgetNum = hasGoogle ? "04" : "03";
+
+  // Count how many pages each paginated list needs. When data isn't loaded
+  // yet we still emit a single placeholder slide so the filmstrip doesn't
+  // flicker between 1 and N entries.
+  const topCreativesPages = data ? chunk(data.topCreatives, TOP_CREATIVES_PER_SLIDE).length : 1;
+  const googleCampaignsPages = data ? chunk(data.googleCampaigns, CAMPAIGNS_PER_SLIDE).length : 1;
+  const metaCampaignsPages = data ? chunk(data.metaCampaigns, CAMPAIGNS_PER_SLIDE).length : 1;
+
+  const topCreativesSlides: SlideConfig[] = Array.from({ length: topCreativesPages }, (_, i) => ({
+    id: topCreativesPages > 1 ? `top-creatives-${i + 1}` : "top-creatives",
+    label: topCreativesPages > 1 ? `Top Créatives ${i + 1}/${topCreativesPages}` : "Top Créatives",
+    section: 3,
+    render: (d, n) => (
+      <TopCreativesSlide
+        title={topCreativesPages > 1 ? `Top Créatifs (${i + 1}/${topCreativesPages})` : "Top Créatifs"}
+        creatives={d.topCreatives.slice(i * TOP_CREATIVES_PER_SLIDE, (i + 1) * TOP_CREATIVES_PER_SLIDE)}
+        slideNumber={n}
+      />
+    ),
+  }));
+
+  const googleCampaignsSlides: SlideConfig[] = Array.from({ length: googleCampaignsPages }, (_, i) => ({
+    id: googleCampaignsPages > 1 ? `google-campaigns-${i + 1}` : "google-campaigns",
+    label: googleCampaignsPages > 1 ? `Campagnes Google ${i + 1}/${googleCampaignsPages}` : "Campagnes Google",
+    section: 2,
+    render: (d, n, cb) => (
+      <CampaignTableSlide
+        title={googleCampaignsPages > 1 ? `Google Ads — Campagnes (${i + 1}/${googleCampaignsPages})` : "Google Ads — Campagnes"}
+        campaigns={d.googleCampaigns.slice(i * CAMPAIGNS_PER_SLIDE, (i + 1) * CAMPAIGNS_PER_SLIDE)}
+        slideNumber={n}
+        periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`}
+        {...cb}
+      />
+    ),
+  }));
+
+  const metaCampaignsSlides: SlideConfig[] = Array.from({ length: metaCampaignsPages }, (_, i) => ({
+    id: metaCampaignsPages > 1 ? `meta-campaigns-${i + 1}` : "meta-campaigns",
+    label: metaCampaignsPages > 1 ? `Campagnes Meta ${i + 1}/${metaCampaignsPages}` : "Campagnes Meta",
+    section: 3,
+    render: (d, n, cb) => (
+      <CampaignTableSlide
+        title={metaCampaignsPages > 1 ? `Meta Ads — Campagnes (${i + 1}/${metaCampaignsPages})` : "Meta Ads — Campagnes"}
+        campaigns={d.metaCampaigns.slice(i * CAMPAIGNS_PER_SLIDE, (i + 1) * CAMPAIGNS_PER_SLIDE)}
+        accent="violet"
+        slideNumber={n}
+        periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`}
+        {...cb}
+      />
+    ),
+  }));
 
   return [
     // Cover & Agenda
@@ -319,15 +383,15 @@ function buildSlides(hasGoogle: boolean): SlideConfig[] {
     // Section 2 — Google Ads
     { id: "s2-div", label: "Section 2", section: 2, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="02" title="Focus Google Ads" subtitle="Vue globale · Campagnes · Brand Search · Pmax" slideNumber={n} {...cb} /> },
     { id: "google-kpi", label: "Google KPIs", section: 2, render: (d, n, cb) => <KPIOverviewSlide title="Google Ads — Vue Globale" metrics={d.googleOverview} slideNumber={n} {...cb} /> },
-    { id: "google-campaigns", label: "Campagnes Google", section: 2, render: (d, n, cb) => <CampaignTableSlide title="Google Ads — Campagnes" campaigns={d.googleCampaigns} slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} {...cb} /> },
+    ...googleCampaignsSlides,
     { id: "insights-google", label: "Points Clés Google", section: 2, render: (d, n, cb) => <LearningsSlide learnings={d.insightsGoogle} slideNumber={n} {...cb} /> },
     { id: "next-google", label: "Next Steps Google", section: 2, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Google Ads" steps={d.nextStepsGoogle} slideNumber={n} {...cb} /> },
 
     // Section 3 — Meta Ads (or 02 if no Google)
     { id: "s3-div", label: `Section ${hasGoogle ? 3 : 2}`, section: 3, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={metaNum} title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Points Clés" slideNumber={n} {...cb} /> },
     { id: "meta-kpi", label: "Meta KPIs", section: 3, render: (d, n, cb) => <KPIOverviewSlide title="Meta Ads — Vue Globale" metrics={d.metaOverview} accent="violet" slideNumber={n} {...cb} /> },
-    { id: "meta-campaigns", label: "Campagnes Meta", section: 3, render: (d, n, cb) => <CampaignTableSlide title="Meta Ads — Campagnes" campaigns={d.metaCampaigns} accent="violet" slideNumber={n} periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`} {...cb} /> },
-    { id: "top-creatives", label: "Top Créatives", section: 3, render: (d, n) => <TopCreativesSlide creatives={d.topCreatives} slideNumber={n} /> },
+    ...metaCampaignsSlides,
+    ...topCreativesSlides,
     { id: "insights-meta", label: "Points Clés Meta", section: 3, render: (d, n, cb) => <LearningsSlide learnings={d.insightsMeta} accent="violet" slideNumber={n} {...cb} /> },
     { id: "next-meta", label: "Next Steps Meta", section: 3, render: (d, n, cb) => <NextStepsSlide title="Next Steps — Meta Ads" steps={d.nextStepsMeta} accent="violet" slideNumber={n} {...cb} /> },
 
@@ -511,12 +575,16 @@ export default function DeckPage() {
     }
   }, [selectedClient, clients]);
 
+  const [deckData, setDeckData] = useState<DeckData | null>(null);
+  const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
+  const [dataSourceReason, setDataSourceReason] = useState<string | null>(null);
+
   const staticSlides = useMemo(() => {
     // If the selected client has no Google Ads, hide Google Ads section (slides 8-12)
     const hasGoogle = !!(selectedClient?.googleCustomerId || selectedGoogleCustomerId || selectedClient?.platform === "google" || selectedClient?.platform === "both");
-    const all = buildSlides(hasGoogle);
+    const all = buildSlides(hasGoogle, deckData);
     return hasGoogle ? all : all.filter(s => s.section !== 2);
-  }, [selectedClient, selectedGoogleCustomerId]);
+  }, [selectedClient, selectedGoogleCustomerId, deckData]);
   const slides = useMemo(() => staticSlides, [staticSlides]);
 
   // ── Slide editor hook (elements / tools / drag) ───────────────────────────
@@ -541,10 +609,6 @@ export default function DeckPage() {
     () => [...slides, ...customSlides].filter(s => !!slideNotes[s.id]).length,
     [slides, customSlides, slideNotes]
   );
-
-  const [deckData, setDeckData] = useState<DeckData | null>(null);
-  const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
-  const [dataSourceReason, setDataSourceReason] = useState<string | null>(null);
 
   const generateDeck = useCallback(async (client: DeckClient, period: DeckPeriod, contextOverride?: string, googleIdOverride?: string) => {
     setIsGenerating(true);

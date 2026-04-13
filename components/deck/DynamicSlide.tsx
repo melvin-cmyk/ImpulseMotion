@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { SlideShell } from "./slide-shell";
-import type { SlideData, SlideImage, SlideTable, KPI, ChartData, SlideSeverity } from "@/types/deck";
+import type { SlideData, SlideImage, SlideTable, KPI, ChartData, SlideSeverity, LayoutBlock } from "@/types/deck";
 
 // ── Design tokens (matches slides.tsx) ───────────────────────────────────────
 
@@ -460,7 +460,133 @@ const TYPE_LABELS: Record<string, string> = {
   alert: "Alert",
   recommendation: "Recommendation",
   comparison: "Comparison",
+  custom: "Custom",
 };
+
+// ── Freeform block renderer ───────────────────────────────────────────────────
+
+function BlockRenderer({ block }: { block: LayoutBlock }) {
+  switch (block.kind) {
+    case "heading": {
+      const level = block.level ?? 2;
+      const sizeMap: Record<number, string> = { 1: "max(3.2%, 22px)", 2: "max(2.4%, 18px)", 3: "max(1.9%, 15px)" };
+      return (
+        <div
+          className="font-extrabold mb-2"
+          style={{
+            fontFamily: "'Raleway', 'Trebuchet MS', sans-serif",
+            color: colors.blueSignature,
+            fontSize: sizeMap[level],
+            textAlign: block.align ?? "left",
+          }}
+        >
+          {block.text}
+        </div>
+      );
+    }
+    case "paragraph":
+      return (
+        <p
+          className="mb-2"
+          style={{ fontSize: "max(1.5%, 12px)", color: "#1a1a1a", textAlign: block.align ?? "left", lineHeight: 1.5 }}
+        >
+          {block.text}
+        </p>
+      );
+    case "kpis": {
+      const cols = Math.min(block.columns ?? block.items.length, 4);
+      return (
+        <div
+          className="grid gap-2 mb-2"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+        >
+          {block.items.map((kpi, i) => <KpiCard key={i} kpi={kpi} />)}
+        </div>
+      );
+    }
+    case "table":
+      return <DataTableBlock table={{ headers: block.headers, rows: block.rows }} />;
+    case "bullets": {
+      const Tag = block.ordered ? "ol" : "ul";
+      return (
+        <Tag
+          className={cn("mb-2 pl-5", block.ordered ? "list-decimal" : "list-disc")}
+          style={{ fontSize: "max(1.5%, 12px)", color: "#1a1a1a", lineHeight: 1.6 }}
+        >
+          {block.items.map((it, i) => <li key={i} className="mb-1">{it}</li>)}
+        </Tag>
+      );
+    }
+    case "callout": {
+      const toneMap = {
+        info: { bg: colors.bgAlt, border: colors.blueSignature, icon: "ℹ️" },
+        warning: { bg: colors.warningBg, border: colors.warningBorder, icon: "⚠️" },
+        success: { bg: colors.okBg, border: colors.okBorder, icon: "✅" },
+        alert: { bg: colors.alertBg, border: colors.alertBorder, icon: "🚨" },
+      } as const;
+      const tone = toneMap[block.tone ?? "info"];
+      return (
+        <div
+          className="rounded-md border-l-4 px-3 py-2 mb-2"
+          style={{ backgroundColor: tone.bg, borderLeftColor: tone.border, fontSize: "max(1.5%, 12px)" }}
+        >
+          <span className="mr-1">{tone.icon}</span>
+          {block.text}
+        </div>
+      );
+    }
+    case "images": {
+      const cols = Math.min(block.columns ?? block.items.length, 4);
+      return (
+        <div
+          className="grid gap-2 mb-2"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+        >
+          {block.items.map((img, i) => (
+            <div key={i} className="rounded overflow-hidden border flex flex-col" style={{ borderColor: "#E8EDF3" }}>
+              <div className="aspect-[4/3] bg-gray-100 overflow-hidden">
+                {img.url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/api/deck/proxy-image?url=${encodeURIComponent(img.url)}`}
+                    alt={img.label ?? ""}
+                    className="w-full h-full object-cover"
+                  />
+                )}
+              </div>
+              {(img.label || img.metrics) && (
+                <div className="p-1.5" style={{ fontSize: "max(1.1%, 10px)" }}>
+                  {img.label && <div className="font-semibold truncate">{img.label}</div>}
+                  {img.metrics && <div style={{ color: colors.caption }}>{img.metrics}</div>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    case "spacer": {
+      const h = block.size === "lg" ? "h-4" : block.size === "md" ? "h-3" : "h-2";
+      return <div className={h} aria-hidden />;
+    }
+    case "columns": {
+      const ratioMap = { "1:1": "1fr 1fr", "1:2": "1fr 2fr", "2:1": "2fr 1fr" } as const;
+      return (
+        <div
+          className="grid gap-3 mb-2"
+          style={{ gridTemplateColumns: ratioMap[block.ratio ?? "1:1"] }}
+        >
+          <div className="min-w-0 flex flex-col">
+            {block.left.map((b, i) => <BlockRenderer key={i} block={b} />)}
+          </div>
+          <div className="min-w-0 flex flex-col">
+            {block.right.map((b, i) => <BlockRenderer key={i} block={b} />)}
+          </div>
+        </div>
+      );
+    }
+  }
+}
 
 // ── Main DynamicSlide component ───────────────────────────────────────────────
 
@@ -475,9 +601,11 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
   const isAlert = sev === "alert" || slide.type === "alert";
   const isRecommendation = slide.type === "recommendation";
 
-  // Accent colour: alert slides get a red tint via border override, others blue
+  // Accent colour: explicit slide.accent wins, then legacy per-type default
   const accent: "blue" | "violet" | undefined =
-    slide.type === "recommendation" ? "violet" : "blue";
+    slide.accent ?? (slide.type === "recommendation" ? "violet" : "blue");
+
+  const hasBlocks = Array.isArray(slide.blocks) && slide.blocks.length > 0;
 
   // Severity container style — no colored backgrounds, just clean layout
   const severityContainerStyle: React.CSSProperties = {};
@@ -501,44 +629,35 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
         />
         <Divider />
 
-        {/* KPIs */}
-        {slide.kpis && slide.kpis.length > 0 && (
-          <div
-            className="grid gap-2 mb-2"
-            style={{
-              gridTemplateColumns: `repeat(${Math.min(slide.kpis.length, 4)}, 1fr)`,
-            }}
-          >
-            {slide.kpis.map((kpi, i) => (
-              <KpiCard key={i} kpi={kpi} />
+        {/* Freeform block composition — takes precedence over legacy fields */}
+        {hasBlocks && (
+          <div className="flex-1 min-h-0 flex flex-col">
+            {(slide.blocks as LayoutBlock[]).map((block, i) => (
+              <BlockRenderer key={i} block={block} />
             ))}
           </div>
         )}
 
-        {/* Chart */}
-        {slide.chart && <ChartBlock chart={slide.chart} />}
-
-        {/* Data table */}
-        {slide.table && <DataTableBlock table={slide.table} />}
-
-        {/* Creative images */}
-        {slide.images && slide.images.length > 0 && (
-          <ImageGallery images={slide.images} />
-        )}
-
-        {/* Section divider before insights */}
-        {slide.insights && slide.insights.length > 0 && (slide.kpis?.length || slide.chart || slide.images?.length) && (
-          <SectionDivider label="Analyse" />
-        )}
-
-        {/* Insights */}
-        {slide.insights && slide.insights.length > 0 && (
-          <InsightsList insights={slide.insights} />
-        )}
-
-        {/* Recommendation */}
-        {slide.recommendation && (
-          <RecommendationBox text={slide.recommendation} />
+        {/* Legacy structured fields — only when no blocks were supplied */}
+        {!hasBlocks && (
+          <>
+            {slide.kpis && slide.kpis.length > 0 && (
+              <div
+                className="grid gap-2 mb-2"
+                style={{ gridTemplateColumns: `repeat(${Math.min(slide.kpis.length, 4)}, 1fr)` }}
+              >
+                {slide.kpis.map((kpi, i) => <KpiCard key={i} kpi={kpi} />)}
+              </div>
+            )}
+            {slide.chart && <ChartBlock chart={slide.chart} />}
+            {slide.table && <DataTableBlock table={slide.table} />}
+            {slide.images && slide.images.length > 0 && <ImageGallery images={slide.images} />}
+            {slide.insights && slide.insights.length > 0 && (slide.kpis?.length || slide.chart || slide.images?.length) && (
+              <SectionDivider label="Analyse" />
+            )}
+            {slide.insights && slide.insights.length > 0 && <InsightsList insights={slide.insights} />}
+            {slide.recommendation && <RecommendationBox text={slide.recommendation} />}
+          </>
         )}
       </div>
     </SlideShell>

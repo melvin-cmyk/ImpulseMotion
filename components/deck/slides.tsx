@@ -709,7 +709,7 @@ export function TopCreativesSlide({
         </h2>
 
         <div className="flex-1 min-h-0 grid grid-cols-3 gap-[3%]">
-          {creatives.slice(0, 3).map((c) => (
+          {creatives.slice(0, 3).map((c, _i) => (
             <div
               key={c.id}
               className="rounded-lg overflow-hidden border flex flex-col"

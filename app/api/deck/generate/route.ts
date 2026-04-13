@@ -69,7 +69,7 @@ export interface SlideTable {
 
 export interface Slide {
   id: string;
-  type: "overview" | "performance" | "creative" | "funnel" | "alert" | "recommendation" | "comparison";
+  type: "overview" | "performance" | "creative" | "funnel" | "alert" | "recommendation" | "comparison" | "custom";
   title: string;
   subtitle?: string;
   kpis?: SlideKpi[];
@@ -79,6 +79,9 @@ export interface Slide {
   images?: SlideImage[];
   recommendation?: string;
   severity?: "ok" | "warning" | "alert";
+  /** Freeform layout blocks — see types/deck.ts LayoutBlock */
+  blocks?: unknown[];
+  accent?: "blue" | "violet";
 }
 
 // ── Relay helpers (same as data/route.ts) ─────────────────────────────────────
@@ -875,13 +878,13 @@ ${google.campaigns.slice(0, 5).map(c =>
   }
 
   // Validate and normalise each slide
-  const validTypes = ["overview", "performance", "creative", "funnel", "alert", "recommendation", "comparison"] as const;
+  const validTypes = ["overview", "performance", "creative", "funnel", "alert", "recommendation", "comparison", "custom"] as const;
   return parsed
     .filter((s): s is Slide => !!s && typeof s.title === "string")
     .map((s, i) => ({
       ...s,
       id: s.id ?? `slide-${i + 1}`,
-      type: validTypes.includes(s.type) ? s.type : "overview",
+      type: (validTypes as readonly string[]).includes(s.type) ? s.type : "custom",
     }));
 }
 

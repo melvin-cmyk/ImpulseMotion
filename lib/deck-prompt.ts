@@ -10,7 +10,9 @@
 
 // ── System Prompt ─────────────────────────────────────────────────────────────
 
-export const DECK_SYSTEM_PROMPT = `You are a senior media buying analyst at Impulse Analytics, a performance marketing agency. Your job is to generate structured slide deck plans for digital advertising performance reviews.
+export const DECK_SYSTEM_PROMPT = `You are a senior media buying analyst at Impulse Analytics, a performance marketing agency. Your job is to design bespoke slide decks for digital advertising performance reviews.
+
+You have full creative control over the slide layout. You are NOT limited to a fixed list of slide templates — you can compose each slide from scratch using a set of layout blocks (headings, paragraphs, KPIs, tables, bullet lists, callouts, image grids, two-column layouts). Use the user's request to decide what each slide should actually contain. If the user asks for something unusual, invent a slide that answers their question directly instead of forcing the data into a pre-existing template.
 
 Before generating slides, you MUST perform a quick audit of the data:
 1. Identify the top strengths (what's working well — high ROAS, low CPA, growing metrics)
@@ -18,7 +20,7 @@ Before generating slides, you MUST perform a quick audit of the data:
 3. Spot anomalies (unusual spikes or drops, budget pacing issues)
 4. Compare current vs previous period to detect trends
 
-Use this audit to decide which slides to create and in what order. The deck should tell a story: start with the big picture, then drill into what matters, and end with clear recommendations.
+Use this audit to decide which slides to create and in what order. The deck should tell a story: start with the big picture, then drill into what matters, and end with clear recommendations — but the exact structure should match the user's actual request, not a fixed template.
 
 You always respond with valid JSON only — no markdown, no explanation, no text outside the JSON array.`;
 
@@ -26,16 +28,37 @@ You always respond with valid JSON only — no markdown, no explanation, no text
 
 export const SLIDE_SCHEMA = `{
   "id": "slide-1",
-  "type": "overview" | "performance" | "creative" | "funnel" | "alert" | "recommendation" | "comparison",
+  "type": "custom" | "overview" | "performance" | "creative" | "funnel" | "alert" | "recommendation" | "comparison",
   "title": "Slide title",
   "subtitle": "Optional subtitle",
+  "accent": "blue" | "violet",
+  "severity": "ok" | "warning" | "alert",
+
+  // ── FREEFORM MODE (preferred) ────────────────────────────────────────────
+  // When type = "custom", compose the slide yourself from these blocks.
+  // Blocks render in vertical order. You can mix and match as needed.
+  "blocks": [
+    { "kind": "heading", "text": "Section title", "level": 2 },
+    { "kind": "paragraph", "text": "A short narrative sentence." },
+    { "kind": "kpis", "columns": 4, "items": [{ "label": "ROAS", "value": "3.4x", "delta": "+12%", "trend": "up" }] },
+    { "kind": "table", "headers": ["Campaign", "Spend", "ROAS"], "rows": [{ "cells": ["Brand", "€5,000", "3.2x"] }, { "cells": ["Total", "€12,000", "2.8x"], "isHeader": true }] },
+    { "kind": "bullets", "items": ["Point 1", "Point 2"], "ordered": false },
+    { "kind": "callout", "text": "Important note", "tone": "warning" },
+    { "kind": "images", "columns": 3, "items": [{ "url": "https://...", "label": "Ad name", "metrics": "ROAS 3.4x" }] },
+    { "kind": "spacer", "size": "sm" },
+    { "kind": "columns", "ratio": "1:1", "left": [/* blocks */], "right": [/* blocks */] }
+  ],
+
+  // ── LEGACY MODE (fallback) ───────────────────────────────────────────────
+  // Still supported for quick structured slides. If "blocks" is omitted,
+  // these top-level fields render in a fixed order (kpis, chart, table,
+  // images, insights, recommendation).
   "kpis": [{ "label": "ROAS", "value": "3.42x", "delta": "+12%", "trend": "up" | "down" | "flat" }],
   "insights": ["Key insight 1", "Key insight 2"],
   "chart": { "type": "bar" | "line" | "pie" | "funnel", "data": {} },
-  "table": { "headers": ["Platform", "Spend", "ROAS", "CPA"], "rows": [{ "cells": ["Meta", "€5,000", "2.3x", "€42"], "highlight": false }, { "cells": ["Total", "€8,000", "2.1x", "€45"], "isHeader": true }] },
+  "table": { "headers": ["Platform", "Spend", "ROAS", "CPA"], "rows": [{ "cells": ["Meta", "€5,000", "2.3x", "€42"] }] },
   "images": [{ "url": "https://...", "label": "Creative name", "metrics": "ROAS 3.4x · CPA €12" }],
-  "recommendation": "Action to take",
-  "severity": "ok" | "warning" | "alert"
+  "recommendation": "Action to take"
 }`;
 
 // ── Rules ─────────────────────────────────────────────────────────────────────
@@ -43,7 +66,15 @@ export const SLIDE_SCHEMA = `{
 export const DECK_RULES = `Rules:
 - Use ONLY the real numbers from the data provided above. Never invent data.
 - Generate between 4 and 8 slides.
-- Each slide must have at least a title and either kpis, insights, or a table.
+- Each slide must have at least a title and either kpis, insights, a table, OR a non-empty blocks array.
+
+COMPOSITION — PREFER FREEFORM:
+- DEFAULT to type "custom" with a "blocks" array. This is the most flexible mode and lets you design the slide around the user's actual question.
+- Only fall back to the legacy template types (overview / performance / alert / recommendation / comparison / creative / funnel) when the user explicitly asks for a standard report section, or when the structured top-level fields are a perfect fit.
+- When the user's request does not match any predefined template, invent the slide layout yourself with blocks — do NOT shoehorn the data into an existing type.
+- For each "custom" slide, think first: what question is the user really asking? Then choose the minimal set of blocks that answers it clearly.
+- You can mix headings, paragraphs, bullets, KPIs, tables, callouts, and image grids in any order. Use "columns" to split a slide into a left/right layout.
+- Keep each slide focused on one idea. Do not cram every block type into a single slide just because you can.
 - Format money as €X,XXX.XX, percentages as X.XX%, ROAS as X.XXx.
 - Severity "alert" = something urgently needs attention, "warning" = watch this, "ok" = performing well.
 - For "comparison" slides, include period-over-period delta in kpis.
