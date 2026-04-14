@@ -1162,8 +1162,12 @@ export async function exportDeckToPptx(
       // Semantic layout dispatch: if AI tagged the slide with `layout`,
       // delegate to the dedicated renderer and skip the generic stacking path.
       // Still apply editor element + dropped-block overlays below.
+      // Exception: when the slide carries creative thumbnails (`images`), fall
+      // through to the generic path so they render — semantic renderers don't
+      // know about `thumbnailDataMap`.
       let semanticHandled = false;
-      if (slide.layout) {
+      const hasImages = !!(slide.images && slide.images.length > 0);
+      if (slide.layout && !hasImages) {
         addFooter(s, false);
         if (renderSemanticLayout(s as unknown as Parameters<typeof renderSemanticLayout>[0], slide)) {
           semanticHandled = true;
