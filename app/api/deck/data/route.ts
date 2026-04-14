@@ -305,14 +305,23 @@ async function fetchMetaData(
           .filter(Boolean)
           .slice(0, 10);
         if (adIds.length > 0) {
-          // Batch fetch creative data + image_hash for all top ads
+          // Batch fetch creative data + image_hash + video_id for all top ads.
+          // video_id (direct + nested in object_story_spec.video_data) lets us
+          // resolve HD frames via /{video_id}?fields=thumbnails, which is how
+          // Motion gets crisp thumbs for video creatives.
+          const creativeFields =
+            "creative%7B" +
+            "thumbnail_url,image_url,image_hash,video_id," +
+            "asset_feed_spec,object_story_spec%7Bvideo_data%7Bvideo_id,image_url%7D%7D" +
+            "%7D";
           const creativeResults = await Promise.allSettled(
             adIds.map((adId: string) =>
-              metaFetch(`${BASE}/${adId}?fields=creative%7Bthumbnail_url,image_url,image_hash,asset_feed_spec%7D&access_token=${tok}`)
+              metaFetch(`${BASE}/${adId}?fields=${creativeFields}&access_token=${tok}`)
             )
           );
-          // Collect image hashes for high-res resolution
+          // Collect image hashes and video IDs for high-res resolution
           const imageHashes: string[] = [];
+          const adVideoIds: Record<string, string> = {};
           creativeResults.forEach((r, i) => {
             if (r.status === "fulfilled") {
               const data = r.value as Record<string, unknown>;
@@ -324,14 +333,67 @@ async function fetchMetaData(
                 const feedImages = assetFeed?.images as Array<{ hash?: string }> | undefined;
                 const feedHash = feedImages?.[0]?.hash;
                 const resolvedHash = hash || feedHash;
+                // Extract video_id from direct field or nested object_story_spec
+                const directVideoId = creative.video_id ? String(creative.video_id) : undefined;
+                const storySpec = creative.object_story_spec as Record<string, unknown> | undefined;
+                const videoData = storySpec?.video_data as Record<string, unknown> | undefined;
+                const nestedVideoId = videoData?.video_id ? String(videoData.video_id) : undefined;
+                const videoId = directVideoId || nestedVideoId;
                 adCreativeMap[adIds[i]] = {
                   thumbnail_url: creative.thumbnail_url ? String(creative.thumbnail_url) : undefined,
                   image_url: creative.image_url ? String(creative.image_url) : undefined,
                 };
                 if (resolvedHash) imageHashes.push(resolvedHash);
+                if (videoId) adVideoIds[adIds[i]] = videoId;
               }
             }
           });
+
+          // Resolve video IDs to HD thumbnail URLs via /{video_id}/thumbnails.
+          // Meta returns an array of thumbnails at various sizes — pick the
+          // largest (or is_preferred if no size info).
+          const uniqueVideoIds = [...new Set(Object.values(adVideoIds))];
+          if (uniqueVideoIds.length > 0) {
+            try {
+              const videoResults = await Promise.allSettled(
+                uniqueVideoIds.map((vid) =>
+                  metaFetch(`${BASE}/${vid}/thumbnails?access_token=${tok}`)
+                )
+              );
+              const videoIdToUrl: Record<string, string> = {};
+              videoResults.forEach((vr, i) => {
+                if (vr.status === "fulfilled") {
+                  const vdata = vr.value as Record<string, unknown>;
+                  const thumbs = Array.isArray(vdata.data) ? vdata.data as Array<Record<string, unknown>> : [];
+                  if (thumbs.length === 0) return;
+                  // Prefer the largest by width*height; fall back to is_preferred
+                  let best = thumbs[0];
+                  let bestScore = (Number(best.width) || 0) * (Number(best.height) || 0);
+                  for (const t of thumbs) {
+                    const score = (Number(t.width) || 0) * (Number(t.height) || 0);
+                    if (score > bestScore || (bestScore === 0 && t.is_preferred)) {
+                      best = t;
+                      bestScore = score;
+                    }
+                  }
+                  if (best.uri) videoIdToUrl[uniqueVideoIds[i]] = String(best.uri);
+                }
+              });
+              // Apply HD video thumb to the ad creative map
+              for (const [adId, videoId] of Object.entries(adVideoIds)) {
+                const hdUrl = videoIdToUrl[videoId];
+                if (hdUrl) {
+                  adCreativeMap[adId] = {
+                    ...adCreativeMap[adId],
+                    image_url: hdUrl, // Promote HD video thumb to image_url
+                  };
+                }
+              }
+              console.log(`[deck/data] resolved ${Object.keys(videoIdToUrl).length}/${uniqueVideoIds.length} video HD thumbnails`);
+            } catch (e) {
+              console.warn("[deck/data] video thumbnails resolution failed (non-blocking):", e);
+            }
+          }
 
           // Resolve image hashes to full-size URLs via adimages endpoint
           if (imageHashes.length > 0) {

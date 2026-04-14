@@ -578,17 +578,62 @@ async function fetchMetaDataDirect(
         const adIds = topCreatives.map(c => c.id).filter(id => id && !id.startsWith("tc-"));
         if (adIds.length > 0) {
           const adsRes = await metaFetch(
-            `${BASE}/${actId}/ads?ids=${adIds.join(",")}&fields=id,name,creative{thumbnail_url,image_url,image_hash}&access_token=${tok}`
+            `${BASE}/${actId}/ads?ids=${adIds.join(",")}&fields=id,name,creative{thumbnail_url,image_url,image_hash,video_id,object_story_spec{video_data{video_id}}}&access_token=${tok}`
           ) as Record<string, unknown>;
           const adsData = (Array.isArray(adsRes) ? adsRes : (adsRes as Record<string, unknown>).data ?? []) as Record<string, unknown>[];
 
-          // Build a map of ad_id -> thumbnail_url
+          // Build a map of ad_id -> thumbnail_url and collect video_ids
           const thumbMap: Record<string, string> = {};
+          const adVideoIds: Record<string, string> = {};
           for (const ad of adsData) {
             const adId = String(ad.id ?? "");
             const creative = ad.creative as Record<string, unknown> | undefined;
             const thumb = creative?.image_url ?? creative?.thumbnail_url;
             if (adId && thumb) thumbMap[adId] = String(thumb);
+            // Extract video_id for HD thumbnail resolution below
+            const directVid = creative?.video_id ? String(creative.video_id) : undefined;
+            const storySpec = creative?.object_story_spec as Record<string, unknown> | undefined;
+            const videoData = storySpec?.video_data as Record<string, unknown> | undefined;
+            const nestedVid = videoData?.video_id ? String(videoData.video_id) : undefined;
+            const vid = directVid || nestedVid;
+            if (adId && vid) adVideoIds[adId] = vid;
+          }
+
+          // Resolve HD video thumbnails via /{video_id}/thumbnails (Motion approach)
+          const uniqueVideoIds = [...new Set(Object.values(adVideoIds))];
+          if (uniqueVideoIds.length > 0) {
+            try {
+              const videoResults = await Promise.allSettled(
+                uniqueVideoIds.map((vid) =>
+                  metaFetch(`${BASE}/${vid}/thumbnails?access_token=${tok}`)
+                )
+              );
+              const videoIdToUrl: Record<string, string> = {};
+              videoResults.forEach((vr, vi) => {
+                if (vr.status === "fulfilled") {
+                  const vdata = vr.value as Record<string, unknown>;
+                  const thumbs = Array.isArray(vdata.data) ? vdata.data as Array<Record<string, unknown>> : [];
+                  if (thumbs.length === 0) return;
+                  let best = thumbs[0];
+                  let bestScore = (Number(best.width) || 0) * (Number(best.height) || 0);
+                  for (const t of thumbs) {
+                    const score = (Number(t.width) || 0) * (Number(t.height) || 0);
+                    if (score > bestScore || (bestScore === 0 && t.is_preferred)) {
+                      best = t;
+                      bestScore = score;
+                    }
+                  }
+                  if (best.uri) videoIdToUrl[uniqueVideoIds[vi]] = String(best.uri);
+                }
+              });
+              for (const [adId, videoId] of Object.entries(adVideoIds)) {
+                const hdUrl = videoIdToUrl[videoId];
+                if (hdUrl) thumbMap[adId] = hdUrl;
+              }
+              console.log(`[deck/generate] resolved ${Object.keys(videoIdToUrl).length}/${uniqueVideoIds.length} video HD thumbnails`);
+            } catch (e) {
+              console.warn("[deck/generate] video thumbnails failed (non-blocking):", e);
+            }
           }
 
           // Also try resolving image_hash -> full-res URL via /adimages
