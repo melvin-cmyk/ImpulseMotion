@@ -28,12 +28,21 @@ const SHADOW = {
 };
 
 function drawHeader(slide: PptxSlide, title: string, subtitle?: string) {
+  // Left accent bar — blue→violet gradient (Impulse DA signature)
   slide.addShape("rect", {
     x: 0,
     y: 0,
     w: 0.12,
     h: H,
-    fill: { color: c(IA.blue) },
+    fill: {
+      type: "gradient",
+      gradColors: [
+        { color: c(IA.blue), position: 0 },
+        { color: c(IA.violet), position: 100 },
+      ],
+      gradType: "liner",
+      gradAngle: 90,
+    },
     line: { width: 0 },
   });
   slide.addText(title, {

@@ -1151,10 +1151,45 @@ export async function exportDeckToPptx(
     // Section divider for AI slides
     addSectionDivider(pptx, "AI", "Slides IA", "Slides générées par l'intelligence artificielle", IA.violet);
 
+    // Lazy-load the semantic layout renderer (same as exportAiSlidesToPptx)
+    const { renderSemanticLayout } = await import("./deck-pptx-layouts");
+
     for (let aiIdx = 0; aiIdx < aiSlides.length; aiIdx++) {
       const slide = aiSlides[aiIdx];
       const s = pptx.addSlide();
       s.background = { color: c(IA.bgWhite) };
+
+      // Semantic layout dispatch: if AI tagged the slide with `layout`,
+      // delegate to the dedicated renderer and skip the generic stacking path.
+      // Still apply editor element + dropped-block overlays below.
+      let semanticHandled = false;
+      if (slide.layout) {
+        addFooter(s, false);
+        if (renderSemanticLayout(s as unknown as Parameters<typeof renderSemanticLayout>[0], slide)) {
+          semanticHandled = true;
+        }
+      }
+
+      if (semanticHandled) {
+        // Editor elements overlay on this AI slide
+        const aiEditorIdx = 1000 + aiIdx;
+        const els = slideElements?.[aiEditorIdx];
+        if (els && els.length > 0) addSlideElements(s, els, LAYOUT.width, LAYOUT.height);
+
+        // Dropped blocks targeting this AI slide
+        if (droppedBlocks) {
+          for (const block of droppedBlocks) {
+            let isThisAiSlide = false;
+            if (block.kind === "ai" && block.localIdx === aiIdx) isThisAiSlide = true;
+            else if (!block.kind && block.slideIndex === STANDARD_SLIDE_COUNT + (customSlides?.length ?? 0) + aiIdx) isThisAiSlide = true;
+            if (isThisAiSlide) {
+              addDroppedBlock(s, block, blockStyles?.[block.id], LAYOUT.width, LAYOUT.height);
+            }
+          }
+        }
+        continue;
+      }
+
       const barColor = slide.type === "recommendation" ? IA.violet : IA.blue;
       addBar(s, barColor);
       addFooter(s, false);
