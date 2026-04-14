@@ -79,4 +79,37 @@ export interface SlideData {
   blocks?: LayoutBlock[];
   /** Optional accent color override for the slide shell */
   accent?: "blue" | "violet";
+  /**
+   * Semantic layout hint for the PPTX exporter. When set, the exporter uses a
+   * dedicated layout renderer (cards, steps, comparative, nextSteps, kpi)
+   * instead of stacking kpis/images/insights/recommendation generically.
+   */
+  layout?: SlideLayout;
+  /** Comparative layout: left column (e.g. "Avant"). */
+  comparativeLeft?: { header: string; items: string[] };
+  /** Comparative layout: right column (e.g. "Après"). */
+  comparativeRight?: { header: string; items: string[] };
+  /** Cards layout: 2–4 cards with icon + title + body. */
+  cards?: { title: string; body: string }[];
+  /** Steps layout: numbered timeline items. */
+  steps?: { title: string; body?: string; kpi?: string }[];
+  /** Next-steps layout: action items with optional owner. */
+  actions?: { label: string; desc?: string; owner?: string }[];
+  /** Matrix 2×2 layout: 4 quadrants (TL, TR, BL, BR). */
+  matrix?: {
+    xLabel?: string;
+    yLabel?: string;
+    quadrants: { title: string; body?: string; items?: string[] }[];
+  };
+  /** Funnel layout: ordered stages with shrinking width. */
+  funnel?: { label: string; value: string; caption?: string }[];
 }
+
+export type SlideLayout =
+  | "kpi"
+  | "cards"
+  | "steps"
+  | "comparative"
+  | "nextSteps"
+  | "matrix"
+  | "funnel";

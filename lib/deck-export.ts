@@ -1436,8 +1436,21 @@ export async function exportAiSlidesToPptx(
     })
   );
 
+  const { renderSemanticLayout } = await import("./deck-pptx-layouts");
+
   for (const slide of slides) {
     const s = pptx.addSlide();
+
+    // Semantic layout dispatch: when the AI tags the slide with `layout`,
+    // delegate to the dedicated renderer and skip the generic stacking path.
+    if (slide.layout) {
+      s.background = { color: c(IA.bgWhite) };
+      addFooter(s, false);
+      if (renderSemanticLayout(s as unknown as Parameters<typeof renderSemanticLayout>[0], slide)) {
+        continue;
+      }
+    }
+
     const isAlert = slide.severity === "alert" || slide.type === "alert";
     const bgColor = slide.severity && severityBg[slide.severity] ? severityBg[slide.severity] : c(IA.bgWhite);
     s.background = { color: bgColor };

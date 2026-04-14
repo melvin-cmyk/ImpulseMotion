@@ -34,8 +34,66 @@ export const SLIDE_SCHEMA = `{
   "accent": "blue" | "violet",
   "severity": "ok" | "warning" | "alert",
 
-  // ── FREEFORM MODE (preferred) ────────────────────────────────────────────
-  // When type = "custom", compose the slide yourself from these blocks.
+  // ── SEMANTIC LAYOUTS (PREFERRED — pixel-perfect Impulse DA) ──────────────
+  // When the slide matches one of these 5 shapes, set "layout" and fill the
+  // corresponding top-level field. The PPTX exporter renders these with a
+  // dedicated, on-brand layout (cards, alternating rows, colored headers…).
+  // Use these FIRST whenever the slide fits — they look better than blocks.
+  "layout": "kpi" | "cards" | "steps" | "comparative" | "nextSteps" | "matrix" | "funnel",
+
+  // layout = "kpi" → 3–4 big stats side by side. Fill "kpis" (top-level).
+  //   Use for: headline performance summary, key metrics at a glance.
+
+  // layout = "cards" → 2–4 cards with colored icon + title + short body.
+  //   Use for: 2–4 levers, pillars, focus areas, value props.
+  "cards": [
+    { "title": "Creative refresh", "body": "Renouveler les top ads tous les 14j." }
+  ],
+
+  // layout = "steps" → numbered timeline with optional KPI per step.
+  //   Use for: roadmap, action plan over time, phased rollout (max 5 steps).
+  "steps": [
+    { "title": "Audit audiences", "body": "Segments < 2x ROAS à couper", "kpi": "J1-J3" }
+  ],
+
+  // layout = "comparative" → two columns (left vs right) with colored headers.
+  //   Use for: before/after, pros/cons, Meta vs Google, current vs target.
+  "comparativeLeft":  { "header": "Avant", "items": ["Point 1", "Point 2"] },
+  "comparativeRight": { "header": "Après", "items": ["Point 1", "Point 2"] },
+
+  // layout = "nextSteps" → action items with optional owner on the right.
+  //   Use for: recommendations, next steps, action plan (max 6 items).
+  "actions": [
+    { "label": "Couper les ad sets en perte", "desc": "ROAS < 1.5x sur 14j", "owner": "Media buyer" }
+  ],
+
+  // layout = "matrix" → 2×2 quadrant matrix with 4 zones.
+  //   Use for: effort/impact prioritization, risk/reward, BCG-style positioning,
+  //   strengths/weaknesses/opportunities/threats. EXACTLY 4 quadrants, order =
+  //   top-left, top-right, bottom-left, bottom-right.
+  "matrix": {
+    "xLabel": "Effort →",
+    "yLabel": "Impact →",
+    "quadrants": [
+      { "title": "Quick wins", "items": ["Action 1", "Action 2"] },
+      { "title": "Big bets", "items": ["Action 3"] },
+      { "title": "Fill-ins", "items": ["Action 4"] },
+      { "title": "Avoid", "items": ["Action 5"] }
+    ]
+  },
+
+  // layout = "funnel" → ordered shrinking stages with value + caption.
+  //   Use for: acquisition funnel (impr → clicks → leads → sales),
+  //   conversion drop-off, pipeline stages. Max 6 stages, order = top→bottom.
+  "funnel": [
+    { "label": "Impressions", "value": "1.2M", "caption": "Meta + Google" },
+    { "label": "Clics", "value": "24k", "caption": "CTR 2.0%" },
+    { "label": "Leads", "value": "1,800", "caption": "CVR 7.5%" },
+    { "label": "Ventes", "value": "320", "caption": "CPA €42" }
+  ],
+
+  // ── FREEFORM MODE (fallback when no semantic layout fits) ────────────────
+  // When type = "custom" AND no layout above fits, compose from blocks.
   // Blocks render in vertical order. You can mix and match as needed.
   "blocks": [
     { "kind": "heading", "text": "Section title", "level": 2 },
@@ -66,15 +124,30 @@ export const SLIDE_SCHEMA = `{
 export const DECK_RULES = `Rules:
 - Use ONLY the real numbers from the data provided above. Never invent data.
 - Generate between 4 and 8 slides.
-- Each slide must have at least a title and either kpis, insights, a table, OR a non-empty blocks array.
+- Each slide must have at least a title and either a semantic "layout" with its data, kpis, insights, a table, OR a non-empty blocks array.
 
-COMPOSITION — PREFER FREEFORM:
-- DEFAULT to type "custom" with a "blocks" array. This is the most flexible mode and lets you design the slide around the user's actual question.
-- Only fall back to the legacy template types (overview / performance / alert / recommendation / comparison / creative / funnel) when the user explicitly asks for a standard report section, or when the structured top-level fields are a perfect fit.
-- When the user's request does not match any predefined template, invent the slide layout yourself with blocks — do NOT shoehorn the data into an existing type.
-- For each "custom" slide, think first: what question is the user really asking? Then choose the minimal set of blocks that answers it clearly.
-- You can mix headings, paragraphs, bullets, KPIs, tables, callouts, and image grids in any order. Use "columns" to split a slide into a left/right layout.
-- Keep each slide focused on one idea. Do not cram every block type into a single slide just because you can.
+EDITORIAL RULES (strict — Impulse Analytics DA):
+- Titles: max 8 words, action-oriented or a stated finding. "Performances Meta S52 — +23% ROAS" ✅ — "Analyse des performances de la semaine 52 sur Meta Ads" ❌.
+- One idea per slide. If the slide would mix two distinct ideas, split it into two slides.
+- Every slide MUST have a visual structure (layout sémantique OR blocks with kpis/table/images). Never ship a text-only slide — if the content is pure text, convert it into "steps", "cards", "nextSteps", or a bullets block.
+- Alternate layouts. Never use the same semantic layout twice in a row; vary between kpi / cards / steps / comparative / nextSteps / matrix / funnel / freeform blocks.
+- Body text: short sentences, active verbs, numbers in bold. No jargon unless it's an industry term (CTR, ROAS, CPC, CPA, CVR).
+- French business style. No English translation except established ad-tech terms.
+
+COMPOSITION — LAYOUT PRIORITY:
+1. SEMANTIC LAYOUTS FIRST. For each slide, check if one of the 5 layouts fits the content. If yes, set "layout" and fill the matching field. These produce the cleanest, most on-brand results.
+   - "kpi" → headline metrics (3–4 big numbers). Fill "kpis".
+   - "cards" → 2–4 levers / pillars / focus areas. Fill "cards".
+   - "steps" → phased roadmap, action plan over time (max 5). Fill "steps".
+   - "comparative" → before/after, A vs B, Meta vs Google. Fill "comparativeLeft" + "comparativeRight".
+   - "nextSteps" → recommendations / action items with owners (max 6). Fill "actions".
+   - "matrix" → 2×2 prioritization / positioning (effort/impact, risk/reward). Fill "matrix" with EXACTLY 4 quadrants in order TL, TR, BL, BR.
+   - "funnel" → acquisition or conversion funnel with shrinking stages (max 6). Fill "funnel" with ordered stages top→bottom.
+2. FREEFORM BLOCKS as fallback. When no semantic layout fits (mixed content, narrative slides, image grids, tables), use type "custom" with a "blocks" array.
+3. LEGACY TEMPLATE TYPES only when explicitly requested or for creative/table slides that need the legacy rendering (tables, creative thumbnails).
+- For each slide, think first: what question is the user really asking? Pick the layout that answers it most clearly.
+- A deck of 6 slides should typically have 4–5 semantic layouts and 1–2 freeform/legacy slides.
+- Keep each slide focused on one idea. Do not cram every content type into a single slide.
 - Format money as €X,XXX.XX, percentages as X.XX%, ROAS as X.XXx.
 - Severity "alert" = something urgently needs attention, "warning" = watch this, "ok" = performing well.
 - For "comparison" slides, include period-over-period delta in kpis.
