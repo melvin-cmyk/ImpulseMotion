@@ -849,85 +849,118 @@ function addBudget(pptx: PptxGen, budget: BudgetLine[], periodLabel: string) {
 }
 
 function addTopCreatives(pptx: PptxGen, creatives: TopCreative[], thumbnailDataMap: Record<string, string> = {}) {
-  const s = pptx.addSlide();
-  s.background = { color: c(IA.bgWhite) };
-  addBar(s, IA.violet);
-  addFooter(s, false);
-  addHeader(s, "Top Créatives — Performance");
+  // Paginate 3 per slide — the old 6-in-one 3x2 grid cramped thumbnails to 0.85"
+  // with 6-7pt metrics. Three per slide gives each card ~4" width, big readable
+  // thumbnails (~3") and 12-14pt metrics.
+  const topN = creatives.slice(0, 6);
+  if (topN.length === 0) return;
 
-  const top6 = creatives.slice(0, 6);
-  const cols = 3;
-  const cardW = 3.6;
-  const cardH = 2.5;
-  const gapX = 0.35;
-  const gapY = 0.3;
-  const startX = (LAYOUT.width - (cols * cardW + (cols - 1) * gapX)) / 2;
+  const perPage = 3;
+  const pageCount = Math.ceil(topN.length / perPage);
 
-  top6.forEach((cr, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = startX + col * (cardW + gapX);
-    const y = LAYOUT.contentY + 0.3 + row * (cardH + gapY);
+  for (let page = 0; page < pageCount; page++) {
+    const batch = topN.slice(page * perPage, page * perPage + perPage);
+    const s = pptx.addSlide();
+    s.background = { color: c(IA.bgWhite) };
+    addBar(s, IA.violet);
+    addFooter(s, false);
+    const pageLabel = pageCount > 1 ? ` (${page + 1}/${pageCount})` : "";
+    addHeader(s, `Top Créatives — Performance${pageLabel}`);
 
-    s.addShape("roundRect", {
-      x, y, w: cardW, h: cardH,
-      fill: { color: c(IA.bgAlt) }, line: { width: 0 }, rectRadius: 0.08,
-    });
+    const cols = batch.length;
+    const cardW = 3.9;
+    const cardH = 5.3;
+    const gapX = 0.3;
+    const startX = (LAYOUT.width - (cols * cardW + (cols - 1) * gapX)) / 2;
+    const startY = LAYOUT.contentY + 0.25;
 
-    // Thumbnail image (top portion of card)
-    const imgDataUrl = cr.id ? thumbnailDataMap[cr.id] : undefined;
-    const imgH = 0.85;
-    if (imgDataUrl) {
-      try {
-        s.addImage({ data: imgDataUrl, x: x + 0.1, y: y + 0.1, w: cardW - 0.2, h: imgH, sizing: { type: "cover", w: cardW - 0.2, h: imgH } });
-      } catch { /* skip if image fails */ }
-    } else {
-      // Placeholder gradient rect when no image
+    batch.forEach((cr, i) => {
+      const x = startX + i * (cardW + gapX);
+      const y = startY;
+
+      // Card background with shadow
       s.addShape("roundRect", {
-        x: x + 0.1, y: y + 0.1, w: cardW - 0.2, h: imgH,
-        fill: { color: c(IA.violet), alpha: 30 }, line: { width: 0 }, rectRadius: 0.05,
+        x, y, w: cardW, h: cardH,
+        fill: { color: c(IA.bgAlt) }, line: { color: c(IA.bgRowAlt), width: 0.5 }, rectRadius: 0.1,
+        shadow: { type: "outer", blur: 10, offset: 2, angle: 45, color: "C5CDD8", opacity: 0.35 },
       });
-      s.addText(cr.format, {
-        x: x + 0.1, y: y + 0.1, w: cardW - 0.2, h: imgH,
-        fontSize: 9, bold: true, color: c(IA.violet), fontFace: FONTS.body, align: "center", valign: "middle",
-      });
-    }
 
-    // Name below image
-    s.addText(cr.name, {
-      x: x + 0.15, y: y + imgH + 0.18, w: cardW - 0.3, h: 0.3,
-      fontSize: 7, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
-    });
+      // Large thumbnail (top ~3" of card)
+      const imgH = 3.0;
+      const imgDataUrl = cr.id ? thumbnailDataMap[cr.id] : undefined;
+      if (imgDataUrl) {
+        try {
+          s.addImage({
+            data: imgDataUrl, x: x + 0.12, y: y + 0.12, w: cardW - 0.24, h: imgH,
+            sizing: { type: "cover", w: cardW - 0.24, h: imgH },
+          });
+        } catch { /* skip if image fails */ }
+      } else {
+        s.addShape("roundRect", {
+          x: x + 0.12, y: y + 0.12, w: cardW - 0.24, h: imgH,
+          fill: { color: c(IA.violet), alpha: 30 }, line: { width: 0 }, rectRadius: 0.06,
+        });
+        s.addText(cr.format, {
+          x: x + 0.12, y: y + 0.12, w: cardW - 0.24, h: imgH,
+          fontSize: 14, bold: true, color: c(IA.violet), fontFace: FONTS.body,
+          align: "center", valign: "middle",
+        });
+      }
 
-    // Format badge
-    s.addShape("roundRect", {
-      x: x + 0.15, y: y + imgH + 0.52, w: 0.7, h: 0.22,
-      fill: { color: c(IA.violet) }, line: { width: 0 }, rectRadius: 0.04,
-    });
-    s.addText(cr.format, {
-      x: x + 0.15, y: y + imgH + 0.52, w: 0.7, h: 0.22,
-      fontSize: 6, bold: true, color: c(IA.textWhite), fontFace: FONTS.body, align: "center",
-    });
+      // Rank pill top-left
+      const rankCol = page === 0 && i === 0 ? IA.violet : IA.blueDeep;
+      s.addShape("roundRect", {
+        x: x + 0.25, y: y + 0.25, w: 0.55, h: 0.35,
+        rectRadius: 0.05, fill: { color: c(rankCol) }, line: { width: 0 },
+      });
+      s.addText(`#${page * perPage + i + 1}`, {
+        x: x + 0.25, y: y + 0.25, w: 0.55, h: 0.35,
+        fontSize: 11, bold: true, color: c(IA.textWhite), fontFace: FONTS.title,
+        align: "center", valign: "middle",
+      });
 
-    const metrics = [
-      { label: "Spend", value: fmtCur(cr.spend) },
-      { label: "ROAS", value: fmtDec(cr.roas) + "×" },
-      { label: "CTR", value: fmtPct(cr.ctr) },
-      { label: "CPA", value: "€" + fmtDec(cr.cpa) },
-    ];
-    metrics.forEach((m, mi) => {
-      const mx = x + 0.15 + (mi % 2) * (cardW / 2 - 0.15);
-      const my = y + imgH + 0.82 + Math.floor(mi / 2) * 0.55;
-      s.addText(m.label, {
-        x: mx, y: my, w: cardW / 2 - 0.3, h: 0.22,
-        fontSize: 6, color: c(IA.textCaption), fontFace: FONTS.body,
+      // Format badge top-right
+      s.addShape("roundRect", {
+        x: x + cardW - 1.35, y: y + 0.25, w: 1.2, h: 0.32,
+        rectRadius: 0.05, fill: { color: c(IA.violet) }, line: { width: 0 },
       });
-      s.addText(m.value, {
-        x: mx, y: my + 0.19, w: cardW / 2 - 0.3, h: 0.28,
-        fontSize: 9, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
+      s.addText(cr.format.toUpperCase(), {
+        x: x + cardW - 1.35, y: y + 0.25, w: 1.2, h: 0.32,
+        fontSize: 8, bold: true, color: c(IA.textWhite), fontFace: FONTS.body,
+        align: "center", valign: "middle", charSpacing: 1, shrinkText: true,
+      });
+
+      // Creative name
+      s.addText(cr.name, {
+        x: x + 0.2, y: y + imgH + 0.25, w: cardW - 0.4, h: 0.45,
+        fontSize: 12, bold: true, color: c(IA.textBlack), fontFace: FONTS.title,
+        wrap: true, shrinkText: true,
+      });
+
+      // Metrics 2x2 grid, bigger
+      const metrics = [
+        { label: "SPEND", value: fmtCur(cr.spend) },
+        { label: "ROAS",  value: fmtDec(cr.roas) + "×" },
+        { label: "CTR",   value: fmtPct(cr.ctr) },
+        { label: "CPA",   value: "€" + fmtDec(cr.cpa) },
+      ];
+      const metricsY = y + imgH + 0.78;
+      const cellW = (cardW - 0.4) / 2;
+      const cellH = 0.55;
+      metrics.forEach((m, mi) => {
+        const mx = x + 0.2 + (mi % 2) * cellW;
+        const my = metricsY + Math.floor(mi / 2) * cellH;
+        s.addText(m.label, {
+          x: mx, y: my, w: cellW, h: 0.2,
+          fontSize: 8, bold: true, color: c(IA.textCaption), fontFace: FONTS.body, charSpacing: 1,
+        });
+        s.addText(m.value, {
+          x: mx, y: my + 0.19, w: cellW, h: 0.32,
+          fontSize: 14, bold: true, color: c(IA.blueDeep), fontFace: FONTS.title,
+        });
       });
     });
-  });
+  }
 }
 
 // ── Main export function ────────────────────────────────────────────────────
