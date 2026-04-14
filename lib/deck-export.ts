@@ -1192,58 +1192,243 @@ export async function exportDeckToPptx(
         continue;
       }
 
-      const barColor = slide.type === "recommendation" ? IA.violet : IA.blue;
-      addBar(s, barColor);
-      addFooter(s, false);
+      // ═══ CHROME (shared header, gradient bar, footer, alert banner) ═══
+      const isAlert = slide.severity === "alert" || slide.type === "alert";
+      const isReco  = slide.type === "recommendation";
+      const accent  = isReco ? IA.violet : IA.blue;
 
-      // Title
+      // Left gradient accent bar — Impulse DA signature
+      s.addShape("rect", {
+        x: 0, y: 0, w: 0.22, h: LAYOUT.height,
+        fill: {
+          type: "gradient",
+          gradColors: [
+            { color: c(IA.blue), position: 0 },
+            { color: c(IA.violet), position: 100 },
+          ],
+          gradType: "liner", gradAngle: 90,
+        },
+        line: { width: 0 },
+      });
+
+      // Minimal footer
+      s.addShape("rect", {
+        x: LAYOUT.marginX + 0.4, y: LAYOUT.height - 0.42, w: LAYOUT.width - LAYOUT.marginX * 2 - 0.8, h: 0.005,
+        fill: { color: c(IA.bgRowAlt) }, line: { width: 0 },
+      });
+      s.addText("IMPULSE ANALYTICS", {
+        x: LAYOUT.marginX + 0.4, y: LAYOUT.height - 0.35, w: 4, h: 0.25,
+        fontSize: 8, bold: true, color: c(IA.textCaption), fontFace: FONTS.body, charSpacing: 2,
+      });
+      s.addText(`${data.client.name}  •  ${data.period.label}`, {
+        x: LAYOUT.width - 5.5, y: LAYOUT.height - 0.35, w: 5, h: 0.25,
+        fontSize: 8, color: c(IA.textCaption), fontFace: FONTS.body, align: "right",
+      });
+
+      // Alert top banner
+      if (isAlert) {
+        s.addShape("rect", {
+          x: 0.22, y: 0, w: LAYOUT.width - 0.22, h: 0.18,
+          fill: { color: c(IA.deltaNeg) }, line: { width: 0 },
+        });
+        s.addText("⚠  POINT D'ATTENTION", {
+          x: LAYOUT.marginX + 0.4, y: 0, w: 5, h: 0.18,
+          fontSize: 8, bold: true, color: c(IA.textWhite), fontFace: FONTS.body,
+          charSpacing: 2, valign: "middle",
+        });
+      }
+
+      // Title + subtitle + accent divider rule
+      const titleTop = isAlert ? 0.32 : 0.28;
       s.addText(slide.title, {
-        x: LAYOUT.marginX + 0.3, y: 0.25, w: 11, h: 0.5,
-        fontSize: SIZES.titleMain, bold: true, color: c(IA.textBlack),
-        fontFace: FONTS.title,
+        x: LAYOUT.marginX + 0.4, y: titleTop, w: LAYOUT.width - LAYOUT.marginX * 2 - 0.8, h: 0.75,
+        fontSize: 32, bold: true, color: c(IA.blueDark), fontFace: FONTS.title,
       });
       if (slide.subtitle) {
         s.addText(slide.subtitle, {
-          x: LAYOUT.marginX + 0.3, y: 0.75, w: 11, h: 0.3,
-          fontSize: SIZES.subtitle, color: c(IA.textCaption),
-          fontFace: FONTS.body, italic: true,
+          x: LAYOUT.marginX + 0.4, y: titleTop + 0.78, w: LAYOUT.width - LAYOUT.marginX * 2 - 0.8, h: 0.38,
+          fontSize: 13, color: c(IA.textBlack), fontFace: FONTS.body,
         });
       }
+      const dividerY = slide.subtitle ? titleTop + 1.20 : titleTop + 0.88;
+      s.addShape("rect", {
+        x: LAYOUT.marginX + 0.4, y: dividerY, w: 1.3, h: 0.04,
+        fill: { color: c(accent) }, line: { width: 0 },
+      });
+      s.addShape("rect", {
+        x: LAYOUT.marginX + 1.75, y: dividerY + 0.018, w: LAYOUT.width - LAYOUT.marginX * 2 - 2.15, h: 0.005,
+        fill: { color: c(IA.bgRowAlt) }, line: { width: 0 },
+      });
 
-      // KPIs as cards in a row
-      if (slide.kpis && slide.kpis.length > 0) {
-        const kpiCount = Math.min(slide.kpis.length, 4);
-        const kpiW = 11.5 / kpiCount;
-        slide.kpis.slice(0, 4).forEach((kpi, ki) => {
-          const xPos = LAYOUT.marginX + 0.3 + ki * kpiW;
-          s.addShape("rect", {
-            x: xPos, y: 1.15, w: kpiW - 0.15, h: 0.85,
-            fill: { color: "F5F7FA" }, line: { color: "E8EDF3", width: 1 },
-            rectRadius: 0.06,
+      let yPos = dividerY + 0.22;
+
+      // ═══ CREATIVE HERO LAYOUT — asymmetric, breaks from generic stack ═══
+      if (slide.type === "creative" && slide.images && slide.images.length > 0) {
+        const heroX = LAYOUT.marginX + 0.4;
+        const heroW = 6.4;
+        const heroH = LAYOUT.height - yPos - (slide.recommendation ? 1.1 : 0.6);
+        const hero = slide.images[0];
+        const secondaries = slide.images.slice(1, 3);
+
+        // Hero card
+        s.addShape("roundRect", {
+          x: heroX, y: yPos, w: heroW, h: heroH,
+          rectRadius: 0.08,
+          fill: { color: c(IA.bgAlt) }, line: { color: c(IA.bgRowAlt), width: 0.5 },
+          shadow: { type: "outer", blur: 10, offset: 2, angle: 45, color: "C5CDD8", opacity: 0.35 },
+        });
+        const heroImgH = heroH - 1.0;
+        const heroData = thumbnailDataMap[hero.url];
+        if (heroData) {
+          s.addImage({
+            data: heroData, x: heroX + 0.12, y: yPos + 0.12, w: heroW - 0.24, h: heroImgH - 0.12,
+            sizing: { type: "cover", w: heroW - 0.24, h: heroImgH - 0.12 },
           });
-          s.addText(kpi.label.toUpperCase(), {
-            x: xPos + 0.1, y: 1.2, w: kpiW - 0.35, h: 0.2,
-            fontSize: 7, bold: true, color: "8A9BB5",
-            fontFace: FONTS.body,
+        }
+        // HERO badge top-left
+        s.addShape("roundRect", {
+          x: heroX + 0.22, y: yPos + 0.22, w: 0.95, h: 0.32,
+          rectRadius: 0.05, fill: { color: c(IA.violet) }, line: { width: 0 },
+        });
+        s.addText("HERO", {
+          x: heroX + 0.22, y: yPos + 0.22, w: 0.95, h: 0.32,
+          fontSize: 9, bold: true, color: c(IA.textWhite), fontFace: FONTS.body,
+          align: "center", valign: "middle", charSpacing: 2,
+        });
+        // Hero label + metrics
+        if (hero.label) {
+          s.addText(hero.label, {
+            x: heroX + 0.25, y: yPos + heroImgH + 0.08, w: heroW - 0.5, h: 0.4,
+            fontSize: 15, bold: true, color: c(IA.textBlack), fontFace: FONTS.title,
+            shrinkText: true,
           });
-          s.addText(kpi.value, {
-            x: xPos + 0.1, y: 1.4, w: kpiW - 0.35, h: 0.35,
-            fontSize: 18, bold: true, color: c(IA.blue),
-            fontFace: FONTS.title,
+        }
+        if (hero.metrics) {
+          s.addText(hero.metrics, {
+            x: heroX + 0.25, y: yPos + heroImgH + 0.48, w: heroW - 0.5, h: 0.35,
+            fontSize: 12, bold: true, color: c(accent), fontFace: FONTS.body,
           });
-          if (kpi.delta) {
-            const deltaColor = kpi.trend === "up" ? "0B8043" : kpi.trend === "down" ? "C53929" : "999999";
-            const arrow = kpi.trend === "up" ? "▲ " : kpi.trend === "down" ? "▼ " : "";
-            s.addText(`${arrow}${kpi.delta}`, {
-              x: xPos + 0.1, y: 1.75, w: kpiW - 0.35, h: 0.2,
-              fontSize: 7, bold: true, color: deltaColor,
-              fontFace: FONTS.body,
+        }
+
+        // Secondary cards — stacked right
+        const secX = heroX + heroW + 0.3;
+        const secW = LAYOUT.width - secX - LAYOUT.marginX - 0.4;
+        const secGap = 0.2;
+        const secH = (heroH - secGap) / 2;
+        secondaries.forEach((img, si) => {
+          const sy = yPos + si * (secH + secGap);
+          s.addShape("roundRect", {
+            x: secX, y: sy, w: secW, h: secH,
+            rectRadius: 0.08,
+            fill: { color: c(IA.bgAlt) }, line: { color: c(IA.bgRowAlt), width: 0.5 },
+            shadow: { type: "outer", blur: 6, offset: 1, angle: 45, color: "C5CDD8", opacity: 0.25 },
+          });
+          const imgSubW = secW * 0.45;
+          const imgSubH = secH - 0.2;
+          const data = thumbnailDataMap[img.url];
+          if (data) {
+            s.addImage({
+              data, x: secX + 0.1, y: sy + 0.1, w: imgSubW, h: imgSubH,
+              sizing: { type: "cover", w: imgSubW, h: imgSubH },
+            });
+          }
+          const textX = secX + imgSubW + 0.25;
+          const textW = secW - imgSubW - 0.4;
+          // Rank pill top-right
+          const rankCol = si % 2 === 0 ? c(IA.blueDeep) : c(IA.violet);
+          s.addShape("ellipse", {
+            x: secX + secW - 0.45, y: sy + 0.1, w: 0.32, h: 0.32,
+            fill: { color: rankCol }, line: { width: 0 },
+          });
+          s.addText(String(si + 2), {
+            x: secX + secW - 0.45, y: sy + 0.1, w: 0.32, h: 0.32,
+            fontSize: 11, bold: true, color: c(IA.textWhite), fontFace: FONTS.title,
+            align: "center", valign: "middle",
+          });
+          if (img.label) {
+            s.addText(img.label, {
+              x: textX, y: sy + 0.15, w: textW - 0.4, h: 0.45,
+              fontSize: 11, bold: true, color: c(IA.textBlack), fontFace: FONTS.title,
+              wrap: true, shrinkText: true,
+            });
+          }
+          if (img.metrics) {
+            s.addText(img.metrics, {
+              x: textX, y: sy + 0.62, w: textW, h: secH - 0.8,
+              fontSize: 9, color: c(IA.textCaption), fontFace: FONTS.body,
+              wrap: true, shrinkText: true,
             });
           }
         });
+
+        // Recommendation pill at bottom
+        if (slide.recommendation) {
+          const recoY = LAYOUT.height - 1.05;
+          s.addShape("roundRect", {
+            x: LAYOUT.marginX + 0.4, y: recoY, w: LAYOUT.width - LAYOUT.marginX * 2 - 0.8, h: 0.55,
+            rectRadius: 0.1, fill: { color: c(accent) }, line: { width: 0 },
+            shadow: { type: "outer", blur: 8, offset: 2, angle: 45, color: "C5CDD8", opacity: 0.3 },
+          });
+          s.addText(`→  ${slide.recommendation}`, {
+            x: LAYOUT.marginX + 0.6, y: recoY, w: LAYOUT.width - LAYOUT.marginX * 2 - 1.2, h: 0.55,
+            fontSize: 13, bold: true, color: c(IA.textWhite), fontFace: FONTS.body,
+            valign: "middle", shrinkText: true,
+          });
+        }
+
+        // Editor + dropped blocks still applied below via the generic overlay path
+        const aiEditorIdxC = 1000 + aiIdx;
+        const elsC = slideElements?.[aiEditorIdxC];
+        if (elsC && elsC.length > 0) addSlideElements(s, elsC, LAYOUT.width, LAYOUT.height);
+        if (droppedBlocks) {
+          for (const block of droppedBlocks) {
+            let isThisAiSlide = false;
+            if (block.kind === "ai" && block.localIdx === aiIdx) isThisAiSlide = true;
+            else if (!block.kind && block.slideIndex === STANDARD_SLIDE_COUNT + (customSlides?.length ?? 0) + aiIdx) isThisAiSlide = true;
+            if (isThisAiSlide) addDroppedBlock(s, block, blockStyles?.[block.id], LAYOUT.width, LAYOUT.height);
+          }
+        }
+        continue;
       }
 
-      let yPos = slide.kpis && slide.kpis.length > 0 ? 2.15 : 1.15;
+      // ═══ GENERIC STACKED PATH — upgraded typography ═══
+      // KPIs as branded cards in a row
+      if (slide.kpis && slide.kpis.length > 0) {
+        const kpiCount = Math.min(slide.kpis.length, 4);
+        const totalKpiW = LAYOUT.width - LAYOUT.marginX * 2 - 0.8;
+        const kpiGap = 0.22;
+        const kpiW = (totalKpiW - kpiGap * (kpiCount - 1)) / kpiCount;
+        const kpiH = 1.75;
+        slide.kpis.slice(0, 4).forEach((kpi, ki) => {
+          const xPos = LAYOUT.marginX + 0.4 + ki * (kpiW + kpiGap);
+          const alt = ki % 2 === 0;
+          s.addShape("roundRect", {
+            x: xPos, y: yPos, w: kpiW, h: kpiH,
+            rectRadius: 0.1,
+            fill: { color: alt ? "EBF5FF" : "F0EBFF" },
+            line: { width: 0 },
+          });
+          s.addText(kpi.label.toUpperCase(), {
+            x: xPos + 0.22, y: yPos + 0.22, w: kpiW - 0.44, h: 0.28,
+            fontSize: 9, bold: true, color: c(IA.textCaption), fontFace: FONTS.body, charSpacing: 2,
+          });
+          s.addText(kpi.value, {
+            x: xPos + 0.22, y: yPos + 0.5, w: kpiW - 0.44, h: 0.8,
+            fontSize: 32, bold: true,
+            color: alt ? c(IA.blueDeep) : c(IA.violet),
+            fontFace: FONTS.title, shrinkText: true,
+          });
+          if (kpi.delta) {
+            const deltaColor = kpi.trend === "up" ? c(IA.deltaPos) : kpi.trend === "down" ? c(IA.deltaNeg) : c(IA.textCaption);
+            const arrow = kpi.trend === "up" ? "▲ " : kpi.trend === "down" ? "▼ " : "";
+            s.addText(`${arrow}${kpi.delta}`, {
+              x: xPos + 0.22, y: yPos + 1.32, w: kpiW - 0.44, h: 0.3,
+              fontSize: 10, bold: true, color: deltaColor, fontFace: FONTS.body,
+            });
+          }
+        });
+        yPos += kpiH + 0.28;
+      }
 
       // Table
       if (slide.table) {
@@ -1355,55 +1540,51 @@ export async function exportDeckToPptx(
         yPos += imgH + 0.2;
       }
 
-      // Insights — auto-scale font when many items or limited space
+      // Insights — // ANALYSE label + alternating blue/violet bullet squares
       if (slide.insights && slide.insights.length > 0) {
-        // Section divider line
         s.addText("// ANALYSE", {
-          x: LAYOUT.marginX + 0.3, y: yPos, w: 3, h: 0.25,
-          fontSize: 8, bold: true, color: c(IA.blue), fontFace: FONTS.body,
+          x: LAYOUT.marginX + 0.4, y: yPos, w: 2.5, h: 0.3,
+          fontSize: 10, bold: true, color: c(accent), fontFace: FONTS.body, charSpacing: 2,
         });
         s.addShape("rect", {
-          x: LAYOUT.marginX + 2.2, y: yPos + 0.12, w: 9.6, h: 0.015,
-          fill: { color: c(IA.blue) }, line: { width: 0 },
+          x: LAYOUT.marginX + 2.9, y: yPos + 0.15, w: LAYOUT.width - LAYOUT.marginX * 2 - 3.3, h: 0.02,
+          fill: { color: c(accent) }, line: { width: 0 },
         });
-        yPos += 0.35;
+        yPos += 0.42;
 
-        const remainingH = LAYOUT.height - yPos - 1.0; // leave room for recommendation + footer
+        const recoReserve = slide.recommendation ? 1.1 : 0.55;
+        const remainingH = LAYOUT.height - yPos - recoReserve;
         const insightCount = slide.insights.length;
-        const rowH = Math.min(0.32, remainingH / insightCount);
-        const insightFontSize = insightCount > 4 || rowH < 0.25 ? 7 : 9;
+        const rowH = Math.min(0.55, remainingH / insightCount);
+        const insightFontSize = insightCount > 4 || rowH < 0.42 ? 11 : 13;
 
         slide.insights.forEach((insight, ii) => {
-          s.addShape("ellipse", {
-            x: LAYOUT.marginX + 0.3, y: yPos + 0.03, w: 0.18, h: 0.18,
-            fill: { color: c(IA.blue) },
-          });
-          s.addText(String(ii + 1), {
-            x: LAYOUT.marginX + 0.3, y: yPos + 0.03, w: 0.18, h: 0.18,
-            fontSize: Math.min(7, insightFontSize), bold: true, color: "FFFFFF", align: "center", valign: "middle",
-            fontFace: FONTS.body,
+          const col = ii % 2 === 0 ? c(IA.blueDeep) : c(IA.violet);
+          s.addShape("rect", {
+            x: LAYOUT.marginX + 0.4, y: yPos + 0.12, w: 0.16, h: 0.26,
+            fill: { color: col }, line: { width: 0 },
           });
           s.addText(insight, {
-            x: LAYOUT.marginX + 0.6, y: yPos, w: 11.2, h: rowH,
-            fontSize: insightFontSize, color: "333333", fontFace: FONTS.body,
-            valign: "middle", wrap: true, shrinkText: true,
+            x: LAYOUT.marginX + 0.75, y: yPos, w: LAYOUT.width - LAYOUT.marginX * 2 - 1.15, h: rowH,
+            fontSize: insightFontSize, color: c(IA.textBlack), fontFace: FONTS.body,
+            valign: "top", wrap: true, shrinkText: true,
           });
           yPos += rowH;
         });
       }
 
-      // Recommendation
+      // Recommendation — filled solid callout (white text on accent fill)
       if (slide.recommendation) {
-        s.addShape("rect", {
-          x: LAYOUT.marginX + 0.3, y: yPos + 0.1, w: 11.5, h: 0.4,
-          fill: { color: "EFF6FF" },
-          line: { color: c(IA.blue), width: 0.5 },
-          rectRadius: 0.04,
+        const recoY = LAYOUT.height - 1.05;
+        s.addShape("roundRect", {
+          x: LAYOUT.marginX + 0.4, y: recoY, w: LAYOUT.width - LAYOUT.marginX * 2 - 0.8, h: 0.55,
+          rectRadius: 0.1, fill: { color: c(accent) }, line: { width: 0 },
+          shadow: { type: "outer", blur: 8, offset: 2, angle: 45, color: "C5CDD8", opacity: 0.3 },
         });
-        s.addText(`➜ ${slide.recommendation}`, {
-          x: LAYOUT.marginX + 0.5, y: yPos + 0.1, w: 11.1, h: 0.4,
-          fontSize: 9, bold: true, color: c(IA.blue), fontFace: FONTS.body,
-          valign: "middle", wrap: true, shrinkText: true,
+        s.addText(`→  ${slide.recommendation}`, {
+          x: LAYOUT.marginX + 0.6, y: recoY, w: LAYOUT.width - LAYOUT.marginX * 2 - 1.2, h: 0.55,
+          fontSize: 13, bold: true, color: c(IA.textWhite), fontFace: FONTS.body,
+          valign: "middle", shrinkText: true,
         });
       }
 
