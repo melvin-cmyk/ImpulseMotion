@@ -934,15 +934,13 @@ function addTopCreatives(pptx: PptxGen, creatives: TopCreative[], thumbnailDataM
 
 async function fetchOneThumbnail(url: string): Promise<string | null> {
   try {
-    const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(url)}&format=base64`, { signal: AbortSignal.timeout(6000) });
+    // The proxy with ?format=base64 returns JSON { dataUrl, width, height }.
+    // Must parse as JSON — reading it as a blob + FileReader would produce
+    // "data:application/json;base64,..." which pptxgenjs cannot embed.
+    const res = await fetch(`/api/deck/proxy-image?url=${encodeURIComponent(url)}&format=base64`, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
-    const blob = await res.blob();
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+    const json = (await res.json()) as { dataUrl?: string };
+    return json.dataUrl ?? null;
   } catch {
     return null;
   }
