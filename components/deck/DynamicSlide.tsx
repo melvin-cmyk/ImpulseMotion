@@ -588,6 +588,90 @@ function BlockRenderer({ block }: { block: LayoutBlock }) {
   }
 }
 
+// ── Semantic layout → blocks adapter ────────────────────────────────────────
+// The PPTX exporter has dedicated renderers for slide.layout values
+// (kpi/cards/steps/comparative/nextSteps/matrix/funnel). The web preview
+// reuses the generic `blocks` pipeline — this helper synthesizes blocks
+// from the semantic fields so the preview is never empty.
+
+function synthesizeBlocksFromLayout(slide: SlideData): LayoutBlock[] | null {
+  if (!slide.layout) return null;
+  switch (slide.layout) {
+    case "kpi":
+      return slide.kpis?.length ? [{ kind: "kpis", items: slide.kpis, columns: Math.min(slide.kpis.length, 4) }] : null;
+    case "cards": {
+      const cards = slide.cards ?? [];
+      if (!cards.length) return null;
+      // 2 colonnes, cartes empilées verticalement
+      const mid = Math.ceil(cards.length / 2);
+      const toBlocks = (arr: typeof cards): LayoutBlock[] => arr.flatMap((card) => ([
+        { kind: "heading" as const, text: card.title, level: 3 as const },
+        { kind: "paragraph" as const, text: card.body },
+        { kind: "spacer" as const, size: "sm" as const },
+      ]));
+      return [{ kind: "columns", ratio: "1:1", left: toBlocks(cards.slice(0, mid)), right: toBlocks(cards.slice(mid)) }];
+    }
+    case "steps": {
+      const steps = slide.steps ?? [];
+      if (!steps.length) return null;
+      return [{
+        kind: "bullets",
+        ordered: true,
+        items: steps.map((s) => s.kpi ? `${s.title} — ${s.body ?? ""} (${s.kpi})` : s.body ? `${s.title} — ${s.body}` : s.title),
+      }];
+    }
+    case "comparative": {
+      const l = slide.comparativeLeft, r = slide.comparativeRight;
+      if (!l || !r) return null;
+      return [{
+        kind: "columns",
+        ratio: "1:1",
+        left: [
+          { kind: "heading", text: l.header, level: 3 },
+          { kind: "bullets", items: l.items },
+        ],
+        right: [
+          { kind: "heading", text: r.header, level: 3 },
+          { kind: "bullets", items: r.items },
+        ],
+      }];
+    }
+    case "nextSteps": {
+      const items = slide.actions ?? [];
+      if (!items.length) return null;
+      return [{
+        kind: "bullets",
+        items: items.map((a) => {
+          const owner = a.owner ? ` — ${a.owner}` : "";
+          return a.desc ? `${a.label} — ${a.desc}${owner}` : `${a.label}${owner}`;
+        }),
+      }];
+    }
+    case "matrix": {
+      const m = slide.matrix;
+      if (!m?.quadrants || m.quadrants.length < 4) return null;
+      const [tl, tr, bl, br] = m.quadrants.slice(0, 4);
+      const q = (quad: typeof tl): LayoutBlock[] => [
+        { kind: "heading", text: quad.title, level: 3 },
+        { kind: "bullets", items: quad.items ?? (quad.body ? [quad.body] : []) },
+        { kind: "spacer", size: "sm" },
+      ];
+      return [{ kind: "columns", ratio: "1:1", left: [...q(tl), ...q(bl)], right: [...q(tr), ...q(br)] }];
+    }
+    case "funnel": {
+      const stages = slide.funnel ?? [];
+      if (!stages.length) return null;
+      return [{
+        kind: "bullets",
+        ordered: true,
+        items: stages.map((s) => s.caption ? `${s.label} — ${s.value} (${s.caption})` : `${s.label} — ${s.value}`),
+      }];
+    }
+    default:
+      return null;
+  }
+}
+
 // ── Main DynamicSlide component ───────────────────────────────────────────────
 
 export interface DynamicSlideProps {
@@ -605,7 +689,10 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
   const accent: "blue" | "violet" | undefined =
     slide.accent ?? (slide.type === "recommendation" ? "violet" : "blue");
 
-  const hasBlocks = Array.isArray(slide.blocks) && slide.blocks.length > 0;
+  const explicitBlocks = Array.isArray(slide.blocks) && slide.blocks.length > 0 ? slide.blocks as LayoutBlock[] : null;
+  const synthesized = explicitBlocks ? null : synthesizeBlocksFromLayout(slide);
+  const blocks = explicitBlocks ?? synthesized;
+  const hasBlocks = !!blocks;
 
   // Severity container style — no colored backgrounds, just clean layout
   const severityContainerStyle: React.CSSProperties = {};
@@ -630,9 +717,9 @@ export function DynamicSlide({ slide, slideNumber, className }: DynamicSlideProp
         <Divider />
 
         {/* Freeform block composition — takes precedence over legacy fields */}
-        {hasBlocks && (
+        {hasBlocks && blocks && (
           <div className="flex-1 min-h-0 flex flex-col">
-            {(slide.blocks as LayoutBlock[]).map((block, i) => (
+            {blocks.map((block, i) => (
               <BlockRenderer key={i} block={block} />
             ))}
           </div>
