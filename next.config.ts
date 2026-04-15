@@ -48,7 +48,13 @@ const nextConfig: NextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: https: blob:",
               "media-src 'self' https: blob:",
-              "connect-src 'self' https://graph.facebook.com https://api.tiktok.com https://*.trycloudflare.com",
+              // In dev, allow the local relay server (localhost:3457) and the public relay IP.
+              // In prod, same-origin + trycloudflare tunnel is used.
+              `connect-src 'self' https://graph.facebook.com https://api.tiktok.com https://*.trycloudflare.com${
+                process.env.NODE_ENV !== "production"
+                  ? " http://localhost:3457 http://127.0.0.1:3457 http://72.62.29.196:3457"
+                  : ""
+              }`,
               // Allow Facebook video embeds
               "frame-src 'self' https://www.facebook.com https://video.facebook.com https://web.facebook.com",
             ].join("; "),

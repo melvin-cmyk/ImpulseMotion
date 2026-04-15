@@ -2288,7 +2288,7 @@ export default function DeckPage() {
                   if (searchLower && !aiSlide.title.toLowerCase().includes(searchLower)) return null;
                   return (
                     <button
-                      key={aiSlide.id ?? `ai-${i}`}
+                      key={`${aiSlide.id ?? "ai"}-${i}`}
                       onClick={() => goToSlide(aiAbsIdx)}
                       className={`w-full text-left px-2 py-1.5 transition-all ${isActive ? "bg-violet-50" : "hover:bg-gray-50"}`}
                       style={isActive ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "5px" } : undefined}
@@ -2396,6 +2396,17 @@ export default function DeckPage() {
               onDragLeave={(e) => { if (!canvasRef.current?.contains(e.relatedTarget as Node)) setIsDragOverCanvas(false); }}
               onClick={editMode ? slideEditor.handleCanvasClick : undefined}
             >
+              {/* Snap guides */}
+              {editMode && (slideEditor.activeGuides.vertical.length > 0 || slideEditor.activeGuides.horizontal.length > 0) && (
+                <div className="absolute inset-0 pointer-events-none z-40">
+                  {slideEditor.activeGuides.vertical.map((v, i) => (
+                    <div key={`v${i}`} style={{ position: "absolute", top: 0, bottom: 0, left: `${v}%`, width: 1, background: "#ff00aa", boxShadow: "0 0 0 0.5px #ff00aa" }} />
+                  ))}
+                  {slideEditor.activeGuides.horizontal.map((h, i) => (
+                    <div key={`h${i}`} style={{ position: "absolute", left: 0, right: 0, top: `${h}%`, height: 1, background: "#ff00aa", boxShadow: "0 0 0 0.5px #ff00aa" }} />
+                  ))}
+                </div>
+              )}
               {/* Drop overlay */}
               {isDragOverCanvas && (
                 <div className="absolute inset-0 z-50 pointer-events-none rounded-lg border-4 border-violet-500 bg-violet-500/10 flex items-center justify-center">
@@ -2492,8 +2503,8 @@ export default function DeckPage() {
                       onMouseDown={(e) => slideEditor.handleElementMouseDown(e, el)}
                       onDoubleClick={(e) => slideEditor.handleElementDoubleClick(e, el)}
                       onTextChange={(text) => slideEditor.updateEl(el.id, { text })}
-                      onBlur={() => slideEditor.setEditingId(null)}
-                      onResizeMouseDown={(e) => slideEditor.handleResizeMouseDown(e, el)}
+                      onBlur={() => slideEditor.commitTextEdit()}
+                      onResizeMouseDown={(e, handle) => slideEditor.handleResizeMouseDown(e, el, handle)}
                     />
                   ))}
                 </div>

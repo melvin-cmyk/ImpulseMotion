@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Loader2, Presentation, ChevronRight, CheckSquare, Square, Clock, ExternalLink } from "lucide-react";
@@ -9,12 +9,21 @@ import type { DeckClientResult } from "@/app/api/deck/clients/route";
 import type { DeckHistoryEntry } from "@/lib/deck-history-storage";
 
 const SECTIONS = [
-  { id: "global", label: "Vue globale (highlights, tableau, NC)" },
-  { id: "google", label: "Google Ads (KPIs, campagnes, insights, next steps)" },
-  { id: "meta", label: "Meta Ads (KPIs, campagnes, créatives, insights, next steps)" },
-  { id: "budget", label: "Budget prévisionnel" },
-  { id: "learnings", label: "Points Clés & recommandations globales" },
+  { id: "global", label: "Vue globale (highlights, tableau, NC)", slideCount: 3 },
+  { id: "google", label: "Google Ads (KPIs, campagnes, insights, next steps)", slideCount: 5 },
+  { id: "meta", label: "Meta Ads (KPIs, campagnes, créatives, insights, next steps)", slideCount: 6 },
+  { id: "budget", label: "Budget prévisionnel", slideCount: 2 },
+  { id: "learnings", label: "Points Clés & recommandations globales", slideCount: 2 },
 ];
+
+const STORAGE_KEY = "deck-builder-config-v1";
+
+function formatPeriodRange(p: DeckPeriod): string {
+  const start = new Date(p.startDate);
+  const end = new Date(p.endDate);
+  const fmt = (d: Date) => d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+  return `${fmt(start)} – ${fmt(end)}`;
+}
 
 export default function DeckBuilderPage() {
   const router = useRouter();
@@ -33,7 +42,30 @@ export default function DeckBuilderPage() {
   const [history, setHistory] = useState<DeckHistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const periods = getAvailablePeriods();
+  const periods = useMemo(() => getAvailablePeriods(), []);
+
+  // Restore saved config from localStorage
+  useEffect(() => {
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+      if (raw) {
+        const saved = JSON.parse(raw) as {
+          clientId?: string;
+          period?: string;
+          sections?: string[];
+          context?: string;
+          budgetMeta?: string;
+          budgetGoogle?: string;
+        };
+        if (saved.clientId) setSelectedClientId(saved.clientId);
+        if (saved.period) setSelectedPeriod(saved.period);
+        if (saved.sections) setEnabledSections(new Set(saved.sections));
+        if (saved.context) setContext(saved.context);
+        if (saved.budgetMeta) setBudgetMeta(saved.budgetMeta);
+        if (saved.budgetGoogle) setBudgetGoogle(saved.budgetGoogle);
+      }
+    } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => {
     fetch("/api/deck/clients")
@@ -42,12 +74,19 @@ export default function DeckBuilderPage() {
         if (d.needsAuth) { setClientsNeedAuth(true); return; }
         if (d.metaNeedsReconnect) setMetaNeedsReconnect(true);
         setClients(d.clients || []);
-        if (d.clients?.length > 0) setSelectedClientId(d.clients[0].id);
+        if (d.clients?.length > 0) {
+          // Only set default if nothing was restored from localStorage
+          setSelectedClientId((cur) => cur || d.clients[0].id);
+        }
       })
       .catch(() => setClients([]))
       .finally(() => setLoadingClients(false));
 
-    if (periods.length > 1) setSelectedPeriod(periods[1].month);
+    setSelectedPeriod((cur) => {
+      if (cur) return cur;
+      const idx = periods.length > 1 ? 1 : 0;
+      return periods[idx]?.month ?? "";
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reload history when selected client changes
@@ -95,6 +134,53 @@ export default function DeckBuilderPage() {
   }
 
   const selectedClient = clients.find((c) => c.id === selectedClientId);
+
+  // Sync sections with client platform: drop hidden ones, never send "meta" for google-only client.
+  useEffect(() => {
+    if (!selectedClient) return;
+    setEnabledSections((prev) => {
+      const next = new Set(prev);
+      if (selectedClient.platform === "meta") next.delete("google");
+      if (selectedClient.platform === "google") next.delete("meta");
+      return next;
+    });
+  }, [selectedClient]);
+
+  // Persist config on every change
+  useEffect(() => {
+    if (!selectedClientId && !selectedPeriod) return;
+    try {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          clientId: selectedClientId,
+          period: selectedPeriod,
+          sections: Array.from(enabledSections),
+          context,
+          budgetMeta,
+          budgetGoogle,
+        })
+      );
+    } catch { /* ignore */ }
+  }, [selectedClientId, selectedPeriod, enabledSections, context, budgetMeta, budgetGoogle]);
+
+  const estimatedSlides = useMemo(() => {
+    let n = 1; // cover
+    SECTIONS.forEach((s) => {
+      if (!enabledSections.has(s.id)) return;
+      if (s.id === "google" && selectedClient?.platform === "meta") return;
+      if (s.id === "meta" && selectedClient?.platform === "google") return;
+      n += s.slideCount;
+    });
+    return n;
+  }, [enabledSections, selectedClient]);
+
+  const disabledReason =
+    !selectedClientId ? "Sélectionne un client"
+    : !selectedPeriod ? "Sélectionne une période"
+    : enabledSections.size === 0 ? "Coche au moins une section"
+    : null;
+
   const platformHint = selectedClient?.platform === "google"
     ? "Google Ads uniquement"
     : selectedClient?.platform === "meta"
@@ -184,10 +270,11 @@ export default function DeckBuilderPage() {
             >
               {periods.map((p: DeckPeriod) => (
                 <option key={p.month} value={p.month}>
-                  {p.label}
+                  {p.label} · {formatPeriodRange(p)}
                 </option>
               ))}
             </select>
+            <p className="mt-2 text-xs text-gray-500">Comparé automatiquement avec la période précédente (M-1)</p>
           </div>
 
           {/* Sections */}
@@ -262,14 +349,20 @@ export default function DeckBuilderPage() {
           </div>
 
           {/* CTA */}
-          <button
-            onClick={handleGenerate}
-            disabled={!selectedClientId || !selectedPeriod || enabledSections.size === 0}
-            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl px-6 py-4 font-semibold text-base transition-colors"
-          >
-            Générer le deck
-            <ChevronRight className="w-5 h-5" />
-          </button>
+          <div>
+            <button
+              onClick={handleGenerate}
+              disabled={!!disabledReason}
+              title={disabledReason ?? undefined}
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-2xl px-6 py-4 font-semibold text-base transition-colors"
+            >
+              Générer le deck (~{estimatedSlides} slides)
+              <ChevronRight className="w-5 h-5" />
+            </button>
+            {disabledReason && (
+              <p className="mt-2 text-xs text-amber-400 text-center">{disabledReason}</p>
+            )}
+          </div>
 
           {/* Historique des decks */}
           {selectedClientId && (
@@ -292,22 +385,21 @@ export default function DeckBuilderPage() {
                     const date = new Date(entry.createdAt);
                     const dateStr = date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
                     return (
-                      <div
+                      <button
                         key={entry.id}
-                        className="flex items-center justify-between gap-3 bg-gray-800 rounded-xl px-4 py-3 hover:bg-gray-750 transition-colors"
+                        type="button"
+                        onClick={() => router.push(`/deck?historyId=${entry.id}`)}
+                        className="w-full flex items-center justify-between gap-3 bg-gray-800 rounded-xl px-4 py-3 hover:bg-gray-700 transition-colors text-left"
                       >
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-white truncate">{entry.period || `${entry.startDate} – ${entry.endDate}`}</p>
                           <p className="text-xs text-gray-500">{dateStr} · {entry.slides.length} slides · {entry.platform}</p>
                         </div>
-                        <button
-                          onClick={() => router.push(`/deck?historyId=${entry.id}`)}
-                          className="flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 shrink-0 transition-colors"
-                        >
+                        <span className="flex items-center gap-1.5 text-xs text-blue-400 shrink-0">
                           Voir
                           <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                        </span>
+                      </button>
                     );
                   })}
                 </div>

@@ -509,6 +509,8 @@ export function SlideEditorToolbar({
 
 // ── SlideElementItem ──────────────────────────────────────────────────────────
 
+type ResizeHandleId = "tl" | "tr" | "bl" | "br" | "t" | "b" | "l" | "r";
+
 interface SlideElementItemProps {
   el: SlideElement;
   isSelected: boolean;
@@ -517,7 +519,7 @@ interface SlideElementItemProps {
   onDoubleClick: (e: React.MouseEvent) => void;
   onTextChange: (text: string) => void;
   onBlur: () => void;
-  onResizeMouseDown: (e: React.MouseEvent) => void;
+  onResizeMouseDown: (e: React.MouseEvent, handle: ResizeHandleId) => void;
 }
 
 export function SlideElementItem({
@@ -697,23 +699,38 @@ export function SlideElementItem({
         />
       )}
       {renderShape()}
-      {isSelected && (
-        <div
-          onMouseDown={onResizeMouseDown}
-          style={{
-            position: "absolute",
-            bottom: -4,
-            right: -4,
-            width: 10,
-            height: 10,
-            background: "#2CA6F9",
-            border: "2px solid white",
-            borderRadius: 2,
-            cursor: "se-resize",
-            zIndex: 32,
-          }}
-        />
-      )}
+      {isSelected && (() => {
+        const handles: { id: ResizeHandleId; top?: string | number; left?: string | number; bottom?: string | number; right?: string | number; cursor: string }[] = [
+          { id: "tl", top: -4, left: -4, cursor: "nwse-resize" },
+          { id: "tr", top: -4, right: -4, cursor: "nesw-resize" },
+          { id: "bl", bottom: -4, left: -4, cursor: "nesw-resize" },
+          { id: "br", bottom: -4, right: -4, cursor: "nwse-resize" },
+          { id: "t", top: -4, left: "calc(50% - 5px)", cursor: "ns-resize" },
+          { id: "b", bottom: -4, left: "calc(50% - 5px)", cursor: "ns-resize" },
+          { id: "l", left: -4, top: "calc(50% - 5px)", cursor: "ew-resize" },
+          { id: "r", right: -4, top: "calc(50% - 5px)", cursor: "ew-resize" },
+        ];
+        return handles.map((h) => (
+          <div
+            key={h.id}
+            onMouseDown={(e) => onResizeMouseDown(e, h.id)}
+            style={{
+              position: "absolute",
+              top: h.top,
+              left: h.left,
+              right: h.right,
+              bottom: h.bottom,
+              width: 10,
+              height: 10,
+              background: "#2CA6F9",
+              border: "2px solid white",
+              borderRadius: 2,
+              cursor: h.cursor,
+              zIndex: 32,
+            }}
+          />
+        ));
+      })()}
     </div>
   );
 }
@@ -733,6 +750,16 @@ export function useSlideEditor(
   const historyRef = useRef<SlideElement[][]>([]);
   const historyIndexRef = useRef<number>(-1);
   const [historyLen, setHistoryLen] = useState(0); // trigger re-render when history changes
+
+  // Seed history with initial state so first action has something to undo to
+  useEffect(() => {
+    if (historyRef.current.length === 0) {
+      historyRef.current.push(elements);
+      historyIndexRef.current = 0;
+      setHistoryLen(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pushHistory = useCallback((newEls: SlideElement[]) => {
     // Truncate forward history
@@ -767,16 +794,24 @@ export function useSlideEditor(
   const canUndo = historyLen > 0 && historyIndexRef.current > 0;
   const canRedo = historyLen > 0 && historyIndexRef.current < historyRef.current.length - 1;
 
+  type ResizeHandle = "tl" | "tr" | "bl" | "br" | "t" | "b" | "l" | "r";
   const dragRef = useRef<{
     type: "move" | "resize";
     id: string;
+    handle?: ResizeHandle;
     startX: number;
     startY: number;
     origX: number;
     origY: number;
     origW: number;
     origH: number;
+    moved: boolean;
   } | null>(null);
+
+  const [activeGuides, setActiveGuides] = useState<{ vertical: number[]; horizontal: number[] }>({
+    vertical: [],
+    horizontal: [],
+  });
 
   const selectedElement = elements.find((e) => e.id === selectedId) ?? null;
 
@@ -863,39 +898,137 @@ export function useSlideEditor(
         undo();
       } else if (((e.ctrlKey || e.metaKey) && e.key === "y") || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z")) {
         if (!inInput) { e.preventDefault(); redo(); }
+      } else if (
+        !inInput &&
+        selectedId &&
+        (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")
+      ) {
+        e.preventDefault();
+        const step = e.shiftKey ? 5 : 0.5;
+        const el = elements.find((x) => x.id === selectedId);
+        if (!el) return;
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        updateElWithHistory(selectedId, {
+          x: Math.max(0, Math.min(100 - el.w, el.x + dx)),
+          y: Math.max(0, Math.min(100 - el.h, el.y + dy)),
+        });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [deleteSelected, duplicateSelected, selectedId, undo, redo]);
+  }, [deleteSelected, duplicateSelected, selectedId, undo, redo, elements, updateElWithHistory]);
 
   // Global mouse move/up for drag
   useEffect(() => {
+    const SNAP_TOL = 1.2; // % tolerance
+
+    const computeSnap = (
+      newX: number,
+      newY: number,
+      w: number,
+      h: number,
+      id: string
+    ): { x: number; y: number; vGuides: number[]; hGuides: number[] } => {
+      const others = elements.filter((e) => e.id !== id);
+      const vTargets: number[] = [0, 50, 100];
+      const hTargets: number[] = [0, 50, 100];
+      others.forEach((e) => {
+        vTargets.push(e.x, e.x + e.w / 2, e.x + e.w);
+        hTargets.push(e.y, e.y + e.h / 2, e.y + e.h);
+      });
+      const elV = [newX, newX + w / 2, newX + w];
+      const elH = [newY, newY + h / 2, newY + h];
+      let bestX = { d: SNAP_TOL, delta: 0, line: 0, found: false };
+      let bestY = { d: SNAP_TOL, delta: 0, line: 0, found: false };
+      elV.forEach((v, i) => {
+        vTargets.forEach((t) => {
+          const d = Math.abs(v - t);
+          if (d < bestX.d) bestX = { d, delta: t - v, line: t, found: true };
+          else if (d === bestX.d && bestX.found) bestX = { ...bestX, line: t };
+          void i;
+        });
+      });
+      elH.forEach((v) => {
+        hTargets.forEach((t) => {
+          const d = Math.abs(v - t);
+          if (d < bestY.d) bestY = { d, delta: t - v, line: t, found: true };
+        });
+      });
+      return {
+        x: bestX.found ? newX + bestX.delta : newX,
+        y: bestY.found ? newY + bestY.delta : newY,
+        vGuides: bestX.found ? [bestX.line] : [],
+        hGuides: bestY.found ? [bestY.line] : [],
+      };
+    };
+
     const onMove = (e: MouseEvent) => {
       if (!dragRef.current || !canvasRef.current) return;
+      const drag = dragRef.current;
       const rect = canvasRef.current.getBoundingClientRect();
-      const dx = ((e.clientX - dragRef.current.startX) / rect.width) * 100;
-      const dy = ((e.clientY - dragRef.current.startY) / rect.height) * 100;
-      if (dragRef.current.type === "move") {
-        updateEl(dragRef.current.id, {
-          x: Math.max(0, Math.min(90, dragRef.current.origX + dx)),
-          y: Math.max(0, Math.min(90, dragRef.current.origY + dy)),
-        });
+      const dx = ((e.clientX - drag.startX) / rect.width) * 100;
+      const dy = ((e.clientY - drag.startY) / rect.height) * 100;
+      if (Math.abs(dx) > 0.05 || Math.abs(dy) > 0.05) drag.moved = true;
+
+      if (drag.type === "move") {
+        let nx = Math.max(0, Math.min(100 - drag.origW, drag.origX + dx));
+        let ny = Math.max(0, Math.min(100 - drag.origH, drag.origY + dy));
+        const snap = computeSnap(nx, ny, drag.origW, drag.origH, drag.id);
+        nx = Math.max(0, Math.min(100 - drag.origW, snap.x));
+        ny = Math.max(0, Math.min(100 - drag.origH, snap.y));
+        setActiveGuides({ vertical: snap.vGuides, horizontal: snap.hGuides });
+        updateEl(drag.id, { x: nx, y: ny });
       } else {
-        updateEl(dragRef.current.id, {
-          w: Math.max(5, Math.min(95, dragRef.current.origW + dx)),
-          h: Math.max(3, Math.min(95, dragRef.current.origH + dy)),
-        });
+        const h = drag.handle ?? "br";
+        let nx = drag.origX;
+        let ny = drag.origY;
+        let nw = drag.origW;
+        let nh = drag.origH;
+        const right = drag.origX + drag.origW;
+        const bottom = drag.origY + drag.origH;
+        if (h.includes("r")) nw = drag.origW + dx;
+        if (h.includes("l")) { nx = drag.origX + dx; nw = right - nx; }
+        if (h.includes("b")) nh = drag.origH + dy;
+        if (h.includes("t")) { ny = drag.origY + dy; nh = bottom - ny; }
+        if (e.shiftKey && drag.origW > 0 && drag.origH > 0) {
+          const ratio = drag.origW / drag.origH;
+          if (h === "tl" || h === "tr" || h === "bl" || h === "br") {
+            if (Math.abs(nw / drag.origW - 1) > Math.abs(nh / drag.origH - 1)) {
+              nh = nw / ratio;
+              if (h.includes("t")) ny = bottom - nh;
+            } else {
+              nw = nh * ratio;
+              if (h.includes("l")) nx = right - nw;
+            }
+          }
+        }
+        if (nw < 3) { nw = 3; if (h.includes("l")) nx = right - 3; }
+        if (nh < 2) { nh = 2; if (h.includes("t")) ny = bottom - 2; }
+        nx = Math.max(0, Math.min(100, nx));
+        ny = Math.max(0, Math.min(100, ny));
+        nw = Math.min(nw, 100 - nx);
+        nh = Math.min(nh, 100 - ny);
+        updateEl(drag.id, { x: nx, y: ny, w: nw, h: nh });
       }
     };
-    const onUp = () => { dragRef.current = null; };
+
+    const onUp = () => {
+      const drag = dragRef.current;
+      dragRef.current = null;
+      setActiveGuides({ vertical: [], horizontal: [] });
+      if (drag && drag.moved) {
+        // Commit current elements state to history (drag mutated via updateEl without history)
+        pushHistory(elements);
+      }
+    };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [updateEl, canvasRef]);
+  }, [updateEl, canvasRef, elements, pushHistory]);
 
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent) => {
@@ -927,27 +1060,32 @@ export function useSlideEditor(
         origY: el.y,
         origW: el.w,
         origH: el.h,
+        moved: false,
       };
     },
     [activeTool]
   );
 
   const handleResizeMouseDown = useCallback(
-    (e: React.MouseEvent, el: SlideElement) => {
+    (e: React.MouseEvent, el: SlideElement, handle: ResizeHandle = "br") => {
       e.stopPropagation();
       dragRef.current = {
         type: "resize",
         id: el.id,
+        handle,
         startX: e.clientX,
         startY: e.clientY,
         origX: el.x,
         origY: el.y,
         origW: el.w,
         origH: el.h,
+        moved: false,
       };
     },
     []
   );
+
+  const textEditSnapshotRef = useRef<string | null>(null);
 
   const handleElementDoubleClick = useCallback(
     (e: React.MouseEvent, el: SlideElement) => {
@@ -955,10 +1093,22 @@ export function useSlideEditor(
       if (el.type === "text") {
         setSelectedId(el.id);
         setEditingId(el.id);
+        textEditSnapshotRef.current = el.text ?? "";
       }
     },
     []
   );
+
+  const commitTextEdit = useCallback(() => {
+    const id = editingId;
+    setEditingId(null);
+    if (id == null) return;
+    const cur = elements.find((e) => e.id === id);
+    if (cur && (cur.text ?? "") !== (textEditSnapshotRef.current ?? "")) {
+      pushHistory(elements);
+    }
+    textEditSnapshotRef.current = null;
+  }, [editingId, elements, pushHistory]);
 
   // Drag-and-drop image files onto the canvas
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
@@ -1009,6 +1159,8 @@ export function useSlideEditor(
     handleImageUpload,
     handleCanvasDragOver,
     handleCanvasDrop,
+    commitTextEdit,
+    activeGuides,
     undo,
     redo,
     canUndo,
