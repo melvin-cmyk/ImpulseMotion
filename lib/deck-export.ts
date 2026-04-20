@@ -3,7 +3,7 @@
  * using pptxgenjs with the Impulse Analytics design system.
  */
 
-import type { DeckData, PlatformMetrics, PlatformRow, CampaignRow, TopCreative, BudgetLine } from "./deck-data";
+import type { DeckData, PlatformMetrics, PlatformRow, CampaignRow, TopCreative, BudgetLine, GAOverview, GATopPage, GADeviceRow, GASourceRow } from "./deck-data";
 import { IA, FONTS, SIZES, LAYOUT } from "./impulse-theme";
 
 // ── Inline types from page.tsx (for custom slides and dropped blocks) ────────
@@ -43,7 +43,7 @@ export interface BlockStyle {
 
 interface SlideElement {
   id: string;
-  type: "text" | "rect" | "circle" | "arrow" | "triangle" | "line" | "image";
+  type: "text" | "rect" | "circle" | "arrow" | "triangle" | "line" | "image" | "table" | "chart";
   x: number; // % of canvas width
   y: number; // % of canvas height
   w: number; // % of canvas width
@@ -63,6 +63,25 @@ interface SlideElement {
   textAlign?: "left" | "center" | "right";
   // Image-specific
   imageUrl?: string;
+  // Table-specific
+  tableData?: { headers: string[]; rows: string[][] };
+  tableStyle?: {
+    headerBg?: string; headerText?: string;
+    rowBg?: string; altRowBg?: string; rowText?: string;
+    borderColor?: string; fontSize?: number;
+  };
+  // Chart-specific
+  chartType?: "bar" | "line" | "pie";
+  chartTitle?: string;
+  chartData?: { label: string; value: number }[];
+  chartColors?: string[];
+  // Grouping
+  groupId?: string;
+  // Other optional props used elsewhere
+  rotation?: number;
+  borderRadius?: number;
+  lineHeight?: number;
+  letterSpacing?: number;
 }
 
 // ── Dropped-block renderer (markdown → real pptx shapes) ────────────────────
@@ -334,6 +353,48 @@ function addSlideElements(slide: any, elements: SlideElement[], layoutW: number,
             const ext = header.match(/image\/(\w+)/)?.[1] ?? "png";
             slide.addImage({ data: `${header},${data}`, x, y, w, h, sizing: { type: "contain", w, h } });
           } catch { /* skip invalid images */ }
+        }
+        break;
+      case "table":
+        if (el.tableData) {
+          const ts = el.tableStyle ?? {};
+          const headerFill = (ts.headerBg ?? "#0944A1").replace("#", "");
+          const headerColor = (ts.headerText ?? "#ffffff").replace("#", "");
+          const rowFill = (ts.rowBg ?? "#ffffff").replace("#", "");
+          const altFill = (ts.altRowBg ?? "#f3f6fb").replace("#", "");
+          const rowColor = (ts.rowText ?? "#1a1a1a").replace("#", "");
+          const borderColor = (ts.borderColor ?? "#e5e7eb").replace("#", "");
+          const fontSize = ts.fontSize ?? 10;
+          const rows = [
+            el.tableData.headers.map((h) => ({
+              text: h, options: { fill: { color: headerFill }, color: headerColor, bold: true, fontSize, align: "left" as const },
+            })),
+            ...el.tableData.rows.map((r, i) => r.map((cell) => ({
+              text: cell, options: { fill: { color: i % 2 === 0 ? rowFill : altFill }, color: rowColor, fontSize, align: "left" as const },
+            }))),
+          ];
+          slide.addTable(rows, { x, y, w, h, border: { type: "solid", pt: 0.5, color: borderColor } });
+        }
+        break;
+      case "chart":
+        if (el.chartData && el.chartData.length > 0) {
+          const labels = el.chartData.map((d) => d.label);
+          const values = el.chartData.map((d) => d.value);
+          const chartType =
+            el.chartType === "line" ? "line" :
+            el.chartType === "pie" ? "pie" : "bar";
+          try {
+            slide.addChart(chartType, [{ name: el.chartTitle ?? "Série", labels, values }], {
+              x, y, w, h,
+              title: el.chartTitle,
+              showTitle: !!el.chartTitle,
+              chartColors: (el.chartColors ?? ["#0944A1", "#2CA6F9"]).map((c) => c.replace("#", "")),
+              showLegend: chartType === "pie",
+            });
+          } catch {
+            // Fall back to a placeholder text if pptxgenjs rejects the config
+            slide.addText(el.chartTitle ?? "Graphique", { x, y, w, h, fontSize: 12, align: "center", valign: "middle", color: "555555" });
+          }
         }
         break;
     }
@@ -995,13 +1056,191 @@ async function fetchThumbnails(creatives: TopCreative[], extraUrls: string[] = [
   return result;
 }
 
+// ── Google Analytics PPTX helpers ─────────────────────────────────────────────
+
+const GA_GREEN = "34A853";
+
+function fmtDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function addGAOverview(pptx: PptxGen, overview: GAOverview, prevOverview?: GAOverview) {
+  const s = pptx.addSlide();
+  s.background = { color: c(IA.bgWhite) };
+  addBar(s, GA_GREEN);
+  addFooter(s, false);
+  addHeader(s, "Google Analytics — Vue Globale");
+
+  // Badge
+  s.addText("ANALYSE SITE WEB", {
+    x: (LAYOUT.width - 2.5) / 2, y: LAYOUT.contentY, w: 2.5, h: 0.35,
+    fontSize: 8, bold: true, color: "FFFFFF", fontFace: FONTS.body, align: "center",
+    fill: { color: GA_GREEN }, shape: "roundRect" as any, rectRadius: 0.1,
+  } as any);
+
+  const prev = prevOverview ?? { sessions: 0, users: 0, newUsers: 0, pageviews: 0, bounceRate: 0, avgSessionDuration: 0, conversions: 0, conversionRate: 0 };
+  const kpis = [
+    { label: "Sessions", value: fmtK(overview.sessions), prev: prev.sessions, curr: overview.sessions },
+    { label: "Utilisateurs", value: fmtK(overview.users), prev: prev.users, curr: overview.users },
+    { label: "Nvx utilisateurs", value: fmtK(overview.newUsers), prev: prev.newUsers, curr: overview.newUsers },
+    { label: "Pages vues", value: fmtK(overview.pageviews), prev: prev.pageviews, curr: overview.pageviews },
+    { label: "Taux de rebond", value: fmtPct(overview.bounceRate), prev: prev.bounceRate, curr: overview.bounceRate, invert: true },
+    { label: "Durée moy.", value: fmtDuration(overview.avgSessionDuration), prev: prev.avgSessionDuration, curr: overview.avgSessionDuration },
+    { label: "Conversions", value: String(Math.round(overview.conversions)), prev: prev.conversions, curr: overview.conversions },
+    { label: "Taux de conv.", value: fmtPct(overview.conversionRate), prev: prev.conversionRate, curr: overview.conversionRate },
+  ];
+
+  const cols = 4;
+  const cardW = 2.6;
+  const gap = 0.25;
+  const totalW = cols * cardW + (cols - 1) * gap;
+  const startX = (LAYOUT.width - totalW) / 2;
+
+  kpis.forEach((k, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = startX + col * (cardW + gap);
+    const y = LAYOUT.contentY + 0.6 + row * 2.2;
+
+    s.addShape("roundRect", {
+      x, y, w: cardW, h: 1.8,
+      fill: { color: c(IA.bgAlt) }, line: { width: 0 }, rectRadius: 0.08,
+    });
+    s.addText(k.label, {
+      x, y: y + 0.15, w: cardW, h: 0.35,
+      fontSize: 9, color: c(IA.textCaption), fontFace: FONTS.body, align: "center",
+    });
+    s.addText(k.value, {
+      x, y: y + 0.5, w: cardW, h: 0.7,
+      fontSize: 26, bold: true, color: GA_GREEN, fontFace: FONTS.kpi, align: "center",
+    });
+    // Delta vs M-1
+    if (k.prev > 0) {
+      const delta = ((k.curr - k.prev) / k.prev) * 100;
+      const good = k.invert ? delta <= 0 : delta >= 0;
+      s.addText(`${delta >= 0 ? "+" : ""}${fmtDec(delta, 1)}% vs M-1`, {
+        x, y: y + 1.3, w: cardW, h: 0.3,
+        fontSize: 8, color: good ? c(IA.deltaPos) : c(IA.deltaNeg), fontFace: FONTS.body, align: "center",
+      });
+    }
+  });
+}
+
+function addGATopPages(pptx: PptxGen, pages: GATopPage[]) {
+  const s = pptx.addSlide();
+  s.background = { color: c(IA.bgWhite) };
+  addBar(s, GA_GREEN);
+  addFooter(s, false);
+  addHeader(s, "Top Pages — Performance par page");
+
+  const headers = ["Page", "Sessions", "Utilisateurs", "Rebond", "Durée moy.", "Conv."];
+  const headerRow = headers.map((h) => ({
+    text: h,
+    options: { fontSize: 9, bold: true, color: "FFFFFF", fill: { color: GA_GREEN }, fontFace: FONTS.body, align: h === "Page" ? "left" as const : "right" as const },
+  }));
+
+  const rows = pages.slice(0, 10).map((p, idx) => {
+    const bg = idx % 2 === 1 ? IA.bgAlt : IA.bgWhite;
+    const path = p.pagePath.length > 45 ? p.pagePath.slice(0, 42) + "…" : p.pagePath;
+    return [
+      { text: path, options: { fontSize: 8, color: c(IA.blue), fontFace: FONTS.body, fill: { color: c(bg) }, align: "left" as const } },
+      { text: fmtK(p.sessions), options: { fontSize: 8, bold: true, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: fmtK(p.users), options: { fontSize: 8, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: fmtPct(p.bounceRate), options: { fontSize: 8, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: fmtDuration(p.avgDuration), options: { fontSize: 8, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: String(Math.round(p.conversions)), options: { fontSize: 8, bold: true, color: p.conversions > 0 ? c(IA.deltaPos) : c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+    ];
+  });
+
+  s.addTable([headerRow, ...rows], {
+    x: LAYOUT.marginX + 0.3, y: LAYOUT.contentY + 0.1, w: 12,
+    colW: [4.5, 1.5, 1.5, 1.2, 1.3, 1.0],
+    border: { type: "solid", pt: 0.5, color: c(IA.bgAlt) },
+    rowH: 0.35,
+  } as any);
+}
+
+function addGADeviceSources(pptx: PptxGen, devices: GADeviceRow[], sources: GASourceRow[]) {
+  const s = pptx.addSlide();
+  s.background = { color: c(IA.bgWhite) };
+  addBar(s, GA_GREEN);
+  addFooter(s, false);
+  addHeader(s, "Appareils & Sources de trafic");
+
+  const totalSessions = devices.reduce((sum, d) => sum + d.sessions, 0);
+
+  // Left side — Devices
+  s.addText("Répartition par appareil", {
+    x: LAYOUT.marginX + 0.3, y: LAYOUT.contentY + 0.1, w: 5, h: 0.4,
+    fontSize: 12, bold: true, color: c(IA.blue), fontFace: FONTS.title,
+  });
+
+  const deviceIcons: Record<string, string> = { desktop: "Desktop", mobile: "Mobile", tablet: "Tablet" };
+  devices.forEach((d, i) => {
+    const y = LAYOUT.contentY + 0.7 + i * 1.2;
+    const pct = totalSessions > 0 ? (d.sessions / totalSessions) * 100 : 0;
+
+    s.addText(`${deviceIcons[d.device.toLowerCase()] ?? d.device}`, {
+      x: LAYOUT.marginX + 0.3, y, w: 2, h: 0.35,
+      fontSize: 11, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
+    });
+    s.addText(`${fmtK(d.sessions)} (${fmtDec(pct, 0)}%)`, {
+      x: LAYOUT.marginX + 2.5, y, w: 2.5, h: 0.35,
+      fontSize: 10, bold: true, color: GA_GREEN, fontFace: FONTS.body,
+    });
+    // Progress bar
+    s.addShape("rect", {
+      x: LAYOUT.marginX + 0.3, y: y + 0.4, w: 5, h: 0.15,
+      fill: { color: c(IA.bgAlt) }, line: { width: 0 },
+    });
+    s.addShape("rect", {
+      x: LAYOUT.marginX + 0.3, y: y + 0.4, w: Math.max(0.1, 5 * (pct / 100)), h: 0.15,
+      fill: { color: GA_GREEN }, line: { width: 0 },
+    });
+    s.addText(`Conv: ${Math.round(d.conversions)}  ·  Taux: ${fmtPct(d.conversionRate)}  ·  Rebond: ${fmtPct(d.bounceRate)}`, {
+      x: LAYOUT.marginX + 0.3, y: y + 0.6, w: 5, h: 0.3,
+      fontSize: 7, color: c(IA.textCaption), fontFace: FONTS.body,
+    });
+  });
+
+  // Right side — Sources table
+  s.addText("Top sources de trafic", {
+    x: 7.2, y: LAYOUT.contentY + 0.1, w: 5, h: 0.4,
+    fontSize: 12, bold: true, color: c(IA.blue), fontFace: FONTS.title,
+  });
+
+  const srcHeaders = ["Source / Medium", "Sessions", "Conv."].map((h) => ({
+    text: h,
+    options: { fontSize: 8, bold: true, color: "FFFFFF", fill: { color: GA_GREEN }, fontFace: FONTS.body, align: h === "Source / Medium" ? "left" as const : "right" as const },
+  }));
+
+  const srcRows = sources.slice(0, 8).map((src, idx) => {
+    const bg = idx % 2 === 1 ? IA.bgAlt : IA.bgWhite;
+    return [
+      { text: `${src.source} / ${src.medium}`, options: { fontSize: 8, color: c(IA.blue), fontFace: FONTS.body, fill: { color: c(bg) }, align: "left" as const } },
+      { text: fmtK(src.sessions), options: { fontSize: 8, bold: true, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: String(Math.round(src.conversions)), options: { fontSize: 8, bold: true, color: src.conversions > 0 ? c(IA.deltaPos) : c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+    ];
+  });
+
+  s.addTable([srcHeaders, ...srcRows], {
+    x: 7.2, y: LAYOUT.contentY + 0.6, w: 5.5,
+    colW: [3.0, 1.2, 1.0],
+    border: { type: "solid", pt: 0.5, color: c(IA.bgAlt) },
+    rowH: 0.35,
+  } as any);
+}
+
 export async function exportDeckToPptx(
   data: DeckData,
   customSlides?: CustomSlide[],
   droppedBlocks?: DroppedBlock[],
   slideElements?: Record<number, SlideElement[]>,
   aiSlides?: import("@/types/deck").SlideData[],
-  blockStyles?: Record<string, BlockStyle>
+  blockStyles?: Record<string, BlockStyle>,
+  masterElements?: SlideElement[]
 ): Promise<Blob> {
   const PptxGenJS = (await import("pptxgenjs")).default;
   const pptx = new PptxGenJS();
@@ -1042,13 +1281,30 @@ export async function exportDeckToPptx(
   addLearnings(pptx, data.insightsMeta, IA.violet);
   addNextSteps(pptx, "Next Steps — Meta Ads", data.nextStepsMeta, IA.violet, IA.violet);
 
-  // Section 4 — Next Steps & Budget
-  addSectionDivider(pptx, "04", "Next Steps & Budget", "Actions globales · Budget mensuel", IA.blue);
+  // Section — Google Analytics (conditional)
+  const hasGA = !!(data.gaOverview && data.gaOverview.sessions > 0);
+  if (hasGA) {
+    const gaNum = String(4).padStart(2, "0");
+    addSectionDivider(pptx, gaNum, "Analyse Site Web", "Google Analytics · Top Pages · Appareils · Sources", GA_GREEN);
+    addGAOverview(pptx, data.gaOverview!, data.gaPrevOverview);
+    if (data.gaTopPages && data.gaTopPages.length > 0) {
+      addGATopPages(pptx, data.gaTopPages);
+    }
+    if ((data.gaDevices && data.gaDevices.length > 0) || (data.gaSources && data.gaSources.length > 0)) {
+      addGADeviceSources(pptx, data.gaDevices ?? [], data.gaSources ?? []);
+    }
+  }
+
+  // Section — Next Steps & Budget
+  const budgetSectionNum = hasGA ? "05" : "04";
+  addSectionDivider(pptx, budgetSectionNum, "Next Steps & Budget", "Actions globales · Budget mensuel", IA.blue);
   addNextSteps(pptx, "Next Steps — Global", data.nextStepsGlobal, IA.blue, IA.blue);
   addBudget(pptx, data.budget, data.period.label);
 
-  // Standard slides are indices 0..17 (18 slides total above)
-  const STANDARD_SLIDE_COUNT = 18;
+  // Standard slides count depends on whether GA slides were added
+  // Base: 18 slides, GA adds up to 4 (divider + overview + pages + devices/sources)
+  const gaSlideCount = hasGA ? 2 + (data.gaTopPages && data.gaTopPages.length > 0 ? 1 : 0) + ((data.gaDevices && data.gaDevices.length > 0) || (data.gaSources && data.gaSources.length > 0) ? 1 : 0) : 0;
+  const STANDARD_SLIDE_COUNT = 18 + gaSlideCount;
 
   // ── Dropped blocks overlay on standard slides ───────────────────────────
   if (droppedBlocks && droppedBlocks.length > 0) {
@@ -1107,6 +1363,15 @@ export async function exportDeckToPptx(
     }
   }
 
+  // ── Master layer — applied to every slide as a common header/footer ──────
+  if (masterElements && masterElements.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internalSlides: any[] = (pptx as any).slides ?? [];
+    for (const slide of internalSlides) {
+      if (slide) addSlideElements(slide, masterElements, LAYOUT.width, LAYOUT.height);
+    }
+  }
+
   // ── Custom slides ────────────────────────────────────────────────────────
   if (customSlides && customSlides.length > 0) {
     // Build a map of dropped blocks for custom slides, keyed by LOCAL custom
@@ -1130,14 +1395,14 @@ export async function exportDeckToPptx(
     customSlides.forEach((cs, i) => {
       const absIdx = STANDARD_SLIDE_COUNT + i;
       const s = pptx.addSlide();
-      s.background = { color: c(IA.bgDark) };
+      s.background = { color: c(IA.bgWhite) };
       addBar(s, IA.blue);
-      addFooter(s, true);
+      addFooter(s, false);
 
       // Title (label)
       s.addText(cs.label, {
         x: LAYOUT.marginX + 0.3, y: 0.25, w: 11, h: 0.6,
-        fontSize: SIZES.titleMain, bold: true, color: c(IA.textWhite),
+        fontSize: SIZES.titleMain, bold: true, color: c(IA.bgDark),
         fontFace: cs.fontFamily ?? FONTS.title,
       });
       s.addShape("rect", {

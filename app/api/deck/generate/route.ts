@@ -995,8 +995,16 @@ export async function POST(req: NextRequest) {
   const fetchGoogle = (config.platform === "google" || config.platform === "both") && !!googleAccId;
 
   // Get session for Meta token (direct API is faster and more reliable than relay)
-  const session = await auth();
-  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken ?? null;
+  // Falls back to shared token if no user session
+  let session = null;
+  try {
+    session = await auth();
+  } catch {
+    // Auth may fail if DB is unavailable
+  }
+  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken
+    ?? process.env.META_SHARED_TOKEN
+    ?? null;
 
   console.log("[deck/generate] resolved IDs:", { metaAccId, googleAccId, fetchMeta, fetchGoogle, hasMetaToken: !!metaToken });
 

@@ -23,21 +23,27 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
-  const isLoginPage = false; // middleware handles redirects
+  let session = null;
+  try {
+    session = await auth();
+  } catch {
+    // Auth may fail if DB is unavailable — continue without session
+  }
+  const hasSharedToken = !!process.env.META_SHARED_TOKEN;
+  const showApp = !!(session || hasSharedToken);
 
   return (
     <html lang="en">
       <body className={`${geist.variable} antialiased`}>
         <SessionProvider session={session}>
           <CreativesProvider>
-            {session ? (
+            {showApp ? (
               <div className="flex h-screen bg-gray-950 text-gray-100">
                 <Sidebar />
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
                     <AccountSwitcher />
-                    <UserNav session={session} />
+                    {session ? <UserNav session={session} /> : null}
                   </header>
                   <SecondaryNav />
                   <main className="flex-1 overflow-auto min-h-0">

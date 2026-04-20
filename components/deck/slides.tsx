@@ -10,6 +10,10 @@ import type {
   DeckHighlight,
   TopCreative,
   BudgetLine,
+  GAOverview,
+  GATopPage,
+  GADeviceRow,
+  GASourceRow,
 } from "@/lib/deck-data";
 
 // ── Types pour l'édition inline ──────────────────────────────────────────────
@@ -1091,6 +1095,243 @@ export function KPIOverviewSlide({
         {/* KPI cards — flex-1 so they fill the slide vertically */}
         <div className="flex-1 min-h-0 grid grid-cols-4 grid-rows-2 gap-[2%]">
           {kpis.map(renderCard)}
+        </div>
+      </div>
+    </SlideShell>
+  );
+}
+
+// ── Google Analytics slides ─────────────────────────────────────────────────
+
+const gaAccent = "#34A853"; // Google green
+
+function fmtDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
+function gaDelta(curr: number, prev: number): number | null {
+  if (prev <= 0) return null;
+  return ((curr - prev) / prev) * 100;
+}
+
+export function GAOverviewSlide({
+  overview,
+  prevOverview,
+  slideNumber,
+  onEdit,
+  getOverride,
+}: {
+  overview: GAOverview;
+  prevOverview?: GAOverview;
+  slideNumber?: number;
+} & EditCallbacks) {
+  const sn = slideNumber ?? 0;
+  const prev = prevOverview ?? { sessions: 0, users: 0, newUsers: 0, pageviews: 0, bounceRate: 0, avgSessionDuration: 0, conversions: 0, conversionRate: 0 };
+
+  const kpis = [
+    { label: "Sessions", value: fmtK(overview.sessions), delta: gaDelta(overview.sessions, prev.sessions) },
+    { label: "Utilisateurs", value: fmtK(overview.users), delta: gaDelta(overview.users, prev.users) },
+    { label: "Nouveaux utilisateurs", value: fmtK(overview.newUsers), delta: gaDelta(overview.newUsers, prev.newUsers) },
+    { label: "Pages vues", value: fmtK(overview.pageviews), delta: gaDelta(overview.pageviews, prev.pageviews) },
+    { label: "Taux de rebond", value: fmtPct(overview.bounceRate), delta: gaDelta(overview.bounceRate, prev.bounceRate), invert: true },
+    { label: "Durée moy.", value: fmtDuration(overview.avgSessionDuration), delta: gaDelta(overview.avgSessionDuration, prev.avgSessionDuration) },
+    { label: "Conversions", value: String(Math.round(overview.conversions)), delta: gaDelta(overview.conversions, prev.conversions) },
+    { label: "Taux de conv.", value: fmtPct(overview.conversionRate), delta: gaDelta(overview.conversionRate, prev.conversionRate) },
+  ];
+
+  const title = getOverride?.(sn, "title") ?? "Google Analytics — Vue Globale";
+
+  return (
+    <SlideShell accent="blue" slideNumber={slideNumber}>
+      <div className="flex-1 min-h-0 flex flex-col">
+        <h2
+          className="font-extrabold mb-[1%]"
+          style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: gaAccent, fontSize: fs.title }}
+        >
+          {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={title} onEdit={onEdit}>{title}</EditableText> : title}
+        </h2>
+
+        <div className="flex justify-center mb-[2%]">
+          <span
+            className="font-bold uppercase tracking-wider px-[2%] py-[0.5%] rounded-full text-white"
+            style={{ backgroundColor: gaAccent, fontSize: fs.small }}
+          >
+            Analyse Site Web
+          </span>
+        </div>
+
+        <div className="flex-1 min-h-0 grid grid-cols-4 grid-rows-2 gap-[2%]">
+          {kpis.map((k) => (
+            <div key={k.label} className="text-center px-[2%] py-[2.5%] min-h-0 rounded-lg flex flex-col justify-between items-center overflow-hidden" style={{ backgroundColor: "#F5F7FA", border: "1px solid #E8EDF3" }}>
+              <div className="font-semibold uppercase tracking-wider" style={{ color: "#8A9BB5", fontSize: fs.kpiLabel }}>
+                {k.label}
+              </div>
+              <div
+                className="font-extrabold"
+                style={{ fontFamily: "'Raleway', sans-serif", color: colors.blueDeep, fontSize: fs.kpiValue }}
+              >
+                {k.value}
+              </div>
+              {k.delta !== null && (
+                <div style={{ fontSize: fs.tiny, color: (k.invert ? -k.delta : k.delta) >= 0 ? colors.deltaPos : colors.deltaNeg }}>
+                  {k.delta >= 0 ? "+" : ""}{fmtDec(k.delta, 1)}% vs M-1
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </SlideShell>
+  );
+}
+
+export function GATopPagesSlide({
+  pages,
+  slideNumber,
+  onEdit,
+  getOverride,
+}: {
+  pages: GATopPage[];
+  slideNumber?: number;
+} & EditCallbacks) {
+  const sn = slideNumber ?? 0;
+  const title = getOverride?.(sn, "title") ?? "Top Pages — Performance par page";
+
+  return (
+    <SlideShell accent="blue" slideNumber={slideNumber}>
+      <div className="flex-1 min-h-0 flex flex-col">
+        <h2
+          className="font-extrabold mb-[0.5%]"
+          style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: gaAccent, fontSize: fs.title }}
+        >
+          {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={title} onEdit={onEdit}>{title}</EditableText> : title}
+        </h2>
+        <div className="mb-[1.5%]" style={{ color: colors.caption, fontSize: fs.small }}>
+          Top {pages.length} pages par sessions
+        </div>
+
+        <table className="w-full border-collapse" style={{ fontSize: fs.body }}>
+          <thead>
+            <tr style={{ backgroundColor: gaAccent, color: "#fff" }}>
+              <th className="text-left px-[1.2%] py-[1.2%] font-semibold">Page</th>
+              <th className="text-right px-[1%] py-[1.2%] font-semibold">Sessions</th>
+              <th className="text-right px-[1%] py-[1.2%] font-semibold">Utilisateurs</th>
+              <th className="text-right px-[1%] py-[1.2%] font-semibold">Rebond</th>
+              <th className="text-right px-[1%] py-[1.2%] font-semibold">Durée moy.</th>
+              <th className="text-right px-[1%] py-[1.2%] font-semibold">Conv.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pages.map((page, idx) => (
+              <tr key={page.pagePath} style={{ backgroundColor: idx % 2 === 1 ? colors.bgRow : "transparent" }}>
+                <td className="px-[1.2%] py-[1%] font-medium truncate max-w-[200px]" style={{ color: colors.blueDeep }} title={page.pagePath}>
+                  {page.pagePath.length > 40 ? page.pagePath.slice(0, 37) + "…" : page.pagePath}
+                </td>
+                <td className="text-right px-[1%] py-[1%] font-bold">{fmtK(page.sessions)}</td>
+                <td className="text-right px-[1%] py-[1%]">{fmtK(page.users)}</td>
+                <td className="text-right px-[1%] py-[1%]">{fmtPct(page.bounceRate)}</td>
+                <td className="text-right px-[1%] py-[1%]">{fmtDuration(page.avgDuration)}</td>
+                <td className="text-right px-[1%] py-[1%] font-bold" style={{ color: page.conversions > 0 ? colors.deltaPos : undefined }}>
+                  {Math.round(page.conversions)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </SlideShell>
+  );
+}
+
+export function GADeviceSourceSlide({
+  devices,
+  sources,
+  slideNumber,
+  onEdit,
+  getOverride,
+}: {
+  devices: GADeviceRow[];
+  sources: GASourceRow[];
+  slideNumber?: number;
+} & EditCallbacks) {
+  const sn = slideNumber ?? 0;
+  const title = getOverride?.(sn, "title") ?? "Appareils & Sources de trafic";
+  const totalDeviceSessions = devices.reduce((s, d) => s + d.sessions, 0);
+
+  const deviceIcons: Record<string, string> = { desktop: "🖥", mobile: "📱", tablet: "📟" };
+
+  return (
+    <SlideShell accent="blue" slideNumber={slideNumber}>
+      <div className="flex-1 min-h-0 flex flex-col">
+        <h2
+          className="font-extrabold mb-[1%]"
+          style={{ fontFamily: "'Raleway', 'Trebuchet MS', sans-serif", color: gaAccent, fontSize: fs.title }}
+        >
+          {onEdit ? <EditableText field="title" slideIndex={sn} currentValue={title} onEdit={onEdit}>{title}</EditableText> : title}
+        </h2>
+
+        <div className="flex-1 min-h-0 grid grid-cols-2 gap-[3%]">
+          {/* Devices */}
+          <div>
+            <div className="font-bold mb-[3%]" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
+              Répartition par appareil
+            </div>
+            <div className="flex flex-col gap-[4%]">
+              {devices.map((d) => {
+                const pct = totalDeviceSessions > 0 ? (d.sessions / totalDeviceSessions) * 100 : 0;
+                return (
+                  <div key={d.device} className="flex flex-col gap-[1%]">
+                    <div className="flex justify-between items-center" style={{ fontSize: fs.body }}>
+                      <span className="font-semibold capitalize">
+                        {deviceIcons[d.device.toLowerCase()] ?? "•"} {d.device}
+                      </span>
+                      <span className="font-bold" style={{ color: colors.blueDeep }}>{fmtK(d.sessions)} ({fmtDec(pct, 0)}%)</span>
+                    </div>
+                    <div className="w-full rounded-full overflow-hidden" style={{ backgroundColor: "#E8EDF3", height: "max(1%, 6px)" }}>
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: gaAccent }} />
+                    </div>
+                    <div className="flex gap-[4%]" style={{ fontSize: fs.tiny, color: "#8A9BB5" }}>
+                      <span>Conv: {Math.round(d.conversions)}</span>
+                      <span>Taux: {fmtPct(d.conversionRate)}</span>
+                      <span>Rebond: {fmtPct(d.bounceRate)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Sources */}
+          <div>
+            <div className="font-bold mb-[3%]" style={{ color: colors.blueDeep, fontSize: fs.sectionHeader }}>
+              Top sources de trafic
+            </div>
+            <table className="w-full border-collapse" style={{ fontSize: fs.body }}>
+              <thead>
+                <tr style={{ backgroundColor: "#F5F7FA" }}>
+                  <th className="text-left px-[2%] py-[2%] font-semibold" style={{ color: "#8A9BB5" }}>Source / Medium</th>
+                  <th className="text-right px-[2%] py-[2%] font-semibold" style={{ color: "#8A9BB5" }}>Sessions</th>
+                  <th className="text-right px-[2%] py-[2%] font-semibold" style={{ color: "#8A9BB5" }}>Conv.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sources.slice(0, 8).map((src, idx) => (
+                  <tr key={`${src.source}-${src.medium}`} style={{ backgroundColor: idx % 2 === 1 ? colors.bgRow : "transparent" }}>
+                    <td className="px-[2%] py-[1.5%]" style={{ color: colors.blueDeep }}>
+                      <span className="font-medium">{src.source}</span>
+                      <span style={{ color: "#8A9BB5" }}> / {src.medium}</span>
+                    </td>
+                    <td className="text-right px-[2%] py-[1.5%] font-bold">{fmtK(src.sessions)}</td>
+                    <td className="text-right px-[2%] py-[1.5%] font-bold" style={{ color: src.conversions > 0 ? colors.deltaPos : undefined }}>
+                      {Math.round(src.conversions)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </SlideShell>

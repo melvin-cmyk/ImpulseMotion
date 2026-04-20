@@ -82,3 +82,25 @@ model DeckHistory {
 
   @@index([clientId, createdAt])
 }
+
+model DeckDraft {
+  id              String   @id @default(cuid())
+  userId          String
+  clientId        String
+  periodKey       String
+  droppedBlocks   String   @db.Text
+  slideOverrides  String   @db.Text
+  customSlides    String   @db.Text
+  slideNotes      String   @db.Text
+  blockStyles     String   @db.Text
+  slideElements   String   @db.Text
+  textStyles      String   @db.Text
+  aiDynamicSlides String   @db.Text
+  masterElements  String?  @db.Text
+  themeId         String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, clientId, periodKey])
+  @@index([userId, updatedAt])
+}

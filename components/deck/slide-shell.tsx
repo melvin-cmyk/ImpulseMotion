@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { usePeriodLabel } from "./slide-style-context";
+import { usePeriodLabel, useDeckTheme } from "./slide-style-context";
 
 /**
  * SlideShell — wrapper that renders a 16:9 slide preview card
@@ -33,7 +33,7 @@ export function SlideShell({
   source,
   periodLabel: periodLabelProp,
 }: SlideShellProps) {
-  const accentColor = accent === "violet" ? "#7F5AFD" : "#2CA6F9";
+  const theme = useDeckTheme();
   const contextPeriodLabel = usePeriodLabel();
   const periodLabel = periodLabelProp ?? contextPeriodLabel;
 
@@ -47,15 +47,17 @@ export function SlideShell({
         className
       )}
       style={{
-        fontFamily: "'Open Sans', Calibri, sans-serif",
-        ...(dark ? { background: "linear-gradient(135deg, #0944A1 0%, #1a6dd4 30%, #2CA6F9 55%, #7F5AFD 100%)" } : {}),
+        fontFamily: theme.fontFamily,
+        ...(dark ? { background: theme.darkGradient } : {}),
       }}
     >
-      {/* Left accent bar — gradient style matching Impulse Analytics MBR */}
+      {/* Left accent bar — uses theme gradient */}
       {accent && (
         <div
           className="absolute left-0 top-0 bottom-0 w-[6px]"
-          style={{ background: accent === "violet" ? `linear-gradient(180deg, #7F5AFD, #2CA6F9)` : `linear-gradient(180deg, #2CA6F9, #0944A1)` }}
+          style={{ background: accent === "violet"
+            ? `linear-gradient(180deg, ${theme.accentAlt}, ${theme.accent})`
+            : `linear-gradient(180deg, ${theme.accent}, ${theme.primary})` }}
         />
       )}
 
@@ -67,7 +69,7 @@ export function SlideShell({
 
         {/* Footer */}
         <div className="flex items-center justify-between pb-[1.5%] min-h-[2%]" style={{ fontSize: "max(0.9%, 10px)" }}>
-          <span style={{ color: "#2CA6F9", fontWeight: 700 }}>
+          <span style={{ color: theme.accent, fontWeight: 700 }}>
             Impulse Analytics.
           </span>
           <span style={{ color: "#CCCCCC", fontStyle: "italic" }}>

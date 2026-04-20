@@ -13,6 +13,7 @@ import {
   computeVideoDropoff,
 } from "@/lib/meta-api";
 import { Creative, DayMetric, Status } from "@/lib/mock-data";
+import { upgradeImageUrl } from "@/lib/image-upgrade";
 import { NextRequest, NextResponse } from "next/server";
 
 function determineStatus(roas: number, ctr: number, hookRate: number): Status {
@@ -30,19 +31,6 @@ const THUMBNAIL_COLORS = [
   "from-orange-500 to-amber-600",
   "from-indigo-500 to-violet-600",
 ];
-
-export function upgradeImageUrl(url: string): string {
-  if (!url) return url;
-  try {
-    // Try to replace small dimension patterns with larger ones
-    const upgraded = url
-      .replace(/\/(s|p)\d+x\d+\//g, '/p1200x1200/')
-      .replace(/\/c\d+\.\d+x\d+\//g, '/p1200x1200/');
-    return upgraded;
-  } catch {
-    return url;
-  }
-}
 
 export async function GET(request: NextRequest) {
   const session = await auth();

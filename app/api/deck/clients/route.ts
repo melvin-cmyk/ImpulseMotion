@@ -28,6 +28,7 @@ export interface DeckClientResult {
   platform: "meta" | "google" | "both";
   metaAccountId?: string;
   googleCustomerId?: string;
+  gaPropertyId?: string;
 }
 
 let clientCache: { data: { clients: DeckClientResult[] }; ts: number } | null = null;
@@ -166,6 +167,86 @@ async function fetchGoogleCustomers(timeoutMs = 8000): Promise<Array<{ id?: stri
   }
 }
 
+/** Fetch GA4 properties via MCP — first list accounts, then list properties for each */
+async function fetchGAProperties(timeoutMs = 6000): Promise<Array<{ id: string; name: string; linkedGoogleAdsIds: string[] }>> {
+  try {
+    // Step 1: List GA4 accounts
+    const accountsResult = await relaySingleTool("mcp-google-analytics.list_accounts", {}, Math.min(timeoutMs, 3000));
+    let accounts: Array<Record<string, unknown>> = [];
+    if (Array.isArray(accountsResult)) {
+      accounts = accountsResult;
+    } else if (accountsResult && typeof accountsResult === "object") {
+      const obj = accountsResult as Record<string, unknown>;
+      if (Array.isArray(obj.accounts)) accounts = obj.accounts as typeof accounts;
+    }
+
+    if (accounts.length === 0) {
+      // Try listing properties directly (some MCP implementations don't need account_id)
+      const directResult = await relaySingleTool("mcp-google-analytics.list_properties", {}, timeoutMs);
+      return parseGAProperties(directResult);
+    }
+
+    // Step 2: List properties for each account in parallel
+    const allProperties: Array<{ id: string; name: string; linkedGoogleAdsIds: string[] }> = [];
+    const perAccountTimeout = Math.max(2000, Math.floor((timeoutMs - 3000) / accounts.length));
+
+    await Promise.all(accounts.map(async (acc) => {
+      const accountId = String(acc.name || acc.account_id || acc.id || "").replace("accounts/", "");
+      if (!accountId) return;
+      try {
+        const propsResult = await relaySingleTool("mcp-google-analytics.list_properties", { account_id: accountId }, perAccountTimeout);
+        const props = parseGAProperties(propsResult);
+        allProperties.push(...props);
+      } catch (e) {
+        console.log(`[deck/clients] list_properties(${accountId}) failed:`, String(e));
+      }
+    }));
+
+    // Step 3: For each property, fetch linked Google Ads accounts (for smart matching)
+    await Promise.all(allProperties.map(async (prop) => {
+      try {
+        const linksResult = await relaySingleTool("mcp-google-analytics.list_google_ads_links", { property_id: prop.id }, 3000);
+        let links: Array<Record<string, unknown>> = [];
+        if (Array.isArray(linksResult)) {
+          links = linksResult;
+        } else if (linksResult && typeof linksResult === "object") {
+          const obj = linksResult as Record<string, unknown>;
+          if (Array.isArray(obj.googleAdsLinks)) links = obj.googleAdsLinks as typeof links;
+        }
+        for (const link of links) {
+          const customerId = String(link.customerId || link.customer_id || "").replace(/-/g, "");
+          if (customerId) prop.linkedGoogleAdsIds.push(customerId);
+        }
+      } catch {
+        // Not critical — fall back to name matching
+      }
+    }));
+
+    return allProperties;
+  } catch (e) {
+    console.log("[deck/clients] fetchGAProperties failed:", String(e));
+    return [];
+  }
+}
+
+function parseGAProperties(raw: unknown): Array<{ id: string; name: string; linkedGoogleAdsIds: string[] }> {
+  if (!raw) return [];
+  let properties: Array<Record<string, unknown>> = [];
+  if (Array.isArray(raw)) {
+    properties = raw;
+  } else if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.properties)) properties = obj.properties as typeof properties;
+  }
+
+  return properties.map((p) => {
+    const rawId = String(p.name || p.property_id || p.id || "");
+    const id = rawId.replace("properties/", "");
+    const displayName = String(p.displayName || p.display_name || id);
+    return { id, name: displayName, linkedGoogleAdsIds: [] };
+  }).filter((p) => p.id);
+}
+
 export async function GET() {
   // Return cached result if still fresh
   if (clientCache && Date.now() - clientCache.ts < CACHE_TTL) {
@@ -173,19 +254,25 @@ export async function GET() {
     return NextResponse.json(clientCache.data);
   }
 
-  const session = await auth();
-  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken;
+  let session = null;
+  try {
+    session = await auth();
+  } catch {
+    // Auth may fail if DB is unavailable — continue with shared token
+  }
+  const sessionMetaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken;
+  const metaToken = sessionMetaToken ?? process.env.META_SHARED_TOKEN ?? null;
 
-  // No session at all → user needs to log in
-  if (!session) {
+  // No session AND no shared token → user needs to log in
+  if (!session && !metaToken) {
     return NextResponse.json({ clients: [], needsAuth: true, reason: "no_session" });
   }
 
-  // Session exists but no Meta token → fetch Google Ads anyway, but flag Meta as needing reconnect
+  // Check if Meta token is available (either from session or shared env)
   let metaAuthExpired = !metaToken;
 
-  // Fetch Meta + Google in parallel (skip Meta if no token)
-  const [metaAccounts, googleRaw] = await Promise.all([
+  // Fetch Meta + Google + GA in parallel (skip Meta if no token)
+  const [metaAccounts, googleRaw, gaProperties] = await Promise.all([
     metaToken
       ? getAdAccounts(metaToken).catch((e) => {
           const msg = String(e);
@@ -198,9 +285,10 @@ export async function GET() {
       : Promise.resolve([] as import("@/lib/meta-api").MetaAdAccount[]),
     // Keep Google Ads timeout short (8s) so the route responds within Vercel's serverless limits
     fetchGoogleCustomers(8000),
+    fetchGAProperties(6000),
   ]);
 
-  console.log(`[deck/clients] Meta: ${metaAccounts.length} accounts, Google: ${googleRaw.length} customers`);
+  console.log(`[deck/clients] Meta: ${metaAccounts.length} accounts, Google: ${googleRaw.length} customers, GA: ${gaProperties.length} properties`);
   if (googleRaw.length > 0) {
     console.log("[deck/clients] Google customers sample:", JSON.stringify(googleRaw.slice(0, 3)));
   }
@@ -235,6 +323,60 @@ export async function GET() {
         googleCustomerId: rawId,
       });
     }
+  }
+
+  // Merge GA properties: match via Google Ads link, then by name, then fallback
+  if (gaProperties.length > 0) {
+    const usedGaIds = new Set<string>();
+
+    // Pass 1: Match via Google Ads links (most reliable)
+    for (const client of clients) {
+      if (client.gaPropertyId) continue;
+      if (!client.googleCustomerId) continue;
+      const cleanGadsId = client.googleCustomerId.replace(/-/g, "");
+      const match = gaProperties.find((p) =>
+        !usedGaIds.has(p.id) && p.linkedGoogleAdsIds.includes(cleanGadsId)
+      );
+      if (match) {
+        client.gaPropertyId = match.id;
+        usedGaIds.add(match.id);
+        console.log(`[deck/clients] GA matched via Ads link: ${client.name} → GA ${match.name} (${match.id})`);
+      }
+    }
+
+    // Pass 2: Match by name similarity (fuzzy)
+    for (const client of clients) {
+      if (client.gaPropertyId) continue;
+      // Extract base name (remove IDs in parentheses, trim)
+      const clientBase = client.name.replace(/\s*\(.*\)\s*/g, "").trim().toLowerCase();
+      if (!clientBase || clientBase.length < 2) continue;
+
+      const match = gaProperties.find((p) => {
+        if (usedGaIds.has(p.id)) return false;
+        const gaBase = p.name.toLowerCase();
+        // Check if either contains the other, or if first significant word matches
+        return gaBase.includes(clientBase) ||
+          clientBase.includes(gaBase) ||
+          (clientBase.split(/\s+/)[0].length >= 3 && gaBase.includes(clientBase.split(/\s+/)[0])) ||
+          (gaBase.split(/\s+/)[0].length >= 3 && clientBase.includes(gaBase.split(/\s+/)[0]));
+      });
+      if (match) {
+        client.gaPropertyId = match.id;
+        usedGaIds.add(match.id);
+        console.log(`[deck/clients] GA matched via name: ${client.name} → GA ${match.name} (${match.id})`);
+      }
+    }
+
+    // Pass 3: If only one GA property and still unmatched clients, assign to all
+    if (gaProperties.length === 1 && !clients.some((c) => c.gaPropertyId)) {
+      const gaProp = gaProperties[0];
+      for (const client of clients) {
+        client.gaPropertyId = gaProp.id;
+      }
+      console.log(`[deck/clients] GA single property fallback: assigned ${gaProp.name} (${gaProp.id}) to all ${clients.length} clients`);
+    }
+
+    console.log(`[deck/clients] GA matching: ${clients.filter(c => c.gaPropertyId).length}/${clients.length} clients linked`);
   }
 
   // If Meta expired AND no Google accounts either → full needsAuth

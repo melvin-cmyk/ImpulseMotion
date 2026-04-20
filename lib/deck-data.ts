@@ -13,6 +13,7 @@ export interface DeckClient {
   platform?: "meta" | "google" | "both";
   metaAccountId?: string;
   googleCustomerId?: string;
+  gaPropertyId?: string;
 }
 
 export interface DeckPeriod {
@@ -95,6 +96,47 @@ export interface BudgetLine {
   variance: number; // %
 }
 
+// ── Google Analytics types ──────────────────────────────────────────────────
+
+export interface GAOverview {
+  sessions: number;
+  users: number;
+  newUsers: number;
+  pageviews: number;
+  bounceRate: number;       // percentage 0-100
+  avgSessionDuration: number; // seconds
+  conversions: number;
+  conversionRate: number;   // percentage 0-100
+}
+
+export interface GATopPage {
+  pagePath: string;
+  pageTitle: string;
+  sessions: number;
+  users: number;
+  bounceRate: number;
+  avgDuration: number;
+  conversions: number;
+}
+
+export interface GADeviceRow {
+  device: string; // "desktop" | "mobile" | "tablet"
+  sessions: number;
+  users: number;
+  conversions: number;
+  conversionRate: number;
+  bounceRate: number;
+}
+
+export interface GASourceRow {
+  source: string;
+  medium: string;
+  sessions: number;
+  users: number;
+  conversions: number;
+  bounceRate: number;
+}
+
 export interface DeckData {
   client: DeckClient;
   period: DeckPeriod;
@@ -113,6 +155,13 @@ export interface DeckData {
   metaOverview: PlatformMetrics;
   metaCampaigns: CampaignRow[];
   topCreatives: TopCreative[];
+
+  // Section — Google Analytics (optional)
+  gaOverview?: GAOverview;
+  gaPrevOverview?: GAOverview;
+  gaTopPages?: GATopPage[];
+  gaDevices?: GADeviceRow[];
+  gaSources?: GASourceRow[];
 
   // Section 4 — Next Steps & Budget
   budget: BudgetLine[];

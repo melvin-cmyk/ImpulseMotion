@@ -15,9 +15,6 @@ import {
   Loader2,
   Sparkles,
   FileDown,
-  Trash2,
-  GripVertical,
-  Plus,
   Edit2,
 } from "lucide-react";
 import {
@@ -47,483 +44,38 @@ import {
   LearningsSlide,
   NextStepsSlide,
   BudgetSlide,
+  GAOverviewSlide,
+  GATopPagesSlide,
+  GADeviceSourceSlide,
 } from "@/components/deck/slides";
 import { AIPanel } from "@/components/deck/ai-panel";
 import { exportDeckToPptx, exportAiSlidesToPptx } from "@/lib/deck-export";
 import { SlideStyleContext, type TextStyle } from "@/components/deck/slide-style-context";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DeckDataProvider } from "@/lib/deck-data-context";
 import { DynamicSlide } from "@/components/deck/DynamicSlide";
 import type { SlideData } from "@/types/deck";
+import {
+  type SlideConfig,
+  type DroppedBlock,
+  type SlideOverride,
+  SECTION_LABELS,
+  SECTION_COLORS,
+  resolveSlideKind as resolveSlideKindPure,
+} from "@/lib/deck-page-types";
+import {
+  buildSlidesFromDeckData,
+  extractSlideMarkdown,
+  buildSlides,
+} from "@/lib/deck-slide-builder";
+import { Filmstrip } from "@/components/deck/filmstrip";
+import { HighlightLabel } from "@/components/deck/highlight-label";
+import { snapRect, SNAP_GRID_STEP } from "@/lib/deck-snap";
+import { useDeckDraft, type DeckDraftState } from "@/lib/use-deck-draft";
+import { DroppedBlocksLayer } from "@/components/deck/dropped-blocks-layer";
+import { DECK_THEMES, getTheme } from "@/lib/deck-theme";
 
-// ── Build AI-style slides from DeckData (client-side fallback) ───────────────
-
-function buildSlidesFromDeckData(data: DeckData): SlideData[] {
-  const fmtCur = (n: number) => `€${n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-  const fmtPct = (n: number) => `${n.toFixed(2)}%`;
-  const fmtX = (n: number) => `${n.toFixed(2)}x`;
-  const fmtNum = (n: number) => n.toLocaleString("fr-FR");
-  const slides: SlideData[] = [];
-
-  // 1. Overview slide with highlights
-  slides.push({
-    id: "auto-overview",
-    type: "overview",
-    title: `${data.client.name} — ${data.period.label}`,
-    subtitle: "Vue d'ensemble des performances publicitaires",
-    kpis: data.highlights.map(h => ({
-      label: h.title,
-      value: h.value,
-      delta: h.delta != null ? `${h.delta >= 0 ? "+" : ""}${h.delta.toFixed(1)}%` : undefined,
-      trend: h.delta != null ? (h.delta > 0 ? "up" as const : h.delta < 0 ? "down" as const : "flat" as const) : undefined,
-    })),
-    severity: "ok",
-  });
-
-  // 2. Meta KPIs slide
-  if (data.metaOverview.spend > 0) {
-    const m = data.metaOverview;
-    slides.push({
-      id: "auto-meta-kpi",
-      type: "performance",
-      title: "Meta Ads — Performance",
-      subtitle: data.period.label,
-      kpis: [
-        { label: "Spend", value: fmtCur(m.spend) },
-        { label: "ROAS", value: fmtX(m.roas), trend: m.roas >= 1 ? "up" : "down" },
-        { label: "CPA", value: fmtCur(m.cpa) },
-        { label: "CTR", value: fmtPct(m.ctr) },
-      ],
-      insights: data.insightsMeta.length > 0 ? data.insightsMeta : [
-        `${Math.round(m.conversions)} conversions pour ${fmtCur(m.spend)} de spend`,
-        `Revenue total: ${fmtCur(m.revenue)}`,
-      ],
-      severity: m.roas < 1 ? "alert" : m.roas < 2 ? "warning" : "ok",
-    });
-  }
-
-  // 3. Meta campaigns
-  if (data.metaCampaigns.length > 0) {
-    slides.push({
-      id: "auto-meta-campaigns",
-      type: "performance",
-      title: "Meta Ads — Top Campagnes",
-      subtitle: `${data.metaCampaigns.length} campagnes actives`,
-      kpis: data.metaCampaigns.slice(0, 4).map(c => ({
-        label: c.name.length > 25 ? c.name.slice(0, 22) + "…" : c.name,
-        value: fmtX(c.current.roas),
-        delta: fmtCur(c.current.spend),
-        trend: c.current.roas >= 1 ? "up" as const : "down" as const,
-      })),
-      insights: data.metaCampaigns.slice(0, 3).map(c =>
-        `${c.name}: ${fmtCur(c.current.spend)} spend, ${Math.round(c.current.conversions)} conv., ROAS ${fmtX(c.current.roas)}`
-      ),
-    });
-  }
-
-  // 4. Top Creatives — grid of creatives with thumbnails and KPIs underneath
-  if (data.topCreatives.length > 0) {
-    slides.push({
-      id: "auto-creatives",
-      type: "creative",
-      title: "Top Créatives — Performance",
-      subtitle: `Top ${Math.min(data.topCreatives.length, 6)} créatives par spend`,
-      images: data.topCreatives.slice(0, 6).filter(c => c.thumbnailUrl).map(c => ({
-        url: c.thumbnailUrl!,
-        label: c.name,
-        metrics: `Spend ${fmtCur(c.spend)} · ROAS ${fmtX(c.roas)} · CTR ${fmtPct(c.ctr)} · CPA ${fmtCur(c.cpa)}`,
-      })),
-      kpis: data.topCreatives.slice(0, 4).map(c => ({
-        label: c.name.length > 20 ? c.name.slice(0, 17) + "…" : c.name,
-        value: fmtX(c.roas),
-        delta: fmtCur(c.spend),
-        trend: c.roas >= 1 ? "up" as const : "down" as const,
-      })),
-    });
-  }
-
-  // 5. Google KPIs
-  if (data.googleOverview.spend > 0) {
-    const g = data.googleOverview;
-    slides.push({
-      id: "auto-google-kpi",
-      type: "performance",
-      title: "Google Ads — Performance",
-      subtitle: data.period.label,
-      kpis: [
-        { label: "Spend", value: fmtCur(g.spend) },
-        { label: "ROAS", value: fmtX(g.roas), trend: g.roas >= 1 ? "up" : "down" },
-        { label: "CPA", value: fmtCur(g.cpa) },
-        { label: "CTR", value: fmtPct(g.ctr) },
-      ],
-      insights: data.insightsGoogle.length > 0 ? data.insightsGoogle : [
-        `${Math.round(g.conversions)} conversions pour ${fmtCur(g.spend)} de spend`,
-        `Revenue total: ${fmtCur(g.revenue)}`,
-      ],
-      severity: g.roas < 1 ? "alert" : g.roas < 2 ? "warning" : "ok",
-    });
-  }
-
-  // 6. Learnings
-  if (data.learnings.length > 0) {
-    slides.push({
-      id: "auto-learnings",
-      type: "recommendation",
-      title: "Learnings & Insights",
-      insights: data.learnings,
-      recommendation: data.nextStepsGlobal[0] ?? undefined,
-    });
-  }
-
-  // 7. Next Steps
-  if (data.nextStepsGlobal.length > 0 || data.nextStepsMeta.length > 0 || data.nextStepsGoogle.length > 0) {
-    const allSteps = [
-      ...data.nextStepsGlobal,
-      ...data.nextStepsMeta.slice(0, 2),
-      ...data.nextStepsGoogle.slice(0, 2),
-    ];
-    slides.push({
-      id: "auto-next-steps",
-      type: "recommendation",
-      title: "Next Steps & Recommandations",
-      subtitle: "Actions prioritaires pour la prochaine période",
-      insights: allSteps.slice(0, 6),
-    });
-  }
-
-  return slides;
-}
-
-// ── Section config ───────────────────────────────────────────────────────────
-
-/** Generate contextual Markdown from real deck data for a given slide id. */
-function extractSlideMarkdown(slideId: string, label: string, data: DeckData): string {
-  const fmtCur = (n: number) => `€${n.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-  const fmtPct = (n: number) => `${n.toFixed(2)}%`;
-  const fmtDec = (n: number) => n.toFixed(2);
-  const fmtK = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
-
-  switch (slideId) {
-    case "cover":
-      return `# ${data.client.name} — ${data.period.label}\n\nMonthly Business Review — Rapport de performance publicitaire.\n\n**Période :** ${data.period.startDate} → ${data.period.endDate}`;
-
-    case "highlights": {
-      const lines = data.highlights.map(h =>
-        `- **${h.title}** : ${h.value}${h.delta != null ? ` (${h.delta >= 0 ? "+" : ""}${h.delta.toFixed(1)}%)` : ""} — ${h.description}`
-      );
-      return `# Highlights — ${data.period.label}\n\n${lines.join("\n")}`;
-    }
-
-    case "global-table": {
-      const rows = data.globalTable.map(r =>
-        `| ${r.platform} | ${fmtCur(r.current.spend)} | ${fmtK(r.current.impressions)} | ${fmtK(r.current.clicks)} | ${Math.round(r.current.conversions)} | ${fmtDec(r.current.roas)}× | ${fmtPct(r.current.ctr)} |`
-      );
-      return `# Tableau Global — ${data.period.label}\n\n| Plateforme | Spend | Impressions | Clicks | Conv. | ROAS | CTR |\n|---|---|---|---|---|---|---|\n${rows.join("\n")}`;
-    }
-
-    case "nc-table": {
-      const rows = data.ncTable.map(r =>
-        `| ${r.platform} | ${Math.round(r.current.newClients)} | ${fmtCur(r.current.cpNc)} | ${fmtPct(r.current.percentNc)} |`
-      );
-      return `# Nouveaux Clients — ${data.period.label}\n\n| Plateforme | NC | CP-NC | % NC |\n|---|---|---|\n${rows.join("\n")}`;
-    }
-
-    case "learnings-global":
-      return `# Points Clés Global — ${data.period.label}\n\n${data.learnings.map(l => `- ${l}`).join("\n")}`;
-
-    case "google-kpi": {
-      const m = data.googleOverview;
-      return `# Google Ads — KPIs — ${data.period.label}\n\n| Métrique | Valeur |\n|---|---|\n| Spend | ${fmtCur(m.spend)} |\n| Impressions | ${fmtK(m.impressions)} |\n| Clicks | ${fmtK(m.clicks)} |\n| Conversions | ${Math.round(m.conversions)} |\n| Revenue | ${fmtCur(m.revenue)} |\n| ROAS | ${fmtDec(m.roas)}× |\n| CPA | ${fmtCur(m.cpa)} |\n| CTR | ${fmtPct(m.ctr)} |`;
-    }
-
-    case "google-campaigns": {
-      const rows = data.googleCampaigns.map(c =>
-        `| ${c.name} | ${c.status} | ${fmtCur(c.current.spend)} | ${Math.round(c.current.conversions)} | ${fmtDec(c.current.roas)}× |`
-      );
-      return `# Campagnes Google Ads — ${data.period.label}\n\n| Campagne | Statut | Spend | Conv. | ROAS |\n|---|---|---|---|---|\n${rows.join("\n")}`;
-    }
-
-    case "insights-google":
-      return `# Insights Google — ${data.period.label}\n\n${data.insightsGoogle.map(l => `- ${l}`).join("\n")}`;
-
-    case "next-google":
-      return `# Next Steps Google — ${data.period.label}\n\n${data.nextStepsGoogle.map(l => `- ${l}`).join("\n")}`;
-
-    case "meta-kpi": {
-      const m = data.metaOverview;
-      return `# Meta Ads — KPIs — ${data.period.label}\n\n| Métrique | Valeur |\n|---|---|\n| Spend | ${fmtCur(m.spend)} |\n| Impressions | ${fmtK(m.impressions)} |\n| Clicks | ${fmtK(m.clicks)} |\n| Conversions | ${Math.round(m.conversions)} |\n| Revenue | ${fmtCur(m.revenue)} |\n| ROAS | ${fmtDec(m.roas)}× |\n| CPA | ${fmtCur(m.cpa)} |\n| CTR | ${fmtPct(m.ctr)} |`;
-    }
-
-    case "meta-campaigns": {
-      const rows = data.metaCampaigns.map(c =>
-        `| ${c.name} | ${c.status} | ${fmtCur(c.current.spend)} | ${Math.round(c.current.conversions)} | ${fmtDec(c.current.roas)}× |`
-      );
-      return `# Campagnes Meta Ads — ${data.period.label}\n\n| Campagne | Statut | Spend | Conv. | ROAS |\n|---|---|---|---|---|\n${rows.join("\n")}`;
-    }
-
-    case "top-creatives": {
-      const rows = data.topCreatives.map(c =>
-        `| ${c.name} | ${c.format} | ${fmtCur(c.spend)} | ${fmtDec(c.roas)}× | ${fmtPct(c.ctr)} |`
-      );
-      return `# Top Créatives — ${data.period.label}\n\n| Créative | Format | Spend | ROAS | CTR |\n|---|---|---|---|---|\n${rows.join("\n")}`;
-    }
-
-    case "insights-meta":
-      return `# Insights Meta — ${data.period.label}\n\n${data.insightsMeta.map(l => `- ${l}`).join("\n")}`;
-
-    case "next-meta":
-      return `# Next Steps Meta — ${data.period.label}\n\n${data.nextStepsMeta.map(l => `- ${l}`).join("\n")}`;
-
-    case "next-global":
-      return `# Next Steps Global — ${data.period.label}\n\n${data.nextStepsGlobal.map(l => `- ${l}`).join("\n")}`;
-
-    case "budget": {
-      const rows = data.budget.map(b =>
-        `| ${b.platform} | ${fmtCur(b.planned)} | ${fmtCur(b.actual)} | ${b.variance >= 0 ? "+" : ""}${b.variance.toFixed(1)}% |`
-      );
-      return `# Budget — ${data.period.label}\n\n| Plateforme | Planifié | Réel | Écart |\n|---|---|---|---|\n${rows.join("\n")}`;
-    }
-
-    default:
-      return `# ${label} (copie)\n\n_Personnalisez cette slide._`;
-  }
-}
-
-interface SlideConfig {
-  id: string;
-  label: string;
-  section: number;
-  dark?: boolean; // true for dark-background slides (cover, section dividers)
-  render: (data: DeckData, slideNumber: number, editCallbacks?: {
-    onEdit?: (field: string, slideIndex: number, newValue: string) => void;
-    getOverride?: (slideIndex: number, field: string) => string | undefined;
-  }) => React.ReactNode;
-}
-
-// Page sizes for the list-style slides. When a dataset is longer than the
-// page size, buildSlides emits one slide per chunk so the list never has to
-// scroll inside a slide.
-const TOP_CREATIVES_PER_SLIDE = 3;
-const CAMPAIGNS_PER_SLIDE = 8;
-// Keep learnings/next-steps lists short enough that each card can breathe
-// inside a 16:9 slide. Above this count, buildSlides emits additional
-// pages to prevent any card from being clipped by the slide footer.
-const BULLETS_PER_SLIDE = 5;
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  if (!arr?.length) return [[]];
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-function buildSlides(hasGoogle: boolean, data: DeckData | null): SlideConfig[] {
-  // Section numbers adapt: if Google Ads is hidden, Meta becomes 02, Budget becomes 03
-  const metaNum = hasGoogle ? "03" : "02";
-  const budgetNum = hasGoogle ? "04" : "03";
-
-  // Count how many pages each paginated list needs. When data isn't loaded
-  // yet we still emit a single placeholder slide so the filmstrip doesn't
-  // flicker between 1 and N entries.
-  const topCreativesPages = data ? chunk(data.topCreatives, TOP_CREATIVES_PER_SLIDE).length : 1;
-  const googleCampaignsPages = data ? chunk(data.googleCampaigns, CAMPAIGNS_PER_SLIDE).length : 1;
-  const metaCampaignsPages = data ? chunk(data.metaCampaigns, CAMPAIGNS_PER_SLIDE).length : 1;
-
-  const topCreativesSlides: SlideConfig[] = Array.from({ length: topCreativesPages }, (_, i) => ({
-    id: topCreativesPages > 1 ? `top-creatives-${i + 1}` : "top-creatives",
-    label: topCreativesPages > 1 ? `Top Créatives ${i + 1}/${topCreativesPages}` : "Top Créatives",
-    section: 3,
-    render: (d, n) => (
-      <TopCreativesSlide
-        title={topCreativesPages > 1 ? `Top Créatifs (${i + 1}/${topCreativesPages})` : "Top Créatifs"}
-        creatives={d.topCreatives.slice(i * TOP_CREATIVES_PER_SLIDE, (i + 1) * TOP_CREATIVES_PER_SLIDE)}
-        slideNumber={n}
-      />
-    ),
-  }));
-
-  const googleCampaignsSlides: SlideConfig[] = Array.from({ length: googleCampaignsPages }, (_, i) => ({
-    id: googleCampaignsPages > 1 ? `google-campaigns-${i + 1}` : "google-campaigns",
-    label: googleCampaignsPages > 1 ? `Campagnes Google ${i + 1}/${googleCampaignsPages}` : "Campagnes Google",
-    section: 2,
-    render: (d, n, cb) => (
-      <CampaignTableSlide
-        title={googleCampaignsPages > 1 ? `Google Ads — Campagnes (${i + 1}/${googleCampaignsPages})` : "Google Ads — Campagnes"}
-        campaigns={d.googleCampaigns.slice(i * CAMPAIGNS_PER_SLIDE, (i + 1) * CAMPAIGNS_PER_SLIDE)}
-        slideNumber={n}
-        periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`}
-        {...cb}
-      />
-    ),
-  }));
-
-  const paginateBullets = (
-    idBase: string,
-    labelBase: string,
-    section: number,
-    pick: (d: DeckData) => string[],
-    makeTitle: (page: number, total: number) => string,
-    Comp: "learnings" | "next-steps",
-    accent?: "blue" | "violet",
-    nextStepTitle?: string,
-  ): SlideConfig[] => {
-    const pageCount = data ? Math.max(1, chunk(pick(data), BULLETS_PER_SLIDE).length) : 1;
-    return Array.from({ length: pageCount }, (_, i) => ({
-      id: pageCount > 1 ? `${idBase}-${i + 1}` : idBase,
-      label: pageCount > 1 ? `${labelBase} ${i + 1}/${pageCount}` : labelBase,
-      section,
-      render: (d, n, cb) => {
-        const slice = pick(d).slice(i * BULLETS_PER_SLIDE, (i + 1) * BULLETS_PER_SLIDE);
-        if (Comp === "learnings") {
-          return <LearningsSlide learnings={slice} accent={accent} slideNumber={n} {...cb} />;
-        }
-        return (
-          <NextStepsSlide
-            title={pageCount > 1 ? `${makeTitle(i + 1, pageCount)}` : (nextStepTitle ?? labelBase)}
-            steps={slice}
-            accent={accent}
-            slideNumber={n}
-            {...cb}
-          />
-        );
-      },
-    }));
-  };
-
-  const learningsGlobalSlides = paginateBullets(
-    "learnings-global", "Points Clés Global", 1,
-    (d) => d.learnings,
-    (p, t) => `Points Clés — Global (${p}/${t})`,
-    "learnings",
-  );
-  const insightsGoogleSlides = paginateBullets(
-    "insights-google", "Points Clés Google", 2,
-    (d) => d.insightsGoogle,
-    (p, t) => `Points Clés — Google (${p}/${t})`,
-    "learnings",
-  );
-  const insightsMetaSlides = paginateBullets(
-    "insights-meta", "Points Clés Meta", 3,
-    (d) => d.insightsMeta,
-    (p, t) => `Points Clés — Meta (${p}/${t})`,
-    "learnings",
-    "violet",
-  );
-  const nextGoogleSlides = paginateBullets(
-    "next-google", "Next Steps Google", 2,
-    (d) => d.nextStepsGoogle,
-    (p, t) => `Next Steps — Google Ads (${p}/${t})`,
-    "next-steps",
-    undefined,
-    "Next Steps — Google Ads",
-  );
-  const nextMetaSlides = paginateBullets(
-    "next-meta", "Next Steps Meta", 3,
-    (d) => d.nextStepsMeta,
-    (p, t) => `Next Steps — Meta Ads (${p}/${t})`,
-    "next-steps",
-    "violet",
-    "Next Steps — Meta Ads",
-  );
-  const nextGlobalSlides = paginateBullets(
-    "next-global", "Next Steps Global", 4,
-    (d) => d.nextStepsGlobal,
-    (p, t) => `Next Steps — Global (${p}/${t})`,
-    "next-steps",
-    undefined,
-    "Next Steps — Global",
-  );
-
-  const metaCampaignsSlides: SlideConfig[] = Array.from({ length: metaCampaignsPages }, (_, i) => ({
-    id: metaCampaignsPages > 1 ? `meta-campaigns-${i + 1}` : "meta-campaigns",
-    label: metaCampaignsPages > 1 ? `Campagnes Meta ${i + 1}/${metaCampaignsPages}` : "Campagnes Meta",
-    section: 3,
-    render: (d, n, cb) => (
-      <CampaignTableSlide
-        title={metaCampaignsPages > 1 ? `Meta Ads — Campagnes (${i + 1}/${metaCampaignsPages})` : "Meta Ads — Campagnes"}
-        campaigns={d.metaCampaigns.slice(i * CAMPAIGNS_PER_SLIDE, (i + 1) * CAMPAIGNS_PER_SLIDE)}
-        accent="violet"
-        slideNumber={n}
-        periodLabel={`${d.period.label} vs ${d.previousPeriod.label}`}
-        {...cb}
-      />
-    ),
-  }));
-
-  return [
-    // Cover & Agenda
-    { id: "cover", label: "Cover", section: 0, dark: true, render: (d, n, cb) => <CoverSlide data={d} slideNumber={n} {...cb} /> },
-    { id: "agenda", label: "Agenda", section: 0, render: (d) => <AgendaSlide data={d} /> },
-
-    // Section 1 — Global Overview
-    { id: "s1-div", label: "Section 1", section: 1, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="01" title="Vue Globale" subtitle="Highlights · Performance · Nouveaux Clients" slideNumber={n} {...cb} /> },
-    { id: "highlights", label: "Highlights", section: 1, render: (d, n, cb) => <HighlightsSlide data={d} slideNumber={n} {...cb} /> },
-    { id: "global-table", label: "Tableau Global", section: 1, render: (d, n, cb) => <GlobalTableSlide data={d} slideNumber={n} {...cb} /> },
-    { id: "nc-table", label: "NC / CP-NC", section: 1, render: (d, n, cb) => <NCSlide data={d} slideNumber={n} {...cb} /> },
-    ...learningsGlobalSlides,
-
-    // Section 2 — Google Ads
-    { id: "s2-div", label: "Section 2", section: 2, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber="02" title="Focus Google Ads" subtitle="Vue globale · Campagnes · Brand Search · Pmax" slideNumber={n} {...cb} /> },
-    { id: "google-kpi", label: "Google KPIs", section: 2, render: (d, n, cb) => <KPIOverviewSlide title="Google Ads — Vue Globale" metrics={d.googleOverview} slideNumber={n} {...cb} /> },
-    ...googleCampaignsSlides,
-    ...insightsGoogleSlides,
-    ...nextGoogleSlides,
-
-    // Section 3 — Meta Ads (or 02 if no Google)
-    { id: "s3-div", label: `Section ${hasGoogle ? 3 : 2}`, section: 3, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={metaNum} title="Focus Meta Ads" subtitle="Vue globale · Campagnes · Top Créas · Points Clés" slideNumber={n} {...cb} /> },
-    { id: "meta-kpi", label: "Meta KPIs", section: 3, render: (d, n, cb) => <KPIOverviewSlide title="Meta Ads — Vue Globale" metrics={d.metaOverview} accent="violet" slideNumber={n} {...cb} /> },
-    ...metaCampaignsSlides,
-    ...topCreativesSlides,
-    ...insightsMetaSlides,
-    ...nextMetaSlides,
-
-    // Section 4 — Next Steps & Budget (or 03 if no Google)
-    { id: "s4-div", label: `Section ${hasGoogle ? 4 : 3}`, section: 4, dark: true, render: (_, n, cb) => <SectionDividerSlide sectionNumber={budgetNum} title="Next Steps & Budget" subtitle="Actions globales · Budget mensuel" slideNumber={n} {...cb} /> },
-    ...nextGlobalSlides,
-    { id: "budget", label: "Budget", section: 4, render: (d, n, cb) => <BudgetSlide budget={d.budget} period={d.period.label} slideNumber={n} {...cb} /> },
-  ];
-}
-
-const SECTION_LABELS = [
-  "Intro",
-  "Vue Globale",
-  "Google Ads",
-  "Meta Ads",
-  "Next Steps & Budget",
-];
-
-const SECTION_COLORS: Record<number, string> = {
-  0: "#2CA6F9",
-  1: "#2CA6F9",
-  2: "#2CA6F9",
-  3: "#7F5AFD",
-  4: "#2CA6F9",
-};
 
 // ── Main Page ────────────────────────────────────────────────────────────────
-
-interface DroppedBlock {
-  id: string;
-  content: string;
-  slideIndex: number;             // absolute index in the page slide list at drop time
-  /** Slide group at drop time — lets the export resolve correctly when */
-  /** the page slide count differs from the export slide count (e.g. when */
-  /** the page filtered out the Google section but the export still adds it). */
-  kind?: "standard" | "custom" | "ai";
-  localIdx?: number;              // index within the kind group
-  x: number; // % of canvas width
-  y: number; // % of canvas height
-  w: number; // % of canvas width
-  h?: number; // % of canvas height (auto if undefined)
-  fontFamily?: string;
-  textColor?: string;
-  fontSize?: number;
-}
-
-interface SlideOverride {
-  slideIndex: number;
-  field: string;
-  value: string;
-}
 
 export default function DeckPage() {
   const searchParams = useSearchParams();
@@ -629,6 +181,11 @@ export default function DeckPage() {
   const [selectedGoogleCustomerId, setSelectedGoogleCustomerId] = useState<string>("");
   const [blockStyles, setBlockStyles] = useState<Record<string, { headerColor: string; rowColor: string; fontSize: number; fontFamily: string; textColor: string; borderColor: string; borderWidth: number }>>({});
   const [slideElements, setSlideElements] = useState<Record<number, SlideElement[]>>({});
+  const [masterElements, setMasterElements] = useState<SlideElement[]>([]);
+  const [editingMaster, setEditingMaster] = useState(false);
+  const [askAiFromSelection, setAskAiFromSelection] = useState(false);
+  const [themeId, setThemeId] = useState<string>("impulse");
+  const deckTheme = useMemo(() => getTheme(themeId), [themeId]);
 
   const periods = useMemo(() => getAvailablePeriods(), []);
 
@@ -660,11 +217,41 @@ export default function DeckPage() {
   const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
   const [dataSourceReason, setDataSourceReason] = useState<string | null>(null);
 
+  // ── Server-side deck draft persistence (sync across devices) ─────────────
+  const draftState = useMemo<DeckDraftState>(() => ({
+    droppedBlocks, slideOverrides, customSlides, slideNotes,
+    blockStyles, slideElements, textStyles, aiDynamicSlides, masterElements, themeId,
+  }), [droppedBlocks, slideOverrides, customSlides, slideNotes, blockStyles, slideElements, textStyles, aiDynamicSlides, masterElements, themeId]);
+
+  const applyLoadedDraft = useCallback((draft: typeof draftState) => {
+    setDroppedBlocks(draft.droppedBlocks ?? []);
+    setSlideOverrides(draft.slideOverrides ?? []);
+    setCustomSlides(draft.customSlides ?? []);
+    setSlideNotes(draft.slideNotes ?? {});
+    setBlockStyles(draft.blockStyles ?? {});
+    setSlideElements(draft.slideElements ?? {});
+    setTextStyles(draft.textStyles ?? {});
+    setAiDynamicSlides(draft.aiDynamicSlides ?? []);
+    setMasterElements(draft.masterElements ?? []);
+    if (draft.themeId) setThemeId(draft.themeId);
+  }, []);
+
+  const { status: draftStatus } = useDeckDraft(
+    selectedClient?.id ?? null,
+    selectedPeriod?.month ?? null,
+    draftState,
+    applyLoadedDraft,
+  );
+
   const staticSlides = useMemo(() => {
     // If the selected client has no Google Ads, hide Google Ads section (slides 8-12)
     const hasGoogle = !!(selectedClient?.googleCustomerId || selectedGoogleCustomerId || selectedClient?.platform === "google" || selectedClient?.platform === "both");
-    const all = buildSlides(hasGoogle, deckData);
-    return hasGoogle ? all : all.filter(s => s.section !== 2);
+    const hasGA = !!(selectedClient?.gaPropertyId) && !!(deckData?.gaOverview);
+    const all = buildSlides(hasGoogle, deckData, hasGA);
+    let filtered = all;
+    if (!hasGoogle) filtered = filtered.filter(s => s.section !== 2);
+    if (!hasGA) filtered = filtered.filter(s => s.section !== 5);
+    return filtered;
   }, [selectedClient, selectedGoogleCustomerId, deckData]);
   const slides = useMemo(() => staticSlides, [staticSlides]);
 
@@ -673,10 +260,16 @@ export default function DeckPage() {
   const isOnAiSlide = currentSlide >= slides.length + customSlides.length && aiDynamicSlides.length > 0;
   const aiSlideIndex = currentSlide - slides.length - customSlides.length;
   const editorSlideIndex = isOnAiSlide ? 1000 + aiSlideIndex : currentSlide;
+  // When editingMaster is ON, the editor reads/writes masterElements (which
+  // render under every slide). Otherwise it reads/writes the current slide's
+  // per-slide element list.
   const slideEditor = useSlideEditor(
     canvasRef,
-    slideElements[editorSlideIndex] ?? [],
-    (els) => setSlideElements((prev) => ({ ...prev, [editorSlideIndex]: els }))
+    editingMaster ? masterElements : (slideElements[editorSlideIndex] ?? []),
+    (els) => {
+      if (editingMaster) setMasterElements(els);
+      else setSlideElements((prev) => ({ ...prev, [editorSlideIndex]: els }));
+    }
   );
 
   const currentSlideId = currentSlide < slides.length
@@ -921,9 +514,13 @@ export default function DeckPage() {
       let filename: string;
 
       if (deckData) {
-        // Export static slides
-        blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined, blockStyles);
+        // Export static slides (+ AI slides if any)
+        blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined, blockStyles, masterElements);
         filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
+      } else if (aiDynamicSlides.length > 0) {
+        // Export AI-only slides
+        blob = await exportAiSlidesToPptx(aiDynamicSlides);
+        filename = `AI_Deck_${new Date().toISOString().slice(0, 10)}.pptx`;
       } else {
         alert("Aucun deck à exporter.");
         return;
@@ -1364,11 +961,8 @@ export default function DeckPage() {
   };
 
   /** Map an absolute page slide index to its kind ("standard"/"custom"/"ai") and local index. */
-  const resolveSlideKind = (absIdx: number): { kind: "standard" | "custom" | "ai"; localIdx: number } => {
-    if (absIdx < slides.length) return { kind: "standard", localIdx: absIdx };
-    if (absIdx < slides.length + customSlides.length) return { kind: "custom", localIdx: absIdx - slides.length };
-    return { kind: "ai", localIdx: absIdx - slides.length - customSlides.length };
-  };
+  const resolveSlideKind = (absIdx: number) =>
+    resolveSlideKindPure(absIdx, { standard: slides.length, custom: customSlides.length });
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -1469,24 +1063,41 @@ export default function DeckPage() {
     window.addEventListener("mouseup", onUp);
   }, [droppedBlocks]);
 
+  // Snap guides rendered on the canvas while dragging a block.
+  // Hold Alt to bypass snapping entirely.
+  const [snapGuides, setSnapGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+
   useEffect(() => {
-    if (!draggingBlock) return;
+    if (!draggingBlock) { setSnapGuides({ x: null, y: null }); return; }
     const canvas = canvasRef.current;
     const onMove = (e: MouseEvent) => {
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const dx = ((e.clientX - draggingBlock.startX) / rect.width) * 100;
       const dy = ((e.clientY - draggingBlock.startY) / rect.height) * 100;
+      const rawX = Math.max(0, Math.min(65, draggingBlock.origX + dx));
+      const rawY = Math.max(0, Math.min(70, draggingBlock.origY + dy));
+
+      const draggedBlock = droppedBlocks.find(b => b.id === draggingBlock.id);
+      const otherBlocks = droppedBlocks
+        .filter(b => b.slideIndex === (draggedBlock?.slideIndex ?? currentSlide) && b.id !== draggingBlock.id)
+        .map(b => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: b.h ?? 30 }));
+      const w = draggedBlock?.w ?? 30;
+      const h = draggedBlock?.h ?? 30;
+
+      const snapEnabled = !e.altKey;
+      const { x, y, guideX, guideY } = snapRect(rawX, rawY, w, h, otherBlocks, snapEnabled);
+      setSnapGuides({ x: guideX, y: guideY });
       setDroppedBlocks(prev => prev.map(b => b.id === draggingBlock.id
-        ? { ...b, x: Math.max(0, Math.min(65, draggingBlock.origX + dx)), y: Math.max(0, Math.min(70, draggingBlock.origY + dy)) }
+        ? { ...b, x: Math.max(0, Math.min(65, x)), y: Math.max(0, Math.min(70, y)) }
         : b
       ));
     };
-    const onUp = () => setDraggingBlock(null);
+    const onUp = () => { setDraggingBlock(null); setSnapGuides({ x: null, y: null }); };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-  }, [draggingBlock]);
+  }, [draggingBlock, droppedBlocks, currentSlide]);
 
   const removeBlock = (blockId: string) => {
     setDroppedBlocks((prev) => prev.filter((b) => b.id !== blockId));
@@ -1679,14 +1290,39 @@ export default function DeckPage() {
                 }}
                 className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name.replace(/\s*\(\d+\)\s*$/, "")}
-                  </option>
-                ))}
+                {clients.map((c) => {
+                  const sources = [
+                    c.metaAccountId ? "Meta" : "",
+                    c.googleCustomerId ? "GAds" : "",
+                    c.gaPropertyId ? "GA" : "",
+                  ].filter(Boolean).join(" · ");
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {c.name.replace(/\s*\(\d+\)\s*$/, "")}{sources ? ` [${sources}]` : ""}
+                    </option>
+                  );
+                })}
               </select>
             )}
           </div>
+
+          {/* Connected sources badges */}
+          {selectedClient && (
+            <div className="flex items-center gap-1.5 mb-3">
+              {selectedClient.metaAccountId && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: "#1877F2" }}>Meta</span>
+              )}
+              {selectedClient.googleCustomerId && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: "#4285F4" }}>Google Ads</span>
+              )}
+              {selectedClient.gaPropertyId && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full text-white" style={{ backgroundColor: "#34A853" }}>GA4</span>
+              )}
+              {!selectedClient.metaAccountId && !selectedClient.googleCustomerId && !selectedClient.gaPropertyId && (
+                <span className="text-[10px] text-gray-400">Aucune source connectée</span>
+              )}
+            </div>
+          )}
 
           {/* Meta reconnect banner — shown when Meta token expired but Google still works */}
           {metaNeedsReconnect && !clientsNeedAuth && (
@@ -1847,22 +1483,6 @@ export default function DeckPage() {
   // ── Deck viewer — Split layout ─────────────────────────────────────────
   if (!deckData && !(aiDynamicSlides.length > 0 || isGeneratingAi)) return null;
 
-  /** Highlight matching search term in a slide label */
-  function HighlightLabel({ label, search }: { label: string; search: string }) {
-    if (!search.trim()) return <>{label}</>;
-    const idx = label.toLowerCase().indexOf(search.trim().toLowerCase());
-    if (idx === -1) return <>{label}</>;
-    return (
-      <>
-        {label.slice(0, idx)}
-        <mark className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5 not-italic font-semibold">
-          {label.slice(idx, idx + search.trim().length)}
-        </mark>
-        {label.slice(idx + search.trim().length)}
-      </>
-    );
-  }
-
   return (
     <div className="h-screen flex flex-col bg-gray-100 overflow-hidden">
       {/* ── Full-width Header ────────────────────────────────────────────── */}
@@ -1888,9 +1508,18 @@ export default function DeckPage() {
             }}
             className="text-xs font-semibold text-gray-900 bg-transparent border-none focus:outline-none cursor-pointer pr-4"
           >
-            {clients.map((cl) => (
-              <option key={cl.id} value={cl.id}>{cl.name}</option>
-            ))}
+            {clients.map((cl) => {
+              const srcs = [
+                cl.metaAccountId ? "Meta" : "",
+                cl.googleCustomerId ? "GAds" : "",
+                cl.gaPropertyId ? "GA" : "",
+              ].filter(Boolean).join(" · ");
+              return (
+                <option key={cl.id} value={cl.id}>
+                  {cl.name}{srcs ? ` [${srcs}]` : ""}
+                </option>
+              );
+            })}
           </select>
         </div>
         <div className="h-4 w-px bg-gray-200" />
@@ -1950,16 +1579,44 @@ export default function DeckPage() {
           Slide {currentSlide + 1} / {totalSlideCount}
         </span>
 
+        {/* Theme picker */}
+        <div className="flex items-center gap-1.5 flex-shrink-0" title="Palette de couleurs du deck">
+          <div
+            className="w-4 h-4 rounded-sm border border-gray-300 flex-shrink-0"
+            style={{ background: `linear-gradient(135deg, ${deckTheme.primary} 0%, ${deckTheme.accent} 60%, ${deckTheme.accentAlt} 100%)` }}
+          />
+          <select
+            value={themeId}
+            onChange={(e) => setThemeId(e.target.value)}
+            className="text-xs text-gray-600 bg-transparent border-none focus:outline-none cursor-pointer pr-4"
+          >
+            {DECK_THEMES.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+
         {/* Generate button */}
         <button
           onClick={handleGenerate}
           disabled={isGenerating}
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
-          style={{ backgroundColor: "#0944A1" }}
+          style={{ backgroundColor: deckTheme.primary }}
         >
           {isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
           Générer
         </button>
+
+        {/* Draft save status */}
+        <span
+          className="text-[10px] text-gray-400 select-none flex-shrink-0 tabular-nums"
+          title="Sauvegarde automatique sur le serveur (se synchronise entre appareils)"
+        >
+          {draftStatus === "loading" && "↓ chargement…"}
+          {draftStatus === "saving" && "↑ sauvegarde…"}
+          {draftStatus === "saved" && "✓ sauvegardé"}
+          {draftStatus === "error" && <span className="text-red-400">⚠ offline</span>}
+        </span>
 
         {/* Export PPTX */}
         <button
@@ -1996,11 +1653,18 @@ export default function DeckPage() {
         {/* Export Google Slides — downloads PPTX then opens Google Slides for import */}
         <button
           onClick={async () => {
-            if (!deckData) { alert("Aucun deck à exporter."); return; }
+            if (!deckData && aiDynamicSlides.length === 0) { alert("Aucun deck à exporter."); return; }
             setIsExporting(true);
             try {
-              const blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined, blockStyles);
-              const filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
+              let blob: Blob;
+              let filename: string;
+              if (deckData) {
+                blob = await exportDeckToPptx(deckData, customSlides, droppedBlocks, slideElements, aiDynamicSlides.length > 0 ? aiDynamicSlides : undefined, blockStyles, masterElements);
+                filename = `MBR_${deckData.client.name.replace(/\s+/g, "_")}_${deckData.period.month}.pptx`;
+              } else {
+                blob = await exportAiSlidesToPptx(aiDynamicSlides);
+                filename = `AI_Deck_${new Date().toISOString().slice(0, 10)}.pptx`;
+              }
 
               // Download the PPTX file
               const url = URL.createObjectURL(blob);
@@ -2027,7 +1691,7 @@ export default function DeckPage() {
           }}
           disabled={isExporting}
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors text-white flex-shrink-0"
-          style={{ backgroundColor: "#0944A1" }}
+          style={{ backgroundColor: deckTheme.primary }}
         >
           <Download className="w-3.5 h-3.5" />
           Google Slides
@@ -2060,306 +1724,94 @@ export default function DeckPage() {
           <Edit2 className="w-3.5 h-3.5" />
           {editMode ? "Édition ON" : "Éditer"}
         </button>
+
+        {/* Master-layout toggle — only when editing is on */}
+        {editMode && (
+          <button
+            onClick={() => setEditingMaster((v) => !v)}
+            title={editingMaster ? "Revenir à la slide courante" : "Éditer le master (calque appliqué à toutes les slides)"}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors flex-shrink-0 ${
+              editingMaster ? "bg-violet-600 text-white" : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+            }`}
+          >
+            {editingMaster ? "Master ON" : "Master"}
+          </button>
+        )}
+
+        {/* Push selection to master (when not editing master) */}
+        {editMode && !editingMaster && slideEditor.selectedIds.length > 0 && (
+          <button
+            onClick={() => {
+              const sel = new Set(slideEditor.selectedIds);
+              const current = slideElements[editorSlideIndex] ?? [];
+              const toMove = current.filter((el) => sel.has(el.id));
+              if (toMove.length === 0) return;
+              setMasterElements((m) => [...m, ...toMove]);
+              setSlideElements((prev) => ({
+                ...prev,
+                [editorSlideIndex]: current.filter((el) => !sel.has(el.id)),
+              }));
+              slideEditor.setSelectedIds([]);
+            }}
+            title="Déplacer la sélection vers le master (visible sur toutes les slides)"
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors flex-shrink-0 bg-gray-100 hover:bg-gray-200 text-gray-700"
+          >
+            → Master
+          </button>
+        )}
       </div>
 
       {/* ── Split layout: Slides (left) + AI Panel (right) ───────────────── */}
-      <SlideStyleContext.Provider value={{ getStyle: getTextStyle, setStyle: setTextStyle, periodLabel: selectedPeriod?.label }}>
+      <DeckDataProvider value={deckData}>
+      <SlideStyleContext.Provider value={{ getStyle: getTextStyle, setStyle: setTextStyle, periodLabel: selectedPeriod?.label, theme: deckTheme }}>
       <div className="flex-1 flex overflow-hidden">
 
         {/* ── LEFT: Filmstrip + Slide Viewer (60-65%) ───────────────────── */}
         <div className="flex-1 flex overflow-hidden" style={{ flex: showAiPanel ? "0 0 62%" : "1 1 100%" }}>
-          {/* Filmstrip sidebar */}
-          <div className="w-48 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto flex flex-col">
-            {/* Filmstrip progress indicator */}
-            {totalSlideCount > 0 && (
-              <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] font-semibold text-gray-400 uppercase tracking-wider">Progression</span>
-                  <span className="text-[10px] font-bold text-gray-600">
-                    {currentSlide + 1} / {totalSlideCount}
-                  </span>
-                </div>
-                <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-300"
-                    style={{
-                      width: `${((currentSlide + 1) / totalSlideCount) * 100}%`,
-                      backgroundColor: "#7F5AFD",
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-            {/* Search filmstrip by slide name */}
-            <div className="mx-3 mb-1 mt-1">
-              <input
-                ref={filmstripSearchRef}
-                type="text"
-                value={filmstripSearch}
-                onChange={(e) => setFilmstripSearch(e.target.value)}
-                placeholder="Rechercher… (/)"
-                title="Raccourci clavier : / pour focus"
-                className="w-full text-[10px] px-2 py-1 rounded-md border border-gray-200 bg-gray-50 text-gray-600 placeholder-gray-300 focus:outline-none focus:border-blue-300 focus:bg-white transition-colors"
-              />
-              {filmstripSearch.trim() && (
-                <div className={`mt-0.5 text-[9px] px-1 ${filmstripResultCount === 0 ? "text-red-400" : "text-gray-400"}`}>
-                  {filmstripResultCount === 0 ? "Aucun résultat" : `${filmstripResultCount} résultat${filmstripResultCount !== 1 ? "s" : ""}`}
-                </div>
-              )}
-            </div>
-            {/* Filter: show only slides with notes */}
-            <button
-              onClick={() => setShowOnlyWithNotes((prev) => !prev)}
-              className={`mx-3 mb-2 mt-1 flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-md border transition-colors ${
-                showOnlyWithNotes
-                  ? "bg-blue-50 border-blue-300 text-blue-700 font-semibold"
-                  : "bg-gray-50 border-gray-200 text-gray-400 hover:text-gray-600"
-              }`}
-              title="Afficher uniquement les slides avec notes (F)"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" />
-              {showOnlyWithNotes
-                ? `${slidesWithNotesCount} slide${slidesWithNotesCount !== 1 ? "s" : ""} avec notes`
-                  : `Toutes les slides (${totalSlideCount})`}
-            </button>
-            <div key={String(showOnlyWithNotes)} className="flex-1 animate-in fade-in duration-150">
-            <>
-            <TooltipProvider delayDuration={300}>
-            {Object.entries(sectionSlides).map(([secStr, items]) => {
-              const sec = Number(secStr);
-              const secColor = SECTION_COLORS[sec] ?? "#2CA6F9";
-              const searchLower = filmstripSearch.trim().toLowerCase();
-              const visibleItems = items.filter(({ slide }) => {
-                if (showOnlyWithNotes && !slideNotes[slide.id]) return false;
-                if (searchLower && !slide.label.toLowerCase().includes(searchLower)) return false;
-                return true;
-              });
-              if (visibleItems.length === 0) return null;
-              return (
-                <div key={sec}>
-                  <div
-                    className={`px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-wider rounded-sm transition-colors ${
-                      showOnlyWithNotes ? "bg-blue-50 border-l-2 border-blue-300 mx-1" : ""
-                    }`}
-                    style={{ color: showOnlyWithNotes ? "#3b82f6" : secColor }}
-                  >
-                    {SECTION_LABELS[sec]}
-                  </div>
-                  {visibleItems.map(({ idx, slide }) => {
-                    const isActive = currentSlide === idx;
-                    const bg = slide.dark ? "#0944A1" : "#f1f5f9";
-                    const textColor = slide.dark ? "rgba(255,255,255,0.5)" : "#94a3b8";
-                    return (
-                      <Tooltip key={slide.id}>
-                        <TooltipTrigger asChild>
-                          <button
-                            ref={isActive ? activeFilmstripItemRef : undefined}
-                            onClick={() => goToSlide(idx)}
-                            className={`w-full text-left px-2 py-1.5 transition-all ${isActive ? "bg-blue-50" : "hover:bg-gray-50"}`}
-                            style={isActive ? { borderLeft: `3px solid ${secColor}`, paddingLeft: "5px" } : undefined}
-                          >
-                            {/* Mini visual thumbnail */}
-                            <div
-                              className="w-full aspect-[16/9] rounded overflow-hidden relative mb-1"
-                              style={{ background: bg, boxShadow: isActive ? `0 0 0 1.5px ${secColor}` : "0 0 0 1px rgba(0,0,0,0.08)" }}
-                            >
-                              <span className="absolute top-0.5 left-1 text-[7px] font-bold" style={{ color: textColor }}>
-                                {idx + 1}
-                              </span>
-                              {/* Section accent bar */}
-                              <div className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ background: secColor, opacity: 0.7 }} />
-                              {/* Layout hint lines */}
-                              {!slide.dark && (
-                                <>
-                                  <div className="absolute top-[28%] left-[10%] right-[10%] h-[8%] rounded-sm" style={{ background: secColor, opacity: 0.15 }} />
-                                  <div className="absolute top-[45%] left-[10%] right-[30%] h-[5%] rounded-sm bg-gray-300 opacity-40" />
-                                  <div className="absolute top-[55%] left-[10%] right-[20%] h-[5%] rounded-sm bg-gray-300 opacity-30" />
-                                </>
-                              )}
-                              {slide.dark && (
-                                <>
-                                  <div className="absolute top-[30%] left-[10%] right-[15%] h-[10%] rounded-sm bg-white opacity-15" />
-                                  <div className="absolute top-[50%] left-[10%] right-[25%] h-[6%] rounded-sm bg-white opacity-10" />
-                                </>
-                              )}
-                              {slideNotes[slide.id] && (
-                                <span className="absolute top-0.5 right-1 w-1.5 h-1.5 rounded-full bg-blue-400" />
-                              )}
-                            </div>
-                            {/* Label */}
-                            <span className={`block text-[10px] leading-tight truncate ${isActive ? "text-blue-700 font-semibold" : "text-gray-500"}`}>
-                              <HighlightLabel label={slide.label} search={filmstripSearch} />
-                            </span>
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-[160px]">
-                          <p className="font-semibold">{slide.label}</p>
-                          <p className="text-gray-300 text-[10px]">{SECTION_LABELS[sec]}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-              );
-            })}
-            </TooltipProvider>
 
-            {/* Custom slides */}
-            {customSlides.length > 0 && (!showOnlyWithNotes || customSlides.some(cs => !!slideNotes[cs.id])) && (
-              <div>
-                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                  {aiSlidesMode ? "Slides IA" : "Personnalisés"}
-                </div>
-                <TooltipProvider delayDuration={300}>
-                {customSlides.filter(cs => {
-                  if (showOnlyWithNotes && !slideNotes[cs.id]) return false;
-                  const sl = filmstripSearch.trim().toLowerCase();
-                  if (sl && !cs.label.toLowerCase().includes(sl)) return false;
-                  return true;
-                }).map((cs, i) => {
-                  i = customSlides.indexOf(cs);
-                  const idx = slides.length + i;
-                  const isDragging = filmstripDragging === i;
-                  const isDropTarget = filmstripDropTarget === i && filmstripDragging !== null && filmstripDragging !== i;
-                  return (
-                    <div key={cs.id}>
-                      {/* Drop indicator line above this item */}
-                      {isDropTarget && (
-                        <div className="mx-3 h-0.5 rounded-full bg-violet-500 transition-all" />
-                      )}
-                      <div
-                        draggable
-                        onDragStart={(e) => handleFilmstripDragStart(e, i)}
-                        onDragOver={(e) => handleFilmstripDragOver(e, i)}
-                        onDrop={(e) => handleFilmstripDrop(e, i)}
-                        onDragEnd={handleFilmstripDragEnd}
-                        className={`flex items-center gap-1 w-full text-left px-2 py-1.5 text-xs transition-all group ${
-                          isDragging ? "opacity-40" :
-                          currentSlide === idx ? "bg-blue-50 text-blue-700 font-semibold" : "text-gray-600 hover:bg-gray-50"
-                        }`}
-                        style={currentSlide === idx && !isDragging ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "5px" } : undefined}
-                      >
-                        {/* Drag handle */}
-                        <GripVertical className="w-3 h-3 flex-shrink-0 text-gray-300 group-hover:text-gray-400 cursor-grab active:cursor-grabbing transition-colors" />
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => goToSlide(idx)}
-                              className="flex-1 text-left truncate flex items-center gap-1"
-                            >
-                              <span className="text-gray-400 mr-1">{idx + 1}.</span>
-                              <span className="flex-1 truncate"><HighlightLabel label={cs.label} search={filmstripSearch} /></span>
-                              {slideNotes[cs.id] && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0 inline-block" title="Note" />
-                              )}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="right" className="max-w-[160px]">
-                            <p className="font-semibold">{cs.label}</p>
-                            <p className="text-gray-300 text-[10px]">Slide personnalisée</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </div>
-                    </div>
-                  );
-                })}
-                </TooltipProvider>
-                {/* Drop zone at the end */}
-                {filmstripDragging !== null && filmstripDropTarget === null && (
-                  <div
-                    className="mx-3 h-0.5 rounded-full bg-violet-300"
-                    onDragOver={(e) => { e.preventDefault(); setFilmstripDropTarget(customSlides.length); }}
-                    onDrop={(e) => handleFilmstripDrop(e, customSlides.length)}
-                  />
-                )}
-              </div>
-            )}
-
-            {/* AI Generated slides */}
-            {aiDynamicSlides.length > 0 && (
-              <div>
-                <div className="px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-wider" style={{ color: "#7F5AFD" }}>
-                  Slides IA ({aiDynamicSlides.length})
-                </div>
-                {aiDynamicSlides.map((aiSlide, i) => {
-                  const aiAbsIdx = slides.length + customSlides.length + i;
-                  const isActive = currentSlide === aiAbsIdx;
-                  const searchLower = filmstripSearch.trim().toLowerCase();
-                  if (searchLower && !aiSlide.title.toLowerCase().includes(searchLower)) return null;
-                  return (
-                    <button
-                      key={`${aiSlide.id ?? "ai"}-${i}`}
-                      onClick={() => goToSlide(aiAbsIdx)}
-                      className={`w-full text-left px-2 py-1.5 transition-all ${isActive ? "bg-violet-50" : "hover:bg-gray-50"}`}
-                      style={isActive ? { borderLeft: "3px solid #7F5AFD", paddingLeft: "5px" } : undefined}
-                    >
-                      <div
-                        className="w-full aspect-[16/9] rounded overflow-hidden relative mb-1"
-                        style={{ background: "#f1f5f9", boxShadow: isActive ? "0 0 0 1.5px #7F5AFD" : "0 0 0 1px rgba(0,0,0,0.08)" }}
-                      >
-                        <span className="absolute top-0.5 left-1 text-[7px] font-bold" style={{ color: "#94a3b8" }}>
-                          {aiAbsIdx + 1}
-                        </span>
-                        <div className="absolute bottom-0 left-0 right-0 h-[2px]" style={{ background: "#7F5AFD", opacity: 0.7 }} />
-                        <div className="absolute top-[28%] left-[10%] right-[10%] h-[8%] rounded-sm" style={{ background: "#7F5AFD", opacity: 0.15 }} />
-                        <div className="absolute top-[45%] left-[10%] right-[30%] h-[5%] rounded-sm bg-gray-300 opacity-40" />
-                        <div className="absolute top-[55%] left-[10%] right-[20%] h-[5%] rounded-sm bg-gray-300 opacity-30" />
-                      </div>
-                      <span className={`block text-[10px] leading-tight truncate ${isActive ? "text-violet-700 font-semibold" : "text-gray-500"}`}>
-                        {aiSlide.title}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            </>
-            </div>
-
-            {/* Add slide button */}
-            <div className="relative border-t border-gray-200">
-              <div className="flex">
-                <button
-                  onClick={addCustomSlide}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs text-gray-500 hover:text-[#0944A1] hover:bg-blue-50 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Ajouter une slide
-                </button>
-                <button
-                  onClick={() => setShowAddSlideMenu(v => !v)}
-                  className="px-2.5 text-xs text-gray-400 hover:text-[#0944A1] hover:bg-blue-50 border-l border-gray-200 transition-colors font-semibold"
-                  title="Choisir un type de slide"
-                >
-                  ▾
-                </button>
-              </div>
-              {showAddSlideMenu && (
-                <div className="absolute bottom-full left-0 right-0 bg-white border border-gray-200 rounded-t-lg shadow-lg z-20 py-1">
-                  {[
-                    { label: "📊 Tableau KPIs", content: "# Tableau KPIs\n\n| KPI | Valeur | Variation |\n|---|---|---|\n| CPM | — | — |\n| CTR | — | — |\n| CPA | — | — |" },
-                    { label: "💡 Learnings", content: "# Points Clés\n\n1. **Point 1** — description de l'insight\n2. **Point 2** — description de l'insight\n3. **Point 3** — description de l'insight" },
-                    { label: "✅ Next Steps", content: "# Next Steps\n\n1. ✅ **Action 1** — impact attendu (Owner)\n2. ✅ **Action 2** — impact attendu (Owner)\n3. ✅ **Action 3** — impact attendu (Owner)" },
-                    { label: "📄 Slide vierge", content: "# Nouveau slide\n\nAjoutez votre contenu ici." },
-                  ].map(item => (
-                    <button
-                      key={item.label}
-                      onClick={() => { handleAddCustomSlide(item.label.replace(/^[^\w]+/, "").trim(), item.content); setShowAddSlideMenu(false); }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-blue-50 hover:text-[#0944A1] transition-colors"
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <Filmstrip
+            slides={slides}
+            customSlides={customSlides}
+            aiDynamicSlides={aiDynamicSlides}
+            sectionSlides={sectionSlides}
+            currentSlide={currentSlide}
+            totalSlideCount={totalSlideCount}
+            goToSlide={goToSlide}
+            activeFilmstripItemRef={activeFilmstripItemRef}
+            slideNotes={slideNotes}
+            slidesWithNotesCount={slidesWithNotesCount}
+            showOnlyWithNotes={showOnlyWithNotes}
+            setShowOnlyWithNotes={setShowOnlyWithNotes}
+            filmstripSearch={filmstripSearch}
+            setFilmstripSearch={setFilmstripSearch}
+            filmstripSearchRef={filmstripSearchRef}
+            filmstripResultCount={filmstripResultCount}
+            filmstripDragging={filmstripDragging}
+            filmstripDropTarget={filmstripDropTarget}
+            setFilmstripDropTarget={setFilmstripDropTarget}
+            handleFilmstripDragStart={handleFilmstripDragStart}
+            handleFilmstripDragOver={handleFilmstripDragOver}
+            handleFilmstripDrop={handleFilmstripDrop}
+            handleFilmstripDragEnd={handleFilmstripDragEnd}
+            aiSlidesMode={aiSlidesMode}
+            addCustomSlide={addCustomSlide}
+            showAddSlideMenu={showAddSlideMenu}
+            setShowAddSlideMenu={setShowAddSlideMenu}
+            handleAddCustomSlide={handleAddCustomSlide}
+          />
 
           {/* Slide preview */}
           <div
             className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto"
             ref={slideContainerRef}
-            onClick={() => { setSelectedBlockId(null); slideEditor.setSelectedId(null); }}
+            onClick={(e) => {
+              // Only clear selection when clicking empty space, not when a
+              // child element (rect, text, block) bubbles its click up.
+              if (e.target === e.currentTarget) {
+                setSelectedBlockId(null);
+                slideEditor.setSelectedId(null);
+              }
+            }}
           >
             <>
             {/* Edit toolbar — outside canvas so it doesn't affect % position calculations */}
@@ -2368,7 +1820,14 @@ export default function DeckPage() {
                 activeTool={slideEditor.activeTool}
                 onToolChange={slideEditor.setActiveTool}
                 selectedElement={slideEditor.selectedElement}
-                onUpdateElement={(patch) => slideEditor.selectedElement && slideEditor.updateElWithHistory(slideEditor.selectedElement.id, patch)}
+                onUpdateElement={(patch) => {
+                  // When 1 selected → patch just that element; when 2+ → apply to all (bulk style).
+                  if (slideEditor.selectedIds.length > 1) {
+                    slideEditor.updateSelected(patch);
+                  } else if (slideEditor.selectedElement) {
+                    slideEditor.updateElWithHistory(slideEditor.selectedElement.id, patch);
+                  }
+                }}
                 onDeleteElement={slideEditor.deleteSelected}
                 onDuplicateElement={slideEditor.duplicateSelected}
                 onBringToFront={slideEditor.bringToFront}
@@ -2378,6 +1837,14 @@ export default function DeckPage() {
                 canUndo={slideEditor.canUndo}
                 canRedo={slideEditor.canRedo}
                 onImageUpload={slideEditor.handleImageUpload}
+                selectionCount={slideEditor.selectedIds.length}
+                onAlign={slideEditor.alignSelected}
+                onDistribute={slideEditor.distributeSelected}
+                onGroup={slideEditor.groupSelected}
+                onUngroup={slideEditor.ungroupSelected}
+                onCopy={slideEditor.copySelected}
+                onPaste={slideEditor.pasteClipboard}
+                onAskAi={() => setAskAiFromSelection(true)}
               />
             </div>
 
@@ -2395,6 +1862,7 @@ export default function DeckPage() {
               onDrop={handleDrop}
               onDragLeave={(e) => { if (!canvasRef.current?.contains(e.relatedTarget as Node)) setIsDragOverCanvas(false); }}
               onClick={editMode ? slideEditor.handleCanvasClick : undefined}
+              onMouseDown={editMode ? slideEditor.handleCanvasMouseDown : undefined}
             >
               {/* Snap guides */}
               {editMode && (slideEditor.activeGuides.vertical.length > 0 || slideEditor.activeGuides.horizontal.length > 0) && (
@@ -2415,6 +1883,33 @@ export default function DeckPage() {
                   </div>
                 </div>
               )}
+              {/* Snap guides — rendered while dragging a block onto the canvas grid */}
+              {draggingBlock && (
+                <>
+                  {snapGuides.x !== null && (
+                    <div
+                      className="absolute top-0 bottom-0 pointer-events-none z-40"
+                      style={{ left: `${snapGuides.x}%`, width: 1, background: "#ec4899", boxShadow: "0 0 4px #ec4899" }}
+                    />
+                  )}
+                  {snapGuides.y !== null && (
+                    <div
+                      className="absolute left-0 right-0 pointer-events-none z-40"
+                      style={{ top: `${snapGuides.y}%`, height: 1, background: "#ec4899", boxShadow: "0 0 4px #ec4899" }}
+                    />
+                  )}
+                  {/* Faint 5% grid dots to hint that snapping is active */}
+                  {snapGuides.x === null && snapGuides.y === null && (
+                    <div
+                      className="absolute inset-0 pointer-events-none z-30 opacity-30"
+                      style={{
+                        backgroundImage: `radial-gradient(circle, #94a3b8 0.5px, transparent 0.5px)`,
+                        backgroundSize: `${SNAP_GRID_STEP}% ${SNAP_GRID_STEP}%`,
+                      }}
+                    />
+                  )}
+                </>
+              )}
               {/* Slide content */}
               {currentSlide < slides.length && deckData ? (
                 slides[currentSlide].render(deckData, currentSlide + 1, {
@@ -2428,10 +1923,10 @@ export default function DeckPage() {
                   const isEditingThis = editingCustomSlideId === cs?.id;
                   return cs ? (
                     <div className="relative" style={{ paddingBottom: "56.25%" }}>
-                      <div className={`absolute inset-0 rounded-lg shadow-sm flex flex-col overflow-hidden ${isEditingThis ? "bg-white border border-gray-200" : "bg-gray-900 border border-gray-700"}`}>
+                      <div className={`absolute inset-0 rounded-lg shadow-sm flex flex-col overflow-hidden bg-white border border-gray-200`}>
                         {/* Toolbar */}
-                        <div className={`flex items-center gap-2 px-4 py-2 border-b ${isEditingThis ? "border-gray-100" : "border-gray-700"}`}>
-                          <span className={`text-xs font-semibold uppercase tracking-wider ${isEditingThis ? "text-gray-400" : "text-gray-500"}`}>Slide IA</span>
+                        <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-100">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Slide IA</span>
                           {isEditingThis ? (
                             <input
                               type="text"
@@ -2441,11 +1936,11 @@ export default function DeckPage() {
                               placeholder="Titre de la slide"
                             />
                           ) : (
-                            <span className="text-sm font-semibold text-gray-300 flex-1 truncate">{cs.label}</span>
+                            <span className="text-sm font-semibold text-gray-700 flex-1 truncate">{cs.label}</span>
                           )}
                           <button
                             onClick={() => setEditingCustomSlideId(isEditingThis ? null : cs.id)}
-                            className={`text-xs px-2 py-0.5 rounded transition-colors ${isEditingThis ? "bg-gray-100 text-gray-600 hover:bg-gray-200" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}
+                            className="text-xs px-2 py-0.5 rounded transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200"
                           >{isEditingThis ? "Aperçu" : "Éditer"}</button>
                           <button
                             onClick={() => { setCustomSlides(prev => prev.filter((_, i) => i !== currentSlide - slides.length)); goToSlide(Math.max(0, currentSlide - 1)); }}
@@ -2491,18 +1986,39 @@ export default function DeckPage() {
                 })()
               )}
 
+              {/* Layout master — render under every slide. Editable only when editingMaster=ON */}
+              {editMode && masterElements.length > 0 && (
+                <div className="absolute inset-0 z-5" style={{ pointerEvents: editingMaster ? "auto" : "none" }}>
+                  {masterElements.map((el) => (
+                    <SlideElementItem
+                      key={`master-${el.id}`}
+                      el={el}
+                      isSelected={editingMaster && slideEditor.selectedIds.includes(el.id)}
+                      isEditing={editingMaster && slideEditor.editingId === el.id}
+                      onMouseDown={(e) => editingMaster && slideEditor.handleElementMouseDown(e, el)}
+                      onDoubleClick={(e) => editingMaster && slideEditor.handleElementDoubleClick(e, el)}
+                      onTextChange={(text) => editingMaster && slideEditor.updateEl(el.id, { text })}
+                      onTableChange={(tableData) => editingMaster && slideEditor.updateEl(el.id, { tableData })}
+                      onBlur={() => slideEditor.setEditingId(null)}
+                      onResizeMouseDown={(e) => editingMaster && slideEditor.handleResizeMouseDown(e, el)}
+                    />
+                  ))}
+                </div>
+              )}
+
               {/* Slide editor elements — positioned ON the canvas */}
-              {editMode && (slideElements[editorSlideIndex] ?? []).length > 0 && (
+              {editMode && !editingMaster && (slideElements[editorSlideIndex] ?? []).length > 0 && (
                 <div className="absolute inset-0 z-10">
                   {(slideElements[editorSlideIndex] ?? []).map((el) => (
                     <SlideElementItem
                       key={el.id}
                       el={el}
-                      isSelected={slideEditor.selectedId === el.id}
+                      isSelected={slideEditor.selectedIds.includes(el.id)}
                       isEditing={slideEditor.editingId === el.id}
                       onMouseDown={(e) => slideEditor.handleElementMouseDown(e, el)}
                       onDoubleClick={(e) => slideEditor.handleElementDoubleClick(e, el)}
                       onTextChange={(text) => slideEditor.updateEl(el.id, { text })}
+                      onTableChange={(tableData) => slideEditor.updateEl(el.id, { tableData })}
                       onBlur={() => slideEditor.commitTextEdit()}
                       onResizeMouseDown={(e, handle) => slideEditor.handleResizeMouseDown(e, el, handle)}
                     />
@@ -2510,176 +2026,46 @@ export default function DeckPage() {
                 </div>
               )}
 
+              {/* Marquee selection overlay */}
+              {editMode && slideEditor.marquee && (
+                <div
+                  className="absolute pointer-events-none z-40 border border-[#2CA6F9] bg-[#2CA6F9]/10"
+                  style={{
+                    left: `${slideEditor.marquee.x}%`,
+                    top: `${slideEditor.marquee.y}%`,
+                    width: `${slideEditor.marquee.w}%`,
+                    height: `${slideEditor.marquee.h}%`,
+                  }}
+                />
+              )}
+
+              {/* Live snap guides while dragging an editor element */}
+              {editMode && slideEditor.snapGuide.x !== null && (
+                <div
+                  className="absolute top-0 bottom-0 pointer-events-none z-40"
+                  style={{ left: `${slideEditor.snapGuide.x}%`, width: 1, background: "#ec4899", boxShadow: "0 0 4px #ec4899" }}
+                />
+              )}
+              {editMode && slideEditor.snapGuide.y !== null && (
+                <div
+                  className="absolute left-0 right-0 pointer-events-none z-40"
+                  style={{ top: `${slideEditor.snapGuide.y}%`, height: 1, background: "#ec4899", boxShadow: "0 0 4px #ec4899" }}
+                />
+              )}
+
               {/* Overlay blocks — positioned ON the canvas */}
-              {currentSlideBlocks.map((block) => {
-                const isSelected = selectedBlockId === block.id;
-                return (
-                  <div
-                    key={block.id}
-                    data-block-id={block.id}
-                    onClick={(e) => { e.stopPropagation(); setSelectedBlockId(block.id); }}
-                    onMouseDown={(e) => { e.stopPropagation(); if (!isSelected) handleBlockMouseDown(e, block.id); }}
-                    style={{
-                      position: "absolute",
-                      left: `${block.x}%`,
-                      top: `${block.y}%`,
-                      width: `${block.w}%`,
-                      ...(block.h !== undefined ? { height: `${block.h}%` } : {}),
-                      cursor: draggingBlock?.id === block.id ? "grabbing" : "default",
-                      zIndex: isSelected ? 20 : 10,
-                      overflow: "visible",
-                    }}
-                    className={`rounded-lg shadow-lg bg-white border-2 transition-all ${
-                      isSelected ? "border-[#2CA6F9]" : "border-transparent hover:border-[#2CA6F9]/40"
-                    }`}
-                  >
-                    {/* Toolbar */}
-                    {isSelected && (
-                      <div className="absolute -top-8 left-0 flex items-center gap-1 bg-[#0944A1] rounded-lg px-2 py-1 shadow-md z-30">
-                        <GripVertical
-                          className="w-3.5 h-3.5 text-white/70 cursor-grab"
-                          onMouseDown={(e) => handleBlockMouseDown(e, block.id)}
-                        />
-                        <span className="text-[10px] text-white/70 font-medium select-none">Bloc données</span>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); removeBlock(block.id); }}
-                          className="ml-1 p-0.5 rounded hover:bg-white/20 text-white/80 hover:text-white transition-colors"
-                          title="Supprimer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
-                    {/* Drag handle — only top bar (8px) to avoid blocking content interaction */}
-                    <div
-                      className="absolute top-0 left-0 right-0 h-2 z-10"
-                      onMouseDown={(e) => handleBlockMouseDown(e, block.id)}
-                      style={{ cursor: draggingBlock?.id === block.id ? "grabbing" : "grab" }}
-                    />
-                    {/* Content */}
-                    {(() => {
-                      const bStyle = blockStyles[block.id] ?? {
-                        headerColor: "#0070C0",
-                        rowColor: "#F3F3F3",
-                        fontSize: block.fontSize ?? 10,
-                        fontFamily: block.fontFamily ?? "Inter",
-                        textColor: block.textColor ?? "#1a1a1a",
-                        borderColor: "#e5e7eb",
-                        borderWidth: 1,
-                      };
-                      const isTable = block.content.includes("|");
-                      const fontFamilyCss = bStyle.fontFamily === "Mono" ? "monospace" : bStyle.fontFamily === "Georgia" ? "Georgia, serif" : bStyle.fontFamily + ", sans-serif";
-                      return (
-                        <>
-                          <style>{`
-                            .block-md-${block.id} th { background-color: ${bStyle.headerColor} !important; color: white; padding: 3px 8px; border: ${bStyle.borderWidth}px solid ${bStyle.borderColor}; }
-                            .block-md-${block.id} td { padding: 3px 8px; color: ${bStyle.textColor}; border: ${bStyle.borderWidth}px solid ${bStyle.borderColor}; }
-                            .block-md-${block.id} tr:nth-child(even) td { background-color: ${bStyle.rowColor}; }
-                            .block-md-${block.id} table { font-size: ${bStyle.fontSize}px; font-family: ${fontFamilyCss}; border-collapse: collapse; width: 100%; }
-                          `}</style>
-                          <div className={`relative z-20 p-3 text-xs text-gray-700 prose prose-sm max-w-none block-md-${block.id}`}
-                            style={block.h !== undefined ? { height: "100%", overflow: "auto" } : {}}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
-                          </div>
-                          {/* Table style panel */}
-                          {isSelected && isTable && (
-                            <div
-                              className="absolute left-0 z-40 bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 flex items-center gap-3 flex-wrap"
-                              style={{ top: "calc(100% + 4px)", minWidth: 420, pointerEvents: "all" }}
-                              onClick={(e) => e.stopPropagation()}
-                              onMouseDown={(e) => e.stopPropagation()}
-                            >
-                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
-                                En-tête
-                                <input type="color" value={bStyle.headerColor}
-                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, headerColor: e.target.value } }))}
-                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200" />
-                              </label>
-                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
-                                Lignes paires
-                                <input type="color" value={bStyle.rowColor}
-                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, rowColor: e.target.value } }))}
-                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200" />
-                              </label>
-                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
-                                Texte
-                                <input type="color" value={bStyle.textColor}
-                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, textColor: e.target.value } }))}
-                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200" />
-                              </label>
-                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
-                                Bordure
-                                <input type="color" value={bStyle.borderColor}
-                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, borderColor: e.target.value } }))}
-                                  className="w-6 h-6 rounded cursor-pointer border border-gray-200" />
-                                <input type="number" min={0} max={4} value={bStyle.borderWidth}
-                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, borderWidth: Number(e.target.value) } }))}
-                                  className="w-10 text-[10px] border border-gray-200 rounded px-1 py-0.5" />
-                                px
-                              </label>
-                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
-                                Taille
-                                <input type="number" min={7} max={18} value={bStyle.fontSize}
-                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, fontSize: Number(e.target.value) } }))}
-                                  className="w-12 text-[10px] border border-gray-200 rounded px-1 py-0.5" />
-                                px
-                              </label>
-                              <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
-                                Police
-                                <select value={bStyle.fontFamily}
-                                  onChange={(e) => setBlockStyles(prev => ({ ...prev, [block.id]: { ...bStyle, fontFamily: e.target.value } }))}
-                                  className="text-[10px] border border-gray-200 rounded px-1 py-0.5">
-                                  <option value="Inter">Inter</option>
-                                  <option value="Raleway">Raleway</option>
-                                  <option value="Georgia">Georgia</option>
-                                  <option value="Playfair">Playfair</option>
-                                  <option value="Mono">Mono</option>
-                                </select>
-                              </label>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                    {/* Resize handle (bottom-right) — width + height */}
-                    {isSelected && (
-                      <div
-                        className="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize z-30 flex items-end justify-end"
-                        style={{ background: "linear-gradient(135deg, transparent 50%, #2CA6F9 50%)", borderBottomRightRadius: 6 }}
-                        onClick={(e) => e.stopPropagation()}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          const canvas = canvasRef.current;
-                          if (!canvas) return;
-                          const startX = e.clientX;
-                          const startY = e.clientY;
-                          const origW = block.w;
-                          const rect = canvas.getBoundingClientRect();
-                          const currentBlockEl = canvas.querySelector(`[data-block-id="${block.id}"]`) as HTMLElement | null;
-                          const currentHpx = currentBlockEl?.offsetHeight ?? rect.height * 0.3;
-                          const startHpct = block.h ?? (currentHpx / rect.height) * 100;
-                          const onMove = (ev: MouseEvent) => {
-                            const dw = ((ev.clientX - startX) / rect.width) * 100;
-                            const dh = ((ev.clientY - startY) / rect.height) * 100;
-                            setDroppedBlocks(prev => prev.map(b => b.id === block.id
-                              ? { ...b, w: Math.max(5, Math.min(95, origW + dw)), h: Math.max(5, Math.min(90, startHpct + dh)) }
-                              : b
-                            ));
-                          };
-                          const onUp = (ev: MouseEvent) => {
-                            ev.stopPropagation();
-                            window.removeEventListener("mousemove", onMove);
-                            window.removeEventListener("mouseup", onUp);
-                          };
-                          window.addEventListener("mousemove", onMove);
-                          window.addEventListener("mouseup", onUp);
-                        }}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+              <DroppedBlocksLayer
+                blocks={currentSlideBlocks}
+                selectedBlockId={selectedBlockId}
+                setSelectedBlockId={setSelectedBlockId}
+                blockStyles={blockStyles}
+                setBlockStyles={setBlockStyles}
+                draggingBlock={draggingBlock}
+                handleBlockMouseDown={handleBlockMouseDown}
+                removeBlock={removeBlock}
+                canvasRef={canvasRef}
+                setDroppedBlocks={setDroppedBlocks}
+              />
             </div>
 
             {/* Navigation */}
@@ -2794,10 +2180,42 @@ export default function DeckPage() {
                 })
                 .catch(console.error);
             }}
+            selectedElements={slideEditor.selectedElements}
+            askAiFromSelection={askAiFromSelection}
+            onAskAiConsumed={() => setAskAiFromSelection(false)}
+            onApplyDeckPatches={(patches) => {
+              // Apply each patch to the current slide's editor elements in sequence.
+              setSlideElements((prev) => {
+                const current = prev[editorSlideIndex] ?? [];
+                let next = [...current];
+                for (const p of patches) {
+                  if (p.action === "update") {
+                    const ids = new Set(p.ids);
+                    next = next.map((el) => (ids.has(el.id) ? { ...el, ...p.patch } : el));
+                  } else if (p.action === "insert") {
+                    const base: SlideElement = {
+                      x: 20, y: 20, w: 30, h: 10,
+                      fillColor: "transparent",
+                      strokeColor: "#0944A1",
+                      strokeWidth: 2,
+                      opacity: 1,
+                      ...p.element,
+                      id: crypto.randomUUID(),
+                    };
+                    next = [...next, base];
+                  } else if (p.action === "delete") {
+                    const ids = new Set(p.ids);
+                    next = next.filter((el) => !ids.has(el.id));
+                  }
+                }
+                return { ...prev, [editorSlideIndex]: next };
+              });
+            }}
           />
         </div>}
       </div>
       </SlideStyleContext.Provider>
+      </DeckDataProvider>
 
       {/* ── Toast notification ──────────────────────────────────────────── */}
       {toastMsg && (

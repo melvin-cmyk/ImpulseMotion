@@ -12,6 +12,13 @@ import { streamChat, type ChatMessage, type StreamEvent } from "@/lib/relay-clie
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DeckData } from "@/lib/deck-data";
+import type { SlideElement } from "@/components/deck/slide-editor";
+
+// Patches emitted by the AI to edit the slide canvas.
+export type DeckPatch =
+  | { action: "update"; ids: string[]; patch: Partial<SlideElement> }
+  | { action: "insert"; element: Partial<SlideElement> & { type: SlideElement["type"] } }
+  | { action: "delete"; ids: string[] };
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,6 +50,11 @@ interface AIPanelProps {
   onSetNote?: (note: string) => void;
   currentSlideNote?: string;
   onGenerateAiSlides?: (userPrompt: string) => void;
+  // Slide-element selection context (Phase 2 — AI contextual edits)
+  selectedElements?: SlideElement[];
+  onApplyDeckPatches?: (patches: DeckPatch[]) => void;
+  askAiFromSelection?: boolean;
+  onAskAiConsumed?: () => void;
 }
 
 // ── Slash command suggestions ────────────────────────────────────────────────
@@ -176,6 +188,18 @@ function fillTemplateWithData(content: string, slideType: string, data: DeckData
       return content;
     case "funnel":
       return `# Funnel Acquisition\n\n| Étape | Volume | Taux de conversion |\n|-------|--------|--------------------|\n| Impressions | ${fmtNum(m.impressions + g.impressions)} | — |\n| Clics | ${fmtNum(m.clicks + g.clicks)} | CTR : ${fmtPct((m.clicks + g.clicks) / Math.max(m.impressions + g.impressions, 1) * 100)} |\n| Conversions | ${fmtNum(Math.round(m.conversions + g.conversions))} | CVR : ${fmtPct((m.conversions + g.conversions) / Math.max(m.clicks + g.clicks, 1) * 100)} |\n\n**CPA :** ${fmtCur((m.spend + g.spend) / Math.max(m.conversions + g.conversions, 1))} · **ROAS :** ${fmtX((m.revenue + g.revenue) / Math.max(m.spend + g.spend, 1))}`;
+    case "monthly-trend": {
+      const totalSpend = m.spend + g.spend;
+      const totalRoas = (m.revenue + g.revenue) / Math.max(totalSpend, 1);
+      const totalCpa = totalSpend / Math.max(m.conversions + g.conversions, 1);
+      const totalCtr = (m.clicks + g.clicks) / Math.max(m.impressions + g.impressions, 1) * 100;
+      const totalConv = Math.round(m.conversions + g.conversions);
+      // Previous period delta for trend arrows
+      const prev = data.highlights;
+      const roasTrend = prev[0]?.delta != null ? (prev[0].delta >= 0 ? "↑" : "↓") + ` ${Math.abs(prev[0].delta).toFixed(1)}%` : "—";
+      const cpaTrend = totalCpa > 0 ? "à surveiller" : "—";
+      return `# Tendances Mensuelles — 6 mois glissants\n\n| Mois | Spend | ROAS | CPA | CTR | Nouvelles acquisitions |\n|------|-------|------|-----|-----|------------------------|\n| M-5 | — | — | — | — | — |\n| M-4 | — | — | — | — | — |\n| M-3 | — | — | — | — | — |\n| M-2 | — | — | — | — | — |\n| M-1 | — | — | — | — | — |\n| **M (actuel)** | **${fmtCur(totalSpend)}** | **${fmtX(totalRoas)}** | **${fmtCur(totalCpa)}** | **${fmtPct(totalCtr)}** | **${fmtNum(totalConv)}** |\n\n**Tendance ROAS :** ${roasTrend} · **Tendance CPA :** ${cpaTrend} · **Saisonnalité observée :** —\n\n**Signal fort :** ${totalRoas >= 2 ? "ROAS solide au-dessus de 2x" : totalRoas >= 1 ? "ROAS à l'équilibre" : "ROAS sous l'objectif — optimisation nécessaire"}`;
+    }
     default:
       return content;
   }
@@ -230,6 +254,10 @@ export function AIPanel({
   onSetNote,
   currentSlideNote,
   onGenerateAiSlides,
+  selectedElements,
+  onApplyDeckPatches,
+  askAiFromSelection,
+  onAskAiConsumed,
 }: AIPanelProps) {
   const [messages, setMessages] = useState<AIPanelMessage[]>([]);
   const [input, setInput] = useState("");
@@ -258,6 +286,40 @@ export function AIPanel({
   useEffect(() => {
     setShowSlashMenu(input.startsWith("/") && !input.includes(" "));
   }, [input]);
+
+  // When the user clicks "Ask AI" in the editor toolbar, focus the chat input
+  // and prefill it with a selection-aware starter prompt.
+  useEffect(() => {
+    if (!askAiFromSelection) return;
+    const count = selectedElements?.length ?? 0;
+    if (count > 0) {
+      setInput(count > 1 ? `Modifie ces ${count} éléments : ` : "Modifie cet élément : ");
+      setTimeout(() => inputRef.current?.focus(), 20);
+    }
+    onAskAiConsumed?.();
+  }, [askAiFromSelection, selectedElements, onAskAiConsumed]);
+
+  // Parse <deck-patch>...</deck-patch> JSON blocks and apply them to the canvas.
+  const parseAndApplyDeckPatches = useCallback(
+    (content: string) => {
+      if (!onApplyDeckPatches) return;
+      const matches = [...content.matchAll(/<deck-patch>\s*([\s\S]*?)\s*<\/deck-patch>/g)];
+      const patches: DeckPatch[] = [];
+      for (const m of matches) {
+        try {
+          const parsed = JSON.parse(m[1]);
+          const arr = Array.isArray(parsed) ? parsed : [parsed];
+          for (const p of arr) {
+            if (p && typeof p === "object" && "action" in p) patches.push(p as DeckPatch);
+          }
+        } catch {
+          // Silent — malformed patch blocks are ignored
+        }
+      }
+      if (patches.length > 0) onApplyDeckPatches(patches);
+    },
+    [onApplyDeckPatches]
+  );
 
   const buildSystemContext = (): string => {
     if (!deckData) return "Aucun deck n'est encore généré.";
@@ -830,15 +892,45 @@ export function AIPanel({
     abortRef.current = abort;
 
     const systemCtx = buildSystemContext();
+    // Selection-aware context: let the AI edit the current canvas elements via <deck-patch> blocks.
+    let selectionCtx = "";
+    if (selectedElements && selectedElements.length > 0) {
+      const elsJson = JSON.stringify(
+        selectedElements.map((el) => ({
+          id: el.id,
+          type: el.type,
+          text: el.text,
+          x: el.x, y: el.y, w: el.w, h: el.h,
+          fillColor: el.fillColor,
+          strokeColor: el.strokeColor,
+          textColor: el.textColor,
+          fontSize: el.fontSize,
+          fontFamily: el.fontFamily,
+          fontWeight: el.fontWeight,
+          imageUrl: el.imageUrl,
+        })),
+        null, 2
+      );
+      selectionCtx =
+        `\n\n[Éléments sélectionnés sur la slide courante]\n${elsJson}\n\n` +
+        `[Format de modification]\n` +
+        `Pour éditer les éléments, retourne à la fin de ta réponse un ou plusieurs blocs JSON entre balises <deck-patch>...</deck-patch>.\n` +
+        `Actions supportées :\n` +
+        `  {"action":"update","ids":["id1","id2"],"patch":{"textColor":"#ff0000","fontWeight":"bold"}}\n` +
+        `  {"action":"insert","element":{"type":"text","x":10,"y":10,"w":30,"h":8,"text":"Nouveau titre","fillColor":"transparent","strokeColor":"transparent","textColor":"#1a1a1a","fontSize":24,"fontWeight":"bold","strokeWidth":0,"opacity":1}}\n` +
+        `  {"action":"delete","ids":["id1"]}\n` +
+        `Les coordonnées x/y/w/h sont en % du canvas 16:9. Réutilise les ids fournis pour update/delete. ` +
+        `Ne renvoie un <deck-patch> QUE si le user demande explicitement une modification visuelle.`;
+    }
     const history: ChatMessage[] = [
-      { role: "user" as const, content: `[Contexte du deck]\n${systemCtx}\n\n[Instruction]\n${text}` },
+      { role: "user" as const, content: `[Contexte du deck]\n${systemCtx}${selectionCtx}\n\n[Instruction]\n${text}` },
       ...messages
         .filter((m) => m.content)
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     ];
 
+    let finalContent = "";
     try {
-      let finalContent = "";
       await streamChat(
         history,
         (event: StreamEvent) => {
@@ -900,6 +992,8 @@ export function AIPanel({
       });
       setIsLoading(false);
       abortRef.current = null;
+      // Apply any <deck-patch> blocks the assistant emitted.
+      if (finalContent.includes("<deck-patch>")) parseAndApplyDeckPatches(finalContent);
     }
   };
 

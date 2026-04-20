@@ -4,6 +4,12 @@ import { NextResponse } from "next/server";
 export default auth((req) => {
   const { pathname } = req.nextUrl;
 
+  // DEV-only auth bypass for headless browser testing.
+  // Set DEV_AUTH_BYPASS=1 in the local environment before `next dev` to enable.
+  if (process.env.DEV_AUTH_BYPASS === "1") {
+    return NextResponse.next();
+  }
+
   // Public paths — never redirect these
   const publicPaths = ["/login", "/api/auth", "/api/relay", "/_next", "/favicon"];
   if (publicPaths.some((p) => pathname.startsWith(p))) {

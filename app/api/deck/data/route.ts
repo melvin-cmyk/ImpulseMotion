@@ -15,6 +15,10 @@ import {
   type PlatformMetrics,
   type CampaignRow,
   type TopCreative,
+  type GAOverview,
+  type GATopPage,
+  type GADeviceRow,
+  type GASourceRow,
 } from "@/lib/deck-data";
 
 export const maxDuration = 120; // Vercel Pro: allow up to 120s
@@ -670,6 +674,224 @@ async function fetchGoogleData(
   }
 }
 
+// ── Google Analytics data ────────────────────────────────────────────────────
+
+function zeroGAOverview(): GAOverview {
+  return { sessions: 0, users: 0, newUsers: 0, pageviews: 0, bounceRate: 0, avgSessionDuration: 0, conversions: 0, conversionRate: 0 };
+}
+
+async function fetchGAData(
+  propertyId: string,
+  period: DeckPeriod,
+  previousPeriod: DeckPeriod
+): Promise<{
+  overview: GAOverview;
+  prevOverview: GAOverview;
+  topPages: GATopPage[];
+  devices: GADeviceRow[];
+  sources: GASourceRow[];
+} | null> {
+  try {
+    // 1. Overview report — sessions, users, pageviews, bounce rate, conversions
+    const overviewInput = (p: DeckPeriod) => ({
+      property_id: propertyId,
+      start_date: p.startDate,
+      end_date: p.endDate,
+      dimensions: ["date"],
+      metrics: ["sessions", "totalUsers", "newUsers", "screenPageViews", "bounceRate", "averageSessionDuration", "conversions"],
+    });
+
+    // 2. Top pages report
+    const topPagesInput = {
+      property_id: propertyId,
+      start_date: period.startDate,
+      end_date: period.endDate,
+      dimensions: ["pagePath", "pageTitle"],
+      metrics: ["sessions", "totalUsers", "bounceRate", "averageSessionDuration", "conversions"],
+      limit: 10,
+      order_by: [{ metric: "sessions", desc: true }],
+    };
+
+    // 3. Device report
+    const devicesInput = {
+      property_id: propertyId,
+      start_date: period.startDate,
+      end_date: period.endDate,
+      dimensions: ["deviceCategory"],
+      metrics: ["sessions", "totalUsers", "conversions", "bounceRate"],
+    };
+
+    // 4. Source/medium report
+    const sourcesInput = {
+      property_id: propertyId,
+      start_date: period.startDate,
+      end_date: period.endDate,
+      dimensions: ["sessionSource", "sessionMedium"],
+      metrics: ["sessions", "totalUsers", "conversions", "bounceRate"],
+      limit: 10,
+      order_by: [{ metric: "sessions", desc: true }],
+    };
+
+    const [overviewRaw, prevOverviewRaw, pagesRaw, devicesRaw, sourcesRaw] = await Promise.allSettled([
+      relayDirectTool("mcp-google-analytics.run_report", overviewInput(period), 15000),
+      relayDirectTool("mcp-google-analytics.run_report", overviewInput(previousPeriod), 15000),
+      relayDirectTool("mcp-google-analytics.run_report", topPagesInput, 15000),
+      relayDirectTool("mcp-google-analytics.run_report", devicesInput, 15000),
+      relayDirectTool("mcp-google-analytics.run_report", sourcesInput, 15000),
+    ]);
+
+    console.log("[deck/data] GA results:", {
+      overview: overviewRaw.status,
+      prevOverview: prevOverviewRaw.status,
+      pages: pagesRaw.status,
+      devices: devicesRaw.status,
+      sources: sourcesRaw.status,
+    });
+
+    // Parse overview — GA4 returns rows with dimensionValues + metricValues
+    function parseGAOverview(raw: unknown): GAOverview {
+      if (!raw) return zeroGAOverview();
+      // Structure: { rows: [{dimensionValues: [...], metricValues: [...]}], ...}
+      // or could be wrapped in an array
+      let rows: Array<{ metricValues?: Array<{ value?: string }> }> = [];
+      if (Array.isArray(raw)) {
+        const first = raw[0];
+        if (first && typeof first === "object" && Array.isArray((first as Record<string, unknown>).rows)) {
+          rows = (first as Record<string, unknown>).rows as typeof rows;
+        }
+      } else if (typeof raw === "object" && raw !== null) {
+        const r = raw as Record<string, unknown>;
+        if (Array.isArray(r.rows)) rows = r.rows as typeof rows;
+      }
+
+      // Aggregate across all date rows
+      let sessions = 0, users = 0, newUsers = 0, pageviews = 0, totalBounce = 0, totalDuration = 0, conversions = 0;
+      for (const row of rows) {
+        const mv = row.metricValues ?? [];
+        sessions += toNum(mv[0]?.value);
+        users += toNum(mv[1]?.value);
+        newUsers += toNum(mv[2]?.value);
+        pageviews += toNum(mv[3]?.value);
+        totalBounce += toNum(mv[4]?.value) * toNum(mv[0]?.value); // weighted bounce
+        totalDuration += toNum(mv[5]?.value) * toNum(mv[0]?.value); // weighted duration
+        conversions += toNum(mv[6]?.value);
+      }
+
+      return {
+        sessions,
+        users,
+        newUsers,
+        pageviews,
+        bounceRate: sessions > 0 ? (totalBounce / sessions) * 100 : 0,
+        avgSessionDuration: sessions > 0 ? totalDuration / sessions : 0,
+        conversions,
+        conversionRate: sessions > 0 ? (conversions / sessions) * 100 : 0,
+      };
+    }
+
+    function parseGATopPages(raw: unknown): GATopPage[] {
+      if (!raw) return [];
+      let rows: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> = [];
+      if (Array.isArray(raw)) {
+        const first = raw[0];
+        if (first && typeof first === "object" && Array.isArray((first as Record<string, unknown>).rows)) {
+          rows = (first as Record<string, unknown>).rows as typeof rows;
+        }
+      } else if (typeof raw === "object" && raw !== null) {
+        const r = raw as Record<string, unknown>;
+        if (Array.isArray(r.rows)) rows = r.rows as typeof rows;
+      }
+
+      return rows.slice(0, 10).map(row => {
+        const dv = row.dimensionValues ?? [];
+        const mv = row.metricValues ?? [];
+        return {
+          pagePath: dv[0]?.value ?? "/",
+          pageTitle: dv[1]?.value ?? "—",
+          sessions: toNum(mv[0]?.value),
+          users: toNum(mv[1]?.value),
+          bounceRate: toNum(mv[2]?.value) * 100,
+          avgDuration: toNum(mv[3]?.value),
+          conversions: toNum(mv[4]?.value),
+        };
+      });
+    }
+
+    function parseGADevices(raw: unknown): GADeviceRow[] {
+      if (!raw) return [];
+      let rows: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> = [];
+      if (Array.isArray(raw)) {
+        const first = raw[0];
+        if (first && typeof first === "object" && Array.isArray((first as Record<string, unknown>).rows)) {
+          rows = (first as Record<string, unknown>).rows as typeof rows;
+        }
+      } else if (typeof raw === "object" && raw !== null) {
+        const r = raw as Record<string, unknown>;
+        if (Array.isArray(r.rows)) rows = r.rows as typeof rows;
+      }
+
+      return rows.map(row => {
+        const dv = row.dimensionValues ?? [];
+        const mv = row.metricValues ?? [];
+        const sessions = toNum(mv[0]?.value);
+        const conversions = toNum(mv[2]?.value);
+        return {
+          device: dv[0]?.value ?? "unknown",
+          sessions,
+          users: toNum(mv[1]?.value),
+          conversions,
+          conversionRate: sessions > 0 ? (conversions / sessions) * 100 : 0,
+          bounceRate: toNum(mv[3]?.value) * 100,
+        };
+      });
+    }
+
+    function parseGASources(raw: unknown): GASourceRow[] {
+      if (!raw) return [];
+      let rows: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> = [];
+      if (Array.isArray(raw)) {
+        const first = raw[0];
+        if (first && typeof first === "object" && Array.isArray((first as Record<string, unknown>).rows)) {
+          rows = (first as Record<string, unknown>).rows as typeof rows;
+        }
+      } else if (typeof raw === "object" && raw !== null) {
+        const r = raw as Record<string, unknown>;
+        if (Array.isArray(r.rows)) rows = r.rows as typeof rows;
+      }
+
+      return rows.slice(0, 10).map(row => {
+        const dv = row.dimensionValues ?? [];
+        const mv = row.metricValues ?? [];
+        return {
+          source: dv[0]?.value ?? "(direct)",
+          medium: dv[1]?.value ?? "(none)",
+          sessions: toNum(mv[0]?.value),
+          users: toNum(mv[1]?.value),
+          conversions: toNum(mv[2]?.value),
+          bounceRate: toNum(mv[3]?.value) * 100,
+        };
+      });
+    }
+
+    const overview = overviewRaw.status === "fulfilled" ? parseGAOverview(overviewRaw.value) : zeroGAOverview();
+    const prevOverview = prevOverviewRaw.status === "fulfilled" ? parseGAOverview(prevOverviewRaw.value) : zeroGAOverview();
+    const topPages = pagesRaw.status === "fulfilled" ? parseGATopPages(pagesRaw.value) : [];
+    const devices = devicesRaw.status === "fulfilled" ? parseGADevices(devicesRaw.value) : [];
+    const sources = sourcesRaw.status === "fulfilled" ? parseGASources(sourcesRaw.value) : [];
+
+    // If we got zero sessions from all reports, consider it a failure
+    if (overview.sessions === 0 && topPages.length === 0) {
+      console.warn("[deck/data] GA returned 0 sessions — likely bad property ID or no data");
+      return null;
+    }
+
+    return { overview, prevOverview, topPages, devices, sources };
+  } catch (e) {
+    console.error("[deck/data] fetchGAData error:", e);
+    return null;
+  }
+}
+
 // ── AI text content ───────────────────────────────────────────────────────────
 
 interface AiTextContent {
@@ -807,35 +1029,50 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const session = await auth();
-  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken ?? null;
+  let session = null;
+  try {
+    session = await auth();
+  } catch {
+    // Auth may fail if DB is unavailable
+  }
+  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken
+    ?? process.env.META_SHARED_TOKEN
+    ?? null;
 
   const previousPeriod = getPreviousPeriod(period);
 
-  // Try to fetch real data in parallel
-  const [metaResult, googleResult] = await Promise.allSettled([
+  // Try to fetch real data in parallel (Meta + Google Ads + GA)
+  const [metaResult, googleResult, gaResult] = await Promise.allSettled([
     client.metaAccountId && metaToken
       ? fetchMetaData(client.metaAccountId, period, previousPeriod, metaToken)
       : Promise.resolve(null),
     client.googleCustomerId
       ? fetchGoogleData(client.googleCustomerId, period, previousPeriod)
       : Promise.resolve(null),
+    client.gaPropertyId
+      ? fetchGAData(client.gaPropertyId, period, previousPeriod)
+      : Promise.resolve(null),
   ]);
-  // Note: calls run in parallel, each capped at 35s → ~35s total (parallel)
+  // Note: calls run in parallel, each capped at 15s → ~15s total (parallel)
 
   const meta = metaResult.status === "fulfilled" ? metaResult.value : null;
   const google = googleResult.status === "fulfilled" ? googleResult.value : null;
+  const ga = gaResult.status === "fulfilled" ? gaResult.value : null;
   const metaError = metaResult.status === "rejected" ? String(metaResult.reason) : (meta === null && client.metaAccountId ? "No data parsed from relay response" : null);
   const googleError = googleResult.status === "rejected" ? String(googleResult.reason) : (google === null && client.googleCustomerId ? "No data parsed from relay response" : null);
+  const gaError = gaResult.status === "rejected" ? String(gaResult.reason) : (ga === null && client.gaPropertyId ? "No GA data parsed" : null);
 
   console.error("[deck/data] relay results:", {
     relayUrls: RELAY_URLS_TO_TRY,
     metaAccountId: client.metaAccountId,
     googleCustomerId: client.googleCustomerId,
+    gaPropertyId: client.gaPropertyId,
     metaOk: !!meta,
     googleOk: !!google,
+    gaOk: !!ga,
     metaError,
     googleError,
+    gaError,
   });
 
   // If both failed, fallback to mock data entirely
@@ -996,6 +1233,13 @@ export async function POST(req: NextRequest) {
     metaOverview: metaOverviewForTotals,
     metaCampaigns: (meta?.campaigns?.length ? meta.campaigns : null) ?? mockFallback.metaCampaigns,
     topCreatives: (meta?.topCreatives?.length ? meta.topCreatives : null) ?? mockFallback.topCreatives,
+
+    // Google Analytics
+    gaOverview: ga?.overview,
+    gaPrevOverview: ga?.prevOverview,
+    gaTopPages: ga?.topPages,
+    gaDevices: ga?.devices,
+    gaSources: ga?.sources,
 
     budget: mockFallback.budget,
 

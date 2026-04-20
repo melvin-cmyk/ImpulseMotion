@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useContext } from "react";
+import { DEFAULT_THEME, type DeckTheme } from "@/lib/deck-theme";
 
 export interface TextStyle {
   bold?: boolean;
@@ -12,6 +13,7 @@ interface SlideStyleContextType {
   getStyle: (slideIndex: number, field: string) => TextStyle;
   setStyle: (slideIndex: number, field: string, style: Partial<TextStyle>) => void;
   periodLabel?: string;
+  theme?: DeckTheme;
 }
 
 export const SlideStyleContext = createContext<SlideStyleContextType | null>(null);
@@ -23,4 +25,9 @@ export function useSlideStyle() {
 /** Read the period label from the nearest SlideStyleContext */
 export function usePeriodLabel() {
   return useContext(SlideStyleContext)?.periodLabel;
+}
+
+/** Read the deck theme from context — falls back to DEFAULT_THEME if unset. */
+export function useDeckTheme(): DeckTheme {
+  return useContext(SlideStyleContext)?.theme ?? DEFAULT_THEME;
 }
