@@ -620,8 +620,9 @@ export default function DeckPage() {
     }
     const newSlide = { id: `custom-${Date.now()}`, label, content };
     setCustomSlides((prev) => {
-      const next = [...prev, newSlide];
-      setTimeout(() => setCurrentSlide(slides.length + next.length - 1), 50);
+      const insertAt = isCustom ? (currentSlide - slides.length) + 1 : 0;
+      const next = [...prev.slice(0, insertAt), newSlide, ...prev.slice(insertAt)];
+      setTimeout(() => setCurrentSlide(slides.length + insertAt), 50);
       return next;
     });
     showToast(`📋 "${label}" ajoutée`);
@@ -635,13 +636,14 @@ export default function DeckPage() {
       fontFamily,
     };
     setCustomSlides((prev) => {
-      const next = [...prev, newSlide];
-      // Navigate to the new slide after state update
-      setTimeout(() => setCurrentSlide(slides.length + next.length - 1), 50);
+      const isOnCustom = currentSlide >= slides.length && currentSlide < slides.length + prev.length;
+      const insertAt = isOnCustom ? (currentSlide - slides.length) + 1 : 0;
+      const next = [...prev.slice(0, insertAt), newSlide, ...prev.slice(insertAt)];
+      setTimeout(() => setCurrentSlide(slides.length + insertAt), 50);
       return next;
     });
     showToast(`✅ Slide "${label}" ajoutée`);
-  }, [slides.length, showToast]);
+  }, [currentSlide, slides.length, showToast]);
 
   const handleRenameSlide = useCallback((newLabel: string) => {
     const customIndex = currentSlide - slides.length;
@@ -1138,9 +1140,10 @@ export default function DeckPage() {
       label: `Slide ${slides.length + customSlides.length + 1}`,
       content: "# Nouveau slide\n\nAjoutez votre contenu ici.",
     };
-    setCustomSlides((prev) => [...prev, newSlide]);
-    // Navigate to the new slide
-    goToSlide(slides.length + customSlides.length);
+    const isOnCustom = currentSlide >= slides.length && currentSlide < slides.length + customSlides.length;
+    const insertAt = isOnCustom ? (currentSlide - slides.length) + 1 : 0;
+    setCustomSlides((prev) => [...prev.slice(0, insertAt), newSlide, ...prev.slice(insertAt)]);
+    goToSlide(slides.length + insertAt);
   };
 
   // Blocs pour la slide actuelle

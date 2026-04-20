@@ -521,11 +521,13 @@ function addAgenda(pptx: PptxGen, data: DeckData) {
     const y = 1.8 + i * 1.1;
     s.addText(`0${i + 1}`, {
       x: LAYOUT.marginX + 0.3, y, w: 0.6, h: 0.6,
-      fontSize: 20, bold: true, color: c(IA.violet), fontFace: FONTS.kpi, align: "center",
+      fontSize: 20, bold: true, color: c(IA.violet), fontFace: FONTS.kpi,
+      align: "center", valign: "middle",
     });
     s.addText(item, {
-      x: LAYOUT.marginX + 1.2, y: y + 0.05, w: 10, h: 0.5,
+      x: LAYOUT.marginX + 1.2, y, w: 10, h: 0.6,
       fontSize: SIZES.subtitle, color: c(IA.textBlack), fontFace: FONTS.body,
+      valign: "middle",
     });
     if (i < items.length - 1) {
       s.addShape("rect", {
@@ -592,7 +594,7 @@ function addHighlights(pptx: PptxGen, data: DeckData) {
     }
     s.addText(h.description, {
       x: x + 0.2, y: y + 2.7, w: cardW - 0.4, h: 0.7,
-      fontSize: 7, color: c(IA.textCaption), fontFace: FONTS.body, align: "center",
+      fontSize: 10, color: c(IA.textCaption), fontFace: FONTS.body, align: "center",
     });
   });
 }
@@ -627,7 +629,7 @@ function addGlobalTable(pptx: PptxGen, data: DeckData) {
     text: h,
     options: {
       bold: true, color: c(IA.textWhite), fill: { color: c(IA.tableHeader) },
-      fontSize: 8, fontFace: FONTS.body, align: "center" as const,
+      fontSize: 10, fontFace: FONTS.body, align: "center" as const,
     },
   }));
 
@@ -639,7 +641,7 @@ function addGlobalTable(pptx: PptxGen, data: DeckData) {
         color: isTotal ? c(IA.blueDark) : c(IA.textBlack),
         bold: isTotal,
         fill: isTotal ? { color: c(IA.bgAlt) } : idx % 2 === 1 ? { color: c(IA.bgRowAlt) } : { color: c(IA.bgWhite) },
-        fontSize: 8, fontFace: FONTS.body, align: "center" as const,
+        fontSize: 10, fontFace: FONTS.body, align: "center" as const,
       },
     }));
   });
@@ -666,7 +668,7 @@ function addNCTable(pptx: PptxGen, data: DeckData) {
     text: h,
     options: {
       bold: true, color: c(IA.textWhite), fill: { color: c(IA.tableHeader) },
-      fontSize: 9, fontFace: FONTS.body, align: "center" as const,
+      fontSize: 11, fontFace: FONTS.body, align: "center" as const,
     },
   }));
 
@@ -676,7 +678,7 @@ function addNCTable(pptx: PptxGen, data: DeckData) {
       color: isTotal ? c(IA.blueDark) : c(IA.textBlack),
       bold: isTotal,
       fill: isTotal ? { color: c(IA.bgAlt) } : idx % 2 === 1 ? { color: c(IA.bgRowAlt) } : { color: c(IA.bgWhite) },
-      fontSize: 9, fontFace: FONTS.body, align: "center" as const,
+      fontSize: 11, fontFace: FONTS.body, align: "center" as const,
     };
     return [
       { text: row.platform, options: base },
@@ -717,12 +719,13 @@ function addLearnings(pptx: PptxGen, learnings: string[], barColor: string) {
   learnings.forEach((l, i) => {
     const y = LAYOUT.contentY + 1.0 + i * 0.9;
     s.addText(`${String(i + 1).padStart(2, "0")}.`, {
-      x: LAYOUT.marginX + 0.6, y, w: 0.5, h: 0.5,
+      x: LAYOUT.marginX + 0.6, y, w: 0.5, h: 0.7,
       fontSize: 11, bold: true, color: c(IA.blue), fontFace: FONTS.body,
+      valign: "middle",
     });
     s.addText(l, {
       x: LAYOUT.marginX + 1.2, y, w: 10.5, h: 0.7,
-      fontSize: 10, color: c(IA.textWhite), fontFace: FONTS.body, valign: "top",
+      fontSize: 12, color: c(IA.textWhite), fontFace: FONTS.body, valign: "middle",
     });
   });
 }
@@ -788,13 +791,13 @@ function addCampaignTable(pptx: PptxGen, title: string, campaigns: CampaignRow[]
     text: h,
     options: {
       bold: true, color: c(IA.textWhite), fill: { color: c(IA.tableHeader) },
-      fontSize: 8, fontFace: FONTS.body, align: "center" as const,
+      fontSize: 10, fontFace: FONTS.body, align: "center" as const,
     },
   }));
 
   const dataRows = campaigns.map((camp, idx) => {
     const base = {
-      color: c(IA.textBlack), fontSize: 8, fontFace: FONTS.body, align: "center" as const,
+      color: c(IA.textBlack), fontSize: 10, fontFace: FONTS.body, align: "center" as const,
       fill: idx % 2 === 1 ? { color: c(IA.bgRowAlt) } : { color: c(IA.bgWhite) },
     };
     return [
@@ -835,6 +838,7 @@ function addNextSteps(pptx: PptxGen, title: string, steps: string[], barColor: s
     s.addText(`${String(i + 1).padStart(2, "0")}`, {
       x: LAYOUT.marginX + 0.5, y, w: 0.5, h: 0.7,
       fontSize: 14, bold: true, color: c(accent), fontFace: FONTS.kpi,
+      align: "center", valign: "middle",
     });
     s.addText(step, {
       x: LAYOUT.marginX + 1.2, y, w: 10.5, h: 0.7,
@@ -1138,19 +1142,19 @@ function addGATopPages(pptx: PptxGen, pages: GATopPage[]) {
   const headers = ["Page", "Sessions", "Utilisateurs", "Rebond", "Durée moy.", "Conv."];
   const headerRow = headers.map((h) => ({
     text: h,
-    options: { fontSize: 9, bold: true, color: "FFFFFF", fill: { color: GA_GREEN }, fontFace: FONTS.body, align: h === "Page" ? "left" as const : "right" as const },
+    options: { fontSize: 11, bold: true, color: "FFFFFF", fill: { color: GA_GREEN }, fontFace: FONTS.body, align: h === "Page" ? "left" as const : "right" as const },
   }));
 
   const rows = pages.slice(0, 10).map((p, idx) => {
     const bg = idx % 2 === 1 ? IA.bgAlt : IA.bgWhite;
     const path = p.pagePath.length > 45 ? p.pagePath.slice(0, 42) + "…" : p.pagePath;
     return [
-      { text: path, options: { fontSize: 8, color: c(IA.blue), fontFace: FONTS.body, fill: { color: c(bg) }, align: "left" as const } },
-      { text: fmtK(p.sessions), options: { fontSize: 8, bold: true, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
-      { text: fmtK(p.users), options: { fontSize: 8, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
-      { text: fmtPct(p.bounceRate), options: { fontSize: 8, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
-      { text: fmtDuration(p.avgDuration), options: { fontSize: 8, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
-      { text: String(Math.round(p.conversions)), options: { fontSize: 8, bold: true, color: p.conversions > 0 ? c(IA.deltaPos) : c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: path, options: { fontSize: 10, color: c(IA.blue), fontFace: FONTS.body, fill: { color: c(bg) }, align: "left" as const } },
+      { text: fmtK(p.sessions), options: { fontSize: 10, bold: true, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: fmtK(p.users), options: { fontSize: 10, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: fmtPct(p.bounceRate), options: { fontSize: 10, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: fmtDuration(p.avgDuration), options: { fontSize: 10, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: String(Math.round(p.conversions)), options: { fontSize: 10, bold: true, color: p.conversions > 0 ? c(IA.deltaPos) : c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
     ];
   });
 
@@ -1201,7 +1205,7 @@ function addGADeviceSources(pptx: PptxGen, devices: GADeviceRow[], sources: GASo
     });
     s.addText(`Conv: ${Math.round(d.conversions)}  ·  Taux: ${fmtPct(d.conversionRate)}  ·  Rebond: ${fmtPct(d.bounceRate)}`, {
       x: LAYOUT.marginX + 0.3, y: y + 0.6, w: 5, h: 0.3,
-      fontSize: 7, color: c(IA.textCaption), fontFace: FONTS.body,
+      fontSize: 10, color: c(IA.textCaption), fontFace: FONTS.body,
     });
   });
 
@@ -1213,15 +1217,15 @@ function addGADeviceSources(pptx: PptxGen, devices: GADeviceRow[], sources: GASo
 
   const srcHeaders = ["Source / Medium", "Sessions", "Conv."].map((h) => ({
     text: h,
-    options: { fontSize: 8, bold: true, color: "FFFFFF", fill: { color: GA_GREEN }, fontFace: FONTS.body, align: h === "Source / Medium" ? "left" as const : "right" as const },
+    options: { fontSize: 10, bold: true, color: "FFFFFF", fill: { color: GA_GREEN }, fontFace: FONTS.body, align: h === "Source / Medium" ? "left" as const : "right" as const },
   }));
 
   const srcRows = sources.slice(0, 8).map((src, idx) => {
     const bg = idx % 2 === 1 ? IA.bgAlt : IA.bgWhite;
     return [
-      { text: `${src.source} / ${src.medium}`, options: { fontSize: 8, color: c(IA.blue), fontFace: FONTS.body, fill: { color: c(bg) }, align: "left" as const } },
-      { text: fmtK(src.sessions), options: { fontSize: 8, bold: true, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
-      { text: String(Math.round(src.conversions)), options: { fontSize: 8, bold: true, color: src.conversions > 0 ? c(IA.deltaPos) : c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: `${src.source} / ${src.medium}`, options: { fontSize: 10, color: c(IA.blue), fontFace: FONTS.body, fill: { color: c(bg) }, align: "left" as const } },
+      { text: fmtK(src.sessions), options: { fontSize: 10, bold: true, color: c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
+      { text: String(Math.round(src.conversions)), options: { fontSize: 10, bold: true, color: src.conversions > 0 ? c(IA.deltaPos) : c(IA.textBlack), fontFace: FONTS.body, fill: { color: c(bg) }, align: "right" as const } },
     ];
   });
 
@@ -1396,18 +1400,17 @@ export async function exportDeckToPptx(
       const absIdx = STANDARD_SLIDE_COUNT + i;
       const s = pptx.addSlide();
       s.background = { color: c(IA.bgWhite) };
-      addBar(s, IA.blue);
       addFooter(s, false);
 
       // Title (label)
       s.addText(cs.label, {
-        x: LAYOUT.marginX + 0.3, y: 0.25, w: 11, h: 0.6,
-        fontSize: SIZES.titleMain, bold: true, color: c(IA.bgDark),
+        x: LAYOUT.marginX + 0.3, y: 0.3, w: 12, h: 0.7,
+        fontSize: SIZES.titleMain, bold: true, color: c(IA.textBlack),
         fontFace: cs.fontFamily ?? FONTS.title,
       });
       s.addShape("rect", {
-        x: LAYOUT.marginX + 0.3, y: 0.9, w: 12, h: 0.015,
-        fill: { color: c(IA.blue) }, line: { width: 0 },
+        x: LAYOUT.marginX + 0.3, y: 1.05, w: 12, h: 0.02,
+        fill: { color: c(IA.bgRowAlt) }, line: { width: 0 },
       });
 
       // Content — render markdown content (tables, headings, lists) as a
@@ -1831,7 +1834,7 @@ export async function exportDeckToPptx(
           if (img.metrics) {
             s.addText(img.metrics, {
               x: x + 0.05, y: yPos + imgH - 0.2, w: imgW - 0.1, h: 0.18,
-              fontSize: 7, color: c(IA.textCaption), fontFace: FONTS.body, align: "left",
+              fontSize: 10, color: c(IA.textCaption), fontFace: FONTS.body, align: "left",
             });
           }
         }
@@ -2075,13 +2078,13 @@ export async function exportAiSlidesToPptx(
         if (img.label) {
           s.addText(img.label, {
             x: x + 0.1, y: yPos + imgH - 0.65, w: imgW - 0.2, h: 0.25,
-            fontSize: 7, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
+            fontSize: 10, bold: true, color: c(IA.textBlack), fontFace: FONTS.body,
           });
         }
         if (img.metrics) {
           s.addText(img.metrics, {
             x: x + 0.1, y: yPos + imgH - 0.4, w: imgW - 0.2, h: 0.3,
-            fontSize: 7, color: c(IA.textCaption), fontFace: FONTS.body,
+            fontSize: 10, color: c(IA.textCaption), fontFace: FONTS.body,
           });
         }
       });

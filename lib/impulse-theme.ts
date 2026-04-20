@@ -41,13 +41,13 @@ export const FONTS = {
 
 // ── Sizes (points, for PPTX) ──────────────────────────────────────────────
 export const SIZES = {
-  titleMain: 26,
-  subtitle: 15,
-  kpi: 40,
-  body: 11,
-  caption: 8,
-  tableHeader: 10,
-  tableBody: 9,
+  titleMain: 28,
+  subtitle: 16,
+  kpi: 44,
+  body: 13,
+  caption: 10,
+  tableHeader: 12,
+  tableBody: 11,
 } as const
 
 // ── Layout (inches, 16:9) ─────────────────────────────────────────────────
