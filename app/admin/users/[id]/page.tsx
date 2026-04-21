@@ -12,7 +12,7 @@ type User = {
   adAccounts: AdAccount[];
   mcpPermissions: { mcpServer: string }[];
 };
-type MetaAccountOption = { accountId: string; name: string; currency: string };
+type AccountOption = { accountId: string; name: string; currency: string };
 
 const MCP_SERVERS = ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"];
 const PLATFORMS = [
@@ -30,10 +30,10 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   const [addAccountId, setAddAccountId] = useState("");
   const [addLabel, setAddLabel] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
-  const [metaOptions, setMetaOptions] = useState<MetaAccountOption[] | null>(null);
-  const [metaLoading, setMetaLoading] = useState(false);
-  const [metaError, setMetaError] = useState<string | null>(null);
-  const [metaSearch, setMetaSearch] = useState("");
+  const [remoteOptions, setRemoteOptions] = useState<Record<string, AccountOption[]>>({});
+  const [remoteLoading, setRemoteLoading] = useState<Record<string, boolean>>({});
+  const [remoteError, setRemoteError] = useState<Record<string, string | null>>({});
+  const [pickerSearch, setPickerSearch] = useState("");
 
   const [newPassword, setNewPassword] = useState("");
   const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
@@ -52,26 +52,45 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     load();
   }, [load]);
 
+  const PICKER_ENDPOINTS: Record<string, string> = {
+    meta: "/api/admin/meta/accounts",
+    google: "/api/admin/google-ads/accounts",
+  };
+
   useEffect(() => {
-    if (addPlatform !== "meta" || metaOptions !== null || metaLoading) return;
-    setMetaLoading(true);
-    setMetaError(null);
-    fetch("/api/admin/meta/accounts")
+    const endpoint = PICKER_ENDPOINTS[addPlatform];
+    if (!endpoint) return;
+    if (remoteOptions[addPlatform] !== undefined || remoteLoading[addPlatform]) return;
+    setRemoteLoading((p) => ({ ...p, [addPlatform]: true }));
+    setRemoteError((p) => ({ ...p, [addPlatform]: null }));
+    fetch(endpoint)
       .then(async (res) => {
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "Erreur Meta API");
-        setMetaOptions(data.accounts || []);
+        if (!res.ok) throw new Error(data.error || "Erreur API");
+        setRemoteOptions((p) => ({ ...p, [addPlatform]: data.accounts || [] }));
       })
-      .catch((err) => setMetaError(err.message))
-      .finally(() => setMetaLoading(false));
-  }, [addPlatform, metaOptions, metaLoading]);
+      .catch((err) =>
+        setRemoteError((p) => ({ ...p, [addPlatform]: err.message }))
+      )
+      .finally(() =>
+        setRemoteLoading((p) => ({ ...p, [addPlatform]: false }))
+      );
+  }, [addPlatform, remoteOptions, remoteLoading]);
 
-  const assignedMetaIds = new Set(
-    user?.adAccounts.filter((a) => a.platform === "meta").map((a) => a.accountId) ?? []
+  const pickerEnabled = Boolean(PICKER_ENDPOINTS[addPlatform]);
+  const currentOptions = remoteOptions[addPlatform];
+  const currentLoading = remoteLoading[addPlatform];
+  const currentError = remoteError[addPlatform];
+  const assignedIdsForPlatform = new Set(
+    user?.adAccounts.filter((a) => a.platform === addPlatform).map((a) => a.accountId) ?? []
   );
-  const filteredMeta = (metaOptions ?? []).filter((o) => {
-    if (assignedMetaIds.has(o.accountId)) return false;
-    const q = metaSearch.trim().toLowerCase();
+  const normalizedAssigned = new Set(
+    Array.from(assignedIdsForPlatform).map((id) => id.replace(/^act_/, ""))
+  );
+  const filteredOptions = (currentOptions ?? []).filter((o) => {
+    const raw = o.accountId.replace(/^act_/, "");
+    if (assignedIdsForPlatform.has(o.accountId) || normalizedAssigned.has(raw)) return false;
+    const q = pickerSearch.trim().toLowerCase();
     if (!q) return true;
     return o.name.toLowerCase().includes(q) || o.accountId.toLowerCase().includes(q);
   });
@@ -95,11 +114,11 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     }
     setAddAccountId("");
     setAddLabel("");
-    setMetaSearch("");
+    setPickerSearch("");
     load();
   }
 
-  function pickMetaAccount(opt: MetaAccountOption) {
+  function pickAccount(opt: AccountOption) {
     setAddAccountId(opt.accountId);
     if (!addLabel) setAddLabel(opt.name);
   }
@@ -223,7 +242,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
                 setAddPlatform(e.target.value as "meta" | "google" | "tiktok");
                 setAddAccountId("");
                 setAddLabel("");
-                setMetaSearch("");
+                setPickerSearch("");
               }}
               className="px-3 py-2 rounded-lg text-sm"
               style={{
@@ -240,11 +259,11 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             </select>
             <input
               type="text"
-              placeholder={addPlatform === "meta" ? "act_123... (auto-rempli)" : "ID compte"}
+              placeholder={pickerEnabled ? "ID (auto-rempli depuis la liste)" : "ID compte"}
               value={addAccountId}
               onChange={(e) => setAddAccountId(e.target.value)}
               required
-              readOnly={addPlatform === "meta"}
+              readOnly={pickerEnabled}
               className="px-3 py-2 rounded-lg text-sm md:col-span-2"
               style={{
                 background: "rgba(255,255,255,0.04)",
@@ -266,13 +285,13 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             />
           </div>
 
-          {addPlatform === "meta" && (
+          {pickerEnabled && (
             <div className="flex flex-col gap-2">
               <input
                 type="text"
-                placeholder="Rechercher un compte Meta (nom ou ID)..."
-                value={metaSearch}
-                onChange={(e) => setMetaSearch(e.target.value)}
+                placeholder={`Rechercher un compte ${addPlatform === "meta" ? "Meta" : "Google Ads"} (nom ou ID)...`}
+                value={pickerSearch}
+                onChange={(e) => setPickerSearch(e.target.value)}
                 className="px-3 py-2 rounded-lg text-sm"
                 style={{
                   background: "rgba(255,255,255,0.04)",
@@ -280,13 +299,13 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
                   color: "#fff",
                 }}
               />
-              {metaLoading && (
+              {currentLoading && (
                 <div className="text-xs" style={{ color: "#9ca3af" }}>
-                  Chargement des comptes depuis Meta...
+                  Chargement des comptes{addPlatform === "google" ? " (peut prendre ~5s)" : ""}...
                 </div>
               )}
-              {metaError && <div className="text-xs text-red-400">{metaError}</div>}
-              {metaOptions && (
+              {currentError && <div className="text-xs text-red-400">{currentError}</div>}
+              {currentOptions && (
                 <div
                   className="max-h-64 overflow-y-auto rounded-lg"
                   style={{
@@ -294,18 +313,18 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
                     border: "1px solid rgba(255,255,255,0.06)",
                   }}
                 >
-                  {filteredMeta.length === 0 ? (
+                  {filteredOptions.length === 0 ? (
                     <div className="p-3 text-xs" style={{ color: "#6b7280" }}>
-                      Aucun compte {metaSearch ? "ne correspond" : "disponible"}.
+                      Aucun compte {pickerSearch ? "ne correspond" : "disponible"}.
                     </div>
                   ) : (
-                    filteredMeta.map((opt) => {
+                    filteredOptions.map((opt) => {
                       const selected = addAccountId === opt.accountId;
                       return (
                         <button
                           type="button"
                           key={opt.accountId}
-                          onClick={() => pickMetaAccount(opt)}
+                          onClick={() => pickAccount(opt)}
                           className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-white/5"
                           style={{
                             background: selected ? "rgba(124,58,237,0.15)" : "transparent",
@@ -316,9 +335,11 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
                             <span style={{ color: selected ? "#c4b5fd" : "#fff" }}>
                               {opt.name}
                             </span>
-                            <span className="ml-2 text-xs" style={{ color: "#6b7280" }}>
-                              {opt.currency}
-                            </span>
+                            {opt.currency && (
+                              <span className="ml-2 text-xs" style={{ color: "#6b7280" }}>
+                                {opt.currency}
+                              </span>
+                            )}
                           </span>
                           <code
                             className="text-xs shrink-0"
