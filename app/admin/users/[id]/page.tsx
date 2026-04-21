@@ -12,6 +12,7 @@ type User = {
   adAccounts: AdAccount[];
   mcpPermissions: { mcpServer: string }[];
 };
+type MetaAccountOption = { accountId: string; name: string; currency: string };
 
 const MCP_SERVERS = ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"];
 const PLATFORMS = [
@@ -29,6 +30,10 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   const [addAccountId, setAddAccountId] = useState("");
   const [addLabel, setAddLabel] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+  const [metaOptions, setMetaOptions] = useState<MetaAccountOption[] | null>(null);
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [metaError, setMetaError] = useState<string | null>(null);
+  const [metaSearch, setMetaSearch] = useState("");
 
   const [newPassword, setNewPassword] = useState("");
   const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
@@ -46,6 +51,30 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (addPlatform !== "meta" || metaOptions !== null || metaLoading) return;
+    setMetaLoading(true);
+    setMetaError(null);
+    fetch("/api/admin/meta/accounts")
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Erreur Meta API");
+        setMetaOptions(data.accounts || []);
+      })
+      .catch((err) => setMetaError(err.message))
+      .finally(() => setMetaLoading(false));
+  }, [addPlatform, metaOptions, metaLoading]);
+
+  const assignedMetaIds = new Set(
+    user?.adAccounts.filter((a) => a.platform === "meta").map((a) => a.accountId) ?? []
+  );
+  const filteredMeta = (metaOptions ?? []).filter((o) => {
+    if (assignedMetaIds.has(o.accountId)) return false;
+    const q = metaSearch.trim().toLowerCase();
+    if (!q) return true;
+    return o.name.toLowerCase().includes(q) || o.accountId.toLowerCase().includes(q);
+  });
 
   async function addAdAccount(e: React.FormEvent) {
     e.preventDefault();
@@ -66,7 +95,13 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     }
     setAddAccountId("");
     setAddLabel("");
+    setMetaSearch("");
     load();
+  }
+
+  function pickMetaAccount(opt: MetaAccountOption) {
+    setAddAccountId(opt.accountId);
+    if (!addLabel) setAddLabel(opt.name);
   }
 
   async function removeAdAccount(rowId: string) {
@@ -184,7 +219,12 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <select
               value={addPlatform}
-              onChange={(e) => setAddPlatform(e.target.value as "meta" | "google" | "tiktok")}
+              onChange={(e) => {
+                setAddPlatform(e.target.value as "meta" | "google" | "tiktok");
+                setAddAccountId("");
+                setAddLabel("");
+                setMetaSearch("");
+              }}
               className="px-3 py-2 rounded-lg text-sm"
               style={{
                 background: "rgba(255,255,255,0.04)",
@@ -200,10 +240,11 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             </select>
             <input
               type="text"
-              placeholder={addPlatform === "meta" ? "act_123... ou 123..." : "ID compte"}
+              placeholder={addPlatform === "meta" ? "act_123... (auto-rempli)" : "ID compte"}
               value={addAccountId}
               onChange={(e) => setAddAccountId(e.target.value)}
               required
+              readOnly={addPlatform === "meta"}
               className="px-3 py-2 rounded-lg text-sm md:col-span-2"
               style={{
                 background: "rgba(255,255,255,0.04)",
@@ -224,6 +265,76 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
               }}
             />
           </div>
+
+          {addPlatform === "meta" && (
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                placeholder="Rechercher un compte Meta (nom ou ID)..."
+                value={metaSearch}
+                onChange={(e) => setMetaSearch(e.target.value)}
+                className="px-3 py-2 rounded-lg text-sm"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#fff",
+                }}
+              />
+              {metaLoading && (
+                <div className="text-xs" style={{ color: "#9ca3af" }}>
+                  Chargement des comptes depuis Meta...
+                </div>
+              )}
+              {metaError && <div className="text-xs text-red-400">{metaError}</div>}
+              {metaOptions && (
+                <div
+                  className="max-h-64 overflow-y-auto rounded-lg"
+                  style={{
+                    background: "rgba(0,0,0,0.2)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  {filteredMeta.length === 0 ? (
+                    <div className="p-3 text-xs" style={{ color: "#6b7280" }}>
+                      Aucun compte {metaSearch ? "ne correspond" : "disponible"}.
+                    </div>
+                  ) : (
+                    filteredMeta.map((opt) => {
+                      const selected = addAccountId === opt.accountId;
+                      return (
+                        <button
+                          type="button"
+                          key={opt.accountId}
+                          onClick={() => pickMetaAccount(opt)}
+                          className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-white/5"
+                          style={{
+                            background: selected ? "rgba(124,58,237,0.15)" : "transparent",
+                            borderBottom: "1px solid rgba(255,255,255,0.04)",
+                          }}
+                        >
+                          <span className="flex-1 truncate">
+                            <span style={{ color: selected ? "#c4b5fd" : "#fff" }}>
+                              {opt.name}
+                            </span>
+                            <span className="ml-2 text-xs" style={{ color: "#6b7280" }}>
+                              {opt.currency}
+                            </span>
+                          </span>
+                          <code
+                            className="text-xs shrink-0"
+                            style={{ color: "#9ca3af" }}
+                          >
+                            {opt.accountId}
+                          </code>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {addError && <div className="text-xs text-red-400">{addError}</div>}
           <button
             type="submit"
