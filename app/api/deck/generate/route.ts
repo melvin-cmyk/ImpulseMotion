@@ -8,7 +8,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { requireSession } from "@/lib/auth-helpers";
+import { assertAccountAllowed } from "@/lib/acl";
+import { getMetaSystemToken } from "@/lib/meta-api";
+import { relayHeaders } from "@/lib/relay-headers";
 import {
   getPreviousPeriod,
   type DeckPeriod,
@@ -94,8 +97,11 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+        headers: relayHeaders(),
+        body: JSON.stringify({
+          messages: [{ role: "user", content: prompt }],
+          allowedServers: ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"],
+        }),
         signal: AbortSignal.timeout(actualTimeout),
       });
       if (!res.ok) { lastError = new Error(`Relay ${url} responded ${res.status}`); continue; }
@@ -936,6 +942,9 @@ ${google.campaigns.slice(0, 5).map(c =>
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
+
   let config: GenerateConfig;
   try {
     const body = await req.json();
@@ -994,17 +1003,18 @@ export async function POST(req: NextRequest) {
   const fetchMeta = (config.platform === "meta" || config.platform === "both") && !!metaAccId;
   const fetchGoogle = (config.platform === "google" || config.platform === "both") && !!googleAccId;
 
-  // Get session for Meta token (direct API is faster and more reliable than relay)
-  // Falls back to shared token if no user session
-  let session = null;
-  try {
-    session = await auth();
-  } catch {
-    // Auth may fail if DB is unavailable
+  if (guard.session.role !== "admin") {
+    if (fetchMeta && !(await assertAccountAllowed(guard.session.userId, "meta", metaAccId))) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    if (fetchGoogle && !(await assertAccountAllowed(guard.session.userId, "google", googleAccId))) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
   }
-  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken
-    ?? process.env.META_SHARED_TOKEN
-    ?? null;
+
+  const metaToken = (() => {
+    try { return getMetaSystemToken(); } catch { return null; }
+  })();
 
   console.log("[deck/generate] resolved IDs:", { metaAccId, googleAccId, fetchMeta, fetchGoogle, hasMetaToken: !!metaToken });
 

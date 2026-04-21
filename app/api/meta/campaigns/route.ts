@@ -1,28 +1,29 @@
-import { auth } from "@/auth";
-import { getCampaigns } from "@/lib/meta-api";
 import { NextRequest, NextResponse } from "next/server";
+import { getCampaigns, getMetaSystemToken } from "@/lib/meta-api";
+import { requireSession } from "@/lib/auth-helpers";
+import { assertAccountAllowed } from "@/lib/acl";
 
 export async function GET(request: NextRequest) {
-  const session = await auth();
-
-  if (!session || !session.metaAccessToken) {
-    return NextResponse.json({ error: "Not authenticated with Meta" }, { status: 401 });
-  }
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
 
   const { searchParams } = new URL(request.url);
   const adAccountId = searchParams.get("accountId");
-
   if (!adAccountId) {
     return NextResponse.json({ error: "accountId is required" }, { status: 400 });
+  }
+
+  if (guard.session.role !== "admin") {
+    const allowed = await assertAccountAllowed(guard.session.userId, "meta", adAccountId);
+    if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const statusFilter = searchParams.get("status");
 
   try {
-    const campaigns = await getCampaigns(session.metaAccessToken as string, adAccountId);
-    const filtered = statusFilter
-      ? campaigns.filter((c) => c.status === statusFilter)
-      : campaigns;
+    const token = getMetaSystemToken();
+    const campaigns = await getCampaigns(token, adAccountId);
+    const filtered = statusFilter ? campaigns.filter((c) => c.status === statusFilter) : campaigns;
     return NextResponse.json(filtered);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

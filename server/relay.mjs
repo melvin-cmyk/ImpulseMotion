@@ -19,6 +19,20 @@ const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514";
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "*").split(",");
 const MCP_CONFIG = "/root/ImpulseMotion/config/mcp-claude.json";
 
+// Global whitelist — only servers declared here can ever be routed to the AI.
+// The per-request `allowedServers` list is intersected with this set, so even
+// a malicious caller can't open up new MCP surface area.
+const ALLOWED_MCP_SERVERS = new Set([
+  "meta-ads-impulse",
+  "mcp-google-ads",
+  "mcp-google-analytics",
+]);
+
+// Shared-secret guard for requests from the Next.js backend.
+// If RELAY_SHARED_SECRET is set, the relay refuses any /api/chat or /api/tool
+// request that doesn't present the matching Authorization: Bearer header.
+const RELAY_SHARED_SECRET = process.env.RELAY_SHARED_SECRET || "";
+
 const SYSTEM_PROMPT = `Tu es l'assistant IA d'ImpulseMotion, une agence marketing digitale.
 Tu as accès aux données publicitaires de l'agence via des outils MCP (Meta Ads, Google Ads, Google Analytics).
 
@@ -67,7 +81,7 @@ async function getToolsList() {
 }
 
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
-function handleChat(messages, res) {
+function handleChat(messages, allowedServers, accountScope, res) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -91,6 +105,33 @@ function handleChat(messages, res) {
     prompt = parts.join("\n\n") + "\n\nContinue the conversation. Respond to the last user message.";
   }
 
+  // Intersect incoming allowedServers with the global whitelist.
+  const servers = (Array.isArray(allowedServers) ? allowedServers : [])
+    .filter((s) => typeof s === "string" && ALLOWED_MCP_SERVERS.has(s));
+
+  const toolPatterns = servers.map((s) => `mcp__${s}__*`);
+
+  // Scope the AI to only the accountIds the caller is allowed to query.
+  let scopedSystemPrompt = SYSTEM_PROMPT;
+  if (accountScope && typeof accountScope === "object") {
+    const lines = [];
+    if (Array.isArray(accountScope.meta) && accountScope.meta.length) {
+      lines.push(`Comptes Meta Ads autorisés: ${accountScope.meta.join(", ")}`);
+    }
+    if (Array.isArray(accountScope.google) && accountScope.google.length) {
+      lines.push(`Comptes Google Ads autorisés: ${accountScope.google.join(", ")}`);
+    }
+    if (Array.isArray(accountScope.tiktok) && accountScope.tiktok.length) {
+      lines.push(`Comptes TikTok autorisés: ${accountScope.tiktok.join(", ")}`);
+    }
+    if (lines.length) {
+      scopedSystemPrompt +=
+        "\n\nRESTRICTIONS DE PÉRIMÈTRE (ne JAMAIS ignorer) :\n" +
+        lines.join("\n") +
+        "\nTu ne dois interroger AUCUN autre compte. Si l'utilisateur demande des données pour un autre compte, refuse et explique que tu n'y as pas accès.";
+    }
+  }
+
   const args = [
     "--print", prompt,
     "--output-format", "stream-json",
@@ -98,11 +139,15 @@ function handleChat(messages, res) {
     "--include-partial-messages",
     "--model", CLAUDE_MODEL,
     "--mcp-config", MCP_CONFIG,
-    "--system-prompt", SYSTEM_PROMPT,
+    "--system-prompt", scopedSystemPrompt,
     "--no-session-persistence",
     "--max-turns", "15",
-    "--allowedTools", "mcp__meta-ads-impulse__*", "mcp__mcp-google-ads__*", "mcp__mcp-google-analytics__*",
   ];
+  if (toolPatterns.length > 0) {
+    args.push("--allowedTools", ...toolPatterns);
+  } else {
+    args.push("--disallowedTools", "mcp__*");
+  }
 
   console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..."`);
 
@@ -230,6 +275,13 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
+function authorized(req) {
+  if (!RELAY_SHARED_SECRET) return true; // secret not configured → backward-compatible open mode
+  const h = req.headers.authorization || "";
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m && m[1] === RELAY_SHARED_SECRET;
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -259,10 +311,24 @@ const server = http.createServer(async (req, res) => {
 
     // Direct MCP tool call — bypasses AI, ~1.5s vs 18s via /api/chat
     if (url.pathname === "/api/tool" && req.method === "POST") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
       const body = await readBody(req);
       if (!body.tool) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "tool required" }));
+        return;
+      }
+      // Enforce server-name prefix against whitelist: tool name format is
+      // "<server>.<tool>" for mcporter. Reject any other shape or unknown server.
+      const firstDot = String(body.tool).indexOf(".");
+      const serverName = firstDot > 0 ? String(body.tool).slice(0, firstDot) : "";
+      if (!serverName || !ALLOWED_MCP_SERVERS.has(serverName)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "tool not allowed" }));
         return;
       }
       try {
@@ -281,13 +347,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/chat" && req.method === "POST") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
       const body = await readBody(req);
       if (!body.messages?.length) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "messages required" }));
         return;
       }
-      handleChat(body.messages, res);
+      handleChat(body.messages, body.allowedServers, body.accountScope, res);
       return;
     }
 

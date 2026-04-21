@@ -5,7 +5,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { requireSession } from "@/lib/auth-helpers";
+import { assertAccountAllowed } from "@/lib/acl";
+import { getMetaSystemToken } from "@/lib/meta-api";
+import { relayHeaders } from "@/lib/relay-headers";
 import {
   generateMockDeckData,
   getPreviousPeriod,
@@ -50,8 +53,11 @@ async function relayChat(prompt: string, timeoutMs = 90000): Promise<string> {
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: prompt }] }),
+        headers: relayHeaders(),
+        body: JSON.stringify({
+          messages: [{ role: "user", content: prompt }],
+          allowedServers: ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"],
+        }),
         signal: AbortSignal.timeout(actualTimeout),
       });
       if (!res.ok) { lastError = new Error(`Relay ${url} responded ${res.status}`); continue; }
@@ -247,7 +253,7 @@ async function relayDirectTool(tool: string, input: Record<string, unknown>, tim
     try {
       const res = await fetch(`${url}/api/tool`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: relayHeaders(),
         body: JSON.stringify({ tool, input }),
         signal: AbortSignal.timeout(actualTimeout),
       });
@@ -1018,6 +1024,9 @@ async function fetchAiTextContent(
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
+
   let client: DeckClient, period: DeckPeriod, userContext: string | undefined;
   try {
     const body = await req.json();
@@ -1029,15 +1038,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  let session = null;
-  try {
-    session = await auth();
-  } catch {
-    // Auth may fail if DB is unavailable
+  if (guard.session.role !== "admin") {
+    if (client.metaAccountId &&
+        !(await assertAccountAllowed(guard.session.userId, "meta", client.metaAccountId))) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    if (client.googleCustomerId &&
+        !(await assertAccountAllowed(guard.session.userId, "google", client.googleCustomerId))) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
   }
-  const metaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken
-    ?? process.env.META_SHARED_TOKEN
-    ?? null;
+
+  const metaToken = (() => {
+    try { return getMetaSystemToken(); } catch { return null; }
+  })();
 
   const previousPeriod = getPreviousPeriod(period);
 

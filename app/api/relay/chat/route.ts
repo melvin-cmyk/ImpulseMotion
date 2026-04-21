@@ -1,14 +1,15 @@
 /**
  * POST /api/relay/chat
  * Server-side proxy for the relay chat API.
- * The browser calls this relative URL (always reachable), and the server
- * forwards the request to the relay using localhost:3457 (direct, fast) or
- * the configured tunnel URL as fallback.
  *
- * This avoids CORS issues and expired Cloudflare tunnel URLs in the browser.
+ * The browser only knows /api/relay/chat; the relay URL and shared secret
+ * stay server-side. This proxy also enriches the request with the caller's
+ * MCP permissions and ad-account ACL so the relay can scope the AI.
  */
 
 import { NextRequest } from "next/server";
+import { requireSession } from "@/lib/auth-helpers";
+import { getAllowedMcpServers, getAllowedAccountIds } from "@/lib/acl";
 
 export const maxDuration = 120;
 
@@ -17,7 +18,6 @@ const CONFIGURED_URL = rawRelayUrl
   ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
   : null;
 
-// Try localhost first (works when app and relay are co-located), then configured URL, then hardcoded public IP
 const FALLBACK_URL = "http://72.62.29.196:3457";
 const RELAY_URLS = [
   "http://localhost:3457",
@@ -25,20 +25,45 @@ const RELAY_URLS = [
   FALLBACK_URL,
 ];
 
+const RELAY_SECRET = process.env.RELAY_SHARED_SECRET || "";
+
 export async function POST(req: NextRequest) {
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
+
   const body = await req.json();
 
+  const [allowedServers, metaIds, googleIds, tiktokIds] = await Promise.all([
+    getAllowedMcpServers(guard.session.userId),
+    getAllowedAccountIds(guard.session.userId, "meta"),
+    getAllowedAccountIds(guard.session.userId, "google"),
+    getAllowedAccountIds(guard.session.userId, "tiktok"),
+  ]);
+
+  const enrichedBody = {
+    ...body,
+    allowedServers: guard.session.role === "admin"
+      ? ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"]
+      : allowedServers,
+    accountScope: {
+      meta: metaIds,
+      google: googleIds,
+      tiktok: tiktokIds,
+    },
+  };
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (RELAY_SECRET) headers.Authorization = `Bearer ${RELAY_SECRET}`;
+
   for (const url of RELAY_URLS) {
-    // localhost gets a short timeout (3s) — if relay isn't local, fail fast
-    // The configured tunnel URL gets a long timeout (100s)
     const isLocalhost = url.includes("localhost");
     const timeoutMs = isLocalhost ? 3000 : 100000;
 
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        headers,
+        body: JSON.stringify(enrichedBody),
         signal: AbortSignal.timeout(timeoutMs),
         // @ts-expect-error Node.js fetch option
         duplex: "half",
@@ -46,7 +71,6 @@ export async function POST(req: NextRequest) {
 
       if (!res.ok) continue;
 
-      // Stream the relay response directly back to the client
       return new Response(res.body, {
         status: 200,
         headers: {

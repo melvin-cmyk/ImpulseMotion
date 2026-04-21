@@ -1,11 +1,13 @@
-import { auth } from "@/auth";
 import {
   getTikTokAds,
   getTikTokInsights,
   computeTikTokRoas,
   computeTikTokHookRate,
   computeTikTokHoldRate,
+  getTikTokSystemToken,
 } from "@/lib/tiktok-api";
+import { requireSession } from "@/lib/auth-helpers";
+import { assertAccountAllowed } from "@/lib/acl";
 import { Creative, Status } from "@/lib/mock-data";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -26,11 +28,8 @@ const THUMBNAIL_COLORS = [
 ];
 
 export async function GET(request: NextRequest) {
-  const session = await auth();
-
-  if (!session || !session.tiktokAccessToken) {
-    return NextResponse.json({ error: "Not authenticated with TikTok" }, { status: 401 });
-  }
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
 
   const { searchParams } = new URL(request.url);
   const advertiserId = searchParams.get("accountId");
@@ -39,8 +38,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "accountId is required" }, { status: 400 });
   }
 
+  if (guard.session.role !== "admin") {
+    const allowed = await assertAccountAllowed(guard.session.userId, "tiktok", advertiserId);
+    if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
   try {
-    const accessToken = session.tiktokAccessToken as string;
+    const accessToken = getTikTokSystemToken();
     const end = new Date().toISOString().split("T")[0];
     const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
       .toISOString()

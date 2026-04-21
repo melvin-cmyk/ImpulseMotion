@@ -5,6 +5,12 @@
 
 const TIKTOK_API_BASE = "https://business-api.tiktok.com/open_api/v1.3";
 
+export function getTikTokSystemToken(): string {
+  const tok = process.env.TIKTOK_SYSTEM_TOKEN;
+  if (!tok) throw new Error("TIKTOK_SYSTEM_TOKEN is not configured");
+  return tok;
+}
+
 export interface TikTokAdvertiser {
   advertiser_id: string;
   advertiser_name: string;

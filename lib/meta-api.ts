@@ -5,6 +5,17 @@
 
 const META_API_BASE = "https://graph.facebook.com/v22.0";
 
+/**
+ * Returns the shared Meta System User token used server-side for all clients.
+ * This token is owned by the ImpulseMotion Business Manager; per-client scoping
+ * is enforced by the UserAdAccount ACL table, never by the token itself.
+ */
+export function getMetaSystemToken(): string {
+  const tok = process.env.META_SYSTEM_TOKEN || process.env.META_SHARED_TOKEN;
+  if (!tok) throw new Error("META_SYSTEM_TOKEN is not configured");
+  return tok;
+}
+
 export interface MetaAdAccount {
   id: string;
   name: string;

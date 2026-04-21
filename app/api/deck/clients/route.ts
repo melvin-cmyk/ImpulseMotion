@@ -6,8 +6,10 @@
  */
 
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
-import { getAdAccounts } from "@/lib/meta-api";
+import { requireSession } from "@/lib/auth-helpers";
+import { getAllowedAccountIds } from "@/lib/acl";
+import { getAdAccounts, getMetaSystemToken } from "@/lib/meta-api";
+import { relayHeaders } from "@/lib/relay-headers";
 
 // Server-side: prefer RELAY_URL (server-only), fall back to NEXT_PUBLIC_RELAY_URL, then hardcoded public IP
 const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
@@ -43,7 +45,7 @@ async function relaySingleTool(tool: string, input: Record<string, unknown> = {}
     try {
       const res = await fetch(`${url}/api/tool`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: relayHeaders(),
         body: JSON.stringify({ tool, input }),
         signal: AbortSignal.timeout(actualTimeout),
       });
@@ -248,45 +250,63 @@ function parseGAProperties(raw: unknown): Array<{ id: string; name: string; link
 }
 
 export async function GET() {
-  // Return cached result if still fresh
-  if (clientCache && Date.now() - clientCache.ts < CACHE_TTL) {
-    console.log("[deck/clients] serving from cache");
-    return NextResponse.json(clientCache.data);
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
+
+  const isAdmin = guard.session.role === "admin";
+  const [allowedMetaIds, allowedGoogleIds] = await Promise.all([
+    isAdmin ? Promise.resolve<string[] | null>(null) : getAllowedAccountIds(guard.session.userId, "meta"),
+    isAdmin ? Promise.resolve<string[] | null>(null) : getAllowedAccountIds(guard.session.userId, "google"),
+  ]);
+
+  if (!isAdmin && allowedMetaIds!.length === 0 && allowedGoogleIds!.length === 0) {
+    return NextResponse.json({ clients: [] });
   }
 
-  let session = null;
-  try {
-    session = await auth();
-  } catch {
-    // Auth may fail if DB is unavailable — continue with shared token
-  }
-  const sessionMetaToken = (session as { metaAccessToken?: string | null } | null)?.metaAccessToken;
-  const metaToken = sessionMetaToken ?? process.env.META_SHARED_TOKEN ?? null;
+  const metaAllowedSet = allowedMetaIds
+    ? new Set(allowedMetaIds.flatMap((id) => {
+        const n = id.replace(/^act_/, "");
+        return [n, `act_${n}`];
+      }))
+    : null;
+  const googleAllowedSet = allowedGoogleIds
+    ? new Set(allowedGoogleIds.map((id) => id.replace(/-/g, "")))
+    : null;
 
-  // No session AND no shared token → user needs to log in
-  if (!session && !metaToken) {
-    return NextResponse.json({ clients: [], needsAuth: true, reason: "no_session" });
+  const metaToken = (() => {
+    try { return getMetaSystemToken(); } catch { return null; }
+  })();
+
+  if (!metaToken) {
+    return NextResponse.json({ clients: [], needsAuth: true, reason: "no_meta_token" });
   }
 
   // Check if Meta token is available (either from session or shared env)
   let metaAuthExpired = !metaToken;
 
-  // Fetch Meta + Google + GA in parallel (skip Meta if no token)
-  const [metaAccounts, googleRaw, gaProperties] = await Promise.all([
-    metaToken
-      ? getAdAccounts(metaToken).catch((e) => {
-          const msg = String(e);
-          console.log("[deck/clients] Meta direct API error:", msg);
-          if (msg.includes("190") || msg.includes("Invalid OAuth") || msg.includes("token") || msg.includes("401") || msg.includes("OAuthException")) {
-            metaAuthExpired = true;
-          }
-          return [] as import("@/lib/meta-api").MetaAdAccount[];
-        })
-      : Promise.resolve([] as import("@/lib/meta-api").MetaAdAccount[]),
-    // Keep Google Ads timeout short (8s) so the route responds within Vercel's serverless limits
+  // Fetch Meta + Google + GA in parallel
+  const [metaAccountsAll, googleRawAll, gaProperties] = await Promise.all([
+    getAdAccounts(metaToken).catch((e) => {
+      const msg = String(e);
+      console.log("[deck/clients] Meta direct API error:", msg);
+      if (msg.includes("190") || msg.includes("Invalid OAuth") || msg.includes("token") || msg.includes("401") || msg.includes("OAuthException")) {
+        metaAuthExpired = true;
+      }
+      return [] as import("@/lib/meta-api").MetaAdAccount[];
+    }),
     fetchGoogleCustomers(8000),
     fetchGAProperties(6000),
   ]);
+
+  const metaAccounts = metaAllowedSet
+    ? metaAccountsAll.filter((a) => metaAllowedSet.has(a.id))
+    : metaAccountsAll;
+  const googleRaw = googleAllowedSet
+    ? googleRawAll.filter((g) => {
+        const clean = String(g.id ?? "").replace(/-/g, "");
+        return clean && googleAllowedSet.has(clean);
+      })
+    : googleRawAll;
 
   console.log(`[deck/clients] Meta: ${metaAccounts.length} accounts, Google: ${googleRaw.length} customers, GA: ${gaProperties.length} properties`);
   if (googleRaw.length > 0) {
