@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
 
   const reports = await prisma.sharedReport.findMany({
-    where: { userId: session.user.id },
+    where: { userId: guard.session.userId },
     orderBy: { createdAt: "desc" },
   });
 
@@ -21,8 +21,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
 
   const body = await req.json();
   const { name, periodFrom, periodTo, creativeIds, metrics } = body;
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   const report = await prisma.sharedReport.create({
     data: {
-      userId: session.user.id,
+      userId: guard.session.userId,
       name,
       periodFrom,
       periodTo,

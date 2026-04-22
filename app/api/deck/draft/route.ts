@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 
 const JSON_FIELDS = [
@@ -58,10 +58,9 @@ function parseDraft(row: {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
+  const userId = guard.session.userId;
   const { searchParams } = new URL(req.url);
   const clientId = searchParams.get("clientId");
   const periodKey = searchParams.get("periodKey");
@@ -70,16 +69,15 @@ export async function GET(req: NextRequest) {
   }
 
   const row = await prisma.deckDraft.findUnique({
-    where: { userId_clientId_periodKey: { userId: session.user.id, clientId, periodKey } },
+    where: { userId_clientId_periodKey: { userId, clientId, periodKey } },
   });
   return NextResponse.json({ draft: row ? parseDraft(row) : null });
 }
 
 export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
+  const userId = guard.session.userId;
   const body = await req.json();
   const clientId = typeof body.clientId === "string" ? body.clientId : null;
   const periodKey = typeof body.periodKey === "string" ? body.periodKey : null;
@@ -102,8 +100,8 @@ export async function PUT(req: NextRequest) {
   const payload = { ...jsonPayload, themeId };
 
   await prisma.deckDraft.upsert({
-    where: { userId_clientId_periodKey: { userId: session.user.id, clientId, periodKey } },
-    create: { userId: session.user.id, clientId, periodKey, ...payload },
+    where: { userId_clientId_periodKey: { userId: userId, clientId, periodKey } },
+    create: { userId: userId, clientId, periodKey, ...payload },
     update: payload,
   });
   return NextResponse.json({ ok: true });

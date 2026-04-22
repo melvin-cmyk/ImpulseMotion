@@ -10,6 +10,45 @@ interface AdAccount {
   currency?: string;
 }
 
+// sessionStorage cache so full page reloads on many routes don't each
+// hit /me/adaccounts — Meta rate-limits aggressively when a System User
+// fans this out across many concurrent page loads.
+const CACHE_KEY = "impulse_meta_accounts_cache_v1";
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+function readCache(): AdAccount[] | null {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const { t, data } = JSON.parse(raw) as { t: number; data: AdAccount[] };
+    if (Date.now() - t > CACHE_TTL_MS) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(data: AdAccount[]) {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), data }));
+  } catch {}
+}
+
+async function fetchAccounts(): Promise<AdAccount[] | null> {
+  // One retry on 5xx — Meta /me/adaccounts flaps under load.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch("/api/meta/accounts");
+      if (res.ok) return await res.json();
+      if (res.status < 500) return null;
+    } catch {
+      // network error — retry
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return null;
+}
+
 export function AccountSwitcher() {
   const { refetch } = useCreativesContext();
   const [accounts, setAccounts] = useState<AdAccount[]>([]);
@@ -29,31 +68,37 @@ export function AccountSwitcher() {
       } catch {}
     }
 
-    fetch("/api/meta/accounts")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: AdAccount[] | null) => {
-        if (!data || data.length === 0) return;
-        setAccounts(data);
+    function reconcile(data: AdAccount[]) {
+      setAccounts(data);
+      // If the stored selection isn't allowed (or nothing was stored), auto-select
+      // the first allowed account so data loads without manual picker interaction.
+      const normalize = (id: string) => id.replace(/^act_/, "");
+      const isAllowed = storedId
+        ? data.some((a) => normalize(a.id) === normalize(storedId))
+        : false;
+      if (!isAllowed) {
+        const first = data[0];
+        setSelectedId(first.id);
+        setSelectedName(first.name);
+        localStorage.setItem(
+          "impulse_meta_account",
+          JSON.stringify({ accountId: first.id, accountName: first.name })
+        );
+        refetch();
+      }
+    }
 
-        // Reconcile stored selection against the ACL-filtered list.
-        // If the stored account isn't allowed (or nothing was stored), auto-select
-        // the first allowed account so data loads without manual picker interaction.
-        const normalize = (id: string) => id.replace(/^act_/, "");
-        const isAllowed = storedId
-          ? data.some((a) => normalize(a.id) === normalize(storedId))
-          : false;
-        if (!isAllowed) {
-          const first = data[0];
-          setSelectedId(first.id);
-          setSelectedName(first.name);
-          localStorage.setItem(
-            "impulse_meta_account",
-            JSON.stringify({ accountId: first.id, accountName: first.name })
-          );
-          refetch();
-        }
-      })
-      .catch(() => {});
+    const cached = readCache();
+    if (cached && cached.length > 0) {
+      reconcile(cached);
+      return;
+    }
+
+    fetchAccounts().then((data) => {
+      if (!data || data.length === 0) return;
+      writeCache(data);
+      reconcile(data);
+    });
   }, [refetch]);
 
   if (!selectedId && accounts.length === 0) return null;

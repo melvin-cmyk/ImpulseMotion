@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(
@@ -27,13 +27,13 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const guard = await requireSession();
+  if ("error" in guard) return guard.error;
 
   const { id } = await params;
 
   const report = await prisma.sharedReport.findUnique({ where: { id } });
-  if (!report || report.userId !== session.user.id) {
+  if (!report || report.userId !== guard.session.userId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

@@ -220,9 +220,8 @@ function IntegrationCard({
 
       <div className="mt-4 pt-4 border-t border-gray-800">
         <p className="text-xs text-gray-600">
-          {platform === "Meta"
-            ? "Create your app at developers.facebook.com — set FACEBOOK_APP_ID and FACEBOOK_APP_SECRET in .env.local"
-            : "Create your app at ads.tiktok.com/marketing_api/apps — set TIKTOK_APP_ID and TIKTOK_APP_SECRET in .env.local"}
+          Les comptes {platform} sont attribués par votre administrateur ImpulseMotion.
+          Pour ajouter ou retirer un compte, contactez votre interlocuteur.
         </p>
       </div>
     </div>
@@ -268,12 +267,11 @@ export default function SettingsPage() {
       {/* Integrations */}
       {tab === "integrations" && (
         <div className="space-y-4">
-          <div className="bg-blue-900/10 border border-blue-800/30 rounded-xl p-4 text-sm text-blue-300">
-            <p className="font-semibold mb-1">Configuration requise</p>
-            <p className="text-xs text-blue-400 leading-relaxed">
-              Pour connecter vos comptes publicitaires, configurez d&apos;abord vos variables d&apos;environnement
-              (<code className="font-mono bg-blue-900/30 px-1 rounded">.env.local</code>).
-              Voir <code className="font-mono bg-blue-900/30 px-1 rounded">.env.local.example</code> pour la liste complète.
+          <div className="bg-violet-900/10 border border-violet-800/30 rounded-xl p-4 text-sm text-violet-200">
+            <p className="font-semibold mb-1">Comptes gérés par votre administrateur</p>
+            <p className="text-xs text-violet-300/80 leading-relaxed">
+              Les comptes publicitaires auxquels vous avez accès sont attribués par l&apos;équipe ImpulseMotion.
+              Utilisez le sélecteur en haut à gauche pour basculer entre les comptes autorisés.
             </p>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
