@@ -18,11 +18,13 @@ export function AccountSwitcher() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    let storedId = "";
     const stored = localStorage.getItem("impulse_meta_account");
     if (stored) {
       try {
         const data = JSON.parse(stored);
-        setSelectedId(data.accountId ?? "");
+        storedId = data.accountId ?? "";
+        setSelectedId(storedId);
         setSelectedName(data.accountName ?? "");
       } catch {}
     }
@@ -30,10 +32,29 @@ export function AccountSwitcher() {
     fetch("/api/meta/accounts")
       .then((r) => (r.ok ? r.json() : null))
       .then((data: AdAccount[] | null) => {
-        if (data && data.length > 0) setAccounts(data);
+        if (!data || data.length === 0) return;
+        setAccounts(data);
+
+        // Reconcile stored selection against the ACL-filtered list.
+        // If the stored account isn't allowed (or nothing was stored), auto-select
+        // the first allowed account so data loads without manual picker interaction.
+        const normalize = (id: string) => id.replace(/^act_/, "");
+        const isAllowed = storedId
+          ? data.some((a) => normalize(a.id) === normalize(storedId))
+          : false;
+        if (!isAllowed) {
+          const first = data[0];
+          setSelectedId(first.id);
+          setSelectedName(first.name);
+          localStorage.setItem(
+            "impulse_meta_account",
+            JSON.stringify({ accountId: first.id, accountName: first.name })
+          );
+          refetch();
+        }
       })
       .catch(() => {});
-  }, []);
+  }, [refetch]);
 
   if (!selectedId && accounts.length === 0) return null;
 
