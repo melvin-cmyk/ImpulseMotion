@@ -410,6 +410,26 @@ export default function ComparePage() {
     });
   }, [ids, creatives]);
 
+  // Compute wins per creative across all metrics
+  const wins = useMemo(() => {
+    const w = resolvedCreatives.map(() => 0);
+    METRICS.forEach((m) => {
+      const values = resolvedCreatives.map((c) => (c ? (c[m.key] as number) : 0));
+      const allZero = values.every((v) => v === 0);
+      if (allZero) return;
+      const best = m.higherIsBetter ? Math.max(...values) : Math.min(...values);
+      values.forEach((v, i) => { if (v === best && resolvedCreatives[i]) w[i]++; });
+    });
+    return w;
+  }, [resolvedCreatives]);
+
+  const overallWinnerIdx = useMemo(() => {
+    const max = Math.max(...wins);
+    if (max === 0) return -1;
+    const topIdxs = wins.map((w, i) => (w === max ? i : -1)).filter((i) => i >= 0);
+    return topIdxs.length === 1 ? topIdxs[0] : -1; // -1 = tie
+  }, [wins]);
+
   if (creatives.length < 2) {
     return (
       <div className="p-6 flex items-center justify-center h-48 text-gray-600">
@@ -431,26 +451,6 @@ export default function ComparePage() {
     if (ids.length <= 2) return;
     setIds((prev) => prev.filter((_, i) => i !== idx));
   }
-
-  // Compute wins per creative across all metrics
-  const wins = useMemo(() => {
-    const w = resolvedCreatives.map(() => 0);
-    METRICS.forEach((m) => {
-      const values = resolvedCreatives.map((c) => (c ? (c[m.key] as number) : 0));
-      const allZero = values.every((v) => v === 0);
-      if (allZero) return;
-      const best = m.higherIsBetter ? Math.max(...values) : Math.min(...values);
-      values.forEach((v, i) => { if (v === best && resolvedCreatives[i]) w[i]++; });
-    });
-    return w;
-  }, [resolvedCreatives]);
-
-  const overallWinnerIdx = useMemo(() => {
-    const max = Math.max(...wins);
-    if (max === 0) return -1;
-    const topIdxs = wins.map((w, i) => (w === max ? i : -1)).filter((i) => i >= 0);
-    return topIdxs.length === 1 ? topIdxs[0] : -1; // -1 = tie
-  }, [wins]);
 
   // Chart data
   const chartData = METRICS.map((m) => {
