@@ -1089,34 +1089,47 @@ export async function POST(req: NextRequest) {
     gaError,
   });
 
-  // If both failed, fallback to mock data entirely
+  // If both failed AND there's no Google Analytics either, fallback to mock data
+  // (preserves demo decks for clients with no real account linked).
   if (!meta && !google) {
     const mockData = generateMockDeckData(client, period);
     const reason = [metaError, googleError].filter(Boolean).join(" | ");
-    return NextResponse.json({ data: mockData, source: "mock", reason });
+    const mockWarnings = [
+      `Aucune donnée réelle disponible — affichage de chiffres de démonstration${reason ? ` (${reason.slice(0, 300)})` : ""}`,
+    ];
+    return NextResponse.json({ data: mockData, source: "mock", reason, warnings: mockWarnings });
   }
 
-  // At least one is real — fetch AI text content in parallel with building the deck
+  // At least one platform returned real data — build the deck from real data only.
+  // No mock fallback: empty/zero stays empty/zero so slides reflect reality. Warnings
+  // are surfaced to the client so the UI can show a banner.
+  const warnings: string[] = [];
 
-
-  // Build DeckData from real data, filling in missing parts from mock
-  const mockFallback = generateMockDeckData(client, period);
-
-  const metaOverview = meta?.overview ?? mockFallback.metaOverview;
+  const metaOverview = meta?.overview ?? zeroMetrics();
   const metaPrevOverview = meta?.prevOverview ?? zeroMetrics();
-  // When google is null (no Google Ads account linked), use zeros — NOT mock data
-  // Using mock data would confuse the AI into thinking Google Ads is active
   const googleOverview = google?.overview ?? zeroMetrics();
   const googlePrevOverview = google?.prevOverview ?? zeroMetrics();
 
-  // Fetch AI text content with a tight budget (20s max) — non-blocking if it fails
-  // When real data has 0 spend (empty API response), use mock overview for insights so text slides aren't empty
-  const metaForInsights = client.metaAccountId
-    ? (metaOverview.spend > 0 ? metaOverview : mockFallback.metaOverview)
-    : null;
-  const googleForInsights = client.googleCustomerId
-    ? (googleOverview.spend > 0 ? googleOverview : mockFallback.googleOverview)
-    : null;
+  if (client.metaAccountId && metaOverview.spend === 0) {
+    warnings.push(metaError
+      ? `Meta : impossible de récupérer les données (${metaError.slice(0, 200)})`
+      : `Meta : aucune donnée pour ${period.label}`);
+  }
+  if (client.googleCustomerId && googleOverview.spend === 0) {
+    warnings.push(googleError
+      ? `Google Ads : impossible de récupérer les données (${googleError.slice(0, 200)})`
+      : `Google Ads : aucune donnée pour ${period.label}`);
+  }
+  if (client.gaPropertyId && !ga) {
+    warnings.push(gaError
+      ? `Google Analytics : ${gaError.slice(0, 200)}`
+      : `Google Analytics : aucune donnée pour ${period.label}`);
+  }
+
+  // Fetch AI text content with real data — generator already returns empty arrays
+  // when both platforms have 0 spend, so no need for mock substitution.
+  const metaForInsights = client.metaAccountId ? metaOverview : null;
+  const googleForInsights = client.googleCustomerId ? googleOverview : null;
   const aiTextPromise = fetchAiTextContent({
     googleOverview: googleForInsights,
     metaOverview: metaForInsights,
@@ -1124,20 +1137,10 @@ export async function POST(req: NextRequest) {
     periodLabel: period.label,
   });
 
-  // When real overview has 0 spend (empty API response), use mock overview for totals/highlights
-  // so the highlights slide isn't blank while campaigns show non-zero mock data.
-  const metaOverviewForTotals = client.metaAccountId
-    ? (metaOverview.spend > 0 ? metaOverview : mockFallback.metaOverview)
-    : metaOverview;
-  const googleOverviewForTotals = client.googleCustomerId
-    ? (googleOverview.spend > 0 ? googleOverview : mockFallback.googleOverview)
-    : googleOverview;
-  const metaPrevOverviewForTotals = client.metaAccountId
-    ? (metaOverview.spend > 0 ? metaPrevOverview : mockFallback.globalTable.find(r => r.platform === "Meta")?.previous ?? zeroMetrics())
-    : metaPrevOverview;
-  const googlePrevOverviewForTotals = client.googleCustomerId
-    ? (googleOverview.spend > 0 ? googlePrevOverview : mockFallback.globalTable.find(r => r.platform === "Google")?.previous ?? zeroMetrics())
-    : googlePrevOverview;
+  const metaOverviewForTotals = metaOverview;
+  const googleOverviewForTotals = googleOverview;
+  const metaPrevOverviewForTotals = metaPrevOverview;
+  const googlePrevOverviewForTotals = googlePrevOverview;
 
   // Global totals
   const totalCurrent: PlatformMetrics = {
@@ -1235,18 +1238,14 @@ export async function POST(req: NextRequest) {
       },
     ],
 
-    ncTable: mockFallback.ncTable.filter(row =>
-      row.platform === "Total" ||
-      (row.platform === "Meta" && !!client.metaAccountId) ||
-      (row.platform === "Google" && !!client.googleCustomerId)
-    ),
+    ncTable: [],
 
     googleOverview: googleOverviewForTotals,
-    googleCampaigns: (google?.campaigns?.length ? google.campaigns : null) ?? mockFallback.googleCampaigns,
+    googleCampaigns: google?.campaigns ?? [],
 
     metaOverview: metaOverviewForTotals,
-    metaCampaigns: (meta?.campaigns?.length ? meta.campaigns : null) ?? mockFallback.metaCampaigns,
-    topCreatives: (meta?.topCreatives?.length ? meta.topCreatives : null) ?? mockFallback.topCreatives,
+    metaCampaigns: meta?.campaigns ?? [],
+    topCreatives: meta?.topCreatives ?? [],
 
     // Google Analytics
     gaOverview: ga?.overview,
@@ -1255,15 +1254,15 @@ export async function POST(req: NextRequest) {
     gaDevices: ga?.devices,
     gaSources: ga?.sources,
 
-    budget: mockFallback.budget,
+    budget: [],
 
-    // Filled in after AI text resolves below
-    learnings: mockFallback.learnings,
-    insightsGoogle: mockFallback.insightsGoogle,
-    insightsMeta: mockFallback.insightsMeta,
-    nextStepsGlobal: mockFallback.nextStepsGlobal,
-    nextStepsGoogle: mockFallback.nextStepsGoogle,
-    nextStepsMeta: mockFallback.nextStepsMeta,
+    // Filled in after AI text resolves below — empty by default so empty data = empty slides
+    learnings: [],
+    insightsGoogle: [],
+    insightsMeta: [],
+    nextStepsGlobal: [],
+    nextStepsGoogle: [],
+    nextStepsMeta: [],
   };
 
   // Await AI text content and override mock fallbacks if successful
@@ -1277,5 +1276,5 @@ export async function POST(req: NextRequest) {
     deckData.nextStepsMeta = aiText.nextStepsMeta;
   }
 
-  return NextResponse.json({ data: deckData, source: "real" });
+  return NextResponse.json({ data: deckData, source: "real", warnings });
 }

@@ -216,6 +216,7 @@ export default function DeckPage() {
   const [deckData, setDeckData] = useState<DeckData | null>(null);
   const [dataSource, setDataSource] = useState<"real" | "mock" | null>(null);
   const [dataSourceReason, setDataSourceReason] = useState<string | null>(null);
+  const [dataWarnings, setDataWarnings] = useState<string[]>([]);
 
   // ── Server-side deck draft persistence (sync across devices) ─────────────
   const draftState = useMemo<DeckDraftState>(() => ({
@@ -288,6 +289,7 @@ export default function DeckPage() {
     setIsGenerating(true);
     setDataSource(null);
     setDataSourceReason(null);
+    setDataWarnings([]);
     const prompt = contextOverride ?? userContext;
     const hasPrompt = prompt.trim().length > 0;
 
@@ -308,11 +310,13 @@ export default function DeckPage() {
       let source: "real" | "mock" = "mock";
       let reason: string | null = null;
 
+      let warnings: string[] = [];
       if (dataRes.ok) {
-        const dataJson = await dataRes.json() as { data: DeckData; source: string; reason?: string };
+        const dataJson = await dataRes.json() as { data: DeckData; source: string; reason?: string; warnings?: string[] };
         realData = dataJson.data ?? null;
         source = (dataJson.source === "real" ? "real" : "mock") as "real" | "mock";
         reason = dataJson.reason ?? null;
+        warnings = Array.isArray(dataJson.warnings) ? dataJson.warnings : [];
       } else {
         reason = `Erreur serveur: ${dataRes.status}`;
       }
@@ -321,10 +325,12 @@ export default function DeckPage() {
         setDeckData(realData);
         setDataSource(source);
         setDataSourceReason(source === "mock" ? (reason ?? "Données de démonstration") : null);
+        setDataWarnings(warnings);
       } else {
         setDeckData(null);
         setDataSource("mock");
         setDataSourceReason(reason ?? "Relay non connecté — vérifiez que le relay tourne sur localhost:3457");
+        setDataWarnings(warnings);
       }
 
       // Check if AI mode is requested (via URL param or user prompt)
@@ -414,6 +420,7 @@ export default function DeckPage() {
       setDeckData(null);
       setDataSource("mock");
       setDataSourceReason(String(err));
+      setDataWarnings([`Erreur lors de la récupération : ${String(err).slice(0, 200)}`]);
     }
     setDeckGenerated(true);
     setCurrentSlide(0);
@@ -1763,6 +1770,22 @@ export default function DeckPage() {
           </button>
         )}
       </div>
+
+      {/* ── Data warning banner — empty data, missing platform, etc. ────── */}
+      {dataWarnings.length > 0 && (
+        <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-900 flex items-start gap-2">
+          <span className="font-semibold flex-shrink-0">⚠ Attention :</span>
+          <div className="flex-1">
+            {dataWarnings.length === 1
+              ? <span>{dataWarnings[0]}</span>
+              : <ul className="list-disc pl-4 space-y-0.5">{dataWarnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+            }
+            <span className="block mt-0.5 text-amber-700">
+              Les chiffres correspondants apparaissent à 0 dans les slides — vérifiez le compte/la période avant export.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Split layout: Slides (left) + AI Panel (right) ───────────────── */}
       <DeckDataProvider value={deckData}>
