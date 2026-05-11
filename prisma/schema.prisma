@@ -8,20 +8,23 @@ datasource db {
 }
 
 model User {
-  id             String              @id @default(cuid())
-  name           String?
-  email          String?             @unique
-  emailVerified  DateTime?
-  image          String?
-  passwordHash   String?
-  role           String              @default("client")
-  accounts       Account[]
-  sessions       Session[]
-  reports        SharedReport[]
-  adAccounts     UserAdAccount[]
-  mcpPermissions UserMcpPermission[]
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  id              String              @id @default(cuid())
+  name            String?
+  email           String?             @unique
+  emailVerified   DateTime?
+  image           String?
+  passwordHash    String?
+  role            String              @default("client")
+  accounts        Account[]
+  sessions        Session[]
+  reports         SharedReport[]
+  adAccounts      UserAdAccount[]
+  mcpPermissions  UserMcpPermission[]
+  reportSchedules ReportSchedule[]
+  alertRules      AlertRule[]
+  budgets         AccountBudget[]
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 }
 
 model UserAdAccount {
@@ -131,4 +134,77 @@ model DeckDraft {
 
   @@unique([userId, clientId, periodKey])
   @@index([userId, updatedAt])
+}
+
+model ReportSchedule {
+  id           String    @id @default(cuid())
+  userId       String
+  clientId     String
+  clientLabel  String?
+  platform     String    @default("meta")
+  frequency    String    @default("monthly")
+  recipients   String    @db.Text
+  enabled      Boolean   @default(true)
+  lastRunAt    DateTime?
+  lastRunError String?   @db.Text
+  nextRunAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([nextRunAt])
+}
+
+model AlertRule {
+  id              String       @id @default(cuid())
+  userId          String
+  clientId        String?
+  platform        String       @default("meta")
+  metric          String
+  condition       String
+  threshold       Float
+  window          String       @default("7d")
+  enabled         Boolean      @default(true)
+  lastTriggeredAt DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events          AlertEvent[]
+
+  @@index([userId])
+}
+
+model AccountBudget {
+  id            String   @id @default(cuid())
+  userId        String
+  accountId     String
+  platform      String   @default("meta")
+  monthlyTarget Float
+  currency      String   @default("EUR")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform, accountId])
+  @@index([userId])
+}
+
+model AlertEvent {
+  id                          String    @id @default(cuid())
+  ruleId                      String
+  userId                      String
+  clientId                    String
+  metric                      String
+  value                       Float
+  threshold                   Float
+  message                     String    @db.Text
+  acknowledged                Boolean   @default(false)
+  triggeredAt                 DateTime  @default(now())
+  recommendations             String?   @db.Text
+  recommendationsGeneratedAt  DateTime?
+  rule                        AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, triggeredAt])
+  @@index([userId, triggeredAt])
 }

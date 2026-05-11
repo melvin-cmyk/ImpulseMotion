@@ -5,6 +5,25 @@
     },
     "app/api/deck/clients/route.ts": {
       "maxDuration": 30
+    },
+    "app/api/cron/reports/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cron/alerts/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/admin/portfolio/route.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/alerts",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/reports",
+      "schedule": "0 7 * * *"
+    }
+  ]
 }

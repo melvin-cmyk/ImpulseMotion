@@ -317,6 +317,63 @@ export async function getVideoSourcesViaAdCreatives(
   return videoIdToSource;
 }
 
+/** Account-level aggregated insights over a window. Used for portfolio + alerts. */
+export interface MetaAccountInsight {
+  account_id: string;
+  spend: string;
+  impressions: string;
+  clicks: string;
+  ctr: string;
+  cpm: string;
+  reach?: string;
+  frequency?: string;
+  actions?: Array<{ action_type: string; value: string }>;
+  cost_per_action_type?: Array<{ action_type: string; value: string }>;
+  date_start: string;
+  date_stop: string;
+}
+
+export async function getAccountInsights(
+  accessToken: string,
+  adAccountId: string,
+  timeRange?: { since: string; until: string },
+): Promise<MetaAccountInsight | null> {
+  const accountId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+  const fields = [
+    "spend",
+    "impressions",
+    "clicks",
+    "ctr",
+    "cpm",
+    "reach",
+    "frequency",
+    "actions",
+    "cost_per_action_type",
+  ].join(",");
+  const params: Record<string, string> = {
+    fields,
+    level: "account",
+    limit: "1",
+  };
+  if (timeRange) {
+    params.time_range = JSON.stringify(timeRange);
+  } else {
+    params.date_preset = "last_30d";
+  }
+  try {
+    const data = await metaFetch<{ data: Array<MetaAccountInsight & { account_id?: string }> }>(
+      `/${accountId}/insights`,
+      accessToken,
+      params,
+    );
+    const row = data.data?.[0];
+    if (!row) return null;
+    return { ...row, account_id: accountId };
+  } catch {
+    return null;
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 export function getActionValue(

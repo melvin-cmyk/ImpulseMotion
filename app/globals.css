@@ -212,3 +212,14 @@
 .deck-custom-preview td { color: #4a5568; padding: 0.3em 0.6em; border-bottom: 1px solid #e2e8f0; }
 .deck-custom-preview tr:nth-child(even) td { background: #f7fafc; }
 .deck-custom-preview code { background: #f7fafc; color: #e53e3e; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.85em; }
+/* Drawer animations — used by CreativeModal (now a right-side drawer) */
+@keyframes im-slide-right {
+  from { transform: translateX(100%); opacity: 0.5; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes im-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-im-slide-right { animation: im-slide-right 180ms ease-out; }
+.animate-im-fade-in { animation: im-fade-in 120ms ease-out; }

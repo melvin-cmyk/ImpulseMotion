@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { X, ExternalLink, Plus, Tag } from "lucide-react";
+import { X, ExternalLink, Plus, Tag, StickyNote } from "lucide-react";
 import { Creative } from "@/lib/mock-data";
 import { AudienceTagInput } from "@/components/audience-tag-input";
 
@@ -295,6 +295,77 @@ function useCreativeTags(creativeId: string) {
   return { tags, addTag, removeTag };
 }
 
+/**
+ * Consultant notes per creative — persisted to localStorage. Lets the consultant
+ * track decisions, hypotheses, and qualitative observations next to the metrics.
+ */
+function useCreativeNotes(creativeId: string) {
+  const [notes, setNotes] = useState("");
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`impulse_notes_${creativeId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { text: string; t: number };
+        setNotes(parsed.text);
+        setSavedAt(parsed.t);
+      } else {
+        setNotes("");
+        setSavedAt(null);
+      }
+    } catch {
+      setNotes("");
+    }
+  }, [creativeId]);
+
+  const save = useCallback(
+    (text: string) => {
+      try {
+        const t = Date.now();
+        localStorage.setItem(`impulse_notes_${creativeId}`, JSON.stringify({ text, t }));
+        setSavedAt(t);
+      } catch { /* quota exceeded — ignore */ }
+    },
+    [creativeId],
+  );
+
+  return { notes, setNotes, save, savedAt };
+}
+
+function CreativeNotesSection({ creativeId }: { creativeId: string }) {
+  const { notes, setNotes, save, savedAt } = useCreativeNotes(creativeId);
+
+  // Debounced autosave
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      save(notes);
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [notes, save]);
+
+  return (
+    <div>
+      <p className="text-[9px] uppercase tracking-widest text-gray-600 font-bold mb-3 flex items-center gap-1.5">
+        <StickyNote className="w-3 h-3" />
+        Notes consultant
+        {savedAt && (
+          <span className="ml-auto text-gray-700 normal-case tracking-normal">
+            sauvegardé {new Date(savedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
+      </p>
+      <textarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Hypothèses, décisions, contexte… (auto-sauvegardé)"
+        rows={4}
+        className="w-full bg-[#13131f] border border-white/5 rounded-xl p-3 text-xs text-gray-200 placeholder-gray-600 outline-none focus:border-violet-500/50 transition-colors resize-y"
+      />
+    </div>
+  );
+}
+
 function CustomTagsSection({ creativeId }: { creativeId: string }) {
   const { tags, addTag, removeTag } = useCreativeTags(creativeId);
   const [input, setInput] = useState("");
@@ -412,14 +483,14 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
       : null;
 
   return (
-    /* Overlay */
+    /* Overlay — softer, leaves the list partially visible behind */
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-[2px] animate-im-fade-in"
       onClick={onClose}
     >
-      {/* Panel */}
+      {/* Drawer — slides from the right, the list behind stays scannable */}
       <div
-        className="relative w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0d0d14] shadow-2xl shadow-black/80"
+        className="absolute right-0 top-0 bottom-0 w-full max-w-2xl bg-[#0d0d14] border-l border-white/10 shadow-2xl shadow-black/80 flex flex-col overflow-y-auto animate-im-slide-right"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
@@ -590,6 +661,12 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
 
           {/* Funnel Scores */}
           <FunnelScores creative={creative} />
+
+          {/* Divider */}
+          <div className="border-t border-white/5" />
+
+          {/* Consultant Notes */}
+          <CreativeNotesSection creativeId={creative.id} />
 
           {/* Divider */}
           <div className="border-t border-white/5" />

@@ -9,7 +9,7 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  const publicPaths = ["/login", "/api/auth", "/api/relay", "/_next", "/favicon"];
+  const publicPaths = ["/login", "/api/auth", "/api/relay", "/api/cron", "/_next", "/favicon"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   const isAdminPath = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");

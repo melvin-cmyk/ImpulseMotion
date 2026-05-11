@@ -81,7 +81,7 @@ async function getToolsList() {
 }
 
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
-function handleChat(messages, allowedServers, accountScope, res) {
+function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -112,7 +112,12 @@ function handleChat(messages, allowedServers, accountScope, res) {
   const toolPatterns = servers.map((s) => `mcp__${s}__*`);
 
   // Scope the AI to only the accountIds the caller is allowed to query.
-  let scopedSystemPrompt = SYSTEM_PROMPT;
+  // Callers may override the base prompt for one-shot tasks (recommendations,
+  // text generation, etc.) — the accountScope restrictions are still appended.
+  let scopedSystemPrompt =
+    typeof systemPromptOverride === "string" && systemPromptOverride.trim()
+      ? systemPromptOverride
+      : SYSTEM_PROMPT;
   if (accountScope && typeof accountScope === "object") {
     const lines = [];
     if (Array.isArray(accountScope.meta) && accountScope.meta.length) {
@@ -358,7 +363,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "messages required" }));
         return;
       }
-      handleChat(body.messages, body.allowedServers, body.accountScope, res);
+      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt);
       return;
     }
 
