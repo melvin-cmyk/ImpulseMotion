@@ -49,6 +49,9 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   const [newPassword, setNewPassword] = useState("");
   const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
 
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/users");
     if (res.ok) {
@@ -137,6 +140,62 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     if (res.ok) load();
   }
 
+  async function fetchPlatformOptions(platform: "meta" | "google"): Promise<AccountOption[]> {
+    if (remoteOptions[platform]) return remoteOptions[platform];
+    const res = await fetch(PICKER_ENDPOINTS[platform]);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Erreur ${platform}`);
+    const list: AccountOption[] = data.accounts || [];
+    setRemoteOptions((p) => ({ ...p, [platform]: list }));
+    return list;
+  }
+
+  async function grantAllAccounts() {
+    setBulkBusy(true);
+    setBulkStatus("Récupération des comptes Meta + Google…");
+    try {
+      const [meta, google] = await Promise.all([
+        fetchPlatformOptions("meta").catch(() => [] as AccountOption[]),
+        fetchPlatformOptions("google").catch(() => [] as AccountOption[]),
+      ]);
+      setBulkStatus(`Attribution de ${meta.length} comptes Meta + ${google.length} Google…`);
+      const [metaRes, googleRes] = await Promise.all([
+        meta.length === 0
+          ? Promise.resolve({ created: 0, skipped: 0 })
+          : fetch(`/api/admin/users/${id}/ad-accounts/bulk`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                platform: "meta",
+                accounts: meta.map((a) => ({ accountId: a.accountId, label: a.name })),
+              }),
+            }).then((r) => r.json()),
+        google.length === 0
+          ? Promise.resolve({ created: 0, skipped: 0 })
+          : fetch(`/api/admin/users/${id}/ad-accounts/bulk`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                platform: "google",
+                accounts: google.map((a) => ({ accountId: a.accountId, label: a.name })),
+              }),
+            }).then((r) => r.json()),
+      ]);
+      const created = (metaRes?.created ?? 0) + (googleRes?.created ?? 0);
+      const skipped = (metaRes?.skipped ?? 0) + (googleRes?.skipped ?? 0);
+      setBulkStatus(
+        `✓ ${created} compte${created > 1 ? "s" : ""} ajouté${created > 1 ? "s" : ""}${
+          skipped > 0 ? ` · ${skipped} déjà attribué${skipped > 1 ? "s" : ""}` : ""
+        }`,
+      );
+      await load();
+    } catch (e) {
+      setBulkStatus(`Erreur · ${e instanceof Error ? e.message : "inconnu"}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   async function toggleMcp(server: string, enabled: boolean) {
     if (!user) return;
     const current = new Set(user.mcpPermissions.map((p) => p.mcpServer));
@@ -184,7 +243,20 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
       </div>
 
       <section>
-        <h2 className={sectionTitleCls}>Comptes publicitaires attribués</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className={sectionTitleCls + " mb-0"}>Comptes publicitaires attribués</h2>
+          <div className="flex flex-col items-end gap-1">
+            <button
+              type="button"
+              onClick={grantAllAccounts}
+              disabled={bulkBusy}
+              className={secondaryBtnCls + " disabled:opacity-50 disabled:cursor-wait"}
+            >
+              {bulkBusy ? "Attribution en cours…" : "Donner accès à tous les comptes"}
+            </button>
+            {bulkStatus && <span className="text-[11px] text-gray-400">{bulkStatus}</span>}
+          </div>
+        </div>
         <div className="flex flex-col gap-2 mb-4">
           {user.adAccounts.length === 0 && (
             <p className="text-sm text-gray-500">Aucun compte attribué.</p>
