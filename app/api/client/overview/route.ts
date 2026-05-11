@@ -195,10 +195,10 @@ async function fetchGoogleSide(
         input: JSON.stringify(period),
       }, 20000),
       relayDirectTool("mcp-google-ads.Custom_GAQL_Query", {
-        input: JSON.stringify({ customer_id: cleanId, query: keywordQuery }),
+        input: JSON.stringify({ customer_id: cleanId, gaql_query: keywordQuery }),
       }, 20000),
       relayDirectTool("mcp-google-ads.Custom_GAQL_Query", {
-        input: JSON.stringify({ customer_id: cleanId, query: searchTermQuery }),
+        input: JSON.stringify({ customer_id: cleanId, gaql_query: searchTermQuery }),
       }, 20000),
     ]);
 
