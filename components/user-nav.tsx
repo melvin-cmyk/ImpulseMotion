@@ -17,6 +17,22 @@ const providerLabel = (provider: string | null | undefined) => {
   return { label: "Connected", color: "bg-gray-700" };
 };
 
+function clearScopedStorage() {
+  // Clear any client-side cache or selection that could leak across users
+  // when the same browser tab signs out then signs back in as someone else.
+  try {
+    sessionStorage.clear();
+  } catch { /* ignore */ }
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("impulse_")) keysToRemove.push(key);
+    }
+    for (const k of keysToRemove) localStorage.removeItem(k);
+  } catch { /* ignore */ }
+}
+
 export function UserNav({ session }: UserNavProps) {
   const { label, color } = providerLabel(session.provider);
   const user = session.user;
@@ -50,7 +66,10 @@ export function UserNav({ session }: UserNavProps) {
 
       {/* Sign out */}
       <button
-        onClick={() => signOut({ callbackUrl: "/login" })}
+        onClick={() => {
+          clearScopedStorage();
+          signOut({ callbackUrl: "/login" });
+        }}
         className="text-xs text-gray-500 hover:text-gray-300 transition-colors ml-1"
       >
         Déconnexion
