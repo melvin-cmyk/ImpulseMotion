@@ -9,6 +9,7 @@ import {
   Presentation,
   Bot,
   Activity,
+  Layers,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -30,6 +31,12 @@ const navItems: NavItem[] = [
     icon: Activity,
     label: "Cockpit",
     match: (p) => p === "/" || p === "/cockpit" || p.startsWith("/me/") || p === "/portfolio" || p === "/dashboard",
+  },
+  {
+    href: "/client",
+    icon: Layers,
+    label: "Vue client",
+    match: (p) => p === "/client" || p.startsWith("/client/"),
   },
   {
     href: "/creatives",
