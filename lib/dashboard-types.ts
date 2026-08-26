@@ -4,11 +4,11 @@
  * Server-side resolution lives in lib/dashboard-widgets.ts.
  */
 
-export const WIDGET_TYPES = ["kpi", "timeseries", "table", "top_creatives", "pacing", "text"] as const;
+export const WIDGET_TYPES = ["kpi", "platform_table", "timeseries", "table", "top_creatives", "pacing", "text"] as const;
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 
-export const KPI_METRICS = ["spend", "revenue", "roas", "ctr", "cpa", "purchases", "clicks", "impressions"] as const;
-export const SERIES_METRICS = ["spend", "revenue", "roas", "clicks", "ctr", "purchases"] as const;
+export const KPI_METRICS = ["spend", "revenue", "roas", "ctr", "cpa", "cpc", "cr", "purchases", "clicks", "impressions"] as const;
+export const SERIES_METRICS = ["spend", "revenue", "roas", "clicks", "ctr", "cpc", "cr", "purchases"] as const;
 export const TABLE_KINDS = ["campaigns", "keywords", "search_terms"] as const;
 export const WIDGET_WIDTHS = ["third", "half", "full"] as const;
 
@@ -17,6 +17,10 @@ export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: st
   kpi: {
     label: "KPI",
     configDoc: `{ metric: ${KPI_METRICS.join("|")}, source: "meta"|"google"|"combined" } — inclut automatiquement la comparaison vs période précédente`,
+  },
+  platform_table: {
+    label: "Vue par plateforme",
+    configDoc: `{} — une ligne par plateforme liée (Meta, Google, Total) avec Cost, Impr., CTR, Clics, CPC, CR%, Conversions, CPA et leur %Δ vs la période de comparaison`,
   },
   timeseries: {
     label: "Courbe temporelle",
@@ -111,6 +115,7 @@ export function validateWidgetConfig(type: string, raw: unknown): Record<string,
       const limit = Math.min(Math.max(Number(cfg.limit ?? 6) || 6, 1), 10);
       return { limit };
     }
+    case "platform_table":
     case "pacing":
       return {};
     case "text": {

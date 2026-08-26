@@ -226,6 +226,15 @@ function metaMetricValue(
     }
     case "clicks": return { value: toNum(insight.clicks), estimated: false };
     case "impressions": return { value: toNum(insight.impressions), estimated: false };
+    case "cpc": {
+      const clicks = toNum(insight.clicks);
+      return { value: clicks > 0 ? spend / clicks : 0, estimated: false };
+    }
+    case "cr": {
+      const clicks = toNum(insight.clicks);
+      const purchases = getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase");
+      return { value: clicks > 0 ? (purchases / clicks) * 100 : 0, estimated: false };
+    }
     default: return { value: 0, estimated: false };
   }
 }
@@ -272,6 +281,8 @@ async function kpiValue(
     case "clicks": value = clicks; break;
     case "impressions": value = impressions; break;
     case "cpa": value = purchases > 0 ? spend / purchases : 0; break;
+    case "cpc": value = clicks > 0 ? spend / clicks : 0; break;
+    case "cr": value = clicks > 0 ? (purchases / clicks) * 100 : 0; break;
     case "ctr":
       // pure-google: compute; meta & combined: Meta's own CTR (mixing platforms is meaningless)
       value = source === "google"
@@ -362,6 +373,8 @@ function googleDailyMetric(row: Record<string, unknown>, metric: string): number
     case "clicks": return clicks;
     case "purchases": return toNum(m.conversions);
     case "ctr": return impressions > 0 ? (clicks / impressions) * 100 : 0;
+    case "cpc": return clicks > 0 ? spend / clicks : 0;
+    case "cr": return clicks > 0 ? (toNum(m.conversions) / clicks) * 100 : 0;
     default: return 0;
   }
 }
@@ -529,6 +542,98 @@ async function resolveTopCreatives(cfg: Record<string, unknown>, ctx: ResolveCon
   return { creatives };
 }
 
+// ── Platform overview table ──────────────────────────────────────────────────
+
+interface PlatformStats {
+  cost: number; impressions: number; ctr: number; clicks: number;
+  cpc: number; cr: number; conversions: number; cpa: number;
+}
+
+function statsFrom(cost: number, impressions: number, clicks: number, conversions: number): PlatformStats {
+  return {
+    cost,
+    impressions,
+    ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+    clicks,
+    cpc: clicks > 0 ? cost / clicks : 0,
+    cr: clicks > 0 ? (conversions / clicks) * 100 : 0,
+    conversions,
+    cpa: conversions > 0 ? cost / conversions : 0,
+  };
+}
+
+async function platformStats(
+  source: "meta" | "google",
+  ctx: ResolveContext,
+  since: string,
+  until: string,
+): Promise<PlatformStats> {
+  if (source === "meta") {
+    if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé");
+    const insight = await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, { since, until });
+    const purchases = insight
+      ? getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase")
+      : 0;
+    return statsFrom(toNum(insight?.spend), toNum(insight?.impressions), toNum(insight?.clicks), purchases);
+  }
+  if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé");
+  const g = googleTotals(await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, since, until));
+  return statsFrom(g.spend, g.impressions, g.clicks, g.conversions);
+}
+
+const PLATFORM_METRIC_KEYS = ["cost", "impressions", "ctr", "clicks", "cpc", "cr", "conversions", "cpa"] as const;
+
+function withDeltas(current: PlatformStats, previous: PlatformStats | null) {
+  const row: Record<string, number | null> = {};
+  for (const key of PLATFORM_METRIC_KEYS) {
+    row[key] = Math.round(current[key] * 100) / 100;
+    const prev = previous?.[key] ?? null;
+    row[`${key}DeltaPct`] =
+      prev !== null && prev > 0 ? Math.round(((current[key] - prev) / prev) * 1000) / 10 : null;
+  }
+  return row;
+}
+
+async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveContext) {
+  const sources: Array<"meta" | "google"> = [];
+  if (ctx.binding.metaAccountId) sources.push("meta");
+  if (ctx.binding.googleCustomerId) sources.push("google");
+  if (sources.length === 0) throw issue("Aucun compte lié à ce dashboard");
+
+  const rows: Array<Record<string, unknown>> = [];
+  const currentTotals: PlatformStats[] = [];
+  const previousTotals: PlatformStats[] = [];
+
+  for (const source of sources) {
+    const current = await platformStats(source, ctx, ctx.since, ctx.until);
+    let previous: PlatformStats | null = null;
+    if (ctx.compare) {
+      try {
+        previous = await platformStats(source, ctx, ctx.compare.since, ctx.compare.until);
+      } catch { /* comparison optional */ }
+    }
+    currentTotals.push(current);
+    if (previous) previousTotals.push(previous);
+    rows.push({ platform: source === "meta" ? "Meta" : "Google", ...withDeltas(current, previous) });
+  }
+
+  if (sources.length > 1) {
+    const sum = (list: PlatformStats[]) =>
+      statsFrom(
+        list.reduce((s, x) => s + x.cost, 0),
+        list.reduce((s, x) => s + x.impressions, 0),
+        list.reduce((s, x) => s + x.clicks, 0),
+        list.reduce((s, x) => s + x.conversions, 0),
+      );
+    rows.push({
+      platform: "Total",
+      ...withDeltas(sum(currentTotals), previousTotals.length === sources.length ? sum(previousTotals) : null),
+    });
+  }
+
+  return { rows, compareKind: ctx.compare?.kind ?? null };
+}
+
 async function resolvePacing(_cfg: Record<string, unknown>, ctx: ResolveContext) {
   if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
   const budget = await prisma.accountBudget.findFirst({
@@ -553,6 +658,7 @@ async function resolveWidgetData(
 ): Promise<unknown> {
   switch (type as WidgetType) {
     case "kpi": return resolveKpi(cfg, ctx);
+    case "platform_table": return resolvePlatformTable(cfg, ctx);
     case "timeseries": return resolveTimeseries(cfg, ctx);
     case "table": return resolveTable(cfg, ctx);
     case "top_creatives": return resolveTopCreatives(cfg, ctx);
@@ -621,6 +727,7 @@ export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean): Array<{
     { type: "kpi", title: "CPA", width: "third", config: { metric: "cpa", source } },
     { type: "kpi", title: "Clics", width: "third", config: { metric: "clicks", source } },
     { type: "kpi", title: "CTR", width: "third", config: { metric: "ctr", source } },
+    { type: "platform_table", title: "Vue par plateforme", width: "full", config: {} },
   ];
 
   if (hasMeta) {

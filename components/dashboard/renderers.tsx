@@ -20,14 +20,16 @@ const num = (v: number) => new Intl.NumberFormat("fr-FR").format(Math.round(v));
 function kpiDisplay(metric: string, value: number): string {
   switch (metric) {
     case "spend": case "revenue": case "cpa": return eur(value);
+    case "cpc": return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(value);
     case "roas": return `${value.toFixed(2)}x`;
-    case "ctr": return `${value.toFixed(2)}%`;
+    case "ctr": case "cr": return `${value.toFixed(2)}%`;
     default: return num(value);
   }
 }
 
 const KPI_LABELS: Record<string, string> = {
   spend: "Dépenses", revenue: "Revenu", roas: "ROAS", ctr: "CTR", cpa: "CPA",
+  cpc: "CPC", cr: "Taux de conv.",
   purchases: "Conversions", clicks: "Clics", impressions: "Impressions",
 };
 
@@ -43,6 +45,7 @@ export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
   }
   switch (widget.type) {
     case "kpi": return <KpiWidget widget={widget} />;
+    case "platform_table": return <PlatformTableWidget widget={widget} />;
     case "timeseries": return <TimeseriesWidget widget={widget} />;
     case "table": return <TableWidget widget={widget} />;
     case "top_creatives": return <TopCreativesWidget widget={widget} />;
@@ -53,8 +56,8 @@ export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
 }
 
 // Direction that counts as "good" when the metric goes up; spend is neutral.
-const GOOD_WHEN_UP = new Set(["revenue", "roas", "purchases", "clicks", "impressions", "ctr"]);
-const GOOD_WHEN_DOWN = new Set(["cpa"]);
+const GOOD_WHEN_UP = new Set(["revenue", "roas", "purchases", "clicks", "impressions", "ctr", "cr"]);
+const GOOD_WHEN_DOWN = new Set(["cpa", "cpc"]);
 
 function deltaColor(metric: string, deltaPct: number): string {
   if (GOOD_WHEN_UP.has(metric)) return deltaPct >= 0 ? "text-emerald-400" : "text-red-400";
@@ -99,6 +102,66 @@ function KpiWidget({ widget }: { widget: ResolvedWidget }) {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+// Column spec for the platform overview table — order mirrors the classic
+// media report: Cost, Impr., CTR, Clicks, CPC, CR%, Conversions, CPA.
+const PLATFORM_COLUMNS: Array<{ key: string; label: string; goodUp: boolean | null; fmt: (v: number) => string }> = [
+  { key: "cost", label: "Cost", goodUp: null, fmt: eur },
+  { key: "impressions", label: "Impr.", goodUp: true, fmt: num },
+  { key: "ctr", label: "CTR", goodUp: true, fmt: (v) => `${v.toFixed(2)}%` },
+  { key: "clicks", label: "Clicks", goodUp: true, fmt: num },
+  { key: "cpc", label: "CPC", goodUp: false, fmt: (v) => `${v.toFixed(2)}€` },
+  { key: "cr", label: "CR%", goodUp: true, fmt: (v) => `${v.toFixed(2)}%` },
+  { key: "conversions", label: "Conv.", goodUp: true, fmt: (v) => num(Math.round(v * 10) / 10) },
+  { key: "cpa", label: "CPA", goodUp: false, fmt: eur },
+];
+
+function DeltaCell({ deltaPct, goodUp }: { deltaPct: number | null; goodUp: boolean | null }) {
+  if (deltaPct === null || deltaPct === undefined) return null;
+  const color =
+    goodUp === null ? "text-gray-500"
+    : (deltaPct >= 0) === goodUp ? "text-emerald-400" : "text-red-400";
+  return (
+    <span className={`block text-[10px] tabular-nums ${color}`}>
+      {deltaPct >= 0 ? "▲" : "▼"} {Math.abs(deltaPct).toLocaleString("fr-FR")}%
+    </span>
+  );
+}
+
+function PlatformTableWidget({ widget }: { widget: ResolvedWidget }) {
+  const d = widget.data as { rows: Array<Record<string, number | string | null>> };
+  if (!d.rows?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+  return (
+    <div className="overflow-x-auto -mx-1">
+      <table className="w-full text-sm min-w-[640px]">
+        <thead>
+          <tr className="text-gray-500 text-xs uppercase tracking-wide border-b border-gray-800">
+            <th className="py-2 px-1 font-medium text-left">Platform</th>
+            {PLATFORM_COLUMNS.map((c) => (
+              <th key={c.key} className="py-2 px-1 font-medium text-right">{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {d.rows.map((row) => (
+            <tr
+              key={String(row.platform)}
+              className={`border-b border-gray-800/40 ${row.platform === "Total" ? "bg-gray-800/20 font-semibold" : ""}`}
+            >
+              <td className="py-2 px-1 text-left text-gray-200">{String(row.platform)}</td>
+              {PLATFORM_COLUMNS.map((c) => (
+                <td key={c.key} className="py-2 px-1 text-right text-gray-300 tabular-nums align-top">
+                  {c.fmt(Number(row[c.key] ?? 0))}
+                  <DeltaCell deltaPct={row[`${c.key}DeltaPct`] as number | null} goodUp={c.goodUp} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -42,6 +42,7 @@ function formToConfig(f: WidgetFormState): Record<string, unknown> {
     case "timeseries": return { metric: f.metric, source: f.source === "combined" ? "meta" : f.source };
     case "table": return { kind: f.kind, source: f.source === "combined" ? "google" : f.source, limit: f.limit };
     case "top_creatives": return { limit: f.limit };
+    case "platform_table":
     case "pacing": return {};
     case "text": return { markdown: f.markdown };
   }
