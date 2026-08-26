@@ -464,51 +464,107 @@ export async function resolveWidgets(
 }
 
 // ── Provisioning ─────────────────────────────────────────────────────────────
+// A "client" in agency vocabulary is an AD ACCOUNT (Leroy Merlin, …), not a
+// login. Provisioning therefore creates ONE dashboard PER ACL ad account,
+// named after the account's label — a user with several brands gets several
+// dashboards.
 
-/** Default widget set mirroring the historical /client page. */
-export function defaultWidgets(hasGoogle: boolean): Array<{
+/** Default widget set for a dashboard, depending on which platforms it's bound to. */
+export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean): Array<{
   type: WidgetType; title: string; width: string; position: number; config: Record<string, unknown>;
 }> {
+  const source = hasMeta && hasGoogle ? "combined" : hasGoogle && !hasMeta ? "google" : "meta";
   const widgets: Array<{ type: WidgetType; title: string; width: string; position: number; config: Record<string, unknown> }> = [
-    { type: "kpi", title: "Dépenses", width: "third", position: 0, config: { metric: "spend", source: hasGoogle ? "combined" : "meta" } },
-    { type: "kpi", title: "ROAS", width: "third", position: 1, config: { metric: "roas", source: hasGoogle ? "combined" : "meta" } },
-    { type: "kpi", title: "Conversions", width: "third", position: 2, config: { metric: "purchases", source: hasGoogle ? "combined" : "meta" } },
-    { type: "timeseries", title: "Dépenses quotidiennes", width: "full", position: 3, config: { metric: "spend" } },
-    { type: "top_creatives", title: "Top créas Meta", width: hasGoogle ? "half" : "full", position: 4, config: { limit: 6 } },
+    { type: "kpi", title: "Dépenses", width: "third", position: 0, config: { metric: "spend", source } },
+    { type: "kpi", title: "ROAS", width: "third", position: 1, config: { metric: "roas", source } },
+    { type: "kpi", title: "Conversions", width: "third", position: 2, config: { metric: "purchases", source } },
   ];
+  if (hasMeta) {
+    widgets.push({ type: "timeseries", title: "Dépenses quotidiennes", width: "full", position: 3, config: { metric: "spend" } });
+    widgets.push({ type: "top_creatives", title: "Top créas Meta", width: hasGoogle ? "half" : "full", position: 4, config: { limit: 6 } });
+  }
   if (hasGoogle) {
-    widgets.push({ type: "table", title: "Campagnes Google Ads", width: "half", position: 5, config: { kind: "campaigns", limit: 10 } });
+    widgets.push({ type: "table", title: "Campagnes Google Ads", width: hasMeta ? "half" : "full", position: 5, config: { kind: "campaigns", limit: 10 } });
   }
   return widgets;
 }
 
-/** Finds the user's dashboard or creates a provisioned default one. */
-export async function findOrCreateDashboard(userId: string) {
-  const existing = await prisma.dashboard.findFirst({
-    where: { userId },
-    orderBy: { createdAt: "asc" },
-  });
-  if (existing) return existing;
+function dashboardName(label: string | null, fallbackId: string): string {
+  return (label ?? "").trim() || `Compte ${fallbackId}`;
+}
 
-  const acl = await prisma.userAdAccount.findMany({ where: { userId } });
-  const meta = acl.find((a) => a.platform === "meta");
-  const google = acl.find((a) => a.platform === "google");
+/**
+ * Ensures the user has one dashboard per ACL ad account and returns them all.
+ * - each Meta account gets a dashboard named after its label; when the user
+ *   has exactly one Google account it's bound alongside (cross-platform view)
+ * - Google accounts not bound to a Meta dashboard get their own dashboard
+ * - existing dashboards are never duplicated; generic "Pilotage" names left by
+ *   the old per-user provisioning are upgraded to the account label
+ */
+export async function provisionDashboardsForUser(userId: string) {
+  const [acl, existing] = await Promise.all([
+    prisma.userAdAccount.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.dashboard.findMany({ where: { userId } }),
+  ]);
+  const metas = acl.filter((a) => a.platform === "meta");
+  const googles = acl.filter((a) => a.platform === "google");
+  // Cross-platform pairing only when it's unambiguous (1 Meta + 1 Google);
+  // otherwise each account gets its own dashboard and staff can rebind.
+  const singleGoogle = metas.length === 1 && googles.length === 1 ? normGoogle(googles[0].accountId) : null;
 
-  return prisma.dashboard.create({
-    data: {
-      userId,
-      name: "Pilotage",
-      metaAccountId: meta ? normMeta(meta.accountId) : null,
-      googleCustomerId: google ? normGoogle(google.accountId) : null,
-      widgets: {
-        create: defaultWidgets(!!google).map((w) => ({
-          type: w.type,
-          title: w.title,
-          width: w.width,
-          position: w.position,
-          config: JSON.stringify(w.config),
-        })),
+  const boundGoogleIds = new Set(existing.map((d) => d.googleCustomerId).filter(Boolean) as string[]);
+
+  for (const m of metas) {
+    const metaId = normMeta(m.accountId);
+    const current = existing.find((d) => d.metaAccountId === metaId);
+    const name = dashboardName(m.label, metaId);
+    if (current) {
+      if (current.name === "Pilotage" && name !== "Pilotage") {
+        await prisma.dashboard.update({ where: { id: current.id }, data: { name } });
+      }
+      continue;
+    }
+    const googleCustomerId = singleGoogle;
+    if (googleCustomerId) boundGoogleIds.add(googleCustomerId);
+    await prisma.dashboard.create({
+      data: {
+        userId,
+        name,
+        metaAccountId: metaId,
+        googleCustomerId,
+        widgets: {
+          create: defaultWidgets(true, !!googleCustomerId).map((w) => ({
+            type: w.type, title: w.title, width: w.width, position: w.position,
+            config: JSON.stringify(w.config),
+          })),
+        },
       },
-    },
+    });
+  }
+
+  for (const g of googles) {
+    const gid = normGoogle(g.accountId);
+    if (boundGoogleIds.has(gid)) continue;
+    boundGoogleIds.add(gid);
+    await prisma.dashboard.create({
+      data: {
+        userId,
+        name: dashboardName(g.label, gid),
+        metaAccountId: null,
+        googleCustomerId: gid,
+        widgets: {
+          create: defaultWidgets(false, true).map((w) => ({
+            type: w.type, title: w.title, width: w.width, position: w.position,
+            config: JSON.stringify(w.config),
+          })),
+        },
+      },
+    });
+  }
+
+  return prisma.dashboard.findMany({
+    where: { userId },
+    orderBy: { name: "asc" },
+    include: { _count: { select: { widgets: true } } },
   });
 }

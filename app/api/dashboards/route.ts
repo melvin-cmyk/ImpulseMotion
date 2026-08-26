@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { isStaff } from "@/lib/dashboard-auth";
-import { findOrCreateDashboard } from "@/lib/dashboard-widgets";
+import { provisionDashboardsForUser } from "@/lib/dashboard-widgets";
 
 export async function GET(req: NextRequest) {
   const guard = await requireSession();
@@ -42,9 +42,7 @@ export async function POST(req: NextRequest) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
 
-  const dashboard = await findOrCreateDashboard(userId);
-  if (typeof body?.name === "string" && body.name.trim() && body.name !== dashboard.name) {
-    await prisma.dashboard.update({ where: { id: dashboard.id }, data: { name: body.name.trim() } });
-  }
-  return NextResponse.json({ dashboard });
+  // Provisions one dashboard per ACL ad account (idempotent).
+  const dashboards = await provisionDashboardsForUser(userId);
+  return NextResponse.json({ dashboards, dashboard: dashboards[0] ?? null });
 }

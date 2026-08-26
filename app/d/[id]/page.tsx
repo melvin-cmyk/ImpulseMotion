@@ -91,7 +91,10 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">{payload?.dashboard.name ?? "Pilotage"}</h1>
+          <h1 className="text-xl font-bold text-white">
+            <a href="/d" className="text-gray-600 hover:text-gray-400 mr-2" title="Tous les comptes">←</a>
+            {payload?.dashboard.name ?? "Pilotage"}
+          </h1>
           <p className="text-xs text-gray-500 mt-0.5">
             {payload ? `${payload.since} → ${payload.until}` : "…"}
           </p>
