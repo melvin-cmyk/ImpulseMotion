@@ -15,7 +15,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 const PORT = process.env.RELAY_PORT || 3457;
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514";
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
 // No browser ever talks to the relay directly — only the Next.js backend does,
 // so cross-origin requests are denied unless explicitly configured.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")

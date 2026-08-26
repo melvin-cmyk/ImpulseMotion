@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 
   const enrichedBody = {
     ...body,
-    allowedServers: guard.session.role === "admin"
+    allowedServers: guard.session.role === "admin" || guard.session.role === "consultant"
       ? ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"]
       : allowedServers,
     accountScope: {

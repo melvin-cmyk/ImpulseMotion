@@ -12,6 +12,7 @@ import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { WidgetBody, WidgetFrame } from "@/components/dashboard/renderers";
 import { WidgetForm, DashboardSettingsForm, EditControls } from "@/components/dashboard/editor";
+import { CopilotPanel } from "@/components/dashboard/copilot";
 import type { ResolvedWidget } from "@/lib/dashboard-types";
 
 interface DashboardPayload {
@@ -52,6 +53,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editingWidget, setEditingWidget] = useState<ResolvedWidget | null>(null);
+  const [showCopilot, setShowCopilot] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,6 +111,19 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
               </button>
             ))}
           </div>
+          {isStaff && (
+            <button
+              type="button"
+              onClick={() => setShowCopilot((v) => !v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                showCopilot
+                  ? "bg-violet-600 border-violet-500 text-white"
+                  : "bg-gray-900 border-gray-800 text-gray-300 hover:text-white"
+              }`}
+            >
+              ✦ Copilote
+            </button>
+          )}
           {isStaff && (
             <button
               type="button"
@@ -196,6 +211,14 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
             </div>
           )}
         </div>
+      )}
+
+      {isStaff && showCopilot && payload && (
+        <CopilotPanel
+          dashboardId={payload.dashboard.id}
+          onApplied={load}
+          onClose={() => setShowCopilot(false)}
+        />
       )}
     </div>
   );
