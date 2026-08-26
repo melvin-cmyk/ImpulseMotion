@@ -18,6 +18,7 @@ import {
   getAds,
   getAdInsights,
   getAccountDailyInsights,
+  getCampaignInsights,
   computeRevenue,
   computeHookRate,
   computeRoas,
@@ -119,11 +120,19 @@ async function fetchGoogleCampaignRows(
   since: string,
   until: string,
 ): Promise<Array<Record<string, unknown>>> {
+  // GAQL rather than the Campaign_Performance tool: that n8n workflow ignores
+  // its start/end dates (verified: identical totals for any period), which
+  // silently broke period selection and previous-period deltas.
+  const query = `SELECT campaign.id, campaign.name, metrics.cost_micros, metrics.clicks,
+      metrics.impressions, metrics.conversions, metrics.conversions_value
+    FROM campaign
+    WHERE segments.date BETWEEN '${since}' AND '${until}'
+    ORDER BY metrics.cost_micros DESC`;
   return cached(
     `google:campaigns:${customerId}:${since}_${until}`,
     async () => {
-      const raw = await relayDirectTool("mcp-google-ads.Campaign_Performance", {
-        input: JSON.stringify({ customer_id: customerId, start_date: since, end_date: until }),
+      const raw = await relayDirectTool("mcp-google-ads.Custom_GAQL_Query", {
+        input: JSON.stringify({ customer_id: customerId, gaql_query: query.replace(/\s+/g, " ") }),
       }, 20000);
       return extractRows(raw);
     },
@@ -212,76 +221,154 @@ function metaMetricValue(
   }
 }
 
-async function resolveKpi(cfg: Record<string, unknown>, ctx: ResolveContext) {
-  const metric = String(cfg.metric);
-  const source = String(cfg.source ?? "meta");
-  let meta = { value: 0, estimated: false };
+/** One KPI value over an arbitrary range, for the widget's source. */
+async function kpiValue(
+  metric: string,
+  source: string,
+  ctx: ResolveContext,
+  since: string,
+  until: string,
+): Promise<{ value: number; estimated: boolean }> {
+  let insight: MetaAccountInsight | null = null;
   let google: GoogleTotals | null = null;
-
   if (source !== "google") {
     if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
-    const insight = await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, {
-      since: ctx.since, until: ctx.until,
-    });
-    meta = metaMetricValue(insight, metric, ctx.aov);
+    insight = await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, { since, until });
   }
   if (source !== "meta") {
     if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
-    google = googleTotals(await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, ctx.since, ctx.until));
+    google = googleTotals(await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, since, until));
   }
 
-  let value = meta.value;
-  if (source === "google" && google) {
-    switch (metric) {
-      case "spend": value = google.spend; break;
-      case "revenue": value = google.revenue; break;
-      case "roas": value = google.spend > 0 ? google.revenue / google.spend : 0; break;
-      case "clicks": value = google.clicks; break;
-      case "impressions": value = google.impressions; break;
-      case "purchases": value = google.conversions; break;
-      case "cpa": value = google.conversions > 0 ? google.spend / google.conversions : 0; break;
-      case "ctr": value = google.impressions > 0 ? (google.clicks / google.impressions) * 100 : 0; break;
-    }
-  } else if (source === "combined" && google) {
-    switch (metric) {
-      case "spend": value = meta.value + google.spend; break;
-      case "revenue": value = meta.value + google.revenue; break;
-      case "clicks": value = meta.value + google.clicks; break;
-      case "impressions": value = meta.value + google.impressions; break;
-      case "purchases": value = meta.value + google.conversions; break;
-      case "roas": {
-        // recompute from combined revenue/spend
-        if (!ctx.binding.metaAccountId) throw issue("Compte Meta requis pour un ROAS combiné");
-        const insight = await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, {
-          since: ctx.since, until: ctx.until,
-        });
-        const metaSpend = toNum(insight?.spend);
-        const metaRev = insight ? computeRevenue(insight, ctx.aov) : { revenue: 0, estimated: false };
-        const totalSpend = metaSpend + google.spend;
-        value = totalSpend > 0 ? (metaRev.revenue + google.revenue) / totalSpend : 0;
-        meta.estimated = metaRev.estimated;
-        break;
-      }
-      case "ctr": value = meta.value; break; // combined CTR is meaningless — show Meta's
-      case "cpa": {
-        const insight = ctx.binding.metaAccountId
-          ? await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, { since: ctx.since, until: ctx.until })
-          : null;
-        const metaSpend = toNum(insight?.spend);
-        const purchases = getActionValue(insight?.actions, "omni_purchase") || getActionValue(insight?.actions, "purchase");
-        const conv = purchases + google.conversions;
-        value = conv > 0 ? (metaSpend + google.spend) / conv : 0;
-        break;
-      }
-    }
-  }
+  const metaRev = insight ? computeRevenue(insight, ctx.aov) : { revenue: 0, estimated: false };
+  const metaPurchases = insight
+    ? getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase")
+    : 0;
+  const g = google ?? { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0 };
+  const useMeta = source !== "google";
+  const useGoogle = source !== "meta";
 
-  return { metric, source, value: Math.round(value * 100) / 100, estimated: meta.estimated };
+  const spend = (useMeta ? toNum(insight?.spend) : 0) + (useGoogle ? g.spend : 0);
+  const revenue = (useMeta ? metaRev.revenue : 0) + (useGoogle ? g.revenue : 0);
+  const purchases = (useMeta ? metaPurchases : 0) + (useGoogle ? g.conversions : 0);
+  const clicks = (useMeta ? toNum(insight?.clicks) : 0) + (useGoogle ? g.clicks : 0);
+  const impressions = (useMeta ? toNum(insight?.impressions) : 0) + (useGoogle ? g.impressions : 0);
+
+  let value = 0;
+  switch (metric) {
+    case "spend": value = spend; break;
+    case "revenue": value = revenue; break;
+    case "roas": value = spend > 0 ? revenue / spend : 0; break;
+    case "purchases": value = purchases; break;
+    case "clicks": value = clicks; break;
+    case "impressions": value = impressions; break;
+    case "cpa": value = purchases > 0 ? spend / purchases : 0; break;
+    case "ctr":
+      // pure-google: compute; meta & combined: Meta's own CTR (mixing platforms is meaningless)
+      value = source === "google"
+        ? (impressions > 0 ? (clicks / impressions) * 100 : 0)
+        : toNum(insight?.ctr);
+      break;
+  }
+  const estimated = useMeta && metaRev.estimated && (metric === "revenue" || metric === "roas");
+  return { value, estimated };
+}
+
+/** Previous window of the same length, ending the day before `since`. */
+function prevRange(since: string, until: string): { since: string; until: string } {
+  const DAY = 86400000;
+  const s = Date.parse(since + "T00:00:00Z");
+  const u = Date.parse(until + "T00:00:00Z");
+  const days = Math.max(1, Math.round((u - s) / DAY) + 1);
+  const prevUntil = new Date(s - DAY);
+  const prevSince = new Date(s - days * DAY);
+  const fmt = (d: Date) => d.toISOString().split("T")[0];
+  return { since: fmt(prevSince), until: fmt(prevUntil) };
+}
+
+async function resolveKpi(cfg: Record<string, unknown>, ctx: ResolveContext) {
+  const metric = String(cfg.metric);
+  const source = String(cfg.source ?? "meta");
+  const current = await kpiValue(metric, source, ctx, ctx.since, ctx.until);
+
+  // Previous-period comparison — best effort, never fails the widget.
+  let previous: number | null = null;
+  let deltaPct: number | null = null;
+  try {
+    const prev = prevRange(ctx.since, ctx.until);
+    const prevVal = await kpiValue(metric, source, ctx, prev.since, prev.until);
+    previous = Math.round(prevVal.value * 100) / 100;
+    if (prevVal.value > 0) {
+      deltaPct = Math.round(((current.value - prevVal.value) / prevVal.value) * 1000) / 10;
+    }
+  } catch { /* comparison is optional */ }
+
+  return {
+    metric,
+    source,
+    value: Math.round(current.value * 100) / 100,
+    previous,
+    deltaPct,
+    estimated: current.estimated,
+  };
+}
+
+async function fetchGoogleDailyRows(
+  customerId: string,
+  since: string,
+  until: string,
+): Promise<Array<Record<string, unknown>>> {
+  const query = `SELECT segments.date, metrics.cost_micros, metrics.clicks, metrics.impressions,
+      metrics.conversions, metrics.conversions_value
+    FROM customer
+    WHERE segments.date BETWEEN '${since}' AND '${until}'
+    ORDER BY segments.date`;
+  return cached(
+    `google:daily:${customerId}:${since}_${until}`,
+    async () => {
+      const raw = await relayDirectTool("mcp-google-ads.Custom_GAQL_Query", {
+        input: JSON.stringify({ customer_id: customerId, gaql_query: query.replace(/\s+/g, " ") }),
+      }, 20000);
+      return extractRows(raw);
+    },
+  );
+}
+
+function googleDailyMetric(row: Record<string, unknown>, metric: string): number {
+  const m = (row.metrics as Record<string, unknown>) ?? row;
+  const spend = micros(m.costMicros ?? m.cost_micros);
+  const revenue = toNum(m.conversionsValue ?? m.conversions_value);
+  const clicks = toNum(m.clicks);
+  const impressions = toNum(m.impressions);
+  switch (metric) {
+    case "spend": return spend;
+    case "revenue": return revenue;
+    case "roas": return spend > 0 ? revenue / spend : 0;
+    case "clicks": return clicks;
+    case "purchases": return toNum(m.conversions);
+    case "ctr": return impressions > 0 ? (clicks / impressions) * 100 : 0;
+    default: return 0;
+  }
 }
 
 async function resolveTimeseries(cfg: Record<string, unknown>, ctx: ResolveContext) {
-  if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
   const metric = String(cfg.metric);
+  const source = String(cfg.source ?? "meta");
+
+  if (source === "google") {
+    if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
+    const rows = await fetchGoogleDailyRows(ctx.binding.googleCustomerId, ctx.since, ctx.until);
+    const points = rows.map((row) => {
+      const seg = ((row.segments as Record<string, unknown>) ?? row) as Record<string, unknown>;
+      return {
+        date: String(seg.date ?? ""),
+        value: Math.round(googleDailyMetric(row, metric) * 100) / 100,
+      };
+    }).filter((p) => p.date);
+    return { metric, source, points, estimated: false };
+  }
+
+  if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
   const rows = await cached(
     `meta:daily:${ctx.binding.metaAccountId}:${ctx.since}_${ctx.until}`,
     () => getAccountDailyInsights(getMetaSystemToken(), `act_${ctx.binding.metaAccountId}`, {
@@ -294,14 +381,43 @@ async function resolveTimeseries(cfg: Record<string, unknown>, ctx: ResolveConte
     if (m.estimated) estimated = true;
     return { date: r.date_start, value: Math.round(m.value * 100) / 100 };
   });
-  return { metric, points, estimated };
+  return { metric, source, points, estimated };
 }
 
 async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
-  if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
   const kind = String(cfg.kind);
+  const source = String(cfg.source ?? "google");
   const limit = Number(cfg.limit ?? 10);
 
+  if (source === "meta") {
+    if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
+    const accountId = ctx.binding.metaAccountId;
+    const rows = await cached(
+      `meta:campaigns:${accountId}:${ctx.since}_${ctx.until}`,
+      () => getCampaignInsights(ctx.token, accountId, { since: ctx.since, until: ctx.until }, 50),
+    );
+    return {
+      kind,
+      source,
+      rows: [...rows]
+        .sort((a, b) => toNum(b.spend) - toNum(a.spend))
+        .slice(0, limit)
+        .map((r, i) => {
+          const spend = toNum(r.spend);
+          const rev = computeRevenue(r, ctx.aov);
+          const purchases = getActionValue(r.actions, "omni_purchase") || getActionValue(r.actions, "purchase");
+          return {
+            name: String(r.campaign_name ?? `Campagne ${i + 1}`),
+            spend: Math.round(spend),
+            clicks: Math.round(toNum(r.clicks)),
+            conversions: Math.round(purchases * 10) / 10,
+            roas: spend > 0 ? Math.round((rev.revenue / spend) * 100) / 100 : 0,
+          };
+        }),
+    };
+  }
+
+  if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
   if (kind === "campaigns") {
     const rows = await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, ctx.since, ctx.until);
     return {
@@ -469,24 +585,67 @@ export async function resolveWidgets(
 // named after the account's label — a user with several brands gets several
 // dashboards.
 
-/** Default widget set for a dashboard, depending on which platforms it's bound to. */
+/** Rich default widget set — the dashboard should tell the account's story
+ *  out of the box: KPI row with previous-period deltas, daily curves, top
+ *  creatives and campaign/keyword tables per bound platform. */
 export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean): Array<{
   type: WidgetType; title: string; width: string; position: number; config: Record<string, unknown>;
 }> {
   const source = hasMeta && hasGoogle ? "combined" : hasGoogle && !hasMeta ? "google" : "meta";
-  const widgets: Array<{ type: WidgetType; title: string; width: string; position: number; config: Record<string, unknown> }> = [
-    { type: "kpi", title: "Dépenses", width: "third", position: 0, config: { metric: "spend", source } },
-    { type: "kpi", title: "ROAS", width: "third", position: 1, config: { metric: "roas", source } },
-    { type: "kpi", title: "Conversions", width: "third", position: 2, config: { metric: "purchases", source } },
+  const w: Array<{ type: WidgetType; title: string; width: string; config: Record<string, unknown> }> = [
+    { type: "kpi", title: "Dépenses", width: "third", config: { metric: "spend", source } },
+    { type: "kpi", title: "ROAS", width: "third", config: { metric: "roas", source } },
+    { type: "kpi", title: "Conversions", width: "third", config: { metric: "purchases", source } },
+    { type: "kpi", title: "CPA", width: "third", config: { metric: "cpa", source } },
+    { type: "kpi", title: "Clics", width: "third", config: { metric: "clicks", source } },
+    { type: "kpi", title: "CTR", width: "third", config: { metric: "ctr", source } },
   ];
+
   if (hasMeta) {
-    widgets.push({ type: "timeseries", title: "Dépenses quotidiennes", width: "full", position: 3, config: { metric: "spend" } });
-    widgets.push({ type: "top_creatives", title: "Top créas Meta", width: hasGoogle ? "half" : "full", position: 4, config: { limit: 6 } });
+    w.push({ type: "timeseries", title: "Dépenses quotidiennes — Meta", width: hasGoogle ? "half" : "full", config: { metric: "spend", source: "meta" } });
   }
   if (hasGoogle) {
-    widgets.push({ type: "table", title: "Campagnes Google Ads", width: hasMeta ? "half" : "full", position: 5, config: { kind: "campaigns", limit: 10 } });
+    w.push({ type: "timeseries", title: "Dépenses quotidiennes — Google", width: hasMeta ? "half" : "full", config: { metric: "spend", source: "google" } });
   }
-  return widgets;
+  if (hasMeta) {
+    w.push({ type: "timeseries", title: "ROAS quotidien — Meta", width: "half", config: { metric: "roas", source: "meta" } });
+  }
+  if (hasGoogle) {
+    w.push({ type: "timeseries", title: "Conversions quotidiennes — Google", width: hasMeta ? "half" : "full", config: { metric: "purchases", source: "google" } });
+  }
+
+  if (hasMeta) {
+    w.push({ type: "top_creatives", title: "Top créas Meta", width: "half", config: { limit: 6 } });
+    w.push({ type: "table", title: "Campagnes Meta", width: "half", config: { kind: "campaigns", source: "meta", limit: 10 } });
+  }
+  if (hasGoogle) {
+    w.push({ type: "table", title: "Campagnes Google Ads", width: hasMeta ? "half" : "full", config: { kind: "campaigns", source: "google", limit: 10 } });
+    w.push({ type: "table", title: "Top mots-clés", width: "half", config: { kind: "keywords", source: "google", limit: 10 } });
+    w.push({ type: "table", title: "Termes de recherche", width: "half", config: { kind: "search_terms", source: "google", limit: 10 } });
+  }
+
+  return w.map((widget, position) => ({ ...widget, position }));
+}
+
+/** Replaces a dashboard's widgets with the current default set (staff action). */
+export async function resetDashboardWidgets(dashboardId: string) {
+  const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } });
+  if (!dashboard) return null;
+  const widgets = defaultWidgets(!!dashboard.metaAccountId, !!dashboard.googleCustomerId);
+  await prisma.$transaction([
+    prisma.dashboardWidget.deleteMany({ where: { dashboardId } }),
+    prisma.dashboardWidget.createMany({
+      data: widgets.map((w) => ({
+        dashboardId,
+        type: w.type,
+        title: w.title,
+        width: w.width,
+        position: w.position,
+        config: JSON.stringify(w.config),
+      })),
+    }),
+  ]);
+  return dashboard;
 }
 
 function dashboardName(label: string | null, fallbackId: string): string {

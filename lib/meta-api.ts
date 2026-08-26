@@ -395,6 +395,47 @@ export async function getAccountInsights(
   }
 }
 
+export interface MetaCampaignInsight extends MetaAccountInsight {
+  campaign_id?: string;
+  campaign_name?: string;
+}
+
+/** Campaign-level insights for an account (for dashboard tables). */
+export async function getCampaignInsights(
+  accessToken: string,
+  adAccountId: string,
+  timeRange: { since: string; until: string },
+  limit = 25,
+): Promise<MetaCampaignInsight[]> {
+  const accountId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+  const fields = [
+    "campaign_id",
+    "campaign_name",
+    "spend",
+    "impressions",
+    "clicks",
+    "ctr",
+    "actions",
+    "action_values",
+    "purchase_roas",
+  ].join(",");
+  try {
+    const data = await metaFetch<{ data: MetaCampaignInsight[] }>(
+      `/${accountId}/insights`,
+      accessToken,
+      {
+        fields,
+        level: "campaign",
+        time_range: JSON.stringify(timeRange),
+        limit: String(limit),
+      },
+    );
+    return data.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 /** Day-by-day account-level insights (for dashboard time series). */
 export async function getAccountDailyInsights(
   accessToken: string,

@@ -52,16 +52,35 @@ export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
   }
 }
 
+// Direction that counts as "good" when the metric goes up; spend is neutral.
+const GOOD_WHEN_UP = new Set(["revenue", "roas", "purchases", "clicks", "impressions", "ctr"]);
+const GOOD_WHEN_DOWN = new Set(["cpa"]);
+
+function deltaColor(metric: string, deltaPct: number): string {
+  if (GOOD_WHEN_UP.has(metric)) return deltaPct >= 0 ? "text-emerald-400" : "text-red-400";
+  if (GOOD_WHEN_DOWN.has(metric)) return deltaPct <= 0 ? "text-emerald-400" : "text-red-400";
+  return "text-gray-400";
+}
+
 function KpiWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as { metric: string; source: string; value: number; estimated: boolean };
+  const d = widget.data as {
+    metric: string; source: string; value: number; estimated: boolean;
+    previous?: number | null; deltaPct?: number | null;
+  };
   return (
     <div className="py-1">
       <div className="flex items-baseline gap-2">
         <span className="text-3xl font-bold text-white tabular-nums">{kpiDisplay(d.metric, d.value)}</span>
         {d.estimated && <Pill tone="amber">estimé</Pill>}
       </div>
-      <div className="text-xs text-gray-500 mt-1">
-        {KPI_LABELS[d.metric] ?? d.metric} · {SOURCE_LABELS[d.source] ?? d.source}
+      <div className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
+        <span>{KPI_LABELS[d.metric] ?? d.metric} · {SOURCE_LABELS[d.source] ?? d.source}</span>
+        {typeof d.deltaPct === "number" && (
+          <span className={`font-semibold tabular-nums ${deltaColor(d.metric, d.deltaPct)}`}>
+            {d.deltaPct >= 0 ? "▲" : "▼"} {Math.abs(d.deltaPct).toLocaleString("fr-FR")}%
+            <span className="text-gray-600 font-normal"> vs période préc.</span>
+          </span>
+        )}
       </div>
     </div>
   );

@@ -17,8 +17,15 @@ describe("validateWidgetConfig", () => {
     expect(() => validateWidgetConfig("table", { kind: "ads" })).toThrow(/Table invalide/);
   });
 
+  it("validates timeseries/table sources", () => {
+    expect(validateWidgetConfig("timeseries", { metric: "spend", source: "google" })).toEqual({ metric: "spend", source: "google" });
+    expect(validateWidgetConfig("table", { kind: "campaigns", source: "meta" })).toEqual({ kind: "campaigns", source: "meta", limit: 10 });
+    expect(() => validateWidgetConfig("timeseries", { source: "combined" })).toThrow(/Source de courbe invalide/);
+    expect(() => validateWidgetConfig("table", { kind: "keywords", source: "meta" })).toThrow(/ne supporte que kind=campaigns/);
+  });
+
   it("clamps limits into their documented bounds", () => {
-    expect(validateWidgetConfig("table", { kind: "keywords", limit: 999 })).toEqual({ kind: "keywords", limit: 30 });
+    expect(validateWidgetConfig("table", { kind: "keywords", limit: 999 })).toEqual({ kind: "keywords", source: "google", limit: 30 });
     // falsy limit (0) is treated as unset and falls back to the default
     expect(validateWidgetConfig("top_creatives", { limit: 0 })).toEqual({ limit: 6 });
   });

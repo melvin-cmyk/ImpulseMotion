@@ -39,8 +39,8 @@ const emptyForm: WidgetFormState = {
 function formToConfig(f: WidgetFormState): Record<string, unknown> {
   switch (f.type) {
     case "kpi": return { metric: f.metric, source: f.source };
-    case "timeseries": return { metric: f.metric };
-    case "table": return { kind: f.kind, limit: f.limit };
+    case "timeseries": return { metric: f.metric, source: f.source === "combined" ? "meta" : f.source };
+    case "table": return { kind: f.kind, source: f.source === "combined" ? "google" : f.source, limit: f.limit };
     case "top_creatives": return { limit: f.limit };
     case "pacing": return {};
     case "text": return { markdown: f.markdown };
@@ -143,6 +143,12 @@ export function WidgetForm({
             <option value="combined">Meta + Google</option>
           </select>
         )}
+        {(form.type === "timeseries" || form.type === "table") && (
+          <select value={form.source} onChange={(e) => set({ source: e.target.value })} className={inputCls}>
+            <option value="meta">Meta</option>
+            <option value="google">Google</option>
+          </select>
+        )}
         {form.type === "table" && (
           <select value={form.kind} onChange={(e) => set({ kind: e.target.value })} className={inputCls}>
             {TABLE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
@@ -226,9 +232,24 @@ export function DashboardSettingsForm({
         Les comptes doivent figurer dans l&apos;ACL du client — sinon les widgets afficheront « compte non autorisé ».
       </p>
       {error && <div className="text-xs text-red-400 mt-2">{error}</div>}
-      <div className="mt-3">
+      <div className="mt-3 flex items-center gap-2">
         <button type="button" onClick={save} disabled={saving} className={primaryBtnCls}>
           {saving ? "Enregistrement…" : "Enregistrer"}
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={async () => {
+            if (!confirm("Remplacer tous les widgets par le set par défaut ? Les widgets actuels seront supprimés.")) return;
+            setSaving(true);
+            const res = await fetch(`/api/dashboards/${dashboard.id}/reset`, { method: "POST" });
+            setSaving(false);
+            if (res.ok) onDone();
+            else setError("Échec de la réinitialisation");
+          }}
+          className={btnCls}
+        >
+          Réinitialiser les widgets par défaut
         </button>
       </div>
     </Card>

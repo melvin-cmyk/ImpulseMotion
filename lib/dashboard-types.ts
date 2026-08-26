@@ -16,15 +16,15 @@ export const WIDGET_WIDTHS = ["third", "half", "full"] as const;
 export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: string }> = {
   kpi: {
     label: "KPI",
-    configDoc: `{ metric: ${KPI_METRICS.join("|")}, source: "meta"|"google"|"combined" }`,
+    configDoc: `{ metric: ${KPI_METRICS.join("|")}, source: "meta"|"google"|"combined" } — inclut automatiquement la comparaison vs période précédente`,
   },
   timeseries: {
     label: "Courbe temporelle",
-    configDoc: `{ metric: ${SERIES_METRICS.join("|")} } (source Meta, quotidien)`,
+    configDoc: `{ metric: ${SERIES_METRICS.join("|")}, source: "meta"|"google" } (quotidien)`,
   },
   table: {
-    label: "Table Google Ads",
-    configDoc: `{ kind: ${TABLE_KINDS.join("|")}, limit?: 1-30 }`,
+    label: "Table de performance",
+    configDoc: `{ kind: ${TABLE_KINDS.join("|")}, source: "google"|"meta", limit?: 1-30 } — source meta uniquement pour kind=campaigns`,
   },
   top_creatives: {
     label: "Top créas Meta",
@@ -86,15 +86,26 @@ export function validateWidgetConfig(type: string, raw: unknown): Record<string,
       if (!SERIES_METRICS.includes(metric as (typeof SERIES_METRICS)[number])) {
         throw widgetIssue(`Métrique de courbe invalide: ${metric}. Valides: ${SERIES_METRICS.join(", ")}`);
       }
-      return { metric };
+      const source = String(cfg.source ?? "meta");
+      if (!["meta", "google"].includes(source)) {
+        throw widgetIssue(`Source de courbe invalide: ${source} (meta ou google)`);
+      }
+      return { metric, source };
     }
     case "table": {
       const kind = String(cfg.kind ?? "campaigns");
       if (!TABLE_KINDS.includes(kind as (typeof TABLE_KINDS)[number])) {
         throw widgetIssue(`Table invalide: ${kind}. Valides: ${TABLE_KINDS.join(", ")}`);
       }
+      const source = String(cfg.source ?? "google");
+      if (!["google", "meta"].includes(source)) {
+        throw widgetIssue(`Source de table invalide: ${source} (google ou meta)`);
+      }
+      if (source === "meta" && kind !== "campaigns") {
+        throw widgetIssue(`La source meta ne supporte que kind=campaigns`);
+      }
       const limit = Math.min(Math.max(Number(cfg.limit ?? 10) || 10, 1), 30);
-      return { kind, limit };
+      return { kind, source, limit };
     }
     case "top_creatives": {
       const limit = Math.min(Math.max(Number(cfg.limit ?? 6) || 6, 1), 10);
