@@ -43,8 +43,15 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   const { data: session } = useSession();
   const isStaff = session?.role === "admin" || session?.role === "consultant";
 
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   const days = Number(searchParams.get("days") ?? 30) || 30;
-  const range = useMemo(() => rangeFor(days), [days]);
+  const sinceParam = searchParams.get("since");
+  const untilParam = searchParams.get("until");
+  const isCustom = !!(sinceParam && untilParam && DATE_RE.test(sinceParam) && DATE_RE.test(untilParam) && sinceParam <= untilParam);
+  const range = useMemo(
+    () => (isCustom ? { since: sinceParam as string, until: untilParam as string } : rangeFor(days)),
+    [isCustom, sinceParam, untilParam, days],
+  );
 
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,6 +88,11 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
     router.replace(`/d/${id}?days=${d}`);
   }
 
+  function setCustomRange(since: string, until: string) {
+    if (!DATE_RE.test(since) || !DATE_RE.test(until) || since > until) return;
+    router.replace(`/d/${id}?since=${since}&until=${until}`);
+  }
+
   const onMutated = () => {
     setShowAdd(false);
     setEditingWidget(null);
@@ -112,12 +124,29 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
                 type="button"
                 onClick={() => setDays(p.days)}
                 className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  days === p.days ? "bg-violet-600 text-white" : "bg-gray-900 text-gray-400 hover:text-white"
+                  !isCustom && days === p.days ? "bg-violet-600 text-white" : "bg-gray-900 text-gray-400 hover:text-white"
                 }`}
               >
                 {p.label}
               </button>
             ))}
+          </div>
+          <div className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${isCustom ? "border-violet-600 bg-violet-950/40" : "border-gray-800 bg-gray-900"}`}>
+            <input
+              type="date"
+              value={range.since}
+              max={range.until}
+              onChange={(e) => setCustomRange(e.target.value, range.until)}
+              className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
+            />
+            <span className="text-gray-600 text-xs">→</span>
+            <input
+              type="date"
+              value={range.until}
+              min={range.since}
+              onChange={(e) => setCustomRange(range.since, e.target.value)}
+              className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
+            />
           </div>
           {isStaff && (
             <button
