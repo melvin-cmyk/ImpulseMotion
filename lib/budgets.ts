@@ -28,7 +28,7 @@ function fmt(d: Date): string {
   return d.toISOString().split("T")[0];
 }
 
-function classify(pacingPct: number): PacingResult["status"] {
+export function classify(pacingPct: number): PacingResult["status"] {
   if (pacingPct < 70) return "critical_under";
   if (pacingPct < 90) return "under";
   if (pacingPct > 130) return "critical_over";
