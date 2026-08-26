@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor } from "@/lib/dashboard-auth";
-import { resolveWidgets } from "@/lib/dashboard-widgets";
+import { resolveWidgets, grantDashboardAccess } from "@/lib/dashboard-widgets";
 
 export const maxDuration = 60;
 
@@ -69,10 +69,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.googleCustomerId === null || typeof body.googleCustomerId === "string") {
     data.googleCustomerId = body.googleCustomerId ? String(body.googleCustomerId).replace(/-/g, "") : null;
   }
+  // Re-link the dashboard to another client login (grants matching ACL rows).
+  if (typeof body.userId === "string" && body.userId && body.userId !== existing.userId) {
+    const target = await prisma.user.findUnique({ where: { id: body.userId } });
+    if (!target) return NextResponse.json({ error: "target user not found" }, { status: 404 });
+    data.userId = body.userId;
+  }
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
   }
   const dashboard = await prisma.dashboard.update({ where: { id }, data });
+  // Ensure the (possibly new) owner can pass the resolver's ACL re-check.
+  await grantDashboardAccess(dashboard.userId, dashboard);
   return NextResponse.json({ dashboard });
 }
 

@@ -627,6 +627,58 @@ export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean): Array<{
   return w.map((widget, position) => ({ ...widget, position }));
 }
 
+/** Grants the dashboard owner ACL rows for the dashboard's accounts, so the
+ *  resolver's ACL re-check passes. Called when staff link a dashboard to a
+ *  client login. */
+export async function grantDashboardAccess(
+  userId: string,
+  dashboard: { name: string; metaAccountId: string | null; googleCustomerId: string | null },
+): Promise<void> {
+  const grants: Array<{ platform: string; accountId: string }> = [];
+  if (dashboard.metaAccountId) grants.push({ platform: "meta", accountId: normMeta(dashboard.metaAccountId) });
+  if (dashboard.googleCustomerId) grants.push({ platform: "google", accountId: normGoogle(dashboard.googleCustomerId) });
+  for (const g of grants) {
+    await prisma.userAdAccount.upsert({
+      where: { userId_platform_accountId: { userId, platform: g.platform, accountId: g.accountId } },
+      create: { userId, platform: g.platform, accountId: g.accountId, label: dashboard.name },
+      update: {},
+    });
+  }
+}
+
+/** Staff-created dashboard explicitly bound to a client login + account(s).
+ *  Also grants the matching ACL rows so the client can actually see it. */
+export async function createDashboardForUser(input: {
+  userId: string;
+  name?: string;
+  metaAccountId?: string | null;
+  googleCustomerId?: string | null;
+}) {
+  const metaAccountId = input.metaAccountId ? normMeta(String(input.metaAccountId)) : null;
+  const googleCustomerId = input.googleCustomerId ? normGoogle(String(input.googleCustomerId)) : null;
+  if (!metaAccountId && !googleCustomerId) {
+    throw new Error("Un compte Meta ou Google est requis");
+  }
+  const name = (input.name ?? "").trim() || dashboardName(null, metaAccountId ?? googleCustomerId ?? "");
+
+  const dashboard = await prisma.dashboard.create({
+    data: {
+      userId: input.userId,
+      name,
+      metaAccountId,
+      googleCustomerId,
+      widgets: {
+        create: defaultWidgets(!!metaAccountId, !!googleCustomerId).map((w) => ({
+          type: w.type, title: w.title, width: w.width, position: w.position,
+          config: JSON.stringify(w.config),
+        })),
+      },
+    },
+  });
+  await grantDashboardAccess(input.userId, dashboard);
+  return dashboard;
+}
+
 /** Replaces a dashboard's widgets with the current default set (staff action). */
 export async function resetDashboardWidgets(dashboardId: string) {
   const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } });

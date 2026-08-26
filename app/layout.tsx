@@ -43,10 +43,9 @@ export default async function RootLayout({
               <div className="flex flex-col h-screen bg-gray-950 text-gray-100">
                 <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
                   <span className="font-bold text-sm tracking-tight text-white">ImpulseMotion</span>
-                  <div className="flex items-center gap-3">
-                    <AccountPicker userId={session?.userId ?? null} />
-                    {session ? <UserNav session={session} /> : null}
-                  </div>
+                  {/* No account picker for clients: the dashboard defines the
+                      account; switching brands happens on /d. */}
+                  {session ? <UserNav session={session} /> : null}
                 </header>
                 <main className="flex-1 overflow-auto min-h-0">{children}</main>
               </div>

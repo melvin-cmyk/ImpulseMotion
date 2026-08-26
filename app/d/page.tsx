@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { provisionDashboardsForUser } from "@/lib/dashboard-widgets";
+import { CreateDashboardForm } from "@/components/dashboard/create-form";
 
 /**
  * /d — dashboard entry point.
@@ -69,11 +70,14 @@ export default async function DashboardsIndex() {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-white">Dashboards clients</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Un dashboard par compte publicitaire — c&apos;est ce que voit le client en se connectant.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Dashboards clients</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Un dashboard par compte publicitaire — c&apos;est ce que voit le client en se connectant.
+          </p>
+        </div>
+        <CreateDashboardForm />
       </div>
 
       <div className="grid gap-3">

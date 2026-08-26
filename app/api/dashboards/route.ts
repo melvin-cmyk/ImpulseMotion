@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { isStaff } from "@/lib/dashboard-auth";
-import { provisionDashboardsForUser } from "@/lib/dashboard-widgets";
+import { provisionDashboardsForUser, createDashboardForUser } from "@/lib/dashboard-widgets";
 
 export async function GET(req: NextRequest) {
   const guard = await requireSession();
@@ -42,7 +42,22 @@ export async function POST(req: NextRequest) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return NextResponse.json({ error: "user not found" }, { status: 404 });
 
-  // Provisions one dashboard per ACL ad account (idempotent).
+  // Explicit creation: link a specific account (and its ACL grant) to a login.
+  if (body.metaAccountId || body.googleCustomerId) {
+    try {
+      const dashboard = await createDashboardForUser({
+        userId,
+        name: typeof body.name === "string" ? body.name : undefined,
+        metaAccountId: typeof body.metaAccountId === "string" ? body.metaAccountId : null,
+        googleCustomerId: typeof body.googleCustomerId === "string" ? body.googleCustomerId : null,
+      });
+      return NextResponse.json({ dashboard });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "creation failed" }, { status: 400 });
+    }
+  }
+
+  // Otherwise: provision one dashboard per ACL ad account (idempotent).
   const dashboards = await provisionDashboardsForUser(userId);
   return NextResponse.json({ dashboards, dashboard: dashboards[0] ?? null });
 }
