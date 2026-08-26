@@ -33,10 +33,10 @@ const navItems: NavItem[] = [
     match: (p) => p === "/" || p === "/cockpit" || p.startsWith("/me/") || p === "/portfolio" || p === "/dashboard",
   },
   {
-    href: "/client",
+    href: "/d",
     icon: Layers,
-    label: "Vue client",
-    match: (p) => p === "/client" || p.startsWith("/client/"),
+    label: "Dashboards clients",
+    match: (p) => p === "/d" || p.startsWith("/d/") || p === "/client" || p.startsWith("/client/"),
   },
   {
     href: "/creatives",

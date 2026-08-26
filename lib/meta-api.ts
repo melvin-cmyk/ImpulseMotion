@@ -395,6 +395,40 @@ export async function getAccountInsights(
   }
 }
 
+/** Day-by-day account-level insights (for dashboard time series). */
+export async function getAccountDailyInsights(
+  accessToken: string,
+  adAccountId: string,
+  timeRange: { since: string; until: string },
+): Promise<MetaAccountInsight[]> {
+  const accountId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+  const fields = [
+    "spend",
+    "impressions",
+    "clicks",
+    "ctr",
+    "actions",
+    "action_values",
+    "purchase_roas",
+  ].join(",");
+  try {
+    const data = await metaFetch<{ data: MetaAccountInsight[] }>(
+      `/${accountId}/insights`,
+      accessToken,
+      {
+        fields,
+        level: "account",
+        time_range: JSON.stringify(timeRange),
+        time_increment: "1",
+        limit: "100",
+      },
+    );
+    return data.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 export function getActionValue(

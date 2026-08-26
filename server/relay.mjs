@@ -346,12 +346,22 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "tool not allowed" }));
         return;
       }
+      // Callers may raise the timeout for slow n8n-backed tools (capped at 30s).
+      const timeoutMs = Math.min(30000, Math.max(2000, Number(body.timeoutMs) || 20000));
       try {
-        const { stdout, stderr } = await execFileAsync(
+        const { stdout } = await execFileAsync(
           "mcporter", ["call", body.tool, "--args", JSON.stringify(body.input || {}), "--output", "json"],
-          { timeout: 8000, cwd: "/root/ImpulseMotion" }
+          { timeout: timeoutMs, cwd: "/root/ImpulseMotion" }
         );
-        const result = JSON.parse(stdout);
+        let result;
+        try {
+          result = JSON.parse(stdout);
+        } catch {
+          // mcporter prints JS-notation (not JSON) when the tool itself errors
+          res.writeHead(502, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: `tool error: ${stdout.slice(0, 500)}` }));
+          return;
+        }
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ result }));
       } catch (err) {

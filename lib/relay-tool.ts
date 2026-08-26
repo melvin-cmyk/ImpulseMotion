@@ -20,7 +20,7 @@ export async function relayDirectTool(
       const res = await fetch(`${url}/api/tool`, {
         method: "POST",
         headers: relayHeaders(),
-        body: JSON.stringify({ tool, input }),
+        body: JSON.stringify({ tool, input, timeoutMs }),
         signal: AbortSignal.timeout(actualTimeout),
       });
       if (!res.ok) {

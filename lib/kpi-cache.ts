@@ -10,10 +10,27 @@ import { prisma } from "@/lib/prisma";
 
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
+// Coalesce concurrent fetches of the same key within this server instance —
+// widgets resolving in parallel would otherwise fire N identical API calls
+// before the first response lands in the cache.
+const inFlight = new Map<string, Promise<unknown>>();
+
 export async function cached<T>(
   key: string,
   fetcher: () => Promise<T>,
   ttlMs: number = DEFAULT_TTL_MS,
+): Promise<T> {
+  const pending = inFlight.get(key);
+  if (pending) return pending as Promise<T>;
+  const promise = cachedInner(key, fetcher, ttlMs).finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
+  return promise;
+}
+
+async function cachedInner<T>(
+  key: string,
+  fetcher: () => Promise<T>,
+  ttlMs: number,
 ): Promise<T> {
   try {
     const row = await prisma.kpiCache.findUnique({ where: { key } });

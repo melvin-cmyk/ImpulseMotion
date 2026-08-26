@@ -4,7 +4,9 @@ import { NextResponse } from "next/server";
 // Route surface reachable by the "client" role — the dashboard and the API it
 // needs, nothing else. Everything outside redirects to /client (pages) or 403s (APIs).
 const CLIENT_ALLOWED_PREFIXES = [
+  "/d",
   "/client",
+  "/api/dashboards",
   "/api/client",
   "/api/me/accounts",
   "/api/meta/accounts",
@@ -67,7 +69,7 @@ export default auth((req) => {
       if (pathname.startsWith("/api/")) {
         return NextResponse.json({ error: "forbidden" }, { status: 403 });
       }
-      return NextResponse.redirect(new URL("/client", req.url));
+      return NextResponse.redirect(new URL("/d", req.url));
     }
   }
 });

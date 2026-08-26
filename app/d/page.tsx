@@ -1,0 +1,103 @@
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { findOrCreateDashboard } from "@/lib/dashboard-widgets";
+
+/**
+ * /d — dashboard entry point.
+ * Clients: find-or-provision their dashboard, then redirect to it.
+ * Staff: list every client dashboard (provisioning shortcut per client).
+ */
+export default async function DashboardsIndex() {
+  const session = await auth();
+  if (!session?.userId) redirect("/login?callbackUrl=/d");
+
+  if (session.role === "client") {
+    const dashboard = await findOrCreateDashboard(session.userId);
+    redirect(`/d/${dashboard.id}`);
+  }
+
+  const [dashboards, clients] = await Promise.all([
+    prisma.dashboard.findMany({
+      include: {
+        user: { select: { id: true, email: true, name: true } },
+        _count: { select: { widgets: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.user.findMany({
+      where: { role: "client" },
+      select: { id: true, email: true, name: true, dashboards: { select: { id: true }, take: 1 } },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
+
+  const withoutDashboard = clients.filter((c) => c.dashboards.length === 0);
+
+  return (
+    <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
+      <div>
+        <h1 className="text-2xl font-bold text-white">Dashboards clients</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Le dashboard de pilotage que chaque client voit en se connectant.
+        </p>
+      </div>
+
+      <div className="grid gap-3">
+        {dashboards.map((d) => (
+          <Link
+            key={d.id}
+            href={`/d/${d.id}`}
+            className="flex items-center justify-between bg-gray-900 border border-gray-800 hover:border-violet-700 rounded-xl px-5 py-4 transition-colors"
+          >
+            <div>
+              <div className="text-sm font-semibold text-white">{d.user.name ?? d.user.email}</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {d.name} · {d._count.widgets} widgets
+                {d.metaAccountId ? ` · Meta ${d.metaAccountId}` : ""}
+                {d.googleCustomerId ? ` · Google ${d.googleCustomerId}` : ""}
+              </div>
+            </div>
+            <span className="text-gray-600 text-sm">→</span>
+          </Link>
+        ))}
+        {dashboards.length === 0 && (
+          <div className="text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-5 py-6">
+            Aucun dashboard pour l&apos;instant — ils sont créés automatiquement à la première
+            connexion d&apos;un client, ou via les boutons ci-dessous.
+          </div>
+        )}
+      </div>
+
+      {withoutDashboard.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-gray-300 mb-3">Clients sans dashboard</h2>
+          <div className="grid gap-2">
+            {withoutDashboard.map((c) => (
+              <form
+                key={c.id}
+                action={async () => {
+                  "use server";
+                  const s = await auth();
+                  if (!s?.userId || (s.role !== "admin" && s.role !== "consultant")) return;
+                  const d = await findOrCreateDashboard(c.id);
+                  redirect(`/d/${d.id}`);
+                }}
+                className="flex items-center justify-between bg-gray-900/60 border border-gray-800 rounded-xl px-5 py-3"
+              >
+                <span className="text-sm text-gray-300">{c.name ?? c.email}</span>
+                <button
+                  type="submit"
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+                >
+                  Créer le dashboard
+                </button>
+              </form>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

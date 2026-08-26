@@ -23,6 +23,7 @@ model User {
   reportSchedules ReportSchedule[]
   alertRules      AlertRule[]
   budgets         AccountBudget[]
+  dashboards      Dashboard[]
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 }
@@ -233,4 +234,49 @@ model KpiCache {
   createdAt DateTime @default(now())
 
   @@index([expiresAt])
+}
+
+// ── Client steering dashboards (Lot 3) ───────────────────────────────────────
+
+model Dashboard {
+  id               String            @id @default(cuid())
+  userId           String
+  name             String            @default("Pilotage")
+  metaAccountId    String?
+  googleCustomerId String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  widgets          DashboardWidget[]
+  threads          AssistantThread[]
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model DashboardWidget {
+  id          String    @id @default(cuid())
+  dashboardId String
+  type        String
+  title       String?
+  position    Int       @default(0)
+  width       String    @default("half")
+  config      String    @default("{}") @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId, position])
+}
+
+// Persisted consultant⇄AI conversation per dashboard (Lot 4)
+model AssistantThread {
+  id          String    @id @default(cuid())
+  dashboardId String
+  userId      String
+  messages    String    @default("[]") @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId, updatedAt])
 }
