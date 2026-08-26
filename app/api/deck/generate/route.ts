@@ -26,18 +26,7 @@ export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
 // ── Relay URL resolution (same pattern as data/route.ts) ──────────────────────
 
-const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
-const CONFIGURED_RELAY_URL = rawRelayUrl
-  ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
-  : null;
-
-const RELAY_FALLBACK_URL = "http://72.62.29.196:3457";
-// Try localhost first (fast fail when not running locally), then configured, then hardcoded public IP
-const RELAY_URLS_TO_TRY = [
-  "http://localhost:3457",
-  ...(CONFIGURED_RELAY_URL && CONFIGURED_RELAY_URL !== RELAY_FALLBACK_URL ? [CONFIGURED_RELAY_URL] : []),
-  RELAY_FALLBACK_URL,
-];
+import { RELAY_URLS as RELAY_URLS_TO_TRY } from "@/lib/relay-server";
 
 // ── Slide types ───────────────────────────────────────────────────────────────
 

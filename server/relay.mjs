@@ -16,7 +16,12 @@ const execFileAsync = promisify(execFile);
 
 const PORT = process.env.RELAY_PORT || 3457;
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514";
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "*").split(",");
+// No browser ever talks to the relay directly — only the Next.js backend does,
+// so cross-origin requests are denied unless explicitly configured.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
 const MCP_CONFIG = "/root/ImpulseMotion/config/mcp-claude.json";
 
 // Global whitelist — only servers declared here can ever be routed to the AI.
@@ -28,10 +33,14 @@ const ALLOWED_MCP_SERVERS = new Set([
   "mcp-google-analytics",
 ]);
 
-// Shared-secret guard for requests from the Next.js backend.
-// If RELAY_SHARED_SECRET is set, the relay refuses any /api/chat or /api/tool
-// request that doesn't present the matching Authorization: Bearer header.
+// Shared-secret guard for requests from the Next.js backend — mandatory.
+// Every endpoint (except /health) refuses requests that don't present the
+// matching Authorization: Bearer header.
 const RELAY_SHARED_SECRET = process.env.RELAY_SHARED_SECRET || "";
+if (!RELAY_SHARED_SECRET) {
+  console.error("[relay] FATAL: RELAY_SHARED_SECRET is required. Refusing to start in open mode.");
+  process.exit(1);
+}
 
 const SYSTEM_PROMPT = `Tu es l'assistant IA d'ImpulseMotion, une agence marketing digitale.
 Tu as accès aux données publicitaires de l'agence via des outils MCP (Meta Ads, Google Ads, Google Analytics).
@@ -269,19 +278,15 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
 
 // ── HTTP helpers ────────────────────────────────────────────────────────────
 function setCors(req, res) {
-  const origin = req.headers.origin || "*";
-  if (ALLOWED_ORIGINS.includes("*") || ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  } else {
-    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGINS[0]);
-  }
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) return; // deny: no CORS headers
+  res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
 function authorized(req) {
-  if (!RELAY_SHARED_SECRET) return true; // secret not configured → backward-compatible open mode
   const h = req.headers.authorization || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
   return m && m[1] === RELAY_SHARED_SECRET;
@@ -308,6 +313,11 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (url.pathname === "/api/tools" && req.method === "GET") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
       const tools = await getToolsList();
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ tools }));
@@ -368,9 +378,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (url.pathname === "/health") {
-      const tools = await getToolsList();
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", tools: tools.length, model: CLAUDE_MODEL }));
+      res.end(JSON.stringify({ status: "ok" }));
       return;
     }
 

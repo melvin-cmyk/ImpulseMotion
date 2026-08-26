@@ -26,19 +26,7 @@ import {
 
 export const maxDuration = 120; // Vercel Pro: allow up to 120s
 
-// Server-side: prefer RELAY_URL (server-only), fall back to NEXT_PUBLIC_RELAY_URL, then hardcoded public IP
-const rawRelayUrl = (process.env.RELAY_URL || process.env.NEXT_PUBLIC_RELAY_URL || "").trim();
-const CONFIGURED_RELAY_URL = rawRelayUrl
-  ? rawRelayUrl.startsWith("http") ? rawRelayUrl : `https://${rawRelayUrl}`
-  : null;
-
-const RELAY_FALLBACK_URL = "http://72.62.29.196:3457";
-// Try localhost first (when running locally), then configured URL, then hardcoded public IP
-const RELAY_URLS_TO_TRY = [
-  "http://localhost:3457",
-  ...(CONFIGURED_RELAY_URL && CONFIGURED_RELAY_URL !== RELAY_FALLBACK_URL ? [CONFIGURED_RELAY_URL] : []),
-  RELAY_FALLBACK_URL,
-];
+import { RELAY_URLS as RELAY_URLS_TO_TRY } from "@/lib/relay-server";
 
 // ── Relay helpers ─────────────────────────────────────────────────────────────
 

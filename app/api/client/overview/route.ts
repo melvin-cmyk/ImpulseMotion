@@ -343,6 +343,12 @@ export async function GET(req: NextRequest) {
   const since = url.searchParams.get("since") ?? offsetDate(-30);
   const until = url.searchParams.get("until") ?? offsetDate(0);
 
+  // Strict date shape — these values are interpolated into GAQL queries.
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  if (!DATE_RE.test(since) || !DATE_RE.test(until)) {
+    return NextResponse.json({ error: "since/until must be YYYY-MM-DD" }, { status: 400 });
+  }
+
   if (!metaAccountId) {
     return NextResponse.json({ error: "metaAccountId required" }, { status: 400 });
   }

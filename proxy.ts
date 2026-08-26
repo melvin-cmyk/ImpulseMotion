@@ -5,11 +5,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
-  if (process.env.DEV_AUTH_BYPASS === "1") {
-    return NextResponse.next();
-  }
-
-  const publicPaths = ["/login", "/api/auth", "/api/relay", "/api/cron", "/_next", "/favicon"];
+  const publicPaths = ["/login", "/api/auth", "/api/cron", "/_next", "/favicon"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   const isAdminPath = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");

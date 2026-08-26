@@ -12,6 +12,34 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { upgradeImageUrl, sniffImageSize, LOW_RES_THRESHOLD_PX } from "@/lib/image-upgrade";
+import { requireSession } from "@/lib/auth-helpers";
+
+// Only ad-platform CDNs may be proxied — anything else is an SSRF vector.
+const ALLOWED_HOST_SUFFIXES = [
+  ".fbcdn.net",
+  ".facebook.com",
+  ".fbsbx.com",
+  ".cdninstagram.com",
+  ".googleusercontent.com",
+  ".gstatic.com",
+  ".googlesyndication.com",
+  ".googlevideo.com",
+  ".tiktokcdn.com",
+  ".tiktokcdn-us.com",
+  ".byteoversea.com",
+];
+
+function isAllowedImageUrl(raw: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:") return false;
+  const host = parsed.hostname.toLowerCase();
+  return ALLOWED_HOST_SUFFIXES.some((s) => host.endsWith(s));
+}
 
 // Target size for the upscale pass — hero cards render at ~614px wide and
 // top-creative cards at ~352px. Giving them a ~1200px source avoids visible
@@ -55,8 +83,14 @@ async function upscaleIfSmall(
 }
 
 export async function GET(req: NextRequest) {
+  const authResult = await requireSession();
+  if ("error" in authResult) return authResult.error;
+
   const url = req.nextUrl.searchParams.get("url");
   if (!url) return NextResponse.json({ error: "Missing url param" }, { status: 400 });
+  if (!isAllowedImageUrl(url)) {
+    return NextResponse.json({ error: "URL host not allowed" }, { status: 403 });
+  }
 
   const format = req.nextUrl.searchParams.get("format"); // "base64" for JSON data URL
 

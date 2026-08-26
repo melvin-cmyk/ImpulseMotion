@@ -58,10 +58,10 @@ async function prismaSave(entry: DeckHistoryEntry): Promise<void> {
   });
 }
 
-async function prismaGet(clientId: string, limit = 12): Promise<DeckHistoryEntry[]> {
+async function prismaGet(clientId: string, limit = 12, forUserId?: string): Promise<DeckHistoryEntry[]> {
   const { prisma } = await import("@/lib/prisma");
   const rows = await (prisma as any).deckHistory.findMany({
-    where: { clientId },
+    where: { clientId, ...(forUserId ? { userId: forUserId } : {}) },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
@@ -110,12 +110,13 @@ export async function saveDeckHistory(entry: DeckHistoryEntry): Promise<void> {
   }
 }
 
-export async function getDeckHistory(clientId: string, limit = 12): Promise<DeckHistoryEntry[]> {
+export async function getDeckHistory(clientId: string, limit = 12, forUserId?: string): Promise<DeckHistoryEntry[]> {
   try {
-    return await prismaGet(clientId, limit);
+    return await prismaGet(clientId, limit, forUserId);
   } catch (err) {
     console.warn("[deck-history] Prisma get failed, falling back to memory:", err);
-    return memGet(clientId, limit);
+    const entries = memGet(clientId, limit);
+    return forUserId ? entries.filter((e) => e.userId === forUserId) : entries;
   }
 }
 

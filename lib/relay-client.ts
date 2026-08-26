@@ -1,52 +1,14 @@
 /**
  * Relay server client for ImpulseMotion AI chat.
  *
- * Strategy:
- * 1. Try http://localhost:3457 directly from the browser (CORS: * on the relay).
- *    This always works when the browser and relay are on the same machine.
- * 2. Try the public relay IP directly from the browser (CORS: * is enabled).
- * 3. Fall back to the server-side proxy /api/relay/chat.
- *
- * Detection is cached so it only happens once per page load.
+ * All browser traffic goes through the authenticated server-side proxy
+ * (/api/relay/*). The proxy enforces the session, the per-user MCP server
+ * allowlist and the account scope before anything reaches the relay — the
+ * browser must never talk to the relay directly.
  */
 
-const RELAY_DIRECT = "http://localhost:3457";
-const RELAY_PUBLIC_IP = "http://72.62.29.196:3457";
 const RELAY_PROXY_CHAT = "/api/relay/chat";
 const RELAY_PROXY_TOOLS = "/api/relay/tools";
-
-// null = unknown, "" = use proxy, "http://..." = use direct
-let _relayBase: string | null = null;
-
-/** Detect if the relay is reachable directly from the browser. Cached. */
-export async function detectRelayBase(): Promise<string> {
-  if (_relayBase !== null) return _relayBase;
-
-  // Try localhost first (fast path when browser and relay are co-located)
-  try {
-    const res = await fetch(`${RELAY_DIRECT}/api/tools`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    if (res.status < 500) {
-      _relayBase = RELAY_DIRECT;
-      return _relayBase;
-    }
-  } catch { /* connection refused or timeout */ }
-
-  // Try public IP directly (CORS: * enabled on relay)
-  try {
-    const res = await fetch(`${RELAY_PUBLIC_IP}/api/tools`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (res.status < 500) {
-      _relayBase = RELAY_PUBLIC_IP;
-      return _relayBase;
-    }
-  } catch { /* unreachable */ }
-
-  _relayBase = ""; // use server proxy
-  return _relayBase;
-}
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -109,10 +71,7 @@ export async function streamChat(
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal
 ): Promise<void> {
-  const base = await detectRelayBase();
-  const url = base ? `${base}/api/chat` : RELAY_PROXY_CHAT;
-
-  const res = await fetch(url, {
+  const res = await fetch(RELAY_PROXY_CHAT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
@@ -127,10 +86,7 @@ export async function streamChat(
 }
 
 export async function getTools(): Promise<{ server: string; name: string; description: string }[]> {
-  const base = await detectRelayBase();
-  const url = base ? `${base}/api/tools` : RELAY_PROXY_TOOLS;
-
-  const res = await fetch(url);
+  const res = await fetch(RELAY_PROXY_TOOLS);
   if (!res.ok) throw new Error(`Failed to get tools: ${res.status}`);
   const data = await res.json();
   return data.tools;
