@@ -3,6 +3,8 @@
  * Docs: https://ads.tiktok.com/marketing_api/docs
  */
 
+import { DEFAULT_AOV } from "@/lib/meta-api";
+
 const TIKTOK_API_BASE = "https://business-api.tiktok.com/open_api/v1.3";
 
 export function getTikTokSystemToken(): string {
@@ -191,8 +193,9 @@ export async function getTikTokDailyInsights(
 export function computeTikTokRoas(insight: TikTokAdInsight): number {
   const conversions = parseFloat(insight.conversions ?? "0");
   const spend = parseFloat(insight.spend ?? "0");
-  // Estimate revenue assuming average order value of $20
-  const estimatedRevenue = conversions * 20;
+  // TikTok reporting here has no tracked purchase value — this is always an
+  // AOV estimation, aligned with DEFAULT_AOV in lib/meta-api.ts.
+  const estimatedRevenue = conversions * DEFAULT_AOV;
   return spend > 0 ? Math.round((estimatedRevenue / spend) * 100) / 100 : 0;
 }
 

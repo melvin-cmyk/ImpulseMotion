@@ -3,8 +3,9 @@ import {
   getAccountInsights,
   getMetaSystemToken,
   getActionValue,
-  computeRoas,
+  computeRevenue,
 } from "@/lib/meta-api";
+import { getAccountInsightsCached } from "@/lib/insights";
 import { computePacingBatch } from "@/lib/budgets";
 
 /**
@@ -63,8 +64,8 @@ function computeFromInsight(insight: Awaited<ReturnType<typeof getAccountInsight
   if (!insight) return { spend: 0, roas: 0, cpa: 0, ctr: 0, frequency: 0 };
   const spend = parseFloat(insight.spend ?? "0");
   const purchases = getActionValue(insight.actions, "purchase");
-  const purchaseValue = getActionValue(insight.actions, "purchase") * 20;
-  const roas = spend > 0 ? Math.round((purchaseValue / spend) * 100) / 100 : 0;
+  const { revenue } = computeRevenue(insight);
+  const roas = spend > 0 ? Math.round((revenue / spend) * 100) / 100 : 0;
   const cpa = purchases > 0 ? Math.round((spend / purchases) * 100) / 100 : 0;
   const ctr = parseFloat(insight.ctr ?? "0");
   const frequency = parseFloat(insight.frequency ?? "0");
@@ -77,11 +78,9 @@ export async function fetchMetricsForAccount(
 ): Promise<{ current: ComputedMetrics; previous: ComputedMetrics }> {
   const token = getMetaSystemToken();
   const [currentInsight, previousInsight] = await Promise.all([
-    getAccountInsights(token, accountId, windowToRange(window)),
-    getAccountInsights(token, accountId, prevWindowRange(window)),
+    getAccountInsightsCached(token, accountId, windowToRange(window)),
+    getAccountInsightsCached(token, accountId, prevWindowRange(window)),
   ]);
-  // computeRoas only kept to silence unused import warning when this lib grows
-  void computeRoas;
   return {
     current: computeFromInsight(currentInsight),
     previous: computeFromInsight(previousInsight),

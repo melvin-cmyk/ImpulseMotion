@@ -35,6 +35,8 @@ export interface MetaCreativeInsight {
   cpc: string;
   cpm: string;
   actions?: Array<{ action_type: string; value: string }>;
+  action_values?: Array<{ action_type: string; value: string }>;
+  purchase_roas?: Array<{ action_type: string; value: string }>;
   cost_per_action_type?: Array<{ action_type: string; value: string }>;
   video_play_actions?: Array<{ action_type: string; value: string }>;
   video_thruplay_watched_actions?: Array<{ action_type: string; value: string }>;
@@ -73,14 +75,27 @@ async function metaFetch<T>(
     url.searchParams.set(k, v);
   }
 
-  const res = await fetch(url.toString());
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      err?.error?.message ?? `Meta API error ${res.status}`
-    );
+  // Retry transient failures (network, 5xx, rate limit) with backoff.
+  const MAX_ATTEMPTS = 3;
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let retryable = true;
+    try {
+      const res = await fetch(url.toString());
+      if (res.ok) return res.json();
+      const err = await res.json().catch(() => ({}));
+      const message = (err as { error?: { message?: string } })?.error?.message ?? `Meta API error ${res.status}`;
+      retryable = res.status === 429 || res.status >= 500;
+      lastError = new Error(message);
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+    }
+    if (!retryable) break;
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((r) => setTimeout(r, 500 * 2 ** (attempt - 1)));
+    }
   }
-  return res.json();
+  throw lastError ?? new Error("Meta API unreachable");
 }
 
 export interface MetaCampaign {
@@ -166,6 +181,8 @@ export async function getAdInsights(
     "cpc",
     "cpm",
     "actions",
+    "action_values",
+    "purchase_roas",
     "cost_per_action_type",
     "video_play_actions",
     "video_thruplay_watched_actions",
@@ -328,6 +345,8 @@ export interface MetaAccountInsight {
   reach?: string;
   frequency?: string;
   actions?: Array<{ action_type: string; value: string }>;
+  action_values?: Array<{ action_type: string; value: string }>;
+  purchase_roas?: Array<{ action_type: string; value: string }>;
   cost_per_action_type?: Array<{ action_type: string; value: string }>;
   date_start: string;
   date_stop: string;
@@ -348,6 +367,8 @@ export async function getAccountInsights(
     "reach",
     "frequency",
     "actions",
+    "action_values",
+    "purchase_roas",
     "cost_per_action_type",
   ].join(",");
   const params: Record<string, string> = {
@@ -383,8 +404,53 @@ export function getActionValue(
   return parseFloat(actions?.find((a) => a.action_type === type)?.value ?? "0");
 }
 
-export function computeRoas(insight: MetaCreativeInsight): number {
-  const revenue = getActionValue(insight.actions, "purchase") * 20; // assume $20 avg order value if no revenue data
+/** Default average order value used ONLY when the account doesn't track purchase value. */
+export const DEFAULT_AOV = 20;
+
+/** Purchase action types that carry a tracked monetary value, most canonical first. */
+const PURCHASE_VALUE_TYPES = [
+  "omni_purchase",
+  "purchase",
+  "offsite_conversion.fb_pixel_purchase",
+  "onsite_web_purchase",
+];
+
+export interface RevenueResult {
+  revenue: number;
+  /** true when the value is `purchases × AOV` because the account tracks no purchase value */
+  estimated: boolean;
+}
+
+/**
+ * Single source of truth for Meta revenue.
+ * Prefers the tracked purchase value (`action_values`), then Meta's own
+ * `purchase_roas × spend`; only when neither exists does it fall back to
+ * `purchases × aov` and flags the result as estimated.
+ */
+export function computeRevenue(
+  insight: Pick<MetaCreativeInsight, "actions" | "action_values" | "purchase_roas" | "spend">,
+  aov: number = DEFAULT_AOV,
+): RevenueResult {
+  for (const type of PURCHASE_VALUE_TYPES) {
+    const v = getActionValue(insight.action_values, type);
+    if (v > 0) return { revenue: v, estimated: false };
+  }
+  const spend = parseFloat(insight.spend ?? "0") || 0;
+  for (const type of PURCHASE_VALUE_TYPES) {
+    const r = getActionValue(insight.purchase_roas, type);
+    if (r > 0 && spend > 0) return { revenue: r * spend, estimated: false };
+  }
+  const purchases =
+    getActionValue(insight.actions, "omni_purchase") ||
+    getActionValue(insight.actions, "purchase");
+  return { revenue: purchases * aov, estimated: true };
+}
+
+export function computeRoas(
+  insight: MetaCreativeInsight,
+  aov: number = DEFAULT_AOV,
+): number {
+  const { revenue } = computeRevenue(insight, aov);
   const spend = parseFloat(insight.spend);
   return spend > 0 ? Math.round((revenue / spend) * 100) / 100 : 0;
 }

@@ -9,7 +9,9 @@ import {
   computeRoas,
   computeCpa,
   getActionValue,
+  computeRevenue,
 } from "@/lib/meta-api";
+import { getAccountInsightsCached } from "@/lib/insights";
 import { assertAccountAllowed } from "@/lib/acl";
 import { relayDirectTool } from "@/lib/relay-tool";
 
@@ -74,7 +76,7 @@ async function fetchMetaSide(
     const token = getMetaSystemToken();
     const range = { since, until };
     const [acct, ads, insights] = await Promise.all([
-      getAccountInsights(token, accountId, range).catch(() => null),
+      getAccountInsightsCached(token, accountId, range).catch(() => null),
       getAds(token, accountId, 50).catch(() => []),
       getAdInsights(token, accountId, range, 50).catch(() => []),
     ]);
@@ -83,13 +85,7 @@ async function fetchMetaSide(
     const impressions = toNum(acct?.impressions);
     const clicks = toNum(acct?.clicks);
     const purchases = acct ? getActionValue(acct.actions, "purchase") : 0;
-    // Meta returns purchase count; revenue we approximate from purchase value
-    // when present, else fall back to count × AOV proxy (20€) consistent with
-    // /api/me/accounts/preview.
-    const purchaseValue = acct
-      ? toNum(acct.actions?.find((a) => a.action_type === "purchase_value")?.value) ||
-        getActionValue(acct.actions, "purchase") * 20
-      : 0;
+    const purchaseValue = acct ? computeRevenue(acct).revenue : 0;
 
     const adsById = new Map(ads.map((a) => [a.id, a]));
     const topCreatives = [...insights]

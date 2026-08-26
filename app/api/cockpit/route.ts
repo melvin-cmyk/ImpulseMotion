@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { getAccountInsights, getMetaSystemToken, getActionValue } from "@/lib/meta-api";
+import { getMetaSystemToken, computeRevenue } from "@/lib/meta-api";
+import { getAccountInsightsCached } from "@/lib/insights";
+import { getAovMap, aovFor } from "@/lib/account-settings";
 import { computePacingBatch } from "@/lib/budgets";
 
 export const maxDuration = 60;
@@ -81,16 +83,21 @@ export async function GET() {
     },
   });
 
+  const allMetaAccountIds = users.flatMap((u) =>
+    u.adAccounts.filter((a) => a.platform === "meta").map((a) => a.accountId),
+  );
+  const aovMap = await getAovMap("meta", allMetaAccountIds);
+
   const clients = await Promise.all(
     users.map(async (user) => {
       const accounts = await Promise.all(
         user.adAccounts
           .filter((a) => a.platform === "meta")
           .map(async (a) => {
-            const insight = await getAccountInsights(token, a.accountId, range);
+            const insight = await getAccountInsightsCached(token, a.accountId, range);
             const spend = parseFloat(insight?.spend ?? "0");
-            const purchaseValue = getActionValue(insight?.actions, "purchase") * 20;
-            const roas = spend > 0 ? Math.round((purchaseValue / spend) * 100) / 100 : 0;
+            const revenue = insight ? computeRevenue(insight, aovFor(aovMap, a.accountId)).revenue : 0;
+            const roas = spend > 0 ? Math.round((revenue / spend) * 100) / 100 : 0;
             const ctr = parseFloat(insight?.ctr ?? "0");
             const frequency = parseFloat(insight?.frequency ?? "0");
             return {

@@ -2,9 +2,12 @@ import {
   getAds,
   getAdInsights,
   getAccountInsights,
-  getActionValue,
   getMetaSystemToken,
   computeRoas,
+  computeRevenue,
+} from "@/lib/meta-api";
+import { getAccountInsightsCached } from "@/lib/insights";
+import {
   type MetaAd,
   type MetaCreativeInsight,
 } from "@/lib/meta-api";
@@ -51,8 +54,8 @@ function accountSpend(insight: Awaited<ReturnType<typeof getAccountInsights>>): 
 function accountRoas(insight: Awaited<ReturnType<typeof getAccountInsights>>): number {
   if (!insight) return 0;
   const spend = parseFloat(insight.spend);
-  const purchaseValue = getActionValue(insight.actions, "purchase") * 20;
-  return spend > 0 ? Math.round((purchaseValue / spend) * 100) / 100 : 0;
+  const { revenue } = computeRevenue(insight);
+  return spend > 0 ? Math.round((revenue / spend) * 100) / 100 : 0;
 }
 
 function accountFrequency(insight: Awaited<ReturnType<typeof getAccountInsights>>): number {
@@ -77,8 +80,8 @@ export async function detectAccountChanges(
   const previousRange = { since: offsetDate(-60), until: offsetDate(-31) };
 
   const [currentAccount, previousAccount, currentAds, currentInsights, previousInsights] = await Promise.all([
-    getAccountInsights(token, accountId, currentRange).catch(() => null),
-    getAccountInsights(token, accountId, previousRange).catch(() => null),
+    getAccountInsightsCached(token, accountId, currentRange).catch(() => null),
+    getAccountInsightsCached(token, accountId, previousRange).catch(() => null),
     getAds(token, accountId, 100).catch((): MetaAd[] => []),
     getAdInsights(token, accountId, currentRange, 100).catch((): MetaCreativeInsight[] => []),
     getAdInsights(token, accountId, previousRange, 100).catch((): MetaCreativeInsight[] => []),

@@ -1,4 +1,5 @@
-import { getAccountInsights, getMetaSystemToken } from "@/lib/meta-api";
+import { getMetaSystemToken } from "@/lib/meta-api";
+import { getAccountInsightsCached } from "@/lib/insights";
 
 export interface PacingResult {
   accountId: string;
@@ -50,7 +51,7 @@ export async function computePacing(
   const daysRemaining = Math.max(0, daysInMonth - daysElapsed);
 
   const token = getMetaSystemToken();
-  const insight = await getAccountInsights(token, accountId, {
+  const insight = await getAccountInsightsCached(token, accountId, {
     since: fmt(start),
     until: fmt(now > end ? end : now),
   }).catch(() => null);

@@ -1,5 +1,5 @@
 import { METRIC_LABELS, ReportMetric } from "@/lib/mock-reports";
-import { mockCreatives } from "@/lib/mock-data";
+import type { Creative } from "@/lib/mock-data";
 import { prisma } from "@/lib/prisma";
 import { Zap } from "lucide-react";
 import { notFound } from "next/navigation";
@@ -8,7 +8,7 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function metricValue(creative: (typeof mockCreatives)[0], metric: ReportMetric): string {
+function metricValue(creative: Creative, metric: ReportMetric): string {
   switch (metric) {
     case "roas": return `${creative.roas}x`;
     case "cpa": return `$${creative.cpa}`;
@@ -19,7 +19,7 @@ function metricValue(creative: (typeof mockCreatives)[0], metric: ReportMetric):
   }
 }
 
-function metricColor(creative: (typeof mockCreatives)[0], metric: ReportMetric): string {
+function metricColor(creative: Creative, metric: ReportMetric): string {
   if (metric === "roas") {
     return creative.roas >= 3 ? "text-green-400" : creative.roas >= 2 ? "text-yellow-400" : "text-red-400";
   }
@@ -36,9 +36,11 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
 
   if (!dbReport) notFound();
 
-  const creativeIds: string[] = JSON.parse(dbReport.creativeIds);
   const metrics: ReportMetric[] = JSON.parse(dbReport.metrics);
-  const creatives = mockCreatives.filter((c) => creativeIds.includes(c.id));
+  // Feature frozen: shared reports used to render demo creatives, which meant
+  // showing fictional data on a public page. Until reports are rebuilt on real
+  // insights, the page renders an explicit empty state instead.
+  const creatives: Creative[] = [];
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -106,6 +108,13 @@ export default async function SharePage({ params }: { params: Promise<{ id: stri
                 </tr>
               </thead>
               <tbody>
+                {creatives.length === 0 && (
+                  <tr>
+                    <td colSpan={3 + metrics.length} className="px-5 py-8 text-center text-gray-500">
+                      Les données de ce rapport ne sont plus disponibles. Contactez votre consultant pour une version à jour.
+                    </td>
+                  </tr>
+                )}
                 {creatives
                   .sort((a, b) => b.roas - a.roas)
                   .map((c) => (

@@ -208,3 +208,29 @@ model AlertEvent {
   @@index([ruleId, triggeredAt])
   @@index([userId, triggeredAt])
 }
+
+// Per-ad-account settings shared by all users (AOV fallback for accounts that
+// don't track purchase value, display currency).
+model AccountSetting {
+  id        String   @id @default(cuid())
+  platform  String   @default("meta")
+  accountId String
+  aov       Float?
+  currency  String   @default("EUR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([platform, accountId])
+}
+
+// Server-side KPI cache (insights snapshots) — avoids refetching Meta/Google
+// on every render. Rows are upserted by key and expire via expiresAt.
+model KpiCache {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  payload   String   @db.Text
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}

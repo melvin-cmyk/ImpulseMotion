@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import {
-  getAccountInsights,
   getAdAccounts,
   getMetaSystemToken,
-  getActionValue,
+  computeRevenue,
 } from "@/lib/meta-api";
+import { getAccountInsightsCached } from "@/lib/insights";
 
 const META_API_BASE = "https://graph.facebook.com/v22.0";
 
@@ -80,13 +80,13 @@ export async function GET() {
   const enriched: PreviewAccount[] = await Promise.all(
     baseAccounts.map(async (a) => {
       const [insight, meta] = await Promise.all([
-        getAccountInsights(token, a.id, range),
+        getAccountInsightsCached(token, a.id, range),
         // Only resolve name from Meta if we don't already have it (admin path)
         a.name ? Promise.resolve(null) : fetchAccountName(a.id, token),
       ]);
       const spend = Math.round(parseFloat(insight?.spend ?? "0"));
-      const purchaseValue = getActionValue(insight?.actions, "purchase") * 20;
-      const roas = spend > 0 ? Math.round((purchaseValue / spend) * 100) / 100 : 0;
+      const revenue = insight ? computeRevenue(insight).revenue : 0;
+      const roas = spend > 0 ? Math.round((revenue / spend) * 100) / 100 : 0;
 
       const idNorm = a.id.replace(/^act_/, "");
       const alertCount =
