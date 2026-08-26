@@ -36,6 +36,16 @@ function rangeFor(days: number): { since: string; until: string } {
   return { since: fmt(since), until: fmt(until) };
 }
 
+/** Previous window of equal length — used to seed the custom comparison inputs. */
+function prevWindowOf(since: string, until: string): { since: string; until: string } {
+  const DAY = 86400000;
+  const s = Date.parse(since + "T00:00:00Z");
+  const u = Date.parse(until + "T00:00:00Z");
+  const daysLen = Math.max(1, Math.round((u - s) / DAY) + 1);
+  const fmt = (ms: number) => new Date(ms).toISOString().split("T")[0];
+  return { since: fmt(s - daysLen * DAY), until: fmt(s - DAY) };
+}
+
 export default function DashboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
@@ -53,6 +63,11 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
     [isCustom, sinceParam, untilParam, days],
   );
 
+  const compareMode = searchParams.get("compare") ?? "prev";
+  const cmpSince = searchParams.get("cmpSince") ?? "";
+  const cmpUntil = searchParams.get("cmpUntil") ?? "";
+  const isCmpCustom = compareMode === "custom" && DATE_RE.test(cmpSince) && DATE_RE.test(cmpUntil) && cmpSince <= cmpUntil;
+
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,11 +77,17 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   const [editingWidget, setEditingWidget] = useState<ResolvedWidget | null>(null);
   const [showCopilot, setShowCopilot] = useState(false);
 
+  const compareQuery =
+    compareMode === "none" ? "&compare=none"
+    : compareMode === "year" ? "&compare=year"
+    : isCmpCustom ? `&compare=custom&cmpSince=${cmpSince}&cmpUntil=${cmpUntil}`
+    : "";
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/dashboards/${id}?since=${range.since}&until=${range.until}`);
+      const res = await fetch(`/api/dashboards/${id}?since=${range.since}&until=${range.until}${compareQuery}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `Erreur ${res.status}`);
@@ -77,20 +98,49 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
     } finally {
       setLoading(false);
     }
-  }, [id, range.since, range.until]);
+  }, [id, range.since, range.until, compareQuery]);
 
   useEffect(() => { load(); }, [load]);
 
   const widgets = payload?.widgets ?? [];
   const orderedIds = widgets.map((w) => w.id);
 
+  function navigate(overrides: {
+    days?: number; since?: string; until?: string;
+    compare?: string; cmpSince?: string; cmpUntil?: string;
+  }) {
+    const q = new URLSearchParams();
+    // period
+    if (overrides.since && overrides.until) {
+      q.set("since", overrides.since);
+      q.set("until", overrides.until);
+    } else if (overrides.days) {
+      q.set("days", String(overrides.days));
+    } else if (isCustom) {
+      q.set("since", range.since);
+      q.set("until", range.until);
+    } else {
+      q.set("days", String(days));
+    }
+    // comparison
+    const mode = overrides.compare ?? compareMode;
+    if (mode !== "prev") q.set("compare", mode);
+    if (mode === "custom") {
+      const cs = overrides.cmpSince ?? cmpSince;
+      const cu = overrides.cmpUntil ?? cmpUntil;
+      if (cs) q.set("cmpSince", cs);
+      if (cu) q.set("cmpUntil", cu);
+    }
+    router.replace(`/d/${id}?${q.toString()}`);
+  }
+
   function setDays(d: number) {
-    router.replace(`/d/${id}?days=${d}`);
+    navigate({ days: d });
   }
 
   function setCustomRange(since: string, until: string) {
     if (!DATE_RE.test(since) || !DATE_RE.test(until) || since > until) return;
-    router.replace(`/d/${id}?since=${since}&until=${until}`);
+    navigate({ since, until });
   }
 
   const onMutated = () => {
@@ -148,6 +198,45 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
               className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
             />
           </div>
+          <select
+            value={compareMode}
+            onChange={(e) => {
+              const m = e.target.value;
+              if (m === "custom") {
+                const seed = prevWindowOf(range.since, range.until);
+                navigate({ compare: "custom", cmpSince: seed.since, cmpUntil: seed.until });
+              } else {
+                navigate({ compare: m });
+              }
+            }}
+            className="px-2 py-1.5 rounded-lg text-xs bg-gray-900 border border-gray-800 text-gray-300 focus:border-violet-500 focus:outline-none"
+            title="Période de comparaison"
+          >
+            <option value="prev">vs période précédente</option>
+            <option value="year">vs année précédente</option>
+            <option value="custom">vs période au choix</option>
+            <option value="none">sans comparaison</option>
+          </select>
+          {compareMode === "custom" && (
+            <div className="flex items-center gap-1 rounded-lg border border-gray-800 bg-gray-900 px-2 py-1">
+              <span className="text-[10px] uppercase text-gray-600 font-semibold">vs</span>
+              <input
+                type="date"
+                value={cmpSince}
+                max={cmpUntil || undefined}
+                onChange={(e) => navigate({ compare: "custom", cmpSince: e.target.value })}
+                className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
+              />
+              <span className="text-gray-600 text-xs">→</span>
+              <input
+                type="date"
+                value={cmpUntil}
+                min={cmpSince || undefined}
+                onChange={(e) => navigate({ compare: "custom", cmpUntil: e.target.value })}
+                className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
+              />
+            </div>
+          )}
           {isStaff && (
             <button
               type="button"

@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor } from "@/lib/dashboard-auth";
-import { resolveWidgets, grantDashboardAccess } from "@/lib/dashboard-widgets";
+import { resolveWidgets, grantDashboardAccess, prevRange, type CompareRange } from "@/lib/dashboard-widgets";
 
 export const maxDuration = 60;
 
@@ -37,7 +37,31 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "since/until must be YYYY-MM-DD" }, { status: 400 });
   }
 
-  const widgets = await resolveWidgets(dashboard, dashboard.widgets, since, until);
+  // Comparison window: prev (default) | year | none | custom (cmpSince/cmpUntil)
+  const compareParam = req.nextUrl.searchParams.get("compare") ?? "prev";
+  const cmpSince = req.nextUrl.searchParams.get("cmpSince");
+  const cmpUntil = req.nextUrl.searchParams.get("cmpUntil");
+  let compare: CompareRange | null | undefined = undefined;
+  if (compareParam === "none") {
+    compare = null;
+  } else if (compareParam === "year") {
+    const shift = (d: string) => {
+      const [y, rest] = [d.slice(0, 4), d.slice(4)];
+      const shifted = `${Number(y) - 1}${rest}`;
+      // clamp Feb 29 → Feb 28 on non-leap years
+      return Number.isNaN(Date.parse(shifted + "T00:00:00Z")) ? `${Number(y) - 1}-02-28` : shifted;
+    };
+    compare = { since: shift(since), until: shift(until), kind: "year" };
+  } else if (compareParam === "custom") {
+    if (!cmpSince || !cmpUntil || !DATE_RE.test(cmpSince) || !DATE_RE.test(cmpUntil) || cmpSince > cmpUntil) {
+      return NextResponse.json({ error: "cmpSince/cmpUntil must be valid YYYY-MM-DD" }, { status: 400 });
+    }
+    compare = { since: cmpSince, until: cmpUntil, kind: "custom" };
+  } else {
+    compare = { ...prevRange(since, until), kind: "prev" };
+  }
+
+  const widgets = await resolveWidgets(dashboard, dashboard.widgets, since, until, compare);
   return NextResponse.json({
     dashboard: {
       id: dashboard.id,

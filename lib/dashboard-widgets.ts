@@ -185,6 +185,13 @@ async function fetchGoogleGaqlRows(
 
 // ── Widget resolution ────────────────────────────────────────────────────────
 
+export interface CompareRange {
+  since: string;
+  until: string;
+  /** prev | year | custom — drives the label shown under KPI deltas */
+  kind: string;
+}
+
 interface ResolveContext {
   binding: DashboardBinding;
   ownerId: string;
@@ -192,6 +199,8 @@ interface ResolveContext {
   until: string;
   token: string;
   aov: number;
+  /** null = comparison disabled */
+  compare: CompareRange | null;
 }
 
 function metaMetricValue(
@@ -275,7 +284,7 @@ async function kpiValue(
 }
 
 /** Previous window of the same length, ending the day before `since`. */
-function prevRange(since: string, until: string): { since: string; until: string } {
+export function prevRange(since: string, until: string): { since: string; until: string } {
   const DAY = 86400000;
   const s = Date.parse(since + "T00:00:00Z");
   const u = Date.parse(until + "T00:00:00Z");
@@ -291,17 +300,20 @@ async function resolveKpi(cfg: Record<string, unknown>, ctx: ResolveContext) {
   const source = String(cfg.source ?? "meta");
   const current = await kpiValue(metric, source, ctx, ctx.since, ctx.until);
 
-  // Previous-period comparison — best effort, never fails the widget.
+  // Comparison window (configurable) — best effort, never fails the widget.
   let previous: number | null = null;
   let deltaPct: number | null = null;
-  try {
-    const prev = prevRange(ctx.since, ctx.until);
-    const prevVal = await kpiValue(metric, source, ctx, prev.since, prev.until);
-    previous = Math.round(prevVal.value * 100) / 100;
-    if (prevVal.value > 0) {
-      deltaPct = Math.round(((current.value - prevVal.value) / prevVal.value) * 1000) / 10;
-    }
-  } catch { /* comparison is optional */ }
+  let compareKind: string | null = null;
+  if (ctx.compare) {
+    try {
+      const prevVal = await kpiValue(metric, source, ctx, ctx.compare.since, ctx.compare.until);
+      previous = Math.round(prevVal.value * 100) / 100;
+      compareKind = ctx.compare.kind;
+      if (prevVal.value > 0) {
+        deltaPct = Math.round(((current.value - prevVal.value) / prevVal.value) * 1000) / 10;
+      }
+    } catch { /* comparison is optional */ }
+  }
 
   return {
     metric,
@@ -309,6 +321,9 @@ async function resolveKpi(cfg: Record<string, unknown>, ctx: ResolveContext) {
     value: Math.round(current.value * 100) / 100,
     previous,
     deltaPct,
+    compareKind,
+    compareSince: ctx.compare?.since ?? null,
+    compareUntil: ctx.compare?.until ?? null,
     estimated: current.estimated,
   };
 }
@@ -552,6 +567,7 @@ export async function resolveWidgets(
   widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string }>,
   since: string,
   until: string,
+  compare?: CompareRange | null,
 ): Promise<ResolvedWidget[]> {
   if (!DATE_RE.test(since) || !DATE_RE.test(until)) {
     throw new Error("since/until must be YYYY-MM-DD");
@@ -559,7 +575,13 @@ export async function resolveWidgets(
   const binding = await resolveBinding(dashboard.userId, dashboard);
   const token = getMetaSystemToken();
   const aov = binding.metaAccountId ? await getAccountAov("meta", binding.metaAccountId) : 20;
-  const ctx: ResolveContext = { binding, ownerId: dashboard.userId, since, until, token, aov };
+  // undefined = default (previous window of equal length); null = disabled
+  const effectiveCompare: CompareRange | null =
+    compare === undefined ? { ...prevRange(since, until), kind: "prev" } : compare;
+  const ctx: ResolveContext = {
+    binding, ownerId: dashboard.userId, since, until, token, aov,
+    compare: effectiveCompare,
+  };
 
   return Promise.all(
     widgets.map(async (w): Promise<ResolvedWidget> => {

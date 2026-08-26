@@ -62,10 +62,27 @@ function deltaColor(metric: string, deltaPct: number): string {
   return "text-gray-400";
 }
 
+function fmtShortDate(iso: string): string {
+  const [, m, day] = iso.split("-");
+  return `${day}/${m}`;
+}
+
+function compareLabel(d: { compareKind?: string | null; compareSince?: string | null; compareUntil?: string | null }): string {
+  switch (d.compareKind) {
+    case "year": return "vs année préc.";
+    case "custom":
+      return d.compareSince && d.compareUntil
+        ? `vs ${fmtShortDate(d.compareSince)}→${fmtShortDate(d.compareUntil)}`
+        : "vs période comparée";
+    default: return "vs période préc.";
+  }
+}
+
 function KpiWidget({ widget }: { widget: ResolvedWidget }) {
   const d = widget.data as {
     metric: string; source: string; value: number; estimated: boolean;
     previous?: number | null; deltaPct?: number | null;
+    compareKind?: string | null; compareSince?: string | null; compareUntil?: string | null;
   };
   return (
     <div className="py-1">
@@ -78,7 +95,7 @@ function KpiWidget({ widget }: { widget: ResolvedWidget }) {
         {typeof d.deltaPct === "number" && (
           <span className={`font-semibold tabular-nums ${deltaColor(d.metric, d.deltaPct)}`}>
             {d.deltaPct >= 0 ? "▲" : "▼"} {Math.abs(d.deltaPct).toLocaleString("fr-FR")}%
-            <span className="text-gray-600 font-normal"> vs période préc.</span>
+            <span className="text-gray-600 font-normal"> {compareLabel(d)}</span>
           </span>
         )}
       </div>
