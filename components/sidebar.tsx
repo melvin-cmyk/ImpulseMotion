@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useSession } from "next-auth/react"
 import {
   Settings,
   Zap,
@@ -10,12 +11,24 @@ import {
   Bot,
   Activity,
   Layers,
+  Briefcase,
+  ShieldCheck,
+  BellRing,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// Top-level navigation — intentionally minimal. Sub-features live in a
-// contextual secondary nav (see SecondaryNav) so the rail stays uncluttered.
-type NavItem = { href: string; icon: React.ElementType; label: string; match?: (path: string) => boolean }
+// The rail is split into labeled sections so the boundary is obvious:
+// "Espace interne" = admin & consultants only; "Espace clients" = the exact
+// surface clients see when they log in (their dashboards, nothing else).
+// Clients never see this sidebar at all (they get the minimal client chrome).
+type NavItem = {
+  href: string
+  icon: React.ElementType
+  label: string
+  match?: (path: string) => boolean
+  adminOnly?: boolean
+}
+type NavSection = { label: string; hint?: string; items: NavItem[] }
 
 const ANALYSE_ROUTES = [
   "/creatives", "/launch", "/top-charts", "/compare", "/comparaisons",
@@ -25,73 +38,136 @@ const ANALYSE_ROUTES = [
 
 const DECK_ROUTES = ["/deck", "/create/weekly", "/create/monthly", "/reports"]
 
-const navItems: NavItem[] = [
+const NAV_SECTIONS: NavSection[] = [
   {
-    href: "/cockpit",
-    icon: Activity,
-    label: "Cockpit",
-    match: (p) => p === "/" || p === "/cockpit" || p.startsWith("/me/") || p === "/portfolio" || p === "/dashboard",
+    label: "Espace interne",
+    items: [
+      {
+        href: "/cockpit",
+        icon: Activity,
+        label: "Cockpit",
+        match: (p) => p === "/" || p === "/cockpit" || p.startsWith("/me/") || p === "/dashboard",
+      },
+      {
+        href: "/portfolio",
+        icon: Briefcase,
+        label: "Portfolio",
+        match: (p) => p === "/portfolio" || p.startsWith("/portfolio/"),
+      },
+      {
+        href: "/creatives",
+        icon: Sparkles,
+        label: "Analyse Ads",
+        match: (p) => ANALYSE_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
+      },
+      {
+        href: "/deck",
+        icon: Presentation,
+        label: "Deck Builder",
+        match: (p) => DECK_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
+      },
+      { href: "/ai", icon: Bot, label: "AI Assistant", match: (p) => p.startsWith("/ai") },
+    ],
   },
   {
-    href: "/d",
-    icon: Layers,
-    label: "Dashboards clients",
-    match: (p) => p === "/d" || p.startsWith("/d/") || p === "/client" || p.startsWith("/client/"),
+    label: "Espace clients",
+    hint: "Ce que voient vos clients",
+    items: [
+      {
+        href: "/d",
+        icon: Layers,
+        label: "Dashboards clients",
+        match: (p) => p === "/d" || p.startsWith("/d/") || p === "/client" || p.startsWith("/client/"),
+      },
+    ],
   },
   {
-    href: "/creatives",
-    icon: Sparkles,
-    label: "Analyse Ads",
-    match: (p) => ANALYSE_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
+    label: "Administration",
+    items: [
+      {
+        href: "/admin",
+        icon: ShieldCheck,
+        label: "Utilisateurs & accès",
+        match: (p) => p === "/admin" || p.startsWith("/admin/users"),
+        adminOnly: true,
+      },
+      {
+        href: "/admin/schedules",
+        icon: BellRing,
+        label: "Rapports & alertes",
+        match: (p) => p.startsWith("/admin/schedules") || p.startsWith("/admin/alerts"),
+      },
+      { href: "/settings", icon: Settings, label: "Réglages", match: (p) => p.startsWith("/settings") },
+    ],
   },
-  {
-    href: "/deck",
-    icon: Presentation,
-    label: "Deck Builder",
-    match: (p) => DECK_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
-  },
-  { href: "/ai", icon: Bot, label: "AI Assistant", match: (p) => p.startsWith("/ai") },
-  { href: "/settings", icon: Settings, label: "Réglages", match: (p) => p.startsWith("/settings") },
 ]
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Admin",
+  consultant: "Consultant",
+  client: "Client",
+}
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { data: session } = useSession()
+  const role = session?.role ?? "client"
+  const isAdmin = role === "admin"
 
   return (
-    <div className="w-52 bg-gray-950 border-r border-gray-800 flex flex-col py-4 px-3 gap-1 shrink-0">
-      <div className="flex items-center gap-2.5 px-2 mb-6">
+    <div className="w-52 bg-gray-950 border-r border-gray-800 flex flex-col py-4 px-3 gap-1 shrink-0 overflow-y-auto">
+      <div className="flex items-center gap-2.5 px-2 mb-4">
         <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-700 rounded-xl flex items-center justify-center shrink-0">
           <Zap className="w-5 h-5 text-white" />
         </div>
         <span className="text-sm font-semibold text-white tracking-tight">ImpulseMotion</span>
       </div>
 
-      <div className="flex flex-col gap-1">
-        {navItems.map(({ href, icon: Icon, label, match }) => {
-          const active = match ? match(pathname) : pathname === href
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                "flex items-center gap-3 h-10 px-3 rounded-xl text-sm font-medium transition-all duration-150",
-                active
-                  ? "bg-violet-600 text-white"
-                  : "text-gray-400 hover:text-gray-100 hover:bg-gray-800/70"
+      {NAV_SECTIONS.map((section) => {
+        const items = section.items.filter((it) => !it.adminOnly || isAdmin)
+        if (items.length === 0) return null
+        return (
+          <div key={section.label} className="mb-3">
+            <div className="px-2 mb-1">
+              <span className="text-[10px] uppercase tracking-wider text-gray-600 font-semibold">
+                {section.label}
+              </span>
+              {section.hint && (
+                <span className="block text-[10px] text-gray-700">{section.hint}</span>
               )}
-            >
-              <Icon className="w-5 h-5 shrink-0" />
-              <span className="truncate">{label}</span>
-            </Link>
-          )
-        })}
-      </div>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              {items.map(({ href, icon: Icon, label, match }) => {
+                const active = match ? match(pathname) : pathname === href
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={cn(
+                      "flex items-center gap-3 h-9 px-3 rounded-xl text-sm font-medium transition-all duration-150",
+                      active
+                        ? "bg-violet-600 text-white"
+                        : "text-gray-400 hover:text-gray-100 hover:bg-gray-800/70"
+                    )}
+                  >
+                    <Icon className="w-5 h-5 shrink-0" />
+                    <span className="truncate">{label}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
 
-      <div className="mt-auto flex items-center gap-2 px-2">
+      <div className="mt-auto flex items-center gap-2 px-2 pt-3">
         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center text-xs font-semibold text-white shrink-0">
-          IM
+          {(session?.user?.name ?? "IM").slice(0, 2).toUpperCase()}
         </div>
-        <span className="text-xs text-gray-500 truncate">Impulse Media</span>
+        <div className="min-w-0">
+          <div className="text-xs text-gray-400 truncate">{session?.user?.name ?? session?.user?.email ?? "Impulse Media"}</div>
+          <div className="text-[10px] text-violet-400 font-semibold uppercase tracking-wide">{ROLE_LABELS[role] ?? role}</div>
+        </div>
       </div>
     </div>
   )

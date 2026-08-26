@@ -225,7 +225,7 @@ export default function CockpitPage() {
       {/* KPI row */}
       <div className="grid grid-cols-4 gap-3">
         <Kpi
-          label={data.summary.isAdmin ? "Clients" : "Comptes"}
+          label={data.summary.isAdmin ? "Accès clients" : "Comptes"}
           value={data.summary.isAdmin ? data.summary.clientCount : data.summary.accountCount}
           icon={<Users className="w-4 h-4" />}
           accent="violet"
@@ -465,7 +465,7 @@ export default function CockpitPage() {
           <section className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
             <header className="px-4 py-3 border-b border-gray-800">
               <h2 className="text-sm font-semibold text-white">
-                {data.summary.isAdmin ? "Clients" : "Mes comptes"}
+                {data.summary.isAdmin ? "Accès clients (logins)" : "Mes comptes"}
               </h2>
             </header>
             <table className="w-full text-sm">
