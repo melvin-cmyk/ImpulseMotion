@@ -81,22 +81,45 @@ function compareLabel(d: { compareKind?: string | null; compareSince?: string | 
   }
 }
 
+/** A move of ±20% (or more) is what a consultant must not miss. */
+const BIG_MOVE_PCT = 20;
+
+/** Semantic color for the KPI value itself: only ROAS carries an absolute
+ *  judgement (≥2 healthy, <1 losing money) — other metrics are contextual. */
+function kpiValueColor(metric: string, value: number): string {
+  if (metric === "roas" && value > 0) {
+    if (value >= 2) return "text-emerald-400";
+    if (value < 1) return "text-red-400";
+  }
+  return "text-white";
+}
+
 function KpiWidget({ widget }: { widget: ResolvedWidget }) {
   const d = widget.data as {
     metric: string; source: string; value: number; estimated: boolean;
     previous?: number | null; deltaPct?: number | null;
     compareKind?: string | null; compareSince?: string | null; compareUntil?: string | null;
   };
+  const bigMove = typeof d.deltaPct === "number" && Math.abs(d.deltaPct) >= BIG_MOVE_PCT;
+  const color = typeof d.deltaPct === "number" ? deltaColor(d.metric, d.deltaPct) : "";
+  const bigBg = color.includes("emerald") ? "bg-emerald-950/60 border border-emerald-900/50"
+    : color.includes("red") ? "bg-red-950/60 border border-red-900/50"
+    : "bg-gray-800/60 border border-gray-700/50";
   return (
     <div className="py-1">
       <div className="flex items-baseline gap-2">
-        <span className="text-3xl font-bold text-white tabular-nums">{kpiDisplay(d.metric, d.value)}</span>
+        <span className={`text-3xl font-bold tabular-nums ${kpiValueColor(d.metric, d.value)}`}>
+          {kpiDisplay(d.metric, d.value)}
+        </span>
         {d.estimated && <Pill tone="amber">estimé</Pill>}
       </div>
       <div className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
         <span>{KPI_LABELS[d.metric] ?? d.metric} · {SOURCE_LABELS[d.source] ?? d.source}</span>
         {typeof d.deltaPct === "number" && (
-          <span className={`font-semibold tabular-nums ${deltaColor(d.metric, d.deltaPct)}`}>
+          <span
+            className={`font-semibold tabular-nums ${color} ${bigMove ? `px-1.5 py-0.5 rounded-md ${bigBg}` : ""}`}
+            title={bigMove ? "Variation importante" : undefined}
+          >
             {d.deltaPct >= 0 ? "▲" : "▼"} {Math.abs(d.deltaPct).toLocaleString("fr-FR")}%
             <span className="text-gray-600 font-normal"> {compareLabel(d)}</span>
           </span>
@@ -124,8 +147,9 @@ function DeltaCell({ deltaPct, goodUp }: { deltaPct: number | null; goodUp: bool
   const color =
     goodUp === null ? "text-gray-500"
     : (deltaPct >= 0) === goodUp ? "text-emerald-400" : "text-red-400";
+  const big = goodUp !== null && Math.abs(deltaPct) >= BIG_MOVE_PCT;
   return (
-    <span className={`block text-[10px] tabular-nums ${color}`}>
+    <span className={`block tabular-nums ${color} ${big ? "text-[11px] font-bold" : "text-[10px]"}`}>
       {deltaPct >= 0 ? "▲" : "▼"} {Math.abs(deltaPct).toLocaleString("fr-FR")}%
     </span>
   );
@@ -204,17 +228,24 @@ function TimeseriesWidget({ widget }: { widget: ResolvedWidget }) {
   );
 }
 
+/** Cell emphasis: a healthy ROAS pops green, money burned with zero return pops red. */
+function roasCellClass(v: number): string {
+  if (v >= 2) return "text-emerald-400 font-semibold";
+  if (v > 0 && v < 1) return "text-red-400";
+  return "";
+}
+
 function TableWidget({ widget }: { widget: ResolvedWidget }) {
   const d = widget.data as { kind: string; rows: Array<Record<string, unknown>> };
   if (!d.rows?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
-  const cols: Array<{ key: string; label: string; fmt?: (v: unknown) => string }> =
+  const cols: Array<{ key: string; label: string; fmt?: (v: unknown) => string; cellClass?: (row: Record<string, unknown>) => string }> =
     d.kind === "campaigns"
       ? [
           { key: "name", label: "Campagne" },
           { key: "spend", label: "Dépenses", fmt: (v) => eur(Number(v)) },
           { key: "clicks", label: "Clics", fmt: (v) => num(Number(v)) },
           { key: "conversions", label: "Conv." },
-          { key: "roas", label: "ROAS", fmt: (v) => `${Number(v).toFixed(2)}x` },
+          { key: "roas", label: "ROAS", fmt: (v) => `${Number(v).toFixed(2)}x`, cellClass: (row) => roasCellClass(Number(row.roas)) },
         ]
       : d.kind === "keywords"
         ? [
@@ -241,15 +272,24 @@ function TableWidget({ widget }: { widget: ResolvedWidget }) {
           </tr>
         </thead>
         <tbody>
-          {d.rows.map((row, ri) => (
-            <tr key={ri} className="border-b border-gray-800/40">
-              {cols.map((c, i) => (
-                <td key={c.key} className={`py-2 px-1 ${i === 0 ? "text-left text-gray-200 max-w-[220px] truncate" : "text-right text-gray-300 tabular-nums"}`}>
-                  {c.fmt ? c.fmt(row[c.key]) : String(row[c.key] ?? "—")}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {d.rows.map((row, ri) => {
+            // Money spent with zero conversions on the period — worth an alert tint.
+            const burning =
+              Number(row.spend ?? 0) > 50 && "conversions" in row && Number(row.conversions ?? 0) === 0;
+            return (
+              <tr key={ri} className={`border-b border-gray-800/40 ${burning ? "bg-red-950/25" : ""}`}>
+                {cols.map((c, i) => (
+                  <td
+                    key={c.key}
+                    className={`py-2 px-1 ${i === 0 ? "text-left text-gray-200 max-w-[220px] truncate" : "text-right text-gray-300 tabular-nums"} ${c.cellClass?.(row) ?? ""}`}
+                    title={burning && i === 0 ? "Dépense sans conversion sur la période" : undefined}
+                  >
+                    {c.fmt ? c.fmt(row[c.key]) : String(row[c.key] ?? "—")}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -282,7 +322,7 @@ function TopCreativesWidget({ widget }: { widget: ResolvedWidget }) {
             <div className="text-[11px] text-gray-400 truncate" title={c.name}>{c.name}</div>
             <div className="flex justify-between mt-1 text-[11px]">
               <span className="text-gray-500">{eur(c.spend)}</span>
-              <span className={c.roas >= 2 ? "text-emerald-400" : "text-gray-300"}>
+              <span className={c.roas >= 2 ? "text-emerald-400 font-semibold" : c.roas > 0 && c.roas < 1 ? "text-red-400" : "text-gray-300"}>
                 {c.roas.toFixed(1)}x{c.estimated ? "*" : ""}
               </span>
             </div>

@@ -342,6 +342,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
       {isStaff && showCopilot && payload && (
         <CopilotPanel
           dashboardId={payload.dashboard.id}
+          widgets={widgets}
           onApplied={load}
           onClose={() => setShowCopilot(false)}
         />

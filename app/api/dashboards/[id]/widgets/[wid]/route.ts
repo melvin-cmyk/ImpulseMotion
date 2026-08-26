@@ -26,7 +26,12 @@ export async function PATCH(
   if (Number.isInteger(body.position)) data.position = Number(body.position);
   if (body.config !== undefined) {
     try {
-      data.config = JSON.stringify(validateWidgetConfig(widget.type, body.config));
+      // Merge with the stored config so a partial patch (e.g. just {metric})
+      // doesn't silently reset the other fields to their defaults.
+      let existing: Record<string, unknown> = {};
+      try { existing = JSON.parse(widget.config || "{}"); } catch { /* keep {} */ }
+      const patch = body.config && typeof body.config === "object" ? body.config : {};
+      data.config = JSON.stringify(validateWidgetConfig(widget.type, { ...existing, ...patch }));
     } catch (e) {
       return NextResponse.json({ error: e instanceof Error ? e.message : "invalid config" }, { status: 400 });
     }
@@ -46,6 +51,11 @@ export async function DELETE(
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id, wid } = await params;
-  await prisma.dashboardWidget.deleteMany({ where: { id: wid, dashboardId: id } });
+  const { count } = await prisma.dashboardWidget.deleteMany({ where: { id: wid, dashboardId: id } });
+  if (count === 0) {
+    // Never report success for a no-op — the caller (human or copilot) would
+    // show "✓ Appliqué" while nothing changed.
+    return NextResponse.json({ error: "widget introuvable (déjà supprimé ?)" }, { status: 404 });
+  }
   return NextResponse.json({ ok: true });
 }

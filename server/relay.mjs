@@ -96,6 +96,10 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   });
+  // Flush headers + a first byte right away: proxies (and undici fetch with a
+  // headers-only timeout) must see the response before the CLI warms up.
+  res.flushHeaders?.();
+  res.write(": connected\n\n");
 
   const send = (type, data) => {
     res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
@@ -165,8 +169,10 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
 
   console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..."`);
 
+  // Dedicated empty cwd: keeps the spawned CLI away from any project
+  // CLAUDE.md/hooks that would inject non-deterministic context.
   const child = spawn("claude", args, {
-    cwd: "/root/ImpulseMotion",
+    cwd: process.env.RELAY_CLAUDE_CWD || "/var/lib/impulsemotion-relay",
     env: { ...process.env, TERM: "dumb" },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -175,6 +181,32 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   let buffer = "";
   let fullText = "";
   let sentContent = false;
+  let finished = false;
+
+  const finish = (payload) => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(sessionBudget);
+    clearInterval(heartbeat);
+    if (payload?.error) send("error", { message: payload.error });
+    send("done", {});
+    res.end();
+  };
+
+  // Hard session budget with CLEAN error+done events (a raw TCP cut leaves the
+  // client with a truncated reply and no way to tell). Must stay below the
+  // Vercel proxy's maxDuration (120s).
+  const SESSION_BUDGET_MS = Number(process.env.RELAY_CHAT_BUDGET_MS || 110_000);
+  const sessionBudget = setTimeout(() => {
+    if (!child.killed) child.kill("SIGTERM");
+    finish({ error: `Temps de session dépassé (${Math.round(SESSION_BUDGET_MS / 1000)}s) — réessayez avec une demande plus ciblée` });
+  }, SESSION_BUDGET_MS);
+
+  // SSE comment heartbeat so idle proxies don't drop the connection during
+  // long tool passes (clients ignore non-"data:" lines).
+  const heartbeat = setInterval(() => {
+    try { res.write(": hb\n\n"); } catch { /* closed */ }
+  }, 15_000);
 
   child.stdout.on("data", (chunk) => {
     buffer += chunk.toString();
@@ -197,41 +229,58 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
         continue;
       }
 
-      // Content delta (streaming text)
-      if (event.type === "content_block_delta" && event.delta?.text) {
-        send("delta", { text: event.delta.text });
-        fullText += event.delta.text;
-        sentContent = true;
-        continue;
+      // Streaming text deltas arrive wrapped: {"type":"stream_event","event":{...}}
+      if (event.type === "stream_event") {
+        const e = event.event;
+        if (e?.type === "content_block_delta" && e.delta?.type === "text_delta" && e.delta.text) {
+          send("delta", { text: e.delta.text });
+          fullText += e.delta.text;
+          sentContent = true;
+        }
+        continue; // message_start/stop, thinking_delta, input_json_delta… are noise here
       }
 
-      // Assistant message (may contain tool_use blocks)
+      // Assistant message (may contain tool_use blocks); text fallback only
+      // when no deltas were streamed (older CLI versions).
       if (event.type === "assistant" && event.message?.content) {
+        let sentFallbackText = false;
         for (const block of event.message.content) {
           if (block.type === "tool_use") {
             send("tool_call", { id: block.id, name: block.name, input: block.input });
           } else if (block.type === "text" && block.text && !sentContent) {
             send("delta", { text: block.text });
             fullText += block.text;
+            sentFallbackText = true;
           }
+        }
+        if (sentFallbackText) sentContent = true;
+        continue;
+      }
+
+      // Tool results are delivered as user-role messages
+      if (event.type === "user" && Array.isArray(event.message?.content)) {
+        for (const block of event.message.content) {
+          if (block.type !== "tool_result") continue;
+          const parts = Array.isArray(block.content) ? block.content : [];
+          const text = parts.map(c => c?.text || "").join("").slice(0, 500);
+          send("tool_result", {
+            id: block.tool_use_id || "",
+            content: text + (text.length >= 500 ? "..." : ""),
+            is_error: block.is_error || false,
+          });
         }
         continue;
       }
 
-      // Tool result
-      if (event.type === "tool_result") {
-        const content = event.content || [];
-        const text = content.map(c => c.text || "").join("").slice(0, 500);
-        send("tool_result", {
-          id: event.tool_use_id || "",
-          content: text + (text.length >= 500 ? "..." : ""),
-          is_error: event.is_error || false,
-        });
-        continue;
-      }
-
-      // Final result
+      // Final result — surface abnormal endings instead of a silent empty reply
       if (event.type === "result") {
+        if (event.subtype && event.subtype !== "success") {
+          const reasons = {
+            error_max_turns: "Limite de tours atteinte — la réponse est peut-être incomplète",
+            error_during_execution: "Erreur pendant l'exécution",
+          };
+          send("error", { message: reasons[event.subtype] || `Fin anormale: ${event.subtype}` });
+        }
         if (event.result && !sentContent) {
           send("content", { text: event.result });
           fullText = event.result;
@@ -253,22 +302,18 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
 
   child.on("close", (code) => {
     console.log(`[chat] Exit code ${code}, text length: ${fullText.length}`);
-    if (code !== 0 && !fullText) {
-      send("error", { message: `Claude exited with code ${code}` });
-    }
-    send("done", {});
-    res.end();
+    finish(code !== 0 && !fullText ? { error: `Claude exited with code ${code}` } : undefined);
   });
 
   child.on("error", (err) => {
     console.error("[chat] Spawn error:", err);
-    send("error", { message: err.message });
-    send("done", {});
-    res.end();
+    finish({ error: err.message });
   });
 
   // Client disconnect → kill subprocess
   res.on("close", () => {
+    clearTimeout(sessionBudget);
+    clearInterval(heartbeat);
     if (!child.killed) {
       child.kill("SIGTERM");
       console.log("[chat] Client disconnected, killed child");

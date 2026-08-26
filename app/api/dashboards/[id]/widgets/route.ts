@@ -64,7 +64,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   }
   const order = body.order as string[];
 
-  await prisma.$transaction(
+  const results = await prisma.$transaction(
     order.map((widgetId, index) =>
       prisma.dashboardWidget.updateMany({
         where: { id: widgetId, dashboardId: id },
@@ -72,5 +72,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }),
     ),
   );
+  const matched = results.reduce((s, r) => s + r.count, 0);
+  if (matched !== order.length) {
+    return NextResponse.json(
+      { error: `réorganisation partielle: ${matched}/${order.length} widgets trouvés — rechargez le dashboard` },
+      { status: 409 },
+    );
+  }
   return NextResponse.json({ ok: true });
 }

@@ -19,7 +19,9 @@ import { relayHeaders } from "@/lib/relay-headers";
 export const maxDuration = 120;
 
 const MAX_MESSAGES = 40;
-const MAX_MESSAGE_CHARS = 8000;
+// Generous per-message cap: assistant replies with tables + action blocks can
+// be long; a low cap silently amputates the very blocks the UI must parse.
+const MAX_MESSAGE_CHARS = 20000;
 
 async function loadDashboard(id: string) {
   return prisma.dashboard.findUnique({
@@ -32,15 +34,30 @@ async function loadDashboard(id: string) {
 }
 
 function sanitizeMessages(raw: unknown): Array<{ role: "user" | "assistant"; content: string }> | null {
-  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_MESSAGES) return null;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  // Sliding window: long threads are truncated, never rejected — a hard
+  // reject at 40 messages used to brick the copilot for the dashboard.
+  const recent = raw.slice(-MAX_MESSAGES);
   const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
-  for (const m of raw) {
+  for (const m of recent) {
     const role = (m as Record<string, unknown>)?.role;
     const content = (m as Record<string, unknown>)?.content;
     if ((role !== "user" && role !== "assistant") || typeof content !== "string") return null;
     messages.push({ role, content: content.slice(0, MAX_MESSAGE_CHARS) });
   }
   return messages;
+}
+
+/** Proposal statuses persisted alongside the transcript so Appliqué/Refusé
+ *  survive page reloads. Kept small and validated. */
+function sanitizeProposals(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, string> = {};
+  const VALID = new Set(["pending", "applied", "refused", "failed", "invalid"]);
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>).slice(0, 400)) {
+    if (typeof value === "string" && VALID.has(value) && key.length <= 40) out[key] = value;
+  }
+  return out;
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -53,8 +70,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     orderBy: { updatedAt: "desc" },
   });
   let messages: unknown = [];
-  try { messages = JSON.parse(thread?.messages ?? "[]"); } catch { /* keep [] */ }
-  return NextResponse.json({ threadId: thread?.id ?? null, messages });
+  let proposals: Record<string, string> = {};
+  try {
+    const parsed = JSON.parse(thread?.messages ?? "[]");
+    if (Array.isArray(parsed)) {
+      messages = parsed; // legacy format: bare array
+    } else if (parsed && typeof parsed === "object") {
+      messages = Array.isArray(parsed.messages) ? parsed.messages : [];
+      proposals = sanitizeProposals(parsed.proposals);
+    }
+  } catch { /* keep defaults */ }
+  return NextResponse.json({ threadId: thread?.id ?? null, messages, proposals });
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -67,6 +93,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const body = await req.json().catch(() => ({}));
   const messages = sanitizeMessages(body.messages) ?? [];
+  const proposals = sanitizeProposals(body.proposals);
+  const payload = JSON.stringify({ messages, proposals });
 
   const existing = await prisma.assistantThread.findFirst({
     where: { dashboardId: id },
@@ -75,10 +103,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const thread = existing
     ? await prisma.assistantThread.update({
         where: { id: existing.id },
-        data: { messages: JSON.stringify(messages) },
+        data: { messages: payload },
       })
     : await prisma.assistantThread.create({
-        data: { dashboardId: id, userId: guard.session.userId, messages: JSON.stringify(messages) },
+        data: { dashboardId: id, userId: guard.session.userId, messages: payload },
       });
   return NextResponse.json({ threadId: thread.id });
 }
@@ -111,27 +139,46 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     },
   };
 
+  let lastError = "relay unreachable";
   for (const url of RELAY_URLS) {
     try {
-      // Fast reachability preflight so unreachable URLs fail in ~1s, while the
-      // actual chat stream gets the full window (a stream-long AbortSignal
-      // would kill the SSE mid-response).
-      const health = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1500) });
-      if (!health.ok) continue;
-      const res = await fetch(`${url}/api/chat`, {
-        method: "POST",
-        headers: relayHeaders(),
-        body: JSON.stringify(relayBody),
-        signal: AbortSignal.timeout(110000),
-      });
-      if (!res.ok) continue;
+      // Reachability preflight so dead URLs fail fast (generous timeout for a
+      // tunnel that may need a cold start).
+      const health = await fetch(`${url}/health`, { signal: AbortSignal.timeout(4000) });
+      if (!health.ok) { lastError = `relay health ${health.status}`; continue; }
+
+      // Headers-only timeout: AbortSignal.timeout on the fetch would ALSO
+      // govern the streamed body and cut long copilot sessions mid-reply
+      // (truncated ```action blocks = "nothing gets saved"). The session time
+      // budget lives in the relay, which ends cleanly with error+done events.
+      const ctl = new AbortController();
+      const headersTimer = setTimeout(() => ctl.abort(), 15000);
+      let res: Response;
+      try {
+        res = await fetch(`${url}/api/chat`, {
+          method: "POST",
+          headers: relayHeaders(),
+          body: JSON.stringify(relayBody),
+          signal: ctl.signal,
+        });
+      } finally {
+        clearTimeout(headersTimer);
+      }
+      if (!res.ok) {
+        lastError = `relay ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`;
+        continue;
+      }
       return new Response(res.body, {
         status: 200,
-        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+        },
       });
-    } catch {
-      // try next relay URL
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
     }
   }
-  return NextResponse.json({ error: "relay unreachable" }, { status: 502 });
+  return NextResponse.json({ error: `Copilote indisponible (${lastError})` }, { status: 502 });
 }

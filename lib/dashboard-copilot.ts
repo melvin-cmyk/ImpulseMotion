@@ -43,15 +43,16 @@ ${catalogue}
 Largeurs valides : third (1/3), half (1/2), full (pleine largeur).
 
 COMMENT PROPOSER DES MODIFICATIONS :
-Quand le consultant demande un ajout/modification/suppression/réorganisation, réponds brièvement puis émets un ou plusieurs blocs de code avec le langage "action", contenant CHACUN un unique objet JSON :
+RÈGLE ABSOLUE : toute modification du dashboard DOIT être émise dans un bloc de code au langage "action" — sans ce bloc, rien ne peut être appliqué. Réponds brièvement puis émets un ou plusieurs blocs, contenant CHACUN un unique objet JSON valide (pas de commentaire dans le JSON) :
 \`\`\`action
-{"action":"add_widget","type":"timeseries","title":"CPA quotidien","width":"full","config":{"metric":"roas"}}
+{"action":"add_widget","type":"timeseries","title":"ROAS quotidien","width":"full","config":{"metric":"roas","source":"meta"}}
 \`\`\`
 Formes valides :
 - {"action":"add_widget","type":"<type>","title":"...","width":"third|half|full","config":{...}}
-- {"action":"update_widget","widgetId":"<id>","title":"...","width":"...","config":{...}} (seuls les champs à changer)
+- {"action":"update_widget","widgetId":"<id>","title":"...","width":"...","config":{...}} — config est FUSIONNÉE avec l'existante : ne mets que les champs à changer
 - {"action":"remove_widget","widgetId":"<id>"}
 - {"action":"reorder","order":["<id1>","<id2>",...]} (liste complète des ids dans le nouvel ordre)
+Utilise UNIQUEMENT les types, métriques et sources listés dans le catalogue ci-dessus — une valeur hors catalogue sera rejetée à l'application.
 Le consultant voit chaque proposition et clique Appliquer ou Refuser — n'affirme jamais qu'un changement est fait, dis qu'il est proposé.
 
 Pour les questions de données (performances, comparaisons), tu peux utiliser les outils MCP disponibles, mais UNIQUEMENT sur les comptes listés ci-dessus.
