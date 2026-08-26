@@ -209,6 +209,15 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     if (res.ok) load();
   }
 
+  async function changeRole(role: string) {
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    });
+    if (res.ok) load();
+  }
+
   async function resetPassword(e: React.FormEvent) {
     e.preventDefault();
     setPasswordStatus(null);
@@ -237,8 +246,17 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           ← Retour
         </Link>
         <h1 className="text-2xl font-bold text-white mt-2">{user.email}</h1>
-        <div className="text-xs mt-1 text-gray-500">
-          Rôle : <span className="text-violet-300">{user.role}</span>
+        <div className="text-xs mt-1 text-gray-500 flex items-center gap-2">
+          Rôle :
+          <select
+            value={user.role}
+            onChange={(e) => changeRole(e.target.value)}
+            className="px-2 py-1 rounded bg-gray-950 border border-gray-800 text-violet-300 text-xs focus:border-violet-500 focus:outline-none"
+          >
+            <option value="client">client</option>
+            <option value="consultant">consultant</option>
+            <option value="admin">admin</option>
+          </select>
         </div>
       </div>
 

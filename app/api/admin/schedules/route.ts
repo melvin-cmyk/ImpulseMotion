@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireStaff } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 
 function nextMonthlyRun(from = new Date()): Date {
@@ -21,7 +21,7 @@ function nextWeeklyRun(from = new Date()): Date {
 }
 
 export async function GET() {
-  const guard = await requireAdmin();
+  const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const schedules = await prisma.reportSchedule.findMany({
     orderBy: { createdAt: "desc" },
@@ -31,7 +31,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const body = await req.json();
   const { userId, clientId, clientLabel, platform, frequency, recipients } = body as {

@@ -8,10 +8,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireStaff } from "@/lib/auth-helpers";
 
 export async function GET(req: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireStaff();
   if ("error" in guard) return guard.error;
 
   const platform = req.nextUrl.searchParams.get("platform") ?? undefined;
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireStaff();
   if ("error" in guard) return guard.error;
 
   const body = await req.json().catch(() => null);

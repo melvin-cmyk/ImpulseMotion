@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const email = String(body.email ?? "").trim().toLowerCase();
   const name = body.name ? String(body.name).trim() : null;
-  const role = body.role === "admin" ? "admin" : "client";
+  const role = body.role === "admin" || body.role === "consultant" ? body.role : "client";
 
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return NextResponse.json({ error: "invalid email" }, { status: 400 });

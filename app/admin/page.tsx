@@ -25,7 +25,7 @@ export default function AdminUsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [createEmail, setCreateEmail] = useState("");
   const [createName, setCreateName] = useState("");
-  const [createRole, setCreateRole] = useState<"client" | "admin">("client");
+  const [createRole, setCreateRole] = useState<"client" | "consultant" | "admin">("client");
   const [creating, setCreating] = useState(false);
   const [lastCreated, setLastCreated] = useState<{ email: string; password: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,10 +124,11 @@ export default function AdminUsersPage() {
               />
               <select
                 value={createRole}
-                onChange={(e) => setCreateRole(e.target.value as "client" | "admin")}
+                onChange={(e) => setCreateRole(e.target.value as "client" | "consultant" | "admin")}
                 className={inputCls}
               >
                 <option value="client">Client</option>
+                <option value="consultant">Consultant</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
@@ -152,7 +153,7 @@ export default function AdminUsersPage() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm text-white truncate">{u.email}</span>
-                  <Pill tone={u.role === "admin" ? "violet" : "blue"} className="uppercase font-bold tracking-wide">
+                  <Pill tone={u.role === "admin" ? "violet" : u.role === "consultant" ? "amber" : "blue"} className="uppercase font-bold tracking-wide">
                     {u.role}
                   </Pill>
                 </div>

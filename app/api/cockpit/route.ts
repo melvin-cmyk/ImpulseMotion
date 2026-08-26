@@ -12,7 +12,7 @@ export async function GET() {
   const guard = await requireSession();
   if ("error" in guard) return guard.error;
 
-  const isAdmin = guard.session.role === "admin";
+  const isAdmin = guard.session.role === "admin" || guard.session.role === "consultant";
 
   // For admin: aggregate over ALL client users.
   // For non-admin (client / consultant): only over their own UserAdAccount rows.

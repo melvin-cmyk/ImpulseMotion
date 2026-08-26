@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireStaff } from "@/lib/auth-helpers";
 import { getAdAccounts, getMetaSystemToken } from "@/lib/meta-api";
 
 export async function GET() {
-  const guard = await requireAdmin();
+  const guard = await requireStaff();
   if ("error" in guard) return guard.error;
 
   try {

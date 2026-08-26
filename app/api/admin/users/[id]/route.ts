@@ -14,7 +14,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const data: Record<string, unknown> = {};
 
   if (typeof body.name === "string") data.name = body.name.trim() || null;
-  if (body.role === "admin" || body.role === "client") data.role = body.role;
+  if (body.role === "admin" || body.role === "consultant" || body.role === "client") data.role = body.role;
   if (typeof body.password === "string" && body.password.length >= 8) {
     data.passwordHash = await bcrypt.hash(body.password, 12);
   }

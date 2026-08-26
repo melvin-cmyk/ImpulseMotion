@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireStaff } from "@/lib/auth-helpers";
 import { relayHeaders } from "@/lib/relay-headers";
 
 import { RELAY_URLS } from "@/lib/relay-server";
@@ -48,7 +48,7 @@ type GaqlResult = Array<{
 }>;
 
 export async function GET() {
-  const guard = await requireAdmin();
+  const guard = await requireStaff();
   if ("error" in guard) return guard.error;
 
   try {

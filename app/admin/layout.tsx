@@ -6,7 +6,8 @@ import { Zap } from "lucide-react";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   if (!session?.userId) redirect("/login?callbackUrl=/admin");
-  if (session.role !== "admin") redirect("/");
+  if (session.role !== "admin" && session.role !== "consultant") redirect("/");
+  const isAdmin = session.role === "admin";
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -19,7 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <span className="font-bold text-sm tracking-tight">Admin · ImpulseMotion</span>
           </Link>
           <div className="flex items-center gap-1 text-sm">
-            <AdminNavLink href="/admin">Utilisateurs</AdminNavLink>
+            {isAdmin && <AdminNavLink href="/admin">Utilisateurs</AdminNavLink>}
             <AdminNavLink href="/admin/schedules">Rapports</AdminNavLink>
             <AdminNavLink href="/admin/alerts">Alertes</AdminNavLink>
             <AdminNavLink href="/portfolio">Portfolio</AdminNavLink>

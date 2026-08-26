@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireStaff } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { BUDGET_PACING_METRIC } from "@/lib/alerts";
 
 export async function GET() {
-  const guard = await requireAdmin();
+  const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const rules = await prisma.alertRule.findMany({
     where: { NOT: { metric: BUDGET_PACING_METRIC } },
@@ -18,7 +18,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const body = await req.json();
   const { userId, clientId, platform, metric, condition, threshold, window } = body;
