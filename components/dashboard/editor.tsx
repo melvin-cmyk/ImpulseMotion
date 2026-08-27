@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/surface";
 import {
   WIDGET_TYPES, WIDGET_TYPE_INFO, KPI_METRICS, SERIES_METRICS, TABLE_KINDS, WIDGET_WIDTHS,
+  DEMOGRAPHICS_METRICS, GEO_DEVICE_DIMENSIONS,
   type ResolvedWidget, type WidgetType,
 } from "@/lib/dashboard-types";
 
@@ -45,6 +46,12 @@ function formToConfig(f: WidgetFormState): Record<string, unknown> {
     case "platform_table":
     case "pacing": return {};
     case "text": return { markdown: f.markdown };
+    case "funnel": return { source: f.source };
+    case "demographics":
+      return { metric: ["spend", "purchases", "clicks"].includes(f.metric) ? f.metric : "spend" };
+    case "geo_device":
+      return { source: f.source === "combined" ? "meta" : f.source, dimension: String(f.kind === "country" ? "country" : "device") };
+    case "alerts": return { limit: Math.min(f.limit, 20) };
   }
 }
 
@@ -56,7 +63,8 @@ function widgetToForm(w: ResolvedWidget): WidgetFormState {
     width: w.width,
     metric: String(c.metric ?? "spend"),
     source: String(c.source ?? "meta"),
-    kind: String(c.kind ?? "campaigns"),
+    // geo_device stores its dimension in `dimension`; reuse the shared `kind` slot.
+    kind: String(c.kind ?? c.dimension ?? "campaigns"),
     limit: Number(c.limit ?? 10),
     markdown: String(c.markdown ?? ""),
   };
@@ -137,12 +145,51 @@ export function WidgetForm({
             {metricOptions.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         )}
-        {form.type === "kpi" && (
+        {(form.type === "kpi" || form.type === "funnel") && (
           <select value={form.source} onChange={(e) => set({ source: e.target.value })} className={inputCls}>
             <option value="meta">Meta</option>
             <option value="google">Google</option>
             <option value="combined">Meta + Google</option>
           </select>
+        )}
+        {form.type === "demographics" && (
+          <select
+            value={(DEMOGRAPHICS_METRICS as readonly string[]).includes(form.metric) ? form.metric : "spend"}
+            onChange={(e) => set({ metric: e.target.value })}
+            className={inputCls}
+            title="Métrique"
+          >
+            <option value="spend">Dépenses</option>
+            <option value="purchases">Conversions</option>
+            <option value="clicks">Clics</option>
+          </select>
+        )}
+        {form.type === "geo_device" && (
+          <>
+            <select
+              value={form.source === "google" ? "google" : "meta"}
+              onChange={(e) =>
+                // Google n'expose pas la répartition pays : on force la dimension appareil.
+                set({ source: e.target.value, ...(e.target.value === "google" && form.kind === "country" ? { kind: "device" } : {}) })
+              }
+              className={inputCls}
+            >
+              <option value="meta">Meta</option>
+              <option value="google">Google</option>
+            </select>
+            <select
+              value={form.kind === "country" ? "country" : "device"}
+              onChange={(e) => set({ kind: e.target.value })}
+              className={inputCls}
+              title="Dimension"
+            >
+              {GEO_DEVICE_DIMENSIONS.map((dim) => (
+                <option key={dim} value={dim} disabled={dim === "country" && form.source === "google"}>
+                  {dim === "device" ? "Par appareil" : "Par pays"}
+                </option>
+              ))}
+            </select>
+          </>
         )}
         {(form.type === "timeseries" || form.type === "table") && (
           <select value={form.source} onChange={(e) => set({ source: e.target.value })} className={inputCls}>
@@ -155,13 +202,13 @@ export function WidgetForm({
             {TABLE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
         )}
-        {(form.type === "table" || form.type === "top_creatives") && (
+        {(form.type === "table" || form.type === "top_creatives" || form.type === "alerts") && (
           <input
-            type="number" min={1} max={form.type === "table" ? 30 : 10}
+            type="number" min={1} max={form.type === "table" ? 30 : form.type === "alerts" ? 20 : 10}
             value={form.limit}
             onChange={(e) => set({ limit: Number(e.target.value) })}
             className={inputCls + " w-20"}
-            title="Nombre de lignes"
+            title={form.type === "alerts" ? "Nombre d'alertes" : "Nombre de lignes"}
           />
         )}
       </div>

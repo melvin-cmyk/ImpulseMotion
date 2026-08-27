@@ -13,7 +13,10 @@ export async function relayDirectTool(
   timeoutMs = 15000,
 ): Promise<unknown> {
   let lastError: Error | null = null;
-  for (const url of RELAY_URLS) {
+  // Two passes over the relay URLs: MCP backends fail transiently and the
+  // relay already retries once internally, so one extra client-side round
+  // absorbs the remaining blips instead of surfacing a widget error.
+  for (const url of [...RELAY_URLS, ...RELAY_URLS.filter((u) => !u.includes("localhost"))]) {
     const isLocalhost = url.includes("localhost");
     const actualTimeout = isLocalhost ? Math.min(timeoutMs, 2000) : timeoutMs;
     try {

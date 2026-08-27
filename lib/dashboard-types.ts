@@ -4,10 +4,12 @@
  * Server-side resolution lives in lib/dashboard-widgets.ts.
  */
 
-export const WIDGET_TYPES = ["kpi", "platform_table", "timeseries", "table", "top_creatives", "pacing", "text"] as const;
+export const WIDGET_TYPES = ["kpi", "platform_table", "timeseries", "table", "top_creatives", "pacing", "text", "funnel", "demographics", "geo_device", "alerts"] as const;
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 
 export const KPI_METRICS = ["spend", "revenue", "roas", "ctr", "cpa", "cpc", "cr", "purchases", "clicks", "impressions"] as const;
+export const DEMOGRAPHICS_METRICS = ["spend", "purchases", "clicks"] as const;
+export const GEO_DEVICE_DIMENSIONS = ["device", "country"] as const;
 export const SERIES_METRICS = ["spend", "revenue", "roas", "clicks", "ctr", "cpc", "cr", "purchases"] as const;
 export const TABLE_KINDS = ["campaigns", "keywords", "search_terms"] as const;
 export const WIDGET_WIDTHS = ["third", "half", "full"] as const;
@@ -41,6 +43,22 @@ export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: st
   text: {
     label: "Texte libre",
     configDoc: `{ markdown: string (≤ 5000 caractères) }`,
+  },
+  funnel: {
+    label: "Entonnoir de conversion",
+    configDoc: `{ source: "meta"|"google"|"combined" (défaut combined) } — étapes Impressions → Clics → Conversions avec taux de passage (CTR, taux de conversion) ; combined additionne les plateformes liées ; pas de comparaison de période`,
+  },
+  demographics: {
+    label: "Démographie Meta",
+    configDoc: `{ metric: ${DEMOGRAPHICS_METRICS.join("|")} (défaut spend) } — répartition Meta par âge et genre, triée par valeur décroissante ; nécessite un compte Meta lié ; pas de comparaison de période`,
+  },
+  geo_device: {
+    label: "Répartition appareil / pays",
+    configDoc: `{ source: "meta"|"google" (défaut meta), dimension: ${GEO_DEVICE_DIMENSIONS.join("|")} (défaut device) } — dépense, clics et conversions par appareil ou pays ; la source google ne supporte que dimension=device (la répartition pays n'est pas exposée simplement en GAQL) ; pas de comparaison de période`,
+  },
+  alerts: {
+    label: "Dernières alertes",
+    configDoc: `{ limit?: 1-20 (défaut 5) } — dernières alertes déclenchées sur les comptes liés au dashboard, de la plus récente à la plus ancienne ; pas de comparaison de période`,
   },
 };
 
@@ -122,6 +140,38 @@ export function validateWidgetConfig(type: string, raw: unknown): Record<string,
       const markdown = String(cfg.markdown ?? "");
       if (markdown.length > 5000) throw widgetIssue("Texte trop long (5000 caractères max)");
       return { markdown };
+    }
+    case "funnel": {
+      const source = String(cfg.source ?? "combined");
+      if (!["meta", "google", "combined"].includes(source)) {
+        throw widgetIssue(`Source d'entonnoir invalide: ${source} (meta, google ou combined)`);
+      }
+      return { source };
+    }
+    case "demographics": {
+      const metric = String(cfg.metric ?? "spend");
+      if (!DEMOGRAPHICS_METRICS.includes(metric as (typeof DEMOGRAPHICS_METRICS)[number])) {
+        throw widgetIssue(`Métrique démographique invalide: ${metric}. Valides: ${DEMOGRAPHICS_METRICS.join(", ")}`);
+      }
+      return { metric };
+    }
+    case "geo_device": {
+      const source = String(cfg.source ?? "meta");
+      if (!["meta", "google"].includes(source)) {
+        throw widgetIssue(`Source de répartition invalide: ${source} (meta ou google)`);
+      }
+      const dimension = String(cfg.dimension ?? "device");
+      if (!GEO_DEVICE_DIMENSIONS.includes(dimension as (typeof GEO_DEVICE_DIMENSIONS)[number])) {
+        throw widgetIssue(`Dimension invalide: ${dimension}. Valides: ${GEO_DEVICE_DIMENSIONS.join(", ")}`);
+      }
+      if (source === "google" && dimension === "country") {
+        throw widgetIssue("La source google ne supporte que dimension=device (répartition pays indisponible)");
+      }
+      return { source, dimension };
+    }
+    case "alerts": {
+      const limit = Math.min(Math.max(Number(cfg.limit ?? 5) || 5, 1), 20);
+      return { limit };
     }
   }
 }

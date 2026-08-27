@@ -16,6 +16,7 @@ import type { ResolvedWidget } from "@/lib/dashboard-types";
 const eur = (v: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
 const num = (v: number) => new Intl.NumberFormat("fr-FR").format(Math.round(v));
+const num1 = (v: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 }).format(v);
 
 function kpiDisplay(metric: string, value: number): string {
   switch (metric) {
@@ -51,6 +52,10 @@ export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
     case "top_creatives": return <TopCreativesWidget widget={widget} />;
     case "pacing": return <PacingWidget widget={widget} />;
     case "text": return <TextWidget widget={widget} />;
+    case "funnel": return <FunnelWidget widget={widget} />;
+    case "demographics": return <DemographicsWidget widget={widget} />;
+    case "geo_device": return <GeoDeviceWidget widget={widget} />;
+    case "alerts": return <AlertsWidget widget={widget} />;
     default: return <div className="text-sm text-gray-500">Type inconnu : {widget.type}</div>;
   }
 }
@@ -376,6 +381,211 @@ function TextWidget({ widget }: { widget: ResolvedWidget }) {
     <div className="prose prose-invert prose-sm max-w-none text-gray-300 [&_a]:text-violet-400">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.markdown}</ReactMarkdown>
     </div>
+  );
+}
+
+function FunnelWidget({ widget }: { widget: ResolvedWidget }) {
+  const d = widget.data as {
+    source: string;
+    steps: Array<{ label: string; value: number }>;
+    rates: Array<{ label: string; pct: number }>;
+  } | undefined;
+  if (!d?.steps?.length || d.steps.every((s) => !s.value)) {
+    return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+  }
+  const max = Math.max(...d.steps.map((s) => s.value), 1);
+  // Impressions dwarf conversions by orders of magnitude — clamp so every bar stays visible.
+  const widthPct = (v: number) => Math.max((v / max) * 100, 2.5);
+  const stepBar = ["bg-violet-500/80", "bg-violet-500/55", "bg-violet-400/40"];
+  return (
+    <div className="py-1">
+      <div className="text-xs text-gray-500 mb-2">{SOURCE_LABELS[d.source] ?? d.source}</div>
+      <div className="space-y-1">
+        {d.steps.map((s, i) => (
+          <div key={s.label}>
+            {i > 0 && d.rates?.[i - 1] && (
+              <div className="text-[11px] text-violet-300/90 tabular-nums pl-28 py-0.5">
+                ↓ {d.rates[i - 1].label} : {d.rates[i - 1].pct.toLocaleString("fr-FR")}%
+              </div>
+            )}
+            <div className="flex items-center gap-3">
+              <div className="w-24 shrink-0 text-xs text-gray-400">{s.label}</div>
+              <div className="flex-1 h-6 rounded-md bg-gray-800/50 overflow-hidden">
+                <div
+                  className={`h-full rounded-md ${stepBar[i] ?? "bg-violet-400/40"}`}
+                  style={{ width: `${widthPct(s.value)}%` }}
+                />
+              </div>
+              <div className="w-20 shrink-0 text-right text-sm font-semibold text-gray-200 tabular-nums">
+                {s.label === "Conversions" ? num1(s.value) : num(s.value)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const GENDER_INFO: Record<string, { label: string; bar: string }> = {
+  female: { label: "Femmes", bar: "bg-violet-500" },
+  male: { label: "Hommes", bar: "bg-blue-500" },
+  unknown: { label: "Inconnu", bar: "bg-gray-600" },
+};
+const GENDER_ORDER = ["female", "male", "unknown"] as const;
+
+function DemographicsWidget({ widget }: { widget: ResolvedWidget }) {
+  const d = widget.data as {
+    metric: string;
+    rows: Array<{ age: string; gender: string; value: number }>;
+  } | undefined;
+  if (!d?.rows?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+  const fmt = d.metric === "spend" ? eur : d.metric === "purchases" ? num1 : num;
+  const byAge = new Map<string, Record<string, number>>();
+  for (const r of d.rows) {
+    const g = byAge.get(r.age) ?? {};
+    g[r.gender] = (g[r.gender] ?? 0) + r.value;
+    byAge.set(r.age, g);
+  }
+  const genders = GENDER_ORDER.filter((g) => d.rows.some((r) => r.gender === g && r.value > 0));
+  const ages = [...byAge.entries()]
+    .map(([age, values]) => ({ age, values, total: Object.values(values).reduce((a, b) => a + b, 0) }))
+    .sort((a, b) => b.total - a.total);
+  const max = Math.max(...d.rows.map((r) => r.value), 1);
+  return (
+    <div className="py-1">
+      <div className="flex items-center gap-4 mb-3 text-[11px] text-gray-400">
+        <span className="text-gray-500">{KPI_LABELS[d.metric] ?? d.metric} · par âge et genre</span>
+        {genders.map((g) => (
+          <span key={g} className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${GENDER_INFO[g].bar}`} />
+            {GENDER_INFO[g].label}
+          </span>
+        ))}
+      </div>
+      <div className="space-y-2.5">
+        {ages.map(({ age, values }) => (
+          <div key={age} className="flex items-center gap-3">
+            <div className="w-14 shrink-0 text-xs text-gray-400 tabular-nums">{age}</div>
+            <div className="flex-1 space-y-1">
+              {genders.map((g) => {
+                const v = values[g] ?? 0;
+                return (
+                  <div key={g} className="flex items-center gap-2">
+                    <div className="flex-1 h-3 rounded-sm bg-gray-800/50 overflow-hidden">
+                      <div className={`h-full rounded-sm ${GENDER_INFO[g].bar}`} style={{ width: `${(v / max) * 100}%` }} />
+                    </div>
+                    <span className="w-16 shrink-0 text-right text-[11px] text-gray-300 tabular-nums">{fmt(v)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const DEVICE_LABELS: Record<string, string> = {
+  mobile_app: "App mobile",
+  mobile_web: "Web mobile",
+  desktop: "Ordinateur",
+  mobile: "Mobile",
+  tablet: "Tablette",
+  connected_tv: "TV connectée",
+  other: "Autre",
+  unknown: "Inconnu",
+};
+
+function geoDeviceLabel(dimension: string, key: string): string {
+  if (dimension === "country") {
+    try {
+      return new Intl.DisplayNames(["fr"], { type: "region" }).of(key.toUpperCase()) ?? key;
+    } catch {
+      return key;
+    }
+  }
+  return DEVICE_LABELS[key] ?? key.replace(/_/g, " ");
+}
+
+function GeoDeviceWidget({ widget }: { widget: ResolvedWidget }) {
+  const d = widget.data as {
+    dimension: string;
+    source: string;
+    rows: Array<{ key: string; spend: number; clicks: number; conversions: number }>;
+  } | undefined;
+  if (!d?.rows?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+  const rows = d.rows.slice(0, 8); // trié spend desc côté serveur
+  const max = Math.max(...rows.map((r) => r.spend), 1);
+  return (
+    <div className="py-1">
+      <div className="flex items-center text-[11px] text-gray-500 uppercase tracking-wide border-b border-gray-800 pb-1.5 mb-1">
+        <span className="flex-1">{d.dimension === "country" ? "Pays" : "Appareil"} · {SOURCE_LABELS[d.source] ?? d.source}</span>
+        <span className="w-16 text-right">Dépenses</span>
+        <span className="w-14 text-right">Clics</span>
+        <span className="w-12 text-right">Conv.</span>
+      </div>
+      <div className="divide-y divide-gray-800/40">
+        {rows.map((r) => (
+          <div key={r.key} className="flex items-center py-1.5 text-sm">
+            <div className="flex-1 min-w-0 pr-3">
+              <div className="text-gray-200 text-xs truncate" title={r.key}>{geoDeviceLabel(d.dimension, r.key)}</div>
+              <div className="h-1.5 rounded-full bg-gray-800/50 mt-1 overflow-hidden">
+                <div className="h-full rounded-full bg-violet-500/70" style={{ width: `${(r.spend / max) * 100}%` }} />
+              </div>
+            </div>
+            <span className="w-16 text-right text-gray-300 tabular-nums text-xs">{eur(r.spend)}</span>
+            <span className="w-14 text-right text-gray-400 tabular-nums text-xs">{num(r.clicks)}</span>
+            <span className="w-12 text-right text-gray-400 tabular-nums text-xs">{num1(r.conversions)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function relativeDateFr(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const min = Math.round((Date.now() - t) / 60_000);
+  if (min < 1) return "à l'instant";
+  if (min < 60) return `il y a ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `il y a ${h} h`;
+  const j = Math.round(h / 24);
+  if (j < 30) return `il y a ${j} j`;
+  return `il y a ${Math.round(j / 30)} mois`;
+}
+
+function AlertsWidget({ widget }: { widget: ResolvedWidget }) {
+  const d = widget.data as {
+    events: Array<{
+      id: string; metric: string; value: number; threshold: number;
+      message: string; acknowledged: boolean; triggeredAt: string;
+    }>;
+  } | undefined;
+  if (!d?.events?.length) {
+    return <div className="text-sm text-emerald-400/80 py-4">Aucune alerte récente ✓</div>;
+  }
+  return (
+    <ul className="divide-y divide-gray-800/60">
+      {d.events.map((e) => (
+        <li key={e.id} className="py-2 flex items-start gap-2.5">
+          <span
+            className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${e.acknowledged ? "bg-gray-600" : "bg-red-500"}`}
+            title={e.acknowledged ? "Acquittée" : "Non acquittée"}
+          />
+          <div className="min-w-0 flex-1">
+            <div className={`text-sm leading-snug ${e.acknowledged ? "text-gray-400" : "text-gray-200"}`}>{e.message}</div>
+            <div className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
+              {relativeDateFr(e.triggeredAt)} · {KPI_LABELS[e.metric] ?? e.metric} {kpiDisplay(e.metric, e.value)}
+              <span className="text-gray-600"> vs seuil {kpiDisplay(e.metric, e.threshold)}</span>
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

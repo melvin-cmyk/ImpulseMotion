@@ -24,7 +24,9 @@ import {
   computeRoas,
   computeCpa,
   getActionValue,
+  getAccountBreakdownInsights,
   type MetaAccountInsight,
+  type MetaBreakdownInsight,
 } from "@/lib/meta-api";
 import { getAccountInsightsCached } from "@/lib/insights";
 import { getAccountAov } from "@/lib/account-settings";
@@ -41,6 +43,7 @@ import {
 // Re-export the client-safe surface so server code can import everything here.
 export {
   WIDGET_TYPES, KPI_METRICS, SERIES_METRICS, TABLE_KINDS, WIDGET_WIDTHS,
+  DEMOGRAPHICS_METRICS, GEO_DEVICE_DIMENSIONS,
   WIDGET_TYPE_INFO, validateWidgetConfig, validateWidgetWidth,
 } from "@/lib/dashboard-types";
 export type { WidgetType, ResolvedWidget } from "@/lib/dashboard-types";
@@ -651,6 +654,190 @@ async function resolvePacing(_cfg: Record<string, unknown>, ctx: ResolveContext)
   return pacing;
 }
 
+// ── Funnel ───────────────────────────────────────────────────────────────────
+
+async function resolveFunnel(cfg: Record<string, unknown>, ctx: ResolveContext) {
+  const source = String(cfg.source ?? "combined");
+  // Same data sources as resolveKpi; "combined" sums whatever platforms are
+  // bound (a single-platform dashboard still gets its funnel).
+  let insight: MetaAccountInsight | null = null;
+  let google: GoogleTotals | null = null;
+  if (source === "meta" || (source === "combined" && ctx.binding.metaAccountId)) {
+    if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
+    insight = await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, { since: ctx.since, until: ctx.until });
+  }
+  if (source === "google" || (source === "combined" && ctx.binding.googleCustomerId)) {
+    if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
+    google = googleTotals(await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, ctx.since, ctx.until));
+  }
+  if (!insight && !google) throw issue("Aucun compte lié à ce dashboard");
+
+  const metaPurchases = insight
+    ? getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase")
+    : 0;
+  const impressions = toNum(insight?.impressions) + (google?.impressions ?? 0);
+  const clicks = toNum(insight?.clicks) + (google?.clicks ?? 0);
+  const conversions = metaPurchases + (google?.conversions ?? 0);
+  const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+  const cr = clicks > 0 ? (conversions / clicks) * 100 : 0;
+
+  return {
+    source,
+    steps: [
+      { label: "Impressions", value: Math.round(impressions) },
+      { label: "Clics", value: Math.round(clicks) },
+      { label: "Conversions", value: Math.round(conversions * 10) / 10 },
+    ],
+    rates: [
+      { label: "CTR", pct: Math.round(ctr * 100) / 100 },
+      { label: "Taux de conversion", pct: Math.round(cr * 100) / 100 },
+    ],
+  };
+}
+
+// ── Meta breakdowns (demographics / geo_device) ──────────────────────────────
+
+function breakdownPurchases(row: MetaBreakdownInsight): number {
+  return getActionValue(row.actions, "omni_purchase") || getActionValue(row.actions, "purchase");
+}
+
+function breakdownMetricValue(row: MetaBreakdownInsight, metric: string): number {
+  switch (metric) {
+    case "clicks": return toNum(row.clicks);
+    case "purchases": return breakdownPurchases(row);
+    default: return toNum(row.spend);
+  }
+}
+
+function fetchMetaBreakdown(ctx: ResolveContext, accountId: string, breakdowns: string) {
+  // The fetched fields (spend,clicks,actions) never depend on the widget's
+  // metric, so the cache key doesn't either.
+  return cached(
+    `meta:breakdown:${accountId}:${breakdowns}:${ctx.since}_${ctx.until}`,
+    () => getAccountBreakdownInsights(ctx.token, accountId, { since: ctx.since, until: ctx.until }, breakdowns),
+  );
+}
+
+async function resolveDemographics(cfg: Record<string, unknown>, ctx: ResolveContext) {
+  if (!ctx.binding.metaAccountId) throw issue("Compte Meta requis");
+  const metric = String(cfg.metric ?? "spend");
+  const rows = await fetchMetaBreakdown(ctx, ctx.binding.metaAccountId, "age,gender");
+
+  const byKey = new Map<string, { age: string; gender: string; value: number }>();
+  for (const r of rows) {
+    const age = String(r.age ?? "unknown");
+    const gender = String(r.gender ?? "unknown");
+    const key = `${age}|${gender}`;
+    const entry = byKey.get(key) ?? { age, gender, value: 0 };
+    entry.value += breakdownMetricValue(r, metric);
+    byKey.set(key, entry);
+  }
+  const out = [...byKey.values()]
+    .map((e) => ({ ...e, value: Math.round(e.value * 100) / 100 }))
+    .sort((a, b) => b.value - a.value);
+  return { metric, rows: out };
+}
+
+async function fetchGoogleDeviceRows(
+  customerId: string,
+  since: string,
+  until: string,
+): Promise<Array<Record<string, unknown>>> {
+  const query = `SELECT segments.device, metrics.cost_micros, metrics.clicks, metrics.conversions
+    FROM campaign
+    WHERE segments.date BETWEEN '${since}' AND '${until}'`;
+  return cached(
+    `google:device:${customerId}:${since}_${until}`,
+    async () => {
+      const raw = await relayDirectTool("mcp-google-ads.Custom_GAQL_Query", {
+        input: JSON.stringify({ customer_id: customerId, gaql_query: query.replace(/\s+/g, " ") }),
+      }, 20000);
+      return extractRows(raw);
+    },
+  );
+}
+
+interface GeoDeviceRow { key: string; spend: number; clicks: number; conversions: number }
+
+function roundGeoDeviceRows(byKey: Map<string, GeoDeviceRow>): GeoDeviceRow[] {
+  return [...byKey.values()]
+    .map((e) => ({
+      key: e.key,
+      spend: Math.round(e.spend * 100) / 100,
+      clicks: Math.round(e.clicks),
+      conversions: Math.round(e.conversions * 10) / 10,
+    }))
+    .sort((a, b) => b.spend - a.spend);
+}
+
+async function resolveGeoDevice(cfg: Record<string, unknown>, ctx: ResolveContext) {
+  const source = String(cfg.source ?? "meta");
+  const dimension = String(cfg.dimension ?? "device");
+
+  if (source === "google") {
+    if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
+    if (dimension !== "device") throw issue("La source google ne supporte que dimension=device (répartition pays indisponible)");
+    const rows = await fetchGoogleDeviceRows(ctx.binding.googleCustomerId, ctx.since, ctx.until);
+    const byKey = new Map<string, GeoDeviceRow>();
+    for (const row of rows) {
+      const seg = ((row.segments as Record<string, unknown>) ?? row) as Record<string, unknown>;
+      const m = ((row.metrics as Record<string, unknown>) ?? row) as Record<string, unknown>;
+      const key = String(seg.device ?? "UNKNOWN").toLowerCase();
+      const e = byKey.get(key) ?? { key, spend: 0, clicks: 0, conversions: 0 };
+      e.spend += micros(m.costMicros ?? m.cost_micros);
+      e.clicks += toNum(m.clicks);
+      e.conversions += toNum(m.conversions);
+      byKey.set(key, e);
+    }
+    return { dimension, source, rows: roundGeoDeviceRows(byKey) };
+  }
+
+  if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
+  const breakdown = dimension === "country" ? "country" : "device_platform";
+  const rows = await fetchMetaBreakdown(ctx, ctx.binding.metaAccountId, breakdown);
+  const byKey = new Map<string, GeoDeviceRow>();
+  for (const r of rows) {
+    const key = String((dimension === "country" ? r.country : r.device_platform) ?? "unknown");
+    const e = byKey.get(key) ?? { key, spend: 0, clicks: 0, conversions: 0 };
+    e.spend += toNum(r.spend);
+    e.clicks += toNum(r.clicks);
+    e.conversions += breakdownPurchases(r);
+    byKey.set(key, e);
+  }
+  return { dimension, source, rows: roundGeoDeviceRows(byKey) };
+}
+
+// ── Alerts ───────────────────────────────────────────────────────────────────
+
+async function resolveAlerts(cfg: Record<string, unknown>, ctx: ResolveContext) {
+  const limit = Math.min(Math.max(Number(cfg.limit ?? 5) || 5, 1), 20);
+  // AlertEvent.clientId stores the ad-account id; Meta ids appear with or
+  // without the act_ prefix depending on which scan wrote the event.
+  const clientIds: string[] = [];
+  if (ctx.binding.metaAccountId) {
+    clientIds.push(ctx.binding.metaAccountId, `act_${ctx.binding.metaAccountId}`);
+  }
+  if (ctx.binding.googleCustomerId) clientIds.push(ctx.binding.googleCustomerId);
+  if (clientIds.length === 0) throw issue("Aucun compte lié à ce dashboard");
+
+  const events = await prisma.alertEvent.findMany({
+    where: { clientId: { in: clientIds } },
+    orderBy: { triggeredAt: "desc" },
+    take: limit,
+  });
+  return {
+    events: events.map((e) => ({
+      id: e.id,
+      metric: e.metric,
+      value: e.value,
+      threshold: e.threshold,
+      message: e.message,
+      acknowledged: e.acknowledged,
+      triggeredAt: e.triggeredAt.toISOString(),
+    })),
+  };
+}
+
 async function resolveWidgetData(
   type: string,
   cfg: Record<string, unknown>,
@@ -663,6 +850,10 @@ async function resolveWidgetData(
     case "table": return resolveTable(cfg, ctx);
     case "top_creatives": return resolveTopCreatives(cfg, ctx);
     case "pacing": return resolvePacing(cfg, ctx);
+    case "funnel": return resolveFunnel(cfg, ctx);
+    case "demographics": return resolveDemographics(cfg, ctx);
+    case "geo_device": return resolveGeoDevice(cfg, ctx);
+    case "alerts": return resolveAlerts(cfg, ctx);
     case "text": return { markdown: String(cfg.markdown ?? "") };
     default: throw issue(`Type inconnu: ${type}`);
   }
@@ -745,6 +936,9 @@ export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName
     { type: "kpi", title: "CPA", width: "third", config: { metric: "cpa", source } },
     { type: "kpi", title: "CPC", width: "third", config: { metric: "cpc", source } },
     { type: "kpi", title: "Taux de conversion", width: "third", config: { metric: "cr", source } },
+    // ── Entonnoir + alertes : rangée complète (half + half) ───────────────
+    { type: "funnel", title: "Entonnoir de conversion", width: "half", config: { source } },
+    { type: "alerts", title: "Dernières alertes", width: "half", config: { limit: 5 } },
   ];
 
   // ── Pacing budget (Meta uniquement : le resolver s'appuie sur AccountBudget/meta)
@@ -769,15 +963,29 @@ export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName
     w.push({ type: "timeseries", title: "Conversions quotidiennes", width: "half", config: { metric: "purchases", source: "google" } });
   }
 
+  // ── Répartitions d'audience (Meta) : rangée complète après les courbes ─
+  if (hasMeta) {
+    w.push({ type: "demographics", title: "Démographie Meta", width: "half", config: { metric: "spend" } });
+    w.push({ type: "geo_device", title: "Répartition par appareil", width: "half", config: { source: "meta", dimension: "device" } });
+  }
+
   // ── Tops & tables : rangées complètes ──────────────────────────────────
   if (hasMeta) {
     w.push({ type: "top_creatives", title: "Top créas Meta", width: "half", config: { limit: 6 } });
     w.push({ type: "table", title: "Campagnes Meta", width: "half", config: { kind: "campaigns", source: "meta", limit: 10 } });
   }
-  if (hasGoogle) {
+  if (hasGoogle && hasMeta) {
     w.push({ type: "table", title: "Campagnes Google Ads", width: "full", config: { kind: "campaigns", source: "google", limit: 10 } });
     w.push({ type: "table", title: "Top mots-clés", width: "half", config: { kind: "keywords", source: "google", limit: 10 } });
     w.push({ type: "table", title: "Termes de recherche", width: "half", config: { kind: "search_terms", source: "google", limit: 10 } });
+  } else if (hasGoogle) {
+    // Google seul : la répartition appareil (half) est complétée par le
+    // demi "Top mots-clés" ; "Termes de recherche" passe en full pour
+    // garder des rangées complètes (nombre pair de "half").
+    w.push({ type: "table", title: "Campagnes Google Ads", width: "full", config: { kind: "campaigns", source: "google", limit: 10 } });
+    w.push({ type: "geo_device", title: "Répartition par appareil", width: "half", config: { source: "google", dimension: "device" } });
+    w.push({ type: "table", title: "Top mots-clés", width: "half", config: { kind: "keywords", source: "google", limit: 10 } });
+    w.push({ type: "table", title: "Termes de recherche", width: "full", config: { kind: "search_terms", source: "google", limit: 10 } });
   }
 
   return w.map((widget, position) => ({ ...widget, position }));

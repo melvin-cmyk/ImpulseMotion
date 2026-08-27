@@ -470,6 +470,47 @@ export async function getAccountDailyInsights(
   }
 }
 
+export interface MetaBreakdownInsight {
+  spend?: string;
+  clicks?: string;
+  actions?: Array<{ action_type: string; value: string }>;
+  age?: string;
+  gender?: string;
+  device_platform?: string;
+  country?: string;
+  date_start?: string;
+  date_stop?: string;
+}
+
+/** Account-level insights split by breakdown dimensions
+ *  ("age,gender", "device_platform" or "country") — for dashboard widgets.
+ *  Verified response shape: one row per dimension combo with string metrics
+ *  and the breakdown keys at the top level (rows with 0 actions omit `actions`). */
+export async function getAccountBreakdownInsights(
+  accessToken: string,
+  adAccountId: string,
+  timeRange: { since: string; until: string },
+  breakdowns: string,
+): Promise<MetaBreakdownInsight[]> {
+  const accountId = adAccountId.startsWith("act_") ? adAccountId : `act_${adAccountId}`;
+  try {
+    const data = await metaFetch<{ data: MetaBreakdownInsight[] }>(
+      `/${accountId}/insights`,
+      accessToken,
+      {
+        fields: "spend,clicks,actions",
+        level: "account",
+        breakdowns,
+        time_range: JSON.stringify(timeRange),
+        limit: "200",
+      },
+    );
+    return data.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 export function getActionValue(

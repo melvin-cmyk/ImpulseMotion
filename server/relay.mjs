@@ -393,23 +393,31 @@ const server = http.createServer(async (req, res) => {
       }
       // Callers may raise the timeout for slow n8n-backed tools (capped at 30s).
       const timeoutMs = Math.min(30000, Math.max(2000, Number(body.timeoutMs) || 20000));
+      // MCP backends (n8n) fail transiently; one retry absorbs most blips.
+      const call = () => execFileAsync(
+        "mcporter", ["call", body.tool, "--args", JSON.stringify(body.input || {}), "--output", "json"],
+        { timeout: timeoutMs, cwd: "/root/ImpulseMotion" }
+      );
       try {
-        const { stdout } = await execFileAsync(
-          "mcporter", ["call", body.tool, "--args", JSON.stringify(body.input || {}), "--output", "json"],
-          { timeout: timeoutMs, cwd: "/root/ImpulseMotion" }
-        );
-        let result;
-        try {
-          result = JSON.parse(stdout);
-        } catch {
-          // mcporter prints JS-notation (not JSON) when the tool itself errors
-          res.writeHead(502, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: `tool error: ${stdout.slice(0, 500)}` }));
-          return;
+        let stdout;
+        let toolError = null;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          ({ stdout } = await call());
+          try {
+            const result = JSON.parse(stdout);
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ result }));
+            return;
+          } catch {
+            // mcporter prints JS-notation (not JSON) when the tool itself errors
+            toolError = stdout.slice(0, 500);
+            console.error(`[tool] ${body.tool} attempt ${attempt} failed: ${toolError.slice(0, 200)}`);
+          }
         }
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ result }));
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: `tool error: ${toolError}` }));
       } catch (err) {
+        console.error(`[tool] ${body.tool} exec failed: ${err.message || err}`);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err.message || String(err) }));
       }
