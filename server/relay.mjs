@@ -11,6 +11,9 @@
 import http from "node:http";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 
@@ -394,10 +397,29 @@ const server = http.createServer(async (req, res) => {
       // Callers may raise the timeout for slow n8n-backed tools (capped at 30s).
       const timeoutMs = Math.min(30000, Math.max(2000, Number(body.timeoutMs) || 20000));
       // MCP backends (n8n) fail transiently; one retry absorbs most blips.
-      const call = () => execFileAsync(
-        "mcporter", ["call", body.tool, "--args", JSON.stringify(body.input || {}), "--output", "json"],
-        { timeout: timeoutMs, cwd: "/root/ImpulseMotion" }
-      );
+      // stdout goes to a temp FILE, not a pipe: mcporter exits without
+      // flushing async pipe writes, which truncates large outputs (>~128KB)
+      // and made big accounts 502 on every call. File writes are synchronous.
+      const call = () => new Promise((resolve, reject) => {
+        const tmp = path.join(os.tmpdir(), `mcporter-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.out`);
+        const fd = fs.openSync(tmp, "w");
+        const cleanup = () => { try { fs.unlinkSync(tmp); } catch { /* already gone */ } };
+        const child = spawn(
+          "mcporter", ["call", body.tool, "--args", JSON.stringify(body.input || {}), "--output", "json"],
+          { cwd: "/root/ImpulseMotion", stdio: ["ignore", fd, "pipe"], timeout: timeoutMs }
+        );
+        let stderr = "";
+        child.stderr.on("data", (c) => { stderr += c; });
+        child.on("error", (err) => { fs.closeSync(fd); cleanup(); reject(err); });
+        child.on("close", (code, signal) => {
+          fs.closeSync(fd);
+          if (signal) { cleanup(); reject(new Error(`mcporter killed (${signal}) after ${timeoutMs}ms`)); return; }
+          if (code !== 0) { cleanup(); reject(new Error(`mcporter exit ${code}: ${stderr.slice(0, 300)}`)); return; }
+          const stdout = fs.readFileSync(tmp, "utf8");
+          cleanup();
+          resolve({ stdout });
+        });
+      });
       try {
         let stdout;
         let toolError = null;
