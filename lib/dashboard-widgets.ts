@@ -714,41 +714,68 @@ export async function resolveWidgets(
 // dashboards.
 
 /** Rich default widget set — the dashboard should tell the account's story
- *  out of the box: KPI row with previous-period deltas, daily curves, top
- *  creatives and campaign/keyword tables per bound platform. */
-export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean): Array<{
+ *  out of the box: intro, KPI row with previous-period deltas, budget pacing,
+ *  daily curves, top creatives and campaign/keyword tables per bound platform.
+ *  Grid: "third" = 2/6, "half" = 3/6, "full" = 6/6 — the composition below
+ *  always fills complete rows (no holes).
+ *  `accountName` (optional) personalises the intro text widget. */
+export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName?: string | null): Array<{
   type: WidgetType; title: string; width: string; position: number; config: Record<string, unknown>;
 }> {
   const source = hasMeta && hasGoogle ? "combined" : hasGoogle && !hasMeta ? "google" : "meta";
+  const platforms = hasMeta && hasGoogle ? "Meta Ads + Google Ads" : hasMeta ? "Meta Ads" : "Google Ads";
+  const intro = [
+    `**Vue d'ensemble ${platforms}.**`,
+    "Les chiffres couvrent la période sélectionnée en haut de page, avec comparaison automatique vs la période précédente.",
+    "KPIs clés, suivi du budget, courbes quotidiennes puis détail par campagne : tout se lit de haut en bas.",
+  ].join(" ");
+
   const w: Array<{ type: WidgetType; title: string; width: string; config: Record<string, unknown> }> = [
+    // ── Intro (full) ──────────────────────────────────────────────────────
+    {
+      type: "text",
+      title: (accountName ?? "").trim() || "Votre dashboard",
+      width: "full",
+      config: { markdown: intro },
+    },
+    // ── KPI row: 6 tiers = 2 rangées complètes ───────────────────────────
     { type: "kpi", title: "Dépenses", width: "third", config: { metric: "spend", source } },
     { type: "kpi", title: "ROAS", width: "third", config: { metric: "roas", source } },
     { type: "kpi", title: "Conversions", width: "third", config: { metric: "purchases", source } },
     { type: "kpi", title: "CPA", width: "third", config: { metric: "cpa", source } },
-    { type: "kpi", title: "Clics", width: "third", config: { metric: "clicks", source } },
-    { type: "kpi", title: "CTR", width: "third", config: { metric: "ctr", source } },
-    { type: "platform_table", title: "Vue par plateforme", width: "full", config: {} },
+    { type: "kpi", title: "CPC", width: "third", config: { metric: "cpc", source } },
+    { type: "kpi", title: "Taux de conversion", width: "third", config: { metric: "cr", source } },
   ];
 
+  // ── Pacing budget (Meta uniquement : le resolver s'appuie sur AccountBudget/meta)
   if (hasMeta) {
-    w.push({ type: "timeseries", title: "Dépenses quotidiennes — Meta", width: hasGoogle ? "half" : "full", config: { metric: "spend", source: "meta" } });
-  }
-  if (hasGoogle) {
-    w.push({ type: "timeseries", title: "Dépenses quotidiennes — Google", width: hasMeta ? "half" : "full", config: { metric: "spend", source: "google" } });
-  }
-  if (hasMeta) {
-    w.push({ type: "timeseries", title: "ROAS quotidien — Meta", width: "half", config: { metric: "roas", source: "meta" } });
-  }
-  if (hasGoogle) {
-    w.push({ type: "timeseries", title: "Conversions quotidiennes — Google", width: hasMeta ? "half" : "full", config: { metric: "purchases", source: "google" } });
+    w.push({ type: "pacing", title: "Suivi du budget mensuel", width: "full", config: {} });
   }
 
+  // ── Vue par plateforme (full) ───────────────────────────────────────────
+  w.push({ type: "platform_table", title: "Vue par plateforme", width: "full", config: {} });
+
+  // ── Courbes quotidiennes : toujours par paires de "half" ───────────────
+  if (hasMeta && hasGoogle) {
+    w.push({ type: "timeseries", title: "Dépenses quotidiennes — Meta", width: "half", config: { metric: "spend", source: "meta" } });
+    w.push({ type: "timeseries", title: "Dépenses quotidiennes — Google", width: "half", config: { metric: "spend", source: "google" } });
+    w.push({ type: "timeseries", title: "ROAS quotidien — Meta", width: "half", config: { metric: "roas", source: "meta" } });
+    w.push({ type: "timeseries", title: "Conversions quotidiennes — Google", width: "half", config: { metric: "purchases", source: "google" } });
+  } else if (hasMeta) {
+    w.push({ type: "timeseries", title: "Dépenses quotidiennes", width: "half", config: { metric: "spend", source: "meta" } });
+    w.push({ type: "timeseries", title: "ROAS quotidien", width: "half", config: { metric: "roas", source: "meta" } });
+  } else {
+    w.push({ type: "timeseries", title: "Dépenses quotidiennes", width: "half", config: { metric: "spend", source: "google" } });
+    w.push({ type: "timeseries", title: "Conversions quotidiennes", width: "half", config: { metric: "purchases", source: "google" } });
+  }
+
+  // ── Tops & tables : rangées complètes ──────────────────────────────────
   if (hasMeta) {
     w.push({ type: "top_creatives", title: "Top créas Meta", width: "half", config: { limit: 6 } });
     w.push({ type: "table", title: "Campagnes Meta", width: "half", config: { kind: "campaigns", source: "meta", limit: 10 } });
   }
   if (hasGoogle) {
-    w.push({ type: "table", title: "Campagnes Google Ads", width: hasMeta ? "half" : "full", config: { kind: "campaigns", source: "google", limit: 10 } });
+    w.push({ type: "table", title: "Campagnes Google Ads", width: "full", config: { kind: "campaigns", source: "google", limit: 10 } });
     w.push({ type: "table", title: "Top mots-clés", width: "half", config: { kind: "keywords", source: "google", limit: 10 } });
     w.push({ type: "table", title: "Termes de recherche", width: "half", config: { kind: "search_terms", source: "google", limit: 10 } });
   }
@@ -797,7 +824,7 @@ export async function createDashboardForUser(input: {
       metaAccountId,
       googleCustomerId,
       widgets: {
-        create: defaultWidgets(!!metaAccountId, !!googleCustomerId).map((w) => ({
+        create: defaultWidgets(!!metaAccountId, !!googleCustomerId, name).map((w) => ({
           type: w.type, title: w.title, width: w.width, position: w.position,
           config: JSON.stringify(w.config),
         })),
@@ -812,7 +839,7 @@ export async function createDashboardForUser(input: {
 export async function resetDashboardWidgets(dashboardId: string) {
   const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } });
   if (!dashboard) return null;
-  const widgets = defaultWidgets(!!dashboard.metaAccountId, !!dashboard.googleCustomerId);
+  const widgets = defaultWidgets(!!dashboard.metaAccountId, !!dashboard.googleCustomerId, dashboard.name);
   await prisma.$transaction([
     prisma.dashboardWidget.deleteMany({ where: { dashboardId } }),
     prisma.dashboardWidget.createMany({
@@ -873,7 +900,7 @@ export async function provisionDashboardsForUser(userId: string) {
         metaAccountId: metaId,
         googleCustomerId,
         widgets: {
-          create: defaultWidgets(true, !!googleCustomerId).map((w) => ({
+          create: defaultWidgets(true, !!googleCustomerId, name).map((w) => ({
             type: w.type, title: w.title, width: w.width, position: w.position,
             config: JSON.stringify(w.config),
           })),
@@ -893,7 +920,7 @@ export async function provisionDashboardsForUser(userId: string) {
         metaAccountId: null,
         googleCustomerId: gid,
         widgets: {
-          create: defaultWidgets(false, true).map((w) => ({
+          create: defaultWidgets(false, true, dashboardName(g.label, gid)).map((w) => ({
             type: w.type, title: w.title, width: w.width, position: w.position,
             config: JSON.stringify(w.config),
           })),

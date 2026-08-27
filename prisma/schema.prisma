@@ -8,24 +8,25 @@ datasource db {
 }
 
 model User {
-  id              String              @id @default(cuid())
-  name            String?
-  email           String?             @unique
-  emailVerified   DateTime?
-  image           String?
-  passwordHash    String?
-  role            String              @default("client")
-  accounts        Account[]
-  sessions        Session[]
-  reports         SharedReport[]
-  adAccounts      UserAdAccount[]
-  mcpPermissions  UserMcpPermission[]
-  reportSchedules ReportSchedule[]
-  alertRules      AlertRule[]
-  budgets         AccountBudget[]
-  dashboards      Dashboard[]
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  id                   String              @id @default(cuid())
+  name                 String?
+  email                String?             @unique
+  emailVerified        DateTime?
+  image                String?
+  passwordHash         String?
+  role                 String              @default("client")
+  accounts             Account[]
+  sessions             Session[]
+  reports              SharedReport[]
+  adAccounts           UserAdAccount[]
+  mcpPermissions       UserMcpPermission[]
+  reportSchedules      ReportSchedule[]
+  alertRules           AlertRule[]
+  budgets              AccountBudget[]
+  dashboards           Dashboard[]
+  dashboardMemberships DashboardMember[]
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 }
 
 model UserAdAccount {
@@ -192,19 +193,19 @@ model AccountBudget {
 }
 
 model AlertEvent {
-  id                          String    @id @default(cuid())
-  ruleId                      String
-  userId                      String
-  clientId                    String
-  metric                      String
-  value                       Float
-  threshold                   Float
-  message                     String    @db.Text
-  acknowledged                Boolean   @default(false)
-  triggeredAt                 DateTime  @default(now())
-  recommendations             String?   @db.Text
-  recommendationsGeneratedAt  DateTime?
-  rule                        AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  id                         String    @id @default(cuid())
+  ruleId                     String
+  userId                     String
+  clientId                   String
+  metric                     String
+  value                      Float
+  threshold                  Float
+  message                    String    @db.Text
+  acknowledged               Boolean   @default(false)
+  triggeredAt                DateTime  @default(now())
+  recommendations            String?   @db.Text
+  recommendationsGeneratedAt DateTime?
+  rule                       AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
   @@index([ruleId, triggeredAt])
   @@index([userId, triggeredAt])
@@ -248,8 +249,22 @@ model Dashboard {
   updatedAt        DateTime          @updatedAt
   widgets          DashboardWidget[]
   threads          AssistantThread[]
+  members          DashboardMember[]
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+}
+
+// Extra client logins attached to a dashboard (beyond its owner userId).
+model DashboardMember {
+  id          String    @id @default(cuid())
+  dashboardId String
+  userId      String
+  createdAt   DateTime  @default(now())
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([dashboardId, userId])
   @@index([userId])
 }
 

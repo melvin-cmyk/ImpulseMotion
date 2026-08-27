@@ -1,5 +1,5 @@
 /**
- * GET  /api/dashboards            → staff: all dashboards (?userId= filters); client: their own
+ * GET  /api/dashboards            → staff: all dashboards (?userId= filters); client: owned or member
  * POST /api/dashboards            → staff only: create a (provisioned) dashboard for a client
  *   Body: { userId, name? }
  */
@@ -16,15 +16,19 @@ export async function GET(req: NextRequest) {
   const { session } = guard;
 
   const userIdParam = req.nextUrl.searchParams.get("userId");
-  const where = isStaff(session)
+  const staff = isStaff(session);
+  const where = staff
     ? userIdParam ? { userId: userIdParam } : {}
-    : { userId: session.userId };
+    : { OR: [{ userId: session.userId }, { members: { some: { userId: session.userId } } }] };
 
   const dashboards = await prisma.dashboard.findMany({
     where,
     include: {
       user: { select: { id: true, email: true, name: true } },
       _count: { select: { widgets: true } },
+      ...(staff
+        ? { members: { include: { user: { select: { id: true, email: true, name: true } } } } }
+        : {}),
     },
     orderBy: { updatedAt: "desc" },
   });

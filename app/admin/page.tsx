@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { PageHeader, Pill, Card } from "@/components/ui/surface";
 
 type User = {
@@ -19,9 +20,29 @@ const inputCls =
 const primaryBtnCls =
   "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50";
 
+const ROLES = ["client", "consultant", "admin"] as const;
+type Role = (typeof ROLES)[number];
+
+/** Badge par rôle : admin=violet, consultant=bleu, client=gris. */
+const ROLE_TONE: Record<string, "violet" | "blue" | "default"> = {
+  admin: "violet",
+  consultant: "blue",
+  client: "default",
+};
+const ROLE_FILTERS: { value: "all" | Role; label: string }[] = [
+  { value: "all", label: "Tous" },
+  { value: "admin", label: "Admins" },
+  { value: "consultant", label: "Consultants" },
+  { value: "client", label: "Clients" },
+];
+
 export default function AdminUsersPage() {
+  const { data: session } = useSession();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [roleFilter, setRoleFilter] = useState<"all" | Role>("all");
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const [roleBusy, setRoleBusy] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createEmail, setCreateEmail] = useState("");
   const [createName, setCreateName] = useState("");
@@ -66,11 +87,32 @@ export default function AdminUsersPage() {
     load();
   }
 
+  async function handleRoleChange(id: string, role: string) {
+    setRoleError(null);
+    setRoleBusy(id);
+    const res = await fetch(`/api/admin/users/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    });
+    setRoleBusy(null);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setRoleError(data.error || "Changement de rôle échoué");
+      return;
+    }
+    load();
+  }
+
   async function handleDelete(id: string, email: string | null) {
     if (!confirm(`Supprimer ${email ?? id} ?`)) return;
     const res = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
     if (res.ok) load();
   }
+
+  const isSelf = (u: User) =>
+    u.id === session?.userId || (!!u.email && u.email === session?.user?.email);
+  const filteredUsers = roleFilter === "all" ? users : users.filter((u) => u.role === roleFilter);
 
   return (
     <div className="space-y-6">
@@ -140,22 +182,63 @@ export default function AdminUsersPage() {
         </Card>
       )}
 
+      <div className="flex items-center gap-2 flex-wrap">
+        {ROLE_FILTERS.map((f) => (
+          <button
+            key={f.value}
+            type="button"
+            onClick={() => setRoleFilter(f.value)}
+            className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+              roleFilter === f.value
+                ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
+                : "bg-gray-900 text-gray-400 border-gray-800 hover:text-white"
+            }`}
+          >
+            {f.label}
+            {!loading && (
+              <span className="ml-1.5 text-gray-500">
+                {f.value === "all" ? users.length : users.filter((u) => u.role === f.value).length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {roleError && <p className="text-xs text-red-400">{roleError}</p>}
+
       {loading ? (
         <p className="text-gray-500">Chargement…</p>
-      ) : users.length === 0 ? (
+      ) : filteredUsers.length === 0 ? (
         <Card padded className="text-center text-gray-500 border-dashed">
-          Aucun utilisateur. Crée-en un avec le bouton ci-dessus.
+          {users.length === 0
+            ? "Aucun utilisateur. Crée-en un avec le bouton ci-dessus."
+            : "Aucun utilisateur pour ce filtre."}
         </Card>
       ) : (
         <div className="space-y-2">
-          {users.map((u) => (
+          {filteredUsers.map((u) => (
             <Card key={u.id} padded className="flex items-center justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm text-white truncate">{u.email}</span>
-                  <Pill tone={u.role === "admin" ? "violet" : u.role === "consultant" ? "amber" : "blue"} className="uppercase font-bold tracking-wide">
+                  <Pill tone={ROLE_TONE[u.role] ?? "default"} className="uppercase font-bold tracking-wide">
                     {u.role}
                   </Pill>
+                  <select
+                    value={u.role}
+                    onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                    disabled={roleBusy === u.id || (isSelf(u) && u.role === "admin")}
+                    title={
+                      isSelf(u) && u.role === "admin"
+                        ? "Vous ne pouvez pas retirer votre propre rôle admin"
+                        : "Changer le rôle"
+                    }
+                    className="px-2 py-1 rounded bg-gray-950 border border-gray-800 text-gray-300 text-xs focus:border-violet-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="text-xs mt-1 text-gray-500">
                   {u.adAccounts.length} compte{u.adAccounts.length > 1 ? "s" : ""} pub · {u.mcpPermissions.length} serveur{u.mcpPermissions.length > 1 ? "s" : ""} MCP

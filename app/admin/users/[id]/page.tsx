@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, use } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Card, Pill } from "@/components/ui/surface";
 
 type AdAccount = { id: string; platform: string; accountId: string; label: string | null };
@@ -14,6 +15,13 @@ type User = {
   mcpPermissions: { mcpServer: string }[];
 };
 type AccountOption = { accountId: string; name: string; currency: string };
+type DashboardRow = {
+  id: string;
+  name: string;
+  userId: string;
+  members?: { userId: string }[];
+  _count?: { widgets: number };
+};
 
 const MCP_SERVERS = ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"];
 const PLATFORMS = [
@@ -34,8 +42,13 @@ const dangerBtnCls =
 
 export default function UserDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const { data: session } = useSession();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [allDashboards, setAllDashboards] = useState<DashboardRow[] | null>(null);
+  const [dashboardsLoading, setDashboardsLoading] = useState(true);
+  const [dashboardsError, setDashboardsError] = useState<string | null>(null);
 
   const [addPlatform, setAddPlatform] = useState<"meta" | "google" | "tiktok">("meta");
   const [addAccountId, setAddAccountId] = useState("");
@@ -65,6 +78,18 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    // Staff GET renvoie tous les dashboards avec leurs membres — on filtre côté client.
+    fetch("/api/dashboards")
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Erreur API");
+        setAllDashboards(data.dashboards || []);
+      })
+      .catch((e) => setDashboardsError(e instanceof Error ? e.message : "Erreur"))
+      .finally(() => setDashboardsLoading(false));
+  }, []);
 
   const PICKER_ENDPOINTS: Record<string, string> = {
     meta: "/api/admin/meta/accounts",
@@ -238,6 +263,10 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   if (!user) return <div className="text-sm text-red-400">Utilisateur introuvable</div>;
 
   const mcpEnabled = new Set(user.mcpPermissions.map((p) => p.mcpServer));
+  const isSelf = user.id === session?.userId || (!!user.email && user.email === session?.user?.email);
+  const userDashboards = (allDashboards ?? []).filter(
+    (d) => d.userId === id || d.members?.some((m) => m.userId === id),
+  );
 
   return (
     <div className="space-y-8">
@@ -251,7 +280,9 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           <select
             value={user.role}
             onChange={(e) => changeRole(e.target.value)}
-            className="px-2 py-1 rounded bg-gray-950 border border-gray-800 text-violet-300 text-xs focus:border-violet-500 focus:outline-none"
+            disabled={isSelf && user.role === "admin"}
+            title={isSelf && user.role === "admin" ? "Vous ne pouvez pas retirer votre propre rôle admin" : undefined}
+            className="px-2 py-1 rounded bg-gray-950 border border-gray-800 text-violet-300 text-xs focus:border-violet-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="client">client</option>
             <option value="consultant">consultant</option>
@@ -383,6 +414,43 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             </button>
           </form>
         </Card>
+      </section>
+
+      <section>
+        <h2 className={sectionTitleCls}>Dashboards</h2>
+        {dashboardsLoading ? (
+          <p className="text-sm text-gray-500">Chargement…</p>
+        ) : dashboardsError ? (
+          <p className="text-xs text-red-400">{dashboardsError}</p>
+        ) : userDashboards.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            Aucun dashboard — ce user n&apos;est ni propriétaire ni membre d&apos;un dashboard.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {userDashboards.map((d) => (
+              <Card key={d.id} padded className="!p-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Pill tone={d.userId === id ? "violet" : "blue"} className="shrink-0">
+                    {d.userId === id ? "Propriétaire" : "Membre"}
+                  </Pill>
+                  <span className="text-sm text-white truncate">{d.name}</span>
+                  {d._count && (
+                    <span className="text-xs text-gray-500 shrink-0">
+                      {d._count.widgets} widget{d._count.widgets > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+                <Link
+                  href={`/d/${d.id}`}
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors shrink-0"
+                >
+                  Ouvrir →
+                </Link>
+              </Card>
+            ))}
+          </div>
+        )}
       </section>
 
       <section>

@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { provisionDashboardsForUser } from "@/lib/dashboard-widgets";
 import { CreateDashboardForm } from "@/components/dashboard/create-form";
+import { DashboardMembersManager } from "@/components/dashboard/members-manager";
 
 /**
  * /d — dashboard entry point.
@@ -18,7 +19,14 @@ export default async function DashboardsIndex() {
   if (!session?.userId) redirect("/login?callbackUrl=/d");
 
   if (session.role === "client") {
-    const dashboards = await provisionDashboardsForUser(session.userId);
+    const owned = await provisionDashboardsForUser(session.userId);
+    // Dashboards the client was added to as a member (owned by someone else).
+    const memberOf = await prisma.dashboard.findMany({
+      where: { members: { some: { userId: session.userId } }, userId: { not: session.userId } },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    });
+    const dashboards = [...owned, ...memberOf];
     if (dashboards.length === 1) redirect(`/d/${dashboards[0].id}`);
     return (
       <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
@@ -52,6 +60,10 @@ export default async function DashboardsIndex() {
       include: {
         user: { select: { id: true, email: true, name: true } },
         _count: { select: { widgets: true } },
+        members: {
+          select: { id: true, userId: true, user: { select: { id: true, email: true, name: true } } },
+          orderBy: { createdAt: "asc" },
+        },
       },
       orderBy: { name: "asc" },
     }),
@@ -82,21 +94,26 @@ export default async function DashboardsIndex() {
 
       <div className="grid gap-3">
         {dashboards.map((d) => (
-          <Link
+          <div
             key={d.id}
-            href={`/d/${d.id}`}
-            className="flex items-center justify-between bg-gray-900 border border-gray-800 hover:border-violet-700 rounded-xl px-5 py-4 transition-colors"
+            className="bg-gray-900 border border-gray-800 hover:border-violet-700 rounded-xl px-5 py-4 transition-colors"
           >
-            <div>
-              <div className="text-sm font-semibold text-white">{d.name}</div>
-              <div className="text-xs text-gray-500 mt-0.5">
-                Accès : {d.user.name ?? d.user.email} · {d._count.widgets} widgets
-                {d.metaAccountId ? ` · Meta ${d.metaAccountId}` : ""}
-                {d.googleCustomerId ? ` · Google ${d.googleCustomerId}` : ""}
+            <Link href={`/d/${d.id}`} className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-white">{d.name}</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  Accès : {d.user.name ?? d.user.email} · {d._count.widgets} widgets
+                  {d.metaAccountId ? ` · Meta ${d.metaAccountId}` : ""}
+                  {d.googleCustomerId ? ` · Google ${d.googleCustomerId}` : ""}
+                </div>
               </div>
-            </div>
-            <span className="text-gray-600 text-sm">→</span>
-          </Link>
+              <span className="text-gray-600 text-sm">→</span>
+            </Link>
+            <DashboardMembersManager
+              dashboardId={d.id}
+              initialMembers={d.members.map((m) => ({ id: m.id, userId: m.userId, user: m.user }))}
+            />
+          </div>
         ))}
         {dashboards.length === 0 && (
           <div className="text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-5 py-6">
