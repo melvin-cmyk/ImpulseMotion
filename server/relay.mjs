@@ -93,7 +93,7 @@ async function getToolsList() {
 }
 
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
-function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride) {
+function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -199,7 +199,14 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   // Hard session budget with CLEAN error+done events (a raw TCP cut leaves the
   // client with a truncated reply and no way to tell). Must stay below the
   // Vercel proxy's maxDuration (120s).
-  const SESSION_BUDGET_MS = Number(process.env.RELAY_CHAT_BUDGET_MS || 110_000);
+  // Callers running under a longer serverless budget (report generation,
+  // maxDuration 300) may request more, capped by RELAY_CHAT_MAX_BUDGET_MS.
+  const DEFAULT_BUDGET_MS = Number(process.env.RELAY_CHAT_BUDGET_MS || 110_000);
+  const MAX_BUDGET_MS = Number(process.env.RELAY_CHAT_MAX_BUDGET_MS || 280_000);
+  const requested = Number(budgetMs);
+  const SESSION_BUDGET_MS = Number.isFinite(requested) && requested > 0
+    ? Math.min(Math.max(requested, 10_000), MAX_BUDGET_MS)
+    : DEFAULT_BUDGET_MS;
   const sessionBudget = setTimeout(() => {
     if (!child.killed) child.kill("SIGTERM");
     finish({ error: `Temps de session dépassé (${Math.round(SESSION_BUDGET_MS / 1000)}s) — réessayez avec une demande plus ciblée` });
@@ -458,7 +465,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "messages required" }));
         return;
       }
-      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt);
+      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs);
       return;
     }
 

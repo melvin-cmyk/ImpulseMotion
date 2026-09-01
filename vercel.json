@@ -1,19 +1,10 @@
 {
   "functions": {
-    "app/api/deck/data/route.ts": {
-      "maxDuration": 120
-    },
-    "app/api/deck/clients/route.ts": {
-      "maxDuration": 30
-    },
     "app/api/cron/reports/route.ts": {
       "maxDuration": 300
     },
     "app/api/cron/alerts/route.ts": {
       "maxDuration": 300
-    },
-    "app/api/admin/portfolio/route.ts": {
-      "maxDuration": 60
     }
   },
   "crons": [

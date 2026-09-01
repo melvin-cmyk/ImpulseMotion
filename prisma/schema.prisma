@@ -17,14 +17,13 @@ model User {
   role                 String              @default("client")
   accounts             Account[]
   sessions             Session[]
-  reports              SharedReport[]
   adAccounts           UserAdAccount[]
   mcpPermissions       UserMcpPermission[]
-  reportSchedules      ReportSchedule[]
   alertRules           AlertRule[]
   budgets              AccountBudget[]
   dashboards           Dashboard[]
   dashboardMemberships DashboardMember[]
+  clientReports        ClientReport[]
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 }
@@ -51,19 +50,6 @@ model UserMcpPermission {
 
   @@unique([userId, mcpServer])
   @@index([userId])
-}
-
-model SharedReport {
-  id          String   @id @default(cuid())
-  userId      String
-  name        String
-  periodFrom  String
-  periodTo    String
-  creativeIds String
-  metrics     String
-  views       Int      @default(0)
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Account {
@@ -98,64 +84,6 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
-}
-
-model DeckHistory {
-  id          String   @id @default(cuid())
-  clientId    String
-  clientName  String
-  platform    String
-  period      String
-  startDate   DateTime
-  endDate     DateTime
-  slidesJson  String   @db.Text
-  metricsJson String   @db.Text
-  createdAt   DateTime @default(now())
-  userId      String?
-
-  @@index([clientId, createdAt])
-}
-
-model DeckDraft {
-  id              String   @id @default(cuid())
-  userId          String
-  clientId        String
-  periodKey       String
-  droppedBlocks   String   @db.Text
-  slideOverrides  String   @db.Text
-  customSlides    String   @db.Text
-  slideNotes      String   @db.Text
-  blockStyles     String   @db.Text
-  slideElements   String   @db.Text
-  textStyles      String   @db.Text
-  aiDynamicSlides String   @db.Text
-  masterElements  String?  @db.Text
-  themeId         String?
-  updatedAt       DateTime @updatedAt
-  createdAt       DateTime @default(now())
-
-  @@unique([userId, clientId, periodKey])
-  @@index([userId, updatedAt])
-}
-
-model ReportSchedule {
-  id           String    @id @default(cuid())
-  userId       String
-  clientId     String
-  clientLabel  String?
-  platform     String    @default("meta")
-  frequency    String    @default("monthly")
-  recipients   String    @db.Text
-  enabled      Boolean   @default(true)
-  lastRunAt    DateTime?
-  lastRunError String?   @db.Text
-  nextRunAt    DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([nextRunAt])
 }
 
 model AlertRule {
@@ -214,13 +142,18 @@ model AlertEvent {
 // Per-ad-account settings shared by all users (AOV fallback for accounts that
 // don't track purchase value, display currency).
 model AccountSetting {
-  id        String   @id @default(cuid())
-  platform  String   @default("meta")
-  accountId String
-  aov       Float?
-  currency  String   @default("EUR")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(cuid())
+  platform        String   @default("meta")
+  accountId       String
+  aov             Float?
+  /// ISO 4217 — null = unknown (never assume EUR); refreshed from the Meta account profile
+  currency        String?
+  /// IANA timezone of the ad account (e.g. Europe/Paris), from the Meta profile
+  timezone        String?
+  /// purchase | lead | complete_registration | custom:<action_type>
+  conversionEvent String?  @default("purchase")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([platform, accountId])
 }
@@ -245,11 +178,17 @@ model Dashboard {
   name             String            @default("Pilotage")
   metaAccountId    String?
   googleCustomerId String?
+  // Opt-in AI reporting per client: null = off, "weekly" | "monthly"
+  reportFrequency  String?
+  // Monthly media budget of the client (pacing). Takes precedence over AccountBudget.
+  monthlyBudget    Float?
+  budgetCurrency   String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   widgets          DashboardWidget[]
   threads          AssistantThread[]
   members          DashboardMember[]
+  reports          ClientReport[]
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -294,4 +233,34 @@ model AssistantThread {
   dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 
   @@index([dashboardId, updatedAt])
+}
+
+// ── AI client reports ────────────────────────────────────────────────────────
+// One row per generated report. dataJson is the frozen data snapshot the AI
+// wrote from (also what the chat reads), contentMd the rendered report,
+// nextStepsJson the action list, chatJson the persisted Q&A thread.
+model ClientReport {
+  id            String    @id @default(cuid())
+  dashboardId   String
+  userId        String?
+  title         String
+  periodSince   String
+  periodUntil   String
+  compareSince  String?
+  compareUntil  String?
+  status        String    @default("generating") // generating | ready | failed
+  trigger       String    @default("manual") // manual | cron
+  dataJson      String    @default("{}") @db.Text
+  contentMd     String    @default("") @db.Text
+  summary       String?   @db.Text
+  nextStepsJson String    @default("[]") @db.Text
+  chatJson      String    @default("[]") @db.Text
+  error         String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  dashboard     Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([dashboardId, createdAt])
+  @@index([status, createdAt])
 }

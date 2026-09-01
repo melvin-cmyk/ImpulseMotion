@@ -7,6 +7,7 @@
  * MCP permissions and ad-account ACL so the relay can scope the AI.
  */
 
+import { MCP_SERVER_WHITELIST } from "@/lib/mcp-whitelist";
 import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { getAllowedMcpServers, getAllowedAccountIds } from "@/lib/acl";
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
   const enrichedBody = {
     ...body,
     allowedServers: guard.session.role === "admin" || guard.session.role === "consultant"
-      ? ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"]
+      ? [...MCP_SERVER_WHITELIST]
       : allowedServers,
     accountScope: {
       meta: metaIds,

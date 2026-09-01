@@ -1,109 +1,81 @@
+/**
+ * Daily cron (07:00 UTC): generates AI reports for clients that opted in.
+ *
+ * Dashboard.reportFrequency = "weekly" → every Monday, last 7 full days.
+ *                           = "monthly" → the 1st of the month, previous month.
+ * Idempotent: a period already covered by a ready/generating report is skipped.
+ * Runs serially (each report is one relay session) inside maxDuration 300 —
+ * remaining clients roll over to the next day (they're skipped only once a
+ * report for the period exists).
+ */
+
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getAccountInsights, getMetaSystemToken } from "@/lib/meta-api";
+import { generateClientReport, defaultReportTitle } from "@/lib/report-generate";
+import { lastMonthRange, lastWeekRange } from "@/lib/report-data";
+import { prevRange } from "@/lib/dashboard-widgets";
 
 export const maxDuration = 300;
 
+const BUDGET_MS = 270_000;
+
 function checkCronAuth(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
-  if (!secret) return false; // fail closed: no secret configured → deny
-  const auth = req.headers.get("authorization");
-  return auth === `Bearer ${secret}`;
-}
-
-function nextMonthlyRun(from = new Date()): Date {
-  const d = new Date(from);
-  d.setUTCMonth(d.getUTCMonth() + 1);
-  d.setUTCDate(1);
-  d.setUTCHours(7, 0, 0, 0);
-  return d;
-}
-
-function nextWeeklyRun(from = new Date()): Date {
-  const d = new Date(from);
-  d.setUTCDate(d.getUTCDate() + 7);
-  d.setUTCHours(7, 0, 0, 0);
-  return d;
-}
-
-function lastMonthRange(): { since: string; until: string } {
-  const now = new Date();
-  const firstOfThisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const lastMonthEnd = new Date(firstOfThisMonth);
-  lastMonthEnd.setUTCDate(0);
-  const lastMonthStart = new Date(Date.UTC(lastMonthEnd.getUTCFullYear(), lastMonthEnd.getUTCMonth(), 1));
-  const fmt = (d: Date) => d.toISOString().split("T")[0];
-  return { since: fmt(lastMonthStart), until: fmt(lastMonthEnd) };
+  if (!secret) return false; // fail closed
+  return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
 export async function GET(req: NextRequest) {
-  if (!checkCronAuth(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  if (!checkCronAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const due = await prisma.reportSchedule.findMany({
-    where: {
-      enabled: true,
-      OR: [{ nextRunAt: null }, { nextRunAt: { lte: new Date() } }],
-    },
+  const now = new Date();
+  const force = req.nextUrl.searchParams.get("force") === "1";
+  const isMonday = now.getUTCDay() === 1;
+  const isFirst = now.getUTCDate() === 1;
+
+  const dashboards = await prisma.dashboard.findMany({
+    where: { reportFrequency: { in: ["weekly", "monthly"] } },
+    orderBy: { createdAt: "asc" },
   });
 
-  const results: Array<{ id: string; status: string; error?: string }> = [];
-  const token = getMetaSystemToken();
-  const range = lastMonthRange();
-  const periodKey = `${range.since}_${range.until}`;
+  const started = Date.now();
+  const results: Array<{ dashboardId: string; name: string; status: string; reportId?: string; error?: string }> = [];
 
-  for (const sched of due) {
+  for (const d of dashboards) {
+    const due = d.reportFrequency === "weekly" ? isMonday || force : isFirst || force;
+    if (!due) { results.push({ dashboardId: d.id, name: d.name, status: "not_due" }); continue; }
+    if (Date.now() - started > BUDGET_MS) { results.push({ dashboardId: d.id, name: d.name, status: "deferred" }); continue; }
+
+    const range = d.reportFrequency === "weekly" ? lastWeekRange(now) : lastMonthRange(now);
+    const existing = await prisma.clientReport.findFirst({
+      where: { dashboardId: d.id, periodSince: range.since, periodUntil: range.until, status: { in: ["ready", "generating"] } },
+      select: { id: true },
+    });
+    if (existing) { results.push({ dashboardId: d.id, name: d.name, status: "exists", reportId: existing.id }); continue; }
+
+    const cmp = prevRange(range.since, range.until);
+    const report = await prisma.clientReport.create({
+      data: {
+        dashboardId: d.id,
+        userId: d.userId,
+        title: defaultReportTitle(d.name, range.since, range.until),
+        periodSince: range.since,
+        periodUntil: range.until,
+        compareSince: cmp.since,
+        compareUntil: cmp.until,
+        status: "generating",
+        trigger: "cron",
+      },
+    });
     try {
-      const insight = await getAccountInsights(token, sched.clientId, range);
-      const metrics = {
-        spend: parseFloat(insight?.spend ?? "0"),
-        impressions: parseInt(insight?.impressions ?? "0", 10),
-        clicks: parseInt(insight?.clicks ?? "0", 10),
-        ctr: parseFloat(insight?.ctr ?? "0"),
-        cpm: parseFloat(insight?.cpm ?? "0"),
-        frequency: parseFloat(insight?.frequency ?? "0"),
-        actions: insight?.actions ?? [],
-      };
-
-      await prisma.deckHistory.create({
-        data: {
-          userId: sched.userId,
-          clientId: sched.clientId,
-          clientName: sched.clientLabel ?? sched.clientId,
-          platform: sched.platform,
-          period: periodKey,
-          startDate: new Date(range.since),
-          endDate: new Date(range.until),
-          slidesJson: JSON.stringify({ kind: "auto-generated", schedule: sched.id }),
-          metricsJson: JSON.stringify(metrics),
-        },
-      });
-
-      await prisma.reportSchedule.update({
-        where: { id: sched.id },
-        data: {
-          lastRunAt: new Date(),
-          lastRunError: null,
-          nextRunAt: sched.frequency === "weekly" ? nextWeeklyRun() : nextMonthlyRun(),
-        },
-      });
-
-      results.push({ id: sched.id, status: "ok" });
+      await generateClientReport(report.id);
+      results.push({ dashboardId: d.id, name: d.name, status: "ok", reportId: report.id });
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "unknown error";
-      await prisma.reportSchedule.update({
-        where: { id: sched.id },
-        data: {
-          lastRunError: msg,
-          nextRunAt: sched.frequency === "weekly" ? nextWeeklyRun() : nextMonthlyRun(),
-        },
-      });
-      results.push({ id: sched.id, status: "error", error: msg });
+      results.push({ dashboardId: d.id, name: d.name, status: "error", reportId: report.id, error: e instanceof Error ? e.message : String(e) });
     }
   }
 
-  return NextResponse.json({ processed: due.length, results });
+  return NextResponse.json({ processed: dashboards.length, results });
 }
 
 export async function POST(req: NextRequest) {
