@@ -3,7 +3,9 @@
  * Merges duplicated dashboards: a CLIENT is an ad account, so dashboards that
  * share a Meta account OR a Google customer (transitively, across owners) are
  * one client. Keeps the OLDEST dashboard of each group, links it to the union
- * of the accounts, moves members / threads / reports from the copies onto it,
+ * of the accounts, moves members / threads / reports / data sources from the
+ * copies onto it (a source the keeper already has — same kind + external id —
+ * is dropped with the copy),
  * adds the other owners as members (so they keep access), then deletes the
  * copies. Copies that carry customised widgets are reported (their widgets
  * are NOT merged — the keeper keeps its own).
@@ -24,7 +26,7 @@ const rows = await prisma.dashboard.findMany({
   orderBy: { createdAt: "asc" },
   include: {
     user: { select: { email: true } },
-    _count: { select: { widgets: true, members: true, threads: true, reports: true } },
+    _count: { select: { widgets: true, members: true, threads: true, reports: true, sources: true } },
   },
 });
 
@@ -74,6 +76,7 @@ for (const list of groups.values()) {
       members: d._count.members,
       threads: d._count.threads,
       reports: d._count.reports,
+      sources: d._count.sources,
       action: d.id === keep.id ? (drop.length ? `KEEP → link meta=${meta ?? "-"} google=${google ?? "-"}` : "keep (unique)") : "MERGE INTO keeper + delete",
     });
   }
@@ -82,7 +85,7 @@ for (const list of groups.values()) {
 for (const d of unlinked) {
   table.push({
     client: "(unlinked)", dashboard: d.id, name: d.name, owner: d.user?.email ?? d.userId, meta: "-", google: "-",
-    created: d.createdAt.toISOString().slice(0, 10), widgets: d._count.widgets, members: d._count.members, threads: d._count.threads, reports: d._count.reports,
+    created: d.createdAt.toISOString().slice(0, 10), widgets: d._count.widgets, members: d._count.members, threads: d._count.threads, reports: d._count.reports, sources: d._count.sources,
     action: "skip — no account (link it or delete it by hand)",
   });
 }
@@ -125,6 +128,15 @@ for (const { keep, drop, meta, google } of plans) {
       }
       await tx.assistantThread.updateMany({ where: { dashboardId: d.id }, data: { dashboardId: keep.id } });
       await tx.clientReport.updateMany({ where: { dashboardId: d.id }, data: { dashboardId: keep.id } });
+      // Data sources (HubSpot…) → keeper, unless it already has the same (kind, externalId):
+      // the copy's row is then dropped with the copy (unique constraint), keeper wins.
+      const keeperSources = await tx.dashboardSource.findMany({ where: { dashboardId: keep.id }, select: { kind: true, externalId: true } });
+      const taken = new Set(keeperSources.map((s) => `${s.kind}:${s.externalId}`));
+      const copySources = await tx.dashboardSource.findMany({ where: { dashboardId: d.id }, select: { id: true, kind: true, externalId: true } });
+      const movable = copySources.filter((s) => !taken.has(`${s.kind}:${s.externalId}`)).map((s) => s.id);
+      if (movable.length) await tx.dashboardSource.updateMany({ where: { id: { in: movable } }, data: { dashboardId: keep.id } });
+      const skipped = copySources.length - movable.length;
+      if (skipped) console.log(`  ${d.id}: ${skipped} source(s) already on keeper — dropped with the copy`);
       await tx.dashboard.delete({ where: { id: d.id } });
       merged++;
     }

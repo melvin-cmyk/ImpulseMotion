@@ -189,9 +189,35 @@ model Dashboard {
   threads          AssistantThread[]
   members          DashboardMember[]
   reports          ClientReport[]
+  sources          DashboardSource[]
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// Additional data sources attached to a client (HubSpot today; Shopify / CSV later).
+// Meta / Google stay on the Dashboard columns (metaAccountId / googleCustomerId).
+model DashboardSource {
+  id          String    @id @default(cuid())
+  dashboardId String
+  /// "hubspot" today; "shopify" | "csv" … later
+  kind        String
+  /// stable id at the provider (HubSpot portal id)
+  externalId  String
+  label       String?
+  /// JSON, provider-specific, non-secret (e.g. { pipelineIds: [], qualifiedStages: [], currency })
+  config      String    @default("{}") @db.Text
+  /// AES-256-GCM (lib/secrets.ts) — never returned to the client
+  secretEnc   String?   @db.Text
+  status      String    @default("active") // active | error | disabled
+  lastSyncAt  DateTime?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@unique([dashboardId, kind, externalId])
+  @@index([dashboardId])
 }
 
 // Extra client logins attached to a dashboard (beyond its owner userId).
