@@ -12,26 +12,27 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { cached } from "@/lib/kpi-cache";
+import { cached, cachedWithMeta, ttlForRange } from "@/lib/kpi-cache";
 import {
   getMetaSystemToken,
-  getAds,
-  getAdInsights,
-  getAccountDailyInsights,
-  getCampaignInsights,
+  getAdsPaged,
+  getAdInsightsPaged,
+  getAccountDailyInsightsPaged,
+  getCampaignInsightsPaged,
+  getAccountBreakdownInsightsPaged,
   computeRevenue,
   computeHookRate,
   computeRoas,
   computeCpa,
-  getActionValue,
-  getAccountBreakdownInsights,
+  purchasesFor,
   type MetaAccountInsight,
   type MetaBreakdownInsight,
 } from "@/lib/meta-api";
-import { getAccountInsightsCached } from "@/lib/insights";
-import { getAccountAov } from "@/lib/account-settings";
+import { getAccountInsightsCachedWithMeta } from "@/lib/insights";
+import { getAccountProfileSettings } from "@/lib/account-settings";
 import { relayDirectTool } from "@/lib/relay-tool";
-import { computePacing } from "@/lib/budgets";
+import { computePacing, findBudgetForMetaAccount } from "@/lib/budgets";
+import { prevRange as prevRangeOf } from "@/lib/date-ranges";
 
 import {
   WIDGET_TYPES,
@@ -59,28 +60,24 @@ const normMeta = (id: string) => id.replace(/^act_/, "");
 const normGoogle = (id: string) => id.replace(/-/g, "").replace(/^0+/, "");
 
 /** Resolves the dashboard's accounts, constrained to the owner's ACL.
- *  Unbound dashboards fall back to the owner's first ACL account per platform. */
+ *  An unlinked dashboard (no Meta nor Google account) is an error — there is
+ *  no more "first ACL account of the owner" fallback, which used to show a
+ *  random client's numbers on an unbound dashboard. */
 export async function resolveBinding(
   ownerId: string,
   dashboard: { metaAccountId: string | null; googleCustomerId: string | null },
 ): Promise<DashboardBinding> {
+  if (!dashboard.metaAccountId && !dashboard.googleCustomerId) {
+    throw issue("Ce dashboard n'est lié à aucun compte publicitaire (Meta ou Google) — liez un compte dans ses réglages");
+  }
   const acl = await prisma.userAdAccount.findMany({ where: { userId: ownerId } });
   const metaIds = acl.filter((a) => a.platform === "meta").map((a) => normMeta(a.accountId));
   const googleIds = acl.filter((a) => a.platform === "google").map((a) => normGoogle(a.accountId));
 
-  let metaAccountId: string | null = null;
-  if (dashboard.metaAccountId && metaIds.includes(normMeta(dashboard.metaAccountId))) {
-    metaAccountId = normMeta(dashboard.metaAccountId);
-  } else if (!dashboard.metaAccountId && metaIds.length > 0) {
-    metaAccountId = metaIds[0];
-  }
-
-  let googleCustomerId: string | null = null;
-  if (dashboard.googleCustomerId && googleIds.includes(normGoogle(dashboard.googleCustomerId))) {
-    googleCustomerId = normGoogle(dashboard.googleCustomerId);
-  } else if (!dashboard.googleCustomerId && googleIds.length > 0) {
-    googleCustomerId = googleIds[0];
-  }
+  const metaAccountId =
+    dashboard.metaAccountId && metaIds.includes(normMeta(dashboard.metaAccountId)) ? normMeta(dashboard.metaAccountId) : null;
+  const googleCustomerId =
+    dashboard.googleCustomerId && googleIds.includes(normGoogle(dashboard.googleCustomerId)) ? normGoogle(dashboard.googleCustomerId) : null;
 
   return { metaAccountId, googleCustomerId };
 }
@@ -94,29 +91,87 @@ function toNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function micros(v: unknown): number {
-  const n = toNum(v);
-  return n > 10000 ? n / 1_000_000 : n;
+/** Explicit micros → units conversion (Google Ads `cost_micros`). No heuristic. */
+export function micros(v: unknown): number {
+  return toNum(v) / 1_000_000;
 }
 
-function extractRows(raw: unknown): Array<Record<string, unknown>> {
-  if (!raw) return [];
-  if (Array.isArray(raw)) {
-    const first = (raw as unknown[])[0];
-    if (first && typeof first === "object" && Array.isArray((first as Record<string, unknown>).results)) {
-      return (first as { results: Array<Record<string, unknown>> }).results;
+/**
+ * Cost in account currency from a GAQL metrics object: `cost_micros` /
+ * `costMicros` are divided by 1e6; a plain `cost` field is taken as-is.
+ */
+export function costFrom(m: Record<string, unknown>): number {
+  if (m.costMicros !== undefined && m.costMicros !== null) return micros(m.costMicros);
+  if (m.cost_micros !== undefined && m.cost_micros !== null) return micros(m.cost_micros);
+  return toNum(m.cost);
+}
+
+function isRowArray(v: unknown): v is Array<Record<string, unknown>> {
+  return Array.isArray(v) && v.every((r) => r !== null && typeof r === "object" && !Array.isArray(r));
+}
+
+function relayErrorMessage(obj: Record<string, unknown>): string | null {
+  const e = obj.error ?? obj.errors;
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    const m = (e as Record<string, unknown>).message;
+    return typeof m === "string" ? m : JSON.stringify(e);
+  }
+  if (obj.isError === true) return typeof obj.message === "string" ? obj.message : "relay error";
+  return null;
+}
+
+/**
+ * Normalises a relay GAQL result into rows. Accepts:
+ * - an array of rows
+ * - an array of `{ results: [...] }` page chunks (ALL pages are concatenated)
+ * - a single `{ results | data | rows: [...] }` object
+ * Throws a descriptive Error for error objects / unknown shapes so nothing
+ * empty produced by a failure ever reaches the cache.
+ */
+export function extractRows(raw: unknown): Array<Record<string, unknown>> {
+  if (raw === null || raw === undefined) throw new Error("Relay Google Ads: réponse vide (null)");
+  if (typeof raw === "string") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`Relay Google Ads: réponse non-JSON: ${raw.slice(0, 120)}`);
     }
-    return raw as Array<Record<string, unknown>>;
+    return extractRows(parsed);
+  }
+  if (Array.isArray(raw)) {
+    if (raw.length === 0) return [];
+    if (!isRowArray(raw)) throw new Error("Relay Google Ads: tableau de forme inattendue");
+    // An error object anywhere in the array (a failed page) fails the whole read.
+    for (const c of raw) {
+      const err = relayErrorMessage(c);
+      if (err) throw new Error(`Relay Google Ads: ${err}`);
+    }
+    const isPaged = raw.some((c) => "results" in c);
+    if (isPaged) {
+      const out: Array<Record<string, unknown>> = [];
+      for (const c of raw) {
+        if (!isRowArray(c.results)) throw new Error("Relay Google Ads: page sans tableau `results`");
+        out.push(...c.results);
+      }
+      return out;
+    }
+    return raw;
   }
   if (typeof raw === "object") {
     const r = raw as Record<string, unknown>;
+    const err = relayErrorMessage(r);
+    if (err) throw new Error(`Relay Google Ads: ${err}`);
     const arr = r.results ?? r.data ?? r.rows;
-    if (Array.isArray(arr)) return arr as Array<Record<string, unknown>>;
+    if (isRowArray(arr)) return arr;
+    if (Array.isArray(arr)) throw new Error("Relay Google Ads: lignes de forme inattendue");
+    throw new Error(`Relay Google Ads: objet sans results/data/rows (clés: ${Object.keys(r).slice(0, 6).join(",")})`);
   }
-  return [];
+  throw new Error(`Relay Google Ads: type de réponse inattendu (${typeof raw})`);
 }
 
-interface GoogleTotals { spend: number; clicks: number; impressions: number; conversions: number; revenue: number }
+interface GoogleTotals { spend: number; clicks: number; impressions: number; conversions: number; revenue: number; currency: string | null }
 
 async function fetchGoogleCampaignRows(
   customerId: string,
@@ -126,7 +181,7 @@ async function fetchGoogleCampaignRows(
   // GAQL rather than the Campaign_Performance tool: that n8n workflow ignores
   // its start/end dates (verified: identical totals for any period), which
   // silently broke period selection and previous-period deltas.
-  const query = `SELECT campaign.id, campaign.name, metrics.cost_micros, metrics.clicks,
+  const query = `SELECT campaign.id, campaign.name, customer.currency_code, metrics.cost_micros, metrics.clicks,
       metrics.impressions, metrics.conversions, metrics.conversions_value
     FROM campaign
     WHERE segments.date BETWEEN '${since}' AND '${until}'
@@ -139,14 +194,25 @@ async function fetchGoogleCampaignRows(
       }, 20000);
       return extractRows(raw);
     },
+    { ttlMs: ttlForRange({ since, until }) },
   );
 }
 
+/** `customer.currency_code` from the first row that carries it. */
+function googleCurrency(rows: Array<Record<string, unknown>>): string | null {
+  for (const row of rows) {
+    const c = row.customer as Record<string, unknown> | undefined;
+    const code = c?.currencyCode ?? c?.currency_code;
+    if (typeof code === "string" && code) return code;
+  }
+  return null;
+}
+
 function googleTotals(rows: Array<Record<string, unknown>>): GoogleTotals {
-  const t: GoogleTotals = { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0 };
+  const t: GoogleTotals = { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0, currency: googleCurrency(rows) };
   for (const row of rows) {
     const m = (row.metrics as Record<string, unknown>) ?? row;
-    t.spend += micros(m.costMicros ?? m.cost_micros ?? m.cost);
+    t.spend += costFrom(m);
     t.clicks += toNum(m.clicks);
     t.impressions += toNum(m.impressions);
     t.conversions += toNum(m.conversions ?? m.allConversions);
@@ -183,6 +249,7 @@ async function fetchGoogleGaqlRows(
       }, 20000);
       return extractRows(raw);
     },
+    { ttlMs: ttlForRange({ since, until }) },
   );
 }
 
@@ -201,32 +268,46 @@ interface ResolveContext {
   since: string;
   until: string;
   token: string;
-  aov: number;
+  /** Configured AOV or null → revenue "unavailable" when Meta tracks no value. */
+  aov: number | null;
+  /** Account currency (ISO 4217) from the Meta profile, null when unknown. */
+  currency: string | null;
+  /** purchase | lead | complete_registration | custom:<action_type> */
+  conversionEvent: string;
   /** null = comparison disabled */
   compare: CompareRange | null;
+}
+
+/** Shape of a resolved KPI value (also returned by the kpi widget). */
+export interface KpiResult {
+  value: number;
+  estimated: boolean;
+  /** true when one platform of a combined source failed — value covers the others only */
+  partial?: boolean;
+  errors?: string[];
+  currency?: string;
+  fetchedAt?: string;
+  /** revenue/roas only: no tracked value and no AOV configured */
+  unavailable?: boolean;
 }
 
 function metaMetricValue(
   insight: MetaAccountInsight | null,
   metric: string,
-  aov: number,
-): { value: number; estimated: boolean } {
+  aov: number | null,
+  conversionEvent = "purchase",
+): { value: number; estimated: boolean; unavailable?: boolean } {
   if (!insight) return { value: 0, estimated: false };
   const spend = toNum(insight.spend);
   const rev = computeRevenue(insight, aov);
+  const purchases = purchasesFor(insight, conversionEvent);
   switch (metric) {
     case "spend": return { value: spend, estimated: false };
-    case "revenue": return { value: rev.revenue, estimated: rev.estimated };
-    case "roas": return { value: spend > 0 ? rev.revenue / spend : 0, estimated: rev.estimated };
+    case "revenue": return { value: rev.revenue, estimated: rev.estimated, unavailable: rev.unavailable };
+    case "roas": return { value: spend > 0 ? rev.revenue / spend : 0, estimated: rev.estimated, unavailable: rev.unavailable };
     case "ctr": return { value: toNum(insight.ctr), estimated: false };
-    case "cpa": {
-      const purchases = getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase");
-      return { value: purchases > 0 ? spend / purchases : 0, estimated: false };
-    }
-    case "purchases": {
-      const purchases = getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase");
-      return { value: purchases, estimated: false };
-    }
+    case "cpa": return { value: purchases > 0 ? spend / purchases : 0, estimated: false };
+    case "purchases": return { value: purchases, estimated: false };
     case "clicks": return { value: toNum(insight.clicks), estimated: false };
     case "impressions": return { value: toNum(insight.impressions), estimated: false };
     case "cpc": {
@@ -235,45 +316,72 @@ function metaMetricValue(
     }
     case "cr": {
       const clicks = toNum(insight.clicks);
-      const purchases = getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase");
       return { value: clicks > 0 ? (purchases / clicks) * 100 : 0, estimated: false };
     }
     default: return { value: 0, estimated: false };
   }
 }
 
-/** One KPI value over an arbitrary range, for the widget's source. */
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * One KPI value over an arbitrary range, for the widget's source.
+ * - single source: any fetch error propagates (the widget shows the error);
+ * - combined: one platform failing yields the other's value with
+ *   `partial: true` + `errors` — never a silent 0. Both failing → throws.
+ */
 async function kpiValue(
   metric: string,
   source: string,
   ctx: ResolveContext,
   since: string,
   until: string,
-): Promise<{ value: number; estimated: boolean }> {
-  let insight: MetaAccountInsight | null = null;
-  let google: GoogleTotals | null = null;
-  if (source !== "google") {
-    if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
-    insight = await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, { since, until });
-  }
-  if (source !== "meta") {
-    if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
-    google = googleTotals(await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, since, until));
-  }
-
-  const metaRev = insight ? computeRevenue(insight, ctx.aov) : { revenue: 0, estimated: false };
-  const metaPurchases = insight
-    ? getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase")
-    : 0;
-  const g = google ?? { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0 };
+): Promise<KpiResult> {
   const useMeta = source !== "google";
   const useGoogle = source !== "meta";
+  if (useMeta && !ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
+  if (useGoogle && !ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
 
-  const spend = (useMeta ? toNum(insight?.spend) : 0) + (useGoogle ? g.spend : 0);
-  const revenue = (useMeta ? metaRev.revenue : 0) + (useGoogle ? g.revenue : 0);
-  const purchases = (useMeta ? metaPurchases : 0) + (useGoogle ? g.conversions : 0);
-  const clicks = (useMeta ? toNum(insight?.clicks) : 0) + (useGoogle ? g.clicks : 0);
-  const impressions = (useMeta ? toNum(insight?.impressions) : 0) + (useGoogle ? g.impressions : 0);
+  const [metaRes, googleRes] = await Promise.allSettled([
+    useMeta
+      ? getAccountInsightsCachedWithMeta(ctx.token, ctx.binding.metaAccountId!, { since, until })
+      : Promise.resolve(null),
+    useGoogle
+      ? fetchGoogleCampaignRows(ctx.binding.googleCustomerId!, since, until).then(googleTotals)
+      : Promise.resolve(null),
+  ]);
+
+  const errors: string[] = [];
+  let insight: MetaAccountInsight | null = null;
+  let fetchedAt: string | undefined;
+  if (metaRes.status === "fulfilled") {
+    insight = metaRes.value?.data ?? null;
+    fetchedAt = metaRes.value?.fetchedAt;
+  } else {
+    errors.push(`Meta: ${errMsg(metaRes.reason)}`);
+  }
+  let google: GoogleTotals | null = null;
+  if (googleRes.status === "fulfilled") google = googleRes.value;
+  else errors.push(`Google: ${errMsg(googleRes.reason)}`);
+
+  const metaOk = useMeta && !!insight;
+  const googleOk = useGoogle && !!google;
+  if (errors.length > 0 && !metaOk && !googleOk) {
+    throw new Error(errors.join(" · "));
+  }
+  if (errors.length > 0 && source !== "combined") {
+    throw new Error(errors[0]);
+  }
+
+  const metaRev = insight ? computeRevenue(insight, ctx.aov) : { revenue: 0, estimated: false, unavailable: false };
+  const metaPurchases = insight ? purchasesFor(insight, ctx.conversionEvent) : 0;
+  const g = google ?? { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0, currency: null };
+
+  const spend = (metaOk ? toNum(insight?.spend) : 0) + (googleOk ? g.spend : 0);
+  const revenue = (metaOk ? metaRev.revenue : 0) + (googleOk ? g.revenue : 0);
+  const purchases = (metaOk ? metaPurchases : 0) + (googleOk ? g.conversions : 0);
+  const clicks = (metaOk ? toNum(insight?.clicks) : 0) + (googleOk ? g.clicks : 0);
+  const impressions = (metaOk ? toNum(insight?.impressions) : 0) + (googleOk ? g.impressions : 0);
 
   let value = 0;
   switch (metric) {
@@ -293,20 +401,30 @@ async function kpiValue(
         : toNum(insight?.ctr);
       break;
   }
-  const estimated = useMeta && metaRev.estimated && (metric === "revenue" || metric === "roas");
-  return { value, estimated };
+  const isRevenueMetric = metric === "revenue" || metric === "roas";
+  const estimated = metaOk && metaRev.estimated && isRevenueMetric;
+  // Revenue is unavailable only when Meta is the sole contributor and has no value.
+  const unavailable = isRevenueMetric && metaOk && !!metaRev.unavailable && !googleOk;
+
+  // Currency: Meta's account currency, else Google's; flagged mismatch when both differ.
+  const metaCur = metaOk ? insight?.currency ?? null : null;
+  const googleCur = googleOk ? g.currency : null;
+  const currency = metaCur ?? googleCur ?? ctx.currency ?? undefined;
+  if (metaCur && googleCur && metaCur !== googleCur) {
+    errors.push(`Devises différentes: Meta ${metaCur} / Google ${googleCur} — total non homogène`);
+  }
+
+  const out: KpiResult = { value, estimated };
+  if (errors.length > 0) { out.partial = true; out.errors = errors; }
+  if (currency) out.currency = currency;
+  if (fetchedAt) out.fetchedAt = fetchedAt;
+  if (unavailable) out.unavailable = true;
+  return out;
 }
 
 /** Previous window of the same length, ending the day before `since`. */
 export function prevRange(since: string, until: string): { since: string; until: string } {
-  const DAY = 86400000;
-  const s = Date.parse(since + "T00:00:00Z");
-  const u = Date.parse(until + "T00:00:00Z");
-  const days = Math.max(1, Math.round((u - s) / DAY) + 1);
-  const prevUntil = new Date(s - DAY);
-  const prevSince = new Date(s - days * DAY);
-  const fmt = (d: Date) => d.toISOString().split("T")[0];
-  return { since: fmt(prevSince), until: fmt(prevUntil) };
+  return prevRangeOf({ since, until });
 }
 
 async function resolveKpi(cfg: Record<string, unknown>, ctx: ResolveContext) {
@@ -339,6 +457,10 @@ async function resolveKpi(cfg: Record<string, unknown>, ctx: ResolveContext) {
     compareSince: ctx.compare?.since ?? null,
     compareUntil: ctx.compare?.until ?? null,
     estimated: current.estimated,
+    ...(current.partial ? { partial: true, errors: current.errors } : {}),
+    ...(current.currency ? { currency: current.currency } : {}),
+    ...(current.fetchedAt ? { fetchedAt: current.fetchedAt } : {}),
+    ...(current.unavailable ? { unavailable: true } : {}),
   };
 }
 
@@ -360,12 +482,13 @@ async function fetchGoogleDailyRows(
       }, 20000);
       return extractRows(raw);
     },
+    { ttlMs: ttlForRange({ since, until }) },
   );
 }
 
 function googleDailyMetric(row: Record<string, unknown>, metric: string): number {
   const m = (row.metrics as Record<string, unknown>) ?? row;
-  const spend = micros(m.costMicros ?? m.cost_micros);
+  const spend = costFrom(m);
   const revenue = toNum(m.conversionsValue ?? m.conversions_value);
   const clicks = toNum(m.clicks);
   const impressions = toNum(m.impressions);
@@ -400,19 +523,23 @@ async function resolveTimeseries(cfg: Record<string, unknown>, ctx: ResolveConte
   }
 
   if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
-  const rows = await cached(
+  const { data: paged, fetchedAt } = await cachedWithMeta(
     `meta:daily:${ctx.binding.metaAccountId}:${ctx.since}_${ctx.until}`,
-    () => getAccountDailyInsights(getMetaSystemToken(), `act_${ctx.binding.metaAccountId}`, {
+    () => getAccountDailyInsightsPaged(ctx.token, `act_${ctx.binding.metaAccountId}`, {
       since: ctx.since, until: ctx.until,
     }),
+    { ttlMs: ttlForRange({ since: ctx.since, until: ctx.until }) },
   );
   let estimated = false;
-  const points = rows.map((r) => {
-    const m = metaMetricValue(r, metric, ctx.aov);
+  let unavailable = false;
+  const points = paged.data.map((r) => {
+    const m = metaMetricValue(r, metric, ctx.aov, ctx.conversionEvent);
     if (m.estimated) estimated = true;
+    if (m.unavailable) unavailable = true;
     return { date: r.date_start, value: Math.round(m.value * 100) / 100 };
   });
-  return { metric, source, points, estimated };
+  const currency = paged.data.find((r) => r.currency)?.currency ?? ctx.currency ?? undefined;
+  return { metric, source, points, estimated, truncated: paged.truncated, fetchedAt, ...(currency ? { currency } : {}), ...(unavailable ? { unavailable: true } : {}) };
 }
 
 async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
@@ -423,20 +550,25 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
   if (source === "meta") {
     if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
     const accountId = ctx.binding.metaAccountId;
-    const rows = await cached(
+    const { data: paged, fetchedAt } = await cachedWithMeta(
       `meta:campaigns:${accountId}:${ctx.since}_${ctx.until}`,
-      () => getCampaignInsights(ctx.token, accountId, { since: ctx.since, until: ctx.until }, 50),
+      () => getCampaignInsightsPaged(ctx.token, accountId, { since: ctx.since, until: ctx.until }),
+      { ttlMs: ttlForRange({ since: ctx.since, until: ctx.until }) },
     );
+    const currency = paged.data.find((r) => r.currency)?.currency ?? ctx.currency ?? undefined;
     return {
       kind,
       source,
-      rows: [...rows]
+      truncated: paged.truncated,
+      fetchedAt,
+      ...(currency ? { currency } : {}),
+      rows: [...paged.data]
         .sort((a, b) => toNum(b.spend) - toNum(a.spend))
         .slice(0, limit)
         .map((r, i) => {
           const spend = toNum(r.spend);
           const rev = computeRevenue(r, ctx.aov);
-          const purchases = getActionValue(r.actions, "omni_purchase") || getActionValue(r.actions, "purchase");
+          const purchases = purchasesFor(r, ctx.conversionEvent);
           return {
             name: String(r.campaign_name ?? `Campagne ${i + 1}`),
             spend: Math.round(spend),
@@ -456,7 +588,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
       rows: rows.slice(0, limit).map((row, i) => {
         const c = (row.campaign as Record<string, unknown>) ?? row;
         const m = (row.metrics as Record<string, unknown>) ?? row;
-        const spend = micros(m.costMicros ?? m.cost_micros ?? m.cost);
+        const spend = costFrom(m);
         const revenue = toNum(m.conversionsValue ?? m.conversions_value ?? m.revenue);
         return {
           name: String(c.name ?? c.campaign_name ?? `Campagne ${i + 1}`),
@@ -484,7 +616,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
         return {
           name: String(kw.text ?? row.keyword ?? "—"),
           matchType: String(kw.matchType ?? kw.match_type ?? ""),
-          spend: Math.round(micros(m.costMicros ?? m.cost_micros)),
+          spend: Math.round(costFrom(m)),
           clicks: Math.round(toNum(m.clicks)),
           conversions: Math.round(toNum(m.conversions) * 10) / 10,
           ctr: Math.round(toNum(m.ctr) * 10000) / 100,
@@ -499,7 +631,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
       const m = (row.metrics as Record<string, unknown>) ?? row;
       return {
         name: String(st.searchTerm ?? st.search_term ?? row.search_term ?? "—"),
-        spend: Math.round(micros(m.costMicros ?? m.cost_micros)),
+        spend: Math.round(costFrom(m)),
         clicks: Math.round(toNum(m.clicks)),
         conversions: Math.round(toNum(m.conversions) * 10) / 10,
       };
@@ -512,19 +644,22 @@ async function resolveTopCreatives(cfg: Record<string, unknown>, ctx: ResolveCon
   const limit = Number(cfg.limit ?? 6);
   const accountId = ctx.binding.metaAccountId;
 
-  const { ads, insights } = await cached(
+  // Full paginated lists (max 5000 each) — errors propagate, nothing empty is cached.
+  const { data: payload, fetchedAt } = await cachedWithMeta(
     `meta:top-creatives:${accountId}:${ctx.since}_${ctx.until}`,
     async () => {
       const [ads, insights] = await Promise.all([
-        getAds(ctx.token, accountId, 100).catch(() => []),
-        getAdInsights(ctx.token, accountId, { since: ctx.since, until: ctx.until }, 100).catch(() => []),
+        getAdsPaged(ctx.token, accountId, { max: 5000 }),
+        getAdInsightsPaged(ctx.token, accountId, { since: ctx.since, until: ctx.until }, { max: 5000 }),
       ]);
-      return { ads, insights };
+      return { ads: ads.data, insights: insights.data, truncated: ads.truncated || insights.truncated };
     },
+    { ttlMs: ttlForRange({ since: ctx.since, until: ctx.until }) },
   );
 
-  const adsById = new Map(ads.map((a) => [a.id, a]));
-  const creatives = [...insights]
+  const adsById = new Map(payload.ads.map((a) => [a.id, a]));
+  const currency = payload.insights.find((i) => i.account_currency)?.account_currency ?? ctx.currency ?? undefined;
+  const creatives = [...payload.insights]
     .sort((a, b) => toNum(b.spend) - toNum(a.spend))
     .slice(0, limit)
     .map((i) => {
@@ -538,11 +673,12 @@ async function resolveTopCreatives(cfg: Record<string, unknown>, ctx: ResolveCon
         ctr: Math.round(toNum(i.ctr) * 100) / 100,
         hookRate: computeHookRate(i),
         roas: computeRoas(i, ctx.aov),
-        cpa: computeCpa(i),
+        cpa: computeCpa(i, ctx.conversionEvent),
         estimated: rev.estimated,
+        ...(rev.unavailable ? { unavailable: true } : {}),
       };
     });
-  return { creatives };
+  return { creatives, truncated: payload.truncated, fetchedAt, ...(currency ? { currency } : {}) };
 }
 
 // ── Platform overview table ──────────────────────────────────────────────────
@@ -573,11 +709,9 @@ async function platformStats(
 ): Promise<PlatformStats> {
   if (source === "meta") {
     if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé");
-    const insight = await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, { since, until });
-    const purchases = insight
-      ? getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase")
-      : 0;
-    return statsFrom(toNum(insight?.spend), toNum(insight?.impressions), toNum(insight?.clicks), purchases);
+    const { data: insight } = await getAccountInsightsCachedWithMeta(ctx.token, ctx.binding.metaAccountId, { since, until });
+    const purchases = purchasesFor(insight, ctx.conversionEvent);
+    return statsFrom(toNum(insight.spend), toNum(insight.impressions), toNum(insight.clicks), purchases);
   }
   if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé");
   const g = googleTotals(await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, since, until));
@@ -639,19 +773,11 @@ async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveC
 
 async function resolvePacing(_cfg: Record<string, unknown>, ctx: ResolveContext) {
   if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
-  const budget = await prisma.accountBudget.findFirst({
-    where: {
-      userId: ctx.ownerId,
-      platform: "meta",
-      OR: [
-        { accountId: ctx.binding.metaAccountId },
-        { accountId: `act_${ctx.binding.metaAccountId}` },
-      ],
-    },
-  });
-  if (!budget) throw issue("Aucun budget mensuel configuré pour ce compte (voir /me/budgets)");
-  const pacing = await computePacing(budget.accountId, budget.monthlyTarget, budget.currency);
-  return pacing;
+  // Same lookup as the portfolio: Dashboard.monthlyBudget first, then any
+  // AccountBudget for the ACCOUNT (not the owner) so /d/[id] and /portfolio agree.
+  const budget = await findBudgetForMetaAccount(ctx.binding.metaAccountId, ctx.currency);
+  if (!budget) throw issue("Aucun budget mensuel configuré pour ce client (fiche client → Budget mensuel)");
+  return computePacing(ctx.binding.metaAccountId, budget.monthlyTarget, budget.currency, { source: budget.source });
 }
 
 // ── Funnel ───────────────────────────────────────────────────────────────────
@@ -662,19 +788,25 @@ async function resolveFunnel(cfg: Record<string, unknown>, ctx: ResolveContext) 
   // bound (a single-platform dashboard still gets its funnel).
   let insight: MetaAccountInsight | null = null;
   let google: GoogleTotals | null = null;
-  if (source === "meta" || (source === "combined" && ctx.binding.metaAccountId)) {
-    if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
-    insight = await getAccountInsightsCached(ctx.token, ctx.binding.metaAccountId, { since: ctx.since, until: ctx.until });
-  }
-  if (source === "google" || (source === "combined" && ctx.binding.googleCustomerId)) {
-    if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
-    google = googleTotals(await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, ctx.since, ctx.until));
-  }
-  if (!insight && !google) throw issue("Aucun compte lié à ce dashboard");
+  const wantMeta = source === "meta" || (source === "combined" && !!ctx.binding.metaAccountId);
+  const wantGoogle = source === "google" || (source === "combined" && !!ctx.binding.googleCustomerId);
+  if (wantMeta && !ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
+  if (wantGoogle && !ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
+  if (!wantMeta && !wantGoogle) throw issue("Aucun compte lié à ce dashboard");
 
-  const metaPurchases = insight
-    ? getActionValue(insight.actions, "omni_purchase") || getActionValue(insight.actions, "purchase")
-    : 0;
+  const errors: string[] = [];
+  const [metaRes, googleRes] = await Promise.allSettled([
+    wantMeta ? getAccountInsightsCachedWithMeta(ctx.token, ctx.binding.metaAccountId!, { since: ctx.since, until: ctx.until }) : Promise.resolve(null),
+    wantGoogle ? fetchGoogleCampaignRows(ctx.binding.googleCustomerId!, ctx.since, ctx.until).then(googleTotals) : Promise.resolve(null),
+  ]);
+  if (metaRes.status === "fulfilled") insight = metaRes.value?.data ?? null;
+  else errors.push(`Meta: ${errMsg(metaRes.reason)}`);
+  if (googleRes.status === "fulfilled") google = googleRes.value;
+  else errors.push(`Google: ${errMsg(googleRes.reason)}`);
+  // Single source or both platforms down → error; combined with one down → partial.
+  if (errors.length > 0 && (source !== "combined" || (!insight && !google))) throw new Error(errors.join(" · "));
+
+  const metaPurchases = insight ? purchasesFor(insight, ctx.conversionEvent) : 0;
   const impressions = toNum(insight?.impressions) + (google?.impressions ?? 0);
   const clicks = toNum(insight?.clicks) + (google?.clicks ?? 0);
   const conversions = metaPurchases + (google?.conversions ?? 0);
@@ -683,6 +815,7 @@ async function resolveFunnel(cfg: Record<string, unknown>, ctx: ResolveContext) 
 
   return {
     source,
+    ...(errors.length > 0 ? { partial: true, errors } : {}),
     steps: [
       { label: "Impressions", value: Math.round(impressions) },
       { label: "Clics", value: Math.round(clicks) },
@@ -697,14 +830,14 @@ async function resolveFunnel(cfg: Record<string, unknown>, ctx: ResolveContext) 
 
 // ── Meta breakdowns (demographics / geo_device) ──────────────────────────────
 
-function breakdownPurchases(row: MetaBreakdownInsight): number {
-  return getActionValue(row.actions, "omni_purchase") || getActionValue(row.actions, "purchase");
+function breakdownPurchases(row: MetaBreakdownInsight, conversionEvent = "purchase"): number {
+  return purchasesFor(row, conversionEvent);
 }
 
-function breakdownMetricValue(row: MetaBreakdownInsight, metric: string): number {
+function breakdownMetricValue(row: MetaBreakdownInsight, metric: string, conversionEvent = "purchase"): number {
   switch (metric) {
     case "clicks": return toNum(row.clicks);
-    case "purchases": return breakdownPurchases(row);
+    case "purchases": return breakdownPurchases(row, conversionEvent);
     default: return toNum(row.spend);
   }
 }
@@ -712,30 +845,31 @@ function breakdownMetricValue(row: MetaBreakdownInsight, metric: string): number
 function fetchMetaBreakdown(ctx: ResolveContext, accountId: string, breakdowns: string) {
   // The fetched fields (spend,clicks,actions) never depend on the widget's
   // metric, so the cache key doesn't either.
-  return cached(
-    `meta:breakdown:${accountId}:${breakdowns}:${ctx.since}_${ctx.until}`,
-    () => getAccountBreakdownInsights(ctx.token, accountId, { since: ctx.since, until: ctx.until }, breakdowns),
+  return cachedWithMeta(
+    `meta:breakdown-${breakdowns.replace(/,/g, "-")}:${accountId}:${ctx.since}_${ctx.until}`,
+    () => getAccountBreakdownInsightsPaged(ctx.token, accountId, { since: ctx.since, until: ctx.until }, breakdowns),
+    { ttlMs: ttlForRange({ since: ctx.since, until: ctx.until }) },
   );
 }
 
 async function resolveDemographics(cfg: Record<string, unknown>, ctx: ResolveContext) {
   if (!ctx.binding.metaAccountId) throw issue("Compte Meta requis");
   const metric = String(cfg.metric ?? "spend");
-  const rows = await fetchMetaBreakdown(ctx, ctx.binding.metaAccountId, "age,gender");
+  const { data: paged, fetchedAt } = await fetchMetaBreakdown(ctx, ctx.binding.metaAccountId, "age,gender");
 
   const byKey = new Map<string, { age: string; gender: string; value: number }>();
-  for (const r of rows) {
+  for (const r of paged.data) {
     const age = String(r.age ?? "unknown");
     const gender = String(r.gender ?? "unknown");
     const key = `${age}|${gender}`;
     const entry = byKey.get(key) ?? { age, gender, value: 0 };
-    entry.value += breakdownMetricValue(r, metric);
+    entry.value += breakdownMetricValue(r, metric, ctx.conversionEvent);
     byKey.set(key, entry);
   }
   const out = [...byKey.values()]
     .map((e) => ({ ...e, value: Math.round(e.value * 100) / 100 }))
     .sort((a, b) => b.value - a.value);
-  return { metric, rows: out };
+  return { metric, rows: out, truncated: paged.truncated, fetchedAt, ...(ctx.currency ? { currency: ctx.currency } : {}) };
 }
 
 async function fetchGoogleDeviceRows(
@@ -754,6 +888,7 @@ async function fetchGoogleDeviceRows(
       }, 20000);
       return extractRows(raw);
     },
+    { ttlMs: ttlForRange({ since, until }) },
   );
 }
 
@@ -784,7 +919,7 @@ async function resolveGeoDevice(cfg: Record<string, unknown>, ctx: ResolveContex
       const m = ((row.metrics as Record<string, unknown>) ?? row) as Record<string, unknown>;
       const key = String(seg.device ?? "UNKNOWN").toLowerCase();
       const e = byKey.get(key) ?? { key, spend: 0, clicks: 0, conversions: 0 };
-      e.spend += micros(m.costMicros ?? m.cost_micros);
+      e.spend += costFrom(m);
       e.clicks += toNum(m.clicks);
       e.conversions += toNum(m.conversions);
       byKey.set(key, e);
@@ -794,17 +929,17 @@ async function resolveGeoDevice(cfg: Record<string, unknown>, ctx: ResolveContex
 
   if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
   const breakdown = dimension === "country" ? "country" : "device_platform";
-  const rows = await fetchMetaBreakdown(ctx, ctx.binding.metaAccountId, breakdown);
+  const { data: paged, fetchedAt } = await fetchMetaBreakdown(ctx, ctx.binding.metaAccountId, breakdown);
   const byKey = new Map<string, GeoDeviceRow>();
-  for (const r of rows) {
+  for (const r of paged.data) {
     const key = String((dimension === "country" ? r.country : r.device_platform) ?? "unknown");
     const e = byKey.get(key) ?? { key, spend: 0, clicks: 0, conversions: 0 };
     e.spend += toNum(r.spend);
     e.clicks += toNum(r.clicks);
-    e.conversions += breakdownPurchases(r);
+    e.conversions += breakdownPurchases(r, ctx.conversionEvent);
     byKey.set(key, e);
   }
-  return { dimension, source, rows: roundGeoDeviceRows(byKey) };
+  return { dimension, source, rows: roundGeoDeviceRows(byKey), truncated: paged.truncated, fetchedAt, ...(ctx.currency ? { currency: ctx.currency } : {}) };
 }
 
 // ── Alerts ───────────────────────────────────────────────────────────────────
@@ -871,12 +1006,19 @@ export async function resolveWidgets(
   }
   const binding = await resolveBinding(dashboard.userId, dashboard);
   const token = getMetaSystemToken();
-  const aov = binding.metaAccountId ? await getAccountAov("meta", binding.metaAccountId) : 20;
+  // Per-account profile: AOV (null = not configured → revenue unavailable),
+  // currency/timezone from the Meta profile, conversion event for CPA/CR.
+  const profile = binding.metaAccountId
+    ? await getAccountProfileSettings("meta", binding.metaAccountId)
+    : { aov: null, currency: null, timezone: null, conversionEvent: "purchase" };
   // undefined = default (previous window of equal length); null = disabled
   const effectiveCompare: CompareRange | null =
     compare === undefined ? { ...prevRange(since, until), kind: "prev" } : compare;
   const ctx: ResolveContext = {
-    binding, ownerId: dashboard.userId, since, until, token, aov,
+    binding, ownerId: dashboard.userId, since, until, token,
+    aov: profile.aov,
+    currency: profile.currency,
+    conversionEvent: profile.conversionEvent,
     compare: effectiveCompare,
   };
 
@@ -1077,6 +1219,17 @@ function dashboardName(label: string | null, fallbackId: string): string {
  *   the old per-user provisioning are upgraded to the account label
  */
 export async function provisionDashboardsForUser(userId: string) {
+  // Serialise per user: concurrent first loads (React strict mode, two tabs)
+  // used to race past the "existing" check and create duplicate dashboards.
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    return provisionDashboardsForUserTx(tx, userId);
+  }, { timeout: 30000 });
+}
+
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+async function provisionDashboardsForUserTx(prisma: Tx, userId: string) {
   const [acl, existing] = await Promise.all([
     prisma.userAdAccount.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
     prisma.dashboard.findMany({ where: { userId } }),

@@ -3,7 +3,7 @@
  *
  * GET  /api/admin/account-settings?platform=meta        → { settings: [...] }
  * PUT  /api/admin/account-settings                      → upsert one
- *   Body: { platform, accountId, aov?: number|null, currency?: string }
+ *   Body: { platform, accountId, aov?: number|null, currency?: string, conversionEvent?: string }
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -43,11 +43,18 @@ export async function PUT(req: NextRequest) {
   const currency = typeof body.currency === "string" && /^[A-Z]{3}$/.test(body.currency)
     ? body.currency
     : undefined;
+  // purchase | lead | complete_registration | custom:<action_type>
+  const conversionEvent =
+    typeof body.conversionEvent === "string" &&
+    /^(purchase|lead|complete_registration|custom:[a-z0-9_.]+)$/i.test(body.conversionEvent.trim())
+      ? body.conversionEvent.trim()
+      : undefined;
 
+  // currency is never defaulted: unknown stays null until the Meta profile fills it.
   const setting = await prisma.accountSetting.upsert({
     where: { platform_accountId: { platform, accountId } },
-    create: { platform, accountId, aov, currency: currency ?? "EUR" },
-    update: { aov, ...(currency ? { currency } : {}) },
+    create: { platform, accountId, aov, currency: currency ?? null, conversionEvent: conversionEvent ?? "purchase" },
+    update: { aov, ...(currency ? { currency } : {}), ...(conversionEvent ? { conversionEvent } : {}) },
   });
   return NextResponse.json({ setting });
 }

@@ -14,11 +14,15 @@ import { WidgetBody, WidgetFrame } from "@/components/dashboard/renderers";
 import { WidgetForm, DashboardSettingsForm, EditControls } from "@/components/dashboard/editor";
 import { CopilotPanel } from "@/components/dashboard/copilot";
 import type { ResolvedWidget } from "@/lib/dashboard-types";
+import { describeRange, lastFullDays, prevRange } from "@/lib/date-ranges";
 
 interface DashboardPayload {
-  dashboard: { id: string; userId: string; name: string; metaAccountId: string | null; googleCustomerId: string | null };
+  dashboard: { id: string; userId: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; timezone?: string | null };
   since: string;
   until: string;
+  rangeLabel?: string;
+  partialDay?: boolean;
+  error?: string;
   widgets: ResolvedWidget[];
 }
 
@@ -28,22 +32,14 @@ const PERIODS = [
   { days: 90, label: "90 j" },
 ];
 
+/** N FULL days ending yesterday — same rule as the portfolio (never today's partial day). */
 function rangeFor(days: number): { since: string; until: string } {
-  const fmt = (d: Date) => d.toISOString().split("T")[0];
-  const until = new Date();
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  return { since: fmt(since), until: fmt(until) };
+  return lastFullDays(days);
 }
 
 /** Previous window of equal length — used to seed the custom comparison inputs. */
 function prevWindowOf(since: string, until: string): { since: string; until: string } {
-  const DAY = 86400000;
-  const s = Date.parse(since + "T00:00:00Z");
-  const u = Date.parse(until + "T00:00:00Z");
-  const daysLen = Math.max(1, Math.round((u - s) / DAY) + 1);
-  const fmt = (ms: number) => new Date(ms).toISOString().split("T")[0];
-  return { since: fmt(s - daysLen * DAY), until: fmt(s - DAY) };
+  return prevRange({ since, until });
 }
 
 export default function DashboardPage({ params }: { params: Promise<{ id: string }> }) {
@@ -162,8 +158,13 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
               </span>
             )}
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {payload ? `${payload.since} → ${payload.until}` : "…"}
+          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2 flex-wrap">
+            <span>{payload ? (payload.rangeLabel ?? describeRange({ since: payload.since, until: payload.until }).label) : describeRange(range).label}</span>
+            {(payload ? payload.partialDay : describeRange(range).partialDay) && (
+              <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30" title="La période inclut aujourd'hui : les chiffres du jour sont incomplets">
+                aujourd&apos;hui partiel
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -299,8 +300,8 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
         />
       )}
 
-      {error && (
-        <div className="text-sm text-red-400 bg-red-950/40 border border-red-900/50 rounded-xl px-4 py-3">{error}</div>
+      {(error || payload?.error) && (
+        <div className="text-sm text-red-400 bg-red-950/40 border border-red-900/50 rounded-xl px-4 py-3">{error ?? payload?.error}</div>
       )}
 
       {loading && !payload ? (

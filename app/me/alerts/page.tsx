@@ -43,13 +43,18 @@ export default function MeAlertsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [r, a] = await Promise.all([
-      fetch("/api/me/alerts").then((res) => res.json()),
-      fetch("/api/me/accounts").then((res) => res.json()),
-    ]);
-    setRules(r.rules ?? []);
-    setAccounts(a.accounts ?? []);
-    setLoading(false);
+    try {
+      const [r, a] = await Promise.all([
+        fetch("/api/me/alerts").then((res) => (res.ok ? res.json() : { rules: [] })).catch(() => ({ rules: [] })),
+        fetch("/api/me/accounts").then((res) => (res.ok ? res.json() : { accounts: [] })).catch(() => ({ accounts: [] })),
+      ]);
+      setRules(Array.isArray(r?.rules) ? r.rules : []);
+      setAccounts(Array.isArray(a?.accounts) ? a.accounts : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Chargement impossible");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -186,11 +191,15 @@ export default function MeAlertsPage() {
         </form>
       )}
 
+      {error && !showCreate && <p className="text-sm text-red-400">{error}</p>}
+
       {loading ? (
         <p className="text-gray-400">Chargement…</p>
       ) : rules.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 border border-dashed border-gray-800 rounded-2xl">
-          Aucune règle. Exemple : ROAS en dessous de 1.5 sur 7 jours.
+        <div className="text-center py-12 text-gray-500 border border-dashed border-gray-800 rounded-2xl space-y-2">
+          <p>Aucune règle d&apos;alerte configurée.</p>
+          <p className="text-xs">Exemple : ROAS en dessous de 1,5 sur 7 jours.</p>
+          <button onClick={() => setShowCreate(true)} className="px-4 py-2 rounded-lg font-semibold text-sm bg-gradient-to-br from-violet-600 to-purple-600 text-white">+ Créer une première règle</button>
         </div>
       ) : (
         <div className="space-y-2">

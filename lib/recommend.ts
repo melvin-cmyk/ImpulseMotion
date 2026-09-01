@@ -8,7 +8,7 @@ import {
   type MetaCreativeInsight,
 } from "@/lib/meta-api";
 
-import { RELAY_URLS } from "@/lib/relay-server";
+import { relayComplete } from "@/lib/relay-chat";
 
 function offsetDate(days: number): string {
   const d = new Date();
@@ -111,88 +111,12 @@ Exemple de format attendu :
 2. Réalloue ~30% du budget vers "Christmas Hero" (3.2x ROAS, sous-financée).
 3. Vérifie dans Ads Manager si l'audience est saturée (fréquence à 5.8).`;
 
-interface RelayStreamEvent {
-  type: string;
-  text?: string;
-  message?: string;
-}
-
 async function callRelay(userMessage: string, systemPrompt: string): Promise<string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const secret = process.env.RELAY_SHARED_SECRET || "";
-  if (secret) headers.Authorization = `Bearer ${secret}`;
-
-  const body = JSON.stringify({
-    messages: [{ role: "user", content: userMessage }],
-    systemPrompt,
-    // No MCP tools — we provide all the context inline; this keeps the call
-    // fast (no tool-call round trips) and cheap.
-    allowedServers: [],
-    accountScope: {},
-  });
-
-  const errors: string[] = [];
-  for (const url of RELAY_URLS) {
-    const isLocalhost = url.includes("localhost");
-    const timeoutMs = isLocalhost ? 3000 : 100000;
-    try {
-      const res = await fetch(`${url}/api/chat`, {
-        method: "POST",
-        headers,
-        body,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (!res.ok) {
-        errors.push(`${url}: HTTP ${res.status}`);
-        continue;
-      }
-      if (!res.body) {
-        errors.push(`${url}: no body`);
-        continue;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullText = "";
-      let lastError: string | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed.startsWith("data:")) continue;
-          const payload = trimmed.slice(5).trim();
-          if (!payload) continue;
-          let evt: RelayStreamEvent;
-          try {
-            evt = JSON.parse(payload) as RelayStreamEvent;
-          } catch {
-            continue;
-          }
-          if (evt.type === "delta" && evt.text) fullText += evt.text;
-          else if (evt.type === "content" && evt.text && !fullText) fullText = evt.text;
-          else if (evt.type === "error" && evt.message) lastError = evt.message;
-        }
-      }
-
-      const result = fullText.trim();
-      if (result) return result;
-      if (lastError) {
-        errors.push(`${url}: ${lastError}`);
-        continue;
-      }
-      errors.push(`${url}: empty response`);
-    } catch (e) {
-      errors.push(`${url}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-
-  throw new Error(`Relay inaccessible — ${errors.join(" · ")}`);
+  // No MCP tools — all the context is inline; keeps the call fast and cheap.
+  return relayComplete(
+    { messages: [{ role: "user", content: userMessage }], systemPrompt, allowedServers: [], accountScope: {} },
+    { maxMs: 55_000 },
+  );
 }
 
 export async function generateRecommendations(

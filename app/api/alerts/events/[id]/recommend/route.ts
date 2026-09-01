@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth-helpers";
+import { isStaff, requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { generateRecommendations } from "@/lib/recommend";
 
@@ -16,7 +16,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   });
   if (!event) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  if (guard.session.role !== "admin" && event.userId !== guard.session.userId) {
+  if (!isStaff(guard.session) && event.userId !== guard.session.userId) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

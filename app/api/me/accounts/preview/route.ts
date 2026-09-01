@@ -6,22 +6,15 @@ import {
   getMetaSystemToken,
   computeRevenue,
 } from "@/lib/meta-api";
-import { getAccountInsightsCached } from "@/lib/insights";
-
-const META_API_BASE = "https://graph.facebook.com/v22.0";
+import { getAccountInsightsCached, getAccountProfileCached } from "@/lib/insights";
 
 async function fetchAccountName(accountId: string, token: string): Promise<{ name: string; currency?: string } | null> {
-  const id = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+  // Goes through the Graph limiter/retry (lib/meta-api); cached 24 h.
   try {
-    const url = new URL(`${META_API_BASE}/${id}`);
-    url.searchParams.set("fields", "name,currency");
-    url.searchParams.set("access_token", token);
-    const res = await fetch(url.toString());
-    if (!res.ok) return null;
-    const data = (await res.json()) as { name?: string; currency?: string };
-    if (!data.name) return null;
-    return { name: data.name, currency: data.currency };
-  } catch {
+    const p = await getAccountProfileCached(token, accountId);
+    return { name: p.name, currency: p.currency || undefined };
+  } catch (err) {
+    console.warn(`[me/accounts/preview] profile unavailable for ${accountId}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -80,7 +73,7 @@ export async function GET() {
   const enriched: PreviewAccount[] = await Promise.all(
     baseAccounts.map(async (a) => {
       const [insight, meta] = await Promise.all([
-        getAccountInsightsCached(token, a.id, range),
+        getAccountInsightsCached(token, a.id, range).catch(() => null),
         // Only resolve name from Meta if we don't already have it (admin path)
         a.name ? Promise.resolve(null) : fetchAccountName(a.id, token),
       ]);

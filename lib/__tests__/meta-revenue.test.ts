@@ -23,12 +23,20 @@ describe("computeRevenue", () => {
     expect(r).toEqual({ revenue: 350, estimated: false });
   });
 
-  it("estimates purchases × AOV only as a last resort, flagged", () => {
+  it("never invents revenue with a default AOV: no value + no AOV → unavailable", () => {
     const r = computeRevenue({
       ...base,
       actions: [{ action_type: "purchase", value: "10" }],
     });
-    expect(r).toEqual({ revenue: 10 * DEFAULT_AOV, estimated: true });
+    expect(r).toEqual({ revenue: 0, estimated: true, unavailable: true });
+    expect(computeRevenue({ ...base, actions: [{ action_type: "purchase", value: "10" }] }, 0)).toMatchObject({ unavailable: true });
+    expect(computeRevenue({ ...base, actions: [{ action_type: "purchase", value: "10" }] }, null)).toMatchObject({ unavailable: true });
+    expect(DEFAULT_AOV).toBe(20); // constant kept for compat, no longer applied implicitly
+  });
+
+  it("estimates purchases × AOV only when an AOV is explicitly configured, flagged", () => {
+    const r = computeRevenue({ ...base, actions: [{ action_type: "purchase", value: "10" }] }, DEFAULT_AOV);
+    expect(r).toEqual({ revenue: 200, estimated: true });
   });
 
   it("uses a custom AOV when provided", () => {

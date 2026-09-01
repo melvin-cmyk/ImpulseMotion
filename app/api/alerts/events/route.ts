@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth-helpers";
+import { isStaff, requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(req: NextRequest) {
@@ -7,7 +7,8 @@ export async function GET(req: NextRequest) {
   if ("error" in guard) return guard.error;
   const { searchParams } = new URL(req.url);
   const acknowledged = searchParams.get("acknowledged");
-  const where = guard.session.role === "admin" ? {} : { userId: guard.session.userId };
+  // Staff (admin + consultant) see every client's events — same scope as the cockpit.
+  const where = isStaff(guard.session) ? {} : { userId: guard.session.userId };
   const events = await prisma.alertEvent.findMany({
     where: {
       ...where,
@@ -27,7 +28,7 @@ export async function PATCH(req: NextRequest) {
   const { id, acknowledged } = body as { id: string; acknowledged: boolean };
   const event = await prisma.alertEvent.findUnique({ where: { id } });
   if (!event) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (guard.session.role !== "admin" && event.userId !== guard.session.userId) {
+  if (!isStaff(guard.session) && event.userId !== guard.session.userId) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   await prisma.alertEvent.update({ where: { id }, data: { acknowledged } });

@@ -1,4 +1,4 @@
-import { Creative } from "./mock-data";
+import type { Creative } from "./creative-types";
 
 export interface FunnelScores {
   hook: number | null;   // 0–100, null if no data
@@ -11,32 +11,34 @@ export interface FunnelScores {
  * Calculate Motion-style funnel scores (0–100) for a creative.
  *
  * Benchmarks (= 100):
- *   Hook    → 15% hook rate (3s view rate)
- *   Watch   → 50% video_p75 watch rate
- *   Click   → 3% CTR
- *   Convert → ROAS 4
+ *   Hook    → 15 % hook rate (video plays / impressions)
+ *   Watch   → 40 % hold rate (ThruPlay / impressions) — same definition as
+ *             `holdRate` everywhere (modal, tables)
+ *   Click   → 3 % CTR
+ *   Convert → ROAS 4 (null when ROAS is unknown / unavailable)
  */
+export const FUNNEL_BENCHMARKS = { hook: 15, watch: 40, click: 3, convert: 4 } as const;
 export function calculateFunnelScores(creative: Creative): FunnelScores {
   const clamp = (v: number) => Math.min(100, Math.max(0, Math.round(v)));
 
   const hook =
-    creative.hookRate > 0
-      ? clamp((creative.hookRate / 15) * 100)
+    creative.format === "Video" && creative.hookRate > 0
+      ? clamp((creative.hookRate / FUNNEL_BENCHMARKS.hook) * 100)
       : null;
 
   const watch =
-    creative.format === "Video" && creative.videoP75Rate != null
-      ? clamp((creative.videoP75Rate / 50) * 100)
+    creative.format === "Video" && creative.holdRate > 0
+      ? clamp((creative.holdRate / FUNNEL_BENCHMARKS.watch) * 100)
       : null;
 
   const click =
     creative.ctr > 0
-      ? clamp((creative.ctr / 3) * 100)
+      ? clamp((creative.ctr / FUNNEL_BENCHMARKS.click) * 100)
       : null;
 
   const convert =
-    creative.roas > 0
-      ? clamp((creative.roas / 4) * 100)
+    creative.roas !== null && creative.roas !== undefined && !creative.roasUnavailable && creative.roas > 0
+      ? clamp((creative.roas / FUNNEL_BENCHMARKS.convert) * 100)
       : null;
 
   return { hook, watch, click, convert };

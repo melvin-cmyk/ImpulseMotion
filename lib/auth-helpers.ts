@@ -22,6 +22,11 @@ export async function requireStaff() {
   return { session } as const;
 }
 
+/** True for admin or consultant sessions (same scope as requireStaff). */
+export function isStaff(session: { role?: string | null } | null | undefined): boolean {
+  return session?.role === "admin" || session?.role === "consultant";
+}
+
 export async function requireAdmin() {
   const session = await auth();
   if (!session?.userId) {

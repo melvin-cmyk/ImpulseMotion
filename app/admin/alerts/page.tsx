@@ -58,15 +58,21 @@ export default function AdminAlertsPage() {
   const [formThreshold, setFormThreshold] = useState(2);
   const [formWindow, setFormWindow] = useState("7d");
   const [error, setError] = useState<string | null>(null);
+  // TODO (Lot F4): rules are still attached to a login + raw account id; redesign "per dashboard" (client = ad account).
 
   const load = useCallback(async () => {
-    const [r, u] = await Promise.all([
-      fetch("/api/admin/alerts").then((res) => res.json()),
-      fetch("/api/admin/users").then((res) => res.json()),
-    ]);
-    setRules(r.rules ?? []);
-    setUsers(u.users ?? []);
-    setLoading(false);
+    try {
+      const [r, u] = await Promise.all([
+        fetch("/api/admin/alerts").then((res) => (res.ok ? res.json() : { rules: [] })).catch(() => ({ rules: [] })),
+        fetch("/api/admin/users").then((res) => (res.ok ? res.json() : { users: [] })).catch(() => ({ users: [] })),
+      ]);
+      setRules(Array.isArray(r?.rules) ? r.rules : []);
+      setUsers((Array.isArray(u?.users) ? u.users : []).map((x: ClientUser) => ({ ...x, adAccounts: Array.isArray(x.adAccounts) ? x.adAccounts : [] })));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Chargement impossible");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -118,10 +124,19 @@ export default function AdminAlertsPage() {
   }
 
   async function runScan() {
-    const res = await fetch("/api/cron/alerts");
-    const data = await res.json();
-    alert(`${data.scanned ?? 0} règle(s) scannée(s), ${data.triggered ?? 0} déclenchée(s).`);
-    load();
+    setError(null);
+    try {
+      const res = await fetch("/api/cron/alerts");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(res.status === 401 ? "Scan manuel non autorisé depuis le navigateur (le cron utilise CRON_SECRET) — il tourne automatiquement à 08h UTC." : (data.error ?? `Erreur ${res.status}`));
+        return;
+      }
+      alert(`${data.scanned ?? 0} règle(s) scannée(s), ${data.triggered ?? 0} déclenchée(s).${data.skipped?.length ? `\nIgnorées : ${data.skipped.join(" · ")}` : ""}`);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Scan impossible");
+    }
   }
 
   return (
@@ -154,7 +169,7 @@ export default function AdminAlertsPage() {
                   className={inputCls}
                 >
                   <option value="">— Sélectionner —</option>
-                  {users.filter((u) => u.adAccounts.length > 0).map((u) => (
+                  {users.filter((u) => (u.adAccounts ?? []).length > 0).map((u) => (
                     <option key={u.id} value={u.id}>{u.email ?? u.id}</option>
                   ))}
                 </select>
@@ -168,7 +183,7 @@ export default function AdminAlertsPage() {
                   className={`${inputCls} disabled:opacity-50`}
                 >
                   <option value="">Tous</option>
-                  {selectedUser?.adAccounts.filter((a) => a.platform === "meta").map((a) => (
+                  {(selectedUser?.adAccounts ?? []).filter((a) => a.platform === "meta").map((a) => (
                     <option key={a.accountId} value={a.accountId}>{a.label ?? a.accountId}</option>
                   ))}
                 </select>
@@ -206,7 +221,6 @@ export default function AdminAlertsPage() {
                 </select>
               </label>
             </div>
-            {error && <p className="text-sm text-red-400">{error}</p>}
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-white">
                 Annuler
@@ -219,11 +233,15 @@ export default function AdminAlertsPage() {
         </Card>
       )}
 
+      {error && <p className="text-sm text-red-400">{error}</p>}
+
       {loading ? (
         <p className="text-gray-400">Chargement…</p>
       ) : rules.length === 0 ? (
-        <Card padded className="text-center text-gray-500 border-dashed">
-          Aucune règle d'alerte. Exemple : ROAS en dessous de 1.5 sur 7 jours.
+        <Card padded className="text-center text-gray-500 border-dashed space-y-2">
+          <p>Aucune règle d&apos;alerte configurée — le cockpit n&apos;affichera donc aucune alerte.</p>
+          <p className="text-xs">Exemple : ROAS en dessous de 1,5 sur 7 jours. Les règles ROAS sont ignorées quand le revenu est indisponible.</p>
+          <button onClick={() => setShowCreate(true)} className={primaryBtnCls}>+ Créer une première règle</button>
         </Card>
       ) : (
         <div className="space-y-2">
@@ -242,7 +260,7 @@ export default function AdminAlertsPage() {
                   <Pill tone={r.enabled ? "emerald" : "default"}>{r.enabled ? "actif" : "désactivé"}</Pill>
                 </div>
                 <div className="text-xs mt-1 text-gray-400">
-                  {r.user.email} · {r.clientId ?? "tous comptes"} · {r._count.events} déclenchement{r._count.events > 1 ? "s" : ""}
+                  {r.user?.email ?? r.userId} · {r.clientId ?? "tous comptes"} · {r._count.events} déclenchement{r._count.events > 1 ? "s" : ""}
                   {r.lastTriggeredAt && <> · dernier : {new Date(r.lastTriggeredAt).toLocaleString("fr-FR")}</>}
                 </div>
               </div>

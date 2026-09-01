@@ -1,25 +1,19 @@
 import { NextResponse } from "next/server";
-import { getAdAccounts, getMetaSystemToken } from "@/lib/meta-api";
+import { getAdAccounts, getAccountProfile, getMetaSystemToken } from "@/lib/meta-api";
 import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-
-const META_API_BASE = "https://graph.facebook.com/v22.0";
 
 async function fetchAccountMeta(
   accountId: string,
   token: string,
 ): Promise<{ name: string; currency?: string } | null> {
-  const id = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+  // Goes through the Graph limiter/retry (lib/meta-api). Unreachable accounts
+  // (permission/auth errors) are flagged outOfScope by the caller.
   try {
-    const url = new URL(`${META_API_BASE}/${id}`);
-    url.searchParams.set("fields", "name,currency");
-    url.searchParams.set("access_token", token);
-    const res = await fetch(url.toString());
-    if (!res.ok) return null;
-    const data = (await res.json()) as { name?: string; currency?: string };
-    if (!data.name) return null;
-    return { name: data.name, currency: data.currency };
-  } catch {
+    const p = await getAccountProfile(token, accountId);
+    return { name: p.name, currency: p.currency || undefined };
+  } catch (err) {
+    console.warn(`[meta/accounts] profile unavailable for ${accountId}:`, err instanceof Error ? err.message : err);
     return null;
   }
 }

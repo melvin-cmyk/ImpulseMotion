@@ -314,7 +314,7 @@ function TopCreativesWidget({ widget }: { widget: ResolvedWidget }) {
             {c.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`/api/deck/proxy-image?url=${encodeURIComponent(c.imageUrl)}&upgrade=1`}
+                src={`/api/media/proxy-image?url=${encodeURIComponent(c.imageUrl)}&upgrade=1`}
                 alt={c.name}
                 className="w-full h-full object-cover"
                 loading="lazy"

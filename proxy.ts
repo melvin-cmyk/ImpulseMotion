@@ -10,7 +10,7 @@ const CLIENT_ALLOWED_PREFIXES = [
   "/api/client",
   "/api/me/accounts",
   "/api/meta/accounts",
-  "/api/deck/proxy-image",
+  "/api/media/proxy-image",
   "/api/auth",
 ];
 

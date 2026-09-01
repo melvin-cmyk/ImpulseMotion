@@ -8,17 +8,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor } from "@/lib/dashboard-auth";
-import { resolveWidgets, grantDashboardAccess, prevRange, type CompareRange } from "@/lib/dashboard-widgets";
+import { resolveWidgets, grantDashboardAccess, type CompareRange } from "@/lib/dashboard-widgets";
+import { getAccountProfileSettings } from "@/lib/account-settings";
+import { describeRange, prevRange, rangeFromParams, validateRange, yearAgoRange } from "@/lib/date-ranges";
 
 export const maxDuration = 60;
-
-function offsetDate(days: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().split("T")[0];
-}
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireSession();
@@ -31,11 +25,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
   const { dashboard } = loaded;
 
-  const since = req.nextUrl.searchParams.get("since") ?? offsetDate(-30);
-  const until = req.nextUrl.searchParams.get("until") ?? offsetDate(0);
-  if (!DATE_RE.test(since) || !DATE_RE.test(until)) {
-    return NextResponse.json({ error: "since/until must be YYYY-MM-DD" }, { status: 400 });
+  // Default window = last 30 FULL days ending yesterday in the account timezone
+  // (same rule as the portfolio, so both surfaces show the same number).
+  let timezone: string | null = null;
+  if (dashboard.metaAccountId) {
+    try { timezone = (await getAccountProfileSettings("meta", dashboard.metaAccountId)).timezone; } catch { /* UTC */ }
   }
+  const parsed = rangeFromParams(req.nextUrl.searchParams, "last_30", { tz: timezone });
+  if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  const { since, until } = parsed.range;
 
   // Comparison window: prev (default) | year | none | custom (cmpSince/cmpUntil)
   const compareParam = req.nextUrl.searchParams.get("compare") ?? "prev";
@@ -45,23 +43,36 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (compareParam === "none") {
     compare = null;
   } else if (compareParam === "year") {
-    const shift = (d: string) => {
-      const [y, rest] = [d.slice(0, 4), d.slice(4)];
-      const shifted = `${Number(y) - 1}${rest}`;
-      // clamp Feb 29 → Feb 28 on non-leap years
-      return Number.isNaN(Date.parse(shifted + "T00:00:00Z")) ? `${Number(y) - 1}-02-28` : shifted;
+    const shifted = yearAgoRange({ since, until });
+    // clamp Feb 29 → Feb 28 on non-leap years (Date.parse rolls over instead of failing)
+    const clamp = (d: string) => {
+      const p = new Date(d + "T00:00:00Z");
+      return Number.isNaN(p.getTime()) || !p.toISOString().startsWith(d) ? `${d.slice(0, 4)}-02-28` : d;
     };
-    compare = { since: shift(since), until: shift(until), kind: "year" };
+    compare = { since: clamp(shifted.since), until: clamp(shifted.until), kind: "year" };
   } else if (compareParam === "custom") {
-    if (!cmpSince || !cmpUntil || !DATE_RE.test(cmpSince) || !DATE_RE.test(cmpUntil) || cmpSince > cmpUntil) {
-      return NextResponse.json({ error: "cmpSince/cmpUntil must be valid YYYY-MM-DD" }, { status: 400 });
-    }
-    compare = { since: cmpSince, until: cmpUntil, kind: "custom" };
+    const v = validateRange(cmpSince, cmpUntil);
+    if (!v.ok) return NextResponse.json({ error: `cmpSince/cmpUntil : ${v.error}` }, { status: 400 });
+    compare = { ...v.range, kind: "custom" };
   } else {
-    compare = { ...prevRange(since, until), kind: "prev" };
+    compare = { ...prevRange({ since, until }), kind: "prev" };
   }
 
-  const widgets = await resolveWidgets(dashboard, dashboard.widgets, since, until, compare);
+  let widgets: Awaited<ReturnType<typeof resolveWidgets>> = [];
+  let error: string | null = null;
+  try {
+    widgets = await resolveWidgets(dashboard, dashboard.widgets, since, until, compare);
+  } catch (e) {
+    // e.g. unlinked dashboard (no Meta nor Google account) — surface the reason, not a 500
+    const message = e instanceof Error ? e.message : String(e);
+    error = message;
+    widgets = dashboard.widgets.map((w) => ({
+      id: w.id, type: w.type, title: w.title, width: w.width, position: w.position,
+      config: (() => { try { return JSON.parse(w.config || "{}") as Record<string, unknown>; } catch { return {}; } })(),
+      error: message,
+    }));
+  }
+  const described = describeRange({ since, until }, { tz: timezone });
   return NextResponse.json({
     dashboard: {
       id: dashboard.id,
@@ -69,11 +80,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       name: dashboard.name,
       metaAccountId: dashboard.metaAccountId,
       googleCustomerId: dashboard.googleCustomerId,
+      monthlyBudget: dashboard.monthlyBudget,
+      budgetCurrency: dashboard.budgetCurrency,
+      timezone,
     },
     since,
     until,
+    rangeLabel: described.label,
+    partialDay: described.partialDay,
+    compare,
+    ...(error ? { error } : {}),
     widgets,
-  });
+  }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -92,6 +110,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
   if (body.googleCustomerId === null || typeof body.googleCustomerId === "string") {
     data.googleCustomerId = body.googleCustomerId ? String(body.googleCustomerId).replace(/-/g, "") : null;
+  }
+  // Opt-in AI reporting: null | "weekly" | "monthly"
+  if (body.reportFrequency === null || ["weekly", "monthly", "none"].includes(String(body.reportFrequency))) {
+    data.reportFrequency = body.reportFrequency && body.reportFrequency !== "none" ? String(body.reportFrequency) : null;
+  }
+  // Monthly media budget of the client (pacing) — takes precedence over AccountBudget.
+  if ("monthlyBudget" in body) {
+    if (body.monthlyBudget === null || body.monthlyBudget === "") data.monthlyBudget = null;
+    else {
+      const n = Number(body.monthlyBudget);
+      if (!Number.isFinite(n) || n <= 0 || n > 1e9) return NextResponse.json({ error: "monthlyBudget doit être un nombre > 0" }, { status: 400 });
+      data.monthlyBudget = Math.round(n * 100) / 100;
+    }
+  }
+  if ("budgetCurrency" in body) {
+    if (body.budgetCurrency === null || body.budgetCurrency === "") data.budgetCurrency = null;
+    else {
+      const c = String(body.budgetCurrency).trim().toUpperCase();
+      if (!/^[A-Z]{3}$/.test(c)) return NextResponse.json({ error: "budgetCurrency doit être un code ISO 4217 (EUR, ZAR…)" }, { status: 400 });
+      data.budgetCurrency = c;
+    }
   }
   // Re-link the dashboard to another client login (grants matching ACL rows).
   if (typeof body.userId === "string" && body.userId && body.userId !== existing.userId) {
