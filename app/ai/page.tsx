@@ -1,12 +1,11 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Send, Loader2, Bot, User, Wrench, Plus, Presentation, Copy, Check } from "lucide-react"
+import { Send, Loader2, Bot, User, Wrench, Plus, Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { streamChat, type ChatMessage, type StreamEvent } from "@/lib/relay-client"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { addSlide } from "@/lib/deck-store"
 
 interface UIMessage {
   id: string
@@ -26,7 +25,6 @@ export default function AIPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
-  // addSlide imported from deck-store
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -158,10 +156,6 @@ export default function AIPage() {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  const handleAddToSlide = (content: string) => {
-    addSlide({ type: "markdown", content });
-  }
-
   const formatToolName = (name: string) => {
     return name
       .replace("mcp__meta-ads-impulse__", "Meta: ")
@@ -196,10 +190,10 @@ export default function AIPage() {
             </p>
             <div className="grid grid-cols-2 gap-2 max-w-lg">
               {[
-                "Overview du compte CPF sur les 30 derniers jours",
+                "Overview d'un compte Meta sur les 30 derniers jours",
                 "Performance des campagnes Meta Ads actives",
                 "Top 5 des adsets par ROAS ce mois",
-                "Breakdown par device du compte Mauboussin",
+                "Breakdown par device d'un compte Google Ads",
               ].map((suggestion) => (
                 <button
                   key={suggestion}
@@ -286,14 +280,6 @@ export default function AIPage() {
                         ) : (
                           <Copy className="w-3 h-3 text-gray-500" />
                         )}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => handleAddToSlide(msg.content)}
-                        title="Ajouter au deck"
-                      >
-                        <Presentation className="w-3 h-3 text-gray-500" />
                       </Button>
                       {msg.usage && (
                         <span className="text-[10px] text-gray-600 ml-auto">

@@ -1,153 +1,162 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus, FileText, Calendar, Layers, Trash2, ArrowRight, Share2 } from "lucide-react";
-import { getReports, deleteReport, Report } from "@/lib/reports-store";
+import { useRouter, useSearchParams } from "next/navigation";
+import { FileText, Plus, Loader2, Bot, Clock } from "lucide-react";
+import { Card, PageHeader, Pill } from "@/components/ui/surface";
+import { NewReportForm, type ReportClient } from "@/components/reports/new-report-form";
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+interface ReportRow {
+  id: string;
+  title: string;
+  periodSince: string;
+  periodUntil: string;
+  status: string;
+  trigger: string;
+  summary: string | null;
+  error: string | null;
+  nextStepsCount: number;
+  nextStepsDone: number;
+  dashboard: { id: string; name: string; reportFrequency: string | null };
+  author: { name: string | null; email: string | null } | null;
+  createdAt: string;
 }
 
-function ReportCard({ report, onDelete }: { report: Report; onDelete: (id: string) => void }) {
-  const [confirming, setConfirming] = useState(false);
-
-  function handleDelete(e: React.MouseEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (confirming) {
-      onDelete(report.id);
-    } else {
-      setConfirming(true);
-      setTimeout(() => setConfirming(false), 2500);
-    }
-  }
-
-  return (
-    <Link
-      href={`/reports/${report.id}`}
-      className="group relative bg-[#111118] border border-gray-800 rounded-2xl overflow-hidden hover:border-violet-700/60 hover:shadow-xl hover:shadow-violet-900/20 transition-all duration-200 flex flex-col"
-    >
-      {/* Thumbnail / header strip */}
-      <div className="h-28 bg-gradient-to-br from-violet-900/40 via-purple-900/20 to-[#111118] flex items-center justify-center border-b border-gray-800 relative">
-        <FileText className="w-10 h-10 text-violet-500/50" />
-        <div className="absolute top-2 right-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-400 bg-violet-500/10 border border-violet-500/20 px-2 py-0.5 rounded-full">
-            Report
-          </span>
-        </div>
-      </div>
-
-      {/* Body */}
-      <div className="p-4 flex-1 flex flex-col gap-2">
-        <h3 className="text-sm font-semibold text-white truncate group-hover:text-violet-300 transition-colors">
-          {report.title}
-        </h3>
-        {report.description && (
-          <p className="text-xs text-gray-500 line-clamp-2">{report.description}</p>
-        )}
-
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-auto pt-2 border-t border-gray-800">
-          <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-            <Calendar className="w-3 h-3" />
-            {formatDate(report.dateRange.from)} – {formatDate(report.dateRange.to)}
-          </span>
-          <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-            <Layers className="w-3 h-3" />
-            {report.creativeIds.length} creative{report.creativeIds.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between mt-2">
-          <span className="text-[10px] text-gray-600">Created {formatDate(report.createdAt)}</span>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleDelete}
-              className={`p-1 rounded-lg transition-colors ${
-                confirming
-                  ? "bg-red-500/20 text-red-400"
-                  : "text-gray-600 hover:text-red-400 hover:bg-red-500/10"
-              }`}
-              title={confirming ? "Click again to confirm delete" : "Delete report"}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-            <ArrowRight className="w-4 h-4 text-gray-600 group-hover:text-violet-400 transition-colors" />
-          </div>
-        </div>
-      </div>
-    </Link>
-  );
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
 }
+function fmtPeriod(s: string, u: string): string {
+  const f = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
+  return `${f(s)} → ${f(u)}`;
+}
+
+const STATUS: Record<string, { label: string; tone: "default" | "emerald" | "amber" | "red" | "blue" }> = {
+  ready: { label: "Prêt", tone: "emerald" },
+  generating: { label: "Génération…", tone: "blue" },
+  failed: { label: "Échec", tone: "red" },
+};
 
 export default function ReportsPage() {
-  const [reports, setReports] = useState<Report[]>([]);
+  const router = useRouter();
+  const params = useSearchParams();
+  const [reports, setReports] = useState<ReportRow[] | null>(null);
+  const [clients, setClients] = useState<ReportClient[]>([]);
+  const [filter, setFilter] = useState<string>(params.get("dashboardId") ?? "");
+  const [showNew, setShowNew] = useState(params.get("new") === "1");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const [r, c] = await Promise.all([
+        fetch(`/api/reports?limit=100${filter ? `&dashboardId=${filter}` : ""}`).then((x) => x.json()),
+        fetch("/api/reports/clients").then((x) => x.json()),
+      ]);
+      setReports(r.reports ?? []);
+      setClients(c.clients ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    }
+  }, [filter]);
 
   useEffect(() => {
-    setReports(getReports());
-  }, []);
+    // Deferred so the lint rule about synchronous setState in effects stays honest.
+    const t = setTimeout(() => { void load(); }, 0);
+    return () => clearTimeout(t);
+  }, [load]);
 
-  function handleDelete(id: string) {
-    deleteReport(id);
-    setReports(getReports());
-  }
+  const generating = reports?.some((r) => r.status === "generating");
+  useEffect(() => {
+    if (!generating) return;
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [generating, load]);
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Share2 className="w-5 h-5 text-violet-400" />
-            <h1 className="text-2xl font-bold text-white">Reports</h1>
-          </div>
-          <p className="text-gray-400 text-sm mt-0.5">
-            {reports.length === 0
-              ? "No reports yet"
-              : `${reports.length} saved report${reports.length !== 1 ? "s" : ""}`}
-          </p>
-        </div>
-        <Link
-          href="/reports/new"
-          className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-xl transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Create Report
-        </Link>
-      </div>
-
-      {/* Empty state */}
-      {reports.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-72 border border-dashed border-gray-800 rounded-2xl gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-violet-500/10 flex items-center justify-center">
-            <FileText className="w-7 h-7 text-violet-500/60" />
-          </div>
-          <div className="text-center">
-            <p className="text-gray-400 font-medium">No reports yet</p>
-            <p className="text-gray-600 text-sm mt-1">
-              Create your first report to share creative analytics
-            </p>
-          </div>
-          <Link
-            href="/reports/new"
-            className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-xl transition-colors"
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <PageHeader
+        title="Rapports IA"
+        subtitle="Un rapport par client et par période, rédigé par l'IA à partir des données Meta et Google Ads : synthèse, analyse, next steps, export PDF."
+        action={
+          <button
+            type="button"
+            onClick={() => setShowNew((v) => !v)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold"
           >
-            <Plus className="w-4 h-4" />
-            Create Report
-          </Link>
-        </div>
+            <Plus className="w-4 h-4" /> Nouveau rapport
+          </button>
+        }
+      />
+
+      {showNew && (
+        <Card padded>
+          <h2 className="text-sm font-semibold text-white mb-3">Générer un rapport</h2>
+          {clients.length === 0 ? (
+            <p className="text-sm text-gray-500">Aucun client (dashboard) disponible. Créez d&apos;abord un dashboard client dans <Link href="/d" className="text-violet-400">Dashboards clients</Link>.</p>
+          ) : (
+            <NewReportForm
+              clients={clients}
+              defaultClientId={filter || undefined}
+              onCreated={(id) => router.push(`/reports/${id}`)}
+              onCancel={() => setShowNew(false)}
+            />
+          )}
+        </Card>
       )}
 
-      {/* Grid */}
-      {reports.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {reports.map((report) => (
-            <ReportCard key={report.id} report={report} onDelete={handleDelete} />
-          ))}
+      <div className="flex items-center gap-3">
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
+        >
+          <option value="">Tous les clients</option>
+          {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        {clients.some((c) => c.reportFrequency) && (
+          <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+            <Clock className="w-3.5 h-3.5" />
+            {clients.filter((c) => c.reportFrequency).length} client{clients.filter((c) => c.reportFrequency).length > 1 ? "s" : ""} en rapport automatique
+          </span>
+        )}
+      </div>
+
+      {error && <div className="text-sm text-red-400">{error}</div>}
+
+      {reports === null ? (
+        <div className="flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
+      ) : reports.length === 0 ? (
+        <Card padded className="text-center py-12">
+          <FileText className="w-8 h-8 text-gray-700 mx-auto mb-3" />
+          <p className="text-sm text-gray-400">Aucun rapport pour l&apos;instant.</p>
+          <p className="text-xs text-gray-600 mt-1">Cliquez sur « Nouveau rapport » pour générer le premier.</p>
+        </Card>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2">
+          {reports.map((r) => {
+            const st = STATUS[r.status] ?? { label: r.status, tone: "default" as const };
+            return (
+              <Link key={r.id} href={`/reports/${r.id}`} className="block">
+                <Card padded interactive className="h-full">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold truncate">{r.dashboard.name}</div>
+                      <h3 className="text-sm font-semibold text-white mt-0.5 truncate">{r.title}</h3>
+                      <div className="text-xs text-gray-500 mt-0.5">{fmtPeriod(r.periodSince, r.periodUntil)}</div>
+                    </div>
+                    <Pill tone={st.tone}>{r.status === "generating" ? <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />{st.label}</span> : st.label}</Pill>
+                  </div>
+                  {r.summary && <p className="text-xs text-gray-400 mt-3 line-clamp-3 leading-relaxed">{r.summary}</p>}
+                  {r.error && r.status === "failed" && <p className="text-xs text-red-400 mt-3 line-clamp-2">{r.error}</p>}
+                  <div className="flex items-center gap-3 mt-3 text-[11px] text-gray-600">
+                    <span>{fmtDate(r.createdAt)}</span>
+                    {r.trigger === "cron" ? <span className="inline-flex items-center gap-1"><Bot className="w-3 h-3" /> automatique</span> : r.author?.name ? <span>par {r.author.name}</span> : null}
+                    {r.nextStepsCount > 0 && <span className="ml-auto tabular-nums">{r.nextStepsDone}/{r.nextStepsCount} actions faites</span>}
+                  </div>
+                </Card>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>

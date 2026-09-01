@@ -7,7 +7,7 @@ import {
   Settings,
   Zap,
   Sparkles,
-  Presentation,
+  FileText,
   Bot,
   Activity,
   Layers,
@@ -32,11 +32,11 @@ type NavSection = { label: string; hint?: string; items: NavItem[] }
 
 const ANALYSE_ROUTES = [
   "/creatives", "/launch", "/top-charts", "/compare", "/comparaisons",
-  "/patterns", "/angles", "/audience", "/top-copy", "/visual-format",
-  "/top-landing-page", "/fatigue", "/naming",
+  "/patterns", "/angles", "/audience", "/top-copy",
+  "/top-landing-page", "/fatigue", "/naming", "/creative-team",
 ]
 
-const DECK_ROUTES = ["/deck", "/create/weekly", "/create/monthly", "/reports"]
+const REPORT_ROUTES = ["/reports"]
 
 const NAV_SECTIONS: NavSection[] = [
   {
@@ -51,20 +51,20 @@ const NAV_SECTIONS: NavSection[] = [
       {
         href: "/portfolio",
         icon: Briefcase,
-        label: "Portfolio",
+        label: "Clients",
         match: (p) => p === "/portfolio" || p.startsWith("/portfolio/"),
+      },
+      {
+        href: "/reports",
+        icon: FileText,
+        label: "Rapports IA",
+        match: (p) => REPORT_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
       },
       {
         href: "/creatives",
         icon: Sparkles,
         label: "Analyse Ads",
         match: (p) => ANALYSE_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
-      },
-      {
-        href: "/deck",
-        icon: Presentation,
-        label: "Deck Builder",
-        match: (p) => DECK_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
       },
       { href: "/ai", icon: Bot, label: "AI Assistant", match: (p) => p.startsWith("/ai") },
     ],
@@ -92,10 +92,10 @@ const NAV_SECTIONS: NavSection[] = [
         adminOnly: true,
       },
       {
-        href: "/admin/schedules",
+        href: "/admin/alerts",
         icon: BellRing,
-        label: "Rapports & alertes",
-        match: (p) => p.startsWith("/admin/schedules") || p.startsWith("/admin/alerts"),
+        label: "Alertes",
+        match: (p) => p.startsWith("/admin/alerts"),
       },
       { href: "/settings", icon: Settings, label: "Réglages", match: (p) => p.startsWith("/settings") },
     ],
@@ -186,6 +186,7 @@ const ANALYSE_SUB_NAV: SubNavGroup[] = [
       { href: "/launch", label: "Launch" },
       { href: "/top-charts", label: "Top Charts" },
       { href: "/fatigue", label: "Fatigue" },
+      { href: "/creative-team", label: "Funnel" },
     ],
   },
   {
@@ -194,7 +195,6 @@ const ANALYSE_SUB_NAV: SubNavGroup[] = [
       { href: "/angles", label: "Angles" },
       { href: "/patterns", label: "Patterns" },
       { href: "/top-copy", label: "Top Copy" },
-      { href: "/visual-format", label: "Visual" },
       { href: "/audience", label: "Audience" },
       { href: "/top-landing-page", label: "Landing" },
     ],
