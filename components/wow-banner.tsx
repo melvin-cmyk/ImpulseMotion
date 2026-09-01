@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { fmtMoney, fmtRoas } from "@/lib/creative-format";
+
 interface WoWPeriod {
   spend: number;
-  cpa: number;
-  ctr: number;
-  cpm: number;
-  roas: number;
+  cpa: number | null;
+  ctr: number | null;
+  cpm: number | null;
+  roas: number | null;
+  roasEstimated?: boolean;
 }
 
 interface WoWData {
@@ -15,23 +18,27 @@ interface WoWData {
   previous: WoWPeriod;
   currentRange: { since: string; until: string };
   previousRange: { since: string; until: string };
+  meta?: { currency: string | null };
 }
 
 interface WoWBannerProps {
   accountId: string;
+  /** Selected range: the window is the 7 full days ending at `until`. */
+  since?: string;
+  until?: string;
 }
 
 interface KpiDelta {
   label: string;
-  current: number;
-  previous: number;
-  format: (v: number) => string;
+  current: number | null;
+  previous: number | null;
+  format: (v: number | null) => string;
   /** For CPA: lower is better. For all others: higher is better. */
   lowerIsBetter?: boolean;
 }
 
-function pctChange(current: number, previous: number): number {
-  if (previous === 0) return 0;
+function pctChange(current: number | null, previous: number | null): number {
+  if (current === null || previous === null || previous === 0) return 0;
   return ((current - previous) / previous) * 100;
 }
 
@@ -87,7 +94,7 @@ function DeltaBadge({
   );
 }
 
-export function WoWBanner({ accountId }: WoWBannerProps) {
+export function WoWBanner({ accountId, since, until }: WoWBannerProps) {
   const [data, setData] = useState<WoWData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -95,7 +102,10 @@ export function WoWBanner({ accountId }: WoWBannerProps) {
     if (!accountId) return;
 
     setLoading(true);
-    fetch(`/api/meta/wow?accountId=${encodeURIComponent(accountId)}`)
+    const params = new URLSearchParams({ accountId });
+    if (since) params.set("since", since);
+    if (until) params.set("until", until);
+    fetch(`/api/meta/wow?${params.toString()}`)
       .then((r) => {
         if (r.status === 204) return null;
         if (!r.ok) throw new Error("WoW fetch failed");
@@ -108,7 +118,7 @@ export function WoWBanner({ accountId }: WoWBannerProps) {
         setData(null);
       })
       .finally(() => setLoading(false));
-  }, [accountId]);
+  }, [accountId, since, until]);
 
   if (loading) {
     return (
@@ -125,8 +135,8 @@ export function WoWBanner({ accountId }: WoWBannerProps) {
 
   if (!data) return null;
 
-  const fmtCurrency = (v: number) =>
-    v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${Math.round(v)}`;
+  const currency = data.meta?.currency ?? null;
+  const fmtCurrency = (v: number | null) => fmtMoney(v, currency);
 
   const kpis: KpiDelta[] = [
     {
@@ -139,29 +149,29 @@ export function WoWBanner({ accountId }: WoWBannerProps) {
       label: "CPA",
       current: data.current.cpa,
       previous: data.previous.cpa,
-      format: (v) => (v > 0 ? `$${v.toFixed(2)}` : "—"),
+      format: (v) => (v !== null && v > 0 ? fmtMoney(v, currency, 2) : "—"),
       lowerIsBetter: true,
     },
     {
       label: "CTR",
       current: data.current.ctr,
       previous: data.previous.ctr,
-      format: (v) => `${v.toFixed(2)}%`,
+      format: (v) => (v !== null ? `${v.toFixed(2)}%` : "—"),
     },
     {
       label: "CPM",
       current: data.current.cpm,
       previous: data.previous.cpm,
-      format: (v) => `$${v.toFixed(2)}`,
+      format: (v) => fmtMoney(v, currency, 2),
       lowerIsBetter: true,
     },
-    ...(data.current.roas > 0 || data.previous.roas > 0
+    ...(data.current.roas !== null || data.previous.roas !== null
       ? [
           {
             label: "ROAS",
             current: data.current.roas,
             previous: data.previous.roas,
-            format: (v: number) => `${v.toFixed(2)}x`,
+            format: (v: number | null) => fmtRoas(v, { estimated: data.current.roasEstimated }),
           } satisfies KpiDelta,
         ]
       : []),

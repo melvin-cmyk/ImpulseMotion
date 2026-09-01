@@ -22,7 +22,7 @@
  */
 
 import { useState } from "react";
-import { Format } from "@/lib/mock-data";
+import type { Format } from "@/lib/creative-types";
 
 interface CreativeThumbnailProps {
   format: Format;

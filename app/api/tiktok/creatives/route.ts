@@ -8,7 +8,7 @@ import {
 } from "@/lib/tiktok-api";
 import { requireSession } from "@/lib/auth-helpers";
 import { assertAccountAllowed } from "@/lib/acl";
-import { Creative, Status } from "@/lib/mock-data";
+import type { Creative, Status } from "@/lib/creative-types";
 import { NextRequest, NextResponse } from "next/server";
 
 function determineStatus(roas: number, ctr: number, hookRate: number): Status {
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
           thumbnailColor: THUMBNAIL_COLORS[idx % THUMBNAIL_COLORS.length],
           thumbnailUrl: ad.image_url || undefined,
           spend: Math.round(spend),
-          roas,
+          roas: spend > 0 ? roas : null,
           cpa: Math.round(cpa * 100) / 100,
           ctr: Math.round(ctr * 100) / 100,
           hookRate,
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
           clicks: Math.round(clicks),
           conversions: Math.round(conversions),
           threeSecViews: Math.round(impressions * (hookRate / 100)),
-          fifteenSecViews: Math.round(impressions * (holdRate / 100)),
+          thruplays: Math.round(impressions * (holdRate / 100)),
           trend: [],
         };
       });

@@ -8,8 +8,10 @@
  * Features:
  * - Video player (direct URL via <video> tag, or thumbnail + "Voir sur Facebook"
  *   button if no direct URL) or image at the top
- * - All key metrics: Spend, Impressions, Reach (est.), CTR, CPC, CPM,
- *   Hook Rate, Thumbstop Ratio, Hold Rate, ROAS, Conversions/Purchases
+ * - All key metrics: Spend, Impressions, Reach (real Meta reach), CTR, CPC, CPM,
+ *   Hook (video plays / impressions), P25 / Hold (ThruPlay / impressions),
+ *   ROAS (null-safe, "*" when estimated), Conversions, CPA — money in the
+ *   account currency
  * - Creative name + Ad ID
  * - Platform / Status badges
  * - Link to Meta Ads Manager when applicable
@@ -22,8 +24,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { X, ExternalLink, Plus, Tag, StickyNote } from "lucide-react";
-import { Creative } from "@/lib/mock-data";
+import type { Creative } from "@/lib/creative-types";
 import { AudienceTagInput } from "@/components/audience-tag-input";
+import { useCreativesContext } from "@/lib/creatives-context";
+import { fmtMoney } from "@/lib/creative-format";
+import { RoasValue } from "@/components/roas-value";
+import { FUNNEL_BENCHMARKS } from "@/lib/funnel-scores";
 
 interface CreativeModalProps {
   creative: Creative | null;
@@ -35,7 +41,7 @@ function MetricCell({
   value,
 }: {
   label: string;
-  value: string | number;
+  value: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1 bg-[#13131f] border border-white/5 rounded-xl px-3 py-3 hover:border-white/10 transition-colors">
@@ -47,22 +53,18 @@ function MetricCell({
   );
 }
 
+/** Number formatter: a real 0 shows "0"; only null / non-finite show "—". */
 function fmt(
-  n: number,
-  style: "currency" | "percent" | "decimal" | "x" = "decimal",
+  n: number | null | undefined,
+  style: "percent" | "decimal" | "x" = "decimal",
   digits = 2
 ): string {
-  if (n === 0 || !isFinite(n)) return "—";
-  if (style === "currency") {
-    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
-    return `$${n.toFixed(digits)}`;
-  }
+  if (n === null || n === undefined || !isFinite(n)) return "—";
   if (style === "percent") return `${n.toFixed(digits)}%`;
   if (style === "x") return `${n.toFixed(digits)}x`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return n.toFixed(digits);
+  return Number.isInteger(n) ? String(n) : n.toFixed(digits);
 }
 
 function VideoPlayer({
@@ -117,7 +119,7 @@ function VideoPlayer({
 
 function VideoDropoff({ creative }: { creative: Creative }) {
   const steps = [
-    { label: "3s (Hook)", value: creative.hookRate },
+    { label: "Hook (démarrages)", value: creative.hookRate },
     { label: "25%", value: creative.videoP25Rate ?? 0 },
     { label: "50%", value: creative.videoP50Rate ?? 0 },
     { label: "75%", value: creative.videoP75Rate ?? 0 },
@@ -215,7 +217,8 @@ function FunnelBar({ label, value, benchmark, unit }: FunnelMetric) {
 }
 
 function FunnelScores({ creative }: { creative: Creative }) {
-  const convertScore = creative.roas > 0 ? (creative.roas / 1.5) * 1.5 : 0;
+  // Same definitions and benchmarks as lib/funnel-scores.ts (Watch = ThruPlay / impressions).
+  const roas = creative.roas !== null && !creative.roasUnavailable ? creative.roas : 0;
 
   return (
     <div>
@@ -224,27 +227,27 @@ function FunnelScores({ creative }: { creative: Creative }) {
       </p>
       <div className="grid grid-cols-2 gap-4 bg-[#13131f] border border-white/5 rounded-xl p-4">
         <FunnelBar
-          label="Hook"
+          label="Hook (démarrages / impr.)"
           value={creative.hookRate}
-          benchmark={25}
+          benchmark={FUNNEL_BENCHMARKS.hook}
           unit="%"
         />
         <FunnelBar
-          label="Watch"
+          label="Watch (ThruPlay / impr.)"
           value={creative.holdRate}
-          benchmark={40}
+          benchmark={FUNNEL_BENCHMARKS.watch}
           unit="%"
         />
         <FunnelBar
-          label="Click"
+          label="Click (CTR)"
           value={creative.ctr}
-          benchmark={1.5}
+          benchmark={FUNNEL_BENCHMARKS.click}
           unit="%"
         />
         <FunnelBar
-          label="Convert"
-          value={convertScore > 0 ? creative.roas : 0}
-          benchmark={1.5}
+          label="Convert (ROAS)"
+          value={roas}
+          benchmark={FUNNEL_BENCHMARKS.convert}
           unit="x"
         />
       </div>
@@ -433,6 +436,8 @@ function CustomTagsSection({ creativeId }: { creativeId: string }) {
 }
 
 export function CreativeModal({ creative, onClose }: CreativeModalProps) {
+  const { metaAccountId, currency } = useCreativesContext();
+
   // Close on Escape key
   useEffect(() => {
     if (!creative) return;
@@ -458,28 +463,17 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
   if (!creative) return null;
 
   const isVideo = creative.format === "Video";
-  const isMetaVideo = isVideo && !!creative.videoId;
 
-  // Computed metrics
-  const cpm =
-    creative.impressions > 0
-      ? (creative.spend / creative.impressions) * 1000
-      : 0;
-  const cpc = creative.clicks > 0 ? creative.spend / creative.clicks : 0;
+  // Computed metrics (null when the denominator is missing, never invented)
+  const cpm = creative.impressions > 0 ? (creative.spend / creative.impressions) * 1000 : null;
+  const cpc = creative.clicks > 0 ? creative.spend / creative.clicks : null;
+  const money = (v: number | null | undefined, digits = 0) => fmtMoney(v, currency, digits);
 
-  // Thumbstop ratio = 3s views / impressions
-  const thumbstopRatio =
-    creative.impressions > 0 && creative.threeSecViews > 0
-      ? (creative.threeSecViews / creative.impressions) * 100
-      : creative.hookRate;
-
-  // Estimated reach (impressions / estimated frequency of ~2.5)
-  const estimatedReach = Math.round(creative.impressions / 2.5);
-
-  // Meta Ads Manager URL
+  // Meta Ads Manager URL — the account id comes from the selected account (act_…), not the campaign.
+  const actId = metaAccountId ? metaAccountId.replace(/^act_/, "") : null;
   const metaAdsUrl =
-    creative.platform === "Meta" && creative.id
-      ? `https://www.facebook.com/adsmanager/manage/ads?act=${creative.campaignId ?? ""}&selected_ad_ids=${creative.id}`
+    creative.platform === "Meta" && creative.id && actId
+      ? `https://www.facebook.com/adsmanager/manage/ads?act=${actId}&selected_ad_ids=${creative.id}`
       : null;
 
   return (
@@ -598,52 +592,49 @@ export function CreativeModal({ creative, onClose }: CreativeModalProps) {
               Performance Metrics
             </p>
             <div className="grid grid-cols-4 gap-2">
-              <MetricCell
-                label="Spend"
-                value={fmt(creative.spend, "currency")}
-              />
+              <MetricCell label="Spend" value={money(creative.spend)} />
               <MetricCell
                 label="Impressions"
                 value={fmt(creative.impressions, "decimal", 0)}
               />
               <MetricCell
-                label="Reach (est.)"
-                value={fmt(estimatedReach, "decimal", 0)}
+                label="Reach"
+                value={typeof creative.reach === "number" ? fmt(creative.reach, "decimal", 0) : "—"}
               />
               <MetricCell label="CTR" value={fmt(creative.ctr, "percent")} />
-              <MetricCell label="CPC" value={fmt(cpc, "currency")} />
-              <MetricCell label="CPM" value={fmt(cpm, "currency")} />
+              <MetricCell label="CPC" value={money(cpc, 2)} />
+              <MetricCell label="CPM" value={money(cpm, 2)} />
               <MetricCell
-                label="Hook Rate"
-                value={
-                  creative.hookRate > 0 ? fmt(creative.hookRate, "percent") : "—"
-                }
+                label="Hook (démarrages / impr.)"
+                value={isVideo ? fmt(creative.hookRate, "percent") : "—"}
               />
               <MetricCell
-                label="Thumbstop"
-                value={
-                  thumbstopRatio > 0 ? fmt(thumbstopRatio, "percent") : "—"
-                }
+                label="P25 / impr."
+                value={isVideo && typeof creative.videoP25Rate === "number" ? fmt(creative.videoP25Rate, "percent") : "—"}
               />
               <MetricCell
-                label="Hold Rate"
-                value={
-                  creative.holdRate > 0 ? fmt(creative.holdRate, "percent") : "—"
-                }
+                label="Hold (ThruPlay / impr.)"
+                value={isVideo ? fmt(creative.holdRate, "percent") : "—"}
               />
               <MetricCell
                 label="ROAS"
-                value={creative.roas > 0 ? fmt(creative.roas, "x") : "—"}
+                value={<RoasValue value={creative.roasUnavailable ? null : creative.roas} estimated={creative.roasEstimated && !creative.roasUnavailable} />}
               />
               <MetricCell
-                label="Purchases"
-                value={
-                  creative.conversions > 0 ? String(creative.conversions) : "—"
-                }
+                label="Conversions"
+                value={fmt(creative.conversions, "decimal", 0)}
               />
               <MetricCell
                 label="CPA"
-                value={creative.cpa > 0 ? fmt(creative.cpa, "currency") : "—"}
+                value={creative.cpa > 0 ? money(creative.cpa, 2) : "—"}
+              />
+              <MetricCell
+                label="Fréquence"
+                value={typeof creative.frequency === "number" ? `${creative.frequency.toFixed(2)}${typeof creative.frequencyWeekly === "number" ? ` (${creative.frequencyWeekly.toFixed(2)} / sem.)` : ""}` : "—"}
+              />
+              <MetricCell
+                label="Clics"
+                value={fmt(creative.clicks, "decimal", 0)}
               />
             </div>
           </div>

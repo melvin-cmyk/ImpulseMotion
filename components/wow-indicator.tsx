@@ -7,7 +7,7 @@
  * WowBanner — a full-width summary banner showing aggregate WoW metrics.
  */
 
-import { WowMetrics } from "@/lib/mock-data";
+import type { WowMetrics } from "@/lib/creative-types";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ const BANNER_METRICS: WowBannerMetric[] = [
   { key: "roasChange", label: "ROAS", description: "Return on ad spend" },
   { key: "ctrChange", label: "CTR", description: "Click-through rate" },
   { key: "cpaChange", label: "CPA", description: "Cost per acquisition" },
-  { key: "hookRateChange", label: "Hook Rate", description: "3-sec video view rate" },
+  { key: "hookRateChange", label: "Hook", description: "Démarrages vidéo / impressions" },
 ];
 
 export function WowBanner({ wow, currentPeriod, prevPeriod }: WowBannerProps) {

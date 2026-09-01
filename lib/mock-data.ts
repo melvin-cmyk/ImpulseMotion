@@ -1,70 +1,7 @@
-export type Platform = "Meta" | "TikTok";
-export type Format = "Video" | "Image" | "Carousel";
-export type Status = "Winner" | "Loser" | "Fatigued" | "Active";
-
-export interface WowMetrics {
-  spendChange: number | null;    // % change in spend vs previous week
-  ctrChange: number | null;      // % change in CTR
-  cpaChange: number | null;      // % change in CPA
-  roasChange: number | null;     // % change in ROAS
-  hookRateChange: number | null; // % change in hook rate
-}
-
-export interface DayMetric {
-  date: string;
-  spend: number;
-  roas: number;
-  cpa: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-}
-
-export type AspectRatio = "9:16" | "16:9" | "1:1" | "Carousel";
-
-export interface Creative {
-  id: string;
-  name: string;
-  platform: Platform;
-  format: Format;
-  status: Status;
-  thumbnailColor: string;
-  /** URL of the thumbnail/preview image (from Meta or TikTok API) */
-  thumbnailUrl?: string;
-  /** URL of the full video (from Meta or TikTok API) */
-  videoUrl?: string;
-  /**
-   * Meta video_id — used to embed the official Facebook iframe player.
-   * Only present for Meta video creatives.
-   */
-  videoId?: string;
-  /** Meta campaign_id — used for campaign filtering */
-  campaignId?: string;
-  /** Ad headline / title (from Meta body or title field) */
-  headline?: string;
-  /** Ad body copy text */
-  body?: string;
-  /** Visual aspect ratio of the creative */
-  aspectRatio?: AspectRatio;
-  /** Week-over-week performance changes vs previous 7 days */
-  wow?: WowMetrics;
-  spend: number;
-  roas: number;
-  cpa: number;
-  ctr: number;
-  hookRate: number;
-  holdRate: number;
-  /** Video view rates at each quartile (% of impressions). Video ads only. */
-  videoP25Rate?: number;
-  videoP50Rate?: number;
-  videoP75Rate?: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  threeSecViews: number;
-  fifteenSecViews: number;
-  trend: DayMetric[];
-}
+// Demo data for the disconnected state ONLY (see lib/use-creatives.ts).
+// Types live in lib/creative-types.ts; re-exported here so legacy imports keep working.
+import type { Creative, DayMetric, Status } from "./creative-types";
+export type { Platform, Format, Status, WowMetrics, DayMetric, AspectRatio, Creative } from "./creative-types";
 
 function generateTrend(baseRoas: number, status: Status): DayMetric[] {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -114,7 +51,7 @@ export const mockCreatives: Creative[] = [
     clicks: 10508,
     conversions: 389,
     threeSecViews: 184600,
-    fifteenSecViews: 119280,
+    thruplays: 119280,
     trend: generateTrend(5.8, "Winner"),
   },
   {
@@ -138,7 +75,7 @@ export const mockCreatives: Creative[] = [
     clicks: 21320,
     conversions: 277,
     threeSecViews: 369200,
-    fifteenSecViews: 202960,
+    thruplays: 202960,
     trend: generateTrend(5.2, "Winner"),
   },
   {
@@ -162,7 +99,7 @@ export const mockCreatives: Creative[] = [
     clicks: 5568,
     conversions: 151,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(4.9, "Winner"),
   },
   {
@@ -186,7 +123,7 @@ export const mockCreatives: Creative[] = [
     clicks: 3289,
     conversions: 77,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(3.6, "Active"),
   },
   {
@@ -210,7 +147,7 @@ export const mockCreatives: Creative[] = [
     clicks: 13260,
     conversions: 70,
     threeSecViews: 226200,
-    fifteenSecViews: 128700,
+    thruplays: 128700,
     trend: generateTrend(3.2, "Active"),
   },
   {
@@ -233,7 +170,7 @@ export const mockCreatives: Creative[] = [
     clicks: 2912,
     conversions: 45,
     threeSecViews: 49280,
-    fifteenSecViews: 30240,
+    thruplays: 30240,
     trend: generateTrend(3.0, "Active"),
   },
   {
@@ -256,7 +193,7 @@ export const mockCreatives: Creative[] = [
     clicks: 1482,
     conversions: 25,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(2.8, "Active"),
   },
   {
@@ -280,7 +217,7 @@ export const mockCreatives: Creative[] = [
     clicks: 7380,
     conversions: 68,
     threeSecViews: 155800,
-    fifteenSecViews: 77900,
+    thruplays: 77900,
     trend: generateTrend(2.1, "Fatigued"),
   },
   {
@@ -303,7 +240,7 @@ export const mockCreatives: Creative[] = [
     clicks: 2970,
     conversions: 50,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(1.9, "Fatigued"),
   },
   {
@@ -326,7 +263,7 @@ export const mockCreatives: Creative[] = [
     clicks: 7040,
     conversions: 29,
     threeSecViews: 176000,
-    fifteenSecViews: 70400,
+    thruplays: 70400,
     trend: generateTrend(1.7, "Fatigued"),
   },
   {
@@ -349,7 +286,7 @@ export const mockCreatives: Creative[] = [
     clicks: 528,
     conversions: 12,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(0.9, "Loser"),
   },
   {
@@ -372,7 +309,7 @@ export const mockCreatives: Creative[] = [
     clicks: 1680,
     conversions: 15,
     threeSecViews: 70000,
-    fifteenSecViews: 30800,
+    thruplays: 30800,
     trend: generateTrend(0.7, "Loser"),
   },
   {
@@ -395,7 +332,7 @@ export const mockCreatives: Creative[] = [
     clicks: 308,
     conversions: 7,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(0.5, "Loser"),
   },
   {
@@ -418,7 +355,7 @@ export const mockCreatives: Creative[] = [
     clicks: 252,
     conversions: 5,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(0.6, "Loser"),
   },
   {
@@ -442,7 +379,7 @@ export const mockCreatives: Creative[] = [
     clicks: 15050,
     conversions: 173,
     threeSecViews: 266600,
-    fifteenSecViews: 163400,
+    thruplays: 163400,
     trend: generateTrend(4.5, "Winner"),
   },
   {
@@ -465,7 +402,7 @@ export const mockCreatives: Creative[] = [
     clicks: 1827,
     conversions: 25,
     threeSecViews: 35670,
-    fifteenSecViews: 20880,
+    thruplays: 20880,
     trend: generateTrend(2.4, "Active"),
   },
   {
@@ -488,7 +425,7 @@ export const mockCreatives: Creative[] = [
     clicks: 6080,
     conversions: 36,
     threeSecViews: 125400,
-    fifteenSecViews: 57000,
+    thruplays: 57000,
     trend: generateTrend(1.5, "Fatigued"),
   },
   {
@@ -511,7 +448,7 @@ export const mockCreatives: Creative[] = [
     clicks: 3300,
     conversions: 52,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(3.1, "Active"),
   },
   {
@@ -534,7 +471,7 @@ export const mockCreatives: Creative[] = [
     clicks: 826,
     conversions: 17,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(2.6, "Active"),
   },
   {
@@ -557,7 +494,7 @@ export const mockCreatives: Creative[] = [
     clicks: 7830,
     conversions: 175,
     threeSecViews: 0,
-    fifteenSecViews: 0,
+    thruplays: 0,
     trend: generateTrend(4.2, "Winner"),
   },
 ];
@@ -567,7 +504,7 @@ export function getTotalSpend(): number {
 }
 
 export function getAvgRoas(): number {
-  return mockCreatives.reduce((sum, c) => sum + c.roas, 0) / mockCreatives.length;
+  return mockCreatives.reduce((sum, c) => sum + (c.roas ?? 0), 0) / mockCreatives.length;
 }
 
 export function getAvgCpa(): number {
@@ -579,7 +516,7 @@ export function getActiveCount(): number {
 }
 
 export function getTopByRoas(n = 5): Creative[] {
-  return [...mockCreatives].sort((a, b) => b.roas - a.roas).slice(0, n);
+  return [...mockCreatives].sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0)).slice(0, n);
 }
 
 export function getTopBySpend(n = 10): Creative[] {
@@ -593,6 +530,6 @@ export function getWorstByCpa(n = 10): Creative[] {
 export function getFatigued(n = 10): Creative[] {
   return [...mockCreatives]
     .filter((c) => c.status === "Fatigued")
-    .sort((a, b) => a.roas - b.roas)
+    .sort((a, b) => (a.roas ?? 0) - (b.roas ?? 0))
     .slice(0, n);
 }

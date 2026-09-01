@@ -48,3 +48,12 @@ export function parseAllSegments(name: string, config: NamingConfig): Record<str
   }
   return result;
 }
+
+export function saveNamingConfig(config: NamingConfig): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(NAMING_STORAGE_KEY, JSON.stringify(config));
+  } catch {
+    // localStorage unavailable (private mode / quota) — config stays in memory
+  }
+}

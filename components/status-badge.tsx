@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { Status } from "@/lib/mock-data";
+import type { Status } from "@/lib/creative-types";
 
 interface StatusBadgeProps {
   status: Status;

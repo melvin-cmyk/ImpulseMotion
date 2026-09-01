@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { Platform } from "@/lib/mock-data";
+import type { Platform } from "@/lib/creative-types";
 
 interface PlatformBadgeProps {
   platform: Platform;
