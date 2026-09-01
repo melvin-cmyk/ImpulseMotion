@@ -24,7 +24,8 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { resolveWidgets } from "@/lib/dashboard-widgets";
+import { resolveWidgets, loadDashboardCrm, findHubspotSourceDashboard } from "@/lib/dashboard-widgets";
+import type { CrmSummary } from "@/lib/crm-view";
 import { computePacing, pickBudget, type PacingResult } from "@/lib/budgets";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { getAccountInsightsCachedWithMeta } from "@/lib/insights";
@@ -52,12 +53,18 @@ export interface ClientError {
 }
 
 export interface AttentionSignal {
-  code: "roas_drop" | "cpa_up" | "conversions_zero" | "spend_move" | "roas_low" | "frequency" | "alerts" | "pacing";
+  code: "roas_drop" | "cpa_up" | "conversions_zero" | "spend_move" | "roas_low" | "frequency" | "alerts" | "pacing" | "crm_error";
   label: string;
   before?: number | null;
   after?: number | null;
   deltaPct?: number | null;
   points: number;
+}
+
+/** CRM (HubSpot) summary of a client — undefined when no dashboard of the client has a HubSpot source. */
+export interface PortfolioCrm extends CrmSummary {
+  /** HubSpot / ad-side failure message (French); the row itself never fails because of the CRM. */
+  error: string | null;
 }
 
 export interface PortfolioClient {
@@ -96,6 +103,8 @@ export interface PortfolioClient {
   alertCount: number;
   lastReport: { id: string; status: string; periodSince: string; periodUntil: string; createdAt: string } | null;
   pacing: PacingResult | null;
+  /** HubSpot summary (level, leads, CA gagné, CPL qualifié, ROAS réel) — only when a source is connected. */
+  crm?: PortfolioCrm;
   /** 0-100 attention score: spend-weighted negative movements + alerts + pacing drift. */
   attention: number;
   attentionReasons: string[];
@@ -295,6 +304,8 @@ export interface AttentionInput {
   frequency: number | null;
   alertCount: number;
   pacing: Pick<PacingResult, "status" | "pacingPct"> | null;
+  /** CRM in error → one signal (the row stays valid). */
+  crm?: { error: string | null } | null;
 }
 
 const MIN_CONVERSIONS_FOR_RATIO = 10;
@@ -374,6 +385,10 @@ export function attentionScore(c: AttentionInput): { score: number; reasons: str
       label: `Pacing ${c.pacing.pacingPct} %`,
       after: c.pacing.pacingPct, points: 20,
     });
+  }
+
+  if (c.crm?.error) {
+    signals.push({ code: "crm_error", label: "CRM en erreur", points: 10 });
   }
 
   const score = Math.min(100, signals.reduce((s, x) => s + x.points, 0));
@@ -554,6 +569,15 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
 
   const { groups, unlinked } = groupDashboardsByAccount(rows);
   const token = (() => { try { return getMetaSystemToken(); } catch { return ""; } })();
+  // Dashboards with a HubSpot source (one query for the whole portfolio).
+  const crmDashboards = new Set<string>();
+  if (rows.length) {
+    const withSource = await prisma.dashboardSource.findMany({
+      where: { kind: "hubspot", secretEnc: { not: null }, dashboardId: { in: rows.map((r) => r.id) } },
+      select: { dashboardId: true },
+    }).catch(() => [] as Array<{ dashboardId: string }>);
+    for (const r of withSource) crmDashboards.add(r.dashboardId);
+  }
 
   const { results, timedOut } = await mapLimitWithDeadline(groups, CONCURRENCY, deadlineAt, async (g): Promise<PortfolioClient> => {
     const d = g.primary;
@@ -604,7 +628,28 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
       attentionSignals: [],
     };
 
-    if (opts.refresh) await invalidateAccountCache([g.metaAccountId, g.googleCustomerId]);
+    if (opts.refresh) await invalidateAccountCache([g.metaAccountId, g.googleCustomerId, ...g.dashboardIds]);
+
+    // CRM (HubSpot) in parallel with the KPIs — never blocks nor fails the row.
+    const crmDashboardId = g.dashboardIds.find((id) => crmDashboards.has(id)) ?? null;
+    const crmPromise: Promise<PortfolioCrm | undefined> | null = crmDashboardId
+      ? loadDashboardCrm(
+          { id: crmDashboardId, userId: d.userId, metaAccountId: g.metaAccountId, googleCustomerId: g.googleCustomerId, sourceDashboardIds: g.dashboardIds },
+          range.since, range.until,
+        ).then(
+          (view) => (view ? { ...view.summary, error: null } : undefined),
+          (e): PortfolioCrm => ({
+            level: 0, contacts: 0, qualified: 0, won: 0, wonAmount: 0, currency: null,
+            cplQualified: null, realRoas: null, fetchedAt: new Date().toISOString(), partial: true,
+            error: e instanceof Error ? e.message : String(e),
+          }),
+        )
+      : null;
+    const withCrm = async (c: PortfolioClient): Promise<PortfolioClient> => {
+      if (!crmPromise) return c;
+      const crm = await crmPromise;
+      return crm ? { ...c, crm } : c;
+    };
 
     // 1) Meta account insight first: typed errors (rate_limit / auth / permission),
     //    frequency, currency and fetchedAt. The same cache key feeds resolveWidgets.
@@ -620,8 +665,9 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
       } catch (e) {
         base.error = toClientError(e);
         base.errors.push(base.error.message);
-        const att = attentionScore(base);
-        return { ...base, attention: att.score, attentionReasons: att.reasons, attentionSignals: att.signals };
+        const c = await withCrm(base);
+        const att = attentionScore(c);
+        return { ...c, attention: att.score, attentionReasons: att.reasons, attentionSignals: att.signals };
       }
     }
 
@@ -674,8 +720,9 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
       }
     }
 
-    const att = attentionScore(base);
-    return { ...base, attention: att.score, attentionReasons: att.reasons, attentionSignals: att.signals };
+    const c = await withCrm(base);
+    const att = attentionScore(c);
+    return { ...c, attention: att.score, attentionReasons: att.reasons, attentionSignals: att.signals };
   });
 
   const clients: PortfolioClient[] = [];

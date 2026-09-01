@@ -8,9 +8,10 @@ import { Card, Kpi, PageHeader, Pill } from "@/components/ui/surface";
 import { DeltaBadge, PacingBar } from "@/components/portfolio/kpi-delta";
 import { errorKindLabel, fmtMetric, fmtMoney, fmtNumber, fmtRoas } from "@/components/portfolio/format";
 import { Freshness, WithoutDataBanner } from "@/components/portfolio/freshness";
+import { CrmLevelBadge } from "@/components/portfolio/crm-shared";
 import type { PortfolioClient, PortfolioResult } from "@/lib/portfolio";
 
-import { compareClients, DEFAULT_DIR, type SortDir, type SortKey } from "@/components/portfolio/sort";
+import { compareClients, DEFAULT_DIR, type PortfolioRow, type SortDir, type SortKey } from "@/components/portfolio/sort";
 
 export default function PortfolioPage() {
   const params = useSearchParams();
@@ -47,11 +48,12 @@ export default function PortfolioPage() {
 
   useEffect(() => { void load(false); }, [load]);
 
-  const rows = useMemo(() => {
+  const rows = useMemo<PortfolioRow[]>(() => {
     if (!data) return [];
-    const filtered = data.clients.filter((c) => !q || c.name.toLowerCase().includes(q.toLowerCase()));
+    const filtered = (data.clients as PortfolioRow[]).filter((c) => !q || c.name.toLowerCase().includes(q.toLowerCase()));
     return [...filtered].sort((a, b) => compareClients(a, b, sort, dir));
   }, [data, sort, dir, q]);
+  const hasCrm = useMemo(() => !!data && (data.clients as PortfolioRow[]).some((c) => c.crm), [data]);
 
   const fetchedAt = useMemo(
     () => data?.clients.reduce<string | null>((min, c) => (c.fetchedAt && (!min || c.fetchedAt < min) ? c.fetchedAt : min), null) ?? null,
@@ -147,6 +149,7 @@ export default function PortfolioPage() {
                 {th("roas", "ROAS")}
                 {th("cpa", "CPA")}
                 {th("conversions", "Conv.")}
+                {th("crm", "CRM")}
                 <th className="text-left px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Pacing</th>
                 {th("attention", "Attention", "text-left")}
                 <th className="text-left px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Dernier rapport</th>
@@ -197,6 +200,7 @@ export default function PortfolioPage() {
                       </td>
                     </>
                   )}
+                  <td className="px-3 py-2.5"><CrmCell crm={c.crm} /></td>
                   <td className="px-3 py-2.5">{c.pacing ? <PacingBar pacing={c.pacing} compact /> : <span className="text-[11px] text-gray-600" title="Aucun budget mensuel — définissez-le dans la fiche client">—</span>}</td>
                   <td className="px-3 py-2.5">
                     {c.attention > 0 ? (
@@ -226,7 +230,7 @@ export default function PortfolioPage() {
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-10 text-center text-sm text-gray-500">Aucun client. Créez un dashboard client dans <Link href="/d" className="text-violet-400">Dashboards clients</Link>.</td></tr>
+                <tr><td colSpan={10} className="px-4 py-10 text-center text-sm text-gray-500">Aucun client. Créez un dashboard client dans <Link href="/d" className="text-violet-400">Dashboards clients</Link>.</td></tr>
               )}
             </tbody>
           </table>
@@ -235,9 +239,38 @@ export default function PortfolioPage() {
       {data.clients.some((c) => c.estimated) && (
         <p className="text-[11px] text-gray-600">* ROAS estimé via panier moyen (le compte ne remonte pas la valeur des conversions).</p>
       )}
+      {hasCrm && (
+        <p className="text-[11px] text-gray-600">CRM : niveau d&apos;attribution HubSpot (L0 aucune source exploitable, L1 par source d&apos;origine, L2 par campagne UTM) · CPL qualifié = dépense pub ÷ contacts qualifiés · ROAS réel = deals gagnés ÷ dépense pub. Tri sur le CPL qualifié.</p>
+      )}
       {data.clients.some((c) => c.fetchOk && c.roas.unavailable) && (
         <p className="text-[11px] text-gray-600">— ROAS indisponible : le compte ne remonte pas la valeur des conversions et aucun panier moyen n&apos;est configuré (Admin → Comptes).</p>
       )}
+    </div>
+  );
+}
+
+/** CRM column: level badge + qualified CPL + real ROAS, "—" without HubSpot source, error icon on failure. */
+function CrmCell({ crm }: { crm: PortfolioRow["crm"] }) {
+  if (!crm) return <span className="text-[11px] text-gray-600" title="Aucune source HubSpot connectée">—</span>;
+  if (crm.error) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] text-red-400" title={`HubSpot en erreur : ${crm.error}`}>
+        <AlertCircle className="w-3 h-3" /> CRM
+      </span>
+    );
+  }
+  const roasCls = crm.realRoas === null || crm.realRoas <= 0 ? "text-gray-500" : crm.realRoas >= 2 ? "text-emerald-400" : crm.realRoas < 1 ? "text-red-400" : "text-white";
+  return (
+    <div className="min-w-[110px]" title={`${fmtNumber(crm.contacts)} contact${crm.contacts > 1 ? "s" : ""} · ${fmtNumber(crm.qualified)} qualifié${crm.qualified > 1 ? "s" : ""} · ${fmtNumber(crm.won)} gagné${crm.won > 1 ? "s" : ""} (${fmtMoney(crm.wonAmount, crm.currency, { digits: 0 })})${crm.partial ? " · données partielles" : ""}`}>
+      <div className="flex items-center gap-1.5">
+        <CrmLevelBadge level={crm.level} />
+        {crm.partial && <span className="text-[10px] text-amber-400" title="Données HubSpot partielles">partiel</span>}
+      </div>
+      <div className="text-[11px] tabular-nums mt-0.5 flex items-center gap-1.5 flex-wrap">
+        <span className="text-gray-300" title="CPL qualifié">{crm.cplQualified !== null && crm.cplQualified > 0 ? fmtMoney(crm.cplQualified, crm.currency, { digits: 2 }) : "—"}</span>
+        <span className="text-gray-600">·</span>
+        <span className={roasCls} title="ROAS réel (deals gagnés ÷ dépense pub)">{fmtRoas(crm.realRoas)}</span>
+      </div>
     </div>
   );
 }

@@ -33,6 +33,11 @@ import { getAccountProfileSettings } from "@/lib/account-settings";
 import { relayDirectTool } from "@/lib/relay-tool";
 import { computePacing, findBudgetForMetaAccount } from "@/lib/budgets";
 import { prevRange as prevRangeOf } from "@/lib/date-ranges";
+import { getHubspotSource, markSourceSync } from "@/lib/sources";
+import { getCrmSnapshotCached, type CrmSnapshot } from "@/lib/hubspot/client";
+import { isHubspotApiError } from "@/lib/hubspot/http";
+import type { KnownCampaign } from "@/lib/hubspot/types";
+import { buildCrmView, type CrmSpendByCampaign, type CrmSpendByPlatform, type CrmView } from "@/lib/crm-view";
 
 import {
   WIDGET_TYPES,
@@ -265,9 +270,15 @@ export interface CompareRange {
 interface ResolveContext {
   binding: DashboardBinding;
   ownerId: string;
+  /** Dashboard being resolved (cache key + HubSpot source lookup). */
+  dashboardId: string;
+  /** Dashboards whose HubSpot source may serve this resolve (dashboardId first; a client's duplicates after). */
+  sourceDashboardIds: string[];
   since: string;
   until: string;
   token: string;
+  /** Account timezone (Meta profile) — day boundaries of the CRM snapshot. */
+  timezone: string | null;
   /** Configured AOV or null → revenue "unavailable" when Meta tracks no value. */
   aov: number | null;
   /** Account currency (ISO 4217) from the Meta profile, null when unknown. */
@@ -276,6 +287,8 @@ interface ResolveContext {
   conversionEvent: string;
   /** null = comparison disabled */
   compare: CompareRange | null;
+  /** Memoised CRM load — one HubSpot fetch per resolve, shared by both CRM widgets. */
+  crm?: Promise<CrmLoaded>;
 }
 
 /** Shape of a resolved KPI value (also returned by the kpi widget). */
@@ -542,6 +555,15 @@ async function resolveTimeseries(cfg: Record<string, unknown>, ctx: ResolveConte
   return { metric, source, points, estimated, truncated: paged.truncated, fetchedAt, ...(currency ? { currency } : {}), ...(unavailable ? { unavailable: true } : {}) };
 }
 
+/** Campaign-level Meta insights for the period (cached, shared by tables and CRM widgets). */
+function fetchMetaCampaignRows(ctx: ResolveContext, accountId: string) {
+  return cachedWithMeta(
+    `meta:campaigns:${accountId}:${ctx.since}_${ctx.until}`,
+    () => getCampaignInsightsPaged(ctx.token, accountId, { since: ctx.since, until: ctx.until }),
+    { ttlMs: ttlForRange({ since: ctx.since, until: ctx.until }) },
+  );
+}
+
 async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
   const kind = String(cfg.kind);
   const source = String(cfg.source ?? "google");
@@ -549,12 +571,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
 
   if (source === "meta") {
     if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
-    const accountId = ctx.binding.metaAccountId;
-    const { data: paged, fetchedAt } = await cachedWithMeta(
-      `meta:campaigns:${accountId}:${ctx.since}_${ctx.until}`,
-      () => getCampaignInsightsPaged(ctx.token, accountId, { since: ctx.since, until: ctx.until }),
-      { ttlMs: ttlForRange({ since: ctx.since, until: ctx.until }) },
-    );
+    const { data: paged, fetchedAt } = await fetchMetaCampaignRows(ctx, ctx.binding.metaAccountId);
     const currency = paged.data.find((r) => r.currency)?.currency ?? ctx.currency ?? undefined;
     return {
       kind,
@@ -973,6 +990,158 @@ async function resolveAlerts(cfg: Record<string, unknown>, ctx: ResolveContext) 
   };
 }
 
+// ── CRM (HubSpot) ────────────────────────────────────────────────────────────
+
+export interface CrmLoaded {
+  snapshot: CrmSnapshot & { cached: boolean };
+  spend: CrmSpendByPlatform;
+  spendByCampaign: CrmSpendByCampaign[];
+  /** Best-effort ad-side problems (spend / campaigns unavailable) — surfaced as warnings. */
+  warnings: string[];
+  /** Dashboard whose HubSpot source served the snapshot. */
+  sourceDashboardId: string;
+}
+
+const hubspotErrMsg = (e: unknown) => (isHubspotApiError(e) ? e.userMessage() : errMsg(e));
+
+/** First dashboard (in the given order) that has a HubSpot source with a token, or null. */
+export async function findHubspotSourceDashboard(dashboardIds: string[]): Promise<string | null> {
+  const ids = [...new Set(dashboardIds.filter(Boolean))];
+  if (ids.length === 0) return null;
+  const rows = await prisma.dashboardSource.findMany({
+    where: { kind: "hubspot", dashboardId: { in: ids }, secretEnc: { not: null } },
+    select: { dashboardId: true },
+  });
+  const has = new Set(rows.map((r) => r.dashboardId));
+  return ids.find((id) => has.has(id)) ?? null;
+}
+
+/** Ad-side inputs of the CRM view: spend per platform + campaign names/spend (all cached, best effort). */
+async function loadAdSideForCrm(ctx: ResolveContext): Promise<{ spend: CrmSpendByPlatform; known: KnownCampaign[]; spendByCampaign: CrmSpendByCampaign[]; warnings: string[] }> {
+  const warnings: string[] = [];
+  const known: KnownCampaign[] = [];
+  const spendByCampaign: CrmSpendByCampaign[] = [];
+  const spend: CrmSpendByPlatform = { meta: null, google: null, currency: null };
+
+  const [metaAcc, metaCamp, googleCamp] = await Promise.allSettled([
+    ctx.binding.metaAccountId
+      ? getAccountInsightsCachedWithMeta(ctx.token, ctx.binding.metaAccountId, { since: ctx.since, until: ctx.until })
+      : Promise.resolve(null),
+    ctx.binding.metaAccountId ? fetchMetaCampaignRows(ctx, ctx.binding.metaAccountId) : Promise.resolve(null),
+    ctx.binding.googleCustomerId ? fetchGoogleCampaignRows(ctx.binding.googleCustomerId, ctx.since, ctx.until) : Promise.resolve(null),
+  ]);
+
+  if (metaAcc.status === "fulfilled") {
+    if (metaAcc.value) {
+      spend.meta = toNum(metaAcc.value.data.spend);
+      spend.currency = metaAcc.value.data.currency ?? ctx.currency ?? null;
+    }
+  } else {
+    warnings.push(`Dépense Meta indisponible : ${errMsg(metaAcc.reason)}`);
+  }
+  if (metaCamp.status === "fulfilled") {
+    for (const r of metaCamp.value?.data.data ?? []) {
+      if (!r.campaign_name) continue;
+      known.push({ platform: "meta", id: String(r.campaign_id ?? ""), name: r.campaign_name });
+      spendByCampaign.push({ platform: "meta", name: r.campaign_name, spend: toNum(r.spend) });
+    }
+  } else {
+    warnings.push(`Campagnes Meta indisponibles : ${errMsg(metaCamp.reason)}`);
+  }
+  if (googleCamp.status === "fulfilled") {
+    if (googleCamp.value) {
+      const totals = googleTotals(googleCamp.value);
+      spend.google = totals.spend;
+      if (!spend.currency) spend.currency = totals.currency;
+      for (const row of googleCamp.value) {
+        const c = (row.campaign as Record<string, unknown>) ?? row;
+        const m = (row.metrics as Record<string, unknown>) ?? row;
+        const name = c.name ?? c.campaign_name;
+        if (typeof name !== "string" || !name) continue;
+        known.push({ platform: "google", id: String(c.id ?? ""), name });
+        spendByCampaign.push({ platform: "google", name, spend: costFrom(m) });
+      }
+    }
+  } else {
+    warnings.push(`Dépense Google indisponible : ${errMsg(googleCamp.reason)}`);
+  }
+  return { spend, known, spendByCampaign, warnings };
+}
+
+async function loadCrm(ctx: ResolveContext): Promise<CrmLoaded> {
+  // Source: the dashboard itself first, then a duplicate of the same client.
+  let source: Awaited<ReturnType<typeof getHubspotSource>> = null;
+  let sourceDashboardId = ctx.dashboardId;
+  for (const id of [ctx.dashboardId, ...ctx.sourceDashboardIds.filter((x) => x !== ctx.dashboardId)]) {
+    source = await getHubspotSource(id);
+    if (source) { sourceDashboardId = id; break; }
+  }
+  if (!source) throw issue("Aucune source HubSpot connectée");
+  if (source.ref.status === "disabled") throw issue("Source HubSpot désactivée");
+
+  const ad = await loadAdSideForCrm(ctx);
+  let snapshot: CrmSnapshot & { cached: boolean };
+  try {
+    snapshot = await getCrmSnapshotCached({
+      dashboardId: sourceDashboardId,
+      token: source.token,
+      since: ctx.since,
+      until: ctx.until,
+      config: source.config,
+      knownCampaigns: ad.known,
+      tz: ctx.timezone,
+    });
+  } catch (e) {
+    const message = hubspotErrMsg(e);
+    if (source.ref.id) await markSourceSync(source.ref.id, { ok: false, error: message });
+    throw issue(message);
+  }
+  if (!snapshot.cached && source.ref.id) await markSourceSync(source.ref.id, { ok: true });
+  return { snapshot, spend: ad.spend, spendByCampaign: ad.spendByCampaign, warnings: ad.warnings, sourceDashboardId };
+}
+
+/** Memoised per resolve: both CRM widgets (and the report / portfolio) share one load. */
+function crmOf(ctx: ResolveContext): Promise<CrmLoaded> {
+  if (!ctx.crm) ctx.crm = loadCrm(ctx);
+  return ctx.crm;
+}
+
+function crmView(loaded: CrmLoaded, limit?: number): CrmView {
+  const view = buildCrmView(loaded.snapshot, loaded.spend, loaded.spendByCampaign, { limit });
+  if (loaded.warnings.length) {
+    view.funnel.warnings.push(...loaded.warnings);
+    view.attribution.warnings.push(...loaded.warnings);
+  }
+  return view;
+}
+
+async function resolveCrmFunnel(_cfg: Record<string, unknown>, ctx: ResolveContext) {
+  return crmView(await crmOf(ctx)).funnel;
+}
+
+async function resolveCrmAttribution(cfg: Record<string, unknown>, ctx: ResolveContext) {
+  const limit = Math.min(Math.max(Number(cfg.limit ?? 10) || 10, 1), 50);
+  return crmView(await crmOf(ctx), limit).attribution;
+}
+
+/**
+ * CRM snapshot + ad spend for a dashboard, outside the widget grid (portfolio).
+ * Returns null when no dashboard of the list has a HubSpot source; throws a
+ * readable error (HubSpot userMessage / widget issue) otherwise.
+ */
+export async function loadDashboardCrm(
+  dashboard: { id: string; userId: string; metaAccountId: string | null; googleCustomerId: string | null; sourceDashboardIds?: string[] },
+  since: string,
+  until: string,
+  opts: { limit?: number } = {},
+): Promise<CrmView | null> {
+  const ids = [dashboard.id, ...(dashboard.sourceDashboardIds ?? [])];
+  const sourceDashboardId = await findHubspotSourceDashboard(ids);
+  if (!sourceDashboardId) return null;
+  const ctx = await buildResolveContext(dashboard, since, until, null);
+  return crmView(await crmOf(ctx), opts.limit);
+}
+
 async function resolveWidgetData(
   type: string,
   cfg: Record<string, unknown>,
@@ -989,18 +1158,28 @@ async function resolveWidgetData(
     case "demographics": return resolveDemographics(cfg, ctx);
     case "geo_device": return resolveGeoDevice(cfg, ctx);
     case "alerts": return resolveAlerts(cfg, ctx);
+    case "crm_funnel": return resolveCrmFunnel(cfg, ctx);
+    case "crm_attribution": return resolveCrmAttribution(cfg, ctx);
     case "text": return { markdown: String(cfg.markdown ?? "") };
     default: throw issue(`Type inconnu: ${type}`);
   }
 }
 
-export async function resolveWidgets(
-  dashboard: { id: string; userId: string; metaAccountId: string | null; googleCustomerId: string | null },
-  widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string }>,
+export interface ResolvableDashboard {
+  id: string;
+  userId: string;
+  metaAccountId: string | null;
+  googleCustomerId: string | null;
+  /** Other dashboards of the same client whose HubSpot source may serve the CRM widgets. */
+  sourceDashboardIds?: string[];
+}
+
+async function buildResolveContext(
+  dashboard: ResolvableDashboard,
   since: string,
   until: string,
-  compare?: CompareRange | null,
-): Promise<ResolvedWidget[]> {
+  compare: CompareRange | null | undefined,
+): Promise<ResolveContext> {
   if (!DATE_RE.test(since) || !DATE_RE.test(until)) {
     throw new Error("since/until must be YYYY-MM-DD");
   }
@@ -1014,13 +1193,26 @@ export async function resolveWidgets(
   // undefined = default (previous window of equal length); null = disabled
   const effectiveCompare: CompareRange | null =
     compare === undefined ? { ...prevRange(since, until), kind: "prev" } : compare;
-  const ctx: ResolveContext = {
+  return {
     binding, ownerId: dashboard.userId, since, until, token,
+    dashboardId: dashboard.id,
+    sourceDashboardIds: dashboard.sourceDashboardIds ?? [],
+    timezone: profile.timezone ?? null,
     aov: profile.aov,
     currency: profile.currency,
     conversionEvent: profile.conversionEvent,
     compare: effectiveCompare,
   };
+}
+
+export async function resolveWidgets(
+  dashboard: ResolvableDashboard,
+  widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string }>,
+  since: string,
+  until: string,
+  compare?: CompareRange | null,
+): Promise<ResolvedWidget[]> {
+  const ctx = await buildResolveContext(dashboard, since, until, compare);
 
   return Promise.all(
     widgets.map(async (w): Promise<ResolvedWidget> => {
@@ -1052,7 +1244,7 @@ export async function resolveWidgets(
  *  Grid: "third" = 2/6, "half" = 3/6, "full" = 6/6 — the composition below
  *  always fills complete rows (no holes).
  *  `accountName` (optional) personalises the intro text widget. */
-export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName?: string | null): Array<{
+export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName?: string | null, hasHubspot = false): Array<{
   type: WidgetType; title: string; width: string; position: number; config: Record<string, unknown>;
 }> {
   const source = hasMeta && hasGoogle ? "combined" : hasGoogle && !hasMeta ? "google" : "meta";
@@ -1078,10 +1270,21 @@ export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName
     { type: "kpi", title: "CPA", width: "third", config: { metric: "cpa", source } },
     { type: "kpi", title: "CPC", width: "third", config: { metric: "cpc", source } },
     { type: "kpi", title: "Taux de conversion", width: "third", config: { metric: "cr", source } },
-    // ── Entonnoir + alertes : rangée complète (half + half) ───────────────
-    { type: "funnel", title: "Entonnoir de conversion", width: "half", config: { source } },
-    { type: "alerts", title: "Dernières alertes", width: "half", config: { limit: 5 } },
   ];
+
+  if (hasHubspot) {
+    // ── CRM (HubSpot) juste après les KPI : entonnoir CRM à côté de
+    //    l'entonnoir pub (half + half), attribution en pleine largeur, puis
+    //    les alertes passent en full pour garder des rangées complètes.
+    w.push({ type: "crm_funnel", title: "Entonnoir CRM (HubSpot)", width: "half", config: {} });
+    w.push({ type: "funnel", title: "Entonnoir de conversion", width: "half", config: { source } });
+    w.push({ type: "crm_attribution", title: "Attribution HubSpot", width: "full", config: { limit: 10 } });
+    w.push({ type: "alerts", title: "Dernières alertes", width: "full", config: { limit: 5 } });
+  } else {
+    // ── Entonnoir + alertes : rangée complète (half + half) ───────────────
+    w.push({ type: "funnel", title: "Entonnoir de conversion", width: "half", config: { source } });
+    w.push({ type: "alerts", title: "Dernières alertes", width: "half", config: { limit: 5 } });
+  }
 
   // ── Pacing budget (Meta uniquement : le resolver s'appuie sur AccountBudget/meta)
   if (hasMeta) {
@@ -1189,7 +1392,8 @@ export async function createDashboardForUser(input: {
 export async function resetDashboardWidgets(dashboardId: string) {
   const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } });
   if (!dashboard) return null;
-  const widgets = defaultWidgets(!!dashboard.metaAccountId, !!dashboard.googleCustomerId, dashboard.name);
+  const hasHubspot = !!(await findHubspotSourceDashboard([dashboardId]));
+  const widgets = defaultWidgets(!!dashboard.metaAccountId, !!dashboard.googleCustomerId, dashboard.name, hasHubspot);
   await prisma.$transaction([
     prisma.dashboardWidget.deleteMany({ where: { dashboardId } }),
     prisma.dashboardWidget.createMany({

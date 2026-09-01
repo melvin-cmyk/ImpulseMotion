@@ -98,7 +98,7 @@ export function ReportMarkdown({ content, variant = "app" }: { content: string; 
 }
 
 const PRIORITY_LABEL: Record<ReportNextStep["priority"], string> = { high: "Priorité haute", medium: "Priorité moyenne", low: "Priorité basse" };
-const PLATFORM_LABEL: Record<string, string> = { meta: "Meta", google: "Google", global: "Global" };
+const PLATFORM_LABEL: Record<string, string> = { meta: "Meta", google: "Google", global: "Global", crm: "CRM" };
 
 export function NextStepsList({
   steps,

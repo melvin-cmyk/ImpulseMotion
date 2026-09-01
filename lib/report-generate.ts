@@ -133,6 +133,8 @@ export function renderDataForPrompt(d: ReportData): string {
     for (const a of d.alerts) lines.push(`- ${a.triggeredAt.slice(0, 10)} ${a.metric} ${a.value} (seuil ${a.threshold})${a.acknowledged ? " [acquittée]" : ""} — ${a.message}`);
   }
 
+  if (d.crm) lines.push(...renderCrmForPrompt(d.crm));
+
   if (d.previousReport) {
     lines.push(`\nNEXT STEPS DU RAPPORT PRÉCÉDENT (${d.previousReport.periodSince} → ${d.previousReport.periodUntil}) :`);
     for (const s of d.previousReport.nextSteps) lines.push(`- [${s.done ? "fait" : "à faire"}] ${s.title} — ${s.detail}`);
@@ -140,6 +142,43 @@ export function renderDataForPrompt(d: ReportData): string {
 
   if (d.warnings.length) lines.push(`\nDONNÉES INDISPONIBLES : ${d.warnings.join(" ; ")}`);
   return lines.join("\n");
+}
+
+const fmtMoney = (n: number | null, currency: string | null) =>
+  n === null ? "n/a" : `${Math.round(n * 100) / 100} ${currency ?? ""}`.trim();
+const CRM_LEVEL_LABEL: Record<0 | 1 | 2, string> = {
+  0: "L0 — aucune attribution exploitable",
+  1: "L1 — attribution par source d'origine (Paid Social / Paid Search)",
+  2: "L2 — attribution par campagne (UTM rapprochées des campagnes Meta/Google)",
+};
+
+/** CRM / real business block of the prompt (HubSpot). */
+export function renderCrmForPrompt(c: NonNullable<ReportData["crm"]>): string[] {
+  const lines: string[] = [];
+  const cur = c.currency;
+  lines.push(`\nCRM / BUSINESS RÉEL (HUBSPOT) — niveau d'attribution ${CRM_LEVEL_LABEL[c.level]} :`);
+  lines.push(`- Entonnoir : ${c.funnel.map((s) => `${s.label} ${s.unit === "currency" ? fmtMoney(s.value, cur) : s.value.toLocaleString("fr-FR")}`).join(" → ")}`);
+  const r = c.ratios;
+  lines.push(`- Ratios : CPL ${fmtMoney(r.cpl, cur)} · CPL qualifié ${fmtMoney(r.cplQualified, cur)} · coût par deal ${fmtMoney(r.costPerDeal, cur)} · coût par deal gagné ${fmtMoney(r.costPerWon, cur)} · ROAS réel (CA gagné / dépense pub) ${r.realRoas === null ? "n/a" : `${r.realRoas}x`} · taux de gain ${r.winRate === null ? "n/a" : `${r.winRate} %`}`);
+  if (c.bySource.length) {
+    lines.push("- Par source d'origine (contacts, qualifiés, deals gagnés, CA gagné, dépense, CPL, ROAS réel) :");
+    for (const s of c.bySource) {
+      lines.push(`  · ${s.label} : ${s.contacts} contacts, ${s.qualified} qualifiés, ${s.dealsWon} gagnés, CA ${fmtMoney(s.wonAmount, cur)}, dépense ${fmtMoney(s.spend, cur)}, CPL ${fmtMoney(s.cpl, cur)}, ROAS réel ${s.realRoas === null ? "n/a" : `${s.realRoas}x`}`);
+    }
+  }
+  if (c.topCampaigns.length) {
+    lines.push("- Par campagne CRM (top contacts ; « ↔ » = rapprochée d'une campagne Meta/Google) :");
+    for (const k of c.topCampaigns) {
+      const m = k.matched ? ` ↔ ${k.matched.platform === "meta" ? "Meta" : "Google"} « ${k.matched.campaignName} »` : " (non rapprochée)";
+      lines.push(`  · ${k.campaign}${m} : ${k.contacts} contacts, ${k.qualified} qualifiés, ${k.dealsWon} gagnés, CA ${fmtMoney(k.wonAmount, cur)}, dépense ${fmtMoney(k.spend, cur)}, CPL ${fmtMoney(k.cpl, cur)}, ROAS réel ${k.realRoas === null ? "n/a" : `${k.realRoas}x`}`);
+    }
+  }
+  const d = c.diagnostic;
+  const pc = (n: number) => (d.contactsTotal > 0 ? `${Math.round((n / d.contactsTotal) * 100)} %` : "n/a");
+  lines.push(`- Diagnostic attribution : ${d.contactsTotal} contacts créés ; avec source ${pc(d.withSource)} ; source payante ${pc(d.paidSource)} ; avec utm_campaign ${pc(d.withUtmCampaign)} ; rattachés à une campagne connue ${pc(d.matchedToCampaign)} ; propriété UTM ${d.utmProperty ?? "aucune"}`);
+  for (const rec of d.recommendations) lines.push(`  · Recommandation : ${rec}`);
+  if (c.warnings.length) lines.push(`- Avertissements CRM : ${c.warnings.join(" ; ")}`);
+  return lines;
 }
 
 export const REPORT_SYSTEM_PROMPT = `Tu es un consultant média senior chez Impulse Analytics. Tu rédiges le rapport de performance d'un client à partir du snapshot de données fourni dans le message utilisateur. Tu n'appelles aucun outil : toutes les données sont dans le message.
@@ -175,6 +214,22 @@ Termine OBLIGATOIREMENT par un bloc :
 \`\`\`
 4 à 7 actions, ordonnées par priorité, chacune actionnable cette semaine.`;
 
+/** Appended to the system prompt only when the snapshot carries a CRM section. */
+export const REPORT_CRM_PROMPT = `
+SECTION CRM (le snapshot contient un bloc « CRM / BUSINESS RÉEL (HUBSPOT) »)
+Ajoute, entre « Budget & alertes » et « Suivi des actions précédentes », une section :
+## CRM & business réel
+- Lis le business réel (leads, leads qualifiés, deals, deals gagnés, CA gagné) en face de la dépense pub : CPL qualifié, coût par deal gagné, ROAS réel.
+- Compare le ROAS réel (CA gagné HubSpot / dépense) au ROAS plateforme des KPIs : explique les écarts (délai de closing, revenu estimé via AOV, attribution partielle) sans inventer de cause non observable.
+- Par source (Paid Social = Meta, Paid Search = Google) puis par campagne rapprochée : où le CPL qualifié et le ROAS réel divergent de la lecture plateforme ; nomme les campagnes.
+- Si le niveau d'attribution est inférieur à 2, dis clairement ce qui manque (source, utm_campaign, rapprochement) en t'appuyant sur le diagnostic et ses recommandations.
+- Un ratio « n/a » signifie que le dénominateur ou la dépense manque : ne le remplace jamais par 0.
+Dans le bloc nextsteps, lorsque le niveau d'attribution est inférieur à 2, inclus au moins une action d'attribution (platform "crm") reprenant une recommandation du diagnostic (ex. faire poser utm_campaign sur les annonces, créer la propriété HubSpot). La valeur "platform" accepte aussi "crm".`;
+
+export function buildReportSystemPrompt(data: ReportData): string {
+  return data.crm ? REPORT_SYSTEM_PROMPT + "\n" + REPORT_CRM_PROMPT : REPORT_SYSTEM_PROMPT;
+}
+
 export function buildReportUserPrompt(data: ReportData): string {
   return `Rédige le rapport de performance à partir de ce snapshot.\n\n${renderDataForPrompt(data)}`;
 }
@@ -207,7 +262,7 @@ export function parseReportOutput(raw: string): ParsedReport {
           title: String(s.title).trim(),
           detail: typeof s.detail === "string" ? s.detail.trim() : "",
           priority: (["high", "medium", "low"].includes(String(s.priority)) ? String(s.priority) : "medium") as ReportNextStep["priority"],
-          platform: (["meta", "google", "global"].includes(String(s.platform)) ? String(s.platform) : "global") as ReportNextStep["platform"],
+          platform: (["meta", "google", "global", "crm"].includes(String(s.platform)) ? String(s.platform) : "global") as ReportNextStep["platform"],
           done: false,
         }));
       text = candidate.rest;
@@ -250,7 +305,7 @@ export async function generateClientReport(reportId: string): Promise<void> {
     const raw = await relayComplete(
       {
         messages: [{ role: "user", content: buildReportUserPrompt(data) }],
-        systemPrompt: REPORT_SYSTEM_PROMPT,
+        systemPrompt: buildReportSystemPrompt(data),
         allowedServers: [],
         accountScope: {},
       },

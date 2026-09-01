@@ -37,8 +37,13 @@ const emptyForm: WidgetFormState = {
   kind: "campaigns", limit: 10, markdown: "",
 };
 
+const CRM_ATTRIBUTION: WidgetType = "crm_attribution";
+const isCrmType = (t: WidgetType) => t === "crm_funnel" || t === CRM_ATTRIBUTION;
+
 function formToConfig(f: WidgetFormState): Record<string, unknown> {
   switch (f.type) {
+    case "crm_funnel": return {};
+    case "crm_attribution": return { limit: Math.min(Math.max(f.limit || 10, 1), 50) };
     case "kpi": return { metric: f.metric, source: f.source };
     case "timeseries": return { metric: f.metric, source: f.source === "combined" ? "meta" : f.source };
     case "table": return { kind: f.kind, source: f.source === "combined" ? "google" : f.source, limit: f.limit };
@@ -202,14 +207,17 @@ export function WidgetForm({
             {TABLE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
         )}
-        {(form.type === "table" || form.type === "top_creatives" || form.type === "alerts") && (
+        {(form.type === "table" || form.type === "top_creatives" || form.type === "alerts" || form.type === CRM_ATTRIBUTION) && (
           <input
-            type="number" min={1} max={form.type === "table" ? 30 : form.type === "alerts" ? 20 : 10}
+            type="number" min={1} max={form.type === "table" ? 30 : form.type === "alerts" ? 20 : form.type === CRM_ATTRIBUTION ? 50 : 10}
             value={form.limit}
             onChange={(e) => set({ limit: Number(e.target.value) })}
             className={inputCls + " w-20"}
-            title={form.type === "alerts" ? "Nombre d'alertes" : "Nombre de lignes"}
+            title={form.type === "alerts" ? "Nombre d'alertes" : form.type === CRM_ATTRIBUTION ? "Nombre de campagnes affichées" : "Nombre de lignes"}
           />
+        )}
+        {isCrmType(form.type) && (
+          <span className="text-[11px] text-gray-500 self-center">Nécessite une source HubSpot connectée (fiche client → Sources de données).</span>
         )}
       </div>
       {form.type === "text" && (

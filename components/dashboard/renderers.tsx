@@ -12,6 +12,11 @@ import {
 } from "recharts";
 import { Card, Pill } from "@/components/ui/surface";
 import type { ResolvedWidget } from "@/lib/dashboard-types";
+import { fmtMoney, fmtNumber, fmtPct, fmtRoas } from "@/components/portfolio/format";
+import {
+  CrmCampaignTable, CrmDiagnosticBlock, CrmFreshness, CrmLevelBadge, CrmPartialBanner, CrmSkeleton, CrmSourceTable, roasTone,
+} from "@/components/portfolio/crm-shared";
+import type { CrmAttributionData, CrmFunnelData } from "@/components/portfolio/crm-types";
 
 const eur = (v: number) =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
@@ -56,6 +61,8 @@ export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
     case "demographics": return <DemographicsWidget widget={widget} />;
     case "geo_device": return <GeoDeviceWidget widget={widget} />;
     case "alerts": return <AlertsWidget widget={widget} />;
+    case "crm_funnel": return <CrmFunnelWidget widget={widget} />;
+    case "crm_attribution": return <CrmAttributionWidget widget={widget} />;
     default: return <div className="text-sm text-gray-500">Type inconnu : {widget.type}</div>;
   }
 }
@@ -586,6 +593,141 @@ function AlertsWidget({ widget }: { widget: ResolvedWidget }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+// ── CRM (HubSpot) ────────────────────────────────────────────────────────────
+
+const CRM_STEP_BAR = ["bg-violet-500/80", "bg-violet-500/60", "bg-violet-400/45", "bg-emerald-500/60"];
+
+/** Shared header line: level badge · freshness, then the partial/warnings banner. */
+function CrmWidgetHeader({ level, fetchedAt, partial, warnings }: Pick<CrmFunnelData, "level" | "fetchedAt" | "partial" | "warnings">) {
+  return (
+    <div className="space-y-2 mb-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <CrmLevelBadge level={level} withTitle />
+        <CrmFreshness fetchedAt={fetchedAt} />
+      </div>
+      <CrmPartialBanner partial={partial} warnings={warnings} />
+    </div>
+  );
+}
+
+/**
+ * Funnel « dépense → leads → qualifiés → deals → gagnés » with the real-business
+ * ratios (CPL, CPL qualifié, coût / deal, coût / deal gagné, ROAS réel, taux de gain).
+ * Spend is money, the other steps are counts: bars are scaled on counts only.
+ */
+function CrmFunnelWidget({ widget }: { widget: ResolvedWidget }) {
+  const d = widget.data as CrmFunnelData | undefined;
+  if (!d) return <CrmSkeleton rows={5} />;
+  const spend = d.steps.find((s) => s.key === "spend") ?? null;
+  const counts = d.steps.filter((s) => s.unit === "count");
+  const leads = counts.find((s) => s.key === "leads")?.value ?? 0;
+  const noContacts = leads === 0 && counts.every((s) => !s.value);
+  const max = Math.max(...counts.map((s) => s.value), 1);
+  const widthPct = (v: number) => (v > 0 ? Math.max((v / max) * 100, 2.5) : 0);
+  const stepRate = (i: number): number | null => {
+    if (i === 0) return null;
+    const prev = counts[i - 1]?.value ?? 0;
+    return prev > 0 ? (counts[i].value / prev) * 100 : null;
+  };
+  const ratios: Array<{ label: string; value: string; tone?: string; title: string }> = [
+    { label: "CPL", value: fmtMoney(d.ratios.cpl, d.currency, { digits: 2 }), title: "Dépense pub ÷ contacts créés" },
+    { label: "CPL qualifié", value: fmtMoney(d.ratios.cplQualified, d.currency, { digits: 2 }), title: "Dépense pub ÷ contacts qualifiés (étapes qualifiées du pipeline)" },
+    { label: "Coût / deal", value: fmtMoney(d.ratios.costPerDeal, d.currency, { digits: 2 }), title: "Dépense pub ÷ deals créés" },
+    { label: "Coût / deal gagné", value: fmtMoney(d.ratios.costPerWon, d.currency, { digits: 2 }), title: "Dépense pub ÷ deals gagnés" },
+    { label: "ROAS réel", value: d.ratios.realRoas === null ? "—" : fmtRoas(d.ratios.realRoas), tone: roasTone(d.ratios.realRoas), title: "Montant des deals gagnés ÷ dépense pub (vs ROAS plateforme)" },
+    { label: "Taux de gain", value: fmtPct(d.ratios.winRate, 1), title: "Deals gagnés ÷ deals créés" },
+  ];
+  return (
+    <div className="py-1">
+      <CrmWidgetHeader level={d.level} fetchedAt={d.fetchedAt} partial={d.partial} warnings={d.warnings} />
+      {d.level === 0 && noContacts ? (
+        <div className="text-sm text-gray-500 py-4">Aucun contact sur la période</div>
+      ) : (
+        <>
+          {spend && (
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-24 shrink-0 text-xs text-gray-400">{spend.label}</div>
+              <div className="flex-1 text-[11px] text-gray-500">Meta + Google</div>
+              <div className="shrink-0 text-right text-sm font-semibold text-white tabular-nums">{fmtMoney(spend.value, d.currency, { digits: 0 })}</div>
+            </div>
+          )}
+          <div className="space-y-1">
+            {counts.map((s, i) => {
+              const rate = stepRate(i);
+              return (
+                <div key={s.key}>
+                  {rate !== null && (
+                    <div className="text-[11px] text-violet-300/90 tabular-nums pl-28 py-0.5">↓ {fmtPct(rate, 1)}</div>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <div className="w-24 shrink-0 text-xs text-gray-400">{s.label}</div>
+                    <div className="flex-1 h-6 rounded-md bg-gray-800/50 overflow-hidden">
+                      <div className={`h-full rounded-md ${CRM_STEP_BAR[i] ?? "bg-violet-400/40"}`} style={{ width: `${widthPct(s.value)}%` }} />
+                    </div>
+                    <div className="w-20 shrink-0 text-right text-sm font-semibold text-gray-200 tabular-nums">{fmtNumber(s.value)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {!spend && (
+            <div className="text-[11px] text-gray-500 mt-2">Dépense publicitaire indisponible sur la période : les ratios coût / contact ne peuvent pas être calculés.</div>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
+            {ratios.map((r) => (
+              <div key={r.label} className="bg-gray-950/50 border border-gray-800 rounded-xl px-3 py-2 min-w-0" title={r.title}>
+                <div className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold truncate">{r.label}</div>
+                <div className={`text-base font-bold tabular-nums mt-0.5 ${r.value === "—" ? "text-gray-600" : r.tone ?? "text-white"}`}>{r.value}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Per-source table, then top campaigns (utm) with their Meta / Google match; diagnostic when level < 2. */
+function CrmAttributionWidget({ widget }: { widget: ResolvedWidget }) {
+  const d = widget.data as CrmAttributionData | undefined;
+  if (!d) return <CrmSkeleton rows={6} />;
+  const limit = Math.max(1, Number(widget.config.limit ?? 10) || 10);
+  const empty = d.diagnostic.contactsTotal === 0 && d.bySource.length === 0;
+  return (
+    <div className="py-1 space-y-4">
+      <CrmWidgetHeader level={d.level} fetchedAt={d.fetchedAt} partial={d.partial} warnings={d.warnings} />
+      {empty ? (
+        <div className="text-sm text-gray-500 py-2">Aucun contact sur la période</div>
+      ) : (
+        <>
+          {d.bySource.length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Par source d&apos;origine</div>
+              <div className="-mx-1 rounded-lg border border-gray-800/60 overflow-hidden">
+                <CrmSourceTable rows={d.bySource} currency={d.currency} dense />
+              </div>
+            </div>
+          )}
+          {d.byCampaign.length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Top campagnes (utm_campaign)</div>
+              <div className="-mx-1 rounded-lg border border-gray-800/60 overflow-hidden">
+                <CrmCampaignTable rows={d.byCampaign} currency={d.currency} limit={limit} dense />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+      {(d.level < 2 || d.diagnostic.recommendations.length > 0) && (
+        <div className="rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-3">
+          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Diagnostic d&apos;attribution</div>
+          <CrmDiagnosticBlock diagnostic={d.diagnostic} compact />
+        </div>
+      )}
+    </div>
   );
 }
 

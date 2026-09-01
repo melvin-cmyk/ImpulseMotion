@@ -9,6 +9,9 @@ import { Card, Pill, Section } from "@/components/ui/surface";
 import { DeltaBadge, PacingBar } from "@/components/portfolio/kpi-delta";
 import { errorKindLabel, fmtMetric, fmtMoney, fmtNumber, fmtRoas } from "@/components/portfolio/format";
 import { Freshness, KpiUnavailable } from "@/components/portfolio/freshness";
+import { SourcesPanel } from "@/components/portfolio/sources-panel";
+import { CrmAttributionCard } from "@/components/portfolio/crm-attribution-card";
+import type { CrmAttributionData } from "@/components/portfolio/crm-types";
 import { validateRange } from "@/lib/date-ranges";
 import type { PacingResult } from "@/lib/budgets";
 
@@ -30,6 +33,8 @@ interface ClientSheet {
   error: { kind: string; message: string } | null;
   fetchedAt: string | null;
   generatedAt: string;
+  /** Full HubSpot attribution payload — absent when the client has no HubSpot source. */
+  crm?: CrmAttributionData;
   reports: Array<{ id: string; title: string; status: string; periodSince: string; periodUntil: string; createdAt: string; trigger: string; nextStepsCount: number; nextStepsDone: number }>;
 }
 
@@ -427,6 +432,10 @@ export default function ClientSheetPage() {
           </div>
         </Section>
       )}
+
+      <SourcesPanel dashboardId={c.id} onToast={setToast} />
+
+      <CrmAttributionCard crm={sheet.crm} error={sheet.errors.crm} currency={cur} refreshing={refreshing} onRefresh={() => load(true)} />
 
       <div className="grid lg:grid-cols-2 gap-4">
         <Section title="Rapports IA" action={<Link href={`/reports?dashboardId=${c.id}`} className="text-xs text-violet-400 hover:text-white">Tous →</Link>}>

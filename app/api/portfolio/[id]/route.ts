@@ -9,7 +9,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { resolveWidgets } from "@/lib/dashboard-widgets";
+import { resolveWidgets, findHubspotSourceDashboard } from "@/lib/dashboard-widgets";
+import type { CrmAttributionData } from "@/lib/crm-view";
 import { groupDashboardsByAccount, invalidateAccountCache, toClientError } from "@/lib/portfolio";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { findBudgetForMetaAccount } from "@/lib/budgets";
@@ -64,8 +65,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     range = lastFullDays(30, { tz: timezone });
   }
   const cmp = { ...prevRange(range), kind: "prev" };
+  const dashboardIds = group?.dashboardIds ?? [id];
   const refresh = sp.get("refresh") === "1";
-  if (refresh) await invalidateAccountCache([metaAccountId, googleCustomerId]);
+  if (refresh) await invalidateAccountCache([metaAccountId, googleCustomerId, ...dashboardIds]);
 
   if (!hasMeta && !hasGoogle) {
     return NextResponse.json({
@@ -92,13 +94,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     widgets.push({ id: "daily:google", type: "timeseries", config: { metric: "spend", source: "google" } });
     widgets.push({ id: "campaigns:google", type: "table", config: { kind: "campaigns", source: "google", limit: 10 } });
   }
-
-  const dashboardIds = group?.dashboardIds ?? [id];
+  // CRM (HubSpot): any dashboard of the client may carry the source.
+  const crmDashboardId = await findHubspotSourceDashboard([id, ...dashboardIds]).catch(() => null);
+  if (crmDashboardId) {
+    widgets.push({ id: "crm:funnel", type: "crm_funnel", config: {} });
+    widgets.push({ id: "crm:attribution", type: "crm_attribution", config: { limit: 10 } });
+  }
   let resolved: Awaited<ReturnType<typeof resolveWidgets>> = [];
   let fatal: { kind: string; message: string } | null = null;
   const [resolvedRes, reports, budget] = await Promise.all([
     resolveWidgets(
-      { id: dashboard.id, userId: dashboard.userId, metaAccountId, googleCustomerId },
+      { id: dashboard.id, userId: dashboard.userId, metaAccountId, googleCustomerId, sourceDashboardIds: dashboardIds },
       widgets.map((w, i) => ({ id: w.id, type: w.type, title: null, width: "half", position: i, config: JSON.stringify(w.config) })),
       range.since, range.until, cmp,
     ).catch((e) => { fatal = toClientError(e); return []; }),
@@ -123,6 +129,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const budgetDash = group?.members.find((m) => typeof m.monthlyBudget === "number" && m.monthlyBudget > 0) ?? null;
   const described = describeRange(range, { tz: timezone });
+  const crm = (out["crm:attribution"] as CrmAttributionData | undefined) ?? undefined;
 
   return NextResponse.json({
     client: {
@@ -148,6 +155,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     partialDay: described.partialDay,
     compare: cmp,
     data: out,
+    ...(crm ? { crm } : {}),
     errors,
     error: fatal,
     fetchedAt,

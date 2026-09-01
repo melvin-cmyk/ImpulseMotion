@@ -14,8 +14,11 @@ import {
   resolveBinding,
   resolveWidgets,
   prevRange,
+  findHubspotSourceDashboard,
   type CompareRange,
 } from "@/lib/dashboard-widgets";
+import type { CrmAttributionData, CrmFunnelData } from "@/lib/crm-view";
+import type { CrmAttributionDiagnostic } from "@/lib/hubspot/types";
 import { getAccountAov } from "@/lib/account-settings";
 import {
   getAds,
@@ -67,8 +70,22 @@ export interface ReportNextStep {
   title: string;
   detail: string;
   priority: "high" | "medium" | "low";
-  platform?: "meta" | "google" | "global";
+  /** crm = attribution / CRM setup action (HubSpot, UTM…) */
+  platform?: "meta" | "google" | "global" | "crm";
   done: boolean;
+}
+
+/** CRM / real business section (HubSpot) — present only when the client has a HubSpot source that resolved. */
+export interface ReportCrm {
+  level: 0 | 1 | 2;
+  currency: string | null;
+  funnel: CrmFunnelData["steps"];
+  ratios: CrmFunnelData["ratios"];
+  bySource: CrmAttributionData["bySource"];
+  /** Max 10 rows. */
+  topCampaigns: CrmAttributionData["byCampaign"];
+  diagnostic: CrmAttributionDiagnostic;
+  warnings: string[];
 }
 
 export interface ReportData {
@@ -103,6 +120,7 @@ export interface ReportData {
   pacing: PacingResult | null;
   alerts: Array<{ metric: string; value: number; threshold: number; message: string; triggeredAt: string; acknowledged: boolean }>;
   previousReport: { id: string; periodSince: string; periodUntil: string; nextSteps: ReportNextStep[] } | null;
+  crm?: ReportCrm;
   warnings: string[];
   generatedAt: string;
 }
@@ -222,6 +240,12 @@ export async function collectReportData(
     if (!hasMeta) widgets.push(w("devices", "geo_device", { source: "google", dimension: "device" }));
   }
   widgets.push(w("alerts", "alerts", { limit: 10 }));
+  // CRM (HubSpot) only when a source is connected — same loader as the widgets.
+  const hasHubspot = !!(await findHubspotSourceDashboard([dashboard.id]).catch(() => null));
+  if (hasHubspot) {
+    widgets.push(w("crm:funnel", "crm_funnel", {}));
+    widgets.push(w("crm:attribution", "crm_attribution", { limit: 10 }));
+  }
 
   const [resolved, aov] = await Promise.all([
     resolveWidgets(dashboard, widgets, since, until, effectiveCompare),
@@ -293,6 +317,13 @@ export async function collectReportData(
   if (hasMeta) platforms.push("meta");
   if (hasGoogle) platforms.push("google");
 
+  let crm: ReportCrm | undefined;
+  if (hasHubspot) {
+    const funnel = dataOf<CrmFunnelData>("crm:funnel");
+    const attribution = dataOf<CrmAttributionData>("crm:attribution");
+    if (funnel && attribution) crm = buildReportCrm(funnel, attribution);
+  }
+
   return {
     client: {
       dashboardId: dashboard.id,
@@ -328,8 +359,23 @@ export async function collectReportData(
       triggeredAt: e.triggeredAt, acknowledged: e.acknowledged,
     })),
     previousReport,
+    ...(crm ? { crm } : {}),
     warnings,
     generatedAt: new Date().toISOString(),
+  };
+}
+
+/** Pure: widget payloads → report CRM section (top 10 campaigns, deduplicated warnings). */
+export function buildReportCrm(funnel: CrmFunnelData, attribution: CrmAttributionData): ReportCrm {
+  return {
+    level: funnel.level,
+    currency: funnel.currency,
+    funnel: funnel.steps,
+    ratios: funnel.ratios,
+    bySource: attribution.bySource,
+    topCampaigns: attribution.byCampaign.slice(0, 10),
+    diagnostic: attribution.diagnostic,
+    warnings: [...new Set([...funnel.warnings, ...attribution.warnings])],
   };
 }
 

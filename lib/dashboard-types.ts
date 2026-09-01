@@ -4,7 +4,7 @@
  * Server-side resolution lives in lib/dashboard-widgets.ts.
  */
 
-export const WIDGET_TYPES = ["kpi", "platform_table", "timeseries", "table", "top_creatives", "pacing", "text", "funnel", "demographics", "geo_device", "alerts"] as const;
+export const WIDGET_TYPES = ["kpi", "platform_table", "timeseries", "table", "top_creatives", "pacing", "text", "funnel", "demographics", "geo_device", "alerts", "crm_funnel", "crm_attribution"] as const;
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 
 export const KPI_METRICS = ["spend", "revenue", "roas", "ctr", "cpa", "cpc", "cr", "purchases", "clicks", "impressions"] as const;
@@ -59,6 +59,14 @@ export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: st
   alerts: {
     label: "Dernières alertes",
     configDoc: `{ limit?: 1-20 (défaut 5) } — dernières alertes déclenchées sur les comptes liés au dashboard, de la plus récente à la plus ancienne ; pas de comparaison de période`,
+  },
+  crm_funnel: {
+    label: "Entonnoir CRM (HubSpot)",
+    configDoc: `{} — dépense pub → leads → leads qualifiés → deals → deals gagnés sur la période, avec CPL, CPL qualifié, coût par deal, ROAS réel et taux de gain ; nécessite une source HubSpot connectée au dashboard ; largeur conseillée half ; pas de comparaison de période`,
+  },
+  crm_attribution: {
+    label: "Attribution CRM (HubSpot)",
+    configDoc: `{ limit?: 1-50 (défaut 10) } — contacts / qualifiés / deals gagnés par source d'origine HubSpot (avec dépense et ROAS réel pour Paid Social = Meta et Paid Search = Google) et par campagne UTM rapprochée des campagnes Meta/Google, plus le diagnostic d'attribution (niveau 0/1/2, recommandations) ; nécessite une source HubSpot ; largeur conseillée full`,
   },
 };
 
@@ -171,6 +179,12 @@ export function validateWidgetConfig(type: string, raw: unknown): Record<string,
     }
     case "alerts": {
       const limit = Math.min(Math.max(Number(cfg.limit ?? 5) || 5, 1), 20);
+      return { limit };
+    }
+    case "crm_funnel":
+      return {};
+    case "crm_attribution": {
+      const limit = Math.min(Math.max(Number(cfg.limit ?? 10) || 10, 1), 50);
       return { limit };
     }
   }
