@@ -24,6 +24,8 @@ model User {
   dashboards           Dashboard[]
   dashboardMemberships DashboardMember[]
   clientReports        ClientReport[]
+  botAccesses          ClientBotAccess[]
+  botConversations     BotConversation[]
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 }
@@ -190,6 +192,7 @@ model Dashboard {
   members          DashboardMember[]
   reports          ClientReport[]
   sources          DashboardSource[]
+  bot              ClientBot?
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -289,4 +292,57 @@ model ClientReport {
 
   @@index([dashboardId, createdAt])
   @@index([status, createdAt])
+}
+
+/// Private AI assistant offered to a client (one per Dashboard = one per client brand).
+/// Replicable: enable it, write the business context, pick the sources, grant emails.
+model ClientBot {
+  id              String            @id @default(cuid())
+  dashboardId     String            @unique
+  enabled         Boolean           @default(false)
+  name            String            @default("Assistant")
+  /// slug used as `client_key` in the client-data warehouse (e.g. "lpev")
+  clientKey       String            @unique
+  /// Admin-written business context injected into the system prompt
+  businessContext String            @default("") @db.Text
+  /// JSON { meta: boolean, google: boolean, ga4PropertyId?: string, data: boolean }
+  sourcesJson     String            @default("{}") @db.Text
+  /// sha256 of the bearer token n8n uses on POST /api/ingest/* — never stored in clear
+  ingestTokenHash String?
+  lastIngestAt    DateTime?
+  lastIngestRows  Int?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  dashboard       Dashboard         @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  accesses        ClientBotAccess[]
+  conversations   BotConversation[]
+}
+
+/// Who may talk to a bot. Granted by an admin, by email (user auto-created as "client" if unknown).
+model ClientBotAccess {
+  id          String    @id @default(cuid())
+  botId       String
+  userId      String
+  grantedById String?
+  createdAt   DateTime  @default(now())
+  bot         ClientBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([botId, userId])
+  @@index([userId])
+}
+
+model BotConversation {
+  id           String    @id @default(cuid())
+  botId        String
+  userId       String
+  title        String?
+  /// JSON [{ role: "user"|"assistant", content: string, at: ISO }]
+  messagesJson String    @default("[]") @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  bot          ClientBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([botId, userId, updatedAt])
 }

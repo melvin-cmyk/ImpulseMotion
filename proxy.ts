@@ -12,10 +12,12 @@ const CLIENT_ALLOWED_PREFIXES = [
   "/api/meta/accounts",
   "/api/media/proxy-image",
   "/api/auth",
+  "/bot",
+  "/api/bot",
 ];
 
 // Admin-only surface (user & ACL management). Consultants get the rest of /admin.
-const ADMIN_ONLY_PREFIXES = ["/admin/users", "/api/admin/users"];
+const ADMIN_ONLY_PREFIXES = ["/admin/users", "/api/admin/users", "/admin/bots", "/api/admin/bots"];
 
 function isAdminOnly(pathname: string): boolean {
   // /admin index page is the user-management screen
@@ -27,7 +29,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
-  const publicPaths = ["/login", "/api/auth", "/api/cron", "/_next", "/favicon"];
+  const publicPaths = ["/login", "/api/auth", "/api/cron", "/api/ingest", "/_next", "/favicon"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   const isAdminPath = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");

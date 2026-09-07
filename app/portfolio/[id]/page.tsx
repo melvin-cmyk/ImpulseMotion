@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { ArrowLeft, ExternalLink, FileText, Loader2, Sparkles, Bot, Target } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, Pill, Section } from "@/components/ui/surface";
@@ -56,6 +57,8 @@ export default function ClientSheetPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const params = useSearchParams();
+  const { data: session } = useSession();
+  const isAdmin = session?.role === "admin";
   const since = params.get("since") ?? "";
   const until = params.get("until") ?? "";
   const [sheet, setSheet] = useState<ClientSheet | null>(null);
@@ -206,6 +209,7 @@ export default function ClientSheetPage() {
           </div>
           <Link href={`/d/${c.id}${rangeQs}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Dashboard client</Link>
           {c.metaAccountId && <Link href={`/creatives?accountId=act_${c.metaAccountId}`} className={btn}><Sparkles className="w-3.5 h-3.5" /> Analyse créas</Link>}
+          {isAdmin && <Link href={`/admin/bots/${c.id}`} className={btn}><Bot className="w-3.5 h-3.5" /> Bot privé</Link>}
           <Link href={`/reports?new=1&dashboardId=${c.id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white"><FileText className="w-3.5 h-3.5" /> Rapport IA</Link>
         </div>
       </div>

@@ -21,6 +21,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </Link>
           <div className="flex items-center gap-1 text-sm">
             {isAdmin && <AdminNavLink href="/admin">Utilisateurs</AdminNavLink>}
+            {isAdmin && <AdminNavLink href="/admin/bots">Bots clients</AdminNavLink>}
             <AdminNavLink href="/reports">Rapports IA</AdminNavLink>
             <AdminNavLink href="/admin/alerts">Alertes</AdminNavLink>
             <AdminNavLink href="/portfolio">Portfolio</AdminNavLink>

@@ -14,6 +14,7 @@ import {
   Briefcase,
   ShieldCheck,
   BellRing,
+  MessageSquare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -79,6 +80,12 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Dashboards clients",
         match: (p) => p === "/d" || p.startsWith("/d/") || p === "/client" || p.startsWith("/client/"),
       },
+      {
+        href: "/bot",
+        icon: MessageSquare,
+        label: "Assistant IA",
+        match: (p) => p === "/bot" || p.startsWith("/bot/"),
+      },
     ],
   },
   {
@@ -89,6 +96,13 @@ const NAV_SECTIONS: NavSection[] = [
         icon: ShieldCheck,
         label: "Utilisateurs & accès",
         match: (p) => p === "/admin" || p.startsWith("/admin/users"),
+        adminOnly: true,
+      },
+      {
+        href: "/admin/bots",
+        icon: Bot,
+        label: "Bots clients",
+        match: (p) => p.startsWith("/admin/bots"),
         adminOnly: true,
       },
       {

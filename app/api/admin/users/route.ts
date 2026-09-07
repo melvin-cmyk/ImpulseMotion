@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
+import { generateTempPassword } from "@/lib/temp-password";
 
 export async function GET() {
   const guard = await requireAdmin();
@@ -47,13 +48,4 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({ user, tempPassword });
-}
-
-function generateTempPassword() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-  let out = "";
-  const buf = new Uint8Array(16);
-  crypto.getRandomValues(buf);
-  for (const b of buf) out += chars[b % chars.length];
-  return out;
 }
