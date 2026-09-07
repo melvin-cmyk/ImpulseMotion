@@ -7,6 +7,8 @@ import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
 import { AccountPicker } from "@/components/account-picker";
 import { CreativesProvider } from "@/lib/creatives-context";
+import { ClientNavLink } from "@/components/bot/client-nav-link";
+import { countEnabledBotAccess } from "@/lib/bot-access";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -33,6 +35,17 @@ export default async function RootLayout({
   const showApp = !!(session || hasSharedToken);
   const isClient = session?.role === "client";
 
+  // Client chrome: "Assistant IA" only shows when the user was granted at
+  // least one enabled private bot (see lib/bot-access.ts).
+  let hasBot = false;
+  if (isClient && session?.userId) {
+    try {
+      hasBot = (await countEnabledBotAccess(session.userId)) > 0;
+    } catch {
+      // DB hiccup: hide the link rather than break the layout
+    }
+  }
+
   return (
     <html lang="en">
       <body className={`${geist.variable} antialiased`}>
@@ -42,7 +55,13 @@ export default async function RootLayout({
               // Client chrome: just their dashboard — no internal nav.
               <div className="flex flex-col h-screen bg-gray-950 text-gray-100">
                 <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
-                  <span className="font-bold text-sm tracking-tight text-white">ImpulseMotion</span>
+                  <div className="flex items-center gap-5">
+                    <span className="font-bold text-sm tracking-tight text-white">ImpulseMotion</span>
+                    <nav className="flex items-center gap-1 text-sm">
+                      <ClientNavLink href="/d" label="Dashboards" />
+                      {hasBot && <ClientNavLink href="/bot" label="Assistant IA" />}
+                    </nav>
+                  </div>
                   {/* No account picker for clients: the dashboard defines the
                       account; switching brands happens on /d. */}
                   {session ? <UserNav session={session} /> : null}
