@@ -26,6 +26,11 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .map((o) => o.trim())
   .filter(Boolean);
 const MCP_CONFIG = "/root/ImpulseMotion/config/mcp-claude.json";
+// MCP stdio "client-data" (entrepôt e-commerce des bots clients). Démarré à la
+// demande, scoped par CLIENT_KEY côté serveur — voir buildScopedMcpConfig().
+const CLIENT_DATA_SERVER = "client-data";
+const CLIENT_DATA_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-client-data.mjs";
+const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 
 // Global whitelist — only servers declared here can ever be routed to the AI.
 // The per-request `allowedServers` list is intersected with this set, so even
@@ -34,7 +39,20 @@ const ALLOWED_MCP_SERVERS = new Set([
   "meta-ads-impulse",
   "mcp-google-ads",
   "mcp-google-analytics",
+  CLIENT_DATA_SERVER,
 ]);
+
+// Per-server explicit tool allowlist (read-only). Servers absent from this map
+// expose read-only tools only and are allowed wholesale (mcp__<server>__*).
+const SERVER_TOOL_ALLOWLIST = {
+  "mcp-google-analytics": [
+    "get_data_retention_settings", "get_data_stream", "get_enhanced_measurement_settings",
+    "get_metadata", "get_property", "list_accounts", "list_audiences",
+    "list_custom_dimensions", "list_custom_metrics", "list_data_streams",
+    "list_firebase_links", "list_google_ads_links", "list_key_events", "list_properties",
+    "run_pivot_report", "run_realtime_report", "run_report",
+  ],
+};
 
 // Shared-secret guard for requests from the Next.js backend — mandatory.
 // Every endpoint (except /health) refuses requests that don't present the
@@ -92,8 +110,44 @@ async function getToolsList() {
   }
 }
 
+// ── Client-data scoping ─────────────────────────────────────────────────────
+/**
+ * When a request carries dataScope.clientKey and asks for "client-data", the
+ * base mcp-config is merged with a stdio server entry whose env pins
+ * CLIENT_KEY (the LLM never picks the client) and the READ-ONLY warehouse URL.
+ * Written to a 0600 temp file, removed once the CLI exits.
+ * Returns { path, cleanup } or null (caller then drops "client-data").
+ */
+function buildScopedMcpConfig(clientKey) {
+  const dataUrl = process.env.DATA_DATABASE_URL || "";
+  if (!dataUrl) { console.error("[chat] DATA_DATABASE_URL absent — client-data désactivé"); return null; }
+  let base;
+  try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
+  catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
+  const merged = {
+    ...base,
+    mcpServers: {
+      ...(base.mcpServers || {}),
+      [CLIENT_DATA_SERVER]: {
+        command: "node",
+        args: [CLIENT_DATA_MCP_SCRIPT],
+        env: { CLIENT_KEY: clientKey, DATA_DATABASE_URL: dataUrl },
+      },
+    },
+  };
+  const file = path.join(os.tmpdir(), `im-mcp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  fs.writeFileSync(file, JSON.stringify(merged), { mode: 0o600 });
+  let done = false;
+  const cleanup = () => {
+    if (done) return;
+    done = true;
+    try { fs.unlinkSync(file); } catch { /* already gone */ }
+  };
+  return { path: file, cleanup };
+}
+
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
-function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs) {
+function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -122,10 +176,32 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   }
 
   // Intersect incoming allowedServers with the global whitelist.
-  const servers = (Array.isArray(allowedServers) ? allowedServers : [])
+  let servers = (Array.isArray(allowedServers) ? allowedServers : [])
     .filter((s) => typeof s === "string" && ALLOWED_MCP_SERVERS.has(s));
 
-  const toolPatterns = servers.map((s) => `mcp__${s}__*`);
+  // "client-data" only ever runs pinned to a server-side clientKey.
+  const clientKey =
+    dataScope && typeof dataScope === "object" && typeof dataScope.clientKey === "string" && CLIENT_KEY_RE.test(dataScope.clientKey)
+      ? dataScope.clientKey
+      : null;
+  const ga4PropertyId =
+    dataScope && typeof dataScope === "object" && typeof dataScope.ga4PropertyId === "string" && dataScope.ga4PropertyId.trim()
+      ? dataScope.ga4PropertyId.trim().slice(0, 64)
+      : null;
+  let scopedMcp = null;
+  if (servers.includes(CLIENT_DATA_SERVER)) {
+    if (clientKey) scopedMcp = buildScopedMcpConfig(clientKey);
+    if (!scopedMcp) servers = servers.filter((s) => s !== CLIENT_DATA_SERVER);
+  }
+  const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
+  const cleanupScopedMcp = () => scopedMcp?.cleanup();
+
+  // Read-only tool allowlists: the GA4 MCP also exposes mutations
+  // (create/update/archive custom dimensions, key events, retention…). No chat
+  // caller — client bot or staff — may ever mutate a client property.
+  const toolPatterns = servers.flatMap((s) =>
+    SERVER_TOOL_ALLOWLIST[s] ? SERVER_TOOL_ALLOWLIST[s].map((t) => `mcp__${s}__${t}`) : [`mcp__${s}__*`],
+  );
 
   // Scope the AI to only the accountIds the caller is allowed to query.
   // Callers may override the base prompt for one-shot tasks (recommendations,
@@ -134,8 +210,8 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     typeof systemPromptOverride === "string" && systemPromptOverride.trim()
       ? systemPromptOverride
       : SYSTEM_PROMPT;
+  const lines = [];
   if (accountScope && typeof accountScope === "object") {
-    const lines = [];
     if (Array.isArray(accountScope.meta) && accountScope.meta.length) {
       lines.push(`Comptes Meta Ads autorisés: ${accountScope.meta.join(", ")}`);
     }
@@ -145,12 +221,15 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     if (Array.isArray(accountScope.tiktok) && accountScope.tiktok.length) {
       lines.push(`Comptes TikTok autorisés: ${accountScope.tiktok.join(", ")}`);
     }
-    if (lines.length) {
-      scopedSystemPrompt +=
-        "\n\nRESTRICTIONS DE PÉRIMÈTRE (ne JAMAIS ignorer) :\n" +
-        lines.join("\n") +
-        "\nTu ne dois interroger AUCUN autre compte. Si l'utilisateur demande des données pour un autre compte, refuse et explique que tu n'y as pas accès.";
-    }
+  }
+  if (ga4PropertyId) {
+    lines.push(`Propriété GA4 autorisée : ${ga4PropertyId}`);
+  }
+  if (lines.length) {
+    scopedSystemPrompt +=
+      "\n\nRESTRICTIONS DE PÉRIMÈTRE (ne JAMAIS ignorer) :\n" +
+      lines.join("\n") +
+      "\nTu ne dois interroger AUCUN autre compte. Si l'utilisateur demande des données pour un autre compte, refuse et explique que tu n'y as pas accès.";
   }
 
   const args = [
@@ -159,7 +238,9 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     "--verbose",
     "--include-partial-messages",
     "--model", CLAUDE_MODEL,
-    "--mcp-config", MCP_CONFIG,
+    "--mcp-config", mcpConfigPath,
+    // Only the servers we declare: never the claude.ai connectors of the host account.
+    "--strict-mcp-config",
     "--system-prompt", scopedSystemPrompt,
     "--no-session-persistence",
     "--max-turns", "15",
@@ -170,7 +251,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..."`);
+  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..."${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
@@ -311,11 +392,13 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   });
 
   child.on("close", (code) => {
+    cleanupScopedMcp();
     console.log(`[chat] Exit code ${code}, text length: ${fullText.length}`);
     finish(code !== 0 && !fullText ? { error: `Claude exited with code ${code}` } : undefined);
   });
 
   child.on("error", (err) => {
+    cleanupScopedMcp();
     console.error("[chat] Spawn error:", err);
     finish({ error: err.message });
   });
@@ -465,7 +548,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "messages required" }));
         return;
       }
-      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs);
+      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs, body.dataScope);
       return;
     }
 

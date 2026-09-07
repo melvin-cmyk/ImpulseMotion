@@ -23,6 +23,12 @@ export interface RelayChatBody {
   systemPrompt?: string;
   allowedServers?: string[];
   accountScope?: { meta?: string[]; google?: string[]; tiktok?: string[] };
+  /**
+   * Périmètre données du bot client. `clientKey` scope le serveur MCP
+   * "client-data" côté relay (le LLM ne choisit jamais le client_key) ;
+   * `ga4PropertyId` est ajouté aux restrictions de périmètre du prompt.
+   */
+  dataScope?: { clientKey: string; ga4PropertyId?: string };
   /** Session budget requested from the relay (ms). Capped server-side. */
   budgetMs?: number;
 }
