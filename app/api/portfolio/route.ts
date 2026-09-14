@@ -5,6 +5,7 @@
  * Partial results (summary.timedOut) when the 100 s time budget is hit.
  */
 
+import { getAccountScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { loadPortfolio } from "@/lib/portfolio";
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
   }
   const refresh = params.get("refresh") === "1";
 
-  const result = await loadPortfolio({ range, refresh, deadlineMs: TIME_BUDGET_MS });
+  const scope = await getAccountScope(guard.session);
+  const result = await loadPortfolio({ range, refresh, deadlineMs: TIME_BUDGET_MS, scope });
   return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
 }

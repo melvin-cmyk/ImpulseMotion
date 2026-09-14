@@ -5,7 +5,7 @@ import { Sidebar, SecondaryNav } from "@/components/sidebar";
 import { SessionProvider } from "next-auth/react";
 import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
-import { AccountPicker } from "@/components/account-picker";
+import { CommandPalette } from "@/components/command-palette";
 import { CreativesProvider } from "@/lib/creatives-context";
 import { ClientNavLink } from "@/components/bot/client-nav-link";
 import { countEnabledBotAccess } from "@/lib/bot-access";
@@ -73,7 +73,10 @@ export default async function RootLayout({
                 <Sidebar />
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
-                    <AccountPicker userId={session?.userId ?? null} />
+                    {/* Global client search (⌘K): navigates to a client, never
+                        filters the page. The analysed account lives in the
+                        Analyse Ads context bar, the only place it applies. */}
+                    <CommandPalette userId={session?.userId ?? null} />
                     {session ? <UserNav session={session} /> : null}
                   </header>
                   <SecondaryNav />

@@ -3,6 +3,7 @@
  * (HubSpot…). Legacy Meta / Google links live on the Dashboard itself (PATCH /api/dashboards/[id]).
  */
 
+import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -12,6 +13,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id, sourceId } = await params;
+  const denied = await denyIfDashboardOutOfScope(guard.session, id);
+  if (denied) return denied;
   const dashboard = await prisma.dashboard.findUnique({ where: { id }, select: { id: true } });
   if (!dashboard) return NextResponse.json({ error: "not found" }, { status: 404 });
   try {

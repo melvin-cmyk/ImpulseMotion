@@ -5,6 +5,7 @@
  *   Body: { order: string[] }  (widget ids, new order)
  */
 
+import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -14,6 +15,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id } = await params;
+  const denied = await denyIfDashboardOutOfScope(guard.session, id);
+  if (denied) return denied;
 
   const dashboard = await prisma.dashboard.findUnique({
     where: { id },
@@ -57,6 +60,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id } = await params;
+  const denied = await denyIfDashboardOutOfScope(guard.session, id);
+  if (denied) return denied;
 
   const body = await req.json().catch(() => ({}));
   if (!Array.isArray(body.order) || body.order.some((x: unknown) => typeof x !== "string")) {

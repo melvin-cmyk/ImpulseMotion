@@ -6,6 +6,7 @@
  * never by login.
  */
 
+import { getAccountScope, dashboardInScope, metaInScope, googleInScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
@@ -30,8 +31,9 @@ export async function GET(req: NextRequest) {
   }
   const refresh = params.get("refresh") === "1";
 
-  const [portfolio, openAlerts, recentReportRows, alertRules, accountBudgets, dashboardBudgets] = await Promise.all([
-    loadPortfolio({ range, refresh, deadlineMs: TIME_BUDGET_MS }),
+  const scope = await getAccountScope(guard.session);
+  const [portfolio, openAlertsAll, recentReportRows, alertRules, accountBudgets, dashboardBudgets] = await Promise.all([
+    loadPortfolio({ range, refresh, deadlineMs: TIME_BUDGET_MS, scope }),
     prisma.alertEvent.findMany({
       where: { acknowledged: false },
       orderBy: { triggeredAt: "desc" },
@@ -47,7 +49,7 @@ export async function GET(req: NextRequest) {
       take: 10,
       select: {
         id: true, title: true, status: true, periodSince: true, periodUntil: true, createdAt: true, trigger: true,
-        dashboard: { select: { id: true, name: true } },
+        dashboard: { select: { id: true, name: true, metaAccountId: true, googleCustomerId: true } },
       },
     }),
     prisma.alertRule.count({ where: { enabled: true, NOT: { metric: BUDGET_PACING_METRIC } } }),
@@ -61,6 +63,8 @@ export async function GET(req: NextRequest) {
     if (c.metaAccountId) nameByAccount.set(c.metaAccountId, { id: c.id, name: c.name });
     if (c.googleCustomerId) nameByAccount.set(c.googleCustomerId, { id: c.id, name: c.name });
   }
+  // Consultants only see the alerts and reports of their assigned clients.
+  const openAlerts = openAlertsAll.filter((e) => metaInScope(scope, e.clientId) || googleInScope(scope, e.clientId));
   const alerts = openAlerts.map((e) => {
     const client = nameByAccount.get(e.clientId.replace(/^act_/, "")) ?? null;
     return { ...e, client };
@@ -81,7 +85,7 @@ export async function GET(req: NextRequest) {
       return Math.abs(100 - b.pacing.pacingPct) - Math.abs(100 - a.pacing.pacingPct);
     });
 
-  const recentReports = recentReportRows.map((r) => ({
+  const recentReports = recentReportRows.filter((r) => dashboardInScope(scope, r.dashboard)).map((r) => ({
     id: r.id,
     clientId: r.dashboard.id,
     clientName: r.dashboard.name,

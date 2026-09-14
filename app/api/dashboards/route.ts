@@ -4,6 +4,7 @@
  *   Body: { userId, name? }
  */
 
+import { getAccountScope, dashboardWhere } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
@@ -17,8 +18,9 @@ export async function GET(req: NextRequest) {
 
   const userIdParam = req.nextUrl.searchParams.get("userId");
   const staff = isStaff(session);
-  const where = staff
-    ? userIdParam ? { userId: userIdParam } : {}
+  const scope = staff ? await getAccountScope(session) : null;
+  const where = staff && scope
+    ? { AND: [dashboardWhere(scope), userIdParam ? { userId: userIdParam } : {}] }
     : { OR: [{ userId: session.userId }, { members: { some: { userId: session.userId } } }] };
 
   const dashboards = await prisma.dashboard.findMany({

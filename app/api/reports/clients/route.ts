@@ -5,6 +5,7 @@
  * collapsed on the first created one.
  */
 
+import { getAccountScope, dashboardWhere } from "@/lib/scope";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -13,7 +14,9 @@ export async function GET() {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
 
+  const scope = await getAccountScope(guard.session);
   const dashboards = await prisma.dashboard.findMany({
+    where: dashboardWhere(scope),
     orderBy: [{ name: "asc" }, { createdAt: "asc" }],
     select: {
       id: true, name: true, metaAccountId: true, googleCustomerId: true, reportFrequency: true, createdAt: true,

@@ -8,6 +8,7 @@
  * dropped connection.
  */
 
+import { getAccountScope, dashboardWhere, dashboardInScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -24,8 +25,9 @@ export async function GET(req: NextRequest) {
 
   const dashboardId = req.nextUrl.searchParams.get("dashboardId");
   const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 50) || 50, 1), 200);
+  const scope = await getAccountScope(guard.session);
   const reports = await prisma.clientReport.findMany({
-    where: dashboardId ? { dashboardId } : {},
+    where: { ...(dashboardId ? { dashboardId } : {}), dashboard: dashboardWhere(scope) },
     orderBy: { createdAt: "desc" },
     take: limit,
     select: REPORT_LIST_SELECT,
@@ -47,6 +49,9 @@ export async function POST(req: NextRequest) {
   }
   const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } });
   if (!dashboard) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
+  if (!dashboardInScope(await getAccountScope(guard.session), dashboard)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const cmp = resolveCompare(since, until, typeof body.compare === "string" ? body.compare : "prev", {
     since: body.cmpSince, until: body.cmpUntil,

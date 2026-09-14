@@ -7,6 +7,7 @@
  * ?refresh=1 drops the cached ads/insights lists first.
  */
 
+import { getAccountScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { isStaff, requireSession } from "@/lib/auth-helpers";
 import { assertAccountAllowed, getAllowedAccountIds } from "@/lib/acl";
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
 
   // Single-account mode: enforce ACL then return events for that account
   if (accountId) {
-    if (!isStaff(guard.session)) {
+    if (guard.session.role !== "admin") {
       const allowed = await assertAccountAllowed(guard.session.userId, "meta", accountId);
       if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
@@ -72,7 +73,8 @@ export async function GET(req: NextRequest) {
   // Multi-account mode
   let accounts: Array<{ accountId: string; label: string | null; clientId: string | null }>;
   if (isStaff(guard.session)) {
-    const { clients } = await listPortfolioClients();
+    const scope = await getAccountScope(guard.session);
+    const { clients } = await listPortfolioClients(scope);
     accounts = clients
       .filter((c) => c.metaAccountId)
       .map((c) => ({ accountId: c.metaAccountId as string, label: c.name, clientId: c.id }));

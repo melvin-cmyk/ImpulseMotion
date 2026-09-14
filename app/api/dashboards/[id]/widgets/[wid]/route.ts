@@ -3,6 +3,7 @@
  * DELETE /api/dashboards/[id]/widgets/[wid]  → staff
  */
 
+import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -15,6 +16,8 @@ export async function PATCH(
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id, wid } = await params;
+  const denied = await denyIfDashboardOutOfScope(guard.session, id);
+  if (denied) return denied;
 
   const widget = await prisma.dashboardWidget.findFirst({ where: { id: wid, dashboardId: id } });
   if (!widget) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -51,6 +54,8 @@ export async function DELETE(
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id, wid } = await params;
+  const denied = await denyIfDashboardOutOfScope(guard.session, id);
+  if (denied) return denied;
   const { count } = await prisma.dashboardWidget.deleteMany({ where: { id: wid, dashboardId: id } });
   if (count === 0) {
     // Never report success for a no-op — the caller (human or copilot) would

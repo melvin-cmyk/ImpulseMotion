@@ -7,6 +7,7 @@
  * demand, but the prompt tells it to answer from the snapshot first.
  */
 
+import { getAccountScope, reportIdInScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id } = await params;
+  if (!(await reportIdInScope(await getAccountScope(guard.session), id))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const report = await prisma.clientReport.findUnique({
     where: { id },

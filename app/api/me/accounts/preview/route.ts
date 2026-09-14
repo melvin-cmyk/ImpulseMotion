@@ -1,3 +1,5 @@
+import { getAccountScope } from "@/lib/scope";
+import { listPortfolioClients } from "@/lib/portfolio";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
@@ -35,6 +37,10 @@ interface PreviewAccount {
   spend7d: number;
   roas7d: number;
   alertCount: number;
+  /** Portfolio client (dashboard id) linked to this account, for deep links. */
+  clientId: string | null;
+  /** Name of that client (dashboard), null when none. */
+  clientName: string | null;
 }
 
 export async function GET() {
@@ -70,6 +76,10 @@ export async function GET() {
   });
   const alertByAccount = new Map(openAlerts.map((a) => [a.clientId, a._count]));
 
+  // Map account → portfolio client (respecting the viewer's scope).
+  const { clients } = await listPortfolioClients(await getAccountScope(guard.session));
+  const clientByMeta = new Map(clients.filter((c) => c.metaAccountId).map((c) => [c.metaAccountId as string, { id: c.id, name: c.name }]));
+
   const enriched: PreviewAccount[] = await Promise.all(
     baseAccounts.map(async (a) => {
       const [insight, meta] = await Promise.all([
@@ -96,6 +106,8 @@ export async function GET() {
         spend7d: spend,
         roas7d: roas,
         alertCount,
+        clientId: clientByMeta.get(idNorm)?.id ?? null,
+        clientName: clientByMeta.get(idNorm)?.name ?? null,
       };
     }),
   );

@@ -17,6 +17,7 @@ import {
   MessageSquare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ANALYSE_ROUTES } from "@/lib/nav-routes"
 
 // The rail is split into labeled sections so the boundary is obvious:
 // "Espace interne" = admin & consultants only; "Espace clients" = the exact
@@ -31,11 +32,6 @@ type NavItem = {
 }
 type NavSection = { label: string; hint?: string; items: NavItem[] }
 
-const ANALYSE_ROUTES = [
-  "/creatives", "/launch", "/top-charts", "/compare", "/comparaisons",
-  "/patterns", "/angles", "/audience", "/top-copy",
-  "/top-landing-page", "/fatigue", "/naming", "/creative-team",
-]
 
 const REPORT_ROUTES = ["/reports"]
 

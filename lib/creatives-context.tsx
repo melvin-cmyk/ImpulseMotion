@@ -45,6 +45,8 @@ interface CreativesContextValue {
   setCampaignId: (id: string | null) => void;
   /** Connected Meta ad account id (act_…), null when none is selected */
   metaAccountId: string | null;
+  /** Display name stored with the selection (null when unknown). */
+  metaAccountName: string | null;
   /** Week-over-week data (null when no Meta account connected) */
   wowData: WowData | null;
   isWowLoading: boolean;
@@ -88,6 +90,7 @@ function subscribeAccounts(callback: () => void): () => void {
   };
 }
 const readMeta = () => readStoredAccount(META_ACCOUNT_STORAGE_KEY);
+const readMetaName = () => readStoredMetaAccountName();
 const readTiktok = () => readStoredAccount(TIKTOK_ACCOUNT_STORAGE_KEY);
 const readNone = () => null;
 
@@ -96,8 +99,31 @@ export function notifyAccountChange(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event(ACCOUNT_CHANGE_EVENT));
 }
 
+/** Persists the analysed Meta account (picker / ⌘K / deep link) and notifies. */
+export function setStoredMetaAccount(accountId: string, accountName: string): void {
+  const id = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+  try {
+    localStorage.setItem(META_ACCOUNT_STORAGE_KEY, JSON.stringify({ accountId: id, accountName }));
+  } catch {
+    // storage unavailable — the in-memory selection is lost on reload only
+  }
+  notifyAccountChange();
+}
+
+/** Display name stored with the selection (null when nothing is selected). */
+export function readStoredMetaAccountName(): string | null {
+  try {
+    const raw = localStorage.getItem(META_ACCOUNT_STORAGE_KEY);
+    const name = raw ? JSON.parse(raw)?.accountName : null;
+    return typeof name === "string" && name ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 export function CreativesProvider({ children }: { children: React.ReactNode }) {
   const metaAccountId = useSyncExternalStore(subscribeAccounts, readMeta, readNone);
+  const metaAccountName = useSyncExternalStore(subscribeAccounts, readMetaName, readNone);
   const tiktokAccountId = useSyncExternalStore(subscribeAccounts, readTiktok, readNone);
   const [nonce, setNonce] = useState(0);
   const refreshRef = useRef(false);
@@ -111,8 +137,7 @@ export function CreativesProvider({ children }: { children: React.ReactNode }) {
 
   // Deep links from the cockpit / portfolio: `?accountId=act_…` selects the
   // account (when allowed for this user), persists it for the picker and is
-  // then stripped from the URL. When the stored account differs, the page is
-  // reloaded so the picker (which reads localStorage on mount) agrees.
+  // then stripped from the URL.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -142,19 +167,9 @@ export function CreativesProvider({ children }: { children: React.ReactNode }) {
         window.history.replaceState(window.history.state, "", clean);
         return;
       }
-      const id = wanted.startsWith("act_") ? wanted : `act_${wanted}`;
-      const current = readStoredAccount(META_ACCOUNT_STORAGE_KEY);
-      try {
-        localStorage.setItem(META_ACCOUNT_STORAGE_KEY, JSON.stringify({ accountId: id, accountName: name }));
-      } catch {
-        // storage unavailable — keep the in-memory selection only
-      }
-      if (current && normalizeAct(current) === normalizeAct(id)) {
-        window.history.replaceState(window.history.state, "", clean);
-        return;
-      }
-      notifyAccountChange();
-      window.location.replace(clean);
+      // The provider and the picker both subscribe to the store: no reload.
+      setStoredMetaAccount(wanted, name);
+      window.history.replaceState(window.history.state, "", clean);
     })();
     return () => {
       cancelled = true;
@@ -244,6 +259,7 @@ export function CreativesProvider({ children }: { children: React.ReactNode }) {
         campaignId,
         setCampaignId,
         metaAccountId,
+        metaAccountName,
         wowData,
         isWowLoading: isConnected ? wowLoading : false,
       }}

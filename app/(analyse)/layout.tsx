@@ -1,15 +1,16 @@
 /**
  * Shared layout of the Analyse Ads section (route group — URLs unchanged).
- * Renders the provenance banner (Démo / Meta · données au HH:MM · …) once,
- * above every Analyse Ads page.
+ * Renders the context bar once, above every Analyse Ads page: the analysed
+ * account (the only section where that selection applies), provenance
+ * (Démo / Meta · données au HH:MM · …) and the refresh button.
  */
 
-import { DataBanner } from "@/components/creatives/data-banner";
+import { AnalyseContextBar } from "@/components/analyse/context-bar";
 
 export default function AnalyseLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <DataBanner />
+      <AnalyseContextBar />
       {children}
     </>
   );

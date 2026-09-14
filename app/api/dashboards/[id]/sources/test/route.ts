@@ -4,6 +4,7 @@
  * UI can show the provider's reason; 400 only on a malformed request.
  */
 
+import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -16,6 +17,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id } = await params;
+  const denied = await denyIfDashboardOutOfScope(guard.session, id);
+  if (denied) return denied;
   const dashboard = await prisma.dashboard.findUnique({ where: { id }, select: { id: true } });
   if (!dashboard) return NextResponse.json({ error: "not found" }, { status: 404 });
 

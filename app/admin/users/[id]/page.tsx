@@ -306,9 +306,14 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             {bulkStatus && <span className="text-[11px] text-gray-400">{bulkStatus}</span>}
           </div>
         </div>
+        <p className="text-xs text-gray-500 mb-3">
+          {user.role === "admin"
+            ? "Un admin voit tous les comptes du Business Manager : cette liste n'a pas d'effet sur lui."
+            : "Cette liste définit tout ce que cette personne peut voir dans l'application : cockpit, clients, rapports, dashboards, alertes et analyse des créas ne montrent que les clients dont un compte figure ici. Un client sans compte attribué ne voit rien."}
+        </p>
         <div className="flex flex-col gap-2 mb-4">
           {user.adAccounts.length === 0 && (
-            <p className="text-sm text-gray-500">Aucun compte attribué.</p>
+            <p className="text-sm text-gray-500">Aucun compte attribué{user.role !== "admin" ? " — cette personne ne voit aucune donnée client." : "."}</p>
           )}
           {user.adAccounts.map((a) => (
             <Card key={a.id} padded className="flex items-center justify-between !p-3">

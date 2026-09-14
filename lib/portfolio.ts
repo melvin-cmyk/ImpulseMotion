@@ -23,6 +23,7 @@
  *   `summary.timedOut` + the unresolved clients instead of a 504.
  */
 
+import { ALL_ACCOUNTS, dashboardWhere, type AccountScope } from "@/lib/scope";
 import { prisma } from "@/lib/prisma";
 import { resolveWidgets, loadDashboardCrm, findHubspotSourceDashboard } from "@/lib/dashboard-widgets";
 import type { CrmSummary } from "@/lib/crm-view";
@@ -489,9 +490,11 @@ export interface PortfolioClientRef {
   ownerId: string;
 }
 
-/** Deduped clients without any KPI fetch — for /api/changes and the client sheet. */
-export async function listPortfolioClients(): Promise<{ clients: PortfolioClientRef[]; unlinked: Array<{ id: string; name: string }> }> {
+/** Deduped clients without any KPI fetch — for /api/changes and the client sheet.
+ *  `scope` (lib/scope) hides the clients whose accounts are not assigned to the viewer. */
+export async function listPortfolioClients(scope: AccountScope = ALL_ACCOUNTS): Promise<{ clients: PortfolioClientRef[]; unlinked: Array<{ id: string; name: string }> }> {
   const rows = await prisma.dashboard.findMany({
+    where: dashboardWhere(scope),
     select: { id: true, name: true, userId: true, metaAccountId: true, googleCustomerId: true, createdAt: true },
   });
   const { groups, unlinked } = groupDashboardsByAccount(rows);
@@ -522,6 +525,8 @@ export interface LoadPortfolioOptions {
   /** Global time budget in ms (partial results + summary.timedOut when hit). */
   deadlineMs?: number;
   now?: Date;
+  /** Viewer scope (lib/scope): only the clients whose accounts are assigned. Default: everything. */
+  scope?: AccountScope;
 }
 
 function emptyKpi(): PortfolioKpi {
@@ -542,8 +547,10 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
   const started = Date.now();
   const deadlineAt = opts.deadlineMs ? started + opts.deadlineMs : null;
 
+  const scope = opts.scope ?? ALL_ACCOUNTS;
   const [rows, openAlerts, budgets] = await Promise.all([
     prisma.dashboard.findMany({
+      where: dashboardWhere(scope),
       include: {
         user: { select: { id: true, name: true, email: true } },
         _count: { select: { members: true } },

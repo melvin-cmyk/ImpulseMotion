@@ -1,5 +1,6 @@
 /** POST /api/reports/[id]/regenerate → staff: re-run generation on the same period. */
 
+import { getAccountScope, reportIdInScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -11,6 +12,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id } = await params;
+  if (!(await reportIdInScope(await getAccountScope(guard.session), id))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const existing = await prisma.clientReport.findUnique({ where: { id }, select: { id: true, status: true } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
   if (existing.status === "generating") return NextResponse.json({ error: "génération déjà en cours" }, { status: 409 });

@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
-import { loadDashboardFor } from "@/lib/dashboard-auth";
+import { loadDashboardFor, denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { resolveWidgets, grantDashboardAccess, type CompareRange } from "@/lib/dashboard-widgets";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { describeRange, prevRange, rangeFromParams, validateRange, yearAgoRange } from "@/lib/date-ranges";
@@ -98,6 +98,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id } = await params;
+  const denied = await denyIfDashboardOutOfScope(guard.session, id);
+  if (denied) return denied;
 
   const existing = await prisma.dashboard.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -151,6 +153,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const { id } = await params;
+  const denied = await denyIfDashboardOutOfScope(guard.session, id);
+  if (denied) return denied;
   await prisma.dashboard.delete({ where: { id } }).catch(() => null);
   return NextResponse.json({ ok: true });
 }
