@@ -50,6 +50,13 @@ export function googleInScope(scope: AccountScope, customerId: string | null | u
   return !!customerId && scope.google.has(customerId);
 }
 
+/** True when an ad account id — Meta or Google, platform unknown — is assigned.
+ *  Used where a row stores a bare account id (alert rules & events). */
+export function accountIdInScope(scope: AccountScope, accountId: string | null | undefined): boolean {
+  if (scope.all) return true;
+  return metaInScope(scope, accountId) || googleInScope(scope, accountId);
+}
+
 export type DashboardAccounts = { metaAccountId: string | null; googleCustomerId: string | null };
 
 /** A client is visible when one of its ad accounts is assigned to the viewer. */

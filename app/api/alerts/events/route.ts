@@ -1,4 +1,4 @@
-import { getAccountScope, metaInScope, googleInScope } from "@/lib/scope";
+import { accountIdInScope, getAccountScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { isStaff, requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     include: { rule: { select: { metric: true, condition: true, threshold: true } } },
   });
   const scope = staff ? await getAccountScope(guard.session) : null;
-  const events = (scope ? rows.filter((e) => metaInScope(scope, e.clientId) || googleInScope(scope, e.clientId)) : rows).slice(0, 100);
+  const events = (scope ? rows.filter((e) => accountIdInScope(scope, e.clientId)) : rows).slice(0, 100);
   return NextResponse.json({ events });
 }
 

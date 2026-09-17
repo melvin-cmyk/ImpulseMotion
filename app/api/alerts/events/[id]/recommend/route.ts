@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isStaff, requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { generateRecommendations } from "@/lib/recommend";
+import { accountIdInScope, getAccountScope } from "@/lib/scope";
 
 export const maxDuration = 60;
 
@@ -16,7 +17,13 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   });
   if (!event) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  if (!isStaff(guard.session) && event.userId !== guard.session.userId) {
+  if (isStaff(guard.session)) {
+    // Staff may act on any user's event, but only for an assigned account.
+    const scope = await getAccountScope(guard.session);
+    if (!accountIdInScope(scope, event.clientId)) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+  } else if (event.userId !== guard.session.userId) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

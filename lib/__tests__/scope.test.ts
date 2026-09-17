@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { ALL_ACCOUNTS, dashboardInScope, dashboardWhere, metaInScope, googleInScope, type AccountScope } from "@/lib/scope";
+import { ALL_ACCOUNTS, accountIdInScope, dashboardInScope, dashboardWhere, metaInScope, googleInScope, type AccountScope } from "@/lib/scope";
 
 const consultant: AccountScope = { all: false, meta: new Set(["123"]), google: new Set(["999"]), tiktok: new Set() };
 const nothing: AccountScope = { all: false, meta: new Set(), google: new Set(), tiktok: new Set() };
@@ -32,6 +32,15 @@ describe("account scope", () => {
     expect(dashboardWhere(consultant)).toEqual({
       OR: [{ metaAccountId: { in: ["123", "act_123"] } }, { googleCustomerId: { in: ["999"] } }],
     });
+  });
+
+  it("matches a bare account id against both platforms (alert rules & events)", () => {
+    expect(accountIdInScope(consultant, "act_123")).toBe(true);
+    expect(accountIdInScope(consultant, "999")).toBe(true);
+    expect(accountIdInScope(consultant, "456")).toBe(false);
+    // An account-agnostic rule (clientId null) spans the whole BM → admins only.
+    expect(accountIdInScope(consultant, null)).toBe(false);
+    expect(accountIdInScope(ALL_ACCOUNTS, null)).toBe(true);
   });
 
   it("a user with no assigned account matches nothing", () => {
