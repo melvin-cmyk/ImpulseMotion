@@ -30,6 +30,18 @@ export interface KpiData extends WidgetFlags {
   compareKind?: string | null;
   compareSince?: string | null;
   compareUntil?: string | null;
+  /** purchases/cpa/cr on Meta: which conversion action is counted. */
+  conversionLabel?: string;
+}
+
+export interface MetaActionsData extends WidgetFlags {
+  rows: Array<{
+    actionType: string; label: string; count: number;
+    costPer: number | null; value: number | null;
+    previous: number | null; deltaPct: number | null;
+  }>;
+  spend: number;
+  compareKind?: string | null;
 }
 
 export interface PlatformTableData extends WidgetFlags {

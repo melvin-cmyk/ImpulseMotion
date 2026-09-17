@@ -287,10 +287,10 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
       )}
 
       {showAdd && payload && (
-        <WidgetForm dashboardId={payload.dashboard.id} widget={null} onDone={onMutated} onCancel={() => setShowAdd(false)} />
+        <WidgetForm dashboardId={payload.dashboard.id} widget={null} range={range} onDone={onMutated} onCancel={() => setShowAdd(false)} />
       )}
       {editingWidget && payload && (
-        <WidgetForm dashboardId={payload.dashboard.id} widget={editingWidget} onDone={onMutated} onCancel={() => setEditingWidget(null)} />
+        <WidgetForm dashboardId={payload.dashboard.id} widget={editingWidget} range={range} onDone={onMutated} onCancel={() => setEditingWidget(null)} />
       )}
       {showSettings && payload && (
         <DashboardSettingsForm

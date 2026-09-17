@@ -19,7 +19,7 @@ import {
 import type { CrmAttributionData, CrmFunnelData } from "@/components/portfolio/crm-types";
 import {
   emptyMessage, kpiValueClass, pacingView, partialNote,
-  type AlertsData, type DemographicsData, type FunnelData, type GeoDeviceData, type KpiData,
+  type AlertsData, type DemographicsData, type MetaActionsData, type FunnelData, type GeoDeviceData, type KpiData,
   type PacingData, type PlatformTableData, type TableData, type TimeseriesData, type TopCreativesData,
 } from "@/components/dashboard/widget-display";
 
@@ -53,6 +53,7 @@ export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
     case "alerts": return <AlertsWidget widget={widget} />;
     case "crm_funnel": return <CrmFunnelWidget widget={widget} />;
     case "crm_attribution": return <CrmAttributionWidget widget={widget} />;
+    case "meta_actions": return <MetaActionsWidget widget={widget} />;
     default: return <div className="text-sm text-gray-500">Type inconnu : {widget.type}</div>;
   }
 }
@@ -108,7 +109,11 @@ function KpiWidget({ widget }: { widget: ResolvedWidget }) {
       )}
       {note && <div className="text-xs text-amber-400/90 mt-1" title={d.errors?.join(" · ")}>{note}</div>}
       <div className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
-        <span>{KPI_LABELS[d.metric] ?? d.metric} · {SOURCE_LABELS[d.source] ?? d.source}</span>
+        <span>
+          {KPI_LABELS[d.metric] ?? d.metric}
+          {d.conversionLabel && <span className="text-gray-400"> ({d.conversionLabel})</span>}
+          {" · "}{SOURCE_LABELS[d.source] ?? d.source}
+        </span>
         {!d.unavailable && typeof d.deltaPct === "number" && (
           <span
             className={`font-semibold tabular-nums ${color} ${bigMove ? `px-1.5 py-0.5 rounded-md ${bigBg}` : ""}`}
@@ -556,6 +561,54 @@ function AlertsWidget({ widget }: { widget: ResolvedWidget }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+// ── Meta actions ─────────────────────────────────────────────────────────────
+
+function MetaActionsWidget({ widget }: { widget: ResolvedWidget }) {
+  const d = widget.data as MetaActionsData | undefined;
+  if (!d?.rows?.length) return <div className="text-sm text-gray-500 py-4">{emptyMessage(d ?? {}, "Aucune action Meta sur la période")}</div>;
+  const showValue = d.rows.some((r) => r.value !== null && r.value > 0);
+  const max = Math.max(...d.rows.map((r) => r.count), 1);
+  return (
+    <div className="overflow-x-auto -mx-1">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-gray-500 text-xs uppercase tracking-wide border-b border-gray-800">
+            <th className="py-2 px-1 font-medium text-left">Action</th>
+            <th className="py-2 px-1 font-medium text-right">Volume</th>
+            <th className="py-2 px-1 font-medium text-right">Coût / action</th>
+            {showValue && <th className="py-2 px-1 font-medium text-right">Valeur</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {d.rows.map((r) => (
+            <tr key={r.actionType} className="border-b border-gray-800/40">
+              <td className="py-2 px-1 text-left max-w-[260px]">
+                <div className="text-gray-200 truncate" title={r.actionType}>{r.label}</div>
+                <div className="h-1 rounded-full bg-gray-800/50 mt-1 overflow-hidden">
+                  <div className="h-full rounded-full bg-violet-500/70" style={{ width: `${(r.count / max) * 100}%` }} />
+                </div>
+              </td>
+              <td className="py-2 px-1 text-right text-gray-300 tabular-nums align-top">
+                {fmtNumber(r.count, r.count % 1 ? 1 : 0)}
+                <DeltaCell deltaPct={r.deltaPct} goodUp />
+              </td>
+              <td className="py-2 px-1 text-right text-gray-300 tabular-nums align-top">
+                {r.costPer === null ? "—" : fmtMoney(r.costPer, d.currency, { digits: 2 })}
+              </td>
+              {showValue && (
+                <td className="py-2 px-1 text-right text-gray-300 tabular-nums align-top">
+                  {r.value === null || r.value === 0 ? "—" : fmtMoney(r.value, d.currency, { digits: 0 })}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {d.compareKind && <div className="text-[11px] text-gray-600 mt-1.5 px-1">Variations {compareLabel(d)}</div>}
+    </div>
   );
 }
 

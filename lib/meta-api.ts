@@ -900,6 +900,22 @@ export async function getAccountBreakdownInsights(
   return (await getAccountBreakdownInsightsPaged(accessToken, adAccountId, timeRange, breakdowns)).data;
 }
 
+/** Custom conversions of an account (id → name), for readable action labels. */
+export async function getCustomConversionNames(
+  accessToken: string,
+  adAccountId: string,
+): Promise<Record<string, string>> {
+  const res = await metaFetchAll<{ id: string; name?: string }>(
+    `/${actId(adAccountId)}/customconversions`,
+    accessToken,
+    { fields: "id,name", limit: "200" },
+    1000,
+  );
+  const out: Record<string, string> = {};
+  for (const c of res.data) if (c.id && c.name) out[c.id] = c.name;
+  return out;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 export function getActionValue(

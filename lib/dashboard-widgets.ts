@@ -25,6 +25,7 @@ import {
   computeRoas,
   computeCpa,
   purchasesFor,
+  getCustomConversionNames,
   type MetaAccountInsight,
   type MetaBreakdownInsight,
 } from "@/lib/meta-api";
@@ -39,8 +40,11 @@ import { isHubspotApiError } from "@/lib/hubspot/http";
 import type { KnownCampaign } from "@/lib/hubspot/types";
 import { buildCrmView, type CrmSpendByCampaign, type CrmSpendByPlatform, type CrmView } from "@/lib/crm-view";
 
+import { conversionEventLabel, metaActionLabel, needsCustomNames, summarizeMetaActions } from "@/lib/meta-actions";
 import {
   WIDGET_TYPES,
+  CONVERSION_WIDGET_TYPES,
+  META_ACTIONS_MAX,
   widgetIssue as issue,
   type WidgetType,
   type ResolvedWidget,
@@ -51,6 +55,7 @@ export {
   WIDGET_TYPES, KPI_METRICS, SERIES_METRICS, TABLE_KINDS, WIDGET_WIDTHS,
   DEMOGRAPHICS_METRICS, GEO_DEVICE_DIMENSIONS,
   WIDGET_TYPE_INFO, validateWidgetConfig, validateWidgetWidth,
+  CONVERSION_WIDGET_TYPES, META_ACTIONS_MAX,
 } from "@/lib/dashboard-types";
 export type { WidgetType, ResolvedWidget } from "@/lib/dashboard-types";
 
@@ -289,6 +294,9 @@ interface ResolveContext {
   compare: CompareRange | null;
   /** Memoised CRM load — one HubSpot fetch per resolve, shared by both CRM widgets. */
   crm?: Promise<CrmLoaded>;
+  /** Custom conversion names of the Meta account, loaded once on demand.
+   *  A holder object so per-widget ctx copies share the same load. */
+  customNames: { promise?: Promise<Record<string, string>> };
 }
 
 /** Shape of a resolved KPI value (also returned by the kpi widget). */
@@ -460,9 +468,11 @@ async function resolveKpi(cfg: Record<string, unknown>, ctx: ResolveContext) {
     } catch { /* comparison is optional */ }
   }
 
+  const countsConversions = ["purchases", "cpa", "cr"].includes(metric) && source !== "google";
   return {
     metric,
     source,
+    ...(countsConversions ? { conversionLabel: conversionEventLabel(ctx.conversionEvent, await customNamesOf(ctx, [ctx.conversionEvent])) } : {}),
     value: Math.round(current.value * 100) / 100,
     previous,
     deltaPct,
@@ -1167,11 +1177,99 @@ export async function loadDashboardCrm(
   return crmView(await crmOf(ctx), opts.limit);
 }
 
+// ── Meta actions ─────────────────────────────────────────────────────────────
+
+/** Names are only fetched when one of `types` is a custom conversion: the call
+ *  is best effort, and under Meta rate limiting its retries cost seconds. */
+function customNamesOf(ctx: ResolveContext, types: string[]): Promise<Record<string, string>> {
+  const accountId = ctx.binding.metaAccountId;
+  if (!accountId || !needsCustomNames(types)) return Promise.resolve({});
+  if (!ctx.customNames.promise) {
+    ctx.customNames.promise = cached(
+      `meta:custom-conversions:${accountId}`,
+      () => getCustomConversionNames(ctx.token, accountId),
+      { ttlMs: 24 * 60 * 60 * 1000 },
+    ).catch(() => ({}));
+  }
+  return ctx.customNames.promise;
+}
+
+async function resolveMetaActions(cfg: Record<string, unknown>, ctx: ResolveContext) {
+  if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
+  const only = Array.isArray(cfg.actions) ? (cfg.actions as unknown[]).map(String).slice(0, META_ACTIONS_MAX) : [];
+  const limit = Math.min(Math.max(Number(cfg.limit ?? 15) || 15, 1), 50);
+  const accountId = ctx.binding.metaAccountId;
+
+  const { data: insight, fetchedAt } = await getAccountInsightsCachedWithMeta(ctx.token, accountId, { since: ctx.since, until: ctx.until });
+  let rows = summarizeMetaActions(insight, only);
+  if (only.length === 0) rows = rows.slice(0, limit);
+  const names = await customNamesOf(ctx, rows.map((r) => r.actionType));
+
+  // Comparison — best effort, like the KPI widget.
+  let prevCounts: Map<string, number> | null = null;
+  if (ctx.compare) {
+    try {
+      const { data: prev } = await getAccountInsightsCachedWithMeta(ctx.token, accountId, { since: ctx.compare.since, until: ctx.compare.until });
+      prevCounts = new Map(summarizeMetaActions(prev, rows.map((r) => r.actionType)).map((r) => [r.actionType, r.count]));
+    } catch { /* comparison optional */ }
+  }
+
+  const round2 = (v: number) => Math.round(v * 100) / 100;
+  return {
+    rows: rows.map((r) => {
+      const previous = prevCounts?.get(r.actionType) ?? null;
+      return {
+        actionType: r.actionType,
+        label: metaActionLabel(r.actionType, names),
+        count: round2(r.count),
+        costPer: r.costPer === null ? null : round2(r.costPer),
+        value: r.value === null ? null : round2(r.value),
+        previous,
+        deltaPct: previous !== null && previous > 0 ? Math.round(((r.count - previous) / previous) * 1000) / 10 : null,
+      };
+    }),
+    spend: round2(toNum(insight.spend)),
+    compareKind: prevCounts ? ctx.compare?.kind ?? null : null,
+    fetchedAt,
+    ...((insight.currency ?? ctx.currency) ? { currency: insight.currency ?? ctx.currency } : {}),
+  };
+}
+
+/**
+ * Action types present on the dashboard's Meta account over a window, for the
+ * editor's conversion picker. Staff-only callers; ACL enforced by resolveBinding.
+ */
+export async function listDashboardMetaActions(
+  dashboard: ResolvableDashboard,
+  since: string,
+  until: string,
+): Promise<{ accountDefault: string; accountDefaultLabel: string; actions: Array<{ actionType: string; label: string; count: number }> }> {
+  const ctx = await buildResolveContext(dashboard, since, until, null);
+  if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta lié à ce dashboard");
+  const { data: insight } = await getAccountInsightsCachedWithMeta(ctx.token, ctx.binding.metaAccountId, { since, until });
+  const rows = summarizeMetaActions(insight);
+  const names = await customNamesOf(ctx, [ctx.conversionEvent, ...rows.map((r) => r.actionType)]);
+  return {
+    accountDefault: ctx.conversionEvent,
+    accountDefaultLabel: conversionEventLabel(ctx.conversionEvent, names),
+    actions: rows.map((r) => ({
+      actionType: r.actionType,
+      label: metaActionLabel(r.actionType, names),
+      count: Math.round(r.count * 100) / 100,
+    })),
+  };
+}
+
 async function resolveWidgetData(
   type: string,
   cfg: Record<string, unknown>,
   ctx: ResolveContext,
 ): Promise<unknown> {
+  // Per-widget conversion action overrides the account setting, on a shallow
+  // copy of the context (its memo holders stay shared with other widgets).
+  if (typeof cfg.conversionEvent === "string" && cfg.conversionEvent && (CONVERSION_WIDGET_TYPES as readonly string[]).includes(type)) {
+    ctx = { ...ctx, conversionEvent: cfg.conversionEvent };
+  }
   switch (type as WidgetType) {
     case "kpi": return resolveKpi(cfg, ctx);
     case "platform_table": return resolvePlatformTable(cfg, ctx);
@@ -1185,6 +1283,7 @@ async function resolveWidgetData(
     case "alerts": return resolveAlerts(cfg, ctx);
     case "crm_funnel": return resolveCrmFunnel(cfg, ctx);
     case "crm_attribution": return resolveCrmAttribution(cfg, ctx);
+    case "meta_actions": return resolveMetaActions(cfg, ctx);
     case "text": return { markdown: String(cfg.markdown ?? "") };
     default: throw issue(`Type inconnu: ${type}`);
   }
@@ -1227,6 +1326,7 @@ async function buildResolveContext(
     currency: profile.currency,
     conversionEvent: profile.conversionEvent,
     compare: effectiveCompare,
+    customNames: {},
   };
 }
 

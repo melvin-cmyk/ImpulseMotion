@@ -10,9 +10,10 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/surface";
 import {
   WIDGET_TYPES, WIDGET_TYPE_INFO, KPI_METRICS, SERIES_METRICS, TABLE_KINDS, WIDGET_WIDTHS,
-  DEMOGRAPHICS_METRICS, GEO_DEVICE_DIMENSIONS,
+  DEMOGRAPHICS_METRICS, GEO_DEVICE_DIMENSIONS, CONVERSION_WIDGET_TYPES, META_ACTIONS_MAX,
   type ResolvedWidget, type WidgetType,
 } from "@/lib/dashboard-types";
+import { CONVERSION_PRESETS } from "@/lib/meta-actions";
 
 const inputCls =
   "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
@@ -30,17 +31,36 @@ interface WidgetFormState {
   kind: string;
   limit: number;
   markdown: string;
+  /** "" = réglage du compte */
+  conversionEvent: string;
+  /** meta_actions: types sélectionnés ([] = toutes) */
+  actions: string[];
 }
 
 const emptyForm: WidgetFormState = {
   type: "kpi", title: "", width: "half", metric: "spend", source: "meta",
-  kind: "campaigns", limit: 10, markdown: "",
+  kind: "campaigns", limit: 10, markdown: "", conversionEvent: "", actions: [],
 };
+
+const isConversionType = (t: WidgetType) => (CONVERSION_WIDGET_TYPES as readonly string[]).includes(t);
+
+/** The conversion picker only makes sense when the widget reads Meta. */
+function readsMeta(f: WidgetFormState): boolean {
+  if (!isConversionType(f.type)) return false;
+  if (["kpi", "funnel", "timeseries", "table", "geo_device"].includes(f.type)) return f.source !== "google";
+  return true;
+}
 
 const CRM_ATTRIBUTION: WidgetType = "crm_attribution";
 const isCrmType = (t: WidgetType) => t === "crm_funnel" || t === CRM_ATTRIBUTION;
 
 function formToConfig(f: WidgetFormState): Record<string, unknown> {
+  const base = typedConfig(f);
+  // "" is sent on purpose: PATCH merges configs, so it clears a previous override.
+  return isConversionType(f.type) ? { ...base, conversionEvent: readsMeta(f) ? f.conversionEvent : "" } : base;
+}
+
+function typedConfig(f: WidgetFormState): Record<string, unknown> {
   switch (f.type) {
     case "crm_funnel": return {};
     case "crm_attribution": return { limit: Math.min(Math.max(f.limit || 10, 1), 50) };
@@ -57,6 +77,7 @@ function formToConfig(f: WidgetFormState): Record<string, unknown> {
     case "geo_device":
       return { source: f.source === "combined" ? "meta" : f.source, dimension: String(f.kind === "country" ? "country" : "device") };
     case "alerts": return { limit: Math.min(f.limit, 20) };
+    case "meta_actions": return { actions: f.actions, limit: Math.min(Math.max(f.limit || 15, 1), 50) };
   }
 }
 
@@ -72,14 +93,114 @@ function widgetToForm(w: ResolvedWidget): WidgetFormState {
     kind: String(c.kind ?? c.dimension ?? "campaigns"),
     limit: Number(c.limit ?? 10),
     markdown: String(c.markdown ?? ""),
+    conversionEvent: typeof c.conversionEvent === "string" ? c.conversionEvent : "",
+    actions: Array.isArray(c.actions) ? c.actions.map(String) : [],
   };
 }
 
+interface MetaActionsCatalog {
+  accountDefaultLabel: string;
+  actions: Array<{ actionType: string; label: string; count: number }>;
+}
+
+/** Action types of the dashboard's Meta account on the period (staff API). */
+function useMetaActions(dashboardId: string, enabled: boolean, range?: { since: string; until: string }) {
+  const [catalog, setCatalog] = useState<MetaActionsCatalog | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const since = range?.since ?? "";
+  const until = range?.until ?? "";
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    const q = since && until ? `?since=${since}&until=${until}` : "";
+    fetch(`/api/dashboards/${dashboardId}/meta-actions${q}`)
+      .then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (r.ok) { setCatalog(body); setError(null); } else setError(body.error ?? `Erreur ${r.status}`);
+      })
+      .catch(() => { if (!cancelled) setError("Actions Meta indisponibles"); });
+    return () => { cancelled = true; };
+  }, [dashboardId, enabled, since, until]);
+  return { catalog, error };
+}
+
+const fmtCount = (n: number) => n.toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+
+function ConversionSelect({ value, onChange, catalog }: {
+  value: string;
+  onChange: (v: string) => void;
+  catalog: MetaActionsCatalog | null;
+}) {
+  const known = new Set(catalog?.actions.map((a) => `custom:${a.actionType}`) ?? []);
+  const isPreset = CONVERSION_PRESETS.some((p) => p.value === value);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls + " max-w-72"} title="Action de conversion Meta comptée par ce widget">
+      <option value="">Conversion : réglage du compte{catalog ? ` (${catalog.accountDefaultLabel})` : ""}</option>
+      {CONVERSION_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+      {value && !isPreset && !known.has(value) && <option value={value}>{value.replace(/^custom:/, "")}</option>}
+      {catalog && catalog.actions.length > 0 && (
+        <optgroup label="Actions du compte sur la période">
+          {catalog.actions.map((a) => (
+            <option key={a.actionType} value={`custom:${a.actionType}`}>
+              {a.label} — {fmtCount(a.count)}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </select>
+  );
+}
+
+function ActionsChecklist({ selected, onChange, catalog, error }: {
+  selected: string[];
+  onChange: (v: string[]) => void;
+  catalog: MetaActionsCatalog | null;
+  error: string | null;
+}) {
+  if (error) return <div className="text-xs text-amber-400/90 mt-3">{error}</div>;
+  if (!catalog) return <div className="text-xs text-gray-500 mt-3">Chargement des actions Meta…</div>;
+  // Selected types absent from the period stay listed so they can be unticked.
+  const rows = [
+    ...catalog.actions,
+    ...selected.filter((t) => !catalog.actions.some((a) => a.actionType === t)).map((t) => ({ actionType: t, label: t, count: 0 })),
+  ];
+  const toggle = (t: string) =>
+    onChange(selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t].slice(0, META_ACTIONS_MAX));
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+        <span>
+          {selected.length === 0
+            ? "Aucune sélection : toutes les actions du compte (doublons retirés), triées par volume."
+            : `${selected.length} action(s) affichée(s), dans l'ordre de sélection.`}
+        </span>
+        {selected.length > 0 && (
+          <button type="button" onClick={() => onChange([])} className="text-violet-400 hover:text-violet-300">Tout décocher</button>
+        )}
+      </div>
+      <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-800 divide-y divide-gray-800/60">
+        {rows.length === 0 && <div className="text-xs text-gray-500 px-3 py-2">Aucune action Meta sur la période.</div>}
+        {rows.map((a) => (
+          <label key={a.actionType} className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-gray-800/40">
+            <input type="checkbox" checked={selected.includes(a.actionType)} onChange={() => toggle(a.actionType)} className="accent-violet-500" />
+            <span className="text-gray-200 flex-1 truncate" title={a.actionType}>{a.label}</span>
+            <span className="text-gray-600 truncate max-w-48 hidden sm:inline">{a.actionType}</span>
+            <span className="text-gray-400 tabular-nums w-16 text-right">{fmtCount(a.count)}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function WidgetForm({
-  dashboardId, widget, onDone, onCancel,
+  dashboardId, widget, range, onDone, onCancel,
 }: {
   dashboardId: string;
   widget: ResolvedWidget | null; // null = creating
+  /** Period shown on the dashboard — the action pickers list what happened on it. */
+  range?: { since: string; until: string };
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -87,6 +208,8 @@ export function WidgetForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (patch: Partial<WidgetFormState>) => setForm((f) => ({ ...f, ...patch }));
+  const showConversion = readsMeta(form);
+  const { catalog, error: actionsError } = useMetaActions(dashboardId, showConversion || form.type === "meta_actions", range);
 
   async function save() {
     setSaving(true);
@@ -207,6 +330,18 @@ export function WidgetForm({
             {TABLE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
         )}
+        {showConversion && (
+          <ConversionSelect value={form.conversionEvent} onChange={(v) => set({ conversionEvent: v })} catalog={catalog} />
+        )}
+        {form.type === "meta_actions" && form.actions.length === 0 && (
+          <input
+            type="number" min={1} max={50}
+            value={form.limit}
+            onChange={(e) => set({ limit: Number(e.target.value) })}
+            className={inputCls + " w-20"}
+            title="Nombre d'actions affichées"
+          />
+        )}
         {(form.type === "table" || form.type === "top_creatives" || form.type === "alerts" || form.type === CRM_ATTRIBUTION) && (
           <input
             type="number" min={1} max={form.type === "table" ? 30 : form.type === "alerts" ? 20 : form.type === CRM_ATTRIBUTION ? 50 : 10}
@@ -220,6 +355,9 @@ export function WidgetForm({
           <span className="text-[11px] text-gray-500 self-center">Nécessite une source HubSpot connectée (fiche client → Sources de données).</span>
         )}
       </div>
+      {form.type === "meta_actions" && (
+        <ActionsChecklist selected={form.actions} onChange={(v) => set({ actions: v })} catalog={catalog} error={actionsError} />
+      )}
       {form.type === "text" && (
         <textarea
           placeholder="Markdown…"
