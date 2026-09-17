@@ -7,7 +7,6 @@ const CLIENT_ALLOWED_PREFIXES = [
   "/d",
   "/client",
   "/api/dashboards",
-  "/api/client",
   "/api/me/accounts",
   "/api/meta/accounts",
   "/api/media/proxy-image",
