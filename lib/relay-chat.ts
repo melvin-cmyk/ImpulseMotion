@@ -22,7 +22,10 @@ export interface RelayChatBody {
   messages: RelayMessage[];
   systemPrompt?: string;
   allowedServers?: string[];
-  accountScope?: { meta?: string[]; google?: string[]; tiktok?: string[] };
+  /** Accounts the relay may query. The relay pins these in the environment of
+   *  scoped stdio MCP proxies; `unrestricted` (admins only) keeps direct
+   *  business-manager access. An absent or empty list drops the server. */
+  accountScope?: { meta?: string[]; google?: string[]; tiktok?: string[]; unrestricted?: boolean };
   /**
    * Périmètre données du bot client. `clientKey` scope le serveur MCP
    * "client-data" côté relay (le LLM ne choisit jamais le client_key) ;

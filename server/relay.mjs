@@ -30,6 +30,7 @@ const MCP_CONFIG = "/root/ImpulseMotion/config/mcp-claude.json";
 // demande, scoped par CLIENT_KEY côté serveur — voir buildScopedMcpConfig().
 const CLIENT_DATA_SERVER = "client-data";
 const CLIENT_DATA_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-client-data.mjs";
+const SCOPED_ADS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-scoped-ads.mjs";
 const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 
 // Global whitelist — only servers declared here can ever be routed to the AI.
@@ -110,40 +111,111 @@ async function getToolsList() {
   }
 }
 
-// ── Client-data scoping ─────────────────────────────────────────────────────
+// ── MCP scoping ─────────────────────────────────────────────────────────────
+
+/** Ads/analytics servers that can run behind the scope proxy, and where their
+ *  allowed ids come from in the request. */
+const SCOPED_ADS_SERVERS = {
+  "meta-ads-impulse": (scope) => scope.meta,
+  "mcp-google-ads": (scope) => scope.google,
+  "mcp-google-analytics": (scope) => scope.ga4,
+};
+
 /**
- * When a request carries dataScope.clientKey and asks for "client-data", the
- * base mcp-config is merged with a stdio server entry whose env pins
- * CLIENT_KEY (the LLM never picks the client) and the READ-ONLY warehouse URL.
- * Written to a 0600 temp file, removed once the CLI exits.
- * Returns { path, cleanup } or null (caller then drops "client-data").
+ * Builds the mcp-config the spawned CLI will see, pinning every scope in the
+ * environment instead of in the prompt.
+ *
+ *   - "client-data" becomes a stdio server whose env pins CLIENT_KEY (the LLM
+ *     never picks the client) and the READ-ONLY warehouse URL.
+ *   - each ads/analytics server becomes a stdio proxy (mcp-scoped-ads) that
+ *     refuses any account id outside the caller's scope. Without it the
+ *     restriction was only a paragraph of the system prompt, i.e. nothing.
+ *     `unrestricted` (admins) keeps the direct SSE entry.
+ *
+ * Servers we cannot scope are dropped, never passed through. Written to a 0600
+ * temp file, removed once the CLI exits.
+ * Returns { path, cleanup, servers } — servers being the surviving list.
  */
-function buildScopedMcpConfig(clientKey) {
-  const dataUrl = process.env.DATA_DATABASE_URL || "";
-  if (!dataUrl) { console.error("[chat] DATA_DATABASE_URL absent — client-data désactivé"); return null; }
+function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
-  const merged = {
-    ...base,
-    mcpServers: {
-      ...(base.mcpServers || {}),
-      [CLIENT_DATA_SERVER]: {
+
+  const scope = accountScope && typeof accountScope === "object" ? accountScope : {};
+  const unrestricted = scope.unrestricted === true;
+  // GA4 has no ACL table of its own: the bot passes the one property it may read.
+  const effectiveScope = { ...scope, ga4: ga4PropertyId ? [ga4PropertyId] : [] };
+
+  const baseServers = base.mcpServers || {};
+  const mcpServers = {};
+  const kept = [];
+
+  for (const name of servers) {
+    if (name === CLIENT_DATA_SERVER) {
+      const dataUrl = process.env.DATA_DATABASE_URL || "";
+      if (!clientKey || !dataUrl) {
+        console.error("[chat] client-data désactivé (clientKey ou DATA_DATABASE_URL absent)");
+        continue;
+      }
+      mcpServers[name] = {
         command: "node",
         args: [CLIENT_DATA_MCP_SCRIPT],
         env: { CLIENT_KEY: clientKey, DATA_DATABASE_URL: dataUrl },
+      };
+      kept.push(name);
+      continue;
+    }
+
+    const pick = SCOPED_ADS_SERVERS[name];
+    const upstream = baseServers[name];
+    if (!pick || !upstream) {
+      // Not a scopable server and not in the base config: nothing to serve.
+      if (upstream) { mcpServers[name] = upstream; kept.push(name); }
+      continue;
+    }
+    if (unrestricted) {
+      mcpServers[name] = upstream;
+      kept.push(name);
+      continue;
+    }
+    const ids = (pick(effectiveScope) || []).filter((v) => typeof v === "string" && v.trim());
+    if (ids.length === 0) {
+      console.error(`[chat] ${name} retiré — aucun compte autorisé pour cet appelant`);
+      continue;
+    }
+    if (!upstream.url) {
+      console.error(`[chat] ${name} retiré — pas d'URL amont à relayer`);
+      continue;
+    }
+    mcpServers[name] = {
+      command: "node",
+      args: [SCOPED_ADS_MCP_SCRIPT],
+      env: {
+        SCOPED_SERVER_NAME: name,
+        SCOPED_UPSTREAM_URL: upstream.url,
+        SCOPED_ACCOUNTS: ids.join(","),
       },
-    },
-  };
+    };
+    kept.push(name);
+  }
+
+  const summary = kept.map((n) => {
+    const e = mcpServers[n];
+    if (e.args?.[0] === SCOPED_ADS_MCP_SCRIPT) return `${n}[${e.env.SCOPED_ACCOUNTS}]`;
+    if (n === CLIENT_DATA_SERVER) return `${n}[${e.env.CLIENT_KEY}]`;
+    return `${n}[non restreint]`;
+  });
+  console.log(`[chat] MCP: ${summary.join(" ") || "(aucun serveur)"}`);
+
   const file = path.join(os.tmpdir(), `im-mcp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
-  fs.writeFileSync(file, JSON.stringify(merged), { mode: 0o600 });
+  fs.writeFileSync(file, JSON.stringify({ ...base, mcpServers }), { mode: 0o600 });
   let done = false;
   const cleanup = () => {
     if (done) return;
     done = true;
     try { fs.unlinkSync(file); } catch { /* already gone */ }
   };
-  return { path: file, cleanup };
+  return { path: file, cleanup, servers: kept };
 }
 
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
@@ -188,11 +260,10 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     dataScope && typeof dataScope === "object" && typeof dataScope.ga4PropertyId === "string" && dataScope.ga4PropertyId.trim()
       ? dataScope.ga4PropertyId.trim().slice(0, 64)
       : null;
-  let scopedMcp = null;
-  if (servers.includes(CLIENT_DATA_SERVER)) {
-    if (clientKey) scopedMcp = buildScopedMcpConfig(clientKey);
-    if (!scopedMcp) servers = servers.filter((s) => s !== CLIENT_DATA_SERVER);
-  }
+  // Every chat goes through a generated config: scopes are pinned in the
+  // environment of stdio servers, never left to the prompt.
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId });
+  if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
 

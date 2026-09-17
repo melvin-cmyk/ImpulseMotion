@@ -40,6 +40,9 @@ export async function POST(req: NextRequest) {
       meta: metaIds,
       google: googleIds,
       tiktok: tiktokIds,
+      // Admins are business-manager wide (same rule as lib/scope.ts); everyone
+      // else is confined by the relay to the ids listed above.
+      unrestricted: guard.session.role === "admin",
     },
   };
 
