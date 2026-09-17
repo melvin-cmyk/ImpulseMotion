@@ -4,7 +4,7 @@
  *   Body: { userId, name? }
  */
 
-import { getAccountScope, dashboardWhere } from "@/lib/scope";
+import { getAccountScope, dashboardWhere, bindingOutOfScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
@@ -50,12 +50,19 @@ export async function POST(req: NextRequest) {
 
   // Explicit creation: link a specific account (and its ACL grant) to a login.
   if (body.metaAccountId || body.googleCustomerId) {
+    const metaAccountId = typeof body.metaAccountId === "string" ? body.metaAccountId : null;
+    const googleCustomerId = typeof body.googleCustomerId === "string" ? body.googleCustomerId : null;
+    // Creation grants ACL rows — a consultant may only bind accounts they own.
+    const offending = bindingOutOfScope(await getAccountScope(guard.session), { metaAccountId, googleCustomerId });
+    if (offending) {
+      return NextResponse.json({ error: `compte hors périmètre : ${offending}` }, { status: 403 });
+    }
     try {
       const dashboard = await createDashboardForUser({
         userId,
         name: typeof body.name === "string" ? body.name : undefined,
-        metaAccountId: typeof body.metaAccountId === "string" ? body.metaAccountId : null,
-        googleCustomerId: typeof body.googleCustomerId === "string" ? body.googleCustomerId : null,
+        metaAccountId,
+        googleCustomerId,
       });
       return NextResponse.json({ dashboard });
     } catch (e) {

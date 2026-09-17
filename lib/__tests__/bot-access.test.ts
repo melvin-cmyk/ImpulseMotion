@@ -4,11 +4,14 @@ const findMany = vi.fn();
 const findUnique = vi.fn();
 const accessFindUnique = vi.fn();
 const accessCount = vi.fn();
+/** ACL rows behind getAccountScope — a consultant assigned Meta act_1 only. */
+const aclFindMany = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     clientBot: { findMany: (...a: unknown[]) => findMany(...a), findUnique: (...a: unknown[]) => findUnique(...a) },
     clientBotAccess: { findUnique: (...a: unknown[]) => accessFindUnique(...a), count: (...a: unknown[]) => accessCount(...a) },
+    userAdAccount: { findMany: (...a: unknown[]) => aclFindMany(...a) },
   },
 }));
 
@@ -37,14 +40,25 @@ beforeEach(() => {
   findUnique.mockReset();
   accessFindUnique.mockReset();
   accessCount.mockReset();
+  aclFindMany.mockReset();
+  aclFindMany.mockResolvedValue([{ platform: "meta", accountId: "act_1" }]);
 });
 
 describe("listBotsFor", () => {
-  it("staff → tous les bots activés (aucun filtre d'accès)", async () => {
+  it("admin → tous les bots activés", async () => {
     findMany.mockResolvedValue([{ id: "b", name: "A", sourcesJson: '{"meta":true}', dashboard: { name: "LPEV" } }]);
-    const bots = await listBotsFor({ userId: "u1", role: "consultant" });
+    const bots = await listBotsFor({ userId: "u1", role: "admin" });
     expect(findMany.mock.calls[0][0].where).toEqual({ enabled: true });
     expect(bots).toEqual([{ id: "b", name: "A", dashboardName: "LPEV", sources: { meta: true } }]);
+  });
+
+  it("consultant → seulement les bots de ses clients attribués", async () => {
+    findMany.mockResolvedValue([]);
+    await listBotsFor({ userId: "u1", role: "consultant" });
+    expect(findMany.mock.calls[0][0].where).toEqual({
+      enabled: true,
+      dashboard: { OR: [{ metaAccountId: { in: ["1", "act_1"] } }] },
+    });
   });
 
   it("client → uniquement via ClientBotAccess, activés", async () => {
@@ -73,6 +87,17 @@ describe("loadBotFor", () => {
     expect(r.status).toBe(200);
     expect(r.bot?.dashboard.name).toBe("LPEV");
     expect(accessFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("consultant → 200 sur un client attribué", async () => {
+    findUnique.mockResolvedValue(BOT);
+    expect((await loadBotFor({ userId: "c", role: "consultant" }, "bot1")).status).toBe(200);
+  });
+
+  it("consultant → 403 sur le bot d'un client qui ne lui est pas attribué", async () => {
+    // The bot answers from that client's own data warehouse (orders, revenue).
+    findUnique.mockResolvedValue({ ...BOT, dashboard: { ...BOT.dashboard, metaAccountId: "act_999" } });
+    expect(await loadBotFor({ userId: "c", role: "consultant" }, "bot1")).toEqual({ status: 403, bot: null });
   });
 
   it("client sans accès → 403", async () => {

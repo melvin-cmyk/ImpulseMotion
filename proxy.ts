@@ -14,6 +14,9 @@ const CLIENT_ALLOWED_PREFIXES = [
   "/api/auth",
   "/bot",
   "/api/bot",
+  // Own-account management: a client must be able to change their password.
+  "/settings",
+  "/api/me/password",
 ];
 
 // Admin-only surface (user & ACL management). Consultants get the rest of /admin.
@@ -29,7 +32,9 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const session = req.auth;
 
-  const publicPaths = ["/login", "/api/auth", "/api/cron", "/api/ingest", "/_next", "/favicon"];
+  // /api/cron and /api/ingest authenticate themselves (CRON_SECRET / bearer token).
+  // /api/tiktok-verify must answer the TikTok crawler, which has no session.
+  const publicPaths = ["/login", "/api/auth", "/api/cron", "/api/ingest", "/api/tiktok-verify", "/_next", "/favicon"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   const isAdminPath = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
@@ -78,6 +83,9 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
-    "/((?!login|share|api/auth|_next/static|_next/image|favicon.ico|.*\\.txt).*)",
+    // The exclusion names the TikTok verification file explicitly: a blanket
+    // `.*\.txt` would let ANY future route ending in .txt — /api/ ones
+    // included — skip the middleware entirely.
+    "/((?!login|share|api/auth|_next/static|_next/image|favicon.ico|tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad\\.txt).*)",
   ],
 };

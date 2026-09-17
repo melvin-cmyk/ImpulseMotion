@@ -32,7 +32,13 @@ export async function PATCH(req: NextRequest) {
   const { id, acknowledged } = body as { id: string; acknowledged: boolean };
   const event = await prisma.alertEvent.findUnique({ where: { id } });
   if (!event) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (!isStaff(guard.session) && event.userId !== guard.session.userId) {
+  if (isStaff(guard.session)) {
+    // Acknowledging is an act of monitoring: only on an assigned client.
+    const scope = await getAccountScope(guard.session);
+    if (!accountIdInScope(scope, event.clientId)) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+  } else if (event.userId !== guard.session.userId) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   await prisma.alertEvent.update({ where: { id }, data: { acknowledged } });

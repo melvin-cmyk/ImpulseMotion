@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor, denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
+import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 import { resolveWidgets, grantDashboardAccess, type CompareRange } from "@/lib/dashboard-widgets";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { describeRange, prevRange, rangeFromParams, validateRange, yearAgoRange } from "@/lib/date-ranges";
@@ -113,6 +114,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.googleCustomerId === null || typeof body.googleCustomerId === "string") {
     data.googleCustomerId = body.googleCustomerId ? String(body.googleCustomerId).replace(/-/g, "") : null;
   }
+  // denyIfDashboardOutOfScope above only cleared the accounts the dashboard has
+  // *today*. Re-binding it to another account grants ACL on that account below,
+  // so the incoming ids need the same check.
+  const offending = bindingOutOfScope(await getAccountScope(guard.session), {
+    metaAccountId: data.metaAccountId as string | null | undefined,
+    googleCustomerId: data.googleCustomerId as string | null | undefined,
+  });
+  if (offending) {
+    return NextResponse.json({ error: `compte hors périmètre : ${offending}` }, { status: 403 });
+  }
   // Opt-in AI reporting: null | "weekly" | "monthly"
   if (body.reportFrequency === null || ["weekly", "monthly", "none"].includes(String(body.reportFrequency))) {
     data.reportFrequency = body.reportFrequency && body.reportFrequency !== "none" ? String(body.reportFrequency) : null;
@@ -135,7 +146,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
   // Re-link the dashboard to another client login (grants matching ACL rows).
+  // Handing an account to another login is ACL management → admin only.
   if (typeof body.userId === "string" && body.userId && body.userId !== existing.userId) {
+    if (guard.session.role !== "admin") {
+      return NextResponse.json({ error: "réservé aux admins" }, { status: 403 });
+    }
     const target = await prisma.user.findUnique({ where: { id: body.userId } });
     if (!target) return NextResponse.json({ error: "target user not found" }, { status: 404 });
     data.userId = body.userId;

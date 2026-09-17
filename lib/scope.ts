@@ -57,6 +57,26 @@ export function accountIdInScope(scope: AccountScope, accountId: string | null |
   return metaInScope(scope, accountId) || googleInScope(scope, accountId);
 }
 
+/**
+ * Guards an *incoming* account binding (dashboard creation or re-bind).
+ *
+ * Binding a dashboard to an account calls grantDashboardAccess, which writes a
+ * UserAdAccount row — the very table getAccountScope reads. Without this check a
+ * consultant could point a dashboard at any account of the business manager and
+ * thereby grant themselves permanent access to that client's data.
+ *
+ * Returns the offending account id, or null when the binding is allowed.
+ */
+export function bindingOutOfScope(
+  scope: AccountScope,
+  binding: { metaAccountId?: string | null; googleCustomerId?: string | null },
+): string | null {
+  if (scope.all) return null;
+  if (binding.metaAccountId && !metaInScope(scope, binding.metaAccountId)) return binding.metaAccountId;
+  if (binding.googleCustomerId && !googleInScope(scope, binding.googleCustomerId)) return binding.googleCustomerId;
+  return null;
+}
+
 export type DashboardAccounts = { metaAccountId: string | null; googleCustomerId: string | null };
 
 /** A client is visible when one of its ad accounts is assigned to the viewer. */

@@ -9,17 +9,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
+import { accountIdInScope, getAccountScope } from "@/lib/scope";
 
 export async function GET(req: NextRequest) {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
+  const scope = await getAccountScope(guard.session);
 
   const platform = req.nextUrl.searchParams.get("platform") ?? undefined;
   const settings = await prisma.accountSetting.findMany({
     where: platform ? { platform } : undefined,
     orderBy: { accountId: "asc" },
   });
-  return NextResponse.json({ settings });
+  const visible = scope.all ? settings : settings.filter((s) => accountIdInScope(scope, s.accountId));
+  return NextResponse.json({ settings: visible });
 }
 
 export async function PUT(req: NextRequest) {
@@ -32,6 +35,13 @@ export async function PUT(req: NextRequest) {
   }
   const platform = typeof body.platform === "string" && body.platform ? body.platform : "meta";
   const accountId = body.accountId.replace(/^act_/, "");
+
+  // AOV, currency and conversionEvent drive every revenue/ROAS figure and the AI
+  // reports — a consultant must not be able to retune another client's numbers.
+  const scope = await getAccountScope(guard.session);
+  if (!accountIdInScope(scope, accountId)) {
+    return NextResponse.json({ error: "compte hors périmètre" }, { status: 403 });
+  }
 
   const aov =
     body.aov === null || body.aov === undefined

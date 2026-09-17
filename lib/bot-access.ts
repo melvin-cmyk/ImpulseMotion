@@ -1,8 +1,12 @@
 /**
  * Who may talk to which private client bot.
  *
- *   - staff (admin / consultant): every ENABLED bot, so they can test them;
- *   - client: only bots they were granted on (ClientBotAccess), enabled only.
+ *   - admin:      every ENABLED bot;
+ *   - consultant: the enabled bots of the clients they were assigned, so they
+ *                 can test them — a bot answers from the client's own data
+ *                 warehouse (orders, revenue, customers), so it follows the
+ *                 same account scope as every other staff surface;
+ *   - client:     only bots they were granted on (ClientBotAccess), enabled only.
  *
  * Disabled bots are invisible to everyone here: the admin screens use their
  * own (admin-only) queries.
@@ -11,6 +15,7 @@
 import { prisma } from "@/lib/prisma";
 import { isStaff } from "@/lib/auth-helpers";
 import { parseSources, type BotSummary } from "@/lib/bot-types";
+import { dashboardInScope, dashboardWhere, getAccountScope } from "@/lib/scope";
 
 export type BotSession = { userId: string; role?: string | null };
 
@@ -49,9 +54,13 @@ const BOT_SELECT = {
 
 /** Bots the session may open, as shown by GET /api/bot and /bot. */
 export async function listBotsFor(session: BotSession): Promise<BotSummary[]> {
-  const where = isStaff(session)
-    ? { enabled: true }
-    : { enabled: true, accesses: { some: { userId: session.userId } } };
+  let where;
+  if (isStaff(session)) {
+    const scope = await getAccountScope(session);
+    where = scope.all ? { enabled: true } : { enabled: true, dashboard: dashboardWhere(scope) };
+  } else {
+    where = { enabled: true, accesses: { some: { userId: session.userId } } };
+  }
   const bots = await prisma.clientBot.findMany({
     where,
     select: { id: true, name: true, sourcesJson: true, dashboard: { select: { name: true } } },
@@ -79,7 +88,10 @@ export async function loadBotFor(session: BotSession, botId: string): Promise<Lo
   if (!botId) return { status: 404, bot: null };
   const bot = await prisma.clientBot.findUnique({ where: { id: botId }, select: BOT_SELECT });
   if (!bot || !bot.enabled) return { status: 404, bot: null };
-  if (isStaff(session)) return { status: 200, bot };
+  if (isStaff(session)) {
+    const scope = await getAccountScope(session);
+    return dashboardInScope(scope, bot.dashboard) ? { status: 200, bot } : { status: 403, bot: null };
+  }
   const access = await prisma.clientBotAccess.findUnique({
     where: { botId_userId: { botId, userId: session.userId } },
     select: { id: true },

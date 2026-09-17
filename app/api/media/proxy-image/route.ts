@@ -1,5 +1,5 @@
 /**
- * GET /api/deck/proxy-image?url=...
+ * GET /api/media/proxy-image?url=...
  * Fetches an external image server-side (avoids browser CORS/mixed-content) and streams it back.
  *
  * Also sniffs the image dimensions and attaches them as response headers so
@@ -8,7 +8,7 @@
  * size fragment rewritten to /p1200x1200/ — that rescues most Meta thumbnail
  * URLs without needing sharp.
  *
- * Add &format=base64 to get JSON with a data URL (for PPTX export).
+ * Add &format=base64 to get JSON with a data URL (for report exports).
  */
 import { NextRequest, NextResponse } from "next/server";
 import { upgradeImageUrl, sniffImageSize, LOW_RES_THRESHOLD_PX } from "@/lib/image-upgrade";
@@ -47,11 +47,34 @@ function isAllowedImageUrl(raw: string): boolean {
 const UPSCALE_TARGET_PX = 1200;
 const UPSCALE_TRIGGER_PX = 800;
 
-async function fetchImage(url: string) {
-  return fetch(url, {
-    headers: { "User-Agent": "ImpulseAnalytics/1.0" },
-    signal: AbortSignal.timeout(8000),
-  });
+const MAX_REDIRECTS = 5;
+
+/**
+ * Follows redirects by hand, re-checking the allowlist at every hop.
+ *
+ * Validating only the URL the caller passed is not enough: allowlisted hosts
+ * include open redirectors (l.facebook.com/l.php?u=…), so `redirect: "follow"`
+ * would happily land on an internal address — and with ?format=base64 the body
+ * comes straight back to the caller. The allowlist has to hold for the host we
+ * actually read from.
+ */
+async function fetchImage(url: string): Promise<Response> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!isAllowedImageUrl(current)) {
+      return new Response(null, { status: 403, statusText: "redirect host not allowed" });
+    }
+    const res = await fetch(current, {
+      headers: { "User-Agent": "ImpulseAnalytics/1.0" },
+      signal: AbortSignal.timeout(8000),
+      redirect: "manual",
+    });
+    if (res.status < 300 || res.status >= 400) return res;
+    const location = res.headers.get("location");
+    if (!location) return res;
+    current = new URL(location, current).toString();
+  }
+  return new Response(null, { status: 508, statusText: "too many redirects" });
 }
 
 async function upscaleIfSmall(

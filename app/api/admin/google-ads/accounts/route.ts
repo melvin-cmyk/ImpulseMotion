@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { relayHeaders } from "@/lib/relay-headers";
+import { getAccountScope, googleInScope } from "@/lib/scope";
 
 import { RELAY_URLS } from "@/lib/relay-server";
 
@@ -50,6 +51,9 @@ type GaqlResult = Array<{
 export async function GET() {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
+  // Same rule as the Meta listing: a consultant sees their assigned customers,
+  // not the whole MCC.
+  const scope = await getAccountScope(guard.session);
 
   try {
     const list = await callRelayTool<ListCustomersResult>(
@@ -116,9 +120,9 @@ export async function GET() {
       }
     }
 
-    const out = Array.from(accounts.values()).sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
+    const out = Array.from(accounts.values())
+      .filter((a) => googleInScope(scope, a.accountId))
+      .sort((a, b) => a.name.localeCompare(b.name));
     return NextResponse.json({ accounts: out });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Relay error";

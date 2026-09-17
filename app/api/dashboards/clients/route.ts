@@ -6,13 +6,25 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
+import { dashboardWhere, getAccountScope } from "@/lib/scope";
 
 export async function GET() {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
+  const scope = await getAccountScope(guard.session);
 
+  // A consultant sees the logins attached to their own clients — not the
+  // agency's whole customer directory (emails + reusable user ids).
   const clients = await prisma.user.findMany({
-    where: { role: "client" },
+    where: scope.all
+      ? { role: "client" }
+      : {
+          role: "client",
+          OR: [
+            { dashboards: { some: dashboardWhere(scope) } },
+            { dashboardMemberships: { some: { dashboard: dashboardWhere(scope) } } },
+          ],
+        },
     select: { id: true, email: true, name: true },
     orderBy: { name: "asc" },
   });

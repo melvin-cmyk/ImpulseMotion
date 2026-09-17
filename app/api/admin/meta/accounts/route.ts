@@ -1,15 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { getAdAccounts, getMetaSystemToken } from "@/lib/meta-api";
+import { getAccountScope, metaInScope } from "@/lib/scope";
 
 export async function GET() {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
+  // This is the whole business manager behind a shared System User token —
+  // a consultant gets the accounts an admin assigned them, not the catalogue.
+  const scope = await getAccountScope(guard.session);
 
   try {
     const token = getMetaSystemToken();
     const accounts = await getAdAccounts(token);
     const list = accounts
+      .filter((a) => metaInScope(scope, a.id))
       .map((a) => ({
         accountId: a.id,
         name: a.name,

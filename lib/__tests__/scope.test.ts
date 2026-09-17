@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { ALL_ACCOUNTS, accountIdInScope, dashboardInScope, dashboardWhere, metaInScope, googleInScope, type AccountScope } from "@/lib/scope";
+import { ALL_ACCOUNTS, accountIdInScope, bindingOutOfScope, dashboardInScope, dashboardWhere, metaInScope, googleInScope, type AccountScope } from "@/lib/scope";
 
 const consultant: AccountScope = { all: false, meta: new Set(["123"]), google: new Set(["999"]), tiktok: new Set() };
 const nothing: AccountScope = { all: false, meta: new Set(), google: new Set(), tiktok: new Set() };
@@ -41,6 +41,17 @@ describe("account scope", () => {
     // An account-agnostic rule (clientId null) spans the whole BM → admins only.
     expect(accountIdInScope(consultant, null)).toBe(false);
     expect(accountIdInScope(ALL_ACCOUNTS, null)).toBe(true);
+  });
+
+  it("refuses binding a dashboard to an account outside the scope", () => {
+    // Binding grants a UserAdAccount row, so an unchecked bind = self-service ACL.
+    expect(bindingOutOfScope(consultant, { metaAccountId: "act_123" })).toBe(null);
+    expect(bindingOutOfScope(consultant, { googleCustomerId: "999" })).toBe(null);
+    expect(bindingOutOfScope(consultant, { metaAccountId: "act_456" })).toBe("act_456");
+    expect(bindingOutOfScope(consultant, { metaAccountId: "act_123", googleCustomerId: "111" })).toBe("111");
+    // Unbinding (null) and admins are always allowed.
+    expect(bindingOutOfScope(consultant, { metaAccountId: null, googleCustomerId: null })).toBe(null);
+    expect(bindingOutOfScope(ALL_ACCOUNTS, { metaAccountId: "act_456" })).toBe(null);
   });
 
   it("a user with no assigned account matches nothing", () => {
