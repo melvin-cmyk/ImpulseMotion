@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { getAdAccountsCached } from "@/lib/insights";
 import { requireStaff } from "@/lib/auth-helpers";
-import { getAdAccounts, getMetaSystemToken } from "@/lib/meta-api";
+import { getMetaSystemToken } from "@/lib/meta-api";
 import { getAccountScope, metaInScope } from "@/lib/scope";
 
 export async function GET() {
@@ -12,7 +13,7 @@ export async function GET() {
 
   try {
     const token = getMetaSystemToken();
-    const accounts = await getAdAccounts(token);
+    const accounts = await getAdAccountsCached(token);
     const list = accounts
       .filter((a) => metaInScope(scope, a.id))
       .map((a) => ({

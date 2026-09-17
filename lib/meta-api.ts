@@ -285,7 +285,10 @@ async function metaFetch<T>(
     const result = await withMetaSlot(() => metaRequestOnce<T>(target, path));
     if (result.ok) return result.value;
     lastError = result.error;
-    const last = attempt === MAX_ATTEMPTS || !result.error.retryable;
+    // Meta announcing minutes of lockout (x-business-use-case-usage): retrying
+    // within our 30 s backoff cannot succeed and only burns more quota.
+    const lockedOut = (result.retryAfterMs ?? 0) > MAX_BACKOFF_MS;
+    const last = attempt === MAX_ATTEMPTS || !result.error.retryable || lockedOut;
     console.warn(`[meta-api] ${path} attempt ${attempt}/${MAX_ATTEMPTS} ${result.error.describe()}${last ? "" : " → retry"}`);
     if (last) break;
     const base = retryBaseMs();

@@ -4,11 +4,10 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import {
-  getAdAccounts,
   getMetaSystemToken,
   computeRevenue,
 } from "@/lib/meta-api";
-import { getAccountInsightsCached, getAccountProfileCached } from "@/lib/insights";
+import { getAccountInsightsCached, getAccountProfileCached, getAdAccountsCached } from "@/lib/insights";
 
 async function fetchAccountName(accountId: string, token: string): Promise<{ name: string; currency?: string } | null> {
   // Goes through the Graph limiter/retry (lib/meta-api); cached 24 h.
@@ -54,7 +53,7 @@ export async function GET() {
   let baseAccounts: Array<{ id: string; name?: string; label?: string | null; currency?: string }>;
 
   if (guard.session.role === "admin") {
-    const all = await getAdAccounts(token).catch(() => []);
+    const all = await getAdAccountsCached(token).catch(() => []);
     baseAccounts = all.map((a) => ({ id: a.id, name: a.name, currency: a.currency }));
   } else {
     const rows = await prisma.userAdAccount.findMany({

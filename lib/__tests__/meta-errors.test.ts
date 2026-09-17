@@ -127,6 +127,15 @@ describe("metaFetch retry policy", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("fails fast when Meta announces minutes of lockout", async () => {
+    const { getAccountInsights } = await import("@/lib/meta-api");
+    const usage = JSON.stringify({ "123": [{ type: "ads_management", estimated_time_to_regain_access: 10 }] });
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ error: { message: "too many calls", code: 80004, error_subcode: 2446079 } }, 400, { "x-business-use-case-usage": usage }));
+    await expect(getAccountInsights("tok", "123")).rejects.toMatchObject({ kind: "rate_limit" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("retries HTTP 5xx without a JSON body", async () => {
     const { getAccountInsights } = await import("@/lib/meta-api");
     fetchMock

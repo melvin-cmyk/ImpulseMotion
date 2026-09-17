@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getAdAccounts, getAccountProfile, getMetaSystemToken } from "@/lib/meta-api";
+import { getAdAccountsCached, getAccountProfileCached } from "@/lib/insights";
+import { getMetaSystemToken } from "@/lib/meta-api";
 import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 
@@ -10,7 +11,7 @@ async function fetchAccountMeta(
   // Goes through the Graph limiter/retry (lib/meta-api). Unreachable accounts
   // (permission/auth errors) are flagged outOfScope by the caller.
   try {
-    const p = await getAccountProfile(token, accountId);
+    const p = await getAccountProfileCached(token, accountId);
     return { name: p.name, currency: p.currency || undefined };
   } catch (err) {
     console.warn(`[meta/accounts] profile unavailable for ${accountId}:`, err instanceof Error ? err.message : err);
@@ -26,7 +27,7 @@ export async function GET() {
     const token = getMetaSystemToken();
 
     if (guard.session.role === "admin") {
-      const accounts = await getAdAccounts(token);
+      const accounts = await getAdAccountsCached(token);
       return NextResponse.json(accounts);
     }
 
