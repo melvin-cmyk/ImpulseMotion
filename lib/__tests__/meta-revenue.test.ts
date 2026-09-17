@@ -44,9 +44,24 @@ describe("computeRevenue", () => {
     expect(r).toEqual({ revenue: 220, estimated: true });
   });
 
-  it("returns zero, non-estimated semantics for accounts with no purchases", () => {
+  it("an account with no conversions and no AOV is unavailable, not a real zero", () => {
+    // Reporting a plain 0 here is what showed "0,00x" in red on the client
+    // dashboard while Analyse Ads showed "—" for the very same account.
     const r = computeRevenue({ ...base, actions: [] });
-    expect(r.revenue).toBe(0);
+    expect(r).toEqual({ revenue: 0, estimated: true, unavailable: true });
+  });
+
+  it("0 conversions under a configured AOV is a real zero", () => {
+    expect(computeRevenue({ ...base, actions: [] }, 50)).toEqual({ revenue: 0, estimated: true });
+  });
+
+  it("honours the account conversion event instead of assuming purchase", () => {
+    // Lead-gen account: AOV 50, 100 leads, zero purchases.
+    const leadGen = { ...base, actions: [{ action_type: "lead", value: "100" }] };
+    expect(computeRevenue(leadGen, 50, "lead")).toEqual({ revenue: 5000, estimated: true });
+    // Default (purchase) sees nothing to estimate from.
+    expect(computeRevenue(leadGen, 50)).toEqual({ revenue: 0, estimated: true });
+    expect(computeRevenue(leadGen, 50, "custom:signup")).toEqual({ revenue: 0, estimated: true });
   });
 });
 

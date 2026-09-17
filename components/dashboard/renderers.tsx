@@ -12,26 +12,16 @@ import {
 } from "recharts";
 import { Card, Pill } from "@/components/ui/surface";
 import type { ResolvedWidget } from "@/lib/dashboard-types";
-import { fmtMoney, fmtNumber, fmtPct, fmtRoas } from "@/components/portfolio/format";
+import { fmtMetric, fmtMoney, fmtNumber, fmtPct, fmtRoas } from "@/components/portfolio/format";
 import {
   CrmCampaignTable, CrmDiagnosticBlock, CrmFreshness, CrmLevelBadge, CrmPartialBanner, CrmSkeleton, CrmSourceTable, roasTone,
 } from "@/components/portfolio/crm-shared";
 import type { CrmAttributionData, CrmFunnelData } from "@/components/portfolio/crm-types";
-
-const eur = (v: number) =>
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(v);
-const num = (v: number) => new Intl.NumberFormat("fr-FR").format(Math.round(v));
-const num1 = (v: number) => new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 1 }).format(v);
-
-function kpiDisplay(metric: string, value: number): string {
-  switch (metric) {
-    case "spend": case "revenue": case "cpa": return eur(value);
-    case "cpc": return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(value);
-    case "roas": return `${value.toFixed(2)}x`;
-    case "ctr": case "cr": return `${value.toFixed(2)}%`;
-    default: return num(value);
-  }
-}
+import {
+  emptyMessage, kpiValueClass, pacingView, partialNote,
+  type AlertsData, type DemographicsData, type FunnelData, type GeoDeviceData, type KpiData,
+  type PacingData, type PlatformTableData, type TableData, type TimeseriesData, type TopCreativesData,
+} from "@/components/dashboard/widget-display";
 
 const KPI_LABELS: Record<string, string> = {
   spend: "Dépenses", revenue: "Revenu", roas: "ROAS", ctr: "CTR", cpa: "CPA",
@@ -96,38 +86,30 @@ function compareLabel(d: { compareKind?: string | null; compareSince?: string | 
 /** A move of ±20% (or more) is what a consultant must not miss. */
 const BIG_MOVE_PCT = 20;
 
-/** Semantic color for the KPI value itself: only ROAS carries an absolute
- *  judgement (≥2 healthy, <1 losing money) — other metrics are contextual. */
-function kpiValueColor(metric: string, value: number): string {
-  if (metric === "roas" && value > 0) {
-    if (value >= 2) return "text-emerald-400";
-    if (value < 1) return "text-red-400";
-  }
-  return "text-white";
-}
-
 function KpiWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as {
-    metric: string; source: string; value: number; estimated: boolean;
-    previous?: number | null; deltaPct?: number | null;
-    compareKind?: string | null; compareSince?: string | null; compareUntil?: string | null;
-  };
+  const d = widget.data as KpiData;
   const bigMove = typeof d.deltaPct === "number" && Math.abs(d.deltaPct) >= BIG_MOVE_PCT;
   const color = typeof d.deltaPct === "number" ? deltaColor(d.metric, d.deltaPct) : "";
   const bigBg = color.includes("emerald") ? "bg-emerald-950/60 border border-emerald-900/50"
     : color.includes("red") ? "bg-red-950/60 border border-red-900/50"
     : "bg-gray-800/60 border border-gray-700/50";
+  const note = partialNote(d);
   return (
     <div className="py-1">
       <div className="flex items-baseline gap-2">
-        <span className={`text-3xl font-bold tabular-nums ${kpiValueColor(d.metric, d.value)}`}>
-          {kpiDisplay(d.metric, d.value)}
+        <span className={`text-3xl font-bold tabular-nums ${kpiValueClass(d.metric, d.value, d)}`}>
+          {fmtMetric(d.metric, d.value, d.currency, { estimated: d.estimated, unavailable: d.unavailable })}
         </span>
-        {d.estimated && <Pill tone="amber">estimé</Pill>}
+        {d.estimated && !d.unavailable && <Pill tone="amber">estimé</Pill>}
+        {d.partial && <Pill tone="amber">partiel</Pill>}
       </div>
+      {d.unavailable && (
+        <div className="text-xs text-gray-500 mt-1">Revenu non tracké et aucun panier moyen configuré</div>
+      )}
+      {note && <div className="text-xs text-amber-400/90 mt-1" title={d.errors?.join(" · ")}>{note}</div>}
       <div className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
         <span>{KPI_LABELS[d.metric] ?? d.metric} · {SOURCE_LABELS[d.source] ?? d.source}</span>
-        {typeof d.deltaPct === "number" && (
+        {!d.unavailable && typeof d.deltaPct === "number" && (
           <span
             className={`font-semibold tabular-nums ${color} ${bigMove ? `px-1.5 py-0.5 rounded-md ${bigBg}` : ""}`}
             title={bigMove ? "Variation importante" : undefined}
@@ -143,15 +125,15 @@ function KpiWidget({ widget }: { widget: ResolvedWidget }) {
 
 // Column spec for the platform overview table — order mirrors the classic
 // media report: Cost, Impr., CTR, Clicks, CPC, CR%, Conversions, CPA.
-const PLATFORM_COLUMNS: Array<{ key: string; label: string; goodUp: boolean | null; fmt: (v: number) => string }> = [
-  { key: "cost", label: "Cost", goodUp: null, fmt: eur },
-  { key: "impressions", label: "Impr.", goodUp: true, fmt: num },
-  { key: "ctr", label: "CTR", goodUp: true, fmt: (v) => `${v.toFixed(2)}%` },
-  { key: "clicks", label: "Clicks", goodUp: true, fmt: num },
-  { key: "cpc", label: "CPC", goodUp: false, fmt: (v) => `${v.toFixed(2)}€` },
-  { key: "cr", label: "CR%", goodUp: true, fmt: (v) => `${v.toFixed(2)}%` },
-  { key: "conversions", label: "Conv.", goodUp: true, fmt: (v) => num(Math.round(v * 10) / 10) },
-  { key: "cpa", label: "CPA", goodUp: false, fmt: eur },
+const PLATFORM_COLUMNS: Array<{ key: string; label: string; goodUp: boolean | null; fmt: (v: number, currency?: string) => string }> = [
+  { key: "cost", label: "Cost", goodUp: null, fmt: (v, c) => fmtMoney(v, c, { digits: 0 }) },
+  { key: "impressions", label: "Impr.", goodUp: true, fmt: (v) => fmtNumber(v) },
+  { key: "ctr", label: "CTR", goodUp: true, fmt: (v) => fmtPct(v, 2) },
+  { key: "clicks", label: "Clicks", goodUp: true, fmt: (v) => fmtNumber(v) },
+  { key: "cpc", label: "CPC", goodUp: false, fmt: (v, c) => fmtMoney(v, c, { digits: 2 }) },
+  { key: "cr", label: "CR%", goodUp: true, fmt: (v) => fmtPct(v, 2) },
+  { key: "conversions", label: "Conv.", goodUp: true, fmt: (v) => fmtNumber(v, 1) },
+  { key: "cpa", label: "CPA", goodUp: false, fmt: (v, c) => fmtMoney(v, c, { digits: 0 }) },
 ];
 
 function DeltaCell({ deltaPct, goodUp }: { deltaPct: number | null; goodUp: boolean | null }) {
@@ -168,8 +150,8 @@ function DeltaCell({ deltaPct, goodUp }: { deltaPct: number | null; goodUp: bool
 }
 
 function PlatformTableWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as { rows: Array<Record<string, number | string | null>> };
-  if (!d.rows?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+  const d = widget.data as PlatformTableData;
+  if (!d.rows?.length) return <div className="text-sm text-gray-500 py-4">{emptyMessage(d)}</div>;
   return (
     <div className="overflow-x-auto -mx-1">
       <table className="w-full text-sm min-w-[640px]">
@@ -190,7 +172,7 @@ function PlatformTableWidget({ widget }: { widget: ResolvedWidget }) {
               <td className="py-2 px-1 text-left text-gray-200">{String(row.platform)}</td>
               {PLATFORM_COLUMNS.map((c) => (
                 <td key={c.key} className="py-2 px-1 text-right text-gray-300 tabular-nums align-top">
-                  {c.fmt(Number(row[c.key] ?? 0))}
+                  {c.fmt(Number(row[c.key] ?? 0), d.currency)}
                   <DeltaCell deltaPct={row[`${c.key}DeltaPct`] as number | null} goodUp={c.goodUp} />
                 </td>
               ))}
@@ -203,8 +185,8 @@ function PlatformTableWidget({ widget }: { widget: ResolvedWidget }) {
 }
 
 function TimeseriesWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as { metric: string; points: Array<{ date: string; value: number }>; estimated: boolean };
-  if (!d.points?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+  const d = widget.data as TimeseriesData;
+  if (!d.points?.length) return <div className="text-sm text-gray-500 py-4">{emptyMessage(d)}</div>;
   const money = d.metric === "spend" || d.metric === "revenue";
   return (
     <div className="h-56">
@@ -225,13 +207,13 @@ function TimeseriesWidget({ widget }: { widget: ResolvedWidget }) {
           />
           <YAxis
             tick={{ fill: "#6b7280", fontSize: 11 }}
-            tickFormatter={(v: number) => (money ? `${Math.round(v)}€` : String(v))}
+            tickFormatter={(v: number) => (money ? fmtMoney(v, d.currency, { digits: 0 }) : String(v))}
             axisLine={false} tickLine={false} width={48}
           />
           <Tooltip
             contentStyle={{ background: "#111827", border: "1px solid #374151", borderRadius: 8, fontSize: 12 }}
             labelStyle={{ color: "#9ca3af" }}
-            formatter={(value) => [money ? eur(Number(value ?? 0)) : String(value ?? ""), KPI_LABELS[d.metric] ?? d.metric]}
+            formatter={(value) => [fmtMetric(d.metric, Number(value ?? 0), d.currency), KPI_LABELS[d.metric] ?? d.metric]}
           />
           <Area type="monotone" dataKey="value" stroke="#8b5cf6" strokeWidth={2} fill={`url(#grad-${widget.id})`} />
         </AreaChart>
@@ -240,37 +222,32 @@ function TimeseriesWidget({ widget }: { widget: ResolvedWidget }) {
   );
 }
 
-/** Cell emphasis: a healthy ROAS pops green, money burned with zero return pops red. */
-function roasCellClass(v: number): string {
-  if (v >= 2) return "text-emerald-400 font-semibold";
-  if (v > 0 && v < 1) return "text-red-400";
-  return "";
-}
-
 function TableWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as { kind: string; rows: Array<Record<string, unknown>> };
-  if (!d.rows?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+  const d = widget.data as TableData;
+  if (!d.rows?.length) return <div className="text-sm text-gray-500 py-4">{emptyMessage(d)}</div>;
+  const spendCol = (label: string) => ({ key: "spend", label, fmt: (v: unknown) => fmtMoney(Number(v), d.currency, { digits: 0 }) });
+  const clicksCol = { key: "clicks", label: "Clics", fmt: (v: unknown) => fmtNumber(Number(v)) };
   const cols: Array<{ key: string; label: string; fmt?: (v: unknown) => string; cellClass?: (row: Record<string, unknown>) => string }> =
     d.kind === "campaigns"
       ? [
           { key: "name", label: "Campagne" },
-          { key: "spend", label: "Dépenses", fmt: (v) => eur(Number(v)) },
-          { key: "clicks", label: "Clics", fmt: (v) => num(Number(v)) },
+          spendCol("Dépenses"),
+          clicksCol,
           { key: "conversions", label: "Conv." },
-          { key: "roas", label: "ROAS", fmt: (v) => `${Number(v).toFixed(2)}x`, cellClass: (row) => roasCellClass(Number(row.roas)) },
+          { key: "roas", label: "ROAS", fmt: (v) => fmtRoas(Number(v)), cellClass: (row) => roasTone(Number(row.roas)) },
         ]
       : d.kind === "keywords"
         ? [
             { key: "name", label: "Mot-clé" },
-            { key: "spend", label: "Dépenses", fmt: (v) => eur(Number(v)) },
-            { key: "clicks", label: "Clics", fmt: (v) => num(Number(v)) },
+            spendCol("Dépenses"),
+            clicksCol,
             { key: "conversions", label: "Conv." },
-            { key: "ctr", label: "CTR", fmt: (v) => `${Number(v).toFixed(1)}%` },
+            { key: "ctr", label: "CTR", fmt: (v) => fmtPct(Number(v), 1) },
           ]
         : [
             { key: "name", label: "Terme de recherche" },
-            { key: "spend", label: "Dépenses", fmt: (v) => eur(Number(v)) },
-            { key: "clicks", label: "Clics", fmt: (v) => num(Number(v)) },
+            spendCol("Dépenses"),
+            clicksCol,
             { key: "conversions", label: "Conv." },
           ];
   return (
@@ -309,10 +286,8 @@ function TableWidget({ widget }: { widget: ResolvedWidget }) {
 }
 
 function TopCreativesWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as {
-    creatives: Array<{ adId: string; name: string; imageUrl: string | null; spend: number; ctr: number; hookRate: number; roas: number; estimated: boolean }>;
-  };
-  if (!d.creatives?.length) return <div className="text-sm text-gray-500 py-4">Pas de créas actives sur la période</div>;
+  const d = widget.data as TopCreativesData;
+  if (!d.creatives?.length) return <div className="text-sm text-gray-500 py-4">{emptyMessage(d, "Pas de créas actives sur la période")}</div>;
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
       {d.creatives.map((c) => (
@@ -333,9 +308,9 @@ function TopCreativesWidget({ widget }: { widget: ResolvedWidget }) {
           <div className="p-2">
             <div className="text-[11px] text-gray-400 truncate" title={c.name}>{c.name}</div>
             <div className="flex justify-between mt-1 text-[11px]">
-              <span className="text-gray-500">{eur(c.spend)}</span>
-              <span className={c.roas >= 2 ? "text-emerald-400 font-semibold" : c.roas > 0 && c.roas < 1 ? "text-red-400" : "text-gray-300"}>
-                {c.roas.toFixed(1)}x{c.estimated ? "*" : ""}
+              <span className="text-gray-500">{fmtMoney(c.spend, d.currency, { digits: 0 })}</span>
+              <span className={roasTone(c.unavailable ? null : c.roas)} title={c.unavailable ? "Revenu non tracké et aucun panier moyen configuré" : undefined}>
+                {fmtRoas(c.roas, { estimated: c.estimated, unavailable: c.unavailable })}
               </span>
             </div>
           </div>
@@ -346,37 +321,34 @@ function TopCreativesWidget({ widget }: { widget: ResolvedWidget }) {
 }
 
 function PacingWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as {
-    monthlyTarget: number; mtdSpend: number; projectedSpend: number; pacingPct: number;
-    status: string; currency: string; daysRemaining?: number;
-  };
-  const statusInfo: Record<string, { label: string; tone: "amber" | "red" | "emerald" | "blue" }> = {
-    critical_under: { label: "Sous-consommation critique", tone: "red" },
-    under: { label: "Sous-consommation", tone: "amber" },
-    on_track: { label: "Sur la trajectoire", tone: "emerald" },
-    over: { label: "Sur-consommation", tone: "amber" },
-    critical_over: { label: "Sur-consommation critique", tone: "red" },
-  };
-  const info = statusInfo[d.status] ?? { label: d.status, tone: "blue" as const };
-  const pct = Math.min(Math.max(d.monthlyTarget > 0 ? (d.mtdSpend / d.monthlyTarget) * 100 : 0, 0), 130);
+  const d = widget.data as PacingData;
+  const info = pacingView(d);
+  // "unknown" means Meta did not answer: the 0 it carries is not a spend.
+  const pct = info.unknown ? 0 : Math.min(Math.max(d.monthlyTarget > 0 ? (d.mtdSpend / d.monthlyTarget) * 100 : 0, 0), 130);
   return (
     <div className="py-1 space-y-3">
       <div className="flex items-baseline justify-between">
         <div>
-          <span className="text-2xl font-bold text-white tabular-nums">{eur(d.mtdSpend)}</span>
-          <span className="text-sm text-gray-500"> / {eur(d.monthlyTarget)} ce mois</span>
+          <span className={`text-2xl font-bold tabular-nums ${info.unknown ? "text-gray-500" : "text-white"}`}>
+            {info.unknown ? "—" : fmtMoney(d.mtdSpend, d.currency, { digits: 0 })}
+          </span>
+          <span className="text-sm text-gray-500"> / {fmtMoney(d.monthlyTarget, d.currency, { digits: 0 })} ce mois</span>
         </div>
         <Pill tone={info.tone}>{info.label}</Pill>
       </div>
       <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
         <div
-          className={`h-full rounded-full ${d.status.includes("critical") ? "bg-red-500" : d.status === "on_track" ? "bg-emerald-500" : "bg-amber-500"}`}
+          className={`h-full rounded-full ${info.unknown ? "bg-gray-700" : d.status.includes("critical") ? "bg-red-500" : d.status === "on_track" ? "bg-emerald-500" : "bg-amber-500"}`}
           style={{ width: `${Math.min(pct, 100)}%` }}
         />
       </div>
-      <div className="text-xs text-gray-500">
-        Projection fin de mois : <span className="text-gray-300">{eur(d.projectedSpend)}</span> ({Math.round(d.pacingPct)}% de l&apos;objectif)
-      </div>
+      {info.reason ? (
+        <div className="text-xs text-amber-400/90">Dépense du mois indisponible — {info.reason}</div>
+      ) : (
+        <div className="text-xs text-gray-500">
+          Projection fin de mois : <span className="text-gray-300">{fmtMoney(d.projectedSpend, d.currency, { digits: 0 })}</span> ({Math.round(d.pacingPct)}% de l&apos;objectif)
+        </div>
+      )}
     </div>
   );
 }
@@ -392,21 +364,23 @@ function TextWidget({ widget }: { widget: ResolvedWidget }) {
 }
 
 function FunnelWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as {
-    source: string;
-    steps: Array<{ label: string; value: number }>;
-    rates: Array<{ label: string; pct: number }>;
-  } | undefined;
+  const d = widget.data as FunnelData | undefined;
   if (!d?.steps?.length || d.steps.every((s) => !s.value)) {
-    return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+    return <div className="text-sm text-gray-500 py-4">{emptyMessage(d ?? {})}</div>;
   }
+  // A platform missing from the sum makes every rate below mechanically wrong.
+  const note = partialNote(d);
   const max = Math.max(...d.steps.map((s) => s.value), 1);
   // Impressions dwarf conversions by orders of magnitude — clamp so every bar stays visible.
   const widthPct = (v: number) => Math.max((v / max) * 100, 2.5);
   const stepBar = ["bg-violet-500/80", "bg-violet-500/55", "bg-violet-400/40"];
   return (
     <div className="py-1">
-      <div className="text-xs text-gray-500 mb-2">{SOURCE_LABELS[d.source] ?? d.source}</div>
+      <div className="text-xs text-gray-500 mb-2">
+        {SOURCE_LABELS[d.source] ?? d.source}
+        {note && <span className="text-amber-400/90"> · partiel</span>}
+      </div>
+      {note && <div className="text-xs text-amber-400/90 mb-2" title={d.errors?.join(" · ")}>{note}</div>}
       <div className="space-y-1">
         {d.steps.map((s, i) => (
           <div key={s.label}>
@@ -424,7 +398,7 @@ function FunnelWidget({ widget }: { widget: ResolvedWidget }) {
                 />
               </div>
               <div className="w-20 shrink-0 text-right text-sm font-semibold text-gray-200 tabular-nums">
-                {s.label === "Conversions" ? num1(s.value) : num(s.value)}
+                {fmtNumber(s.value, s.label === "Conversions" ? 1 : 0)}
               </div>
             </div>
           </div>
@@ -442,12 +416,10 @@ const GENDER_INFO: Record<string, { label: string; bar: string }> = {
 const GENDER_ORDER = ["female", "male", "unknown"] as const;
 
 function DemographicsWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as {
-    metric: string;
-    rows: Array<{ age: string; gender: string; value: number }>;
-  } | undefined;
-  if (!d?.rows?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
-  const fmt = d.metric === "spend" ? eur : d.metric === "purchases" ? num1 : num;
+  const d = widget.data as DemographicsData | undefined;
+  if (!d?.rows?.length) return <div className="text-sm text-gray-500 py-4">{emptyMessage(d ?? {})}</div>;
+  const fmt = (v: number) =>
+    d.metric === "spend" ? fmtMoney(v, d.currency, { digits: 0 }) : fmtNumber(v, d.metric === "purchases" ? 1 : 0);
   const byAge = new Map<string, Record<string, number>>();
   for (const r of d.rows) {
     const g = byAge.get(r.age) ?? {};
@@ -517,12 +489,8 @@ function geoDeviceLabel(dimension: string, key: string): string {
 }
 
 function GeoDeviceWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as {
-    dimension: string;
-    source: string;
-    rows: Array<{ key: string; spend: number; clicks: number; conversions: number }>;
-  } | undefined;
-  if (!d?.rows?.length) return <div className="text-sm text-gray-500 py-4">Pas de données sur la période</div>;
+  const d = widget.data as GeoDeviceData | undefined;
+  if (!d?.rows?.length) return <div className="text-sm text-gray-500 py-4">{emptyMessage(d ?? {})}</div>;
   const rows = d.rows.slice(0, 8); // trié spend desc côté serveur
   const max = Math.max(...rows.map((r) => r.spend), 1);
   return (
@@ -542,9 +510,9 @@ function GeoDeviceWidget({ widget }: { widget: ResolvedWidget }) {
                 <div className="h-full rounded-full bg-violet-500/70" style={{ width: `${(r.spend / max) * 100}%` }} />
               </div>
             </div>
-            <span className="w-16 text-right text-gray-300 tabular-nums text-xs">{eur(r.spend)}</span>
-            <span className="w-14 text-right text-gray-400 tabular-nums text-xs">{num(r.clicks)}</span>
-            <span className="w-12 text-right text-gray-400 tabular-nums text-xs">{num1(r.conversions)}</span>
+            <span className="w-16 text-right text-gray-300 tabular-nums text-xs">{fmtMoney(r.spend, d.currency, { digits: 0 })}</span>
+            <span className="w-14 text-right text-gray-400 tabular-nums text-xs">{fmtNumber(r.clicks)}</span>
+            <span className="w-12 text-right text-gray-400 tabular-nums text-xs">{fmtNumber(r.conversions, 1)}</span>
           </div>
         ))}
       </div>
@@ -566,12 +534,7 @@ function relativeDateFr(iso: string): string {
 }
 
 function AlertsWidget({ widget }: { widget: ResolvedWidget }) {
-  const d = widget.data as {
-    events: Array<{
-      id: string; metric: string; value: number; threshold: number;
-      message: string; acknowledged: boolean; triggeredAt: string;
-    }>;
-  } | undefined;
+  const d = widget.data as AlertsData | undefined;
   if (!d?.events?.length) {
     return <div className="text-sm text-emerald-400/80 py-4">Aucune alerte récente ✓</div>;
   }
@@ -586,8 +549,8 @@ function AlertsWidget({ widget }: { widget: ResolvedWidget }) {
           <div className="min-w-0 flex-1">
             <div className={`text-sm leading-snug ${e.acknowledged ? "text-gray-400" : "text-gray-200"}`}>{e.message}</div>
             <div className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
-              {relativeDateFr(e.triggeredAt)} · {KPI_LABELS[e.metric] ?? e.metric} {kpiDisplay(e.metric, e.value)}
-              <span className="text-gray-600"> vs seuil {kpiDisplay(e.metric, e.threshold)}</span>
+              {relativeDateFr(e.triggeredAt)} · {KPI_LABELS[e.metric] ?? e.metric} {fmtMetric(e.metric, e.value, d.currency)}
+              <span className="text-gray-600"> vs seuil {fmtMetric(e.metric, e.threshold, d.currency)}</span>
             </div>
           </div>
         </li>

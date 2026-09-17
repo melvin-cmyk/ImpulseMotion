@@ -9,8 +9,9 @@
 
 import { prisma } from "@/lib/prisma";
 import { relayComplete, extractFence, parseLooseJson } from "@/lib/relay-chat";
-import { collectReportData, periodLabel, type ReportData, type ReportNextStep } from "@/lib/report-data";
+import { collectReportData, periodLabel, type ReportData, type ReportKpi, type ReportNextStep } from "@/lib/report-data";
 import { prevRange, type CompareRange } from "@/lib/dashboard-widgets";
+import { fmtMetric, fmtMoney } from "@/components/portfolio/format";
 
 /** Same day one year earlier (Feb 29 → Feb 28). */
 export function shiftYear(d: string): string {
@@ -43,24 +44,34 @@ export const REPORT_SECTIONS = [
   "Suivi des actions précédentes",
 ] as const;
 
-const fmtEur = (n: number) => `${Math.round(n).toLocaleString("fr-FR")} €`;
+/** Amount in the account currency; "n/a" — never 0, never a fake € — when missing. */
+const money = (n: number | null | undefined, currency: string | null, digits?: number) =>
+  n === null || n === undefined ? "n/a" : fmtMoney(n, currency, digits === undefined ? {} : { digits });
 const pct = (n: number | null | undefined) => (n === null || n === undefined ? "n/a" : `${n > 0 ? "+" : ""}${n.toFixed(1)} %`);
+
+/** A KPI the resolver flagged unavailable carries a 0 that is not a result. */
+function kpiForPrompt(k: ReportKpi, value: number | null, currency: string | null): string {
+  if (value === null) return "n/a";
+  if (k.unavailable) return "n/a (non suivi)";
+  return fmtMetric(k.metric, value, k.currency ?? currency, { estimated: k.estimated });
+}
 
 /** Compact, human-readable rendering of the snapshot for the prompt. */
 export function renderDataForPrompt(d: ReportData): string {
+  const cur = d.currency;
   const lines: string[] = [];
   lines.push(`CLIENT : ${d.client.name} (${d.client.platforms.map((p) => (p === "meta" ? "Meta Ads" : "Google Ads")).join(" + ")})`);
   lines.push(`PÉRIODE : ${periodLabel(d.period.since, d.period.until)} (${d.period.since} → ${d.period.until})`);
+  lines.push(`DEVISE DU COMPTE : ${cur ?? "inconnue — n'affiche aucun symbole monétaire"}`);
   if (d.compare) lines.push(`COMPARAISON : ${d.compare.since} → ${d.compare.until} (${d.compare.kind === "year" ? "N-1" : d.compare.kind === "prev" ? "période précédente" : "personnalisée"})`);
 
   lines.push("\nKPIS (valeur | précédent | delta) :");
   for (const k of d.kpis) {
-    const unit = ["spend", "revenue", "cpa", "cpc"].includes(k.metric) ? " €" : ["ctr", "cr"].includes(k.metric) ? " %" : k.metric === "roas" ? "x" : "";
-    lines.push(`- ${k.label}${k.source !== "combined" ? ` (${k.source})` : ""} : ${k.value}${unit} | ${k.previous ?? "n/a"}${k.previous !== null ? unit : ""} | ${pct(k.deltaPct)}${k.estimated ? " (revenu estimé via AOV)" : ""}`);
+    lines.push(`- ${k.label}${k.source !== "combined" ? ` (${k.source})` : ""} : ${kpiForPrompt(k, k.value, cur)} | ${kpiForPrompt(k, k.previous, cur)} | ${pct(k.deltaPct)}${k.estimated ? " (revenu estimé via AOV)" : ""}`);
   }
 
   if (d.platforms?.rows?.length) {
-    lines.push("\nPAR PLATEFORME (coût, impressions, CTR %, clics, CPC, CR %, conversions, CPA — delta % entre parenthèses) :");
+    lines.push(`\nPAR PLATEFORME (coût, impressions, CTR %, clics, CPC, CR %, conversions, CPA — montants en ${cur ?? "devise inconnue"}, delta % entre parenthèses) :`);
     for (const r of d.platforms.rows) {
       const cell = (k: string) => `${r[k] ?? "n/a"}${r[`${k}DeltaPct`] !== null && r[`${k}DeltaPct`] !== undefined ? ` (${pct(r[`${k}DeltaPct`] as number)})` : ""}`;
       lines.push(`- ${r.platform} : coût ${cell("cost")} · impr ${cell("impressions")} · CTR ${cell("ctr")} · clics ${cell("clicks")} · CPC ${cell("cpc")} · CR ${cell("cr")} · conv ${cell("conversions")} · CPA ${cell("cpa")}`);
@@ -91,18 +102,18 @@ export function renderDataForPrompt(d: ReportData): string {
   const camp = (label: string, rows: ReportData["campaigns"]["meta"]) => {
     if (!rows.length) return;
     lines.push(`\nCAMPAGNES ${label} (dépense, clics, conversions, ROAS) :`);
-    for (const r of rows) lines.push(`- ${r.name} : ${fmtEur(r.spend)}, ${r.clicks} clics, ${r.conversions} conv, ROAS ${r.roas}`);
+    for (const r of rows) lines.push(`- ${r.name} : ${money(r.spend, cur, 0)}, ${r.clicks} clics, ${r.conversions} conv, ROAS ${r.roas}`);
   };
   camp("META", d.campaigns.meta);
   camp("GOOGLE", d.campaigns.google);
 
   if (d.keywords.length) {
     lines.push("\nTOP MOTS-CLÉS GOOGLE :");
-    for (const k of d.keywords.slice(0, 10)) lines.push(`- ${k.name}${k.matchType ? ` [${k.matchType}]` : ""} : ${fmtEur(k.spend)}, ${k.clicks} clics, ${k.conversions} conv${k.ctr !== undefined ? `, CTR ${k.ctr} %` : ""}`);
+    for (const k of d.keywords.slice(0, 10)) lines.push(`- ${k.name}${k.matchType ? ` [${k.matchType}]` : ""} : ${money(k.spend, cur, 0)}, ${k.clicks} clics, ${k.conversions} conv${k.ctr !== undefined ? `, CTR ${k.ctr} %` : ""}`);
   }
   if (d.searchTerms.length) {
     lines.push("\nTOP TERMES DE RECHERCHE :");
-    for (const k of d.searchTerms.slice(0, 10)) lines.push(`- ${k.name} : ${fmtEur(k.spend)}, ${k.clicks} clics, ${k.conversions} conv`);
+    for (const k of d.searchTerms.slice(0, 10)) lines.push(`- ${k.name} : ${money(k.spend, cur, 0)}, ${k.clicks} clics, ${k.conversions} conv`);
   }
 
   if (d.creatives.length) {
@@ -111,19 +122,19 @@ export function renderDataForPrompt(d: ReportData): string {
       const video = c.format === "video"
         ? ` hook ${c.hookRate ?? "n/a"} % · hold ${c.holdRate ?? "n/a"} %${c.dropoff ? ` · p25/p50/p75 ${c.dropoff.p25}/${c.dropoff.p50}/${c.dropoff.p75} %` : ""}`
         : "";
-      lines.push(`- ${c.name} [${c.format}] : ${fmtEur(c.spend)}, ${c.impressions.toLocaleString("fr-FR")} impr, CTR ${c.ctr} %, ROAS ${c.roas}${c.estimated ? " (est.)" : ""}, CPA ${c.cpa} €, ${c.purchases} conv${video}`);
+      lines.push(`- ${c.name} [${c.format}] : ${money(c.spend, cur, 0)}, ${c.impressions.toLocaleString("fr-FR")} impr, CTR ${c.ctr} %, ROAS ${c.roas}${c.estimated ? " (est.)" : ""}, CPA ${money(c.cpa, cur)}, ${c.purchases} conv${video}`);
     }
   }
 
   if (d.demographics.length) {
     lines.push("\nDÉMOGRAPHIE META (dépense par âge × genre) :");
-    lines.push(d.demographics.map((r) => `${r.age} ${r.gender} ${fmtEur(r.value)}`).join(" · "));
+    lines.push(d.demographics.map((r) => `${r.age} ${r.gender} ${money(r.value, cur, 0)}`).join(" · "));
   }
-  if (d.devices.length) lines.push(`\nAPPAREILS : ${d.devices.map((r) => `${r.key} ${fmtEur(r.spend)} / ${r.conversions} conv`).join(" · ")}`);
-  if (d.countries.length) lines.push(`PAYS : ${d.countries.map((r) => `${r.key} ${fmtEur(r.spend)} / ${r.conversions} conv`).join(" · ")}`);
+  if (d.devices.length) lines.push(`\nAPPAREILS : ${d.devices.map((r) => `${r.key} ${money(r.spend, cur, 0)} / ${r.conversions} conv`).join(" · ")}`);
+  if (d.countries.length) lines.push(`PAYS : ${d.countries.map((r) => `${r.key} ${money(r.spend, cur, 0)} / ${r.conversions} conv`).join(" · ")}`);
 
   if (d.pacing) {
-    lines.push(`\nPACING BUDGET (mois en cours) : objectif ${fmtEur(d.pacing.monthlyTarget)}, dépensé ${fmtEur(d.pacing.mtdSpend)} après ${d.pacing.daysElapsed}/${d.pacing.daysInMonth} jours, projection ${fmtEur(d.pacing.projectedSpend)} (${d.pacing.pacingPct} %, statut ${d.pacing.status})`);
+    lines.push(`\nPACING BUDGET (mois en cours) : objectif ${money(d.pacing.monthlyTarget, d.pacing.currency ?? cur, 0)}, dépensé ${d.pacing.status === "unknown" ? "n/a" : money(d.pacing.mtdSpend, d.pacing.currency ?? cur, 0)} après ${d.pacing.daysElapsed}/${d.pacing.daysInMonth} jours, projection ${d.pacing.status === "unknown" ? "n/a" : money(d.pacing.projectedSpend, d.pacing.currency ?? cur, 0)} (${d.pacing.pacingPct} %, statut ${d.pacing.status}${d.pacing.reason ? ` — ${d.pacing.reason}` : ""})`);
   } else {
     lines.push("\nPACING BUDGET : aucun budget mensuel configuré.");
   }
@@ -144,8 +155,6 @@ export function renderDataForPrompt(d: ReportData): string {
   return lines.join("\n");
 }
 
-const fmtMoney = (n: number | null, currency: string | null) =>
-  n === null ? "n/a" : `${Math.round(n * 100) / 100} ${currency ?? ""}`.trim();
 const CRM_LEVEL_LABEL: Record<0 | 1 | 2, string> = {
   0: "L0 — aucune attribution exploitable",
   1: "L1 — attribution par source d'origine (Paid Social / Paid Search)",
@@ -157,20 +166,20 @@ export function renderCrmForPrompt(c: NonNullable<ReportData["crm"]>): string[] 
   const lines: string[] = [];
   const cur = c.currency;
   lines.push(`\nCRM / BUSINESS RÉEL (HUBSPOT) — niveau d'attribution ${CRM_LEVEL_LABEL[c.level]} :`);
-  lines.push(`- Entonnoir : ${c.funnel.map((s) => `${s.label} ${s.unit === "currency" ? fmtMoney(s.value, cur) : s.value.toLocaleString("fr-FR")}`).join(" → ")}`);
+  lines.push(`- Entonnoir : ${c.funnel.map((s) => `${s.label} ${s.unit === "currency" ? money(s.value, cur) : s.value.toLocaleString("fr-FR")}`).join(" → ")}`);
   const r = c.ratios;
-  lines.push(`- Ratios : CPL ${fmtMoney(r.cpl, cur)} · CPL qualifié ${fmtMoney(r.cplQualified, cur)} · coût par deal ${fmtMoney(r.costPerDeal, cur)} · coût par deal gagné ${fmtMoney(r.costPerWon, cur)} · ROAS réel (CA gagné / dépense pub) ${r.realRoas === null ? "n/a" : `${r.realRoas}x`} · taux de gain ${r.winRate === null ? "n/a" : `${r.winRate} %`}`);
+  lines.push(`- Ratios : CPL ${money(r.cpl, cur)} · CPL qualifié ${money(r.cplQualified, cur)} · coût par deal ${money(r.costPerDeal, cur)} · coût par deal gagné ${money(r.costPerWon, cur)} · ROAS réel (CA gagné / dépense pub) ${r.realRoas === null ? "n/a" : `${r.realRoas}x`} · taux de gain ${r.winRate === null ? "n/a" : `${r.winRate} %`}`);
   if (c.bySource.length) {
     lines.push("- Par source d'origine (contacts, qualifiés, deals gagnés, CA gagné, dépense, CPL, ROAS réel) :");
     for (const s of c.bySource) {
-      lines.push(`  · ${s.label} : ${s.contacts} contacts, ${s.qualified} qualifiés, ${s.dealsWon} gagnés, CA ${fmtMoney(s.wonAmount, cur)}, dépense ${fmtMoney(s.spend, cur)}, CPL ${fmtMoney(s.cpl, cur)}, ROAS réel ${s.realRoas === null ? "n/a" : `${s.realRoas}x`}`);
+      lines.push(`  · ${s.label} : ${s.contacts} contacts, ${s.qualified} qualifiés, ${s.dealsWon} gagnés, CA ${money(s.wonAmount, cur)}, dépense ${money(s.spend, cur)}, CPL ${money(s.cpl, cur)}, ROAS réel ${s.realRoas === null ? "n/a" : `${s.realRoas}x`}`);
     }
   }
   if (c.topCampaigns.length) {
     lines.push("- Par campagne CRM (top contacts ; « ↔ » = rapprochée d'une campagne Meta/Google) :");
     for (const k of c.topCampaigns) {
       const m = k.matched ? ` ↔ ${k.matched.platform === "meta" ? "Meta" : "Google"} « ${k.matched.campaignName} »` : " (non rapprochée)";
-      lines.push(`  · ${k.campaign}${m} : ${k.contacts} contacts, ${k.qualified} qualifiés, ${k.dealsWon} gagnés, CA ${fmtMoney(k.wonAmount, cur)}, dépense ${fmtMoney(k.spend, cur)}, CPL ${fmtMoney(k.cpl, cur)}, ROAS réel ${k.realRoas === null ? "n/a" : `${k.realRoas}x`}`);
+      lines.push(`  · ${k.campaign}${m} : ${k.contacts} contacts, ${k.qualified} qualifiés, ${k.dealsWon} gagnés, CA ${money(k.wonAmount, cur)}, dépense ${money(k.spend, cur)}, CPL ${money(k.cpl, cur)}, ROAS réel ${k.realRoas === null ? "n/a" : `${k.realRoas}x`}`);
     }
   }
   const d = c.diagnostic;
@@ -188,7 +197,7 @@ RÈGLES DE FOND
 - Le revenu marqué « estimé » est calculé via un panier moyen : signale-le si tu t'appuies dessus.
 - Priorise : ce qui a changé, ce qui coûte, ce qui marche. Une lecture de consultant, pas une liste de chiffres.
 - Français, vouvoiement implicite (pas de « tu »), phrases courtes, pas d'emoji, pas de titre de niveau 1.
-- Sois concret : nomme les campagnes et les créas en cause, donne les ordres de grandeur (%, €).
+- Sois concret : nomme les campagnes et les créas en cause, donne les ordres de grandeur (%, montants). Exprime tout montant dans la devise du compte indiquée par le snapshot — jamais en euros par défaut.
 
 FORMAT DE SORTIE (Markdown strict, dans cet ordre, titres de niveau 2 exactement comme ci-dessous)
 ## Synthèse

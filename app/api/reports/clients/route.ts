@@ -9,6 +9,7 @@ import { getAccountScope, dashboardWhere } from "@/lib/scope";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
+import { groupDashboardsByAccount } from "@/lib/portfolio";
 
 export async function GET() {
   const guard = await requireStaff();
@@ -29,14 +30,12 @@ export async function GET() {
     },
   });
 
-  const seen = new Set<string>();
-  const clients = dashboards
-    .filter((d) => {
-      const key = `${d.metaAccountId ?? "-"}|${d.googleCustomerId ?? "-"}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
+  // Same grouping as the portfolio: dashboards sharing a Meta account OR a
+  // Google customer are one client, transitively and across owners. The exact
+  // "meta|google" pair key used here before missed those, so the report picker
+  // listed duplicates the portfolio had already merged.
+  const { groups, unlinked } = groupDashboardsByAccount(dashboards);
+  const clients = [...groups.map((g) => g.primary), ...unlinked]
     .map((d) => ({
       id: d.id,
       name: d.name,

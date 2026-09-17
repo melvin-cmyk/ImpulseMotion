@@ -92,8 +92,12 @@ export function useCreatives({
       }
 
       if (tiktokAccountId) {
+        // Same window as Meta: both lists land in the same totals and ranking.
+        const params = new URLSearchParams({ accountId: tiktokAccountId });
+        if (since) params.set("since", since);
+        if (until) params.set("until", until);
         fetches.push(
-          fetch(`/api/tiktok/creatives?accountId=${encodeURIComponent(tiktokAccountId)}`, { signal: controller.signal })
+          fetch(`/api/tiktok/creatives?${params.toString()}`, { signal: controller.signal })
             .then(async (r) => {
               const data = (await r.json()) as Creative[] | { error?: string };
               if (Array.isArray(data)) return { creatives: data, meta: null };

@@ -74,7 +74,7 @@ export function computeFromInsight(
   if (!insight) return { spend: 0, roas: 0, cpa: 0, ctr: 0, frequency: 0, roasAvailable: false, roasEstimated: false, conversions: 0 };
   const spend = parseFloat(insight.spend ?? "0") || 0;
   const conversions = purchasesFor(insight, settings.conversionEvent ?? "purchase");
-  const rev = computeRevenue(insight, settings.aov ?? null);
+  const rev = computeRevenue(insight, settings.aov ?? null, settings.conversionEvent);
   const roasAvailable = !rev.unavailable;
   const roas = roasAvailable && spend > 0 ? Math.round((rev.revenue / spend) * 100) / 100 : 0;
   const cpa = conversions > 0 ? Math.round((spend / conversions) * 100) / 100 : 0;

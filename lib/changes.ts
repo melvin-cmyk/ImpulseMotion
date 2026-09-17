@@ -84,10 +84,10 @@ function accountSpend(insight: MetaAccountInsight | null): number {
   return parseFloat(insight?.spend ?? "0") || 0;
 }
 
-function accountRoas(insight: MetaAccountInsight | null, aov: number | null): number | null {
+function accountRoas(insight: MetaAccountInsight | null, aov: number | null, conversionEvent: string): number | null {
   if (!insight) return null;
   const spend = parseFloat(insight.spend) || 0;
-  const rev = computeRevenue(insight, aov);
+  const rev = computeRevenue(insight, aov, conversionEvent);
   if (rev.unavailable || spend <= 0) return null;
   return Math.round((rev.revenue / spend) * 100) / 100;
 }
@@ -96,9 +96,9 @@ function accountFrequency(insight: MetaAccountInsight | null): number {
   return parseFloat(insight?.frequency ?? "0") || 0;
 }
 
-function adRoas(insight: MetaCreativeInsight, aov: number | null): number | null {
+function adRoas(insight: MetaCreativeInsight, aov: number | null, conversionEvent: string): number | null {
   const spend = parseFloat(insight.spend ?? "0") || 0;
-  const rev = computeRevenue(insight, aov);
+  const rev = computeRevenue(insight, aov, conversionEvent);
   if (rev.unavailable || spend <= 0) return null;
   return Math.round((rev.revenue / spend) * 100) / 100;
 }
@@ -148,6 +148,7 @@ export async function detectAccountChangesDetailed(
   const settings = await getAccountProfileSettings("meta", accountId);
   const tz = opts.tz === undefined ? settings.timezone : opts.tz;
   const aov = settings.aov;
+  const conversionEvent = settings.conversionEvent;
   const currentRange = lastFullDays(30, { tz, now: opts.now });
   const previousRange = prevRange(currentRange);
 
@@ -183,8 +184,8 @@ export async function detectAccountChangesDetailed(
       });
     }
 
-    const curRoas = accountRoas(currentAccount, aov);
-    const prevRoas = accountRoas(previousAccount, aov);
+    const curRoas = accountRoas(currentAccount, aov, conversionEvent);
+    const prevRoas = accountRoas(previousAccount, aov, conversionEvent);
     revenueAvailable = curRoas !== null;
     if (curRoas !== null && prevRoas !== null) {
       const roasDelta = pctChange(prevRoas, curRoas);
@@ -238,7 +239,7 @@ export async function detectAccountChangesDetailed(
     const current = currentByAd.get(adId);
     const curSpend = current ? adSpend(current) : 0;
     if (curSpend < prevSpend * 0.1) {
-      const prevRoasVal = adRoas(prevInsight, aov);
+      const prevRoasVal = adRoas(prevInsight, aov, conversionEvent);
       const wasWinner = prevRoasVal !== null && prevRoasVal >= 2.5;
       const ad = adsById.get(adId);
       killed.push({
@@ -259,7 +260,7 @@ export async function detectAccountChangesDetailed(
   for (const [adId, current] of currentByAd) {
     const curSpend = adSpend(current);
     if (curSpend < 200) continue;
-    const curRoasVal = adRoas(current, aov);
+    const curRoasVal = adRoas(current, aov, conversionEvent);
     if (curRoasVal === null || curRoasVal < 2.5) continue;
     const prevInsight = previousByAd.get(adId);
     const prevSpend = prevInsight ? adSpend(prevInsight) : 0;

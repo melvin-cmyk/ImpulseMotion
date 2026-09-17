@@ -9,20 +9,17 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ReportData, ReportNextStep } from "@/lib/report-data";
+import type { ReportData, ReportKpi, ReportNextStep } from "@/lib/report-data";
+import { fmtMetric, fmtMoney, fmtRoas } from "@/components/portfolio/format";
 import { cn } from "@/lib/utils";
 
 export type ReportVariant = "app" | "print";
 
 const KPI_ORDER = ["spend", "revenue", "roas", "purchases", "cpa", "ctr", "cpc", "cr"];
 
-export function fmtKpi(metric: string, value: number): string {
-  if (["spend", "revenue", "cpa", "cpc"].includes(metric)) {
-    return `${value.toLocaleString("fr-FR", { maximumFractionDigits: metric === "cpc" ? 2 : 0 })} €`;
-  }
-  if (["ctr", "cr"].includes(metric)) return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
-  if (metric === "roas") return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}x`;
-  return value.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+/** Snapshots written before the currency was recorded show bare numbers, never a fake €. */
+function fmtKpi(k: ReportKpi, value: number, currency: string | null): string {
+  return fmtMetric(k.metric, value, k.currency ?? currency, { estimated: k.estimated, unavailable: k.unavailable });
 }
 
 /** Lower is better for costs. */
@@ -55,10 +52,10 @@ export function KpiStrip({ data, variant = "app" }: { data: ReportData | null; v
               {k.label}
               {k.estimated && <span title="Revenu estimé via panier moyen"> *</span>}
             </div>
-            <div className={cn("text-lg font-bold tabular-nums mt-0.5", print ? "text-neutral-900" : "text-white")}>
-              {fmtKpi(k.metric, k.value)}
+            <div className={cn("text-lg font-bold tabular-nums mt-0.5", k.unavailable ? "text-gray-500" : print ? "text-neutral-900" : "text-white")}>
+              {fmtKpi(k, k.value, data.currency)}
             </div>
-            {k.deltaPct !== null && (
+            {!k.unavailable && k.deltaPct !== null && (
               <div
                 className={cn(
                   "text-[11px] font-semibold tabular-nums",
@@ -70,7 +67,7 @@ export function KpiStrip({ data, variant = "app" }: { data: ReportData | null; v
                 {k.deltaPct > 0 ? "+" : ""}{k.deltaPct.toFixed(1)} %
                 {k.previous !== null && (
                   <span className={cn("font-normal ml-1", print ? "text-neutral-400" : "text-gray-600")}>
-                    vs {fmtKpi(k.metric, k.previous)}
+                    vs {fmtKpi(k, k.previous, data.currency)}
                   </span>
                 )}
               </div>
@@ -185,7 +182,7 @@ export function TopCreativesStrip({ data, variant = "app" }: { data: ReportData 
           <div className="px-2 py-1.5">
             <div className={cn("text-[10px] truncate font-medium", print ? "text-neutral-800" : "text-gray-300")} title={c.name}>{c.name}</div>
             <div className={cn("text-[10px] tabular-nums", print ? "text-neutral-500" : "text-gray-500")}>
-              {c.spend.toLocaleString("fr-FR")} € · ROAS {c.roas}{c.estimated ? "*" : ""}
+              {fmtMoney(c.spend, data?.currency, { digits: 0 })} · ROAS {fmtRoas(c.roas, { estimated: c.estimated })}
               {c.hookRate !== null && ` · hook ${c.hookRate} %`}
             </div>
           </div>

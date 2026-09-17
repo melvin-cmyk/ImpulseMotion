@@ -79,6 +79,16 @@ describe("cached()", () => {
     expect(isEmptyPayload({ data: [1] })).toBe(false);
   });
 
+  it("treats a composite payload whose every list is empty as empty", () => {
+    // The AI report fetched {ads, insights}: unrecognised as empty, a failed
+    // fetch used to sit in the cache for the full TTL instead of 60 s.
+    expect(isEmptyPayload({ ads: [], insights: [] })).toBe(true);
+    expect(isEmptyPayload({ ads: [], insights: [], truncated: true })).toBe(true);
+    expect(isEmptyPayload({ ads: [{ id: "1" }], insights: [] })).toBe(false);
+    expect(isEmptyPayload({})).toBe(false);
+    expect(isEmptyPayload({ spend: "0" })).toBe(false);
+  });
+
   it("reads legacy rows (raw payload, no v) with fetchedAt = createdAt", async () => {
     const createdAt = new Date("2026-08-01T10:00:00Z");
     store.set(versionedKey("legacy"), {

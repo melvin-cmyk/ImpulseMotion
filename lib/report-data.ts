@@ -32,7 +32,7 @@ import {
   computeVideoDropoff,
   getActionValue,
 } from "@/lib/meta-api";
-import { cached } from "@/lib/kpi-cache";
+import { cached, ttlForRange } from "@/lib/kpi-cache";
 import { lastCalendarMonth, lastFullDays } from "@/lib/date-ranges";
 import { computePacing, type PacingResult } from "@/lib/budgets";
 
@@ -46,6 +46,10 @@ export interface ReportKpi {
   previous: number | null;
   deltaPct: number | null;
   estimated?: boolean;
+  /** Account currency of `value` — absent means no currency could be resolved. */
+  currency?: string;
+  /** revenue/roas: no tracked value and no AOV configured — `value` is not a result. */
+  unavailable?: boolean;
 }
 
 export interface ReportCreative {
@@ -98,6 +102,8 @@ export interface ReportData {
   };
   period: { since: string; until: string };
   compare: { since: string; until: string; kind: string } | null;
+  /** Account currency of every amount of the snapshot (null = unresolved: show bare numbers, never a fake €). */
+  currency: string | null;
   kpis: ReportKpi[];
   platforms: { rows: Array<Record<string, number | string | null>>; compareKind: string | null } | null;
   daily: {
@@ -159,15 +165,20 @@ async function collectCreatives(
   limit = 12,
 ): Promise<ReportCreative[]> {
   const token = getMetaSystemToken();
+  // No .catch() inside the fetcher: swallowing a Meta failure here produced
+  // `{ads: [], insights: []}`, which isEmptyPayload does not recognise as empty
+  // — so a rate-limited report was cached for 15 minutes and sent out saying
+  // "no creatives". Letting it throw lets the caller record a warning instead.
   const { ads, insights } = await cached(
     `meta:report-creatives:${metaAccountId}:${since}_${until}`,
     async () => {
       const [ads, insights] = await Promise.all([
-        getAds(token, metaAccountId, 200).catch(() => []),
-        getAdInsights(token, metaAccountId, { since, until }, 200).catch(() => []),
+        getAds(token, metaAccountId, 200),
+        getAdInsights(token, metaAccountId, { since, until }, 200),
       ]);
       return { ads, insights };
     },
+    { ttlMs: ttlForRange({ since, until }) },
   );
   const adsById = new Map(ads.map((a) => [a.id, a]));
   return [...insights]
@@ -266,7 +277,7 @@ export async function collectReportData(
   const kpis: ReportKpi[] = [];
   for (const wd of widgets) {
     if (!wd.id.startsWith("kpi:")) continue;
-    const d = dataOf<{ metric: string; source: string; value: number; previous: number | null; deltaPct: number | null; estimated?: boolean }>(wd.id);
+    const d = dataOf<{ metric: string; source: string; value: number; previous: number | null; deltaPct: number | null; estimated?: boolean; currency?: string; unavailable?: boolean }>(wd.id);
     if (!d) continue;
     kpis.push({
       metric: d.metric,
@@ -276,6 +287,8 @@ export async function collectReportData(
       previous: d.previous,
       deltaPct: d.deltaPct,
       estimated: d.estimated,
+      currency: d.currency,
+      unavailable: d.unavailable,
     });
   }
 
@@ -334,6 +347,7 @@ export async function collectReportData(
     },
     period: { since, until },
     compare: effectiveCompare ? { since: effectiveCompare.since, until: effectiveCompare.until, kind: effectiveCompare.kind } : null,
+    currency: pickReportCurrency(kpis, pacing, crm),
     kpis,
     platforms: dataOf("platforms"),
     daily: {
@@ -363,6 +377,19 @@ export async function collectReportData(
     warnings,
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Pure: account currency of the whole snapshot. The KPI payloads carry the
+ * account currency resolved by the widget layer; pacing (budget currency) and
+ * the CRM section are fallbacks when every KPI failed.
+ */
+export function pickReportCurrency(
+  kpis: ReportKpi[],
+  pacing: { currency?: string | null } | null,
+  crm?: { currency: string | null },
+): string | null {
+  return kpis.find((k) => k.currency)?.currency ?? pacing?.currency ?? crm?.currency ?? null;
 }
 
 /** Pure: widget payloads → report CRM section (top 10 campaigns, deduplicated warnings). */

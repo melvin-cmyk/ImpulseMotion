@@ -63,6 +63,13 @@ export function isEmptyPayload(value: unknown): boolean {
     if (Array.isArray(v.data) && v.data.length === 0 && Object.keys(v).every((k) => k === "data" || k === "truncated")) {
       return true;
     }
+    // Composite payloads such as `{ads: [], insights: []}` — every list empty
+    // means nothing was found, and should get the short empty TTL rather than
+    // sticking around for the full one.
+    const entries = Object.entries(v).filter(([k]) => k !== "truncated");
+    if (entries.length > 0 && entries.every(([, x]) => Array.isArray(x) && x.length === 0)) {
+      return true;
+    }
   }
   return false;
 }

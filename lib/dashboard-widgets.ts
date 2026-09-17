@@ -312,7 +312,7 @@ function metaMetricValue(
 ): { value: number; estimated: boolean; unavailable?: boolean } {
   if (!insight) return { value: 0, estimated: false };
   const spend = toNum(insight.spend);
-  const rev = computeRevenue(insight, aov);
+  const rev = computeRevenue(insight, aov, conversionEvent);
   const purchases = purchasesFor(insight, conversionEvent);
   switch (metric) {
     case "spend": return { value: spend, estimated: false };
@@ -386,7 +386,7 @@ async function kpiValue(
     throw new Error(errors[0]);
   }
 
-  const metaRev = insight ? computeRevenue(insight, ctx.aov) : { revenue: 0, estimated: false, unavailable: false };
+  const metaRev = insight ? computeRevenue(insight, ctx.aov, ctx.conversionEvent) : { revenue: 0, estimated: false, unavailable: false };
   const metaPurchases = insight ? purchasesFor(insight, ctx.conversionEvent) : 0;
   const g = google ?? { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0, currency: null };
 
@@ -584,7 +584,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
         .slice(0, limit)
         .map((r, i) => {
           const spend = toNum(r.spend);
-          const rev = computeRevenue(r, ctx.aov);
+          const rev = computeRevenue(r, ctx.aov, ctx.conversionEvent);
           const purchases = purchasesFor(r, ctx.conversionEvent);
           return {
             name: String(r.campaign_name ?? `Campagne ${i + 1}`),
@@ -602,6 +602,8 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
     const rows = await fetchGoogleCampaignRows(ctx.binding.googleCustomerId, ctx.since, ctx.until);
     return {
       kind,
+      source,
+      ...(ctx.currency ? { currency: ctx.currency } : {}),
       rows: rows.slice(0, limit).map((row, i) => {
         const c = (row.campaign as Record<string, unknown>) ?? row;
         const m = (row.metrics as Record<string, unknown>) ?? row;
@@ -626,6 +628,8 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
   if (kind === "keywords") {
     return {
       kind,
+      source,
+      ...(ctx.currency ? { currency: ctx.currency } : {}),
       rows: rows.slice(0, limit).map((row) => {
         const crit = ((row.adGroupCriterion ?? row.ad_group_criterion) as Record<string, unknown>) ?? {};
         const kw = (crit.keyword as Record<string, unknown>) ?? {};
@@ -643,6 +647,8 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
   }
   return {
     kind,
+    source,
+    ...(ctx.currency ? { currency: ctx.currency } : {}),
     rows: rows.slice(0, limit).map((row) => {
       const st = ((row.searchTermView ?? row.search_term_view) as Record<string, unknown>) ?? {};
       const m = (row.metrics as Record<string, unknown>) ?? row;
@@ -681,7 +687,7 @@ async function resolveTopCreatives(cfg: Record<string, unknown>, ctx: ResolveCon
     .slice(0, limit)
     .map((i) => {
       const ad = adsById.get(i.ad_id);
-      const rev = computeRevenue(i, ctx.aov);
+      const rev = computeRevenue(i, ctx.aov, ctx.conversionEvent);
       return {
         adId: i.ad_id,
         name: i.ad_name,
@@ -689,7 +695,7 @@ async function resolveTopCreatives(cfg: Record<string, unknown>, ctx: ResolveCon
         spend: Math.round(toNum(i.spend)),
         ctr: Math.round(toNum(i.ctr) * 100) / 100,
         hookRate: computeHookRate(i),
-        roas: computeRoas(i, ctx.aov),
+        roas: computeRoas(i, ctx.aov, ctx.conversionEvent),
         cpa: computeCpa(i, ctx.conversionEvent),
         estimated: rev.estimated,
         ...(rev.unavailable ? { unavailable: true } : {}),
@@ -758,8 +764,18 @@ async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveC
   const currentTotals: PlatformStats[] = [];
   const previousTotals: PlatformStats[] = [];
 
+  // One platform failing must not blank the whole table: report it as partial,
+  // the way resolveKpi does, so the client sees which side is missing instead
+  // of a widget-wide error (or worse, a Total silently short of one platform).
+  const errors: string[] = [];
   for (const source of sources) {
-    const current = await platformStats(source, ctx, ctx.since, ctx.until);
+    let current: PlatformStats;
+    try {
+      current = await platformStats(source, ctx, ctx.since, ctx.until);
+    } catch (e) {
+      errors.push(`${source === "meta" ? "Meta" : "Google"}: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
     let previous: PlatformStats | null = null;
     if (ctx.compare) {
       try {
@@ -770,8 +786,10 @@ async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveC
     if (previous) previousTotals.push(previous);
     rows.push({ platform: source === "meta" ? "Meta" : "Google", ...withDeltas(current, previous) });
   }
+  if (currentTotals.length === 0) throw issue(errors[0] ?? "Aucune donnée plateforme");
 
-  if (sources.length > 1) {
+  // A Total over an incomplete set of platforms would read as a real drop.
+  if (currentTotals.length > 1) {
     const sum = (list: PlatformStats[]) =>
       statsFrom(
         list.reduce((s, x) => s + x.cost, 0),
@@ -781,11 +799,16 @@ async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveC
       );
     rows.push({
       platform: "Total",
-      ...withDeltas(sum(currentTotals), previousTotals.length === sources.length ? sum(previousTotals) : null),
+      ...withDeltas(sum(currentTotals), previousTotals.length === currentTotals.length ? sum(previousTotals) : null),
     });
   }
 
-  return { rows, compareKind: ctx.compare?.kind ?? null };
+  return {
+    rows,
+    compareKind: ctx.compare?.kind ?? null,
+    ...(ctx.currency ? { currency: ctx.currency } : {}),
+    ...(errors.length ? { partial: true, errors } : {}),
+  };
 }
 
 async function resolvePacing(_cfg: Record<string, unknown>, ctx: ResolveContext) {
@@ -987,6 +1010,8 @@ async function resolveAlerts(cfg: Record<string, unknown>, ctx: ResolveContext) 
       acknowledged: e.acknowledged,
       triggeredAt: e.triggeredAt.toISOString(),
     })),
+    // Money metrics (spend / cpa / cpc thresholds) are rendered in this currency.
+    ...(ctx.currency ? { currency: ctx.currency } : {}),
   };
 }
 

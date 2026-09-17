@@ -977,13 +977,20 @@ export interface RevenueResult {
  * Single source of truth for Meta revenue.
  * Prefers the tracked purchase value (`action_values`), then Meta's own
  * `purchase_roas × spend`. Only when neither exists AND an AOV (> 0) is
- * explicitly configured does it estimate `purchases × aov` (flagged
+ * explicitly configured does it estimate `conversions × aov` (flagged
  * `estimated`). Without an AOV the result is `{ revenue: 0, estimated: true,
  * unavailable: true }` — we never invent revenue with a default basket.
+ *
+ * `conversionEvent` is the account's configured conversion (purchase, lead,
+ * complete_registration, custom:*). Hard-coding "purchase" here used to make a
+ * lead-gen account report 0 € on the client dashboard while Analyse Ads, which
+ * honoured the setting, reported the estimate — same client, same window, two
+ * different numbers.
  */
 export function computeRevenue(
   insight: Pick<MetaCreativeInsight, "actions" | "action_values" | "purchase_roas" | "spend">,
   aov?: number | null,
+  conversionEvent?: string | null,
 ): RevenueResult {
   for (const type of PURCHASE_VALUE_TYPES) {
     const v = getActionValue(insight.action_values, type);
@@ -994,11 +1001,13 @@ export function computeRevenue(
     const r = getActionValue(insight.purchase_roas, type);
     if (r > 0 && spend > 0) return { revenue: r * spend, estimated: false };
   }
-  const purchases = purchasesFor(insight, "purchase");
-  if (purchases <= 0) return { revenue: 0, estimated: false };
+  const conversions = purchasesFor(insight, conversionEvent ?? "purchase");
   if (typeof aov === "number" && Number.isFinite(aov) && aov > 0) {
-    return { revenue: purchases * aov, estimated: true };
+    // 0 conversions under a configured AOV is a real 0, not an unknown.
+    return { revenue: conversions * aov, estimated: true };
   }
+  // No tracked value and no AOV: revenue is unknowable. Reporting a plain 0
+  // here is what made dashboards show "0,00x" in red instead of "—".
   return { revenue: 0, estimated: true, unavailable: true };
 }
 
@@ -1006,8 +1015,9 @@ export function computeRevenue(
 export function computeRoas(
   insight: MetaCreativeInsight,
   aov?: number | null,
+  conversionEvent?: string | null,
 ): number {
-  const { revenue } = computeRevenue(insight, aov);
+  const { revenue } = computeRevenue(insight, aov, conversionEvent);
   const spend = parseFloat(insight.spend);
   return spend > 0 ? Math.round((revenue / spend) * 100) / 100 : 0;
 }

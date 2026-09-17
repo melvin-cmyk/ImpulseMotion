@@ -9,6 +9,7 @@ import {
 import { requireSession } from "@/lib/auth-helpers";
 import { assertAccountAllowed } from "@/lib/acl";
 import type { Creative, Status } from "@/lib/creative-types";
+import { rangeFromParams } from "@/lib/date-ranges";
 import { NextRequest, NextResponse } from "next/server";
 
 function determineStatus(roas: number, ctr: number, hookRate: number): Status {
@@ -43,12 +44,18 @@ export async function GET(request: NextRequest) {
     if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
+  // Same window rule as /api/meta/creatives. This route used to hard-code a
+  // fixed 31-day span including today while the caller merged its rows with
+  // Meta rows for the *selected* period — on a 7-day preset, TikTok spend was
+  // counted over 31 days in the same totals and ranking.
+  const validated = rangeFromParams(searchParams, "last_30");
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.error }, { status: 400 });
+  }
+  const { since: start, until: end } = validated.range;
+
   try {
     const accessToken = getTikTokSystemToken();
-    const end = new Date().toISOString().split("T")[0];
-    const start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0];
 
     const [ads, insights] = await Promise.all([
       getTikTokAds(accessToken, advertiserId),

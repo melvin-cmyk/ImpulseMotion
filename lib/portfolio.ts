@@ -252,15 +252,6 @@ export function groupDashboardsByAccount<T extends DashboardLike>(rows: T[]): { 
   return { groups, unlinked };
 }
 
-/** @deprecated legacy exact-pair dedup; prefer groupDashboardsByAccount. */
-export function dedupeDashboards<T extends DashboardLike>(rows: T[]): Array<T & { duplicateIds: string[] }> {
-  const { groups, unlinked } = groupDashboardsByAccount(rows);
-  return [
-    ...groups.map((g) => ({ ...g.primary, duplicateIds: g.dashboardIds.slice(1) })),
-    ...unlinked.map((d) => ({ ...d, duplicateIds: [] as string[] })),
-  ];
-}
-
 // ── Concurrency with a global deadline ───────────────────────────────────────
 
 async function mapLimitWithDeadline<T, R>(
