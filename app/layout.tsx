@@ -31,8 +31,10 @@ export default async function RootLayout({
   } catch {
     // Auth may fail if DB is unavailable — continue without session
   }
-  const hasSharedToken = !!process.env.META_SHARED_TOKEN;
-  const showApp = !!(session || hasSharedToken);
+  // Chrome follows the session, nothing else. It used to also appear whenever
+  // META_SHARED_TOKEN was set — a leftover of the token-only demo mode — which
+  // in production wrapped the /login page in the full internal sidebar.
+  const showApp = !!session;
   const isClient = session?.role === "client";
 
   // Client chrome: "Assistant IA" only shows when the user was granted at

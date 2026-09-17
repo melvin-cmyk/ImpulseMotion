@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { Section, PageHeader, Pill, Card } from "@/components/ui/surface";
 
 type Rule = {
@@ -47,8 +48,14 @@ const secondaryBtnCls =
   "px-3 py-2 rounded-lg text-sm font-medium bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors";
 
 export default function AdminAlertsPage() {
+  const { data: session } = useSession();
+  // Only admins manage logins & ACL (/api/admin/users is admin-only). A
+  // consultant arms alerts for themselves, on their own assigned accounts —
+  // asking them to pick a client login would show an empty, unusable select.
+  const isAdmin = session?.role === "admin";
   const [rules, setRules] = useState<Rule[]>([]);
   const [users, setUsers] = useState<ClientUser[]>([]);
+  const [ownAccounts, setOwnAccounts] = useState<{ platform: string; accountId: string; label: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [formUserId, setFormUserId] = useState("");
@@ -64,22 +71,34 @@ export default function AdminAlertsPage() {
     try {
       const [r, u] = await Promise.all([
         fetch("/api/admin/alerts").then((res) => (res.ok ? res.json() : { rules: [] })).catch(() => ({ rules: [] })),
-        fetch("/api/admin/users").then((res) => (res.ok ? res.json() : { users: [] })).catch(() => ({ users: [] })),
+        isAdmin
+          ? fetch("/api/admin/users").then((res) => (res.ok ? res.json() : { users: [] })).catch(() => ({ users: [] }))
+          : fetch("/api/me/accounts").then((res) => (res.ok ? res.json() : { accounts: [] })).catch(() => ({ accounts: [] })),
       ]);
       setRules(Array.isArray(r?.rules) ? r.rules : []);
-      setUsers((Array.isArray(u?.users) ? u.users : []).map((x: ClientUser) => ({ ...x, adAccounts: Array.isArray(x.adAccounts) ? x.adAccounts : [] })));
+      if (isAdmin) {
+        setUsers((Array.isArray(u?.users) ? u.users : []).map((x: ClientUser) => ({ ...x, adAccounts: Array.isArray(x.adAccounts) ? x.adAccounts : [] })));
+      } else {
+        setOwnAccounts(Array.isArray(u?.accounts) ? u.accounts : []);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Chargement impossible");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
+    // Wait for the session: the role decides which sources we load.
+    if (session === undefined) return;
     load();
-  }, [load]);
+  }, [load, session]);
 
   const selectedUser = users.find((u) => u.id === formUserId);
+  // Accounts offered in the form: the selected client's (admin) or one's own.
+  const accountOptions = isAdmin
+    ? (selectedUser?.adAccounts ?? []).filter((a) => a.platform === "meta")
+    : ownAccounts.filter((a) => a.platform === "meta");
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -88,7 +107,7 @@ export default function AdminAlertsPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId: formUserId,
+        userId: isAdmin ? formUserId : session?.userId,
         clientId: formAccountId || null,
         platform: "meta",
         metric: formMetric,
@@ -160,30 +179,34 @@ export default function AdminAlertsPage() {
         <Card padded>
           <form onSubmit={handleCreate} className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
+              {isAdmin && (
+                <label className="block">
+                  <span className={labelSpanCls}>Client</span>
+                  <select
+                    value={formUserId}
+                    onChange={(e) => { setFormUserId(e.target.value); setFormAccountId(""); }}
+                    required
+                    className={inputCls}
+                  >
+                    <option value="">— Sélectionner —</option>
+                    {users.filter((u) => (u.adAccounts ?? []).length > 0).map((u) => (
+                      <option key={u.id} value={u.id}>{u.email ?? u.id}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="block">
-                <span className={labelSpanCls}>Client</span>
-                <select
-                  value={formUserId}
-                  onChange={(e) => { setFormUserId(e.target.value); setFormAccountId(""); }}
-                  required
-                  className={inputCls}
-                >
-                  <option value="">— Sélectionner —</option>
-                  {users.filter((u) => (u.adAccounts ?? []).length > 0).map((u) => (
-                    <option key={u.id} value={u.id}>{u.email ?? u.id}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className={labelSpanCls}>Compte (vide = tous)</span>
+                <span className={labelSpanCls}>{isAdmin ? "Compte (vide = tous)" : "Compte"}</span>
                 <select
                   value={formAccountId}
                   onChange={(e) => setFormAccountId(e.target.value)}
-                  disabled={!selectedUser}
+                  disabled={isAdmin && !selectedUser}
+                  required={!isAdmin}
                   className={`${inputCls} disabled:opacity-50`}
                 >
-                  <option value="">Tous</option>
-                  {(selectedUser?.adAccounts ?? []).filter((a) => a.platform === "meta").map((a) => (
+                  {/* An account-agnostic rule spans the whole BM → admins only. */}
+                  <option value="">{isAdmin ? "Tous" : "— Sélectionner —"}</option>
+                  {accountOptions.map((a) => (
                     <option key={a.accountId} value={a.accountId}>{a.label ?? a.accountId}</option>
                   ))}
                 </select>
