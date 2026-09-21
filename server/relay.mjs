@@ -322,6 +322,13 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     "--system-prompt", scopedSystemPrompt,
     "--no-session-persistence",
     "--max-turns", "15",
+    // The CLI runs as root with the host's HOME, whose settings allow
+    // Read/Write/Edit(*): without this, any chat — a client bot included, one
+    // prompt injection away — could read and write server files. --restricted
+    // ignores those settings files and drops Bash & co; --tools keeps a single
+    // built-in, ToolSearch, which the CLI needs to load deferred MCP tools.
+    "--restricted",
+    "--tools", "ToolSearch",
   ];
   if (toolPatterns.length > 0) {
     args.push("--allowedTools", ...toolPatterns);
