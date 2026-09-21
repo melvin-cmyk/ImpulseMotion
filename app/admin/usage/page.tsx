@@ -3,14 +3,15 @@
 /**
  * Admin — Bedrock usage per client, by month, to bill by usage.
  * Only the private client bots run on Bedrock, so this is their ledger.
+ * Token counts are Bedrock's own, split in the four kinds AWS prices apart
+ * (input, cache write, cache read, output); pricing is left to the admin.
  * "Facturable" = messages sent by client logins; staff tests are shown apart.
- * The coefficient (margin) is a local display helper, kept in this browser.
  */
 
-import { Fragment, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { PageHeader, Card, Kpi, Pill } from "@/components/ui/surface";
 
-type Totals = { messages: number; inputTokens: number; outputTokens: number; cacheTokens: number; costUsd: number };
+type Totals = { messages: number; inputTokens: number; cacheWriteTokens: number; cacheReadTokens: number; outputTokens: number };
 type ClientUsage = {
   key: string;
   clientName: string;
@@ -20,26 +21,23 @@ type ClientUsage = {
   users: Array<{ email: string; role: string } & Totals>;
 };
 
-const COEF_KEY = "im:usage:coef";
-const usd = (n: number) => n.toLocaleString("fr-FR", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const int = (n: number) => n.toLocaleString("fr-FR");
-
-// The coefficient lives in localStorage; read through an external store so the
-// server render (1) and the browser value never fight during hydration.
-const coefListeners = new Set<() => void>();
-function subscribeCoef(cb: () => void) {
-  coefListeners.add(cb);
-  window.addEventListener("storage", cb);
-  return () => { coefListeners.delete(cb); window.removeEventListener("storage", cb); };
-}
-function readCoef(): number {
-  const n = Number(window.localStorage.getItem(COEF_KEY));
-  return Number.isFinite(n) && n > 0 ? n : 1;
-}
 
 function currentMonth(): string {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function TokenCells({ t, className }: { t: Totals; className: string }) {
+  return (
+    <>
+      <td className={className}>{int(t.messages)}</td>
+      <td className={className}>{int(t.inputTokens)}</td>
+      <td className={className}>{int(t.cacheWriteTokens)}</td>
+      <td className={className}>{int(t.cacheReadTokens)}</td>
+      <td className={className}>{int(t.outputTokens)}</td>
+    </>
+  );
 }
 
 export default function AdminUsagePage() {
@@ -47,7 +45,6 @@ export default function AdminUsagePage() {
   const [clients, setClients] = useState<ClientUsage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const coef = useSyncExternalStore(subscribeCoef, readCoef, () => 1);
   const [openKey, setOpenKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,20 +63,13 @@ export default function AdminUsagePage() {
       clients.reduce(
         (t, c) => ({
           messages: t.messages + c.billable.messages,
-          cost: t.cost + c.billable.costUsd,
-          staffCost: t.staffCost + c.staff.costUsd,
+          input: t.input + c.billable.inputTokens + c.billable.cacheWriteTokens + c.billable.cacheReadTokens,
+          output: t.output + c.billable.outputTokens,
         }),
-        { messages: 0, cost: 0, staffCost: 0 },
+        { messages: 0, input: 0, output: 0 },
       ),
     [clients],
   );
-
-  function updateCoef(v: string) {
-    const n = Number(v.replace(",", "."));
-    if (!Number.isFinite(n) || n <= 0) return;
-    window.localStorage.setItem(COEF_KEY, String(n));
-    coefListeners.forEach((cb) => cb());
-  }
 
   return (
     <div className="space-y-6">
@@ -109,22 +99,15 @@ export default function AdminUsagePage() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Kpi label="Messages facturables" value={int(total.messages)} sub="envoyés par des comptes clients" />
-        <Kpi label="Coût Bedrock facturable" value={usd(total.cost)} sub={`tests staff à part : ${usd(total.staffCost)}`} accent="emerald" />
-        <Kpi label="À facturer" value={usd(total.cost * coef)} sub={`coût × ${coef.toLocaleString("fr-FR")}`} accent="amber" />
+        <Kpi label="Tokens envoyés au modèle" value={int(total.input)} sub="entrée + cache écrit + cache lu" accent="emerald" />
+        <Kpi label="Tokens générés" value={int(total.output)} sub="sortie" accent="amber" />
       </div>
 
-      <Card padded>
-        <label className="flex items-center gap-3 text-sm text-gray-300 flex-wrap">
-          Coefficient de refacturation
-          <input
-            type="number" min="0.1" step="0.1" defaultValue={coef} key={coef} onBlur={(e) => updateCoef(e.target.value)}
-            className="w-24 px-3 py-1.5 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none"
-          />
-          <span className="text-xs text-gray-500">
-            Coût au prix catalogue du modèle (USD). La facture AWS reste la référence. Réglage conservé dans ce navigateur.
-          </span>
-        </label>
-      </Card>
+      <p className="text-xs text-gray-500">
+        Compteurs renvoyés par Bedrock à chaque réponse. AWS facture les quatre types à des prix différents
+        (le cache écrit coûte plus cher que l&apos;entrée, le cache lu beaucoup moins) : ils restent séparés pour ton calcul.
+        Les tests faits par un admin ou un consultant sont comptés à part.
+      </p>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
       {loading && <p className="text-sm text-gray-500">Chargement…</p>}
@@ -142,12 +125,11 @@ export default function AdminUsagePage() {
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
                 <th className="px-4 py-3 font-medium">Client</th>
                 <th className="px-4 py-3 font-medium text-right">Messages</th>
-                <th className="px-4 py-3 font-medium text-right">Tokens entrée</th>
-                <th className="px-4 py-3 font-medium text-right">Tokens sortie</th>
-                <th className="px-4 py-3 font-medium text-right">Tokens cache</th>
-                <th className="px-4 py-3 font-medium text-right">Coût</th>
-                <th className="px-4 py-3 font-medium text-right">À facturer</th>
-                <th className="px-4 py-3 font-medium text-right">Tests staff</th>
+                <th className="px-4 py-3 font-medium text-right">Entrée</th>
+                <th className="px-4 py-3 font-medium text-right">Cache écrit</th>
+                <th className="px-4 py-3 font-medium text-right">Cache lu</th>
+                <th className="px-4 py-3 font-medium text-right">Sortie</th>
+                <th className="px-4 py-3 font-medium text-right">Tests staff (msg)</th>
               </tr>
             </thead>
             <tbody>
@@ -161,13 +143,8 @@ export default function AdminUsagePage() {
                       {c.clientName}
                       {c.clientKey && <span className="ml-2 text-xs text-gray-500">{c.clientKey}</span>}
                     </td>
-                    <td className="px-4 py-3 text-right text-gray-300">{int(c.billable.messages)}</td>
-                    <td className="px-4 py-3 text-right text-gray-300">{int(c.billable.inputTokens)}</td>
-                    <td className="px-4 py-3 text-right text-gray-300">{int(c.billable.outputTokens)}</td>
-                    <td className="px-4 py-3 text-right text-gray-300">{int(c.billable.cacheTokens)}</td>
-                    <td className="px-4 py-3 text-right text-gray-300">{usd(c.billable.costUsd)}</td>
-                    <td className="px-4 py-3 text-right text-amber-300 font-semibold">{usd(c.billable.costUsd * coef)}</td>
-                    <td className="px-4 py-3 text-right text-gray-500">{usd(c.staff.costUsd)}</td>
+                    <TokenCells t={c.billable} className="px-4 py-3 text-right text-gray-300" />
+                    <td className="px-4 py-3 text-right text-gray-500">{int(c.staff.messages)}</td>
                   </tr>
                   {openKey === c.key &&
                     c.users.map((u) => (
@@ -175,12 +152,8 @@ export default function AdminUsagePage() {
                         <td className="px-4 py-2 pl-8 text-gray-400">
                           {u.email} <Pill tone={u.role === "client" ? "blue" : "default"} className="ml-1">{u.role === "client" ? "client" : `${u.role} · non facturé`}</Pill>
                         </td>
-                        <td className="px-4 py-2 text-right text-gray-400">{int(u.messages)}</td>
-                        <td className="px-4 py-2 text-right text-gray-400">{int(u.inputTokens)}</td>
-                        <td className="px-4 py-2 text-right text-gray-400">{int(u.outputTokens)}</td>
-                        <td className="px-4 py-2 text-right text-gray-400">{int(u.cacheTokens)}</td>
-                        <td className="px-4 py-2 text-right text-gray-400">{usd(u.costUsd)}</td>
-                        <td className="px-4 py-2" colSpan={2} />
+                        <TokenCells t={u} className="px-4 py-2 text-right text-gray-400" />
+                        <td className="px-4 py-2" />
                       </tr>
                     ))}
                 </Fragment>

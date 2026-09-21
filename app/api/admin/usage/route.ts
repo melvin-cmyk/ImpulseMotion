@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     where: { provider: "bedrock", createdAt: { gte: start, lt: end } },
     select: {
       dashboardId: true, clientName: true, clientKey: true, userEmail: true, userRole: true,
-      inputTokens: true, outputTokens: true, cacheReadTokens: true, cacheWriteTokens: true, costUsd: true,
+      inputTokens: true, outputTokens: true, cacheReadTokens: true, cacheWriteTokens: true,
     },
   });
   const clients = summarizeUsage(rows);

@@ -48,20 +48,20 @@ describe("recordBotUsage", () => {
 describe("summarizeUsage", () => {
   const row = (o: Partial<UsageRow>): UsageRow => ({
     dashboardId: "d1", clientName: "LPEV", clientKey: "lpev", userEmail: "c@lpev.fr", userRole: "client",
-    inputTokens: 10, outputTokens: 20, cacheReadTokens: 5, cacheWriteTokens: 1, costUsd: 0.5, ...o,
+    inputTokens: 10, outputTokens: 20, cacheReadTokens: 5, cacheWriteTokens: 1, ...o,
   });
 
-  it("sépare le facturable (clients) des tests staff, par client, trié par coût", () => {
+  it("sépare le facturable (clients) des tests staff, par client, trié par volume de tokens", () => {
     const out = summarizeUsage([
       row({}), row({}),
-      row({ userEmail: "melvin@impulse-analytics.com", userRole: "admin", costUsd: 0.2 }),
-      row({ dashboardId: "d2", clientName: "Sumix", clientKey: null, costUsd: 3 }),
+      row({ userEmail: "melvin@impulse-analytics.com", userRole: "admin", outputTokens: 2 }),
+      row({ dashboardId: "d2", clientName: "Sumix", clientKey: null, cacheWriteTokens: 50000 }),
     ]);
     expect(out.map((c) => c.clientName)).toEqual(["Sumix", "LPEV"]);
     const lpev = out[1];
-    expect(lpev.billable).toEqual({ messages: 2, inputTokens: 20, outputTokens: 40, cacheTokens: 12, costUsd: 1 });
-    expect(lpev.staff.messages).toBe(1);
-    expect(lpev.staff.costUsd).toBeCloseTo(0.2);
+    // the four token kinds stay apart: AWS prices each differently
+    expect(lpev.billable).toEqual({ messages: 2, inputTokens: 20, cacheWriteTokens: 2, cacheReadTokens: 10, outputTokens: 40 });
+    expect(lpev.staff).toMatchObject({ messages: 1, outputTokens: 2 });
     expect(lpev.users.map((u) => u.email)).toEqual(["c@lpev.fr", "melvin@impulse-analytics.com"]);
   });
 
@@ -84,10 +84,11 @@ describe("monthRange / usageCsv", () => {
   it("exporte une ligne par client × utilisateur, cellules échappées", () => {
     const clients = summarizeUsage([{
       dashboardId: "d1", clientName: "Saveurs; Vie", clientKey: null, userEmail: "a@b.fr", userRole: "client",
-      inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4, costUsd: 0.12345,
+      inputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 4,
     }]);
     const csv = usageCsv("2026-09", clients).trim().split("\n");
     expect(csv).toHaveLength(2);
-    expect(csv[1]).toBe('2026-09;"Saveurs; Vie";;a@b.fr;client;oui;1;1;2;7;0.1235');
+    expect(csv[0]).toContain("tokens_entree;tokens_cache_ecrit;tokens_cache_lu;tokens_sortie");
+    expect(csv[1]).toBe('2026-09;"Saveurs; Vie";;a@b.fr;client;oui;1;1;4;3;2');
   });
 });

@@ -85,15 +85,17 @@ export interface UsageRow {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
-  costUsd: number;
 }
 
+/** Token counts exactly as Bedrock reports them. The four kinds are priced
+ *  differently (cache writes cost more than input, cache reads far less), so
+ *  they are never merged: pricing is done by the admin from these numbers. */
 export interface UsageTotals {
   messages: number;
   inputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
   outputTokens: number;
-  cacheTokens: number;
-  costUsd: number;
 }
 
 export interface ClientUsage {
@@ -107,14 +109,16 @@ export interface ClientUsage {
   users: Array<{ email: string; role: string } & UsageTotals>;
 }
 
-const emptyTotals = (): UsageTotals => ({ messages: 0, inputTokens: 0, outputTokens: 0, cacheTokens: 0, costUsd: 0 });
+const emptyTotals = (): UsageTotals => ({ messages: 0, inputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, outputTokens: 0 });
+
+export const totalTokens = (t: UsageTotals): number => t.inputTokens + t.cacheWriteTokens + t.cacheReadTokens + t.outputTokens;
 
 function add(t: UsageTotals, r: UsageRow): void {
   t.messages += 1;
   t.inputTokens += r.inputTokens;
+  t.cacheWriteTokens += r.cacheWriteTokens;
+  t.cacheReadTokens += r.cacheReadTokens;
   t.outputTokens += r.outputTokens;
-  t.cacheTokens += r.cacheReadTokens + r.cacheWriteTokens;
-  t.costUsd += r.costUsd;
 }
 
 /** Groups ledger rows by client (dashboard), splitting client vs staff usage. */
@@ -135,8 +139,8 @@ export function summarizeUsage(rows: UsageRow[]): ClientUsage[] {
     add(u, r);
   }
   return [...byClient.values()]
-    .map(({ byUser, ...c }) => ({ ...c, users: [...byUser.values()].sort((a, b) => b.costUsd - a.costUsd) }))
-    .sort((a, b) => b.billable.costUsd + b.staff.costUsd - (a.billable.costUsd + a.staff.costUsd));
+    .map(({ byUser, ...c }) => ({ ...c, users: [...byUser.values()].sort((a, b) => totalTokens(b) - totalTokens(a)) }))
+    .sort((a, b) => totalTokens(b.billable) + totalTokens(b.staff) - (totalTokens(a.billable) + totalTokens(a.staff)));
 }
 
 /** "2026-09" → [start, end) in UTC; invalid or missing → the current month. */
@@ -156,12 +160,12 @@ const csvCell = (v: string | number) => {
 
 /** One line per client and user — ready for a spreadsheet (";" separator, fr-FR Excel). */
 export function usageCsv(month: string, clients: ClientUsage[]): string {
-  const lines = [["mois", "client", "client_key", "utilisateur", "role", "facturable", "messages", "tokens_entree", "tokens_sortie", "tokens_cache", "cout_usd"].join(";")];
+  const lines = [["mois", "client", "client_key", "utilisateur", "role", "facturable", "messages", "tokens_entree", "tokens_cache_ecrit", "tokens_cache_lu", "tokens_sortie"].join(";")];
   for (const c of clients) {
     for (const u of c.users) {
       lines.push([
         month, c.clientName, c.clientKey ?? "", u.email, u.role, u.role === "client" ? "oui" : "non",
-        u.messages, u.inputTokens, u.outputTokens, u.cacheTokens, u.costUsd.toFixed(4),
+        u.messages, u.inputTokens, u.cacheWriteTokens, u.cacheReadTokens, u.outputTokens,
       ].map(csvCell).join(";"));
     }
   }
