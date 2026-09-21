@@ -150,6 +150,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
     allowedServers: serversForSources(sources),
     accountScope,
     budgetMs: BUDGET_MS,
+    // Client bots — and only them — run on Amazon Bedrock (AWS, EU region).
+    provider: "bedrock",
   };
   if (sources.data || sources.ga4PropertyId) {
     relayBody.dataScope = { clientKey: bot.clientKey, ga4PropertyId: sources.ga4PropertyId };

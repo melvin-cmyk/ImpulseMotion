@@ -34,6 +34,9 @@ export interface RelayChatBody {
   dataScope?: { clientKey: string; ga4PropertyId?: string };
   /** Session budget requested from the relay (ms). Capped server-side. */
   budgetMs?: number;
+  /** Inference backend. "bedrock" = the agency's AWS account (EU region),
+   *  reserved to the private client bots. Absent = the relay's default. */
+  provider?: "bedrock";
 }
 
 interface RelayEvent { type: string; text?: string; message?: string }

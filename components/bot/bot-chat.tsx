@@ -277,6 +277,12 @@ export function BotChat({
               <div className="text-sm font-semibold text-white truncate">{botName}</div>
               <div className="text-[11px] text-gray-500 truncate">{dashboardName}</div>
             </div>
+            <span
+              className="hidden md:inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+              title="Cet assistant ne lit que les données de votre espace. Les réponses sont générées sur Amazon Bedrock (AWS, région Europe), dans un environnement dédié."
+            >
+              Espace privé · IA hébergée sur AWS Bedrock (UE)
+            </span>
           </div>
           <div className="flex items-center gap-3 text-[11px] text-gray-500">
             {enabledSources.length > 0 ? <span className="hidden sm:inline">{enabledSources.join(" · ")}</span> : <span>Aucune source branchée</span>}

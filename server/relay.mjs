@@ -19,6 +19,12 @@ const execFileAsync = promisify(execFile);
 
 const PORT = process.env.RELAY_PORT || 3457;
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
+// Amazon Bedrock — used ONLY when a caller asks for it (`provider: "bedrock"`,
+// today the private client bots): inference then runs in the agency's AWS
+// account, EU region, instead of the host's Claude subscription. Credentials
+// come from the host's AWS profile (~/.aws). No silent fallback either way.
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL || "eu.anthropic.claude-sonnet-4-6";
+const BEDROCK_REGION = process.env.BEDROCK_REGION || "eu-west-3";
 // No browser ever talks to the relay directly — only the Next.js backend does,
 // so cross-origin requests are denied unless explicitly configured.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
@@ -219,7 +225,8 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId 
 }
 
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
-function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope) {
+function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider) {
+  const useBedrock = provider === "bedrock";
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -308,7 +315,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     "--output-format", "stream-json",
     "--verbose",
     "--include-partial-messages",
-    "--model", CLAUDE_MODEL,
+    "--model", useBedrock ? BEDROCK_MODEL : CLAUDE_MODEL,
     "--mcp-config", mcpConfigPath,
     // Only the servers we declare: never the claude.ai connectors of the host account.
     "--strict-mcp-config",
@@ -322,13 +329,24 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..."${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}`);
+  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..."${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock=${BEDROCK_MODEL}@${BEDROCK_REGION}` : ""}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
   const child = spawn("claude", args, {
     cwd: process.env.RELAY_CLAUDE_CWD || "/var/lib/impulsemotion-relay",
-    env: { ...process.env, TERM: "dumb" },
+    env: {
+      ...process.env,
+      TERM: "dumb",
+      ...(useBedrock
+        ? {
+            CLAUDE_CODE_USE_BEDROCK: "1",
+            AWS_REGION: BEDROCK_REGION,
+            // Background/small-model calls must stay on Bedrock too.
+            ANTHROPIC_DEFAULT_HAIKU_MODEL: BEDROCK_MODEL,
+          }
+        : {}),
+    },
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdin.end();
@@ -619,7 +637,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "messages required" }));
         return;
       }
-      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs, body.dataScope);
+      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs, body.dataScope, body.provider);
       return;
     }
 
