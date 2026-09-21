@@ -38,6 +38,20 @@ const CLIENT_DATA_SERVER = "client-data";
 const CLIENT_DATA_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-client-data.mjs";
 const SCOPED_ADS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-scoped-ads.mjs";
 const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
+// HQ (hqforwork.com) — mémoire d'entreprise de l'agence : skills, knowledge,
+// projets, policies. Ce n'est PAS une entrée de mcp-claude.json : c'est le
+// connecteur claude.ai du compte hôte ("claude.ai mcp hq"), que le CLI ne charge
+// que sans --strict-mcp-config. Il agit avec l'identité propriétaire de
+// l'agence, donc : IA interne uniquement (jamais un bot client), et uniquement
+// les outils de lecture listés ci-dessous.
+const HQ_SERVER = "hq";
+const HQ_TOOL_PREFIX = "mcp__claude_ai_mcp_hq__";
+const HQ_READ_TOOLS = [
+  "hq_context_grounding", "hq_companies_list", "search", "fetch", "hq_content_get",
+  "hq_knowledge_list", "hq_knowledge_get", "hq_files_list", "hq_files_read",
+  "hq_projects_list", "hq_project_get", "hq_project_status",
+  "hq_policies_list", "hq_policy_get", "hq_skill_list", "hq_skill_get",
+];
 
 // Global whitelist — only servers declared here can ever be routed to the AI.
 // The per-request `allowedServers` list is intersected with this set, so even
@@ -47,6 +61,7 @@ const ALLOWED_MCP_SERVERS = new Set([
   "mcp-google-ads",
   "mcp-google-analytics",
   CLIENT_DATA_SERVER,
+  HQ_SERVER,
 ]);
 
 // Per-server explicit tool allowlist (read-only). Servers absent from this map
@@ -267,6 +282,13 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     dataScope && typeof dataScope === "object" && typeof dataScope.ga4PropertyId === "string" && dataScope.ga4PropertyId.trim()
       ? dataScope.ga4PropertyId.trim().slice(0, 64)
       : null;
+  // HQ carries the agency owner's identity: never for a client bot (dataScope
+  // or Bedrock = bot client). Pulled out of `servers` either way — it has no
+  // entry in the mcp-config, the CLI gets it from the host claude.ai account.
+  const useHq = servers.includes(HQ_SERVER) && !dataScope && !useBedrock;
+  if (servers.includes(HQ_SERVER) && !useHq) console.error("[chat] hq refusé — requête de bot client");
+  servers = servers.filter((s) => s !== HQ_SERVER);
+
   // Every chat goes through a generated config: scopes are pinned in the
   // environment of stdio servers, never left to the prompt.
   const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId });
@@ -280,6 +302,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   const toolPatterns = servers.flatMap((s) =>
     SERVER_TOOL_ALLOWLIST[s] ? SERVER_TOOL_ALLOWLIST[s].map((t) => `mcp__${s}__${t}`) : [`mcp__${s}__*`],
   );
+  if (useHq) toolPatterns.push(...HQ_READ_TOOLS.map((t) => `${HQ_TOOL_PREFIX}${t}`));
 
   // Scope the AI to only the accountIds the caller is allowed to query.
   // Callers may override the base prompt for one-shot tasks (recommendations,
@@ -310,6 +333,12 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
       "\nTu ne dois interroger AUCUN autre compte. Si l'utilisateur demande des données pour un autre compte, refuse et explique que tu n'y as pas accès.";
   }
 
+  if (useHq) {
+    scopedSystemPrompt +=
+      "\n\nTu as aussi accès, en LECTURE SEULE, à HQ : la mémoire de l'agence (company `impulse-analytics`) — skills (méthodes et playbooks par client), knowledge, projets, policies." +
+      "\nPour une question sur un client, une méthode ou une décision de l'agence, cherche d'abord dans HQ (search puis fetch, ou hq_skill_list puis hq_skill_get) avant de répondre.";
+  }
+
   const args = [
     "--print", prompt,
     "--output-format", "stream-json",
@@ -317,8 +346,11 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     "--include-partial-messages",
     "--model", useBedrock ? BEDROCK_MODEL : CLAUDE_MODEL,
     "--mcp-config", mcpConfigPath,
-    // Only the servers we declare: never the claude.ai connectors of the host account.
-    "--strict-mcp-config",
+    // Only the servers we declare: never the claude.ai connectors of the host
+    // account — except for HQ, which only exists as one. The other connectors
+    // then load too, but stay unusable: in --print mode a tool outside
+    // --allowedTools is denied, and only HQ_READ_TOOLS are listed.
+    ...(useHq ? [] : ["--strict-mcp-config"]),
     "--system-prompt", scopedSystemPrompt,
     "--no-session-persistence",
     "--max-turns", "15",
@@ -586,7 +618,8 @@ const server = http.createServer(async (req, res) => {
       // "<server>.<tool>" for mcporter. Reject any other shape or unknown server.
       const firstDot = String(body.tool).indexOf(".");
       const serverName = firstDot > 0 ? String(body.tool).slice(0, firstDot) : "";
-      if (!serverName || !ALLOWED_MCP_SERVERS.has(serverName)) {
+      // HQ is chat-only: no direct call, its read-only list lives in handleChat.
+      if (!serverName || serverName === HQ_SERVER || !ALLOWED_MCP_SERVERS.has(serverName)) {
         res.writeHead(403, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "tool not allowed" }));
         return;

@@ -16,6 +16,18 @@ export const MCP_SERVER_WHITELIST = [
 
 export type McpServer = (typeof MCP_SERVER_WHITELIST)[number];
 
+/**
+ * HQ (mémoire de l'agence : skills, knowledge, projets, policies), en lecture
+ * seule. Volontairement HORS de MCP_SERVER_WHITELIST : il porte l'identité
+ * propriétaire de l'agence et couvre tous les clients, donc il n'est jamais
+ * attribuable à un utilisateur client — seulement ajouté d'office pour le staff
+ * (console /ai, copilote). Le relay le refuse à tout bot client.
+ */
+export const HQ_SERVER = "hq" as const;
+
+/** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
+export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER] as const;
+
 /** Serveur MCP stdio des données e-commerce (server/mcp-client-data.mjs), scoped par le relay. */
 export const CLIENT_DATA_SERVER = "client-data" as const;
 

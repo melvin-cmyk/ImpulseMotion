@@ -16,6 +16,7 @@ import { buildCopilotSystemPrompt } from "@/lib/dashboard-copilot";
 import { resolveBinding } from "@/lib/dashboard-widgets";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
+import { STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 
 export const maxDuration = 120;
 
@@ -139,7 +140,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const relayBody = {
     messages,
     systemPrompt,
-    allowedServers: ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"],
+    // Staff-only route: ads servers (scoped to this dashboard below) + HQ read-only.
+    allowedServers: [...STAFF_MCP_SERVERS],
     accountScope: {
       meta: binding.metaAccountId ? [binding.metaAccountId] : [],
       google: binding.googleCustomerId ? [binding.googleCustomerId] : [],

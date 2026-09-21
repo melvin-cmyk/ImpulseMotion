@@ -161,6 +161,7 @@ export default function AIPage() {
       .replace("mcp__meta-ads-impulse__", "Meta: ")
       .replace("mcp__mcp-google-ads__", "GAds: ")
       .replace("mcp__mcp-google-analytics__", "GA: ")
+      .replace("mcp__claude_ai_mcp_hq__", "HQ: ")
       .replace(/1$/, "")
   }
 
