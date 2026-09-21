@@ -18,6 +18,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { parseUsageEvent, recordBotUsage, type RelayUsage } from "@/lib/ai-usage";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
@@ -64,22 +65,24 @@ function titleFrom(text: string): string {
 
 /**
  * Wraps the relay's SSE body: forwards every byte and accumulates the text
- * deltas; `onFinish(text, sawDone)` runs once when the stream ends.
+ * deltas and the relay's final `usage` event; `onFinish(text, sawDone, usage)`
+ * runs once when the stream ends.
  */
 function teeSse(
   source: ReadableStream<Uint8Array>,
-  onFinish: (text: string, sawDone: boolean) => Promise<void>,
+  onFinish: (text: string, sawDone: boolean, usage: RelayUsage | null) => Promise<void>,
 ): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   let buffer = "";
   let text = "";
   let sawDone = false;
+  let usage: RelayUsage | null = null;
   let finished = false;
 
   const finish = async () => {
     if (finished) return;
     finished = true;
-    try { await onFinish(text, sawDone); } catch (e) { console.error("[bot/chat] persist failed", e); }
+    try { await onFinish(text, sawDone, usage); } catch (e) { console.error("[bot/chat] persist failed", e); }
   };
 
   const parseLine = (line: string) => {
@@ -92,6 +95,7 @@ function teeSse(
     if (evt.type === "delta" && typeof evt.text === "string") text += evt.text;
     else if (evt.type === "content" && typeof evt.text === "string" && !text) text = evt.text;
     else if (evt.type === "done") sawDone = true;
+    else if (evt.type === "usage") usage = parseUsageEvent(evt) ?? usage;
   };
 
   return source.pipeThrough(
@@ -160,7 +164,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   const upstream = await relayStream(relayBody);
   if (upstream.status !== 200 || !upstream.body) return upstream;
 
-  const persist = async (text: string, sawDone: boolean) => {
+  const persist = async (text: string, sawDone: boolean, usage: RelayUsage | null) => {
+    // Billing ledger first: the session was paid for even when no usable text
+    // came back. Never let a ledger failure lose the conversation.
+    if (usage) {
+      await recordBotUsage({
+        usage,
+        bot: { id: bot.id, clientKey: bot.clientKey, dashboard: bot.dashboard },
+        user: { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role },
+      }).catch((e) => console.error("[bot/chat] usage ledger failed", e));
+    }
     const answer = text.trim();
     if (!answer) return; // nothing usable: leave the thread untouched, the UI keeps the draft
     const assistant: BotMessage = {

@@ -346,3 +346,36 @@ model BotConversation {
 
   @@index([botId, userId, updatedAt])
 }
+
+/// Billing ledger of the AI run on Amazon Bedrock (today: the private client
+/// bots). One row per answered message. Deliberately NO foreign keys: names
+/// are snapshotted so the history survives a deleted dashboard, bot or login.
+model AiUsage {
+  id               String   @id @default(cuid())
+  createdAt        DateTime @default(now())
+  /// "bedrock"
+  provider         String
+  model            String
+  /// "client_bot"
+  feature          String
+  dashboardId      String?
+  /// Dashboard name at the time — the billed client.
+  clientName       String
+  botId            String?
+  clientKey        String?
+  userId           String?
+  userEmail        String?
+  /// "client" is billable; "admin" / "consultant" are staff tests.
+  userRole         String
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  cacheReadTokens  Int      @default(0)
+  cacheWriteTokens Int      @default(0)
+  /// List-price cost reported by the model runtime (USD).
+  costUsd          Float    @default(0)
+  turns            Int      @default(0)
+  durationMs       Int      @default(0)
+
+  @@index([createdAt])
+  @@index([dashboardId, createdAt])
+}

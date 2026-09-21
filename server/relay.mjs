@@ -465,10 +465,21 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
           send("content", { text: event.result });
           fullText = event.result;
         }
+        // Tokens summed over every model of the session (billing ledger).
+        const tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+        for (const m of Object.values(event.modelUsage || {})) {
+          tokens.input += m.inputTokens || 0;
+          tokens.output += m.outputTokens || 0;
+          tokens.cacheRead += m.cacheReadInputTokens || 0;
+          tokens.cacheWrite += m.cacheCreationInputTokens || 0;
+        }
         send("usage", {
           cost: event.total_cost_usd || 0,
           turns: event.num_turns || 0,
           duration: event.duration_ms || 0,
+          provider: useBedrock ? "bedrock" : "subscription",
+          model: useBedrock ? BEDROCK_MODEL : CLAUDE_MODEL,
+          tokens,
         });
         continue;
       }
