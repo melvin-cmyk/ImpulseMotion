@@ -25,7 +25,7 @@ export interface MetaErrorClassification {
 
 /**
  * Pure mapping (code, subcode, httpStatus) → kind/retryable.
- * - 4, 17, 32, 613, 80000-80008 → rate_limit (retryable)
+ * - 4, 17, 32, 613, 80000-80014 → rate_limit (retryable)
  * - 2 → transient (retryable: "service temporarily unavailable")
  * - 190, 102 → auth (not retryable)
  * - 10, 100+subcode 33, 200-299 → permission (not retryable)
@@ -42,7 +42,7 @@ export function classifyMetaError(input: {
   const status = typeof input.httpStatus === "number" ? input.httpStatus : 0;
 
   if (code !== undefined) {
-    if (code === 4 || code === 17 || code === 32 || code === 613 || (code >= 80000 && code <= 80008)) {
+    if (code === 4 || code === 17 || code === 32 || code === 613 || (code >= 80000 && code <= 80014)) {
       return { kind: "rate_limit", retryable: true };
     }
     if (code === 2) return { kind: "transient", retryable: true };

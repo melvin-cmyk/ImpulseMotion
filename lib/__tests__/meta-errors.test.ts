@@ -10,6 +10,7 @@ describe("classifyMetaError", () => {
     [80000, undefined, 400, "rate_limit", true],
     [80004, undefined, 400, "rate_limit", true],
     [80008, undefined, 400, "rate_limit", true],
+    [80014, undefined, 400, "rate_limit", true],
     [2, undefined, 500, "transient", true],
     [190, undefined, 400, "auth", false],
     [102, undefined, 400, "auth", false],
@@ -169,5 +170,61 @@ describe("metaFetch retry policy", () => {
     expect(capped.data).toHaveLength(3);
     expect(capped.truncated).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  describe("token failover (backup app)", () => {
+    const tokenOf = (call: number) => new URL(String(fetchMock.mock.calls[call][0])).searchParams.get("access_token");
+    const okBody = { data: [{ spend: "1", impressions: "1", clicks: "1", ctr: "1", cpm: "1", account_currency: "EUR", date_start: "d", date_stop: "d" }] };
+    beforeEach(() => {
+      process.env.META_SYSTEM_TOKEN = "primary-tok";
+      process.env.META_SYSTEM_TOKEN_BACKUP = "backup-tok";
+    });
+    afterEach(() => {
+      delete process.env.META_SYSTEM_TOKEN;
+      delete process.env.META_SYSTEM_TOKEN_BACKUP;
+    });
+
+    it("fails over to the backup token on a dead primary (190), then skips the primary", async () => {
+      const { getAccountInsights, getMetaSystemToken } = await import("@/lib/meta-api");
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ error: { message: "Invalid OAuth access token", code: 190 } }, 400))
+        .mockImplementation(async () => jsonResponse(okBody));
+      const r = await getAccountInsights(getMetaSystemToken(), "123");
+      expect(r.spend).toBe("1");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(tokenOf(0)).toBe("primary-tok");
+      expect(tokenOf(1)).toBe("backup-tok");
+      // cooldown: the next call goes straight to the backup
+      await getAccountInsights(getMetaSystemToken(), "123");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(tokenOf(2)).toBe("backup-tok");
+    });
+
+    it("fails over on an app-level rate limit without burning retries on the primary", async () => {
+      const { getAccountInsights, getMetaSystemToken } = await import("@/lib/meta-api");
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ error: { message: "Application request limit reached", code: 4 } }, 400))
+        .mockResolvedValueOnce(jsonResponse(okBody));
+      await getAccountInsights(getMetaSystemToken(), "123");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(tokenOf(1)).toBe("backup-tok");
+    });
+
+    it("throws the last error when both tokens fail, and never logs a token", async () => {
+      const { getAccountInsights, getMetaSystemToken } = await import("@/lib/meta-api");
+      fetchMock.mockImplementation(async () => jsonResponse({ error: { message: "Invalid OAuth access token", code: 190 } }, 400));
+      await expect(getAccountInsights(getMetaSystemToken(), "123")).rejects.toMatchObject({ code: 190, kind: "auth" });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const logged = vi.mocked(console.warn).mock.calls.flat().join(" ");
+      expect(logged).not.toContain("primary-tok");
+      expect(logged).not.toContain("backup-tok");
+    });
+
+    it("does not fail over for a token that is not a shared system token", async () => {
+      const { getAccountInsights } = await import("@/lib/meta-api");
+      fetchMock.mockImplementation(async () => jsonResponse({ error: { message: "Invalid OAuth access token", code: 190 } }, 400));
+      await expect(getAccountInsights("tok", "123")).rejects.toMatchObject({ code: 190 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 });

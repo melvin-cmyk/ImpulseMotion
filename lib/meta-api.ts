@@ -23,9 +23,22 @@ const META_API_BASE = "https://graph.facebook.com/v22.0";
  * is enforced by the UserAdAccount ACL table, never by the token itself.
  */
 export function getMetaSystemToken(): string {
-  const tok = process.env.META_SYSTEM_TOKEN || process.env.META_SHARED_TOKEN;
+  const tok = getMetaTokens()[0];
   if (!tok) throw new Error("META_SYSTEM_TOKEN is not configured");
   return tok;
+}
+
+/**
+ * Primary token first, then the backup app's token (META_SYSTEM_TOKEN_BACKUP).
+ * The backup must be issued by a SECOND Meta app for the SAME system user, so
+ * both tokens see the same ad accounts (cache keys are token-agnostic). A token
+ * is bound to the app that issued it: a second app means its own app-level
+ * quota, and a way out when the primary token is revoked or expired (190).
+ */
+export function getMetaTokens(): string[] {
+  const primary = process.env.META_SYSTEM_TOKEN || process.env.META_SHARED_TOKEN;
+  const backup = process.env.META_SYSTEM_TOKEN_BACKUP;
+  return [primary, backup].filter((t, i, all): t is string => !!t && all.indexOf(t) === i);
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -270,21 +283,65 @@ async function metaRequestOnce<T>(url: string, path: string): Promise<OnceResult
   return { ok: true, value: body as T };
 }
 
+// ── Token failover (primary app → backup app) ───────────────────────────────
+
+const TOKEN_COOLDOWN_MS = 5 * 60_000;
+const MAX_TOKEN_COOLDOWN_MS = 60 * 60_000;
+/** Per-instance memory of tokens that just failed, so the next calls skip them. */
+const tokenDownUntil = new Map<string, number>();
+
+function markTokenDown(token: string, retryAfterMs?: number): void {
+  const wait = Math.min(Math.max(retryAfterMs ?? 0, TOKEN_COOLDOWN_MS), MAX_TOKEN_COOLDOWN_MS);
+  tokenDownUntil.set(token, Date.now() + wait);
+}
+
+/** Never log a token: name it by its slot. */
+function tokenLabel(token: string): string {
+  return getMetaTokens().indexOf(token) === 0 ? "primary" : "backup";
+}
+
+/**
+ * Tokens to try for a call, healthy ones first. Failover only applies to the
+ * shared system tokens: any other token (tests, one-off probes) is used alone.
+ */
+function failoverOrder(accessToken: string): string[] {
+  const shared = getMetaTokens();
+  if (shared.length < 2 || !shared.includes(accessToken)) return [accessToken];
+  const now = Date.now();
+  const isDown = (t: string) => (tokenDownUntil.get(t) ?? 0) > now;
+  return [...shared].sort((a, b) => Number(isDown(a)) - Number(isDown(b)));
+}
+
 async function metaFetch<T>(
   path: string,
   accessToken: string,
   params: Record<string, string> = {},
 ): Promise<T> {
-  const url = new URL(`${META_API_BASE}${path}`);
-  url.searchParams.set("access_token", accessToken);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const target = url.toString();
+  const targetFor = (token: string) => {
+    const url = new URL(`${META_API_BASE}${path}`);
+    url.searchParams.set("access_token", token);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    return url.toString();
+  };
+  const tokens = failoverOrder(accessToken);
+  let tokenIdx = 0;
 
   let lastError: MetaApiError | null = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const result = await withMetaSlot(() => metaRequestOnce<T>(target, path));
+    const token = tokens[tokenIdx];
+    const result = await withMetaSlot(() => metaRequestOnce<T>(targetFor(token), path));
     if (result.ok) return result.value;
     lastError = result.error;
+    // A dead token (190) or a throttled app cannot recover within our backoff:
+    // move to the other app's token right away, with a fresh attempt budget.
+    const kind = result.error.kind;
+    if ((kind === "auth" || kind === "rate_limit") && tokenIdx < tokens.length - 1) {
+      markTokenDown(token, result.retryAfterMs);
+      console.warn(`[meta-api] ${path} ${result.error.describe()} on ${tokenLabel(token)} token → failover to ${tokenLabel(tokens[tokenIdx + 1])}`);
+      tokenIdx++;
+      attempt = 0;
+      continue;
+    }
     // Meta announcing minutes of lockout (x-business-use-case-usage): retrying
     // within our 30 s backoff cannot succeed and only burns more quota.
     const lockedOut = (result.retryAfterMs ?? 0) > MAX_BACKOFF_MS;
