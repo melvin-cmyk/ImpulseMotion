@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
-import { generateTempPassword } from "@/lib/temp-password";
+import { addDashboardMember, MemberError } from "@/lib/dashboard-members";
 
 type Ctx = { params: Promise<{ dashboardId: string }> };
 
 /**
- * Donne accès au bot par email. Utilisateur inconnu → créé en role "client"
- * avec un mot de passe temporaire renvoyé UNE fois (même mécanique que POST /api/admin/users).
+ * Donne accès au bot par email, à un CLIENT du dashboard uniquement (il y est
+ * rattaché au passage). Email inconnu → login "client" créé, mot de passe
+ * temporaire renvoyé UNE fois.
  */
 export async function POST(req: Request, { params }: Ctx) {
   const guard = await requireAdmin();
@@ -27,22 +27,18 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "invalid email" }, { status: 400 });
   }
 
-  let user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, email: true, name: true, role: true },
-  });
-  let tempPassword: string | undefined;
-  let created = false;
-
-  if (!user) {
-    tempPassword = generateTempPassword();
-    const passwordHash = await bcrypt.hash(tempPassword, 12);
-    user = await prisma.user.create({
-      data: { email, name, role: "client", passwordHash },
-      select: { id: true, email: true, name: true, role: true },
-    });
-    created = true;
+  // Same silo as the dashboard: the bot is only ever granted to a CLIENT
+  // attached to this dashboard — granting it attaches them (and creates the
+  // login with a temp password when the email is unknown).
+  let added;
+  try {
+    added = await addDashboardMember({ dashboardId, email, role: "client", name });
+  } catch (e) {
+    if (e instanceof MemberError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
   }
+  const user = added.member.user;
+  const { created, tempPassword } = added;
 
   const access = await prisma.clientBotAccess.upsert({
     where: { botId_userId: { botId: bot.id, userId: user.id } },

@@ -1,15 +1,16 @@
 "use client";
 
 /**
- * Staff form on /d: create a dashboard by explicitly linking a client login
- * to an ad account (Meta and/or Google). The API grants the matching ACL rows
- * so the client sees the dashboard at their next login.
+ * Admin form on /d: create a dashboard on an ad account (Meta and/or Google)
+ * and attach the people allowed in it by email — consultants and clients.
+ * Unknown emails get a login; their temp passwords are shown once afterwards.
  */
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { InviteList } from "@/components/dashboard/members-manager";
 
-interface ClientOption { id: string; email: string | null; name: string | null }
+interface InviteResult { email: string; role: string; created: boolean; tempPassword?: string; error?: string }
 interface AccountOption { accountId: string; name: string }
 
 const inputCls =
@@ -18,10 +19,11 @@ const inputCls =
 export function CreateDashboardForm() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [clients, setClients] = useState<ClientOption[]>([]);
   const [metaAccounts, setMetaAccounts] = useState<AccountOption[]>([]);
   const [googleAccounts, setGoogleAccounts] = useState<AccountOption[]>([]);
-  const [userId, setUserId] = useState("");
+  const [consultants, setConsultants] = useState("");
+  const [clients, setClients] = useState("");
+  const [invites, setInvites] = useState<InviteResult[]>([]);
   const [name, setName] = useState("");
   const [metaId, setMetaId] = useState("");
   const [googleId, setGoogleId] = useState("");
@@ -30,10 +32,6 @@ export function CreateDashboardForm() {
 
   useEffect(() => {
     if (!open) return;
-    fetch("/api/dashboards/clients")
-      .then((r) => (r.ok ? r.json() : { clients: [] }))
-      .then((j) => setClients(j.clients ?? []))
-      .catch(() => {});
     // Account suggestions are best-effort (Meta needs a valid token, Google
     // walks the MCC via the relay) — free text always works.
     fetch("/api/admin/meta/accounts")
@@ -49,14 +47,14 @@ export function CreateDashboardForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!userId) { setError("Choisissez un accès client"); return; }
     if (!metaId.trim() && !googleId.trim()) { setError("Renseignez au moins un compte Meta ou Google"); return; }
     setSaving(true);
     const res = await fetch("/api/dashboards", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId,
+        consultants,
+        clients,
         name: name.trim() || undefined,
         metaAccountId: metaId.trim() || undefined,
         googleCustomerId: googleId.trim() || undefined,
@@ -68,36 +66,39 @@ export function CreateDashboardForm() {
       setError(body.error ?? `Erreur ${res.status}`);
       return;
     }
+    const body = await res.json().catch(() => ({}));
+    setInvites(body.invites ?? []);
     setOpen(false);
-    setName(""); setMetaId(""); setGoogleId("");
+    setName(""); setMetaId(""); setGoogleId(""); setConsultants(""); setClients("");
     router.refresh();
   }
 
   if (!open) {
+    const failed = invites.filter((i) => i.error);
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
-      >
-        + Nouveau dashboard
-      </button>
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+        >
+          + Nouveau dashboard
+        </button>
+        <InviteList invites={invites.flatMap((i) => (i.tempPassword ? [{ email: i.email, tempPassword: i.tempPassword }] : []))} />
+        {failed.map((i) => (
+          <p key={i.email} className="text-xs text-red-400">{i.email} : {i.error}</p>
+        ))}
+      </div>
     );
   }
 
   return (
     <form onSubmit={submit} className="bg-gray-900 border border-violet-800/60 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Lier un dashboard à un accès client</h2>
+        <h2 className="text-sm font-semibold text-white">Nouveau dashboard — espace cloisonné</h2>
         <button type="button" onClick={() => setOpen(false)} className="text-xs text-gray-500 hover:text-gray-300">Annuler</button>
       </div>
       <div className="flex flex-wrap gap-3">
-        <select value={userId} onChange={(e) => setUserId(e.target.value)} className={inputCls + " w-56"}>
-          <option value="">Accès client…</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>{c.name ?? c.email}</option>
-          ))}
-        </select>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom (ex: Leroy Merlin)" className={inputCls + " w-52"} />
         <input
           value={metaId} onChange={(e) => setMetaId(e.target.value)}
@@ -114,8 +115,25 @@ export function CreateDashboardForm() {
           {googleAccounts.map((a) => <option key={a.accountId} value={a.accountId}>{a.name}</option>)}
         </datalist>
       </div>
+      <div className="flex flex-wrap gap-3">
+        <label className="flex flex-col gap-1 text-[11px] text-gray-400">
+          Consultants (emails, séparés par une virgule)
+          <input
+            value={consultants} onChange={(e) => setConsultants(e.target.value)}
+            placeholder="sarah@impulse-analytics.com" className={inputCls + " w-80"}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[11px] text-gray-400">
+          Clients (emails, séparés par une virgule)
+          <input
+            value={clients} onChange={(e) => setClients(e.target.value)}
+            placeholder="contact@marque.fr" className={inputCls + " w-80"}
+          />
+        </label>
+      </div>
       <p className="text-[11px] text-gray-500">
-        L&apos;accès au compte est accordé automatiquement au client (ACL) — il verra ce dashboard à sa prochaine connexion.
+        Seules ces personnes (et les admins) verront ce dashboard et ses données. Email inconnu → compte créé,
+        mot de passe temporaire affiché une seule fois après la création.
       </p>
       {error && <div className="text-xs text-red-400">{error}</div>}
       <button

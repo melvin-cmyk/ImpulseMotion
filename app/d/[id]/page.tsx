@@ -157,6 +157,12 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
                 Vue client
               </span>
             )}
+            <span
+              className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 border border-emerald-800/60"
+              title="Seules les personnes rattachées à ce dashboard par un admin (consultants, clients) y ont accès."
+            >
+              Espace privé
+            </span>
           </h1>
           <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2 flex-wrap">
             <span>{payload ? (payload.rangeLabel ?? describeRange({ since: payload.since, until: payload.until }).label) : describeRange(range).label}</span>

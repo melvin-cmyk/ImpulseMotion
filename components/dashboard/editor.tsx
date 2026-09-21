@@ -387,17 +387,8 @@ export function DashboardSettingsForm({
   const [name, setName] = useState(dashboard.name);
   const [metaId, setMetaId] = useState(dashboard.metaAccountId ?? "");
   const [googleId, setGoogleId] = useState(dashboard.googleCustomerId ?? "");
-  const [userId, setUserId] = useState(dashboard.userId);
-  const [clients, setClients] = useState<Array<{ id: string; email: string | null; name: string | null }>>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/dashboards/clients")
-      .then((r) => (r.ok ? r.json() : { clients: [] }))
-      .then((j) => setClients(j.clients ?? []))
-      .catch(() => {});
-  }, []);
 
   async function save() {
     setSaving(true);
@@ -407,7 +398,6 @@ export function DashboardSettingsForm({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name,
-        userId,
         metaAccountId: metaId.trim() || null,
         googleCustomerId: googleId.trim() || null,
       }),
@@ -429,17 +419,12 @@ export function DashboardSettingsForm({
       </div>
       <div className="flex flex-wrap gap-3">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom" className={inputCls + " w-48"} />
-        <select value={userId} onChange={(e) => setUserId(e.target.value)} className={inputCls + " w-52"} title="Accès client lié">
-          {!clients.some((c) => c.id === userId) && <option value={userId}>Accès actuel</option>}
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>{c.name ?? c.email}</option>
-          ))}
-        </select>
         <input value={metaId} onChange={(e) => setMetaId(e.target.value)} placeholder="Compte Meta (act_…)" className={inputCls + " w-48"} />
         <input value={googleId} onChange={(e) => setGoogleId(e.target.value)} placeholder="Customer Google Ads" className={inputCls + " w-48"} />
       </div>
       <p className="text-[11px] text-gray-500 mt-2">
-        L&apos;accès au compte est accordé automatiquement (ACL) au client sélectionné.
+        Les accès (consultants, clients, bot) se gèrent par un admin depuis la liste des dashboards.
+        Changer de compte met à jour les droits de toutes les personnes rattachées.
       </p>
       {error && <div className="text-xs text-red-400 mt-2">{error}</div>}
       <div className="mt-3 flex items-center gap-2">

@@ -10,6 +10,7 @@ import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor, denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 import { resolveWidgets, grantDashboardAccess, type CompareRange } from "@/lib/dashboard-widgets";
+import { revokeUncoveredAccess } from "@/lib/dashboard-members";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { describeRange, prevRange, rangeFromParams, validateRange, yearAgoRange } from "@/lib/date-ranges";
 
@@ -159,8 +160,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
   }
   const dashboard = await prisma.dashboard.update({ where: { id }, data });
-  // Ensure the (possibly new) owner can pass the resolver's ACL re-check.
-  await grantDashboardAccess(dashboard.userId, dashboard);
+  // Access follows the binding: the owner (resolver's ACL re-check) and every
+  // attached person get the new accounts, and lose the old ones unless another
+  // dashboard of theirs still covers them.
+  const members = await prisma.dashboardMember.findMany({ where: { dashboardId: id }, select: { userId: true } });
+  const people = new Set([dashboard.userId, ...members.map((m) => m.userId)]);
+  for (const uid of people) await grantDashboardAccess(uid, dashboard);
+  for (const uid of new Set([...people, existing.userId])) await revokeUncoveredAccess(uid, existing);
   return NextResponse.json({ dashboard });
 }
 
@@ -170,6 +176,16 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params;
   const denied = await denyIfDashboardOutOfScope(guard.session, id);
   if (denied) return denied;
+  const existing = await prisma.dashboard.findUnique({
+    where: { id },
+    select: { userId: true, metaAccountId: true, googleCustomerId: true, members: { select: { userId: true } } },
+  });
   await prisma.dashboard.delete({ where: { id } }).catch(() => null);
+  // Closing the silo closes the access it had opened.
+  if (existing) {
+    for (const uid of new Set([existing.userId, ...existing.members.map((m) => m.userId)])) {
+      await revokeUncoveredAccess(uid, existing);
+    }
+  }
   return NextResponse.json({ ok: true });
 }

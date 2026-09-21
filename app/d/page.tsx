@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { provisionDashboardsForUser } from "@/lib/dashboard-widgets";
 import { getAccountScope, dashboardWhere } from "@/lib/scope";
 import { groupDashboardsByAccount } from "@/lib/portfolio";
 import { CreateDashboardForm } from "@/components/dashboard/create-form";
@@ -11,30 +10,29 @@ import { DashboardMembersManager } from "@/components/dashboard/members-manager"
 /**
  * /d — dashboard entry point.
  *
- * "Client" here means an AD ACCOUNT (brand), not a login: provisioning creates
- * one dashboard per ACL account. A client user with one brand goes straight to
- * it; with several brands they pick from their list. Staff see every dashboard,
- * named by brand.
+ * A dashboard is a silo: an admin creates it on an ad account (brand) and
+ * attaches the consultants and clients allowed in it, by email. Nothing is
+ * provisioned automatically. A client sees only the dashboards they were
+ * attached to (one → straight to it); a consultant only theirs; admins all.
  */
 export default async function DashboardsIndex() {
   const session = await auth();
   if (!session?.userId) redirect("/login?callbackUrl=/d");
 
   if (session.role === "client") {
-    const owned = await provisionDashboardsForUser(session.userId);
-    // Dashboards the client was added to as a member (owned by someone else).
-    const memberOf = await prisma.dashboard.findMany({
-      where: { members: { some: { userId: session.userId } }, userId: { not: session.userId } },
+    const dashboards = await prisma.dashboard.findMany({
+      where: { OR: [{ members: { some: { userId: session.userId } } }, { userId: session.userId }] },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     });
-    const dashboards = [...owned, ...memberOf];
     if (dashboards.length === 1) redirect(`/d/${dashboards[0].id}`);
     return (
       <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Vos dashboards</h1>
-          <p className="text-sm text-gray-500 mt-1">Un dashboard de pilotage par compte publicitaire.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Espace privé : seuls vous, votre consultant et l&apos;équipe Impulse y avez accès.
+          </p>
         </div>
         <div className="grid gap-3">
           {dashboards.map((d) => (
@@ -49,7 +47,7 @@ export default async function DashboardsIndex() {
           ))}
           {dashboards.length === 0 && (
             <div className="text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-5 py-6">
-              Aucun compte publicitaire ne vous est encore attribué — contactez votre consultant.
+              Aucun dashboard ne vous a encore été ouvert — contactez votre consultant.
             </div>
           )}
         </div>
@@ -58,29 +56,20 @@ export default async function DashboardsIndex() {
   }
 
   const scope = await getAccountScope(session);
-  const [rows, clients] = await Promise.all([
-    prisma.dashboard.findMany({
-      where: dashboardWhere(scope),
-      include: {
-        user: { select: { id: true, email: true, name: true } },
-        _count: { select: { widgets: true } },
-        members: {
-          select: { id: true, userId: true, user: { select: { id: true, email: true, name: true } } },
-          orderBy: { createdAt: "asc" },
-        },
+  const isAdmin = session.role === "admin";
+  const rows = await prisma.dashboard.findMany({
+    where: dashboardWhere(scope),
+    include: {
+      user: { select: { id: true, email: true, name: true } },
+      _count: { select: { widgets: true } },
+      members: {
+        select: { id: true, userId: true, user: { select: { id: true, email: true, name: true, role: true } } },
+        orderBy: { createdAt: "asc" },
       },
-      orderBy: [{ name: "asc" }, { createdAt: "asc" }],
-    }),
-    prisma.user.findMany({
-      where: { role: "client" },
-      select: {
-        id: true, email: true, name: true,
-        dashboards: { select: { id: true }, take: 1 },
-        adAccounts: { select: { id: true }, take: 1 },
-      },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
+      bot: { select: { enabled: true, name: true, accesses: { select: { userId: true } } } },
+    },
+    orderBy: [{ name: "asc" }, { createdAt: "asc" }],
+  });
 
   // Same grouping as the portfolio and the report picker: dashboards sharing an
   // ad account are ONE client. Listing raw rows showed every duplicate left by
@@ -91,18 +80,16 @@ export default async function DashboardsIndex() {
     ...unlinked.map((d) => ({ ...d, duplicates: 0 })),
   ].sort((a, b) => a.name.localeCompare(b.name));
 
-  const withoutDashboard = clients.filter((c) => c.dashboards.length === 0 && c.adAccounts.length > 0);
-
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-white">Dashboards clients</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Un dashboard par compte publicitaire — c&apos;est ce que voit le client en se connectant.
+            Un espace cloisonné par client : seuls les consultants et clients rattachés par un admin y accèdent.
           </p>
         </div>
-        <CreateDashboardForm />
+        {isAdmin && <CreateDashboardForm />}
       </div>
 
       <div className="grid gap-3">
@@ -115,7 +102,7 @@ export default async function DashboardsIndex() {
               <div>
                 <div className="text-sm font-semibold text-white">{d.name}</div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                  Accès : {d.user.name ?? d.user.email} · {d._count.widgets} widgets
+                  Créé par {d.user.name ?? d.user.email} · {d._count.widgets} widgets
                   {d.metaAccountId ? ` · Meta ${d.metaAccountId}` : ""}
                   {d.googleCustomerId ? ` · Google ${d.googleCustomerId}` : ""}
                   {d.duplicates > 0 ? ` · ${d.duplicates} doublon${d.duplicates > 1 ? "s" : ""} masqué${d.duplicates > 1 ? "s" : ""}` : ""}
@@ -126,45 +113,18 @@ export default async function DashboardsIndex() {
             <DashboardMembersManager
               dashboardId={d.id}
               initialMembers={d.members.map((m) => ({ id: m.id, userId: m.userId, user: m.user }))}
+              bot={d.bot ? { enabled: d.bot.enabled, name: d.bot.name, accessUserIds: d.bot.accesses.map((a) => a.userId) } : null}
             />
           </div>
         ))}
         {dashboards.length === 0 && (
           <div className="text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-5 py-6">
-            Aucun dashboard pour l&apos;instant — ils sont créés automatiquement à la première
-            connexion d&apos;un client, ou via les boutons ci-dessous.
+            {isAdmin
+              ? "Aucun dashboard pour l'instant — créez-en un et rattachez-y consultants et clients."
+              : "Aucun dashboard ne vous a été attribué — demandez à un admin de vous y rattacher."}
           </div>
         )}
       </div>
-
-      {withoutDashboard.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-gray-300 mb-3">Accès clients sans dashboard</h2>
-          <div className="grid gap-2">
-            {withoutDashboard.map((c) => (
-              <form
-                key={c.id}
-                action={async () => {
-                  "use server";
-                  const s = await auth();
-                  if (!s?.userId || (s.role !== "admin" && s.role !== "consultant")) return;
-                  await provisionDashboardsForUser(c.id);
-                  redirect("/d");
-                }}
-                className="flex items-center justify-between bg-gray-900/60 border border-gray-800 rounded-xl px-5 py-3"
-              >
-                <span className="text-sm text-gray-300">{c.name ?? c.email}</span>
-                <button
-                  type="submit"
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white transition-colors"
-                >
-                  Créer les dashboards
-                </button>
-              </form>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
