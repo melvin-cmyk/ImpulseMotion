@@ -3,6 +3,8 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { provisionDashboardsForUser } from "@/lib/dashboard-widgets";
+import { getAccountScope, dashboardWhere } from "@/lib/scope";
+import { groupDashboardsByAccount } from "@/lib/portfolio";
 import { CreateDashboardForm } from "@/components/dashboard/create-form";
 import { DashboardMembersManager } from "@/components/dashboard/members-manager";
 
@@ -55,8 +57,10 @@ export default async function DashboardsIndex() {
     );
   }
 
-  const [dashboards, clients] = await Promise.all([
+  const scope = await getAccountScope(session);
+  const [rows, clients] = await Promise.all([
     prisma.dashboard.findMany({
+      where: dashboardWhere(scope),
       include: {
         user: { select: { id: true, email: true, name: true } },
         _count: { select: { widgets: true } },
@@ -65,7 +69,7 @@ export default async function DashboardsIndex() {
           orderBy: { createdAt: "asc" },
         },
       },
-      orderBy: { name: "asc" },
+      orderBy: [{ name: "asc" }, { createdAt: "asc" }],
     }),
     prisma.user.findMany({
       where: { role: "client" },
@@ -77,6 +81,15 @@ export default async function DashboardsIndex() {
       orderBy: { createdAt: "asc" },
     }),
   ]);
+
+  // Same grouping as the portfolio and the report picker: dashboards sharing an
+  // ad account are ONE client. Listing raw rows showed every duplicate left by
+  // the old provisioning race (24 of them on a single staff login).
+  const { groups, unlinked } = groupDashboardsByAccount(rows);
+  const dashboards = [
+    ...groups.map((g) => ({ ...g.primary, duplicates: g.duplicates })),
+    ...unlinked.map((d) => ({ ...d, duplicates: 0 })),
+  ].sort((a, b) => a.name.localeCompare(b.name));
 
   const withoutDashboard = clients.filter((c) => c.dashboards.length === 0 && c.adAccounts.length > 0);
 
@@ -105,6 +118,7 @@ export default async function DashboardsIndex() {
                   Accès : {d.user.name ?? d.user.email} · {d._count.widgets} widgets
                   {d.metaAccountId ? ` · Meta ${d.metaAccountId}` : ""}
                   {d.googleCustomerId ? ` · Google ${d.googleCustomerId}` : ""}
+                  {d.duplicates > 0 ? ` · ${d.duplicates} doublon${d.duplicates > 1 ? "s" : ""} masqué${d.duplicates > 1 ? "s" : ""}` : ""}
                 </div>
               </div>
               <span className="text-gray-600 text-sm">→</span>
