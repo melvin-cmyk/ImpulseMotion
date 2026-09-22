@@ -161,6 +161,11 @@ export default function ReportPage() {
         <>
           <KpiStrip data={report.data} />
           <TopCreativesStrip data={report.data} />
+          {report.data?.hqContext ? (
+            <div className="text-[11px] text-violet-300/80 bg-violet-500/5 border border-violet-900/30 rounded-lg px-3 py-2">
+              Rédigé avec le contexte HQ du client (projects/{report.data.hqContext.slug}, lu le {new Date(report.data.hqContext.fetchedAt).toLocaleDateString("fr-FR")}) : objectifs, KPI cible, décisions et tests en cours.
+            </div>
+          ) : null}
           {report.data?.warnings?.length ? (
             <div className="text-[11px] text-amber-300/80 bg-amber-500/5 border border-amber-900/30 rounded-lg px-3 py-2">
               Données partielles : {report.data.warnings.join(" · ")}

@@ -127,6 +127,9 @@ export interface ReportData {
   alerts: Array<{ metric: string; value: number; threshold: number; message: string; triggeredAt: string; acknowledged: boolean }>;
   previousReport: { id: string; periodSince: string; periodUntil: string; nextSteps: ReportNextStep[] } | null;
   crm?: ReportCrm;
+  /** What HQ (agency memory) knows about the client — objectives, KPI cible,
+   *  seasonality, decisions, tests. Absent when HQ had no folder or was down. */
+  hqContext?: { slug: string; brief: string; fetchedAt: string };
   warnings: string[];
   generatedAt: string;
 }

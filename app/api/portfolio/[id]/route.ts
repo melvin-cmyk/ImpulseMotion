@@ -39,7 +39,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   // Merge with the dashboards that map to the same client (same accounts).
   const all = await prisma.dashboard.findMany({
-    select: { id: true, name: true, metaAccountId: true, googleCustomerId: true, createdAt: true, monthlyBudget: true, budgetCurrency: true, reportFrequency: true },
+    select: { id: true, name: true, metaAccountId: true, googleCustomerId: true, createdAt: true, monthlyBudget: true, budgetCurrency: true, reportFrequency: true, hqSlug: true, hqContextAt: true },
   });
   const { groups } = groupDashboardsByAccount(all);
   const group = groups.find((g) => g.dashboardIds.includes(id)) ?? null;
@@ -152,6 +152,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       budgetCurrency: budgetDash?.budgetCurrency ?? dashboard.budgetCurrency ?? null,
       budgetSource: budget?.source ?? null,
       budgetDashboardId: budgetDash?.id ?? dashboard.id,
+      hqSlug: dashboard.hqSlug ?? group?.members.find((m) => m.hqSlug)?.hqSlug ?? null,
+      hqContextAt: (dashboard.hqContextAt ?? group?.members.find((m) => m.hqContextAt)?.hqContextAt)?.toISOString() ?? null,
     },
     range,
     rangeLabel: described.label,

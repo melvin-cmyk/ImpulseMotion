@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ArrowLeft, ExternalLink, FileText, Loader2, Sparkles, Bot, Target } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileText, Loader2, Sparkles, Bot, Target, BookOpen } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Card, Pill, Section } from "@/components/ui/surface";
 import { DeltaBadge, PacingBar } from "@/components/portfolio/kpi-delta";
@@ -24,6 +24,7 @@ interface ClientSheet {
     members: Array<{ id: string; name: string | null; email: string | null }>;
     dashboardIds: string[]; duplicates: number; currency: string | null; timezone: string | null;
     monthlyBudget: number | null; budgetCurrency: string | null; budgetSource: string | null; budgetDashboardId: string;
+    hqSlug: string | null; hqContextAt: string | null;
   };
   range: { since: string; until: string };
   rangeLabel: string;
@@ -73,6 +74,8 @@ export default function ClientSheetPage() {
   // Budget inline field
   const [budgetDraft, setBudgetDraft] = useState<{ amount: string; currency: string }>({ amount: "", currency: "" });
   const [savingBudget, setSavingBudget] = useState(false);
+  const [hqDraft, setHqDraft] = useState("");
+  const [hqBusy, setHqBusy] = useState(false);
   const requestId = useRef(0);
 
   const load = useCallback(async (refresh = false) => {
@@ -93,6 +96,7 @@ export default function ClientSheetPage() {
       setSheet(json);
       setDraft({ since: json.range.since, until: json.range.until });
       setBudgetDraft({ amount: json.client.monthlyBudget != null ? String(json.client.monthlyBudget) : "", currency: json.client.budgetCurrency ?? json.client.currency ?? "" });
+      setHqDraft(json.client.hqSlug ?? "");
     } catch (e) {
       if (myId !== requestId.current) return;
       setError(e instanceof Error ? e.message : "Erreur");
@@ -122,6 +126,48 @@ export default function ClientSheetPage() {
       setToast({ message: `Impossible d'enregistrer la fréquence : ${e instanceof Error ? e.message : "erreur"}`, tone: "error" });
     } finally {
       setSavingFreq(false);
+    }
+  }
+
+  async function saveHqSlug() {
+    if (!sheet) return;
+    const slug = hqDraft.trim().toLowerCase();
+    if (slug === (sheet.client.hqSlug ?? "")) return;
+    setHqBusy(true);
+    try {
+      const res = await fetch(`/api/dashboards/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hqSlug: slug || null }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Erreur ${res.status}`);
+      }
+      setSheet({ ...sheet, client: { ...sheet.client, hqSlug: slug || null, hqContextAt: null } });
+      setToast({ message: slug ? `Dossier HQ « ${slug} » enregistré — le contexte sera relu au prochain rapport` : "Dossier HQ retiré", tone: "ok" });
+    } catch (e) {
+      setToast({ message: `Impossible d'enregistrer le dossier HQ : ${e instanceof Error ? e.message : "erreur"}`, tone: "error" });
+    } finally {
+      setHqBusy(false);
+    }
+  }
+
+  /** One HQ session through the relay: re-reads the client folder now. */
+  async function refreshHqContext() {
+    if (!sheet) return;
+    setHqBusy(true);
+    try {
+      const res = await fetch(`/api/dashboards/${id}/hq-context`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
+      setSheet({ ...sheet, client: { ...sheet.client, hqSlug: body.context.slug, hqContextAt: body.context.fetchedAt } });
+      setHqDraft(body.context.slug);
+      setToast({ message: `Contexte HQ relu (projects/${body.context.slug})`, tone: "ok" });
+    } catch (e) {
+      setToast({ message: `Contexte HQ : ${e instanceof Error ? e.message : "erreur"}`, tone: "error" });
+    } finally {
+      setHqBusy(false);
     }
   }
 
@@ -240,6 +286,29 @@ export default function ClientSheetPage() {
               <option value="weekly">chaque lundi (7 derniers jours)</option>
               <option value="monthly">le 1er du mois (mois précédent)</option>
             </select>
+          </label>
+          <label className="text-xs text-gray-400 inline-flex items-center gap-2" title="Dossier projects/{slug} du client dans HQ (mémoire de l'agence) : objectifs, KPI cible, décisions, tests. Lu avant chaque rapport IA, mis en cache 7 jours.">
+            <BookOpen className="w-4 h-4 text-violet-400" /> Dossier HQ
+            <input
+              type="text"
+              placeholder="auto"
+              value={hqDraft}
+              disabled={hqBusy}
+              onChange={(e) => setHqDraft(e.target.value)}
+              onBlur={saveHqSlug}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              className="w-32 bg-gray-900 border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-violet-500 disabled:opacity-60"
+            />
+            <button
+              type="button"
+              onClick={refreshHqContext}
+              disabled={hqBusy}
+              className="inline-flex items-center gap-1 text-violet-300 hover:text-white disabled:opacity-60"
+              title={c.hqContextAt ? `Contexte lu le ${new Date(c.hqContextAt).toLocaleDateString("fr-FR")} — relire maintenant` : "Aucun contexte HQ en cache — lire maintenant"}
+            >
+              {hqBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              {c.hqContextAt ? `lu le ${new Date(c.hqContextAt).toLocaleDateString("fr-FR")}` : "lire"}
+            </button>
           </label>
           {c.metaAccountId && (
             <label className="text-xs text-gray-400 inline-flex items-center gap-2" title="Budget média mensuel du client — alimente le pacing du portefeuille et du dashboard client">

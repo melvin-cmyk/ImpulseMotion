@@ -12,6 +12,7 @@ import { relayComplete, extractFence, parseLooseJson } from "@/lib/relay-chat";
 import { collectReportData, periodLabel, type ReportData, type ReportKpi, type ReportNextStep } from "@/lib/report-data";
 import { prevRange, type CompareRange } from "@/lib/dashboard-widgets";
 import { fmtMetric, fmtMoney } from "@/components/portfolio/format";
+import { getHqClientContext } from "@/lib/hq-client-context";
 
 /** Same day one year earlier (Feb 29 → Feb 28). */
 export function shiftYear(d: string): string {
@@ -146,6 +147,11 @@ export function renderDataForPrompt(d: ReportData): string {
 
   if (d.crm) lines.push(...renderCrmForPrompt(d.crm));
 
+  if (d.hqContext) {
+    lines.push(`\nCONTEXTE AGENCE (HQ — dossier projects/${d.hqContext.slug}, lu le ${d.hqContext.fetchedAt.slice(0, 10)}) :`);
+    lines.push(d.hqContext.brief);
+  }
+
   if (d.previousReport) {
     lines.push(`\nNEXT STEPS DU RAPPORT PRÉCÉDENT (${d.previousReport.periodSince} → ${d.previousReport.periodUntil}) :`);
     for (const s of d.previousReport.nextSteps) lines.push(`- [${s.done ? "fait" : "à faire"}] ${s.title} — ${s.detail}`);
@@ -235,8 +241,19 @@ Ajoute, entre « Budget & alertes » et « Suivi des actions précédentes », u
 - Un ratio « n/a » signifie que le dénominateur ou la dépense manque : ne le remplace jamais par 0.
 Dans le bloc nextsteps, lorsque le niveau d'attribution est inférieur à 2, inclus au moins une action d'attribution (platform "crm") reprenant une recommandation du diagnostic (ex. faire poser utm_campaign sur les annonces, créer la propriété HubSpot). La valeur "platform" accepte aussi "crm".`;
 
+/** Appended when the snapshot carries the HQ brief of the client. */
+export const REPORT_HQ_PROMPT = `
+CONTEXTE AGENCE (le snapshot contient un bloc « CONTEXTE AGENCE (HQ) » : ce que l'agence sait déjà du client)
+- Juge la performance par rapport aux objectifs et cibles du client (KPI principal, CPL max, ROAS min…) : dis explicitement si la cible est atteinte, et de combien. Si le KPI principal du client n'est pas dans le snapshot, signale-le dans « Synthèse ».
+- Lis les résultats à la lumière de la saisonnalité, des décisions récentes et des tests en cours : rattache un mouvement à une décision ou un test quand le contexte le permet, sans inventer de lien.
+- Respecte les règles et points d'attention du compte dans tes next steps (ne propose jamais une action que le contexte interdit) ; prolonge les tests en cours plutôt que d'en lancer de contradictoires.
+- Ne recopie pas le contexte : exploite-le. Le rapport reste centré sur la période.`;
+
 export function buildReportSystemPrompt(data: ReportData): string {
-  return data.crm ? REPORT_SYSTEM_PROMPT + "\n" + REPORT_CRM_PROMPT : REPORT_SYSTEM_PROMPT;
+  let prompt = REPORT_SYSTEM_PROMPT;
+  if (data.crm) prompt += "\n" + REPORT_CRM_PROMPT;
+  if (data.hqContext) prompt += "\n" + REPORT_HQ_PROMPT;
+  return prompt;
 }
 
 export function buildReportUserPrompt(data: ReportData): string {
@@ -309,7 +326,13 @@ export async function generateClientReport(reportId: string): Promise<void> {
       const isYear = report.compareSince === shiftYear(report.periodSince) && report.compareUntil === shiftYear(report.periodUntil);
       compare = { since: report.compareSince, until: report.compareUntil, kind: isPrev ? "prev" : isYear ? "year" : "custom" };
     }
+    // HQ first: what the agency knows about the client shapes how the
+    // numbers are read. Cached per dashboard, never blocking (a missing brief
+    // is a warning in the snapshot, not a failed report).
+    const hq = await getHqClientContext(report.dashboardId, { maxMs: 90_000 });
     const data = await collectReportData(report.dashboard, report.periodSince, report.periodUntil, compare);
+    if (hq.context) data.hqContext = { slug: hq.context.slug, brief: hq.context.brief, fetchedAt: hq.context.fetchedAt };
+    if (hq.warning) data.warnings.push(hq.warning);
 
     const raw = await relayComplete(
       {

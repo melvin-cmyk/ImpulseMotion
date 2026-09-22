@@ -185,6 +185,12 @@ model Dashboard {
   // Monthly media budget of the client (pacing). Takes precedence over AccountBudget.
   monthlyBudget    Float?
   budgetCurrency   String?
+  // HQ (agency memory): projects/{hqSlug}/ folder of this client. Set by staff or
+  // resolved once by the lookup; the brief is cached here so a report costs one
+  // HQ session per client per TTL, not one per generation.
+  hqSlug           String?
+  hqContextMd      String?           @db.Text
+  hqContextAt      DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   widgets          DashboardWidget[]

@@ -6,6 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isValidHqSlug } from "@/lib/hq-client-context";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor, denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
@@ -124,6 +125,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   });
   if (offending) {
     return NextResponse.json({ error: `compte hors périmètre : ${offending}` }, { status: 403 });
+  }
+  // HQ folder of the client (projects/{slug}); changing it drops the cached brief.
+  if (body.hqSlug === null || body.hqSlug === "" || typeof body.hqSlug === "string") {
+    const slug = typeof body.hqSlug === "string" ? body.hqSlug.trim().toLowerCase() : "";
+    if (slug && !isValidHqSlug(slug)) return NextResponse.json({ error: "hqSlug invalide (a-z, 0-9, tirets)" }, { status: 400 });
+    if ((slug || null) !== existing.hqSlug) {
+      data.hqSlug = slug || null;
+      data.hqContextMd = null;
+      data.hqContextAt = null;
+    }
   }
   // Opt-in AI reporting: null | "weekly" | "monthly"
   if (body.reportFrequency === null || ["weekly", "monthly", "none"].includes(String(body.reportFrequency))) {
