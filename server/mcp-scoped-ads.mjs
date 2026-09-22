@@ -29,6 +29,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { compactToolResult } from "./mcp-compact.mjs";
 
 const SERVER_NAME = process.env.SCOPED_SERVER_NAME || "";
 const UPSTREAM_URL = process.env.SCOPED_UPSTREAM_URL || "";
@@ -66,6 +67,8 @@ const PROFILES = {
     keys: /propert/i,
     norm: (v) => String(v).trim().replace(/^properties\//i, ""),
     deny: new Set(["list_accounts", "list_properties"]),
+    // Outils d'administration / écriture GA4 : jamais depuis un chat.
+    denyPattern: /^(create|update|archive|delete)_/,
   },
 };
 
@@ -73,10 +76,13 @@ const profile = PROFILES[SERVER_NAME];
 if (!profile) die(`SCOPED_SERVER_NAME inconnu ou manquant: "${SERVER_NAME}"`);
 if (!/^https:\/\//.test(UPSTREAM_URL)) die("SCOPED_UPSTREAM_URL manquante ou non https");
 
+// "*" = périmètre illimité (admins, Business Manager entier) : le proxy ne
+// filtre alors aucun compte mais compacte toujours les réponses.
+const UNRESTRICTED = RAW_ACCOUNTS.trim() === "*";
 const allowed = new Set(
-  RAW_ACCOUNTS.split(",").map((s) => profile.norm(s)).filter(Boolean),
+  UNRESTRICTED ? [] : RAW_ACCOUNTS.split(",").map((s) => profile.norm(s)).filter(Boolean),
 );
-if (allowed.size === 0) die(`périmètre vide pour ${SERVER_NAME}`);
+if (!UNRESTRICTED && allowed.size === 0) die(`périmètre vide pour ${SERVER_NAME}`);
 
 // ── Extraction des identifiants ──────────────────────────────────────────────
 
@@ -163,22 +169,23 @@ const server = new Server(
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const { tools } = await upstream.listTools();
-  return { tools: (tools || []).filter((t) => !profile.deny.has(t.name)) };
+  return { tools: (tools || []).filter((t) => !isDenied(t.name)) };
 });
 
 const refusal = (text) => ({ isError: true, content: [{ type: "text", text }] });
+const isDenied = (name) => profile.deny.has(name) || (profile.denyPattern ? profile.denyPattern.test(name) : false);
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
-  if (profile.deny.has(name)) {
+  if (isDenied(name)) {
     return refusal(
       `Outil "${name}" indisponible : l'énumération des comptes ${profile.label} n'est pas autorisée. ` +
         `Les comptes sur lesquels tu peux travailler te sont donnés dans tes instructions.`,
     );
   }
 
-  const bad = outOfScope(args, profile, allowed);
+  const bad = UNRESTRICTED ? [] : outOfScope(args, profile, allowed);
   if (bad.length > 0) {
     console.error(`[mcp-scoped-ads] refus ${SERVER_NAME}.${name} hors périmètre: ${bad.join(", ")}`);
     return refusal(
@@ -187,7 +194,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     );
   }
 
-  return upstream.callTool({ name, arguments: args ?? {} });
+  const raw = await upstream.callTool({ name, arguments: args ?? {} });
+  // Compaction déterministe (server/mcp-compact.mjs) : même lecture pour
+  // l'analyste, 75-95 % de tokens en moins sur les JSON n8n.
+  const { result, stats } = compactToolResult(raw, { server: SERVER_NAME, tool: name });
+  if (stats) console.error(`[mcp-scoped-ads] ${SERVER_NAME}.${name} ${stats.raw} → ${stats.out} chars`);
+  return result;
 });
 
 // ── Démarrage ────────────────────────────────────────────────────────────────
