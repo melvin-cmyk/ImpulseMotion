@@ -45,6 +45,7 @@ type ClientUser = {
   id: string;
   email: string | null;
   name: string | null;
+  role?: string;
   adAccounts: { platform: string; accountId: string; label: string | null }[];
 };
 
@@ -105,7 +106,7 @@ export default function AdminAlertsPage() {
   }, [load, session]);
 
   const selectedUser = users.find((u) => u.id === formUserId);
-  // Accounts offered in the form: the selected client's (admin) or one's own.
+  // Accounts offered in the form: the selected consultant's (admin) or one's own.
   const accountOptions = isAdmin
     ? (selectedUser?.adAccounts ?? []).filter((a) => a.platform === "meta")
     : ownAccounts.filter((a) => a.platform === "meta");
@@ -204,7 +205,7 @@ export default function AdminAlertsPage() {
             <div className="grid grid-cols-2 gap-3">
               {isAdmin && (
                 <label className="block">
-                  <span className={labelSpanCls}>Client</span>
+                  <span className={labelSpanCls}>Consultant</span>
                   <select
                     value={formUserId}
                     onChange={(e) => { setFormUserId(e.target.value); setFormAccountId(""); }}
@@ -212,9 +213,12 @@ export default function AdminAlertsPage() {
                     className={inputCls}
                   >
                     <option value="">— Sélectionner —</option>
-                    {users.filter((u) => (u.adAccounts ?? []).length > 0).map((u) => (
-                      <option key={u.id} value={u.id}>{u.email ?? u.id}</option>
-                    ))}
+                    {users
+                      .filter((u) => (u.adAccounts ?? []).length > 0)
+                      .sort((a, b) => Number(a.role === "client") - Number(b.role === "client") || (a.email ?? "").localeCompare(b.email ?? ""))
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>{u.email ?? u.id}{u.role === "client" ? " (client)" : ""}</option>
+                      ))}
                   </select>
                 </label>
               )}
