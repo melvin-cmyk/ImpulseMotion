@@ -31,7 +31,7 @@ async function callRelayTool<T>(tool: string, inputJson: string): Promise<T> {
   throw new Error(typeof lastErr === "string" ? lastErr : "Relay unreachable");
 }
 
-type ListCustomersResult = { resourceNames: string[] };
+type ListCustomersResult = { resourceNames?: string[] } | Array<{ resourceNames?: string[] }>;
 type GaqlResult = Array<{
   results?: Array<{
     customerClient?: {
@@ -60,7 +60,10 @@ export async function GET() {
       "mcp-google-ads.List_Customers",
       "{}"
     );
-    const topLevelIds = (list.resourceNames || [])
+    // The modern HTTP Request node returns one item per response ([{…}]),
+    // the retired tool node returned the bare object.
+    const resourceNames = Array.isArray(list) ? list.flatMap((l) => l.resourceNames ?? []) : list.resourceNames ?? [];
+    const topLevelIds = resourceNames
       .map((r) => r.replace(/^customers\//, ""))
       .filter(Boolean);
 

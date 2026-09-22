@@ -195,7 +195,15 @@ async function getToolsList() {
     const tools = [];
     for (const s of data.servers || []) {
       for (const t of s.tools || []) {
-        tools.push({ server: s.name, name: t.name, description: (t.description || "").slice(0, 200) });
+        tools.push({
+          server: s.name,
+          name: t.name,
+          description: (t.description || "").slice(0, 200),
+          // Which calling convention the tool expects (see adaptToolInput).
+          // `mcporter list` without a server name carries no schema, but the
+          // retired n8n tool node always appends this sentence to its description.
+          legacyInput: /stringified JSON object/i.test(t.description || ""),
+        });
       }
     }
     cachedTools = tools;
@@ -660,6 +668,30 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   });
 }
 
+// ── Tool input conventions ──────────────────────────────────────────────────
+// n8n exposes two shapes depending on the node behind a tool:
+//   - retired "HTTP Request Tool" (Meta today): ONE property `input` holding a
+//     stringified JSON object of the real parameters;
+//   - modern HTTP Request node used as a tool (Google Ads since 2026-09-22):
+//     the real parameters as typed properties.
+// Callers in the app were written against the first shape. The relay adapts
+// either way from the tool's schema, so a node migration never breaks a widget.
+async function adaptToolInput(toolName, input) {
+  const firstDot = toolName.indexOf(".");
+  const server = toolName.slice(0, firstDot);
+  const name = toolName.slice(firstDot + 1);
+  const meta = (await getToolsList()).find((t) => t.server === server && t.name === name);
+  if (!meta) return input;
+  const isLegacyShape = input && typeof input === "object" && typeof input.input === "string" && Object.keys(input).length === 1;
+  if (meta.legacyInput && !isLegacyShape) {
+    return { input: JSON.stringify(input ?? {}) };
+  }
+  if (!meta.legacyInput && isLegacyShape) {
+    try { return JSON.parse(input.input || "{}"); } catch { return {}; }
+  }
+  return input;
+}
+
 // ── HTTP helpers ────────────────────────────────────────────────────────────
 function setCors(req, res) {
   const origin = req.headers.origin;
@@ -733,6 +765,7 @@ const server = http.createServer(async (req, res) => {
       }
       // Callers may raise the timeout for slow n8n-backed tools (capped at 30s).
       const timeoutMs = Math.min(30000, Math.max(2000, Number(body.timeoutMs) || 20000));
+      const toolInput = await adaptToolInput(String(body.tool), body.input || {});
       // MCP backends (n8n) fail transiently; one retry absorbs most blips.
       // stdout goes to a temp FILE, not a pipe: mcporter exits without
       // flushing async pipe writes, which truncates large outputs (>~128KB)
@@ -742,7 +775,7 @@ const server = http.createServer(async (req, res) => {
         const fd = fs.openSync(tmp, "w");
         const cleanup = () => { try { fs.unlinkSync(tmp); } catch { /* already gone */ } };
         const child = spawn(
-          "mcporter", ["call", body.tool, "--args", JSON.stringify(body.input || {}), "--output", "json"],
+          "mcporter", ["call", body.tool, "--args", JSON.stringify(toolInput), "--output", "json"],
           { cwd: "/root/ImpulseMotion", stdio: ["ignore", fd, "pipe"], timeout: timeoutMs }
         );
         let stderr = "";
