@@ -10,8 +10,12 @@
 import { useCallback, useEffect, useMemo, useState, use } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
+import {
+  DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { WidgetBody, WidgetFrame } from "@/components/dashboard/renderers";
-import { WidgetForm, DashboardSettingsForm, EditControls } from "@/components/dashboard/editor";
+import { WidgetForm, DashboardSettingsForm, EditControls, SortableWidgetFrame } from "@/components/dashboard/editor";
 import { CopilotPanel } from "@/components/dashboard/copilot";
 import type { ResolvedWidget } from "@/lib/dashboard-types";
 import { describeRange, lastFullDays, prevRange } from "@/lib/date-ranges";
@@ -25,6 +29,8 @@ interface DashboardPayload {
   error?: string;
   widgets: ResolvedWidget[];
 }
+
+const NO_WIDGETS: ResolvedWidget[] = [];
 
 const PERIODS = [
   { days: 7, label: "7 j" },
@@ -72,6 +78,10 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   const [showSettings, setShowSettings] = useState(false);
   const [editingWidget, setEditingWidget] = useState<ResolvedWidget | null>(null);
   const [showCopilot, setShowCopilot] = useState(false);
+  // Optimistic widget order (edit mode). Keyed on the payload's widgets array:
+  // as soon as load() delivers a new payload the local order is dropped and the
+  // server order wins, so the two can never drift.
+  const [localOrder, setLocalOrder] = useState<{ source: ResolvedWidget[]; ids: string[] } | null>(null);
 
   const compareQuery =
     compareMode === "none" ? "&compare=none"
@@ -98,8 +108,69 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
 
   useEffect(() => { load(); }, [load]);
 
-  const widgets = payload?.widgets ?? [];
-  const orderedIds = widgets.map((w) => w.id);
+  const sourceWidgets = payload?.widgets ?? NO_WIDGETS;
+  const orderedIds = useMemo(() => {
+    const serverIds = sourceWidgets.map((w) => w.id);
+    if (!localOrder || localOrder.source !== sourceWidgets) return serverIds;
+    // Defensive: keep only known ids, append anything the local order misses.
+    const known = new Set(serverIds);
+    const ids = localOrder.ids.filter((x) => known.has(x));
+    for (const x of serverIds) if (!ids.includes(x)) ids.push(x);
+    return ids;
+  }, [sourceWidgets, localOrder]);
+  const widgets = useMemo(() => {
+    const byId = new Map(sourceWidgets.map((w) => [w.id, w] as const));
+    return orderedIds.map((x) => byId.get(x)).filter((w): w is ResolvedWidget => !!w);
+  }, [sourceWidgets, orderedIds]);
+
+  /**
+   * Single reorder path shared by drag & drop and the ↑/↓ buttons:
+   * apply locally right away, persist with PUT { order }, revert on failure.
+   * Resolves true on success. No refetch on success — the widget data is unchanged.
+   */
+  const reorder = useCallback(async (nextIds: string[]): Promise<boolean> => {
+    if (!payload) return false;
+    const prevIds = orderedIds;
+    setLocalOrder({ source: sourceWidgets, ids: nextIds });
+    try {
+      const res = await fetch(`/api/dashboards/${payload.dashboard.id}/widgets`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order: nextIds }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg = `Réorganisation impossible : ${body.error ?? `Erreur ${res.status}`}`;
+        setLocalOrder({ source: sourceWidgets, ids: prevIds });
+        if (res.status === 409) {
+          // The server's widget list differs from ours (added/removed elsewhere):
+          // resync, then surface the message (load() clears `error` on start).
+          load().then(() => setError((cur) => cur ?? msg));
+        } else {
+          setError(msg);
+        }
+        return false;
+      }
+      return true;
+    } catch (e) {
+      setLocalOrder({ source: sourceWidgets, ids: prevIds });
+      setError(`Réorganisation impossible : ${e instanceof Error ? e.message : String(e)}`);
+      return false;
+    }
+  }, [payload, orderedIds, sourceWidgets, load]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function onDragEnd({ active, over }: DragEndEvent) {
+    if (!over || active.id === over.id) return;
+    const from = orderedIds.indexOf(String(active.id));
+    const to = orderedIds.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    void reorder(arrayMove(orderedIds, from, to));
+  }
 
   function navigate(overrides: {
     days?: number; since?: string; until?: string;
@@ -317,33 +388,55 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
           ))}
         </div>
       ) : (
-        <div className={`grid grid-cols-6 gap-4 ${loading ? "opacity-60" : ""}`}>
-          {widgets.map((w) => (
-            <WidgetFrame
-              key={w.id}
-              widget={w}
-              editControls={
-                isStaff && editMode && payload ? (
-                  <EditControls
-                    dashboardId={payload.dashboard.id}
+        (() => {
+          const editing = isStaff && editMode && !!payload;
+          const grid = (
+            <div className={`grid grid-cols-6 gap-4 ${loading ? "opacity-60" : ""}`}>
+              {widgets.map((w) => {
+                if (!editing || !payload) {
+                  // Client view: untouched (no DnD wrapper, no handle).
+                  return (
+                    <WidgetFrame key={w.id} widget={w}>
+                      <WidgetBody widget={w} />
+                    </WidgetFrame>
+                  );
+                }
+                return (
+                  <SortableWidgetFrame
+                    key={w.id}
                     widget={w}
-                    orderedIds={orderedIds}
-                    onChanged={load}
-                    onEdit={() => { setEditingWidget(w); setShowAdd(false); setShowSettings(false); }}
-                  />
-                ) : undefined
-              }
-            >
-              <WidgetBody widget={w} />
-            </WidgetFrame>
-          ))}
-          {widgets.length === 0 && !loading && (
-            <div className="col-span-6 text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-2xl px-5 py-8 text-center">
-              Ce dashboard n&apos;a pas encore de widget.
-              {isStaff ? " Passez en mode édition pour en ajouter." : " Votre consultant le configure bientôt."}
+                    editControls={
+                      <EditControls
+                        dashboardId={payload.dashboard.id}
+                        widget={w}
+                        orderedIds={orderedIds}
+                        onReorder={reorder}
+                        onChanged={load}
+                        onEdit={() => { setEditingWidget(w); setShowAdd(false); setShowSettings(false); }}
+                      />
+                    }
+                  >
+                    <WidgetBody widget={w} />
+                  </SortableWidgetFrame>
+                );
+              })}
+              {widgets.length === 0 && !loading && (
+                <div className="col-span-6 text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-2xl px-5 py-8 text-center">
+                  Ce dashboard n&apos;a pas encore de widget.
+                  {isStaff ? " Passez en mode édition pour en ajouter." : " Votre consultant le configure bientôt."}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+          if (!editing) return grid;
+          return (
+            <DndContext id={`dnd-${id}`} sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+              <SortableContext items={orderedIds} strategy={rectSortingStrategy}>
+                {grid}
+              </SortableContext>
+            </DndContext>
+          );
+        })()
       )}
 
       {isStaff && showCopilot && payload && (

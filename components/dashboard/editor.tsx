@@ -7,7 +7,11 @@
  */
 
 import { useEffect, useState } from "react";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 import { Card } from "@/components/ui/surface";
+import { WidgetFrame } from "@/components/dashboard/renderers";
 import {
   WIDGET_TYPES, WIDGET_TYPE_INFO, KPI_METRICS, SERIES_METRICS, TABLE_KINDS, WIDGET_WIDTHS,
   DEMOGRAPHICS_METRICS, GEO_DEVICE_DIMENSIONS, CONVERSION_WIDGET_TYPES, META_ACTIONS_MAX,
@@ -451,31 +455,81 @@ export function DashboardSettingsForm({
   );
 }
 
+/**
+ * Edit-mode widget card: a sortable grid item (dnd-kit) with a grip handle
+ * placed next to the edit controls. Must be rendered inside the page's
+ * DndContext + SortableContext.
+ */
+export function SortableWidgetFrame({ widget, children, editControls }: {
+  widget: ResolvedWidget;
+  children: React.ReactNode;
+  editControls?: React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: widget.id });
+  // Neutralise the scale rectSortingStrategy applies when the target slot has
+  // a different width (full/half/third): only translate the card.
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform ? { ...transform, scaleX: 1, scaleY: 1 } : null),
+    transition,
+  };
+  const handle = (
+    <button
+      type="button"
+      ref={setActivatorNodeRef}
+      {...attributes}
+      {...listeners}
+      className="p-1 rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800 cursor-grab active:cursor-grabbing touch-none transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+      title="Glisser pour réordonner (ou Espace + flèches)"
+      aria-label={`Réordonner le widget ${widget.title ?? ""}`.trim()}
+    >
+      <GripVertical className="w-4 h-4" aria-hidden="true" />
+    </button>
+  );
+  return (
+    <WidgetFrame
+      widget={widget}
+      sortableRef={setNodeRef}
+      sortableStyle={style}
+      dragging={isDragging}
+      editControls={
+        <div className="flex items-center gap-1">
+          {handle}
+          {editControls}
+        </div>
+      }
+    >
+      {children}
+    </WidgetFrame>
+  );
+}
+
 export function EditControls({
-  dashboardId, widget, orderedIds, onChanged, onEdit,
+  dashboardId, widget, orderedIds, onReorder, onChanged, onEdit,
 }: {
   dashboardId: string;
   widget: ResolvedWidget;
   orderedIds: string[];
+  /** Shared reorder path (same as drag & drop): optimistic + PUT { order }. */
+  onReorder: (nextIds: string[]) => Promise<unknown> | void;
   onChanged: () => void;
   onEdit: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const idx = orderedIds.indexOf(widget.id);
 
+  // Keyboard / accessibility fallback for drag & drop — one code path.
   async function move(dir: -1 | 1) {
     const target = idx + dir;
     if (target < 0 || target >= orderedIds.length) return;
     const next = [...orderedIds];
     [next[idx], next[target]] = [next[target], next[idx]];
     setBusy(true);
-    await fetch(`/api/dashboards/${dashboardId}/widgets`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order: next }),
-    });
-    setBusy(false);
-    onChanged();
+    try {
+      await onReorder(next);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function remove() {

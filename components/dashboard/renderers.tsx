@@ -747,22 +747,52 @@ function CrmAttributionWidget({ widget }: { widget: ResolvedWidget }) {
   );
 }
 
-export function WidgetFrame({ widget, children, editControls }: {
+export function WidgetFrame({ widget, children, editControls, sortableRef, sortableStyle, dragging }: {
   widget: ResolvedWidget;
   children: React.ReactNode;
   editControls?: React.ReactNode;
+  /**
+   * Edit-mode only: wiring handed down by a `useSortable` caller (see
+   * SortableWidgetFrame in editor.tsx). When `sortableRef` is absent the frame
+   * renders exactly as the read-only client view — no wrapper, no transform.
+   */
+  sortableRef?: (el: HTMLElement | null) => void;
+  sortableStyle?: React.CSSProperties;
+  dragging?: boolean;
 }) {
   const span =
     widget.width === "full" ? "lg:col-span-6"
     : widget.width === "half" ? "lg:col-span-3"
     : "lg:col-span-2";
+  const header = (
+    <div className="flex items-center justify-between mb-2">
+      <h3 className="text-sm font-semibold text-gray-200">{widget.title ?? ""}</h3>
+      {editControls}
+    </div>
+  );
+  const body = <div className="flex-1 min-h-0">{children}</div>;
+
+  if (!sortableRef) {
+    return (
+      <Card padded className={`${span} col-span-6 flex flex-col`}>
+        {header}
+        {body}
+      </Card>
+    );
+  }
+
+  // Sortable: the grid item is a plain div carrying the dnd-kit ref/transform
+  // (Card does not forward refs); the card fills it so the layout is unchanged.
   return (
-    <Card padded className={`${span} col-span-6 flex flex-col`}>
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold text-gray-200">{widget.title ?? ""}</h3>
-        {editControls}
-      </div>
-      <div className="flex-1 min-h-0">{children}</div>
-    </Card>
+    <div
+      ref={sortableRef}
+      style={sortableStyle}
+      className={`${span} col-span-6 rounded-2xl ${dragging ? "relative z-10 opacity-60 ring-2 ring-violet-500/70" : ""}`}
+    >
+      <Card padded className="h-full flex flex-col">
+        {header}
+        {body}
+      </Card>
+    </div>
   );
 }
