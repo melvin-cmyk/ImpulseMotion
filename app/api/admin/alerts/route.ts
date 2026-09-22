@@ -28,9 +28,10 @@ export async function POST(req: NextRequest) {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const body = await req.json();
-  const { userId, clientId, platform } = body;
+  const { userId, clientId } = body;
   if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
-  const spec = validateRuleInput(body);
+  const platform = body.platform === "google" ? "google" : "meta";
+  const spec = validateRuleInput(body, { platform });
   if (!spec.ok) return NextResponse.json({ error: spec.error }, { status: 400 });
   const scope = await getAccountScope(guard.session);
   if (!scope.all) {
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
     data: {
       userId,
       clientId: clientId ?? null,
-      platform: platform ?? "meta",
+      platform,
       metric: spec.data.metric!,
       condition: spec.data.condition!,
       threshold: spec.data.threshold!,

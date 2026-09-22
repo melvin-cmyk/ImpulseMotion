@@ -4,21 +4,34 @@ import { useCallback, useEffect, useState } from "react";
 import { Pill } from "@/components/ui/surface";
 import {
   type AlertLevel,
+  type AlertPlatform,
   type AlertRuleExt,
   LEVEL_LABEL,
+  PLATFORM_LABEL,
   filterSummary,
+  isPlatform,
   ruleFilter,
   ruleLevel,
   ruleMode,
+  rulePlatform,
 } from "@/components/alerts/alert-rule-form";
 
-/** Level + IA pills shown next to a rule's title (nothing for a plain account-level rule). */
+/** Small « Meta » (blue) / « Google » (emerald) pill. */
+export function PlatformPill({ platform }: { platform: AlertPlatform }) {
+  return (
+    <span title={platform === "google" ? "Google Ads" : "Meta Ads"}>
+      <Pill tone={platform === "google" ? "emerald" : "blue"}>{PLATFORM_LABEL[platform]}</Pill>
+    </span>
+  );
+}
+
+/** Platform + level + IA pills shown next to a rule's title. */
 export function RuleKindPills({ rule }: { rule: AlertRuleExt }) {
   const level = ruleLevel(rule);
   const ai = ruleMode(rule) === "ai";
-  if (level === "account" && !ai) return null;
   return (
     <>
+      <PlatformPill platform={rulePlatform(rule)} />
       {level !== "account" && <Pill tone="amber">{LEVEL_LABEL[level]}</Pill>}
       {ai && (
         <span title="Condition évaluée chaque matin par l'IA">
@@ -96,10 +109,15 @@ type AlertEventsListProps = {
   limit?: number;
   /** Optional account → entity name resolver (admin page shows account labels). */
   accountLabel?: (clientId: string) => string;
+  /**
+   * Optional account → platform resolver (events don't carry the platform:
+   * the page looks it up in the accounts it already fetched; unknown → no pill).
+   */
+  accountPlatform?: (clientId: string) => string | null | undefined;
   className?: string;
 };
 
-export function AlertEventsList({ refreshKey = 0, limit = 15, accountLabel, className }: AlertEventsListProps) {
+export function AlertEventsList({ refreshKey = 0, limit = 15, accountLabel, accountPlatform, className }: AlertEventsListProps) {
   const [events, setEvents] = useState<AlertEventRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -128,17 +146,23 @@ export function AlertEventsList({ refreshKey = 0, limit = 15, accountLabel, clas
   return (
     <div className={className}>
       <ul className="divide-y divide-gray-800">
-        {shown.map((ev) => (
-          <li key={ev.id} className="py-2 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <EventLine event={ev} />
-              <div className="text-[11px] text-gray-500 mt-0.5">
-                {accountLabel ? accountLabel(ev.clientId) : ev.clientId} · {new Date(ev.triggeredAt).toLocaleString("fr-FR")}
-                {ev.acknowledged && <> · acquittée</>}
+        {shown.map((ev) => {
+          const platform = accountPlatform?.(ev.clientId);
+          return (
+            <li key={ev.id} className="py-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <EventLine event={ev} />
+                <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  {isPlatform(platform) && <PlatformPill platform={platform} />}
+                  <span>
+                    {accountLabel ? accountLabel(ev.clientId) : ev.clientId} · {new Date(ev.triggeredAt).toLocaleString("fr-FR")}
+                    {ev.acknowledged && <> · acquittée</>}
+                  </span>
+                </div>
               </div>
-            </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
       {events.length > limit && (
         <button type="button" onClick={() => setShowAll((s) => !s)} className="mt-2 text-xs text-violet-400 hover:text-violet-300">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Section, PageHeader, Pill, Card } from "@/components/ui/surface";
 import {
@@ -10,10 +10,12 @@ import {
   CONDITIONS,
   ComposeBlock,
   EMPTY_DRAFT,
+  PlatformSwitch,
   applyProposal,
   draftToBody,
   ruleMode,
   ruleTitle,
+  withPlatform,
 } from "@/components/alerts/alert-rule-form";
 import { AlertEventsList, RuleDetails, RuleKindPills } from "@/components/alerts/alert-rule-list";
 
@@ -106,18 +108,28 @@ export default function AdminAlertsPage() {
   }, [load, session]);
 
   const selectedUser = users.find((u) => u.id === formUserId);
-  // Accounts offered in the form: the selected consultant's (admin) or one's own.
-  const accountOptions = isAdmin
-    ? (selectedUser?.adAccounts ?? []).filter((a) => a.platform === "meta")
-    : ownAccounts.filter((a) => a.platform === "meta");
+  // Accounts offered in the form: the selected consultant's (admin) or one's
+  // own, restricted to the chosen platform (clientId = that platform's account id).
+  const accountOptions = (isAdmin ? (selectedUser?.adAccounts ?? []) : ownAccounts).filter((a) => a.platform === draft.platform);
 
-  const accountLabelFor = useCallback(
-    (clientId: string) => {
-      const pool = isAdmin ? users.flatMap((u) => u.adAccounts ?? []) : ownAccounts;
-      return pool.find((a) => a.accountId === clientId)?.label ?? clientId;
-    },
+  const accountPool = useMemo(
+    () => (isAdmin ? users.flatMap((u) => u.adAccounts ?? []) : ownAccounts),
     [isAdmin, users, ownAccounts],
   );
+  const accountLabelFor = useCallback(
+    (clientId: string) => accountPool.find((a) => a.accountId === clientId)?.label ?? clientId,
+    [accountPool],
+  );
+  // Events don't carry the platform → resolved from the accounts we already hold.
+  const accountPlatformFor = useCallback(
+    (clientId: string) => accountPool.find((a) => a.accountId === clientId)?.platform ?? null,
+    [accountPool],
+  );
+
+  function changePlatform(platform: AlertDraft["platform"]) {
+    setDraft((d) => withPlatform(d, platform));
+    setFormAccountId("");
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -179,7 +191,7 @@ export default function AdminAlertsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Alertes"
-        subtitle="Détection proactive d'anomalies (ROAS, CPA, dépenses, fréquence)."
+        subtitle="Détection proactive d'anomalies sur Meta Ads et Google Ads (ROAS, CPA, CTR, dépenses, fréquence)."
         action={
           <div className="flex gap-2">
             <button onClick={runScan} className={secondaryBtnCls}>
@@ -199,7 +211,12 @@ export default function AdminAlertsPage() {
               text={draft.description}
               onTextChange={(description) => patchDraft({ description })}
               accountId={formAccountId || null}
-              onProposal={(proposal, text) => setDraft((d) => applyProposal(d, proposal, text))}
+              platform={draft.platform}
+              onProposal={(proposal, text) => {
+                // A proposal may switch platform: the account picked for the other one no longer applies.
+                if (proposal.platform && proposal.platform !== draft.platform) setFormAccountId("");
+                setDraft((d) => applyProposal(d, proposal, text));
+              }}
               classes={{ input: inputCls, label: labelSpanCls }}
             />
             <div className="grid grid-cols-2 gap-3">
@@ -222,6 +239,7 @@ export default function AdminAlertsPage() {
                   </select>
                 </label>
               )}
+              <PlatformSwitch value={draft.platform} onChange={changePlatform} classes={{ input: inputCls, label: labelSpanCls }} />
               <label className="block">
                 <span className={labelSpanCls}>{isAdmin ? "Compte (vide = tous)" : "Compte"}</span>
                 <select
@@ -231,8 +249,8 @@ export default function AdminAlertsPage() {
                   required={!isAdmin}
                   className={`${inputCls} disabled:opacity-50`}
                 >
-                  {/* An account-agnostic rule spans the whole BM → admins only. */}
-                  <option value="">{isAdmin ? "Tous" : "— Sélectionner —"}</option>
+                  {/* An account-agnostic rule spans every account of the platform → admins only. */}
+                  <option value="">{isAdmin ? `Tous (${draft.platform === "google" ? "Google Ads" : "Meta Ads"})` : "— Sélectionner —"}</option>
                   {accountOptions.map((a) => (
                     <option key={a.accountId} value={a.accountId}>{a.label ?? a.accountId}</option>
                   ))}
@@ -259,7 +277,7 @@ export default function AdminAlertsPage() {
       ) : rules.length === 0 ? (
         <Card padded className="text-center text-gray-500 border-dashed space-y-2">
           <p>Aucune règle d&apos;alerte configurée — le cockpit n&apos;affichera donc aucune alerte.</p>
-          <p className="text-xs">Exemple : ROAS en dessous de 1,5 sur 7 jours. Les règles ROAS sont ignorées quand le revenu est indisponible.</p>
+          <p className="text-xs">Exemple : ROAS Meta en dessous de 1,5 sur 7 jours, ou mot-clé Google à plus de 100 € sans conversion. Les règles ROAS sont ignorées quand le revenu est indisponible.</p>
           <button onClick={() => setShowCreate(true)} className={primaryBtnCls}>+ Créer une première règle</button>
         </Card>
       ) : (
@@ -304,7 +322,7 @@ export default function AdminAlertsPage() {
       )}
 
       <Section title="Derniers déclenchements" bodyClassName="px-4 py-2">
-        <AlertEventsList refreshKey={eventsKey} accountLabel={accountLabelFor} />
+        <AlertEventsList refreshKey={eventsKey} accountLabel={accountLabelFor} accountPlatform={accountPlatformFor} />
       </Section>
     </div>
   );

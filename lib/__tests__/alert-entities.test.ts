@@ -4,6 +4,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
 import { aggregateInsights, describeFilter, filterEntities, parseFilter, validateFilter, validateRuleInput } from "@/lib/alert-entities";
 import { parseProposal, parseVerdict, renderSnapshot } from "@/lib/alert-ai";
+import { metricsFromGoogle, sumMetrics } from "@/lib/alert-google";
 import type { ComputedMetrics } from "@/lib/alerts";
 
 const cm = (o: Partial<ComputedMetrics>): ComputedMetrics => ({ spend: 0, roas: 0, cpa: 0, ctr: 0, frequency: 0, roasAvailable: false, roasEstimated: false, conversions: 0, ...o });
@@ -71,12 +72,38 @@ describe("alert AI parsing", () => {
     expect(v.entities[0]).toEqual({ name: "X", level: "ad", value: 210 });
     expect(() => parseVerdict("rien")).toThrow();
     const text = renderSnapshot({
-      accountLabel: "LPEV", window: "7d", range: { since: "2026-09-15", until: "2026-09-21" }, compare: { since: "2026-09-08", until: "2026-09-14" },
+      accountLabel: "LPEV", platform: "meta", window: "7d", range: { since: "2026-09-15", until: "2026-09-21" }, compare: { since: "2026-09-08", until: "2026-09-14" },
       account: { current: cm({ spend: 1000, conversions: 20, cpa: 50 }), previous: cm({ spend: 900 }) },
-      campaigns: [{ id: "c", name: "Brand", level: "campaign", current: cm({ spend: 600 }), previous: cm({ spend: 500 }) }],
-      ads: [{ id: "a", name: "UGC v3", level: "ad", current: cm({ spend: 210, conversions: 2, cpa: 105 }), previous: cm({}) }],
+      groups: [
+        { title: "Campagnes", limit: 15, entities: [{ id: "c", name: "Brand", level: "campaign", current: cm({ spend: 600 }), previous: cm({ spend: 500 }) }] },
+        { title: "Créas", limit: 25, entities: [{ id: "a", name: "UGC v3", level: "ad", current: cm({ spend: 210, conversions: 2, cpa: 105 }), previous: cm({}) }] },
+      ],
     });
+    expect(text).toContain("COMPTE META ADS : LPEV");
     expect(text).toContain("TOTAL COMPTE : dép 1000");
+    expect(text).toContain("CRÉAS (1, top 1 par dépense)");
     expect(text).toContain("- UGC v3 : dép 210 · conv 2 · CPA 105");
+  });
+});
+
+describe("google metrics", () => {
+  it("converts a GAQL metrics row (micros, ratio ctr, conversion value) into ComputedMetrics", () => {
+    const m = metricsFromGoogle({ costMicros: "545019246", clicks: "432", impressions: "3676", conversions: 12, conversionsValue: 1500, ctr: 0.117519 });
+    expect(m).toMatchObject({ spend: 545, conversions: 12, cpa: 45.42, ctr: 11.75, roasAvailable: true, roas: 2.75, frequency: 0 });
+    expect(metricsFromGoogle({ costMicros: "1000000", conversions: 0 }).roasAvailable).toBe(false);
+  });
+  it("sums segment rows and recomputes ctr", () => {
+    const s = sumMetrics([{ costMicros: "1000000", clicks: 10, impressions: 100, conversions: 1, conversionsValue: 0 }, { costMicros: "3000000", clicks: 30, impressions: 300, conversions: 2, conversionsValue: 50 }]);
+    expect(s).toMatchObject({ costMicros: 4000000, clicks: 40, impressions: 400, conversions: 3, conversionsValue: 50, ctr: 0.1 });
+    expect(sumMetrics([])).toBeNull();
+  });
+  it("rejects a Meta-only level or metric on google and picks platform levels in proposals", () => {
+    expect(validateRuleInput({ platform: "google", level: "ad", metric: "spend", condition: "above", threshold: 1 }).ok).toBe(false);
+    expect(validateRuleInput({ platform: "google", metric: "frequency", condition: "above", threshold: 1 }).ok).toBe(false);
+    expect(validateRuleInput({ platform: "google", level: "keyword", metric: "cpa", condition: "above", threshold: 20 }).ok).toBe(true);
+    const p = parseProposal('{"mode":"rule","platform":"google","level":"keyword","metric":"spend","condition":"above","threshold":100,"window":"7d","label":"Mots-clés > 100"}');
+    expect(p).toMatchObject({ platform: "google", level: "keyword" });
+    const ai = parseProposal('{"mode":"ai","prompt":"x y z","level":"account","window":"7d"}', "google");
+    expect(ai).toMatchObject({ platform: "google", level: "keyword" });
   });
 });

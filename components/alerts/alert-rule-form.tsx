@@ -4,12 +4,14 @@ import { useState } from "react";
 
 /**
  * Shared model + form pieces for alert rules (admin & /me pages).
- * Contract: AlertRule carries level / filter / mode / prompt / label on top of
- * the historical metric / condition / threshold / window. Rules created before
- * that contract have none of these fields → treated as account-level "rule".
+ * Contract: AlertRule carries platform / level / filter / mode / prompt / label
+ * on top of the historical metric / condition / threshold / window. Rules
+ * created before that contract have none of these fields → treated as a
+ * Meta, account-level "rule".
  */
 
-export type AlertLevel = "account" | "campaign" | "adset" | "ad";
+export type AlertPlatform = "meta" | "google";
+export type AlertLevel = "account" | "campaign" | "adset" | "ad" | "ad_group" | "keyword";
 export type AlertMode = "rule" | "ai";
 export type AlertFilter = { nameContains?: string; minSpend?: number };
 
@@ -19,6 +21,7 @@ export type AlertRuleExt = {
   condition: string;
   threshold: number;
   window: string;
+  platform?: string | null;
   level?: string | null;
   mode?: string | null;
   prompt?: string | null;
@@ -27,13 +30,33 @@ export type AlertRuleExt = {
   filterJson?: string | null;
 };
 
+export const PLATFORMS: { value: AlertPlatform; label: string; short: string }[] = [
+  { value: "meta", label: "Meta Ads", short: "Meta" },
+  { value: "google", label: "Google Ads", short: "Google" },
+];
+export const PLATFORM_LABEL: Record<AlertPlatform, string> = { meta: "Meta", google: "Google" };
+
+/** Every level id, with its label — the per-platform subsets come from LEVELS_BY_PLATFORM. */
 export const LEVELS: { value: AlertLevel; label: string }[] = [
   { value: "account", label: "Compte entier" },
   { value: "campaign", label: "Campagne" },
   { value: "adset", label: "Ad set" },
   { value: "ad", label: "Créa" },
+  { value: "ad_group", label: "Groupe d'annonces" },
+  { value: "keyword", label: "Mot-clé" },
 ];
 export const LEVEL_LABEL: Record<AlertLevel, string> = Object.fromEntries(LEVELS.map((l) => [l.value, l.label])) as Record<AlertLevel, string>;
+
+export const LEVELS_BY_PLATFORM: Record<AlertPlatform, AlertLevel[]> = {
+  meta: ["account", "campaign", "adset", "ad"],
+  google: ["account", "campaign", "ad_group", "keyword"],
+};
+export function levelsFor(platform: AlertPlatform): { value: AlertLevel; label: string }[] {
+  return LEVELS_BY_PLATFORM[platform].map((value) => ({ value, label: LEVEL_LABEL[value] }));
+}
+export function isLevelFor(platform: AlertPlatform, level: string | null | undefined): level is AlertLevel {
+  return (LEVELS_BY_PLATFORM[platform] as string[]).includes(level ?? "");
+}
 
 export const METRICS = [
   { value: "roas", label: "ROAS" },
@@ -42,6 +65,17 @@ export const METRICS = [
   { value: "spend", label: "Dépenses" },
   { value: "frequency", label: "Fréquence" },
 ];
+export const METRICS_BY_PLATFORM: Record<AlertPlatform, string[]> = {
+  meta: ["roas", "cpa", "ctr", "spend", "frequency"],
+  google: ["roas", "cpa", "ctr", "spend"],
+};
+export function metricsFor(platform: AlertPlatform): { value: string; label: string }[] {
+  return METRICS.filter((m) => METRICS_BY_PLATFORM[platform].includes(m.value));
+}
+export function isMetricFor(platform: AlertPlatform, metric: string | null | undefined): boolean {
+  return METRICS_BY_PLATFORM[platform].includes(metric ?? "");
+}
+
 export const CONDITIONS = [
   { value: "below", label: "en dessous de" },
   { value: "above", label: "au-dessus de" },
@@ -54,6 +88,12 @@ export const WINDOWS = [
   { value: "30d", label: "30 derniers jours" },
 ];
 
+export function isPlatform(p: unknown): p is AlertPlatform {
+  return p === "meta" || p === "google";
+}
+export function rulePlatform(r: Pick<AlertRuleExt, "platform">): AlertPlatform {
+  return isPlatform(r.platform) ? r.platform : "meta";
+}
 export function ruleLevel(r: AlertRuleExt): AlertLevel {
   return (LEVELS.some((l) => l.value === r.level) ? r.level : "account") as AlertLevel;
 }
@@ -96,6 +136,7 @@ export type ComposeProposal =
   | {
       mode: "rule";
       label?: string | null;
+      platform?: AlertPlatform;
       level?: AlertLevel;
       metric: string;
       condition: string;
@@ -107,6 +148,7 @@ export type ComposeProposal =
   | {
       mode: "ai";
       label?: string | null;
+      platform?: AlertPlatform;
       prompt: string;
       level?: AlertLevel;
       window?: string;
@@ -120,6 +162,7 @@ export type ComposeProposal =
 export type AlertDraft = {
   /** Free text typed in « Décris ton alerte ». */
   description: string;
+  platform: AlertPlatform;
   mode: AlertMode;
   level: AlertLevel;
   metric: string;
@@ -138,6 +181,7 @@ export type AlertDraft = {
 
 export const EMPTY_DRAFT: AlertDraft = {
   description: "",
+  platform: "meta",
   mode: "rule",
   level: "account",
   metric: "roas",
@@ -152,21 +196,36 @@ export const EMPTY_DRAFT: AlertDraft = {
   emails: "",
 };
 
+/**
+ * Switch the draft to a platform, keeping level / metric only when they exist
+ * there (else « Compte entier » / ROAS — e.g. « Fréquence » is Meta-only).
+ */
+export function withPlatform(d: AlertDraft, platform: AlertPlatform): AlertDraft {
+  return {
+    ...d,
+    platform,
+    level: isLevelFor(platform, d.level) ? d.level : "account",
+    metric: isMetricFor(platform, d.metric) ? d.metric : "roas",
+  };
+}
+
 /** Fill the draft from an AI proposal; the consultant can still edit everything afterwards. */
 export function applyProposal(d: AlertDraft, p: ComposeProposal, text: string): AlertDraft {
-  const level = p.level && LEVELS.some((l) => l.value === p.level) ? p.level : d.level;
+  const platform = isPlatform(p.platform) ? p.platform : d.platform;
+  const level = isLevelFor(platform, p.level) ? p.level : isLevelFor(platform, d.level) ? d.level : "account";
   const window = p.window && WINDOWS.some((w) => w.value === p.window) ? p.window : d.window;
   const label = p.label?.trim() ?? d.label;
   if (p.mode === "ai") {
-    return { ...d, mode: "ai", level, window, label, prompt: p.prompt?.trim() || text.trim() };
+    return { ...d, platform, mode: "ai", level, window, label, prompt: p.prompt?.trim() || text.trim() };
   }
   return {
     ...d,
+    platform,
     mode: "rule",
     level,
     window,
     label,
-    metric: METRICS.some((m) => m.value === p.metric) ? p.metric : d.metric,
+    metric: isMetricFor(platform, p.metric) ? p.metric : isMetricFor(platform, d.metric) ? d.metric : "roas",
     condition: CONDITIONS.some((c) => c.value === p.condition) ? p.condition : d.condition,
     threshold: typeof p.threshold === "number" && Number.isFinite(p.threshold) ? String(p.threshold) : d.threshold,
     nameContains: p.filter?.nameContains ?? "",
@@ -177,12 +236,13 @@ export function applyProposal(d: AlertDraft, p: ComposeProposal, text: string): 
 
 /**
  * Body fields shared by POST /api/admin/alerts and /api/me/alerts. The caller
- * adds userId / clientId. In AI mode metric/condition/threshold are omitted.
+ * adds userId / clientId (the ad account id of `platform`). In AI mode
+ * metric/condition/threshold are omitted.
  */
 export function draftToBody(d: AlertDraft): Record<string, unknown> {
   const minSpend = d.minSpend.trim() === "" ? NaN : Number(d.minSpend);
   const base: Record<string, unknown> = {
-    platform: "meta",
+    platform: d.platform,
     level: d.level,
     filter: {
       nameContains: d.nameContains.trim() || undefined,
@@ -204,15 +264,51 @@ export function draftToBody(d: AlertDraft): Record<string, unknown> {
 
 export type FieldClasses = { input: string; label: string };
 
+const switchBtn = (active: boolean) =>
+  `px-3 py-1.5 text-sm font-medium transition-colors ${active ? "bg-violet-600 text-white" : "bg-transparent text-gray-400 hover:text-white"}`;
+
+type PlatformSwitchProps = {
+  value: AlertPlatform;
+  onChange: (platform: AlertPlatform) => void;
+  classes: FieldClasses;
+  className?: string;
+};
+
+/**
+ * « Plateforme » segmented control (Meta Ads / Google Ads). Rendered by the
+ * page right before its account select, as one item of the 2-column grid.
+ */
+export function PlatformSwitch({ value, onChange, classes, className }: PlatformSwitchProps) {
+  return (
+    <div className={`block ${className ?? ""}`}>
+      <span className={classes.label}>Plateforme</span>
+      <div className="mt-1 inline-flex rounded-lg border border-gray-800 overflow-hidden" role="group" aria-label="Plateforme">
+        {PLATFORMS.map((p) => (
+          <button
+            key={p.value}
+            type="button"
+            onClick={() => { if (p.value !== value) onChange(p.value); }}
+            className={switchBtn(p.value === value)}
+            aria-pressed={p.value === value}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 type ComposeBlockProps = {
   text: string;
   onTextChange: (text: string) => void;
   accountId: string | null;
+  platform: AlertPlatform;
   onProposal: (proposal: ComposeProposal, text: string) => void;
   classes: FieldClasses;
 };
 
-export function ComposeBlock({ text, onTextChange, accountId, onProposal, classes }: ComposeBlockProps) {
+export function ComposeBlock({ text, onTextChange, accountId, platform, onProposal, classes }: ComposeBlockProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [explanation, setExplanation] = useState<string | null>(null);
@@ -227,7 +323,7 @@ export function ComposeBlock({ text, onTextChange, accountId, onProposal, classe
       const res = await fetch("/api/alerts/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: trimmed, accountId: accountId || null }),
+        body: JSON.stringify({ text: trimmed, accountId: accountId || null, platform }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.proposal) {
@@ -251,7 +347,7 @@ export function ComposeBlock({ text, onTextChange, accountId, onProposal, classe
           value={text}
           onChange={(e) => onTextChange(e.target.value)}
           rows={2}
-          placeholder="Ex. : préviens-moi si une créa Meta dépense plus de 200 € sur 7 jours avec un CPA au-dessus de 30 €"
+          placeholder="Ex. : préviens-moi si une créa Meta dépense plus de 200 € sur 7 jours avec un CPA au-dessus de 30 €, ou si un mot-clé Google dépense plus de 100 € sur 7 jours sans conversion"
           className={`${classes.input} resize-y`}
         />
       </label>
@@ -264,7 +360,7 @@ export function ComposeBlock({ text, onTextChange, accountId, onProposal, classe
         >
           {busy ? "L'IA lit ta demande…" : "Proposer avec l'IA"}
         </button>
-        <span className="text-xs text-gray-500">Les champs ci-dessous sont pré-remplis — tu peux tout ajuster avant de créer.</span>
+        <span className="text-xs text-gray-500">Les champs ci-dessous sont pré-remplis (plateforme comprise) — tu peux tout ajuster avant de créer.</span>
       </div>
       {error && <p className="text-xs text-red-400">{error}</p>}
       {explanation && (
@@ -283,13 +379,15 @@ type AlertRuleFieldsProps = {
 };
 
 /**
- * Every rule field except the account/user pickers, rendered as children of
- * the page's 2-column grid (fragment → each label is a grid item).
+ * Every rule field except the platform / account / user pickers, rendered as
+ * children of the page's 2-column grid (fragment → each label is a grid item).
+ * Level and metric options follow `draft.platform`.
  */
 export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsProps) {
   const ai = draft.mode === "ai";
-  const switchBtn = (active: boolean) =>
-    `px-3 py-1.5 text-sm font-medium transition-colors ${active ? "bg-violet-600 text-white" : "bg-transparent text-gray-400 hover:text-white"}`;
+  const levels = levelsFor(draft.platform);
+  const metrics = metricsFor(draft.platform);
+  const google = draft.platform === "google";
 
   function setMode(mode: AlertMode) {
     if (mode === draft.mode) return;
@@ -318,7 +416,7 @@ export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsPro
           type="text"
           value={draft.label}
           onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Ex. : CPA créas UGC"
+          placeholder={google ? "Ex. : CPA mots-clés marque" : "Ex. : CPA créas UGC"}
           maxLength={80}
           className={classes.input}
         />
@@ -326,7 +424,7 @@ export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsPro
       <label className="block">
         <span className={classes.label}>Niveau</span>
         <select value={draft.level} onChange={(e) => onChange({ level: e.target.value as AlertLevel })} className={classes.input}>
-          {LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+          {levels.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
         </select>
       </label>
 
@@ -338,17 +436,21 @@ export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsPro
             onChange={(e) => onChange({ prompt: e.target.value })}
             rows={3}
             required
-            placeholder="Ex. : signale les créas dont le CPA dépasse 30 € alors qu'elles ont dépensé plus de 200 €"
+            placeholder={
+              google
+                ? "Ex. : signale les mots-clés qui ont dépensé plus de 100 € sans aucune conversion"
+                : "Ex. : signale les créas dont le CPA dépasse 30 € alors qu'elles ont dépensé plus de 200 €"
+            }
             className={`${classes.input} resize-y`}
           />
-          <span className="text-[11px] text-gray-500">L&apos;IA lit les données de la fenêtre choisie au niveau sélectionné et décide si l&apos;alerte doit partir. ~1 appel IA léger par jour.</span>
+          <span className="text-[11px] text-gray-500">L&apos;IA lit les données {google ? "Google Ads" : "Meta"} de la fenêtre choisie au niveau sélectionné et décide si l&apos;alerte doit partir. ~1 appel IA léger par jour.</span>
         </label>
       ) : (
         <>
           <label className="block">
             <span className={classes.label}>Métrique</span>
             <select value={draft.metric} onChange={(e) => onChange({ metric: e.target.value })} className={classes.input}>
-              {METRICS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              {metrics.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
           </label>
           <label className="block">
@@ -384,7 +486,7 @@ export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsPro
           type="text"
           value={draft.nameContains}
           onChange={(e) => onChange({ nameContains: e.target.value })}
-          placeholder="contient… (ex. UGC)"
+          placeholder={google ? "contient… (ex. marque)" : "contient… (ex. UGC)"}
           className={classes.input}
         />
       </label>

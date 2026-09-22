@@ -18,7 +18,8 @@ export async function POST(req: NextRequest) {
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (text.length < 8) return NextResponse.json({ error: "décrivez l'alerte en une phrase" }, { status: 400 });
   try {
-    const proposal = await composeAlertProposal(text, { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role });
+    const platform = body.platform === "google" ? "google" : "meta";
+    const proposal = await composeAlertProposal(text, { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role }, platform);
     return NextResponse.json({ proposal });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

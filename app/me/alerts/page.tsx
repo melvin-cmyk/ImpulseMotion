@@ -8,10 +8,12 @@ import {
   CONDITIONS,
   ComposeBlock,
   EMPTY_DRAFT,
+  PlatformSwitch,
   applyProposal,
   draftToBody,
   ruleMode,
   ruleTitle,
+  withPlatform,
 } from "@/components/alerts/alert-rule-form";
 import { AlertEventsList, RuleDetails, RuleKindPills } from "@/components/alerts/alert-rule-list";
 
@@ -73,6 +75,18 @@ export default function MeAlertsPage() {
     (clientId: string) => accounts.find((a) => a.accountId === clientId)?.label ?? clientId,
     [accounts],
   );
+  // Events don't carry the platform → resolved from the accounts we already hold.
+  const accountPlatformFor = useCallback(
+    (clientId: string) => accounts.find((a) => a.accountId === clientId)?.platform ?? null,
+    [accounts],
+  );
+  // Accounts offered: one's own, restricted to the chosen platform (clientId = that platform's account id).
+  const accountOptions = accounts.filter((a) => a.platform === draft.platform);
+
+  function changePlatform(platform: AlertDraft["platform"]) {
+    setDraft((d) => withPlatform(d, platform));
+    setFormAccountId("");
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -118,7 +132,7 @@ export default function MeAlertsPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Mes alertes</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Détection proactive d&apos;anomalies sur tes comptes.
+            Détection proactive d&apos;anomalies sur tes comptes Meta Ads et Google Ads.
           </p>
         </div>
         <button
@@ -135,10 +149,16 @@ export default function MeAlertsPage() {
             text={draft.description}
             onTextChange={(description) => patchDraft({ description })}
             accountId={formAccountId || null}
-            onProposal={(proposal, text) => setDraft((d) => applyProposal(d, proposal, text))}
+            platform={draft.platform}
+            onProposal={(proposal, text) => {
+              // A proposal may switch platform: the account picked for the other one no longer applies.
+              if (proposal.platform && proposal.platform !== draft.platform) setFormAccountId("");
+              setDraft((d) => applyProposal(d, proposal, text));
+            }}
             classes={{ input: inputCls, label: labelCls }}
           />
           <div className="grid grid-cols-2 gap-3">
+            <PlatformSwitch value={draft.platform} onChange={changePlatform} classes={{ input: inputCls, label: labelCls }} />
             <label className="block">
               <span className={labelCls}>Compte (vide = tous mes comptes)</span>
               <select
@@ -146,8 +166,8 @@ export default function MeAlertsPage() {
                 onChange={(e) => setFormAccountId(e.target.value)}
                 className={inputCls}
               >
-                <option value="">Tous</option>
-                {accounts.filter((a) => a.platform === "meta").map((a) => (
+                <option value="">Tous ({draft.platform === "google" ? "Google Ads" : "Meta Ads"})</option>
+                {accountOptions.map((a) => (
                   <option key={a.accountId} value={a.accountId}>{a.label ?? a.accountId}</option>
                 ))}
               </select>
@@ -173,7 +193,7 @@ export default function MeAlertsPage() {
       ) : rules.length === 0 ? (
         <div className="text-center py-12 text-gray-500 border border-dashed border-gray-800 rounded-2xl space-y-2">
           <p>Aucune règle d&apos;alerte configurée.</p>
-          <p className="text-xs">Exemple : ROAS en dessous de 1,5 sur 7 jours.</p>
+          <p className="text-xs">Exemple : ROAS Meta en dessous de 1,5 sur 7 jours, ou mot-clé Google à plus de 100 € sans conversion.</p>
           <button onClick={() => setShowCreate(true)} className="px-4 py-2 rounded-lg font-semibold text-sm bg-gradient-to-br from-violet-600 to-purple-600 text-white">+ Créer une première règle</button>
         </div>
       ) : (
@@ -226,7 +246,7 @@ export default function MeAlertsPage() {
           <h2 className="text-sm font-semibold text-white">Derniers déclenchements</h2>
         </header>
         <div className="px-4 py-2">
-          <AlertEventsList refreshKey={eventsKey} accountLabel={accountLabelFor} />
+          <AlertEventsList refreshKey={eventsKey} accountLabel={accountLabelFor} accountPlatform={accountPlatformFor} />
         </div>
       </section>
     </div>

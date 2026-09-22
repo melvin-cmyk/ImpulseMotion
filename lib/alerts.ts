@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notifyAlertEvents } from "@/lib/alert-notify";
-import { fetchEntityMetrics, filterEntities, isAlertLevel, parseFilter, LEVEL_LABELS, type AlertLevel } from "@/lib/alert-entities";
+import { fetchEntityMetrics, filterEntities, isAlertLevel, parseFilter, LEVEL_LABELS, type AlertLevel, type AlertPlatform, type EntityMetrics } from "@/lib/alert-entities";
+import { fetchGoogleAccountMetrics, fetchGoogleEntityMetrics } from "@/lib/alert-google";
 import { evaluateAiRule } from "@/lib/alert-ai";
 import {
   getMetaSystemToken,
@@ -251,26 +252,29 @@ export async function runAlertScan(): Promise<{
   // Group rules by account so we hit Meta once per account
   const accountsToFetch = new Set<string>();
   const accountsByUser = new Map<string, string[]>();
+  const platformOf = (rule: { platform: string }): AlertPlatform => (rule.platform === "google" ? "google" : "meta");
   for (const rule of rules) {
+    const platform = platformOf(rule);
     if (rule.clientId) {
-      accountsToFetch.add(`${rule.clientId}|${rule.window}`);
+      accountsToFetch.add(`${platform}|${rule.clientId}|${rule.window}`);
     } else {
       const accounts = await prisma.userAdAccount.findMany({
-        where: { userId: rule.userId, platform: rule.platform },
+        where: { userId: rule.userId, platform },
         select: { accountId: true },
       });
       const ids = accounts.map((a) => a.accountId);
-      accountsByUser.set(rule.userId, ids);
-      for (const id of ids) accountsToFetch.add(`${id}|${rule.window}`);
+      accountsByUser.set(`${rule.userId}|${platform}`, ids);
+      for (const id of ids) accountsToFetch.add(`${platform}|${id}|${rule.window}`);
     }
   }
 
+  // Account-level metrics, one fetch per platform × account × window.
   const metricsCache = new Map<string, { current: ComputedMetrics; previous: ComputedMetrics }>();
   await Promise.all(
     Array.from(accountsToFetch).map(async (key) => {
-      const [accountId, window] = key.split("|");
+      const [platform, accountId, window] = key.split("|");
       try {
-        const metrics = await fetchMetricsForAccount(accountId, window);
+        const metrics = platform === "google" ? await fetchGoogleAccountMetrics(accountId, window) : await fetchMetricsForAccount(accountId, window);
         metricsCache.set(key, metrics);
       } catch (e) {
         errors.push(`${accountId}: ${e instanceof Error ? e.message : "fetch error"}`);
@@ -278,19 +282,27 @@ export async function runAlertScan(): Promise<{
     }),
   );
 
-  const entityCache = new Map<string, Awaited<ReturnType<typeof fetchEntityMetrics>>>();
-  const entitiesFor = async (accountId: string, level: Exclude<AlertLevel, "account">, window: string) => {
-    const key = `${accountId}|${level}|${window}`;
+  type EntityBatch = { entities: EntityMetrics[]; range: DateRange; compare: DateRange };
+  const entityCache = new Map<string, EntityBatch>();
+  const entitiesFor = async (platform: AlertPlatform, accountId: string, level: Exclude<AlertLevel, "account">, window: string): Promise<EntityBatch> => {
+    const key = `${platform}|${accountId}|${level}|${window}`;
     const hit = entityCache.get(key);
     if (hit) return hit;
-    const data = await fetchEntityMetrics(accountId, level, window);
+    let data: EntityBatch;
+    if (platform === "google") {
+      if (level !== "campaign" && level !== "ad_group" && level !== "keyword") throw new Error(`niveau ${level} indisponible sur Google Ads`);
+      data = await fetchGoogleEntityMetrics(accountId, level, window);
+    } else {
+      if (level !== "campaign" && level !== "adset" && level !== "ad") throw new Error(`niveau ${level} indisponible sur Meta`);
+      data = await fetchEntityMetrics(accountId, level, window);
+    }
     entityCache.set(key, data);
     return data;
   };
   const labelCache = new Map<string, string>();
   const accountLabel = async (accountId: string) => {
     if (!labelCache.has(accountId)) {
-      const row = await prisma.userAdAccount.findFirst({ where: { accountId, platform: "meta" }, select: { label: true } });
+      const row = await prisma.userAdAccount.findFirst({ where: { accountId }, select: { label: true } });
       labelCache.set(accountId, row?.label?.trim() || accountId);
     }
     return labelCache.get(accountId)!;
@@ -315,21 +327,29 @@ export async function runAlertScan(): Promise<{
   };
 
   for (const rule of rules) {
-    const targets = rule.clientId ? [rule.clientId] : accountsByUser.get(rule.userId) ?? [];
+    const platform = platformOf(rule);
+    const targets = rule.clientId ? [rule.clientId] : accountsByUser.get(`${rule.userId}|${platform}`) ?? [];
     for (const accountId of targets) {
       // ── Mode IA : la condition en français est jugée sur un snapshot du compte.
       if (rule.mode === "ai") {
         if (!rule.prompt) continue;
         try {
           if (await recentlyFired(rule.id, accountId, null)) continue;
-          const [campaigns, ads] = await Promise.all([
-            entitiesFor(accountId, "campaign", rule.window),
-            entitiesFor(accountId, "ad", rule.window),
+          const detailLevel = platform === "google" ? "keyword" : "ad";
+          const [campaigns, detail] = await Promise.all([
+            entitiesFor(platform, accountId, "campaign", rule.window),
+            entitiesFor(platform, accountId, detailLevel, rule.window),
           ]);
-          const acct = metricsCache.get(`${accountId}|${rule.window}`) ?? null;
+          const acct = metricsCache.get(`${platform}|${accountId}|${rule.window}`) ?? null;
           const verdict = await evaluateAiRule(
             { id: rule.id, prompt: rule.prompt, level: rule.level, label: rule.label },
-            { accountLabel: await accountLabel(accountId), window: rule.window, range: ads.range, compare: ads.compare, account: acct, campaigns: campaigns.entities, ads: ads.entities },
+            {
+              accountLabel: await accountLabel(accountId), platform, window: rule.window, range: detail.range, compare: detail.compare, account: acct,
+              groups: [
+                { title: "Campagnes", entities: campaigns.entities, limit: 15 },
+                { title: platform === "google" ? "Mots-clés" : "Créas", entities: detail.entities, limit: 25 },
+              ],
+            },
             { clientName: await accountLabel(accountId) },
           );
           if (!verdict.triggered) continue;
@@ -349,7 +369,7 @@ export async function runAlertScan(): Promise<{
       if (isAlertLevel(rule.level) && rule.level !== "account") {
         const level: Exclude<AlertLevel, "account"> = rule.level;
         try {
-          const { entities } = await entitiesFor(accountId, level, rule.window);
+          const { entities } = await entitiesFor(platform, accountId, level, rule.window);
           const filter = parseFilter(rule.filterJson);
           for (const ent of filterEntities(entities, filter)) {
             const result = evaluateRule(rule.metric as AlertMetric, rule.condition as AlertCondition, rule.threshold, ent.current, ent.previous);
@@ -368,7 +388,7 @@ export async function runAlertScan(): Promise<{
       }
 
       // ── Compte entier (règle historique).
-      const metrics = metricsCache.get(`${accountId}|${rule.window}`);
+      const metrics = metricsCache.get(`${platform}|${accountId}|${rule.window}`);
       if (!metrics) continue;
       const result = evaluateRule(
         rule.metric as AlertMetric,

@@ -12,19 +12,20 @@
 import { relayComplete, parseLooseJson } from "@/lib/relay-chat";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { METRIC_LABELS, type AlertMetric, type ComputedMetrics } from "@/lib/alerts";
-import { LEVEL_LABELS, validateFilter, isAlertLevel, type AlertFilter, type AlertLevel, type EntityMetrics } from "@/lib/alert-entities";
+import { LEVEL_LABELS, LEVELS_BY_PLATFORM, METRICS_BY_PLATFORM, validateFilter, isAlertLevel, type AlertFilter, type AlertLevel, type EntityMetrics } from "@/lib/alert-entities";
 
 export type AlertProposal =
-  | { mode: "rule"; label: string; level: AlertLevel; metric: AlertMetric; condition: "below" | "above" | "drop_pct"; threshold: number; window: string; filter: AlertFilter; explanation: string }
-  | { mode: "ai"; label: string; prompt: string; level: AlertLevel; window: string; filter: AlertFilter; explanation: string };
+  | { mode: "rule"; platform: "meta" | "google"; label: string; level: AlertLevel; metric: AlertMetric; condition: "below" | "above" | "drop_pct"; threshold: number; window: string; filter: AlertFilter; explanation: string }
+  | { mode: "ai"; platform: "meta" | "google"; label: string; prompt: string; level: AlertLevel; window: string; filter: AlertFilter; explanation: string };
 
 const WINDOWS = ["1d", "7d", "14d", "30d"];
 
-export const COMPOSE_SYSTEM_PROMPT = `Tu transformes la demande d'un consultant média (en français) en règle d'alerte pour ImpulseMotion, un outil de pilotage Meta Ads.
+export const COMPOSE_SYSTEM_PROMPT = `Tu transformes la demande d'un consultant média (en français) en règle d'alerte pour ImpulseMotion, un outil de pilotage Meta Ads et Google Ads.
 
 GRAMMAIRE D'UNE RÈGLE CLASSIQUE (préférée : gratuite et déterministe)
-- level : account (compte entier) | campaign | adset | ad (créa)
-- metric : roas | spend (dépenses) | cpa | ctr | frequency
+- platform : meta | google (déduis-la des mots : créa, ad set, fréquence, Facebook, Instagram → meta ; mot-clé, groupe d'annonces, Search, PMAX, terme de recherche → google ; sinon garde la plateforme indiquée dans la demande, par défaut meta)
+- level : meta → account (compte entier) | campaign | adset | ad (créa) ; google → account | campaign | ad_group (groupe d'annonces) | keyword (mot-clé)
+- metric : roas | spend (dépenses) | cpa | ctr | frequency (frequency uniquement sur meta)
 - condition : below | above | drop_pct (chute en % vs période précédente)
 - threshold : nombre (montant, ratio, % pour drop_pct)
 - window : 1d | 7d | 14d | 30d (jours complets finissant hier)
@@ -35,15 +36,17 @@ ALERTE IA (seulement si la demande ne rentre pas dans la grammaire : comparaison
 - mode "ai", prompt = la condition reformulée précisément en une phrase, level = le niveau d'éléments à regarder, window.
 
 RÉPONDS UNIQUEMENT par un bloc \`\`\`json :
-{"mode":"rule","label":"Nom court","level":"ad","metric":"cpa","condition":"above","threshold":30,"window":"7d","filter":{"minSpend":200},"explanation":"1 phrase : comment tu as lu la demande"}
+{"mode":"rule","platform":"meta","label":"Nom court","level":"ad","metric":"cpa","condition":"above","threshold":30,"window":"7d","filter":{"minSpend":200},"explanation":"1 phrase : comment tu as lu la demande"}
 ou
-{"mode":"ai","label":"Nom court","prompt":"Condition précise","level":"ad","window":"7d","filter":{},"explanation":"1 phrase : pourquoi une règle classique ne suffit pas"}
+{"mode":"ai","platform":"google","label":"Nom court","prompt":"Condition précise","level":"keyword","window":"7d","filter":{},"explanation":"1 phrase : pourquoi une règle classique ne suffit pas"}
 Le label fait moins de 60 caractères. Ne pose pas de question : choisis l'interprétation la plus utile et dis-la dans explanation.`;
 
-export function parseProposal(raw: string): AlertProposal {
+export function parseProposal(raw: string, defaultPlatform: "meta" | "google" = "meta"): AlertProposal {
   const p = parseLooseJson<Record<string, unknown>>(raw);
   if (!p || typeof p !== "object") throw new Error("Réponse IA illisible");
-  const level = isAlertLevel(p.level) ? p.level : "account";
+  const platform: "meta" | "google" = p.platform === "google" ? "google" : p.platform === "meta" ? "meta" : defaultPlatform;
+  const allowed = LEVELS_BY_PLATFORM[platform];
+  const level = isAlertLevel(p.level) && allowed.includes(p.level) ? p.level : "account";
   const window = WINDOWS.includes(String(p.window)) ? String(p.window) : "7d";
   const f = validateFilter(p.filter);
   const filter = f.ok ? f.value : {};
@@ -52,51 +55,49 @@ export function parseProposal(raw: string): AlertProposal {
   if (p.mode === "ai") {
     const prompt = String(p.prompt ?? "").trim().slice(0, 1500);
     if (!prompt) throw new Error("L'IA n'a pas formulé de condition");
-    return { mode: "ai", label, prompt, level: level === "account" ? "ad" : level, window, filter, explanation };
+    return { mode: "ai", platform, label, prompt, level: level === "account" ? (platform === "google" ? "keyword" : "ad") : level, window, filter, explanation };
   }
   const metric = String(p.metric);
   const condition = String(p.condition);
   const threshold = Number(p.threshold);
-  if (!["roas", "spend", "cpa", "ctr", "frequency"].includes(metric)) throw new Error(`métrique inconnue : ${metric}`);
+  if (!METRICS_BY_PLATFORM[platform].includes(metric)) throw new Error(`métrique inconnue : ${metric}`);
   if (!["below", "above", "drop_pct"].includes(condition)) throw new Error(`condition inconnue : ${condition}`);
   if (!Number.isFinite(threshold)) throw new Error("seuil manquant");
-  return { mode: "rule", label, level, metric: metric as AlertMetric, condition: condition as "below" | "above" | "drop_pct", threshold, window, filter, explanation };
+  return { mode: "rule", platform, label, level, metric: metric as AlertMetric, condition: condition as "below" | "above" | "drop_pct", threshold, window, filter, explanation };
 }
 
-export async function composeAlertProposal(text: string, user?: { id: string; email?: string | null; role: string }): Promise<AlertProposal> {
+export async function composeAlertProposal(text: string, user?: { id: string; email?: string | null; role: string }, platform: "meta" | "google" = "meta"): Promise<AlertProposal> {
   const raw = await relayComplete(
-    { messages: [{ role: "user", content: `DEMANDE DU CONSULTANT :\n${text.trim().slice(0, 1000)}` }], systemPrompt: COMPOSE_SYSTEM_PROMPT, allowedServers: [], accountScope: {} },
+    { messages: [{ role: "user", content: `PLATEFORME SÉLECTIONNÉE DANS LE FORMULAIRE : ${platform}\nDEMANDE DU CONSULTANT :\n${text.trim().slice(0, 1000)}` }], systemPrompt: COMPOSE_SYSTEM_PROMPT, allowedServers: [], accountScope: {} },
     { maxMs: 40_000, onUsage: (usage) => void recordAiUsage(usage, { feature: "alert_compose", clientName: "—", user }) },
   );
-  return parseProposal(raw);
+  return parseProposal(raw, platform);
 }
 
 // ── Daily evaluation of an "ai" rule ─────────────────────────────────────────
 
 export interface AiSnapshot {
   accountLabel: string;
+  platform: "meta" | "google";
   window: string;
   range: { since: string; until: string };
   compare: { since: string; until: string };
   account: { current: ComputedMetrics; previous: ComputedMetrics } | null;
-  campaigns: EntityMetrics[];
-  ads: EntityMetrics[];
+  /** Entity groups, e.g. campaigns + creatives (Meta) or campaigns + keywords (Google). */
+  groups: Array<{ title: string; entities: EntityMetrics[]; limit: number }>;
 }
 
 const m = (c: ComputedMetrics) => `dép ${c.spend} · conv ${c.conversions} · CPA ${c.cpa || "n/a"} · ROAS ${c.roasAvailable ? c.roas : "n/a"} · CTR ${c.ctr} · fréq ${c.frequency}`;
 
 export function renderSnapshot(s: AiSnapshot): string {
   const lines: string[] = [];
-  lines.push(`COMPTE : ${s.accountLabel} — fenêtre ${s.window} : ${s.range.since} → ${s.range.until} (précédente ${s.compare.since} → ${s.compare.until}). Montants dans la devise du compte.`);
+  lines.push(`COMPTE ${s.platform === "google" ? "GOOGLE ADS" : "META ADS"} : ${s.accountLabel} — fenêtre ${s.window} : ${s.range.since} → ${s.range.until} (précédente ${s.compare.since} → ${s.compare.until}). Montants dans la devise du compte.${s.platform === "google" ? " Fréquence non disponible sur Google." : ""}`);
   if (s.account) lines.push(`TOTAL COMPTE : ${m(s.account.current)} | précédent : ${m(s.account.previous)}`);
-  const top = <T extends EntityMetrics>(arr: T[], n: number) => [...arr].sort((a, b) => b.current.spend - a.current.spend).slice(0, n);
-  if (s.campaigns.length) {
-    lines.push(`\nCAMPAGNES (${s.campaigns.length}, top ${Math.min(15, s.campaigns.length)} par dépense) :`);
-    for (const c of top(s.campaigns, 15)) lines.push(`- ${c.name} : ${m(c.current)} | précédent : ${m(c.previous)}`);
-  }
-  if (s.ads.length) {
-    lines.push(`\nCRÉAS (${s.ads.length}, top ${Math.min(25, s.ads.length)} par dépense) :`);
-    for (const a of top(s.ads, 25)) lines.push(`- ${a.name} : ${m(a.current)} | précédent : ${m(a.previous)}`);
+  const top = (arr: EntityMetrics[], n: number) => [...arr].sort((a, b) => b.current.spend - a.current.spend).slice(0, n);
+  for (const g of s.groups) {
+    if (!g.entities.length) continue;
+    lines.push(`\n${g.title.toUpperCase()} (${g.entities.length}, top ${Math.min(g.limit, g.entities.length)} par dépense) :`);
+    for (const e of top(g.entities, g.limit)) lines.push(`- ${e.name} : ${m(e.current)} | précédent : ${m(e.previous)}`);
   }
   return lines.join("\n");
 }
@@ -134,7 +135,8 @@ export async function evaluateAiRule(
   snapshot: AiSnapshot,
   usage: { dashboardId?: string | null; clientName: string },
 ): Promise<AiVerdict> {
-  const levelHint = rule.level === "campaign" ? "campagnes" : rule.level === "ad" ? "créas" : rule.level === "adset" ? "ad sets (regarde les créas qui les composent)" : "compte entier";
+  const hints: Record<string, string> = { campaign: "campagnes", ad: "créas", adset: "ad sets (regarde les créas qui les composent)", ad_group: "groupes d'annonces (regarde les mots-clés qui les composent)", keyword: "mots-clés", account: "compte entier" };
+  const levelHint = hints[rule.level] ?? rule.level;
   const raw = await relayComplete(
     {
       messages: [{ role: "user", content: `CONDITION (${rule.label ?? "alerte IA"}, niveau : ${levelHint}) :\n${rule.prompt}\n\nSNAPSHOT :\n${renderSnapshot(snapshot)}` }],

@@ -21,11 +21,12 @@ export async function POST(req: NextRequest) {
   const guard = await requireSession();
   if ("error" in guard) return guard.error;
   const body = await req.json();
-  const { clientId, platform } = body;
-  const spec = validateRuleInput(body);
+  const { clientId } = body;
+  const platform = body.platform === "google" ? "google" : "meta";
+  const spec = validateRuleInput(body, { platform });
   if (!spec.ok) return NextResponse.json({ error: spec.error }, { status: 400 });
   if (clientId) {
-    const allowed = await assertAccountAllowed(guard.session.userId, (platform ?? "meta") as "meta", clientId);
+    const allowed = await assertAccountAllowed(guard.session.userId, platform, clientId);
     if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const notify = validateNotify(body.notify);
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
     data: {
       userId: guard.session.userId,
       clientId: clientId ?? null,
-      platform: platform ?? "meta",
+      platform,
       metric: spec.data.metric!,
       condition: spec.data.condition!,
       threshold: spec.data.threshold!,
