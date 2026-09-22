@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { assertAccountAllowed } from "@/lib/acl";
 import { prisma } from "@/lib/prisma";
+import { validateNotify } from "@/lib/alert-notify";
 import { BUDGET_PACING_METRIC } from "@/lib/alerts";
 
 export async function GET() {
@@ -27,6 +28,8 @@ export async function POST(req: NextRequest) {
     const allowed = await assertAccountAllowed(guard.session.userId, (platform ?? "meta") as "meta", clientId);
     if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+  const notify = validateNotify(body.notify);
+  if (!notify.ok) return NextResponse.json({ error: notify.error }, { status: 400 });
   const rule = await prisma.alertRule.create({
     data: {
       userId: guard.session.userId,
@@ -36,6 +39,7 @@ export async function POST(req: NextRequest) {
       condition,
       threshold,
       window: window ?? "7d",
+      notifyJson: JSON.stringify(notify.value),
     },
   });
   return NextResponse.json({ rule });

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { notifyAlertEvents } from "@/lib/alert-notify";
 import {
   getMetaSystemToken,
   purchasesFor,
@@ -167,9 +168,10 @@ async function getOrCreateBudgetRule(userId: string): Promise<string> {
  * critical_under or critical_over, create an AlertEvent (with 23h dedup).
  * Status "unknown" (Meta error / no closed day) NEVER creates an alert.
  */
-async function scanBudgetPacing(): Promise<{ scanned: number; triggered: number; unknown: number }> {
+async function scanBudgetPacing(): Promise<{ scanned: number; triggered: number; unknown: number; createdIds: string[] }> {
+  const createdIds: string[] = [];
   const budgets = await prisma.accountBudget.findMany();
-  if (budgets.length === 0) return { scanned: 0, triggered: 0, unknown: 0 };
+  if (budgets.length === 0) return { scanned: 0, triggered: 0, unknown: 0, createdIds: [] };
 
   const pacing = await computePacingBatch(
     budgets.map((b) => ({
@@ -210,7 +212,7 @@ async function scanBudgetPacing(): Promise<{ scanned: number; triggered: number;
     const direction = p.status === "critical_under" ? "sous-consomme" : "sur-consomme";
     const message = `Le compte ${direction} fortement (pacing ${p.pacingPct}% — projeté ${Math.round(p.projectedSpend)} ${b.currency} vs cible ${Math.round(b.monthlyTarget)} ${b.currency}, J${Math.floor(p.daysElapsed)}/${p.daysInMonth})`;
 
-    await prisma.alertEvent.create({
+    const created = await prisma.alertEvent.create({
       data: {
         ruleId,
         userId: b.userId,
@@ -221,15 +223,17 @@ async function scanBudgetPacing(): Promise<{ scanned: number; triggered: number;
         message,
       },
     });
+    createdIds.push(created.id);
     triggered++;
   }
 
-  return { scanned: budgets.length, triggered, unknown };
+  return { scanned: budgets.length, triggered, unknown, createdIds };
 }
 
 /** Scan all enabled alert rules + budget pacing, persist events for triggers. */
 export async function runAlertScan(): Promise<{
   scanned: number;
+  notified: { sent: number; skipped: number; failed: number };
   triggered: number;
   errors: string[];
   skipped?: string[];
@@ -240,6 +244,7 @@ export async function runAlertScan(): Promise<{
   const errors: string[] = [];
   const skipped: string[] = [];
   let triggered = 0;
+  const createdIds: string[] = [];
 
   // Group rules by account so we hit Meta once per account
   const accountsToFetch = new Set<string>();
@@ -295,7 +300,7 @@ export async function runAlertScan(): Promise<{
       });
       if (recent) continue;
 
-      await prisma.alertEvent.create({
+      const created = await prisma.alertEvent.create({
         data: {
           ruleId: rule.id,
           userId: rule.userId,
@@ -306,6 +311,7 @@ export async function runAlertScan(): Promise<{
           message: result.message,
         },
       });
+      createdIds.push(created.id);
       await prisma.alertRule.update({
         where: { id: rule.id },
         data: { lastTriggeredAt: new Date() },
@@ -315,7 +321,7 @@ export async function runAlertScan(): Promise<{
   }
 
   // Budget pacing scan: separate path because it joins budgets, not metric rules.
-  let budgetScan = { scanned: 0, triggered: 0, unknown: 0 };
+  let budgetScan: { scanned: number; triggered: number; unknown: number; createdIds: string[] } = { scanned: 0, triggered: 0, unknown: 0, createdIds: [] };
   try {
     budgetScan = await scanBudgetPacing();
   } catch (e) {
@@ -323,9 +329,18 @@ export async function runAlertScan(): Promise<{
   }
   if (budgetScan.unknown > 0) skipped.push(`pacing: ${budgetScan.unknown} compte(s) sans donnée (statut inconnu)`);
 
+  // Consultant notifications (Slack / e-mail via n8n) for what just fired.
+  let notified = { sent: 0, skipped: 0, failed: 0 };
+  try {
+    notified = await notifyAlertEvents([...createdIds, ...budgetScan.createdIds]);
+  } catch (e) {
+    errors.push(`notify: ${e instanceof Error ? e.message : "unknown"}`);
+  }
+
   return {
     scanned: rules.length + budgetScan.scanned,
     triggered: triggered + budgetScan.triggered,
+    notified,
     errors,
     ...(skipped.length ? { skipped } : {}),
   };

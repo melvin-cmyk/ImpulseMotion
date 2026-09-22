@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { validateNotify } from "@/lib/alert-notify";
 import { accountIdInScope, getAccountScope } from "@/lib/scope";
 
 /** 404 when the rule is gone, 403 when it belongs to a client the viewer
@@ -25,10 +26,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const denied = await denyIfRuleOutOfScope(guard.session, id);
   if (denied) return denied;
   const body = await req.json();
-  const updated = await prisma.alertRule.update({
-    where: { id },
-    data: { enabled: body.enabled, threshold: body.threshold },
-  });
+  const data: { enabled?: boolean; threshold?: number; notifyJson?: string } = {};
+  if (typeof body.enabled === "boolean") data.enabled = body.enabled;
+  if (typeof body.threshold === "number" && Number.isFinite(body.threshold)) data.threshold = body.threshold;
+  if (body.notify !== undefined) {
+    const notify = validateNotify(body.notify);
+    if (!notify.ok) return NextResponse.json({ error: notify.error }, { status: 400 });
+    data.notifyJson = JSON.stringify(notify.value);
+  }
+  const updated = await prisma.alertRule.update({ where: { id }, data });
   return NextResponse.json({ rule: updated });
 }
 

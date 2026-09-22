@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { validateNotify } from "@/lib/alert-notify";
 
 async function getOwned(id: string, userId: string) {
   const row = await prisma.alertRule.findUnique({ where: { id } });
@@ -15,9 +16,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const owned = await getOwned(id, guard.session.userId);
   if (!owned) return NextResponse.json({ error: "not found" }, { status: 404 });
   const body = await req.json();
+  let notify: import("@/lib/alert-notify").AlertNotify | null = null;
+  if (body.notify !== undefined) {
+    const v = validateNotify(body.notify);
+    if (!v.ok) return NextResponse.json({ error: v.error }, { status: 400 });
+    notify = v.value;
+  }
   const updated = await prisma.alertRule.update({
     where: { id },
-    data: { enabled: body.enabled, threshold: body.threshold },
+    data: {
+      ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
+      ...(typeof body.threshold === "number" && Number.isFinite(body.threshold) ? { threshold: body.threshold } : {}),
+      ...(notify ? { notifyJson: JSON.stringify(notify) } : {}),
+    },
   });
   return NextResponse.json({ rule: updated });
 }

@@ -2,6 +2,13 @@
 
 import { useEffect, useState, useCallback } from "react";
 
+function notifyLabel(json?: string): string | null {
+  let n: { slackChannel?: string; emails?: string[] } = {};
+  try { n = json ? JSON.parse(json) : {}; } catch { n = {}; }
+  const parts = [n.slackChannel ? `Slack ${n.slackChannel}` : null, n.emails?.length ? `${n.emails.length} e-mail${n.emails.length > 1 ? "s" : ""}` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 type Rule = {
   id: string;
   clientId: string | null;
@@ -13,6 +20,7 @@ type Rule = {
   enabled: boolean;
   lastTriggeredAt: string | null;
   _count: { events: number };
+  notifyJson?: string;
 };
 
 type Account = { platform: string; accountId: string; label: string | null };
@@ -40,6 +48,8 @@ export default function MeAlertsPage() {
   const [formCondition, setFormCondition] = useState("below");
   const [formThreshold, setFormThreshold] = useState(2);
   const [formWindow, setFormWindow] = useState("7d");
+  const [formSlack, setFormSlack] = useState("");
+  const [formEmails, setFormEmails] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -74,6 +84,7 @@ export default function MeAlertsPage() {
         condition: formCondition,
         threshold: formThreshold,
         window: formWindow,
+        notify: { slackChannel: formSlack.trim() || undefined, emails: formEmails.trim() || undefined },
       }),
     });
     if (!res.ok) {
@@ -107,7 +118,7 @@ export default function MeAlertsPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Mes alertes</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Détection proactive d'anomalies sur tes comptes.
+            Détection proactive d&apos;anomalies sur tes comptes.
           </p>
         </div>
         <button
@@ -178,6 +189,14 @@ export default function MeAlertsPage() {
                 <option value="30d">30 derniers jours</option>
               </select>
             </label>
+            <label className="block">
+              <span className="text-xs text-gray-400">Canal Slack (optionnel)</span>
+              <input type="text" value={formSlack} onChange={(e) => setFormSlack(e.target.value)} placeholder="#alertes-client" className="mt-1 w-full px-3 py-2 rounded-lg text-sm bg-black/40 border border-gray-800 text-white" />
+            </label>
+            <label className="block">
+              <span className="text-xs text-gray-400">E-mails (optionnel)</span>
+              <input type="text" value={formEmails} onChange={(e) => setFormEmails(e.target.value)} placeholder="prenom@impulse-analytics.com, …" className="mt-1 w-full px-3 py-2 rounded-lg text-sm bg-black/40 border border-gray-800 text-white" />
+            </label>
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex gap-2 justify-end">
@@ -215,6 +234,7 @@ export default function MeAlertsPage() {
                   </span>
                   <span className="font-semibold text-white">{r.threshold}{r.condition === "drop_pct" ? "%" : ""}</span>
                   <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300">{r.window}</span>
+                  {notifyLabel(r.notifyJson) && <span className="text-xs px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300">{notifyLabel(r.notifyJson)}</span>}
                   {r.enabled ? (
                     <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 ml-2">actif</span>
                   ) : (

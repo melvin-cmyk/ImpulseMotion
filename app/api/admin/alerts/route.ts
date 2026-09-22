@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
+import { validateNotify } from "@/lib/alert-notify";
 import { BUDGET_PACING_METRIC } from "@/lib/alerts";
 import { accountIdInScope, getAccountScope } from "@/lib/scope";
 
@@ -40,6 +41,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
   }
+  const notify = validateNotify(body.notify);
+  if (!notify.ok) return NextResponse.json({ error: notify.error }, { status: 400 });
   const rule = await prisma.alertRule.create({
     data: {
       userId,
@@ -49,6 +52,7 @@ export async function POST(req: NextRequest) {
       condition,
       threshold,
       window: window ?? "7d",
+      notifyJson: JSON.stringify(notify.value),
     },
   });
   return NextResponse.json({ rule });

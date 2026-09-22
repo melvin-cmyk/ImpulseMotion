@@ -4,6 +4,18 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Section, PageHeader, Pill, Card } from "@/components/ui/surface";
 
+function NotifyPills({ json }: { json?: string }) {
+  let n: { slackChannel?: string; emails?: string[] } = {};
+  try { n = json ? JSON.parse(json) : {}; } catch { n = {}; }
+  if (!n.slackChannel && !(n.emails && n.emails.length)) return null;
+  return (
+    <span className="inline-flex items-center gap-1 ml-1" title={[n.slackChannel, ...(n.emails ?? [])].filter(Boolean).join(" · ")}>
+      {n.slackChannel && <Pill tone="blue">Slack {n.slackChannel}</Pill>}
+      {n.emails && n.emails.length > 0 && <Pill tone="blue">{n.emails.length} e-mail{n.emails.length > 1 ? "s" : ""}</Pill>}
+    </span>
+  );
+}
+
 type Rule = {
   id: string;
   userId: string;
@@ -14,6 +26,7 @@ type Rule = {
   threshold: number;
   window: string;
   enabled: boolean;
+  notifyJson?: string;
   lastTriggeredAt: string | null;
   user: { email: string | null; name: string | null };
   _count: { events: number };
@@ -64,6 +77,8 @@ export default function AdminAlertsPage() {
   const [formCondition, setFormCondition] = useState("below");
   const [formThreshold, setFormThreshold] = useState(2);
   const [formWindow, setFormWindow] = useState("7d");
+  const [formSlack, setFormSlack] = useState("");
+  const [formEmails, setFormEmails] = useState("");
   const [error, setError] = useState<string | null>(null);
   // TODO (Lot F4): rules are still attached to a login + raw account id; redesign "per dashboard" (client = ad account).
 
@@ -114,6 +129,7 @@ export default function AdminAlertsPage() {
         condition: formCondition,
         threshold: formThreshold,
         window: formWindow,
+        notify: { slackChannel: formSlack.trim() || undefined, emails: formEmails.trim() || undefined },
       }),
     });
     if (!res.ok) {
@@ -243,6 +259,14 @@ export default function AdminAlertsPage() {
                   <option value="30d">30 derniers jours</option>
                 </select>
               </label>
+              <label className="block">
+                <span className={labelSpanCls}>Canal Slack (optionnel)</span>
+                <input type="text" value={formSlack} onChange={(e) => setFormSlack(e.target.value)} placeholder="#alertes-client" className={inputCls} />
+              </label>
+              <label className="block">
+                <span className={labelSpanCls}>E-mails (optionnel)</span>
+                <input type="text" value={formEmails} onChange={(e) => setFormEmails(e.target.value)} placeholder="prenom@impulse-analytics.com, …" className={inputCls} />
+              </label>
             </div>
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-white">
@@ -280,6 +304,7 @@ export default function AdminAlertsPage() {
                     {r.threshold}{r.condition === "drop_pct" ? "%" : ""}
                   </span>
                   <Pill tone="violet">{r.window}</Pill>
+                  <NotifyPills json={r.notifyJson} />
                   <Pill tone={r.enabled ? "emerald" : "default"}>{r.enabled ? "actif" : "désactivé"}</Pill>
                 </div>
                 <div className="text-xs mt-1 text-gray-400">
