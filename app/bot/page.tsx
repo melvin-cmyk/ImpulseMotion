@@ -2,14 +2,30 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { listBotsFor } from "@/lib/bot-access";
+import { isStaff } from "@/lib/auth-helpers";
 
 /**
  * /bot — entry point of the private client assistant.
- * One bot → straight to it; several → pick; none → explain.
+ *   staff  → the left panel (app/bot/layout.tsx) is the picker; this page only
+ *            says so, and never auto-redirects (staff must pick knowingly).
+ *   client → one bot → straight to it; several → pick; none → explain.
  */
 export default async function BotIndex() {
   const session = await auth();
   if (!session?.userId) redirect("/login?callbackUrl=/bot");
+
+  if (isStaff(session)) {
+    return (
+      <div className="h-full flex items-center justify-center px-6 py-16">
+        <div className="text-center space-y-2 max-w-sm">
+          <h1 className="text-lg font-semibold text-white">Choisissez un assistant dans le panneau de gauche</h1>
+          <p className="text-sm text-gray-500">
+            Chaque assistant répond à partir des données d&apos;un seul client. Le panneau indique lesquels sont visibles par les clients.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const bots = await listBotsFor(session);
   if (bots.length === 1) redirect(`/bot/${bots[0].id}`);

@@ -8,8 +8,10 @@
  *                 same account scope as every other staff surface;
  *   - client:     only bots they were granted on (ClientBotAccess), enabled only.
  *
- * Disabled bots are invisible to everyone here: the admin screens use their
- * own (admin-only) queries.
+ * Disabled bots are invisible to clients. Staff in scope may still open one
+ * (loadBotFor → "mode test"), and the staff panel (listBotOverviewFor) lists
+ * every client of the scope, with or without a bot, so a consultant can tell
+ * which assistant they are on and whether clients can see it.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -74,6 +76,43 @@ export async function listBotsFor(session: BotSession): Promise<BotSummary[]> {
   }));
 }
 
+/** One row of the staff panel on /bot: a client (= dashboard) and its bot, if any. */
+export type BotOverviewItem = {
+  dashboardId: string;
+  dashboardName: string;
+  metaAccountId: string | null;
+  googleCustomerId: string | null;
+  bot: { id: string; name: string; enabled: boolean; accessCount: number } | null;
+};
+
+/**
+ * Every client in the staff session's scope, ordered by name, with the state of
+ * its bot: enabled + accessCount tell whether clients can actually reach it.
+ * Staff only (the caller guards); a client session gets an empty list.
+ */
+export async function listBotOverviewFor(session: BotSession): Promise<BotOverviewItem[]> {
+  if (!isStaff(session)) return [];
+  const scope = await getAccountScope(session);
+  const dashboards = await prisma.dashboard.findMany({
+    where: scope.all ? {} : dashboardWhere(scope),
+    select: {
+      id: true,
+      name: true,
+      metaAccountId: true,
+      googleCustomerId: true,
+      bot: { select: { id: true, name: true, enabled: true, _count: { select: { accesses: true } } } },
+    },
+    orderBy: { name: "asc" },
+  });
+  return dashboards.map((d) => ({
+    dashboardId: d.id,
+    dashboardName: d.name,
+    metaAccountId: d.metaAccountId,
+    googleCustomerId: d.googleCustomerId,
+    bot: d.bot ? { id: d.bot.id, name: d.bot.name, enabled: d.bot.enabled, accessCount: d.bot._count.accesses } : null,
+  }));
+}
+
 export type LoadBotResult =
   | { status: 200; bot: BotWithDashboard }
   | { status: 403; bot: null }
@@ -81,17 +120,20 @@ export type LoadBotResult =
 
 /**
  * Loads one bot and checks the session may use it.
- *   404 → unknown or disabled bot (we do not reveal disabled bots exist)
- *   403 → exists and enabled, but the client has no access grant
+ *   404 → unknown bot, or disabled bot for a client (we do not reveal it exists)
+ *   403 → in existence but out of scope (staff) / no access grant (client)
+ *   200 → staff in scope, even on a disabled bot (test mode: the caller shows
+ *         it is invisible to clients), or client with a grant on an enabled bot
  */
 export async function loadBotFor(session: BotSession, botId: string): Promise<LoadBotResult> {
   if (!botId) return { status: 404, bot: null };
   const bot = await prisma.clientBot.findUnique({ where: { id: botId }, select: BOT_SELECT });
-  if (!bot || !bot.enabled) return { status: 404, bot: null };
+  if (!bot) return { status: 404, bot: null };
   if (isStaff(session)) {
     const scope = await getAccountScope(session);
     return dashboardInScope(scope, bot.dashboard) ? { status: 200, bot } : { status: 403, bot: null };
   }
+  if (!bot.enabled) return { status: 404, bot: null };
   const access = await prisma.clientBotAccess.findUnique({
     where: { botId_userId: { botId, userId: session.userId } },
     select: { id: true },

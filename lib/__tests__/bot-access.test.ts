@@ -4,6 +4,7 @@ const findMany = vi.fn();
 const findUnique = vi.fn();
 const accessFindUnique = vi.fn();
 const accessCount = vi.fn();
+const dashboardFindMany = vi.fn();
 /** ACL rows behind getAccountScope — a consultant assigned Meta act_1 only. */
 const aclFindMany = vi.fn();
 
@@ -12,6 +13,7 @@ vi.mock("@/lib/prisma", () => ({
     clientBot: { findMany: (...a: unknown[]) => findMany(...a), findUnique: (...a: unknown[]) => findUnique(...a) },
     clientBotAccess: { findUnique: (...a: unknown[]) => accessFindUnique(...a), count: (...a: unknown[]) => accessCount(...a) },
     userAdAccount: { findMany: (...a: unknown[]) => aclFindMany(...a) },
+    dashboard: { findMany: (...a: unknown[]) => dashboardFindMany(...a) },
   },
 }));
 
@@ -20,7 +22,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   isStaff: (s: { role?: string | null } | null | undefined) => s?.role === "admin" || s?.role === "consultant",
 }));
 
-import { listBotsFor, loadBotFor, countEnabledBotAccess } from "@/lib/bot-access";
+import { listBotsFor, listBotOverviewFor, loadBotFor, countEnabledBotAccess } from "@/lib/bot-access";
 
 const BOT = {
   id: "bot1",
@@ -40,6 +42,7 @@ beforeEach(() => {
   findUnique.mockReset();
   accessFindUnique.mockReset();
   accessCount.mockReset();
+  dashboardFindMany.mockReset();
   aclFindMany.mockReset();
   aclFindMany.mockResolvedValue([{ platform: "meta", accountId: "act_1" }]);
 });
@@ -76,9 +79,21 @@ describe("loadBotFor", () => {
     expect(findUnique).toHaveBeenCalledTimes(1);
   });
 
-  it("404 sur bot désactivé, même pour le staff", async () => {
+  it("bot désactivé → 200 pour le staff (mode test), 404 pour le client", async () => {
     findUnique.mockResolvedValue({ ...BOT, enabled: false });
-    expect((await loadBotFor({ userId: "u", role: "admin" }, "bot1")).status).toBe(404);
+    const staff = await loadBotFor({ userId: "u", role: "admin" }, "bot1");
+    expect(staff.status).toBe(200);
+    expect(staff.bot?.enabled).toBe(false);
+    expect((await loadBotFor({ userId: "c", role: "consultant" }, "bot1")).status).toBe(200);
+    accessFindUnique.mockResolvedValue({ id: "acc" });
+    expect(await loadBotFor({ userId: "c1", role: "client" }, "bot1")).toEqual({ status: 404, bot: null });
+    // The client's grant is never consulted: the bot must not be revealed.
+    expect(accessFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("bot désactivé hors périmètre → 403 pour un consultant", async () => {
+    findUnique.mockResolvedValue({ ...BOT, enabled: false, dashboard: { ...BOT.dashboard, metaAccountId: "act_999" } });
+    expect(await loadBotFor({ userId: "c", role: "consultant" }, "bot1")).toEqual({ status: 403, bot: null });
   });
 
   it("staff → 200 sans consulter les accès", async () => {
@@ -114,6 +129,38 @@ describe("loadBotFor", () => {
     const r = await loadBotFor({ userId: "c1", role: "client" }, "bot1");
     expect(r.status).toBe(200);
     expect(r.bot?.clientKey).toBe("lpev");
+  });
+});
+
+describe("listBotOverviewFor", () => {
+  const ROWS = [
+    { id: "d1", name: "LPEV", metaAccountId: "act_1", googleCustomerId: null, bot: { id: "b1", name: "Assistant", enabled: true, _count: { accesses: 2 } } },
+    { id: "d2", name: "Sans bot", metaAccountId: null, googleCustomerId: "123", bot: null },
+    { id: "d3", name: "Inactif", metaAccountId: "act_2", googleCustomerId: null, bot: { id: "b3", name: "Bot", enabled: false, _count: { accesses: 0 } } },
+  ];
+
+  it("admin → tous les dashboards, bot ou non, avec le nombre d'accès", async () => {
+    dashboardFindMany.mockResolvedValue(ROWS);
+    const items = await listBotOverviewFor({ userId: "u1", role: "admin" });
+    const call = dashboardFindMany.mock.calls[0][0];
+    expect(call.where).toEqual({});
+    expect(call.orderBy).toEqual({ name: "asc" });
+    expect(items).toEqual([
+      { dashboardId: "d1", dashboardName: "LPEV", metaAccountId: "act_1", googleCustomerId: null, bot: { id: "b1", name: "Assistant", enabled: true, accessCount: 2 } },
+      { dashboardId: "d2", dashboardName: "Sans bot", metaAccountId: null, googleCustomerId: "123", bot: null },
+      { dashboardId: "d3", dashboardName: "Inactif", metaAccountId: "act_2", googleCustomerId: null, bot: { id: "b3", name: "Bot", enabled: false, accessCount: 0 } },
+    ]);
+  });
+
+  it("consultant → seulement les clients de son périmètre", async () => {
+    dashboardFindMany.mockResolvedValue([]);
+    await listBotOverviewFor({ userId: "u1", role: "consultant" });
+    expect(dashboardFindMany.mock.calls[0][0].where).toEqual({ OR: [{ metaAccountId: { in: ["1", "act_1"] } }] });
+  });
+
+  it("client → liste vide, sans requête", async () => {
+    expect(await listBotOverviewFor({ userId: "u2", role: "client" })).toEqual([]);
+    expect(dashboardFindMany).not.toHaveBeenCalled();
   });
 });
 

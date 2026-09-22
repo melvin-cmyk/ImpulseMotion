@@ -28,6 +28,11 @@ export default async function BotPage({ params }: { params: Promise<{ botId: str
   }
   const { bot } = loaded;
   const sources = parseSources(bot.sourcesJson);
+  const staff = isStaff(session);
+  // Staff banner only: a client can never reach a disabled bot (404 above).
+  const accessCount = staff && bot.enabled
+    ? await prisma.clientBotAccess.count({ where: { botId: bot.id } })
+    : 0;
 
   const conversations = await prisma.botConversation.findMany({
     where: { botId: bot.id, userId: session.userId },
@@ -43,7 +48,9 @@ export default async function BotPage({ params }: { params: Promise<{ botId: str
       dashboardName={bot.dashboard.name}
       sources={sources}
       suggestions={suggestionsForSources(sources)}
-      isStaff={isStaff(session)}
+      isStaff={staff}
+      enabled={bot.enabled}
+      accessCount={accessCount}
       initialConversations={conversations.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt.toISOString() }))}
     />
   );

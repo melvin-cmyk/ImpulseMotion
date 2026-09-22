@@ -245,9 +245,9 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
               <Link
                 href={`/bot/${bot.id}`}
                 className={primaryBtnCls}
-                title={bot.enabled ? undefined : "Le bot est inactif : activez-le pour le tester"}
+                title={bot.enabled ? undefined : "Le bot est inactif : les clients ne le voient pas, vous pouvez quand même l'essayer"}
               >
-                Tester le bot
+                {bot.enabled ? "Tester le bot" : "Ouvrir en mode test"}
               </Link>
             )}
           </div>
