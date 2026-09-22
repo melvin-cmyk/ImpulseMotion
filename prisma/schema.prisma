@@ -199,6 +199,7 @@ model Dashboard {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   widgets          DashboardWidget[]
+  pages            DashboardPage[]
   threads          AssistantThread[]
   members          DashboardMember[]
   reports          ClientReport[]
@@ -247,9 +248,29 @@ model DashboardMember {
   @@index([userId])
 }
 
+/// A tab inside a dashboard (« Meta », « Google »…). Widgets with pageId = null
+/// belong to the first page, so a dashboard without any page row keeps working
+/// exactly as before (single implicit page).
+model DashboardPage {
+  id          String            @id @default(cuid())
+  dashboardId String
+  name        String
+  position    Int               @default(0)
+  /// What the consultant asked for when the AI composed the page — replayed when editing it.
+  intent      String?           @db.Text
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  dashboard   Dashboard         @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  widgets     DashboardWidget[]
+
+  @@index([dashboardId, position])
+}
+
 model DashboardWidget {
   id          String    @id @default(cuid())
   dashboardId String
+  /// null = first page of the dashboard.
+  pageId      String?
   type        String
   title       String?
   position    Int       @default(0)
@@ -258,8 +279,10 @@ model DashboardWidget {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  page        DashboardPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
 
   @@index([dashboardId, position])
+  @@index([pageId, position])
 }
 
 // Persisted consultant⇄AI conversation per dashboard (Lot 4)

@@ -15,6 +15,7 @@ export async function loadDashboardFor(session: Session, dashboardId: string) {
     where: { id: dashboardId },
     include: {
       widgets: { orderBy: { position: "asc" } },
+      pages: { orderBy: { position: "asc" }, select: { id: true, name: true, position: true, intent: true } },
       members: { select: { userId: true } },
     },
   });

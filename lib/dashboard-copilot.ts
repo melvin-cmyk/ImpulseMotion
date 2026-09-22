@@ -14,7 +14,8 @@ interface DashboardForPrompt {
   name: string;
   metaAccountId: string | null;
   googleCustomerId: string | null;
-  widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string }>;
+  widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string; pageId?: string | null }>;
+  pages?: Array<{ id: string; name: string; position: number }>;
 }
 
 export function buildCopilotSystemPrompt(
@@ -22,13 +23,22 @@ export function buildCopilotSystemPrompt(
   clientLabel: string,
   hq: { slug: string; brief: string } | null = null,
 ): string {
+  const pages = dashboard.pages ?? [];
+  const pageName = (pageId: string | null | undefined) => {
+    if (!pages.length) return null;
+    return pages.find((x) => x.id === pageId)?.name ?? "Général";
+  };
   const widgetList = dashboard.widgets
     .map((w) => {
       let cfg = w.config;
       try { cfg = JSON.stringify(JSON.parse(w.config)); } catch { /* keep raw */ }
-      return `- id=${w.id} | position=${w.position} | type=${w.type} | width=${w.width} | titre="${w.title ?? ""}" | config=${cfg}`;
+      const page = pageName(w.pageId);
+      return `- id=${w.id} | ${page ? `page="${page}" | ` : ""}position=${w.position} | type=${w.type} | width=${w.width} | titre="${w.title ?? ""}" | config=${cfg}`;
     })
     .join("\n");
+  const pageList = pages.length
+    ? `\nPages (onglets) du dashboard : "Général" (pageId=__default, les widgets sans page), ${pages.map((p) => `"${p.name}" (pageId=${p.id})`).join(", ")}.`
+    : "";
 
   const catalogue = WIDGET_TYPES
     .map((t: WidgetType) => `- ${t} (${WIDGET_TYPE_INFO[t].label}) : config ${WIDGET_TYPE_INFO[t].configDoc}`)
@@ -43,7 +53,7 @@ export function buildCopilotSystemPrompt(
 Compte Meta lié : ${dashboard.metaAccountId ?? "aucun"}
 Compte Google Ads lié : ${dashboard.googleCustomerId ?? "aucun"}
 Widgets (ordonnés par position) :
-${widgetList || "(aucun widget)"}
+${widgetList || "(aucun widget)"}${pageList}
 
 CATALOGUE DES WIDGETS DISPONIBLES :
 ${catalogue}
@@ -56,7 +66,7 @@ RÈGLE ABSOLUE : toute modification du dashboard DOIT être émise dans un bloc 
 {"action":"add_widget","type":"timeseries","title":"ROAS quotidien","width":"full","config":{"metric":"roas","source":"meta"}}
 \`\`\`
 Formes valides :
-- {"action":"add_widget","type":"<type>","title":"...","width":"third|half|full","config":{...}}
+- {"action":"add_widget","type":"<type>","title":"...","width":"third|half|full","config":{...},"pageId":"<pageId optionnel — page cible, sinon la première>"}
 - {"action":"update_widget","widgetId":"<id>","title":"...","width":"...","config":{...}} — config est FUSIONNÉE avec l'existante : ne mets que les champs à changer
 - {"action":"remove_widget","widgetId":"<id>"}
 - {"action":"reorder","order":["<id1>","<id2>",...]} (liste complète des ids dans le nouvel ordre)

@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useState, use } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent,
@@ -17,7 +18,8 @@ import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordi
 import { WidgetBody, WidgetFrame } from "@/components/dashboard/renderers";
 import { WidgetForm, DashboardSettingsForm, EditControls, SortableWidgetFrame } from "@/components/dashboard/editor";
 import { CopilotPanel } from "@/components/dashboard/copilot";
-import type { ResolvedWidget } from "@/lib/dashboard-types";
+import { DEFAULT_PAGE_ID, type DashboardPageInfo, type ResolvedWidget } from "@/lib/dashboard-types";
+import { PageForm, PageTabs } from "@/components/dashboard/pages";
 import { describeRange, lastFullDays, prevRange } from "@/lib/date-ranges";
 
 interface DashboardPayload {
@@ -27,6 +29,8 @@ interface DashboardPayload {
   rangeLabel?: string;
   partialDay?: boolean;
   error?: string;
+  pages?: DashboardPageInfo[];
+  activePageId?: string | null;
   widgets: ResolvedWidget[];
 }
 
@@ -66,6 +70,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   );
 
   const compareMode = searchParams.get("compare") ?? "prev";
+  const pageParam = searchParams.get("page") ?? "";
   const cmpSince = searchParams.get("cmpSince") ?? "";
   const cmpUntil = searchParams.get("cmpUntil") ?? "";
   const isCmpCustom = compareMode === "custom" && DATE_RE.test(cmpSince) && DATE_RE.test(cmpUntil) && cmpSince <= cmpUntil;
@@ -75,6 +80,8 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   const [error, setError] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [showPageForm, setShowPageForm] = useState(false);
+  const [pageNote, setPageNote] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [editingWidget, setEditingWidget] = useState<ResolvedWidget | null>(null);
   const [showCopilot, setShowCopilot] = useState(false);
@@ -93,7 +100,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/dashboards/${id}?since=${range.since}&until=${range.until}${compareQuery}`);
+      const res = await fetch(`/api/dashboards/${id}?since=${range.since}&until=${range.until}${compareQuery}${pageParam ? `&page=${encodeURIComponent(pageParam)}` : ""}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `Erreur ${res.status}`);
@@ -104,7 +111,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
     } finally {
       setLoading(false);
     }
-  }, [id, range.since, range.until, compareQuery]);
+  }, [id, range.since, range.until, compareQuery, pageParam]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -175,8 +182,12 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   function navigate(overrides: {
     days?: number; since?: string; until?: string;
     compare?: string; cmpSince?: string; cmpUntil?: string;
+    page?: string | null;
   }) {
     const q = new URLSearchParams();
+    // page (tab): keep the current one unless explicitly changed
+    const pageId = overrides.page === undefined ? pageParam : overrides.page ?? "";
+    if (pageId) q.set("page", pageId);
     // period
     if (overrides.since && overrides.until) {
       q.set("since", overrides.since);
@@ -210,6 +221,25 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
     navigate({ since, until });
   }
 
+  const pages = payload?.pages ?? [];
+  const activePageId = payload?.activePageId ?? null;
+
+  async function renamePage(page: DashboardPageInfo) {
+    const name = prompt("Nom de la page :", page.name);
+    if (name === null || !name.trim() || name.trim() === page.name) return;
+    const res = await fetch(`/api/dashboards/${id}/pages/${page.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
+    if (!res.ok) { const b = await res.json().catch(() => ({})); setError(b.error ?? `Erreur ${res.status}`); return; }
+    load();
+  }
+
+  async function deletePage(page: DashboardPageInfo) {
+    if (!confirm(`Supprimer la page « ${page.name} » ? Ses widgets reviennent sur la première page.`)) return;
+    const res = await fetch(`/api/dashboards/${id}/pages/${page.id}`, { method: "DELETE" });
+    if (!res.ok) { const b = await res.json().catch(() => ({})); setError(b.error ?? `Erreur ${res.status}`); return; }
+    navigate({ page: null });
+    load();
+  }
+
   const onMutated = () => {
     setShowAdd(false);
     setEditingWidget(null);
@@ -221,7 +251,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <a href="/d" className="text-gray-600 hover:text-gray-400" title="Tous les comptes">←</a>
+            <Link href="/d" className="text-gray-600 hover:text-gray-400" title="Tous les comptes">←</Link>
             {payload?.dashboard.name ?? "Pilotage"}
             {isStaff && (
               <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 border border-blue-800">
@@ -344,11 +374,29 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
         </div>
       </div>
 
+      {payload && (
+        <PageTabs
+          pages={pages}
+          activePageId={activePageId}
+          editing={isStaff && editMode}
+          onSelect={(pid) => navigate({ page: pid })}
+          onAdd={() => { setShowPageForm(true); setShowAdd(false); setEditingWidget(null); setShowSettings(false); }}
+          onRename={renamePage}
+          onDelete={deletePage}
+        />
+      )}
+      {pageNote && (
+        <div className="text-[11px] text-violet-300/80 bg-violet-500/5 border border-violet-900/30 rounded-lg px-3 py-2 flex items-start justify-between gap-3">
+          <span>Note de l&apos;IA : {pageNote}</span>
+          <button type="button" onClick={() => setPageNote(null)} className="text-gray-500 hover:text-white">✕</button>
+        </div>
+      )}
+
       {isStaff && editMode && (
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => { setShowAdd(true); setEditingWidget(null); setShowSettings(false); }}
+            onClick={() => { setShowAdd(true); setEditingWidget(null); setShowSettings(false); setShowPageForm(false); }}
             className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
           >
             + Ajouter un widget
@@ -363,8 +411,15 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
         </div>
       )}
 
+      {showPageForm && payload && (
+        <PageForm
+          dashboardId={payload.dashboard.id}
+          onDone={(pid, note) => { setShowPageForm(false); setPageNote(note ?? null); navigate({ page: pid }); }}
+          onCancel={() => setShowPageForm(false)}
+        />
+      )}
       {showAdd && payload && (
-        <WidgetForm dashboardId={payload.dashboard.id} widget={null} range={range} onDone={onMutated} onCancel={() => setShowAdd(false)} />
+        <WidgetForm dashboardId={payload.dashboard.id} widget={null} range={range} pageId={activePageId === DEFAULT_PAGE_ID ? null : activePageId} onDone={onMutated} onCancel={() => setShowAdd(false)} />
       )}
       {editingWidget && payload && (
         <WidgetForm dashboardId={payload.dashboard.id} widget={editingWidget} range={range} onDone={onMutated} onCancel={() => setEditingWidget(null)} />

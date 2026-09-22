@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { DEFAULT_PAGE_ID, DEFAULT_PAGE_NAME } from "@/lib/dashboard-types";
 import { prisma } from "@/lib/prisma";
 import { isValidHqSlug } from "@/lib/hq-client-context";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
@@ -61,16 +62,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     compare = { ...prevRange({ since, until }), kind: "prev" };
   }
 
+  // Pages (tabs): the implicit first page « Général » holds the widgets with
+  // pageId = null (every dashboard created before pages existed), explicit
+  // pages follow. Only the active page's widgets are resolved — each widget
+  // costs ads API calls.
+  const pages = dashboard.pages.length
+    ? [{ id: DEFAULT_PAGE_ID, name: DEFAULT_PAGE_NAME, position: -1, intent: null }, ...dashboard.pages]
+    : [];
+  const requestedPage = req.nextUrl.searchParams.get("page");
+  const activePageId = pages.length ? (pages.find((p) => p.id === requestedPage)?.id ?? DEFAULT_PAGE_ID) : DEFAULT_PAGE_ID;
+  const pageWidgets = dashboard.widgets.filter((w) => (activePageId === DEFAULT_PAGE_ID ? w.pageId === null : w.pageId === activePageId));
+
   let widgets: Awaited<ReturnType<typeof resolveWidgets>> = [];
   let error: string | null = null;
   try {
-    widgets = await resolveWidgets(dashboard, dashboard.widgets, since, until, compare);
+    widgets = await resolveWidgets(dashboard, pageWidgets, since, until, compare);
   } catch (e) {
     // e.g. unlinked dashboard (no Meta nor Google account) — surface the reason, not a 500
     const message = e instanceof Error ? e.message : String(e);
     error = message;
-    widgets = dashboard.widgets.map((w) => ({
-      id: w.id, type: w.type, title: w.title, width: w.width, position: w.position,
+    widgets = pageWidgets.map((w) => ({
+      id: w.id, type: w.type, title: w.title, width: w.width, position: w.position, pageId: w.pageId ?? null,
       config: (() => { try { return JSON.parse(w.config || "{}") as Record<string, unknown>; } catch { return {}; } })(),
       error: message,
     }));
@@ -93,6 +105,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     partialDay: described.partialDay,
     compare,
     ...(error ? { error } : {}),
+    pages,
+    activePageId,
     widgets,
   }, { headers: { "Cache-Control": "no-store" } });
 }

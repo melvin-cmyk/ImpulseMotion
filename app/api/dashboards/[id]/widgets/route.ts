@@ -7,6 +7,7 @@
 
 import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
+import { DEFAULT_PAGE_ID } from "@/lib/dashboard-types";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { validateWidgetConfig, validateWidgetWidth } from "@/lib/dashboard-widgets";
@@ -18,16 +19,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const denied = await denyIfDashboardOutOfScope(guard.session, id);
   if (denied) return denied;
 
-  const dashboard = await prisma.dashboard.findUnique({
-    where: { id },
-    include: { _count: { select: { widgets: true } } },
-  });
+  const dashboard = await prisma.dashboard.findUnique({ where: { id }, select: { id: true } });
   if (!dashboard) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (dashboard._count.widgets >= 24) {
-    return NextResponse.json({ error: "24 widgets max par dashboard" }, { status: 400 });
-  }
 
   const body = await req.json().catch(() => ({}));
+  // Page (tab) the widget lands on: null = first page. Must belong to this dashboard.
+  let pageId: string | null = null;
+  if (typeof body.pageId === "string" && body.pageId && body.pageId !== DEFAULT_PAGE_ID) {
+    const page = await prisma.dashboardPage.findFirst({ where: { id: body.pageId, dashboardId: id }, select: { id: true } });
+    if (!page) return NextResponse.json({ error: "page introuvable" }, { status: 400 });
+    pageId = page.id;
+  }
+  const onPage = await prisma.dashboardWidget.count({ where: { dashboardId: id, pageId } });
+  if (onPage >= 24) {
+    return NextResponse.json({ error: "24 widgets max par page" }, { status: 400 });
+  }
   let config: Record<string, unknown>;
   try {
     config = validateWidgetConfig(String(body.type ?? ""), body.config);
@@ -36,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const maxPos = await prisma.dashboardWidget.aggregate({
-    where: { dashboardId: id },
+    where: { dashboardId: id, pageId },
     _max: { position: true },
   });
   const position = Number.isInteger(body.position)
@@ -46,6 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const widget = await prisma.dashboardWidget.create({
     data: {
       dashboardId: id,
+      pageId,
       type: String(body.type),
       title: typeof body.title === "string" && body.title.trim() ? body.title.trim().slice(0, 120) : null,
       width: validateWidgetWidth(body.width),

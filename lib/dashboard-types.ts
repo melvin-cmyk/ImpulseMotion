@@ -80,12 +80,25 @@ export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: st
   },
 };
 
+/** The implicit first page (widgets with pageId = null). */
+export const DEFAULT_PAGE_ID = "__default";
+export const DEFAULT_PAGE_NAME = "Général";
+
+export interface DashboardPageInfo {
+  id: string;
+  name: string;
+  position: number;
+  intent?: string | null;
+}
+
 export interface ResolvedWidget {
   id: string;
   type: string;
   title: string | null;
   width: string;
   position: number;
+  /** Page (tab) the widget sits on; null = first page. */
+  pageId?: string | null;
   config: Record<string, unknown>;
   data?: unknown;
   error?: string;

@@ -1332,7 +1332,7 @@ async function buildResolveContext(
 
 export async function resolveWidgets(
   dashboard: ResolvableDashboard,
-  widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string }>,
+  widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string; pageId?: string | null }>,
   since: string,
   until: string,
   compare?: CompareRange | null,
@@ -1345,7 +1345,7 @@ export async function resolveWidgets(
       try {
         config = JSON.parse(w.config || "{}");
       } catch { /* keep {} */ }
-      const base = { id: w.id, type: w.type, title: w.title, width: w.width, position: w.position, config };
+      const base = { id: w.id, type: w.type, title: w.title, width: w.width, position: w.position, pageId: w.pageId ?? null, config };
       try {
         const data = await resolveWidgetData(w.type, config, ctx);
         return { ...base, data };

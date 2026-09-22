@@ -199,12 +199,14 @@ function ActionsChecklist({ selected, onChange, catalog, error }: {
 }
 
 export function WidgetForm({
-  dashboardId, widget, range, onDone, onCancel,
+  dashboardId, widget, range, pageId, onDone, onCancel,
 }: {
   dashboardId: string;
   widget: ResolvedWidget | null; // null = creating
   /** Period shown on the dashboard — the action pickers list what happened on it. */
   range?: { since: string; until: string };
+  /** Page (tab) a new widget lands on; null = first page. */
+  pageId?: string | null;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -233,7 +235,7 @@ export function WidgetForm({
       : await fetch(`/api/dashboards/${dashboardId}/widgets`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ...payload, pageId: pageId ?? null }),
         });
     setSaving(false);
     if (!res.ok) {

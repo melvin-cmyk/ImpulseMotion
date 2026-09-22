@@ -294,7 +294,7 @@ export function CopilotPanel({
           res = await fetch(`/api/dashboards/${dashboardId}/widgets`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: a.type, title: a.title ?? null, width: a.width ?? "half", config: a.config ?? {} }),
+            body: JSON.stringify({ type: a.type, title: a.title ?? null, width: a.width ?? "half", config: a.config ?? {}, pageId: typeof a.pageId === "string" ? a.pageId : null }),
           });
           break;
         case "update_widget": {

@@ -33,6 +33,7 @@ async function loadDashboard(id: string) {
     where: { id },
     include: {
       widgets: { orderBy: { position: "asc" } },
+      pages: { orderBy: { position: "asc" }, select: { id: true, name: true, position: true } },
       user: { select: { name: true, email: true } },
     },
   });
@@ -136,7 +137,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const binding = await resolveBinding(dashboard.userId, dashboard);
   const systemPrompt = buildCopilotSystemPrompt(
-    { ...dashboard, widgets: dashboard.widgets },
+    { ...dashboard, widgets: dashboard.widgets, pages: dashboard.pages },
     dashboard.user.name ?? dashboard.user.email ?? "client",
     // The cached HQ brief (7-day TTL, lib/hq-client-context.ts) replaces a
     // live HQ exploration on every question about the client.

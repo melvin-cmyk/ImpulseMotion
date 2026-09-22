@@ -5,6 +5,7 @@
 
 import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
+import { DEFAULT_PAGE_ID } from "@/lib/dashboard-types";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { validateWidgetConfig, validateWidgetWidth } from "@/lib/dashboard-widgets";
@@ -27,6 +28,12 @@ export async function PATCH(
   if (typeof body.title === "string") data.title = body.title.trim().slice(0, 120) || null;
   if (body.width !== undefined) data.width = validateWidgetWidth(body.width);
   if (Number.isInteger(body.position)) data.position = Number(body.position);
+  if (body.pageId === null || body.pageId === DEFAULT_PAGE_ID) data.pageId = null;
+  else if (typeof body.pageId === "string" && body.pageId) {
+    const page = await prisma.dashboardPage.findFirst({ where: { id: body.pageId, dashboardId: id }, select: { id: true } });
+    if (!page) return NextResponse.json({ error: "page introuvable" }, { status: 400 });
+    data.pageId = page.id;
+  }
   if (body.config !== undefined) {
     try {
       // Merge with the stored config so a partial patch (e.g. just {metric})
