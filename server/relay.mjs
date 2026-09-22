@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { createQuotaMonitor, looksLikeUsageLimit, makeWebhookNotifier } from "./quota.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -159,6 +160,20 @@ if (!RELAY_SHARED_SECRET) {
   console.error("[relay] FATAL: RELAY_SHARED_SECRET is required. Refusing to start in open mode.");
   process.exit(1);
 }
+
+// Claude Max quota → Bedrock fallback (see server/quota.mjs).
+const BEDROCK_FALLBACK = process.env.BEDROCK_FALLBACK === "1";
+const quota = createQuotaMonitor({
+  warnPct: process.env.QUOTA_WARN_PCT,
+  switchPct: process.env.QUOTA_SWITCH_PCT,
+  notify: makeWebhookNotifier({
+    url: process.env.N8N_ALERT_WEBHOOK_URL,
+    secret: process.env.N8N_ALERT_WEBHOOK_SECRET,
+    slackChannel: process.env.RELAY_ALERT_SLACK_CHANNEL,
+    appUrl: (process.env.APP_URL || "https://impulsemotion.vercel.app").replace(/\/$/, ""),
+  }),
+});
+quota.start(Number(process.env.QUOTA_PROBE_MS || 300_000));
 
 const SYSTEM_PROMPT = `Tu es l'assistant IA d'ImpulseMotion, une agence marketing digitale.
 Tu as accès aux données publicitaires de l'agence via des outils MCP (Meta Ads, Google Ads, Google Analytics).
@@ -322,7 +337,10 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId 
 
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
 function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider, options = {}) {
-  const useBedrock = provider === "bedrock";
+  // Subscription exhausted (or nearly): every chat runs on Bedrock until the
+  // window resets. Explicit Bedrock callers (client bots) are unchanged.
+  const fallback = provider !== "bedrock" && BEDROCK_FALLBACK && quota.fallbackActive();
+  const useBedrock = provider === "bedrock" || fallback;
   const model = resolveModel(options.model, useBedrock);
   const effort = resolveEffort(options.effort);
   // Tool-driven sessions may cap the agentic loop lower than the default: a
@@ -477,7 +495,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}` : ""}`);
+  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ""}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
@@ -609,6 +627,11 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
           };
           send("error", { message: reasons[event.subtype] || `Fin anormale: ${event.subtype}` });
         }
+        if (!useBedrock && event.is_error && looksLikeUsageLimit(event.result)) {
+          // The subscription just ran dry: next requests go to Bedrock.
+          void quota.markExhausted(event.result);
+          if (BEDROCK_FALLBACK) send("error", { message: "Quota de l'abonnement Claude atteint — bascule sur Amazon Bedrock activée, relancez votre demande." });
+        }
         if (event.result && !sentContent) {
           send("content", { text: event.result });
           fullText = event.result;
@@ -626,6 +649,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
           turns: event.num_turns || 0,
           duration: event.duration_ms || 0,
           provider: useBedrock ? "bedrock" : "subscription",
+          fallback,
           model,
           effort,
           tokens,
@@ -638,6 +662,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   child.stderr.on("data", (chunk) => {
     const t = chunk.toString().trim();
     if (t) console.error(`[claude] ${t.slice(0, 300)}`);
+    if (t && !useBedrock && looksLikeUsageLimit(t)) void quota.markExhausted(t);
   });
 
   child.on("close", (code) => {
@@ -834,6 +859,19 @@ const server = http.createServer(async (req, res) => {
         maxTurns: body.maxTurns,
         sessionKey: body.sessionKey,
       });
+      return;
+    }
+
+    if (url.pathname === "/api/quota" && req.method === "GET") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const refresh = url.searchParams.get("refresh") === "1";
+      const snap = refresh ? await quota.probe() : quota.snapshot();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ...snap, fallbackEnabled: BEDROCK_FALLBACK, bedrockModel: BEDROCK_MODEL, subscriptionModel: CLAUDE_MODEL }));
       return;
     }
 

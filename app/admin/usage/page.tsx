@@ -12,6 +12,20 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { PageHeader, Card, Kpi, Pill } from "@/components/ui/surface";
 
 type Totals = { messages: number; inputTokens: number; cacheWriteTokens: number; cacheReadTokens: number; outputTokens: number };
+type Quota = {
+  fiveHour: { utilization: number; resetsAt: string | null } | null;
+  sevenDay: { utilization: number; resetsAt: string | null } | null;
+  checkedAt: string | null;
+  error: string | null;
+  level: number;
+  warnPct: number;
+  switchPct: number;
+  fallbackActive: boolean;
+  fallbackEnabled: boolean;
+  exhaustedUntil: string | null;
+  bedrockModel: string;
+  subscriptionModel: string;
+};
 type FeatureUsage = Totals & { feature: string; provider: string; model: string; turns: number; avgTokensPerMessage: number };
 const FEATURE_LABEL: Record<string, string> = {
   client_bot: "Bots clients",
@@ -41,6 +55,22 @@ function currentMonth(): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function QuotaBar({ label, window, warn, limit }: { label: string; window: Quota["fiveHour"]; warn: number; limit: number }) {
+  const pct = Math.max(0, Math.min(100, Math.round(window?.utilization ?? 0)));
+  const tone = pct >= limit ? "bg-red-500" : pct >= warn ? "bg-amber-400" : "bg-emerald-500";
+  const resets = window?.resetsAt ? new Date(window.resetsAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+  return (
+    <Card padded>
+      <div className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{label}</div>
+      <div className="mt-1 text-2xl font-bold text-white tabular-nums">{pct} %</div>
+      <div className="mt-2 h-2 rounded-full bg-gray-800 overflow-hidden">
+        <div className={`h-full ${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+      <div className="text-xs text-gray-500 mt-2">remise à zéro {resets}</div>
+    </Card>
+  );
+}
+
 function TokenCells({ t, className }: { t: Totals; className: string }) {
   return (
     <>
@@ -57,6 +87,18 @@ export default function AdminUsagePage() {
   const [month, setMonth] = useState(currentMonth);
   const [clients, setClients] = useState<ClientUsage[]>([]);
   const [features, setFeatures] = useState<FeatureUsage[]>([]);
+  const [quota, setQuota] = useState<Quota | null>(null);
+  const [quotaError, setQuotaError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/quota")
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
+        setQuota(data);
+      })
+      .catch((e) => setQuotaError(e instanceof Error ? e.message : "Erreur"));
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -132,6 +174,32 @@ export default function AdminUsagePage() {
           <p className="text-xs text-gray-500 mt-1">Le suivi démarre à la première réponse d&apos;un bot client.</p>
         </Card>
       )}
+
+      <section className="space-y-2">
+        <h2 className="text-base font-semibold text-white">Abonnement Claude Max</h2>
+        <p className="text-xs text-gray-500">
+          Utilisation de l&apos;abonnement qui fait tourner les chats, rapports et analyses. Au-delà du seuil de bascule, le relay envoie tout sur Amazon Bedrock jusqu&apos;à la remise à zéro de la fenêtre.
+        </p>
+        {quotaError && <Card padded><p className="text-sm text-red-400">Quota indisponible : {quotaError}</p></Card>}
+        {quota && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <QuotaBar label="Fenêtre 5 heures" window={quota.fiveHour} warn={quota.warnPct} limit={quota.switchPct} />
+            <QuotaBar label="Fenêtre 7 jours" window={quota.sevenDay} warn={quota.warnPct} limit={quota.switchPct} />
+            <Card padded>
+              <div className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Mode actuel</div>
+              <div className={`mt-1 text-lg font-bold ${quota.fallbackActive ? "text-amber-300" : "text-emerald-300"}`}>
+                {quota.fallbackActive ? "Amazon Bedrock (bascule)" : "Abonnement Claude"}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {quota.fallbackActive
+                  ? `Retour à l'abonnement ${quota.exhaustedUntil ? `vers ${new Date(quota.exhaustedUntil).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "à la prochaine fenêtre"} · modèle ${quota.bedrockModel}`
+                  : `Bascule automatique ${quota.fallbackEnabled ? `à ${quota.switchPct} %` : "désactivée"} · alerte Slack à ${quota.warnPct} %`}
+              </div>
+              {quota.checkedAt && <div className="text-[11px] text-gray-600 mt-2">vérifié à {new Date(quota.checkedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{quota.error ? ` · erreur : ${quota.error}` : ""}</div>}
+            </Card>
+          </div>
+        )}
+      </section>
 
       <section className="space-y-2">
         <h2 className="text-base font-semibold text-white">Où partent les tokens (toutes surfaces)</h2>
