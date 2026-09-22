@@ -431,6 +431,12 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     saveSessions();
   }
 
+  // Today's date, last (it changes daily: keeping it at the tail leaves the
+  // rest of the prompt as a stable cache prefix). The ads tools now take
+  // explicit YYYY-MM-DD ranges, so the model must know what "hier" is.
+  const todayParis = new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  scopedSystemPrompt += `\n\nDATE DU JOUR : ${todayParis} (Europe/Paris). Les données du jour sont partielles : par défaut, raisonne sur des jours complets (ex. « 7 derniers jours » = J-7 → J-1) et passe des dates explicites aux outils.`;
+
   const args = [
     "--print", prompt,
     "--output-format", "stream-json",
