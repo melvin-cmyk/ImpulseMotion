@@ -19,6 +19,23 @@ const execFileAsync = promisify(execFile);
 
 const PORT = process.env.RELAY_PORT || 3457;
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
+// Per-request model + effort (subscription only — Bedrock keeps BEDROCK_MODEL).
+// Callers name a profile alias, never an arbitrary model id: "opus" is the
+// staff chat with MCP tools (Opus 5 at low effort = fewer thinking tokens for
+// tool-driven Q&A), "sonnet" the default one-shot writer. Anything else is
+// ignored and the relay default applies.
+const MODEL_ALIASES = {
+  sonnet: process.env.CLAUDE_MODEL_SONNET || "claude-sonnet-5",
+  opus: process.env.CLAUDE_MODEL_OPUS || "claude-opus-5",
+};
+const EFFORT_LEVELS = new Set(["low", "medium", "high"]);
+function resolveModel(alias, useBedrock) {
+  if (useBedrock) return BEDROCK_MODEL;
+  return (typeof alias === "string" && MODEL_ALIASES[alias]) || CLAUDE_MODEL;
+}
+function resolveEffort(effort) {
+  return typeof effort === "string" && EFFORT_LEVELS.has(effort) ? effort : null;
+}
 // Amazon Bedrock — used ONLY when a caller asks for it (`provider: "bedrock"`,
 // today the private client bots): inference then runs in the agency's AWS
 // account, EU region, instead of the host's Claude subscription. Credentials
@@ -240,8 +257,13 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId 
 }
 
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
-function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider) {
+function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider, options = {}) {
   const useBedrock = provider === "bedrock";
+  const model = resolveModel(options.model, useBedrock);
+  const effort = resolveEffort(options.effort);
+  // Tool-driven sessions may cap the agentic loop lower than the default: a
+  // short, deterministic lookup (HQ client context) has no business running 15 turns.
+  const maxTurns = Number.isInteger(options.maxTurns) && options.maxTurns >= 1 && options.maxTurns <= 15 ? options.maxTurns : 15;
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -344,7 +366,8 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     "--output-format", "stream-json",
     "--verbose",
     "--include-partial-messages",
-    "--model", useBedrock ? BEDROCK_MODEL : CLAUDE_MODEL,
+    "--model", model,
+    ...(effort ? ["--effort", effort] : []),
     "--mcp-config", mcpConfigPath,
     // Only the servers we declare: never the claude.ai connectors of the host
     // account — except for HQ, which only exists as one. The other connectors
@@ -353,7 +376,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     ...(useHq ? [] : ["--strict-mcp-config"]),
     "--system-prompt", scopedSystemPrompt,
     "--no-session-persistence",
-    "--max-turns", "15",
+    "--max-turns", String(maxTurns),
     // The CLI runs as root with the host's HOME, whose settings allow
     // Read/Write/Edit(*): without this, any chat — a client bot included, one
     // prompt injection away — could read and write server files. --restricted
@@ -368,7 +391,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..."${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock=${BEDROCK_MODEL}@${BEDROCK_REGION}` : ""}`);
+  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${useHq ? " | hq" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}` : ""}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
@@ -517,7 +540,8 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
           turns: event.num_turns || 0,
           duration: event.duration_ms || 0,
           provider: useBedrock ? "bedrock" : "subscription",
-          model: useBedrock ? BEDROCK_MODEL : CLAUDE_MODEL,
+          model,
+          effort,
           tokens,
         });
         continue;
@@ -688,7 +712,11 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "messages required" }));
         return;
       }
-      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs, body.dataScope, body.provider);
+      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs, body.dataScope, body.provider, {
+        model: body.model,
+        effort: body.effort,
+        maxTurns: body.maxTurns,
+      });
       return;
     }
 

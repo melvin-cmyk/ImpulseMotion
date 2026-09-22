@@ -37,7 +37,16 @@ export interface RelayChatBody {
   /** Inference backend. "bedrock" = the agency's AWS account (EU region),
    *  reserved to the private client bots. Absent = the relay's default. */
   provider?: "bedrock";
+  /** Model alias resolved by the relay (see lib/ai-profiles.ts). Ignored on Bedrock. */
+  model?: RelayModel;
+  /** Reasoning effort passed to the CLI — "low" spends the fewest thinking tokens. */
+  effort?: RelayEffort;
+  /** Cap on the agentic loop (1–15); short tool lookups should not run the default 15. */
+  maxTurns?: number;
 }
+
+export type RelayModel = "sonnet" | "opus";
+export type RelayEffort = "low" | "medium" | "high";
 
 interface RelayEvent { type: string; text?: string; message?: string }
 

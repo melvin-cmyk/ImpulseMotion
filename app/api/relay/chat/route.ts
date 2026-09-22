@@ -8,6 +8,7 @@
  */
 
 import { HQ_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { getAllowedMcpServers, getAllowedAccountIds } from "@/lib/acl";
@@ -31,9 +32,15 @@ export async function POST(req: NextRequest) {
     getAllowedAccountIds(guard.session.userId, "tiktok"),
   ]);
 
+  const isStaff = guard.session.role === "admin" || guard.session.role === "consultant";
   const enrichedBody = {
     ...body,
-    allowedServers: guard.session.role === "admin" || guard.session.role === "consultant"
+    // The browser never picks the model: staff chats with MCP tools run on
+    // the staff profile (Opus 5, low effort); clients keep the relay default.
+    model: isStaff ? STAFF_CHAT_PROFILE.model : undefined,
+    effort: isStaff ? STAFF_CHAT_PROFILE.effort : undefined,
+    maxTurns: undefined,
+    allowedServers: isStaff
       ? [...STAFF_MCP_SERVERS]
       : allowedServers.filter((s) => s !== HQ_SERVER),
     accountScope: {

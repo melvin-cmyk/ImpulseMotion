@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { relayStream, type RelayMessage } from "@/lib/relay-chat";
+import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { renderDataForPrompt } from "@/lib/report-generate";
 import type { ReportData } from "@/lib/report-data";
 
@@ -72,6 +73,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   return relayStream({
     messages,
     systemPrompt,
+    model: STAFF_CHAT_PROFILE.model,
+    effort: STAFF_CHAT_PROFILE.effort,
     allowedServers: ["meta-ads-impulse", "mcp-google-ads"],
     accountScope: {
       meta: report.dashboard.metaAccountId ? [report.dashboard.metaAccountId] : [],
