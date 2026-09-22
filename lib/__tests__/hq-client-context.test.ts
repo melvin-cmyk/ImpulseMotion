@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildHqContextUserPrompt, isHqContextFresh, isValidHqSlug, normalizeClientName, parseHqContextOutput, HQ_CONTEXT_TTL_MS } from "@/lib/hq-client-context";
-import { buildReportSystemPrompt, renderDataForPrompt, REPORT_HQ_PROMPT } from "@/lib/report-generate";
+import { buildReportSystemPrompt, buildReportUserPrompt, renderDataForPrompt, REPORT_HQ_PROMPT } from "@/lib/report-generate";
 import type { ReportData } from "@/lib/report-data";
 
 describe("hq-client-context", () => {
@@ -87,5 +87,16 @@ describe("report prompt with HQ context", () => {
     const data = minimalData();
     expect(renderDataForPrompt(data)).not.toContain("CONTEXTE AGENCE");
     expect(buildReportSystemPrompt(data)).not.toContain(REPORT_HQ_PROMPT);
+  });
+});
+
+describe("report prompt with consultant instructions", () => {
+  it("appends a delimited block only when instructions are given", () => {
+    const data = minimalData();
+    expect(buildReportUserPrompt(data)).not.toContain("CONSIGNES DU CONSULTANT");
+    expect(buildReportUserPrompt(data, "   ")).not.toContain("CONSIGNES DU CONSULTANT");
+    const withBrief = buildReportUserPrompt(data, "Insiste sur les créas vidéo.");
+    expect(withBrief).toContain("=== CONSIGNES DU CONSULTANT ===\nInsiste sur les créas vidéo.");
+    expect(withBrief.indexOf("CONSIGNES")).toBeGreaterThan(withBrief.indexOf("KPIS"));
   });
 });

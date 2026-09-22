@@ -98,6 +98,8 @@ model AlertRule {
   threshold       Float
   window          String       @default("7d")
   enabled         Boolean      @default(true)
+  /// Where to send a triggered event: {"slackChannel"?: "#…"|"C…", "emails"?: string[]}. "{}" = in-app only.
+  notifyJson      String       @default("{}") @db.Text
   lastTriggeredAt DateTime?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -135,6 +137,9 @@ model AlertEvent {
   triggeredAt                DateTime  @default(now())
   recommendations            String?   @db.Text
   recommendationsGeneratedAt DateTime?
+  /// Set once the n8n notification webhook accepted the event (idempotence across cron replays).
+  notifiedAt                 DateTime?
+  notifyError                String?   @db.Text
   rule                       AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
   @@index([ruleId, triggeredAt])
@@ -291,6 +296,8 @@ model ClientReport {
   nextStepsJson String    @default("[]") @db.Text
   chatJson      String    @default("[]") @db.Text
   error         String?   @db.Text
+  /// Consultant's free-text brief for the AI ("analyse surtout…"); null for cron runs. Replayed on regenerate.
+  instructions  String?   @db.Text
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   dashboard     Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)

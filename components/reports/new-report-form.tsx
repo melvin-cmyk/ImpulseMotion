@@ -51,6 +51,7 @@ export function NewReportForm({
   const [since, setSince] = useState(P[0].since);
   const [until, setUntil] = useState(P[0].until);
   const [compare, setCompare] = useState<"prev" | "year" | "none">("prev");
+  const [instructions, setInstructions] = useState("");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,7 +78,7 @@ export function NewReportForm({
       const res = await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dashboardId: clientId, since, until, compare }),
+        body: JSON.stringify({ dashboardId: clientId, since, until, compare, instructions: instructions.trim() || undefined }),
       });
       const j = await res.json().catch(() => ({}));
       if (j.report?.id) {
@@ -145,6 +146,19 @@ export function NewReportForm({
           <option value="year">vs année précédente</option>
           <option value="none">sans comparaison</option>
         </select>
+      </div>
+
+      <div>
+        <label className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Consignes pour l&apos;IA <span className="normal-case tracking-normal font-normal text-gray-600">(optionnel)</span></label>
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value.slice(0, 2000))}
+          disabled={busy}
+          rows={3}
+          placeholder="Ex. : insiste sur les créas vidéo, compare les campagnes retargeting, ne parle pas du budget…"
+          className={`${selectCls} resize-y min-h-[72px]`}
+        />
+        <div className="text-[11px] text-gray-600 mt-1">L&apos;IA suit ces consignes pour l&apos;angle et les priorités, sans changer le format ni inventer de chiffre.</div>
       </div>
 
       {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-900/40 rounded-lg px-3 py-2">{error}</div>}

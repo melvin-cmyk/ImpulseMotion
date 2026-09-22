@@ -5,7 +5,7 @@ import type { ReportNextStep } from "@/lib/report-data";
 export const REPORT_LIST_SELECT = {
   id: true, dashboardId: true, userId: true, title: true, periodSince: true, periodUntil: true,
   compareSince: true, compareUntil: true, status: true, trigger: true, summary: true, error: true,
-  nextStepsJson: true, createdAt: true, updatedAt: true,
+  instructions: true, nextStepsJson: true, createdAt: true, updatedAt: true,
   dashboard: { select: { id: true, name: true, metaAccountId: true, googleCustomerId: true, reportFrequency: true } },
   user: { select: { id: true, name: true, email: true } },
 } as const;
@@ -22,7 +22,7 @@ function parseJson<T>(raw: string, fallback: T): T {
 export function serializeReportRow(r: {
   id: string; dashboardId: string; userId: string | null; title: string; periodSince: string; periodUntil: string;
   compareSince: string | null; compareUntil: string | null; status: string; trigger: string; summary: string | null;
-  error: string | null; nextStepsJson: string; createdAt: Date; updatedAt: Date;
+  error: string | null; instructions?: string | null; nextStepsJson: string; createdAt: Date; updatedAt: Date;
   dashboard: { id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; reportFrequency: string | null };
   user: { id: string; name: string | null; email: string | null } | null;
 }) {
@@ -39,6 +39,7 @@ export function serializeReportRow(r: {
     trigger: r.trigger,
     summary: r.summary,
     error: r.error,
+    instructions: r.instructions ?? null,
     nextStepsCount: steps.length,
     nextStepsDone: steps.filter((s) => s.done).length,
     dashboard: r.dashboard,

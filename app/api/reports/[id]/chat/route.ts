@@ -43,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const report = await prisma.clientReport.findUnique({
     where: { id },
-    select: { id: true, title: true, status: true, dataJson: true, contentMd: true, nextStepsJson: true, dashboard: true },
+    select: { id: true, title: true, status: true, dataJson: true, contentMd: true, nextStepsJson: true, instructions: true, dashboard: true },
   });
   if (!report) return NextResponse.json({ error: "not found" }, { status: 404 });
   if (report.status !== "ready") return NextResponse.json({ error: "le rapport n'est pas encore généré" }, { status: 409 });
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     "Français, concis, concret, pas d'emoji. Utilise des puces ou un petit tableau Markdown quand c'est plus lisible. Quand on te demande une action, formule-la à l'impératif avec la justification chiffrée.",
     "",
     `TITRE : ${report.title}`,
+    ...(report.instructions ? ["", "=== CONSIGNES INITIALES DU CONSULTANT ===", report.instructions] : []),
     "",
     "=== SNAPSHOT DE DONNÉES ===",
     data ? renderDataForPrompt(data) : "(snapshot indisponible)",

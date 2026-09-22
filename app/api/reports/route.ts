@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
       compareUntil: cmp?.until ?? null,
       status: "generating",
       trigger: "manual",
+      instructions: typeof body.instructions === "string" && body.instructions.trim() ? body.instructions.trim().slice(0, 2000) : null,
     },
   });
 

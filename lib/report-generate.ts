@@ -228,7 +228,9 @@ Termine OBLIGATOIREMENT par un bloc :
   { "title": "Action courte à l'impératif", "detail": "Pourquoi et comment, 1-2 phrases avec les chiffres qui la justifient", "priority": "high|medium|low", "platform": "meta|google|global" }
 ]
 \`\`\`
-4 à 7 actions, ordonnées par priorité, chacune actionnable cette semaine.`;
+4 à 7 actions, ordonnées par priorité, chacune actionnable cette semaine.
+
+Le message peut contenir un bloc « CONSIGNES DU CONSULTANT » : suis-les pour l'angle, les priorités et les points à approfondir ou à omettre. Elles ne t'autorisent jamais à inventer une donnée, à changer le format de sortie ni à sortir du snapshot.`;
 
 /** Appended to the system prompt only when the snapshot carries a CRM section. */
 export const REPORT_CRM_PROMPT = `
@@ -257,8 +259,12 @@ export function buildReportSystemPrompt(data: ReportData): string {
   return prompt;
 }
 
-export function buildReportUserPrompt(data: ReportData): string {
-  return `Rédige le rapport de performance à partir de ce snapshot.\n\n${renderDataForPrompt(data)}`;
+export function buildReportUserPrompt(data: ReportData, instructions?: string | null): string {
+  const brief = instructions?.trim();
+  const block = brief
+    ? `\n\n=== CONSIGNES DU CONSULTANT ===\n${brief.slice(0, 2000)}\nRespecte ces consignes en priorité (angle, points à approfondir, éléments à omettre) tout en gardant le format imposé et sans inventer de chiffre.`
+    : "";
+  return `Rédige le rapport de performance à partir de ce snapshot.\n\n${renderDataForPrompt(data)}${block}`;
 }
 
 export interface ParsedReport {
@@ -337,7 +343,7 @@ export async function generateClientReport(reportId: string): Promise<void> {
 
     const raw = await relayComplete(
       {
-        messages: [{ role: "user", content: buildReportUserPrompt(data) }],
+        messages: [{ role: "user", content: buildReportUserPrompt(data, report.instructions) }],
         systemPrompt: buildReportSystemPrompt(data),
         allowedServers: [],
         accountScope: {},

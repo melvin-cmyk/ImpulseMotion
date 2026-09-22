@@ -20,6 +20,7 @@ interface FullReport {
   trigger: string;
   summary: string | null;
   error: string | null;
+  instructions: string | null;
   contentMd: string;
   data: ReportData | null;
   nextSteps: ReportNextStep[];
@@ -71,11 +72,19 @@ export default function ReportPage() {
 
   async function regenerate() {
     if (!report || generating) return;
-    if (!confirm("Régénérer ce rapport ? Le contenu actuel et les compléments seront remplacés.")) return;
+    const next = prompt(
+      "Régénérer ce rapport ? Le contenu actuel et les compléments seront remplacés.\n\nConsignes pour l'IA (optionnel — vide = aucune) :",
+      report.instructions ?? "",
+    );
+    if (next === null) return;
     setRegenerating(true);
-    setReport({ ...report, status: "generating" });
+    setReport({ ...report, status: "generating", instructions: next.trim() || null });
     try {
-      const res = await fetch(`/api/reports/${id}/regenerate`, { method: "POST" });
+      const res = await fetch(`/api/reports/${id}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instructions: next }),
+      });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         setError(j.error ?? `Erreur ${res.status}`);
@@ -139,6 +148,13 @@ export default function ReportPage() {
           </Pill>
         </div>
       </header>
+
+      {report.instructions && (
+        <div className="text-[11px] text-gray-400 bg-gray-900/60 border border-gray-800 rounded-lg px-3 py-2">
+          <span className="text-gray-500 uppercase tracking-wider font-semibold text-[10px] mr-2">Consignes</span>
+          {report.instructions}
+        </div>
+      )}
 
       {report.status === "generating" && (
         <Card padded className="flex items-center gap-3">
