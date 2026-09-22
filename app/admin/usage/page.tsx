@@ -22,6 +22,8 @@ const FEATURE_LABEL: Record<string, string> = {
   creative_analysis: "Analyse créas",
   recommend: "Plan d'action alertes",
   hq_context: "Contexte HQ client",
+  alert_compose: "Rédaction d'alerte (IA)",
+  alert_ai: "Alertes IA (scan quotidien)",
 };
 type ClientUsage = {
   key: string;

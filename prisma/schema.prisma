@@ -100,6 +100,16 @@ model AlertRule {
   enabled         Boolean      @default(true)
   /// Where to send a triggered event: {"slackChannel"?: "#…"|"C…", "emails"?: string[]}. "{}" = in-app only.
   notifyJson      String       @default("{}") @db.Text
+  /// Entity level evaluated: account | campaign | adset | ad (one event per matching entity below account).
+  level           String       @default("account")
+  /// {"nameContains"?: string, "minSpend"?: number} — narrows the entities considered.
+  filterJson      String       @default("{}") @db.Text
+  /// "rule" = deterministic metric/condition/threshold; "ai" = `prompt` judged daily by the AI on a data snapshot.
+  mode            String       @default("rule")
+  /// The consultant's own words (kept for both modes; the condition itself for mode "ai").
+  prompt          String?      @db.Text
+  /// Short human name shown in lists and notifications.
+  label           String?
   lastTriggeredAt DateTime?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -140,6 +150,10 @@ model AlertEvent {
   /// Set once the n8n notification webhook accepted the event (idempotence across cron replays).
   notifiedAt                 DateTime?
   notifyError                String?   @db.Text
+  /// Entity that triggered a below-account rule (campaign / adset / ad); null for account-level events.
+  entityLevel                String?
+  entityId                   String?
+  entityName                 String?
   rule                       AlertRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
   @@index([ruleId, triggeredAt])

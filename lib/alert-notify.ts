@@ -63,7 +63,9 @@ export interface NotifiableEvent {
   threshold: number;
   message: string;
   clientId: string;
-  rule: { id: string; condition: string; window: string; platform: string; notifyJson: string; user: { email: string | null; name: string | null } };
+  entityLevel?: string | null;
+  entityName?: string | null;
+  rule: { id: string; condition: string; window: string; platform: string; notifyJson: string; label?: string | null; mode?: string; user: { email: string | null; name: string | null } };
 }
 
 export function alertWebhookConfig(): { url: string; secret: string } | null {
@@ -88,8 +90,10 @@ export function buildAlertPayload(e: NotifiableEvent, notify: AlertNotify, accou
       accountId: e.clientId,
       accountLabel: accountLabel ?? e.clientId,
       platform: e.rule.platform,
+      entityLevel: e.entityLevel ?? null,
+      entityName: e.entityName ?? null,
     },
-    rule: { id: e.rule.id, ownerEmail: e.rule.user.email, ownerName: e.rule.user.name },
+    rule: { id: e.rule.id, ownerEmail: e.rule.user.email, ownerName: e.rule.user.name, label: e.rule.label ?? null, mode: e.rule.mode ?? "rule" },
     notify: { slackChannel: notify.slackChannel ?? null, emails: notify.emails ?? [] },
     links: { alerts: `${appUrl}/admin/alerts`, event: `${appUrl}/admin/alerts?event=${e.id}` },
   };

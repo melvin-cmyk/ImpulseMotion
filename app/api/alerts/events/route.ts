@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     },
     orderBy: { triggeredAt: "desc" },
     take: staff ? 400 : 100,
-    include: { rule: { select: { metric: true, condition: true, threshold: true } } },
+    include: { rule: { select: { metric: true, condition: true, threshold: true, label: true, level: true, mode: true } } },
   });
   const scope = staff ? await getAccountScope(guard.session) : null;
   const events = (scope ? rows.filter((e) => accountIdInScope(scope, e.clientId)) : rows).slice(0, 100);

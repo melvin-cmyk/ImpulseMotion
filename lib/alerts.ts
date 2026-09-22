@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notifyAlertEvents } from "@/lib/alert-notify";
+import { fetchEntityMetrics, filterEntities, isAlertLevel, parseFilter, LEVEL_LABELS, type AlertLevel } from "@/lib/alert-entities";
+import { evaluateAiRule } from "@/lib/alert-ai";
 import {
   getMetaSystemToken,
   purchasesFor,
@@ -276,9 +278,96 @@ export async function runAlertScan(): Promise<{
     }),
   );
 
+  const entityCache = new Map<string, Awaited<ReturnType<typeof fetchEntityMetrics>>>();
+  const entitiesFor = async (accountId: string, level: Exclude<AlertLevel, "account">, window: string) => {
+    const key = `${accountId}|${level}|${window}`;
+    const hit = entityCache.get(key);
+    if (hit) return hit;
+    const data = await fetchEntityMetrics(accountId, level, window);
+    entityCache.set(key, data);
+    return data;
+  };
+  const labelCache = new Map<string, string>();
+  const accountLabel = async (accountId: string) => {
+    if (!labelCache.has(accountId)) {
+      const row = await prisma.userAdAccount.findFirst({ where: { accountId, platform: "meta" }, select: { label: true } });
+      labelCache.set(accountId, row?.label?.trim() || accountId);
+    }
+    return labelCache.get(accountId)!;
+  };
+  const recentlyFired = async (ruleId: string, clientId: string, entityId: string | null) =>
+    prisma.alertEvent.findFirst({
+      where: { ruleId, clientId, ...(entityId ? { entityId } : {}), triggeredAt: { gte: new Date(Date.now() - 23 * 3600 * 1000) } },
+      select: { id: true },
+    });
+  const fire = async (rule: { id: string; userId: string; threshold: number; metric: string }, clientId: string, e: {
+    value: number; message: string; entity?: { level: string; id: string; name: string } | null;
+  }) => {
+    const created = await prisma.alertEvent.create({
+      data: {
+        ruleId: rule.id, userId: rule.userId, clientId, metric: rule.metric, value: e.value, threshold: rule.threshold, message: e.message,
+        entityLevel: e.entity?.level ?? null, entityId: e.entity?.id ?? null, entityName: e.entity?.name ?? null,
+      },
+    });
+    createdIds.push(created.id);
+    await prisma.alertRule.update({ where: { id: rule.id }, data: { lastTriggeredAt: new Date() } });
+    triggered++;
+  };
+
   for (const rule of rules) {
     const targets = rule.clientId ? [rule.clientId] : accountsByUser.get(rule.userId) ?? [];
     for (const accountId of targets) {
+      // ── Mode IA : la condition en français est jugée sur un snapshot du compte.
+      if (rule.mode === "ai") {
+        if (!rule.prompt) continue;
+        try {
+          if (await recentlyFired(rule.id, accountId, null)) continue;
+          const [campaigns, ads] = await Promise.all([
+            entitiesFor(accountId, "campaign", rule.window),
+            entitiesFor(accountId, "ad", rule.window),
+          ]);
+          const acct = metricsCache.get(`${accountId}|${rule.window}`) ?? null;
+          const verdict = await evaluateAiRule(
+            { id: rule.id, prompt: rule.prompt, level: rule.level, label: rule.label },
+            { accountLabel: await accountLabel(accountId), window: rule.window, range: ads.range, compare: ads.compare, account: acct, campaigns: campaigns.entities, ads: ads.entities },
+            { clientName: await accountLabel(accountId) },
+          );
+          if (!verdict.triggered) continue;
+          const first = verdict.entities[0];
+          await fire(rule, accountId, {
+            value: first?.value ?? 0,
+            message: `${rule.label ? `${rule.label} — ` : ""}${verdict.message}`,
+            entity: first ? { level: first.level, id: first.name, name: first.name } : null,
+          });
+        } catch (e) {
+          errors.push(`${accountId}/ia ${rule.label ?? rule.id}: ${e instanceof Error ? e.message : "erreur"}`);
+        }
+        continue;
+      }
+
+      // ── Niveau campagne / ad set / créa : une évaluation par élément.
+      if (isAlertLevel(rule.level) && rule.level !== "account") {
+        const level: Exclude<AlertLevel, "account"> = rule.level;
+        try {
+          const { entities } = await entitiesFor(accountId, level, rule.window);
+          const filter = parseFilter(rule.filterJson);
+          for (const ent of filterEntities(entities, filter)) {
+            const result = evaluateRule(rule.metric as AlertMetric, rule.condition as AlertCondition, rule.threshold, ent.current, ent.previous);
+            if (!result.triggered) continue;
+            if (await recentlyFired(rule.id, accountId, ent.id)) continue;
+            await fire(rule, accountId, {
+              value: result.value,
+              message: `${LEVEL_LABELS[ent.level]} « ${ent.name} » — ${result.message}`,
+              entity: { level: ent.level, id: ent.id, name: ent.name },
+            });
+          }
+        } catch (e) {
+          errors.push(`${accountId}/${rule.level}: ${e instanceof Error ? e.message : "erreur"}`);
+        }
+        continue;
+      }
+
+      // ── Compte entier (règle historique).
       const metrics = metricsCache.get(`${accountId}|${rule.window}`);
       if (!metrics) continue;
       const result = evaluateRule(
@@ -290,33 +379,8 @@ export async function runAlertScan(): Promise<{
       );
       if (result.skipped) skipped.push(`${accountId}/${rule.metric}: ${result.skipped}`);
       if (!result.triggered) continue;
-      // Dedup: don't re-fire if same rule+account fired within 23h
-      const recent = await prisma.alertEvent.findFirst({
-        where: {
-          ruleId: rule.id,
-          clientId: accountId,
-          triggeredAt: { gte: new Date(Date.now() - 23 * 3600 * 1000) },
-        },
-      });
-      if (recent) continue;
-
-      const created = await prisma.alertEvent.create({
-        data: {
-          ruleId: rule.id,
-          userId: rule.userId,
-          clientId: accountId,
-          metric: rule.metric,
-          value: result.value,
-          threshold: rule.threshold,
-          message: result.message,
-        },
-      });
-      createdIds.push(created.id);
-      await prisma.alertRule.update({
-        where: { id: rule.id },
-        data: { lastTriggeredAt: new Date() },
-      });
-      triggered++;
+      if (await recentlyFired(rule.id, accountId, null)) continue;
+      await fire(rule, accountId, { value: result.value, message: rule.label ? `${rule.label} — ${result.message}` : result.message });
     }
   }
 

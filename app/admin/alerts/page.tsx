@@ -3,6 +3,19 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { Section, PageHeader, Pill, Card } from "@/components/ui/surface";
+import {
+  type AlertDraft,
+  type AlertRuleExt,
+  AlertRuleFields,
+  CONDITIONS,
+  ComposeBlock,
+  EMPTY_DRAFT,
+  applyProposal,
+  draftToBody,
+  ruleMode,
+  ruleTitle,
+} from "@/components/alerts/alert-rule-form";
+import { AlertEventsList, RuleDetails, RuleKindPills } from "@/components/alerts/alert-rule-list";
 
 function NotifyPills({ json }: { json?: string }) {
   let n: { slackChannel?: string; emails?: string[] } = {};
@@ -16,15 +29,11 @@ function NotifyPills({ json }: { json?: string }) {
   );
 }
 
-type Rule = {
+type Rule = AlertRuleExt & {
   id: string;
   userId: string;
   clientId: string | null;
   platform: string;
-  metric: string;
-  condition: string;
-  threshold: number;
-  window: string;
   enabled: boolean;
   notifyJson?: string;
   lastTriggeredAt: string | null;
@@ -38,19 +47,6 @@ type ClientUser = {
   name: string | null;
   adAccounts: { platform: string; accountId: string; label: string | null }[];
 };
-
-const METRICS = [
-  { value: "roas", label: "ROAS" },
-  { value: "cpa", label: "CPA" },
-  { value: "ctr", label: "CTR" },
-  { value: "spend", label: "Dépenses" },
-  { value: "frequency", label: "Fréquence" },
-];
-const CONDITIONS = [
-  { value: "below", label: "en dessous de" },
-  { value: "above", label: "au-dessus de" },
-  { value: "drop_pct", label: "chute > x% vs période précédente" },
-];
 
 const inputCls =
   "mt-1 w-full px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
@@ -73,12 +69,11 @@ export default function AdminAlertsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [formUserId, setFormUserId] = useState("");
   const [formAccountId, setFormAccountId] = useState("");
-  const [formMetric, setFormMetric] = useState("roas");
-  const [formCondition, setFormCondition] = useState("below");
-  const [formThreshold, setFormThreshold] = useState(2);
-  const [formWindow, setFormWindow] = useState("7d");
-  const [formSlack, setFormSlack] = useState("");
-  const [formEmails, setFormEmails] = useState("");
+  // Metric / condition / threshold / window / notify + the new level / filter /
+  // mode / prompt / label all live in one draft shared with the /me page.
+  const [draft, setDraft] = useState<AlertDraft>(EMPTY_DRAFT);
+  const patchDraft = useCallback((patch: Partial<AlertDraft>) => setDraft((d) => ({ ...d, ...patch })), []);
+  const [eventsKey, setEventsKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // TODO (Lot F4): rules are still attached to a login + raw account id; redesign "per dashboard" (client = ad account).
 
@@ -115,6 +110,14 @@ export default function AdminAlertsPage() {
     ? (selectedUser?.adAccounts ?? []).filter((a) => a.platform === "meta")
     : ownAccounts.filter((a) => a.platform === "meta");
 
+  const accountLabelFor = useCallback(
+    (clientId: string) => {
+      const pool = isAdmin ? users.flatMap((u) => u.adAccounts ?? []) : ownAccounts;
+      return pool.find((a) => a.accountId === clientId)?.label ?? clientId;
+    },
+    [isAdmin, users, ownAccounts],
+  );
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -124,12 +127,7 @@ export default function AdminAlertsPage() {
       body: JSON.stringify({
         userId: isAdmin ? formUserId : session?.userId,
         clientId: formAccountId || null,
-        platform: "meta",
-        metric: formMetric,
-        condition: formCondition,
-        threshold: formThreshold,
-        window: formWindow,
-        notify: { slackChannel: formSlack.trim() || undefined, emails: formEmails.trim() || undefined },
+        ...draftToBody(draft),
       }),
     });
     if (!res.ok) {
@@ -140,6 +138,7 @@ export default function AdminAlertsPage() {
     setShowCreate(false);
     setFormUserId("");
     setFormAccountId("");
+    setDraft(EMPTY_DRAFT);
     load();
   }
 
@@ -169,6 +168,7 @@ export default function AdminAlertsPage() {
       }
       alert(`${data.scanned ?? 0} règle(s) scannée(s), ${data.triggered ?? 0} déclenchée(s).${data.skipped?.length ? `\nIgnorées : ${data.skipped.join(" · ")}` : ""}`);
       load();
+      setEventsKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scan impossible");
     }
@@ -194,6 +194,13 @@ export default function AdminAlertsPage() {
       {showCreate && (
         <Card padded>
           <form onSubmit={handleCreate} className="space-y-3">
+            <ComposeBlock
+              text={draft.description}
+              onTextChange={(description) => patchDraft({ description })}
+              accountId={formAccountId || null}
+              onProposal={(proposal, text) => setDraft((d) => applyProposal(d, proposal, text))}
+              classes={{ input: inputCls, label: labelSpanCls }}
+            />
             <div className="grid grid-cols-2 gap-3">
               {isAdmin && (
                 <label className="block">
@@ -227,46 +234,7 @@ export default function AdminAlertsPage() {
                   ))}
                 </select>
               </label>
-              <label className="block">
-                <span className={labelSpanCls}>Métrique</span>
-                <select value={formMetric} onChange={(e) => setFormMetric(e.target.value)} className={inputCls}>
-                  {METRICS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </label>
-              <label className="block">
-                <span className={labelSpanCls}>Condition</span>
-                <select value={formCondition} onChange={(e) => setFormCondition(e.target.value)} className={inputCls}>
-                  {CONDITIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                </select>
-              </label>
-              <label className="block">
-                <span className={labelSpanCls}>Seuil</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={formThreshold}
-                  onChange={(e) => setFormThreshold(parseFloat(e.target.value))}
-                  required
-                  className={inputCls}
-                />
-              </label>
-              <label className="block">
-                <span className={labelSpanCls}>Fenêtre</span>
-                <select value={formWindow} onChange={(e) => setFormWindow(e.target.value)} className={inputCls}>
-                  <option value="1d">Hier</option>
-                  <option value="7d">7 derniers jours</option>
-                  <option value="14d">14 derniers jours</option>
-                  <option value="30d">30 derniers jours</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className={labelSpanCls}>Canal Slack (optionnel)</span>
-                <input type="text" value={formSlack} onChange={(e) => setFormSlack(e.target.value)} placeholder="#alertes-client" className={inputCls} />
-              </label>
-              <label className="block">
-                <span className={labelSpanCls}>E-mails (optionnel)</span>
-                <input type="text" value={formEmails} onChange={(e) => setFormEmails(e.target.value)} placeholder="prenom@impulse-analytics.com, …" className={inputCls} />
-              </label>
+              <AlertRuleFields draft={draft} onChange={patchDraft} classes={{ input: inputCls, label: labelSpanCls }} />
             </div>
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-white">
@@ -296,13 +264,18 @@ export default function AdminAlertsPage() {
             <Card key={r.id} padded className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Pill className="font-mono">{METRICS.find((m) => m.value === r.metric)?.label ?? r.metric}</Pill>
-                  <span className="text-sm text-gray-400">
-                    {CONDITIONS.find((c) => c.value === r.condition)?.label ?? r.condition}
-                  </span>
-                  <span className="font-semibold text-white">
-                    {r.threshold}{r.condition === "drop_pct" ? "%" : ""}
-                  </span>
+                  <Pill className="font-mono">{ruleTitle(r)}</Pill>
+                  <RuleKindPills rule={r} />
+                  {ruleMode(r) !== "ai" && (
+                    <>
+                      <span className="text-sm text-gray-400">
+                        {CONDITIONS.find((c) => c.value === r.condition)?.label ?? r.condition}
+                      </span>
+                      <span className="font-semibold text-white">
+                        {r.threshold}{r.condition === "drop_pct" ? "%" : ""}
+                      </span>
+                    </>
+                  )}
                   <Pill tone="violet">{r.window}</Pill>
                   <NotifyPills json={r.notifyJson} />
                   <Pill tone={r.enabled ? "emerald" : "default"}>{r.enabled ? "actif" : "désactivé"}</Pill>
@@ -311,6 +284,7 @@ export default function AdminAlertsPage() {
                   {r.user?.email ?? r.userId} · {r.clientId ?? "tous comptes"} · {r._count.events} déclenchement{r._count.events > 1 ? "s" : ""}
                   {r.lastTriggeredAt && <> · dernier : {new Date(r.lastTriggeredAt).toLocaleString("fr-FR")}</>}
                 </div>
+                <RuleDetails rule={r} />
               </div>
               <div className="flex gap-2 shrink-0">
                 <button onClick={() => handleToggle(r)} className="text-xs px-2 py-1 rounded text-gray-400 hover:text-white">
@@ -324,6 +298,10 @@ export default function AdminAlertsPage() {
           ))}
         </div>
       )}
+
+      <Section title="Derniers déclenchements" bodyClassName="px-4 py-2">
+        <AlertEventsList refreshKey={eventsKey} accountLabel={accountLabelFor} />
+      </Section>
     </div>
   );
 }

@@ -20,7 +20,9 @@ export type AiFeature =
   | "report_chat"
   | "creative_analysis"
   | "recommend"
-  | "hq_context";
+  | "hq_context"
+  | "alert_compose"
+  | "alert_ai";
 
 export interface RelayUsage {
   provider: string;
