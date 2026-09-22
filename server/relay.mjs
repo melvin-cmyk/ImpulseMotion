@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 
 const execFileAsync = promisify(execFile);
 
@@ -36,6 +37,63 @@ function resolveModel(alias, useBedrock) {
 function resolveEffort(effort) {
   return typeof effort === "string" && EFFORT_LEVELS.has(effort) ? effort : null;
 }
+
+// ── Conversation sessions ────────────────────────────────────────────────────
+// A multi-turn chat used to be replayed as ONE flat user message per turn
+// ("User: … Assistant: … Continue the conversation"): every turn re-billed the
+// whole transcript as fresh input, and the model lost every tool result of
+// the previous turns (so a follow-up re-queried Meta/Google). Now a caller
+// names its conversation with `sessionKey`; the relay keeps one CLI session
+// per key and resumes it (--resume) with only the new user message. Prior
+// turns and tool results then sit in the CLI transcript, served back to the
+// model as a cached prefix.
+//
+// The transcript lives on disk (CLI persistence, root-only) under
+// CLAUDE_PROJECT_DIR; SESSION_TTL_MS bounds how long it stays.
+const RELAY_CLAUDE_CWD = process.env.RELAY_CLAUDE_CWD || "/var/lib/impulsemotion-relay";
+const SESSIONS_FILE = path.join(RELAY_CLAUDE_CWD, "sessions.json");
+const CLAUDE_PROJECT_DIR = path.join(os.homedir(), ".claude", "projects", RELAY_CLAUDE_CWD.replace(/[^a-zA-Z0-9]/g, "-"));
+const SESSION_TTL_MS = Number(process.env.RELAY_SESSION_TTL_MS || 3 * 24 * 3600 * 1000);
+const SESSION_KEY_RE = /^[a-z]+:[A-Za-z0-9:_-]{1,200}$/;
+let sessions = {};
+try { sessions = JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf8")); } catch { sessions = {}; }
+function saveSessions() {
+  try { fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions)); } catch (e) { console.error("[sessions] save failed", e.message); }
+}
+function transcriptPath(id) { return path.join(CLAUDE_PROJECT_DIR, `${id}.jsonl`); }
+/** Everything that must not change under a resumed session (scope, tools, backend). */
+function scopeFingerprint(parts) {
+  return JSON.stringify(parts);
+}
+function forgetSession(key) {
+  const s = sessions[key];
+  delete sessions[key];
+  saveSessions();
+  if (s) { try { fs.unlinkSync(transcriptPath(s.id)); } catch { /* already gone */ } }
+}
+/** Drops transcripts past the TTL (and orphans the CLI left behind). */
+function pruneSessions() {
+  const now = Date.now();
+  let dropped = 0;
+  for (const [key, s] of Object.entries(sessions)) {
+    if (now - (s.updatedAt || 0) > SESSION_TTL_MS) { forgetSession(key); dropped++; }
+  }
+  const live = new Set(Object.values(sessions).map((s) => s.id));
+  try {
+    for (const f of fs.readdirSync(CLAUDE_PROJECT_DIR)) {
+      if (!f.endsWith(".jsonl")) continue;
+      const id = f.slice(0, -6);
+      const full = path.join(CLAUDE_PROJECT_DIR, f);
+      if (live.has(id)) continue;
+      try {
+        if (now - fs.statSync(full).mtimeMs > SESSION_TTL_MS) { fs.unlinkSync(full); dropped++; }
+      } catch { /* raced */ }
+    }
+  } catch { /* project dir not created yet */ }
+  if (dropped) console.log(`[sessions] pruned ${dropped}`);
+}
+setInterval(pruneSessions, 60 * 60 * 1000).unref();
+pruneSessions();
 // Amazon Bedrock — used ONLY when a caller asks for it (`provider: "bedrock"`,
 // today the private client bots): inference then runs in the agency's AWS
 // account, EU region, instead of the host's Claude subscription. Credentials
@@ -168,7 +226,8 @@ const SCOPED_ADS_SERVERS = {
  *   - each ads/analytics server becomes a stdio proxy (mcp-scoped-ads) that
  *     refuses any account id outside the caller's scope. Without it the
  *     restriction was only a paragraph of the system prompt, i.e. nothing.
- *     `unrestricted` (admins) keeps the direct SSE entry.
+ *     `unrestricted` (admins) goes through the same proxy with "*" (no
+ *     account filter, outputs still compacted).
  *
  * Servers we cannot scope are dropped, never passed through. Written to a 0600
  * temp file, removed once the CLI exits.
@@ -211,12 +270,9 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId 
       if (upstream) { mcpServers[name] = upstream; kept.push(name); }
       continue;
     }
-    if (unrestricted) {
-      mcpServers[name] = upstream;
-      kept.push(name);
-      continue;
-    }
-    const ids = (pick(effectiveScope) || []).filter((v) => typeof v === "string" && v.trim());
+    // Admins keep business-manager-wide access, but still through the proxy:
+    // it is also where tool outputs get compacted before reaching the model.
+    const ids = unrestricted ? ["*"] : (pick(effectiveScope) || []).filter((v) => typeof v === "string" && v.trim());
     if (ids.length === 0) {
       console.error(`[chat] ${name} retiré — aucun compte autorisé pour cet appelant`);
       continue;
@@ -278,18 +334,17 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
   };
 
-  // Build prompt from message history
-  let prompt;
-  if (messages.length === 1 && messages[0].role === "user") {
-    prompt = messages[0].content;
-  } else {
+  const sessionKey = typeof options.sessionKey === "string" && SESSION_KEY_RE.test(options.sessionKey) ? options.sessionKey : null;
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const flattenHistory = () => {
+    if (messages.length === 1 && messages[0].role === "user") return messages[0].content;
     const parts = [];
     for (const m of messages) {
       if (m.role === "user") parts.push(`User: ${m.content}`);
       else if (m.role === "assistant") parts.push(`Assistant: ${m.content}`);
     }
-    prompt = parts.join("\n\n") + "\n\nContinue the conversation. Respond to the last user message.";
-  }
+    return parts.join("\n\n") + "\n\nContinue the conversation. Respond to the last user message.";
+  };
 
   // Intersect incoming allowedServers with the global whitelist.
   let servers = (Array.isArray(allowedServers) ? allowedServers : [])
@@ -361,6 +416,21 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
       "\nPour une question sur un client, une méthode ou une décision de l'agence, cherche d'abord dans HQ (search puis fetch, ou hq_skill_list puis hq_skill_get) avant de répondre.";
   }
 
+  // Resume when the caller named a conversation that we already hold, whose
+  // scope fingerprint is unchanged, and which is not being restarted (a
+  // single-message thread = "nouvelle conversation"). Anything else starts a
+  // fresh session, replaying whatever history the caller sent.
+  const fingerprint = scopeFingerprint({ servers, toolPatterns, accountScope: accountScope ?? null, clientKey, ga4PropertyId, useBedrock, model });
+  const existing = sessionKey ? sessions[sessionKey] : null;
+  const canResume = !!existing && messages.length > 1 && existing.fingerprint === fingerprint && fs.existsSync(transcriptPath(existing.id));
+  if (sessionKey && existing && !canResume) forgetSession(sessionKey);
+  const sessionId = canResume ? existing.id : (sessionKey ? crypto.randomUUID() : null);
+  const prompt = canResume && lastUser ? lastUser.content : flattenHistory();
+  if (sessionKey) {
+    sessions[sessionKey] = { id: sessionId, fingerprint, updatedAt: Date.now() };
+    saveSessions();
+  }
+
   const args = [
     "--print", prompt,
     "--output-format", "stream-json",
@@ -375,7 +445,9 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     // --allowedTools is denied, and only HQ_READ_TOOLS are listed.
     ...(useHq ? [] : ["--strict-mcp-config"]),
     "--system-prompt", scopedSystemPrompt,
-    "--no-session-persistence",
+    // One-shot calls leave nothing on disk; named conversations persist so
+    // the next turn can --resume them.
+    ...(sessionKey ? (canResume ? ["--resume", sessionId] : ["--session-id", sessionId]) : ["--no-session-persistence"]),
     "--max-turns", String(maxTurns),
     // The CLI runs as root with the host's HOME, whose settings allow
     // Read/Write/Edit(*): without this, any chat — a client bot included, one
@@ -391,12 +463,12 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${useHq ? " | hq" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}` : ""}`);
+  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}` : ""}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
   const child = spawn("claude", args, {
-    cwd: process.env.RELAY_CLAUDE_CWD || "/var/lib/impulsemotion-relay",
+    cwd: RELAY_CLAUDE_CWD,
     env: {
       ...process.env,
       TERM: "dumb",
@@ -557,6 +629,11 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   child.on("close", (code) => {
     cleanupScopedMcp();
     console.log(`[chat] Exit code ${code}, text length: ${fullText.length}`);
+    if (code !== 0 && !fullText && sessionKey) {
+      // A transcript the CLI could not resume (or a crashed first turn) must
+      // not poison the conversation: the next turn starts a fresh session.
+      forgetSession(sessionKey);
+    }
     finish(code !== 0 && !fullText ? { error: `Claude exited with code ${code}` } : undefined);
   });
 
@@ -716,6 +793,7 @@ const server = http.createServer(async (req, res) => {
         model: body.model,
         effort: body.effort,
         maxTurns: body.maxTurns,
+        sessionKey: body.sessionKey,
       });
       return;
     }

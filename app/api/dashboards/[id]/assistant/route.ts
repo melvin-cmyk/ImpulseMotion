@@ -18,6 +18,8 @@ import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
 import { STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
+import { teeRelayStream } from "@/lib/relay-chat";
+import { recordAiUsage } from "@/lib/ai-usage";
 
 export const maxDuration = 120;
 
@@ -136,11 +138,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const systemPrompt = buildCopilotSystemPrompt(
     { ...dashboard, widgets: dashboard.widgets },
     dashboard.user.name ?? dashboard.user.email ?? "client",
+    // The cached HQ brief (7-day TTL, lib/hq-client-context.ts) replaces a
+    // live HQ exploration on every question about the client.
+    dashboard.hqSlug && dashboard.hqContextMd ? { slug: dashboard.hqSlug, brief: dashboard.hqContextMd } : null,
   );
 
   const relayBody = {
     messages,
     systemPrompt,
+    sessionKey: `copilot:${dashboard.id}:${guard.session.userId}`,
     model: STAFF_CHAT_PROFILE.model,
     effort: STAFF_CHAT_PROFILE.effort,
     // Staff-only route: ads servers (scoped to this dashboard below) + HQ read-only.
@@ -176,11 +182,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       } finally {
         clearTimeout(headersTimer);
       }
-      if (!res.ok) {
+      if (!res.ok || !res.body) {
         lastError = `relay ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`;
         continue;
       }
-      return new Response(res.body, {
+      const ledger = teeRelayStream(res.body, async (_text, _done, usage) => {
+        if (usage) await recordAiUsage(usage, {
+          feature: "copilot",
+          dashboardId: dashboard.id,
+          clientName: dashboard.name,
+          user: { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role },
+        });
+      });
+      return new Response(ledger, {
         status: 200,
         headers: {
           "Content-Type": "text/event-stream",

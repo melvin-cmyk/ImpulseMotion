@@ -241,9 +241,12 @@ export function buildBotSystemPrompt(input: BuildBotPromptInput): string {
     confidentialityBlock(),
     dataRulesBlock(),
     methodBlock(),
-    dateBlock(now),
     contextBlock(input.bot.businessContext ?? ""),
     sourcesBlock(sources, input.coverage),
+    // Last on purpose: the date changes daily and the coverage on every
+    // ingest — keeping them at the tail leaves the rest as a stable prefix
+    // for the provider's prompt cache.
+    dateBlock(now),
   ].join("\n\n");
 }
 

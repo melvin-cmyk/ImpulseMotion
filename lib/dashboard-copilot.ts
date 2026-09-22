@@ -7,7 +7,7 @@
  * writes to the database itself.
  */
 
-import { WIDGET_TYPE_INFO, WIDGET_TYPES, type WidgetType } from "@/lib/dashboard-types";
+import { CONVERSION_WIDGET_TYPES, WIDGET_TYPE_INFO, WIDGET_TYPES, type WidgetType } from "@/lib/dashboard-types";
 
 interface DashboardForPrompt {
   id: string;
@@ -17,7 +17,11 @@ interface DashboardForPrompt {
   widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string }>;
 }
 
-export function buildCopilotSystemPrompt(dashboard: DashboardForPrompt, clientLabel: string): string {
+export function buildCopilotSystemPrompt(
+  dashboard: DashboardForPrompt,
+  clientLabel: string,
+  hq: { slug: string; brief: string } | null = null,
+): string {
   const widgetList = dashboard.widgets
     .map((w) => {
       let cfg = w.config;
@@ -29,6 +33,9 @@ export function buildCopilotSystemPrompt(dashboard: DashboardForPrompt, clientLa
   const catalogue = WIDGET_TYPES
     .map((t: WidgetType) => `- ${t} (${WIDGET_TYPE_INFO[t].label}) : config ${WIDGET_TYPE_INFO[t].configDoc}`)
     .join("\n");
+  const hqBlock = hq
+    ? `\n\nCE QUE L'AGENCE SAIT DU CLIENT (HQ, dossier projects/${hq.slug} — objectifs, KPI cible, décisions, tests, règles) :\n${hq.brief}\nCe brief suffit pour la plupart des questions : n'interroge HQ (outils hq_*) que pour un détail qui n'y figure pas.`
+    : "";
 
   return `Tu es le copilote IA d'ImpulseMotion pour les consultants. Tu aides à composer le dashboard de pilotage du client "${clientLabel}".
 
@@ -41,6 +48,7 @@ ${widgetList || "(aucun widget)"}
 CATALOGUE DES WIDGETS DISPONIBLES :
 ${catalogue}
 Largeurs valides : third (1/3), half (1/2), full (pleine largeur).
+Option commune aux widgets ${CONVERSION_WIDGET_TYPES.join(", ")} : conversionEvent?: purchase|lead|complete_registration|custom:<action_type Meta> (ex. custom:offsite_conversion.custom.123) — action de conversion Meta comptée par ce widget à la place du réglage du compte ; sans effet côté Google.${hqBlock}
 
 COMMENT PROPOSER DES MODIFICATIONS :
 RÈGLE ABSOLUE : toute modification du dashboard DOIT être émise dans un bloc de code au langage "action" — sans ce bloc, rien ne peut être appliqué. Réponds brièvement puis émets un ou plusieurs blocs, contenant CHACUN un unique objet JSON valide (pas de commentaire dans le JSON) :

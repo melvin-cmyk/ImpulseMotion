@@ -11,7 +11,8 @@ import { getAccountScope, reportIdInScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { relayStream, type RelayMessage } from "@/lib/relay-chat";
+import { relayStream, teeRelayStream, type RelayMessage } from "@/lib/relay-chat";
+import { recordAiUsage } from "@/lib/ai-usage";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { renderDataForPrompt } from "@/lib/report-generate";
 import type { ReportData } from "@/lib/report-data";
@@ -70,9 +71,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     report.nextStepsJson.slice(0, 6000),
   ].join("\n");
 
-  return relayStream({
+  const upstream = await relayStream({
     messages,
     systemPrompt,
+    sessionKey: `report:${report.id}:${guard.session.userId}`,
     model: STAFF_CHAT_PROFILE.model,
     effort: STAFF_CHAT_PROFILE.effort,
     allowedServers: ["meta-ads-impulse", "mcp-google-ads"],
@@ -81,4 +83,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       google: report.dashboard.googleCustomerId ? [report.dashboard.googleCustomerId] : [],
     },
   });
+  if (upstream.status !== 200 || !upstream.body) return upstream;
+  const ledger = teeRelayStream(upstream.body, async (_text, _done, usage) => {
+    if (usage) await recordAiUsage(usage, {
+      feature: "report_chat",
+      dashboardId: report.dashboard.id,
+      clientName: report.dashboard.name,
+      user: { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role },
+    });
+  });
+  return new Response(ledger, { status: 200, headers: upstream.headers });
 }

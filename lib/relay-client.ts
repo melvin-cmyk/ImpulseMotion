@@ -69,12 +69,13 @@ async function readStream(
 export async function streamChat(
   messages: ChatMessage[],
   onEvent: (event: StreamEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  conversationId?: string,
 ): Promise<void> {
   const res = await fetch(RELAY_PROXY_CHAT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, conversationId }),
     signal,
   });
 

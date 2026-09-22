@@ -24,9 +24,10 @@ describe("buildBotSystemPrompt — blocs fixes", () => {
       "CONFIDENTIALITÉ ET LIMITES",
       "RÈGLES DE DONNÉES",
       "MÉTHODE DE TRAVAIL",
-      "DATE DU JOUR",
       "CONTEXTE CLIENT",
       "SOURCES DISPONIBLES",
+      // Dernier : seul bloc qui change chaque jour (préfixe stable pour le cache).
+      "DATE DU JOUR",
     ];
     const positions = headers.map((h) => p.indexOf(h));
     expect(positions.every((i) => i >= 0)).toBe(true);

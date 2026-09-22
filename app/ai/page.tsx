@@ -19,6 +19,8 @@ interface UIMessage {
 
 export default function AIPage() {
   const [messages, setMessages] = useState<UIMessage[]>([])
+  // Names the relay session so follow-ups resume it instead of replaying the thread.
+  const [conversationId] = useState(() => crypto.randomUUID())
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -118,7 +120,8 @@ export default function AIPage() {
             return updated
           })
         },
-        abort.signal
+        abort.signal,
+        conversationId,
       )
     } catch (err) {
       if ((err as Error).name !== "AbortError") {

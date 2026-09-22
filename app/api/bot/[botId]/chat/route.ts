@@ -18,13 +18,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { parseUsageEvent, recordBotUsage, type RelayUsage } from "@/lib/ai-usage";
+import { recordBotUsage, type RelayUsage } from "@/lib/ai-usage";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
 import { parseMessages, parseSources, serializeMessages, serversForSources, type BotMessage } from "@/lib/bot-types";
 import { buildBotSystemPrompt, type BotDataCoverage } from "@/lib/bot-prompt";
-import { relayStream, type RelayChatBody, type RelayMessage } from "@/lib/relay-chat";
+import { relayStream, teeRelayStream, type RelayChatBody, type RelayMessage } from "@/lib/relay-chat";
 
 export const maxDuration = 120;
 
@@ -39,7 +39,20 @@ const BUDGET_MS = 105_000;
  * owned by another part of the codebase and may be absent or unconfigured
  * (no DATA_DATABASE_URL); either way the bot must still answer.
  */
+// The coverage lines change only when the warehouse ingests; re-querying it
+// on every turn (5 s timeout) is wasted latency and busts the prompt prefix.
+const COVERAGE_TTL_MS = 10 * 60 * 1000;
+const coverageMemo = new Map<string, { at: number; value: BotDataCoverage | null }>();
+
 async function loadCoverage(clientKey: string): Promise<BotDataCoverage | null> {
+  const hit = coverageMemo.get(clientKey);
+  if (hit && Date.now() - hit.at < COVERAGE_TTL_MS) return hit.value;
+  const value = await loadCoverageUncached(clientKey);
+  coverageMemo.set(clientKey, { at: Date.now(), value });
+  return value;
+}
+
+async function loadCoverageUncached(clientKey: string): Promise<BotDataCoverage | null> {
   try {
     const mod = (await import("@/lib/client-data")) as {
       getCoverage?: (key: string) => Promise<BotDataCoverage | null>;
@@ -61,58 +74,6 @@ function toRelayMessages(history: BotMessage[]): RelayMessage[] {
 function titleFrom(text: string): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   return oneLine.length > TITLE_CHARS ? oneLine.slice(0, TITLE_CHARS - 1).trimEnd() + "…" : oneLine;
-}
-
-/**
- * Wraps the relay's SSE body: forwards every byte and accumulates the text
- * deltas and the relay's final `usage` event; `onFinish(text, sawDone, usage)`
- * runs once when the stream ends.
- */
-function teeSse(
-  source: ReadableStream<Uint8Array>,
-  onFinish: (text: string, sawDone: boolean, usage: RelayUsage | null) => Promise<void>,
-): ReadableStream<Uint8Array> {
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let text = "";
-  let sawDone = false;
-  let usage: RelayUsage | null = null;
-  let finished = false;
-
-  const finish = async () => {
-    if (finished) return;
-    finished = true;
-    try { await onFinish(text, sawDone, usage); } catch (e) { console.error("[bot/chat] persist failed", e); }
-  };
-
-  const parseLine = (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("data:")) return;
-    const payload = trimmed.slice(5).trim();
-    if (!payload) return;
-    let evt: { type?: string; text?: string };
-    try { evt = JSON.parse(payload); } catch { return; }
-    if (evt.type === "delta" && typeof evt.text === "string") text += evt.text;
-    else if (evt.type === "content" && typeof evt.text === "string" && !text) text = evt.text;
-    else if (evt.type === "done") sawDone = true;
-    else if (evt.type === "usage") usage = parseUsageEvent(evt) ?? usage;
-  };
-
-  return source.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
-        buffer += decoder.decode(chunk, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) parseLine(line);
-      },
-      async flush() {
-        if (buffer) parseLine(buffer);
-        await finish();
-      },
-    }),
-  );
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ botId: string }> }) {
@@ -149,6 +110,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   if (sources.google && bot.dashboard.googleCustomerId) accountScope.google = [bot.dashboard.googleCustomerId];
 
   const relayBody: RelayChatBody = {
+    sessionKey: `bot:${conversation.id}`,
     messages: toRelayMessages(thread),
     systemPrompt,
     allowedServers: serversForSources(sources),
@@ -190,7 +152,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
     });
   };
 
-  return new Response(teeSse(upstream.body, persist), {
+  return new Response(teeRelayStream(upstream.body, persist), {
     status: 200,
     headers: {
       "Content-Type": "text/event-stream",

@@ -19,29 +19,28 @@ export const META_ACTIONS_MAX = 30;
 
 /** Widgets whose Meta conversions follow `conversionEvent` (override of the account setting). */
 export const CONVERSION_WIDGET_TYPES = ["kpi", "timeseries", "table", "top_creatives", "platform_table", "funnel", "demographics", "geo_device"] as const;
-const CONVERSION_DOC = `; option conversionEvent?: purchase|lead|complete_registration|custom:<action_type Meta> (ex. custom:offsite_conversion.custom.123, custom:onsite_conversion.messaging_conversation_started_7d) — action de conversion Meta comptée par ce widget, à la place du réglage du compte ; sans effet côté Google`;
 
 /** Human/AI-facing catalogue — also consumed by the copilot tool definitions. */
 export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: string }> = {
   kpi: {
     label: "KPI",
-    configDoc: `{ metric: ${KPI_METRICS.join("|")}, source: "meta"|"google"|"combined" } — inclut automatiquement la comparaison vs période précédente` + CONVERSION_DOC,
+    configDoc: `{ metric: ${KPI_METRICS.join("|")}, source: "meta"|"google"|"combined" } — inclut automatiquement la comparaison vs période précédente`,
   },
   platform_table: {
     label: "Vue par plateforme",
-    configDoc: `{} — une ligne par plateforme liée (Meta, Google, Total) avec Cost, Impr., CTR, Clics, CPC, CR%, Conversions, CPA et leur %Δ vs la période de comparaison` + CONVERSION_DOC,
+    configDoc: `{} — une ligne par plateforme liée (Meta, Google, Total) avec Cost, Impr., CTR, Clics, CPC, CR%, Conversions, CPA et leur %Δ vs la période de comparaison`,
   },
   timeseries: {
     label: "Courbe temporelle",
-    configDoc: `{ metric: ${SERIES_METRICS.join("|")}, source: "meta"|"google" } (quotidien)` + CONVERSION_DOC,
+    configDoc: `{ metric: ${SERIES_METRICS.join("|")}, source: "meta"|"google" } (quotidien)`,
   },
   table: {
     label: "Table de performance",
-    configDoc: `{ kind: ${TABLE_KINDS.join("|")}, source: "google"|"meta", limit?: 1-30 } — source meta uniquement pour kind=campaigns` + CONVERSION_DOC,
+    configDoc: `{ kind: ${TABLE_KINDS.join("|")}, source: "google"|"meta", limit?: 1-30 } — source meta uniquement pour kind=campaigns`,
   },
   top_creatives: {
     label: "Top créas Meta",
-    configDoc: `{ limit?: 1-10 }` + CONVERSION_DOC,
+    configDoc: `{ limit?: 1-10 }`,
   },
   pacing: {
     label: "Pacing budget",
@@ -53,15 +52,15 @@ export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: st
   },
   funnel: {
     label: "Entonnoir de conversion",
-    configDoc: `{ source: "meta"|"google"|"combined" (défaut combined) } — étapes Impressions → Clics → Conversions avec taux de passage (CTR, taux de conversion) ; combined additionne les plateformes liées ; pas de comparaison de période` + CONVERSION_DOC,
+    configDoc: `{ source: "meta"|"google"|"combined" (défaut combined) } — étapes Impressions → Clics → Conversions avec taux de passage (CTR, taux de conversion) ; combined additionne les plateformes liées ; pas de comparaison de période`,
   },
   demographics: {
     label: "Démographie Meta",
-    configDoc: `{ metric: ${DEMOGRAPHICS_METRICS.join("|")} (défaut spend) } — répartition Meta par âge et genre, triée par valeur décroissante ; nécessite un compte Meta lié ; pas de comparaison de période` + CONVERSION_DOC,
+    configDoc: `{ metric: ${DEMOGRAPHICS_METRICS.join("|")} (défaut spend) } — répartition Meta par âge et genre, triée par valeur décroissante ; nécessite un compte Meta lié ; pas de comparaison de période`,
   },
   geo_device: {
     label: "Répartition appareil / pays",
-    configDoc: `{ source: "meta"|"google" (défaut meta), dimension: ${GEO_DEVICE_DIMENSIONS.join("|")} (défaut device) } — dépense, clics et conversions par appareil ou pays ; la source google ne supporte que dimension=device (la répartition pays n'est pas exposée simplement en GAQL) ; pas de comparaison de période` + CONVERSION_DOC,
+    configDoc: `{ source: "meta"|"google" (défaut meta), dimension: ${GEO_DEVICE_DIMENSIONS.join("|")} (défaut device) } — dépense, clics et conversions par appareil ou pays ; la source google ne supporte que dimension=device (la répartition pays n'est pas exposée simplement en GAQL) ; pas de comparaison de période`,
   },
   alerts: {
     label: "Dernières alertes",

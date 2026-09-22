@@ -9,6 +9,8 @@
 
 import { HQ_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
+import { teeRelayStream } from "@/lib/relay-chat";
+import { recordAiUsage } from "@/lib/ai-usage";
 import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { getAllowedMcpServers, getAllowedAccountIds } from "@/lib/acl";
@@ -18,12 +20,18 @@ export const maxDuration = 120;
 import { RELAY_URLS } from "@/lib/relay-server";
 
 const RELAY_SECRET = process.env.RELAY_SHARED_SECRET || "";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The relay session budget already bounds a turn; the history the browser
+// resends is only replayed when the relay starts a new session.
+const MAX_MESSAGES = 30;
 
 export async function POST(req: NextRequest) {
   const guard = await requireSession();
   if ("error" in guard) return guard.error;
 
   const body = await req.json();
+  const { conversationId, ...rest } = body ?? {};
+  const messages = Array.isArray(rest.messages) ? rest.messages.slice(-MAX_MESSAGES) : [];
 
   const [allowedServers, metaIds, googleIds, tiktokIds] = await Promise.all([
     getAllowedMcpServers(guard.session.userId),
@@ -34,7 +42,9 @@ export async function POST(req: NextRequest) {
 
   const isStaff = guard.session.role === "admin" || guard.session.role === "consultant";
   const enrichedBody = {
-    ...body,
+    ...rest,
+    messages,
+    sessionKey: typeof conversationId === "string" && UUID_RE.test(conversationId) ? `console:${guard.session.userId}:${conversationId}` : undefined,
     // The browser never picks the model: staff chats with MCP tools run on
     // the staff profile (Opus 5, low effort); clients keep the relay default.
     model: isStaff ? STAFF_CHAT_PROFILE.model : undefined,
@@ -70,9 +80,16 @@ export async function POST(req: NextRequest) {
         duplex: "half",
       });
 
-      if (!res.ok) continue;
+      if (!res.ok || !res.body) continue;
 
-      return new Response(res.body, {
+      const ledger = teeRelayStream(res.body, async (_text, _done, usage) => {
+        if (usage) await recordAiUsage(usage, {
+          feature: "console",
+          clientName: "—",
+          user: { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role },
+        });
+      });
+      return new Response(ledger, {
         status: 200,
         headers: {
           "Content-Type": "text/event-stream",
