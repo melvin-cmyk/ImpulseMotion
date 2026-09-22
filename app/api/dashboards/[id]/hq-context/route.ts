@@ -37,7 +37,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const denied = await denyIfDashboardOutOfScope(guard.session, id);
   if (denied) return denied;
 
-  const { context, warning } = await getHqClientContext(id, { force: true, maxMs: 100_000 });
+  const { context, warning } = await getHqClientContext(id, {
+    force: true,
+    maxMs: 100_000,
+    usage: { user: { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role } },
+  });
   if (!context) return NextResponse.json({ error: warning ?? "dossier HQ introuvable" }, { status: 404 });
   return NextResponse.json({ context: { slug: context.slug, brief: context.brief, fetchedAt: context.fetchedAt }, warning });
 }

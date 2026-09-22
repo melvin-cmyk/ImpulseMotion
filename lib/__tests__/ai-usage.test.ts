@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const create = vi.fn();
 vi.mock("@/lib/prisma", () => ({ prisma: { aiUsage: { create: (...a: unknown[]) => create(...a) } } }));
 
-import { parseUsageEvent, recordBotUsage, summarizeUsage, monthRange, usageCsv, type UsageRow } from "@/lib/ai-usage";
+import { parseUsageEvent, recordBotUsage, summarizeUsage, monthRange, usageCsv, type UsageRow, summarizeByFeature } from "@/lib/ai-usage";
 
 beforeEach(() => create.mockReset());
 
@@ -15,7 +15,7 @@ const EVENT = {
 describe("parseUsageEvent", () => {
   it("lit l'événement usage du relay", () => {
     expect(parseUsageEvent(EVENT)).toEqual({
-      provider: "bedrock", model: "eu.anthropic.claude-sonnet-4-6", costUsd: 0.0421, turns: 3, durationMs: 8124,
+      provider: "bedrock", model: "eu.anthropic.claude-sonnet-4-6", effort: null, costUsd: 0.0421, turns: 3, durationMs: 8124,
       inputTokens: 120, outputTokens: 640, cacheReadTokens: 9000, cacheWriteTokens: 2200,
     });
   });
@@ -39,9 +39,10 @@ describe("recordBotUsage", () => {
     });
   });
 
-  it("n'enregistre rien hors Bedrock", async () => {
+  it("enregistre aussi les sessions hors Bedrock (vue interne), avec le provider réel", async () => {
     await recordBotUsage({ usage: { ...parseUsageEvent(EVENT)!, provider: "subscription" }, bot, user });
-    expect(create).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0][0].data).toMatchObject({ provider: "subscription", feature: "client_bot" });
   });
 });
 
@@ -90,5 +91,19 @@ describe("monthRange / usageCsv", () => {
     expect(csv).toHaveLength(2);
     expect(csv[0]).toContain("tokens_entree;tokens_cache_ecrit;tokens_cache_lu;tokens_sortie");
     expect(csv[1]).toBe('2026-09;"Saveurs; Vie";;a@b.fr;client;oui;1;1;4;3;2');
+  });
+});
+
+describe("summarizeByFeature", () => {
+  it("agrège par surface × provider × modèle avec le poids moyen d'un message", () => {
+    const base = { dashboardId: "d1", clientName: "LPEV", clientKey: null, userEmail: null, userRole: "consultant", provider: "subscription", model: "claude-opus-5" };
+    const out = summarizeByFeature([
+      { ...base, feature: "copilot", turns: 4, inputTokens: 10, outputTokens: 100, cacheReadTokens: 5000, cacheWriteTokens: 900 },
+      { ...base, feature: "copilot", turns: 2, inputTokens: 10, outputTokens: 100, cacheReadTokens: 1000, cacheWriteTokens: 100 },
+      { ...base, feature: "report", model: "claude-sonnet-5", turns: 1, inputTokens: 8000, outputTokens: 3000, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    ]);
+    expect(out.map((f) => f.feature)).toEqual(["report", "copilot"]);
+    const copilot = out[1];
+    expect(copilot).toMatchObject({ messages: 2, turns: 6, cacheReadTokens: 6000, avgTokensPerMessage: 3610 });
   });
 });

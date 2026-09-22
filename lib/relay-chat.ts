@@ -15,6 +15,7 @@
 
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
+import { parseUsageEvent, type RelayUsage } from "@/lib/ai-usage";
 
 export interface RelayMessage { role: "user" | "assistant"; content: string }
 
@@ -43,6 +44,14 @@ export interface RelayChatBody {
   effort?: RelayEffort;
   /** Cap on the agentic loop (1–15); short tool lookups should not run the default 15. */
   maxTurns?: number;
+  /**
+   * Names the conversation ("copilot:<dashboardId>:<userId>", "bot:<conversationId>"…).
+   * The relay keeps one CLI session per key and resumes it with only the new
+   * user message, so earlier turns and their tool results are a cached prefix
+   * instead of being re-sent (and re-fetched) every turn. A single-message
+   * thread restarts the session.
+   */
+  sessionKey?: string;
 }
 
 export type RelayModel = "sonnet" | "opus";
@@ -85,6 +94,59 @@ async function openRelayStream(
   return { error: lastError };
 }
 
+/**
+ * Wraps a relay SSE body: forwards every byte untouched and accumulates the
+ * text deltas plus the relay's final `usage` event; `onFinish(text, sawDone,
+ * usage)` runs once when the stream ends (or is cancelled). Chat routes use it
+ * to persist the answer and to write the usage ledger.
+ */
+export function teeRelayStream(
+  source: ReadableStream<Uint8Array>,
+  onFinish: (text: string, sawDone: boolean, usage: RelayUsage | null) => Promise<void> | void,
+): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let sawDone = false;
+  let usage: RelayUsage | null = null;
+  let finished = false;
+
+  const finish = async () => {
+    if (finished) return;
+    finished = true;
+    try { await onFinish(text, sawDone, usage); } catch (e) { console.error("[relay] onFinish failed", e); }
+  };
+
+  const parseLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+    const payload = trimmed.slice(5).trim();
+    if (!payload) return;
+    let evt: { type?: string; text?: string };
+    try { evt = JSON.parse(payload); } catch { return; }
+    if (evt.type === "delta" && typeof evt.text === "string") text += evt.text;
+    else if (evt.type === "content" && typeof evt.text === "string" && !text) text = evt.text;
+    else if (evt.type === "done") sawDone = true;
+    else if (evt.type === "usage") usage = parseUsageEvent(evt) ?? usage;
+  };
+
+  return source.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) parseLine(line);
+      },
+      async flush() {
+        if (buffer) parseLine(buffer);
+        await finish();
+      },
+    }),
+  );
+}
+
 /** Streams a relay chat as-is (SSE passthrough) for chat routes. */
 export async function relayStream(body: RelayChatBody): Promise<Response> {
   const opened = await openRelayStream(body, 15000);
@@ -108,7 +170,7 @@ export async function relayStream(body: RelayChatBody): Promise<Response> {
  */
 export async function relayComplete(
   body: RelayChatBody,
-  opts: { maxMs?: number } = {},
+  opts: { maxMs?: number; onUsage?: (usage: RelayUsage) => void } = {},
 ): Promise<string> {
   const maxMs = opts.maxMs ?? 170_000;
   const opened = await openRelayStream(
@@ -141,6 +203,10 @@ export async function relayComplete(
         if (evt.type === "delta" && evt.text) fullText += evt.text;
         else if (evt.type === "content" && evt.text && !fullText) fullText = evt.text;
         else if (evt.type === "error" && evt.message) lastError = evt.message;
+        else if (evt.type === "usage" && opts.onUsage) {
+          const usage = parseUsageEvent(evt);
+          if (usage) { try { opts.onUsage(usage); } catch { /* ledger is best effort */ } }
+        }
       }
     }
   } finally {

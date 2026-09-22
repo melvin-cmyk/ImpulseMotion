@@ -12,8 +12,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { assertAccountAllowed } from "@/lib/acl";
-import { cached } from "@/lib/kpi-cache";
+import { cached, ttlForRange } from "@/lib/kpi-cache";
 import { relayComplete, parseLooseJson } from "@/lib/relay-chat";
+import { recordAiUsage } from "@/lib/ai-usage";
 import { loadCreatives } from "@/lib/creatives-server";
 import { validateRange } from "@/lib/date-ranges";
 import type { Creative } from "@/lib/creative-types";
@@ -24,6 +25,8 @@ import type { Creative } from "@/lib/creative-types";
 export const maxDuration = 300;
 
 const TOP_N = 40;
+// Open range (includes today): 1 h. Closed range: the analysis cannot change,
+// keep it a day (ttlForRange) rather than paying ~6 k tokens + 2-4 min again.
 const TTL_MS = 60 * 60 * 1000;
 
 // ── Result shape ──────────────────────────────────────────────────────────────
@@ -175,7 +178,10 @@ async function analyze(accountId: string, since: string, until: string, refresh:
       allowedServers: [],
       accountScope: {},
     },
-    { maxMs: 240_000 },
+    {
+      maxMs: 240_000,
+      onUsage: (usage) => void recordAiUsage(usage, { feature: "creative_analysis", clientName: `meta:${accountId}` }),
+    },
   );
   const parsed = parseLooseJson<unknown>(text);
   if (!parsed || typeof parsed !== "object") throw new Error("Réponse IA non exploitable (JSON invalide)");
@@ -215,7 +221,7 @@ export async function POST(request: NextRequest) {
   try {
     const result = refresh
       ? await analyze(accountId, since, until, true)
-      : await cached(key, () => analyze(accountId, since, until, false), TTL_MS);
+      : await cached(key, () => analyze(accountId, since, until, false), Math.max(TTL_MS, ttlForRange({ since, until })));
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

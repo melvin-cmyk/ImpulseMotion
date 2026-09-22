@@ -13,6 +13,7 @@ import { collectReportData, periodLabel, type ReportData, type ReportKpi, type R
 import { prevRange, type CompareRange } from "@/lib/dashboard-widgets";
 import { fmtMetric, fmtMoney } from "@/components/portfolio/format";
 import { getHqClientContext } from "@/lib/hq-client-context";
+import { recordAiUsage } from "@/lib/ai-usage";
 
 /** Same day one year earlier (Feb 29 → Feb 28). */
 export function shiftYear(d: string): string {
@@ -341,7 +342,15 @@ export async function generateClientReport(reportId: string): Promise<void> {
         allowedServers: [],
         accountScope: {},
       },
-      { maxMs: 200_000 },
+      {
+        maxMs: 200_000,
+        onUsage: (usage) => void recordAiUsage(usage, {
+          feature: "report",
+          dashboardId: report.dashboardId,
+          clientName: report.dashboard.name,
+          user: report.userId ? { id: report.userId, role: report.trigger === "cron" ? "system" : "staff" } : null,
+        }),
+      },
     );
     const parsed = parseReportOutput(raw);
     if (!parsed.contentMd || parsed.contentMd.length < 200) throw new Error("Rapport trop court ou vide renvoyé par l'IA");

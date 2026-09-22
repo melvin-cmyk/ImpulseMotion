@@ -9,6 +9,7 @@ import {
 } from "@/lib/meta-api";
 
 import { relayComplete } from "@/lib/relay-chat";
+import { recordAiUsage } from "@/lib/ai-usage";
 
 function offsetDate(days: number): string {
   const d = new Date();
@@ -89,8 +90,6 @@ async function buildContextJson(alert: AlertContext, accountLabel?: string): Pro
       },
       topAds,
     },
-    null,
-    2,
   );
 }
 
@@ -111,11 +110,11 @@ Exemple de format attendu :
 2. Réalloue ~30% du budget vers "Christmas Hero" (3.2x ROAS, sous-financée).
 3. Vérifie dans Ads Manager si l'audience est saturée (fréquence à 5.8).`;
 
-async function callRelay(userMessage: string, systemPrompt: string): Promise<string> {
+async function callRelay(userMessage: string, systemPrompt: string, clientName: string): Promise<string> {
   // No MCP tools — all the context is inline; keeps the call fast and cheap.
   return relayComplete(
     { messages: [{ role: "user", content: userMessage }], systemPrompt, allowedServers: [], accountScope: {} },
-    { maxMs: 55_000 },
+    { maxMs: 55_000, onUsage: (usage) => void recordAiUsage(usage, { feature: "recommend", clientName }) },
   );
 }
 
@@ -124,5 +123,5 @@ export async function generateRecommendations(
   accountLabel?: string,
 ): Promise<string> {
   const context = await buildContextJson(alert, accountLabel);
-  return callRelay(`Données (JSON) :\n${context}`, RECOMMENDATION_SYSTEM_PROMPT);
+  return callRelay(`Données (JSON) :\n${context}`, RECOMMENDATION_SYSTEM_PROMPT, accountLabel ?? alert.clientId);
 }

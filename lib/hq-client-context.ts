@@ -20,6 +20,9 @@ import { prisma } from "@/lib/prisma";
 import { relayComplete, extractFence, parseLooseJson } from "@/lib/relay-chat";
 import { HQ_CONTEXT_PROFILE } from "@/lib/ai-profiles";
 import { HQ_SERVER } from "@/lib/mcp-whitelist";
+import { recordAiUsage, type UsageContext } from "@/lib/ai-usage";
+
+type UsageOpts = { dashboardId?: string | null; user?: UsageContext["user"] };
 
 export interface HqClientContext {
   /** projects/{slug} in HQ. */
@@ -122,7 +125,7 @@ export function isHqContextFresh(d: Pick<DashboardForHq, "hqContextMd" | "hqCont
 /** One relay session with HQ read tools; throws when the relay is down. */
 export async function lookupHqClientContext(
   input: { name: string; metaAccountId: string | null; googleCustomerId: string | null; slug?: string | null },
-  opts: { maxMs?: number } = {},
+  opts: { maxMs?: number; usage?: UsageOpts } = {},
 ): Promise<HqContextLookupResult> {
   const raw = await relayComplete(
     {
@@ -134,7 +137,10 @@ export async function lookupHqClientContext(
       effort: HQ_CONTEXT_PROFILE.effort,
       maxTurns: HQ_CONTEXT_PROFILE.maxTurns,
     },
-    { maxMs: opts.maxMs ?? 90_000 },
+    {
+      maxMs: opts.maxMs ?? 90_000,
+      onUsage: (usage) => void recordAiUsage(usage, { feature: "hq_context", clientName: input.name, ...(opts.usage ?? {}) }),
+    },
   );
   return parseHqContextOutput(raw);
 }
@@ -146,7 +152,7 @@ export async function lookupHqClientContext(
  */
 export async function getHqClientContext(
   dashboardId: string,
-  opts: { force?: boolean; maxMs?: number } = {},
+  opts: { force?: boolean; maxMs?: number; usage?: UsageOpts } = {},
 ): Promise<{ context: HqClientContext | null; warning: string | null; cached: boolean }> {
   const d = await prisma.dashboard.findUnique({
     where: { id: dashboardId },
@@ -161,7 +167,7 @@ export async function getHqClientContext(
   try {
     const result = await lookupHqClientContext(
       { name: d.name, metaAccountId: d.metaAccountId, googleCustomerId: d.googleCustomerId, slug: d.hqSlug },
-      { maxMs: opts.maxMs },
+      { maxMs: opts.maxMs, usage: { dashboardId: d.id, user: opts.usage?.user } },
     );
     if (!result.found) {
       // Keep a stale brief rather than nothing; just say why it was not refreshed.

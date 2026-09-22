@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-helpers";
-import { monthRange, summarizeUsage, usageCsv } from "@/lib/ai-usage";
+import { monthRange, summarizeByFeature, summarizeUsage, usageCsv } from "@/lib/ai-usage";
 
 export async function GET(req: NextRequest) {
   const guard = await requireAdmin();
@@ -21,6 +21,16 @@ export async function GET(req: NextRequest) {
     },
   });
   const clients = summarizeUsage(rows);
+  // Internal view: every surface, every provider — where the tokens go.
+  const allRows = await prisma.aiUsage.findMany({
+    where: { createdAt: { gte: start, lt: end } },
+    select: {
+      feature: true, provider: true, model: true, turns: true,
+      dashboardId: true, clientName: true, clientKey: true, userEmail: true, userRole: true,
+      inputTokens: true, outputTokens: true, cacheReadTokens: true, cacheWriteTokens: true,
+    },
+  });
+  const features = summarizeByFeature(allRows);
 
   if (req.nextUrl.searchParams.get("format") === "csv") {
     return new NextResponse(usageCsv(month, clients), {
@@ -31,5 +41,5 @@ export async function GET(req: NextRequest) {
       },
     });
   }
-  return NextResponse.json({ month, clients }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ month, clients, features }, { headers: { "Cache-Control": "no-store" } });
 }

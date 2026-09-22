@@ -1,17 +1,31 @@
 /**
- * AI usage ledger — what runs on Amazon Bedrock (the private client bots),
- * recorded per answered message so the agency can bill clients by usage.
+ * AI usage ledger — every relay session, recorded per answer with its
+ * surface (`feature`), so two questions can be answered from one table:
+ *   - billing: what the private client bots consumed on Amazon Bedrock
+ *     (provider "bedrock", role "client" = billable);
+ *   - token discipline: where the agency's own subscription tokens go
+ *     (console, copilote, rapports, analyses…) — the internal view of /admin/usage.
  *
  * The relay ends every session with a `usage` SSE event (list-price cost,
- * tokens, turns, duration, provider, model). Only Bedrock sessions are kept:
- * everything else runs on the agency's subscription and is not billable.
+ * tokens, turns, duration, provider, model, effort).
  */
 
 import { prisma } from "@/lib/prisma";
 
+export type AiFeature =
+  | "client_bot"
+  | "console"
+  | "copilot"
+  | "report"
+  | "report_chat"
+  | "creative_analysis"
+  | "recommend"
+  | "hq_context";
+
 export interface RelayUsage {
   provider: string;
   model: string;
+  effort: string | null;
   costUsd: number;
   turns: number;
   durationMs: number;
@@ -32,6 +46,7 @@ export function parseUsageEvent(evt: unknown): RelayUsage | null {
   return {
     provider: typeof e.provider === "string" ? e.provider : "unknown",
     model: typeof e.model === "string" ? e.model : "unknown",
+    effort: typeof e.effort === "string" ? e.effort : null,
     costUsd: num(e.cost),
     turns: Math.round(num(e.turns)),
     durationMs: Math.round(num(e.duration)),
@@ -42,34 +57,60 @@ export function parseUsageEvent(evt: unknown): RelayUsage | null {
   };
 }
 
-/** Writes one ledger row for a bot answer. Non-Bedrock sessions are ignored. */
+export interface UsageContext {
+  feature: AiFeature;
+  /** Client the session was about (null for the free console). */
+  dashboardId?: string | null;
+  clientName: string;
+  botId?: string | null;
+  clientKey?: string | null;
+  /** Absent for cron / system runs. */
+  user?: { id?: string | null; email?: string | null; role: string } | null;
+}
+
+/** Writes one ledger row. Never throws: a ledger failure must not fail the feature. */
+export async function recordAiUsage(usage: RelayUsage, ctx: UsageContext): Promise<void> {
+  try {
+    await prisma.aiUsage.create({
+      data: {
+        provider: usage.provider,
+        model: usage.model,
+        feature: ctx.feature,
+        dashboardId: ctx.dashboardId ?? null,
+        clientName: ctx.clientName,
+        botId: ctx.botId ?? null,
+        clientKey: ctx.clientKey ?? null,
+        userId: ctx.user?.id ?? null,
+        userEmail: ctx.user?.email ?? null,
+        userRole: ctx.user?.role ?? "system",
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        costUsd: usage.costUsd,
+        turns: usage.turns,
+        durationMs: usage.durationMs,
+      },
+    });
+  } catch (e) {
+    console.error(`[ai-usage] ledger failed (${ctx.feature})`, e instanceof Error ? e.message : e);
+  }
+}
+
+/** Writes one ledger row for a bot answer (any provider; billing filters on Bedrock). */
 export async function recordBotUsage(input: {
   usage: RelayUsage;
   bot: { id: string; clientKey: string; dashboard: { id: string; name: string } };
   user: { id: string; email?: string | null; role: string };
 }): Promise<void> {
   const { usage, bot, user } = input;
-  if (usage.provider !== "bedrock") return;
-  await prisma.aiUsage.create({
-    data: {
-      provider: usage.provider,
-      model: usage.model,
-      feature: "client_bot",
-      dashboardId: bot.dashboard.id,
-      clientName: bot.dashboard.name,
-      botId: bot.id,
-      clientKey: bot.clientKey,
-      userId: user.id,
-      userEmail: user.email ?? null,
-      userRole: user.role,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      cacheReadTokens: usage.cacheReadTokens,
-      cacheWriteTokens: usage.cacheWriteTokens,
-      costUsd: usage.costUsd,
-      turns: usage.turns,
-      durationMs: usage.durationMs,
-    },
+  await recordAiUsage(usage, {
+    feature: "client_bot",
+    dashboardId: bot.dashboard.id,
+    clientName: bot.dashboard.name,
+    botId: bot.id,
+    clientKey: bot.clientKey,
+    user,
   });
 }
 
@@ -141,6 +182,30 @@ export function summarizeUsage(rows: UsageRow[]): ClientUsage[] {
   return [...byClient.values()]
     .map(({ byUser, ...c }) => ({ ...c, users: [...byUser.values()].sort((a, b) => totalTokens(b) - totalTokens(a)) }))
     .sort((a, b) => totalTokens(b.billable) + totalTokens(b.staff) - (totalTokens(a.billable) + totalTokens(a.staff)));
+}
+
+export interface FeatureUsage extends UsageTotals {
+  feature: string;
+  provider: string;
+  model: string;
+  turns: number;
+  /** Average tokens per session, all kinds summed — the "how heavy is one message" figure. */
+  avgTokensPerMessage: number;
+}
+
+/** Token spend per surface × provider × model — the internal, non-billing view. */
+export function summarizeByFeature(rows: Array<UsageRow & { feature: string; provider: string; model: string; turns: number }>): FeatureUsage[] {
+  const by = new Map<string, FeatureUsage>();
+  for (const r of rows) {
+    const key = `${r.feature}|${r.provider}|${r.model}`;
+    let f = by.get(key);
+    if (!f) { f = { feature: r.feature, provider: r.provider, model: r.model, turns: 0, avgTokensPerMessage: 0, ...emptyTotals() }; by.set(key, f); }
+    add(f, r);
+    f.turns += r.turns;
+  }
+  return [...by.values()]
+    .map((f) => ({ ...f, avgTokensPerMessage: f.messages ? Math.round(totalTokens(f) / f.messages) : 0 }))
+    .sort((a, b) => totalTokens(b) - totalTokens(a));
 }
 
 /** "2026-09" → [start, end) in UTC; invalid or missing → the current month. */
