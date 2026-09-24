@@ -25,7 +25,7 @@ export interface AiProfile {
   maxTurns?: number;
 }
 
-const MODELS: ReadonlySet<string> = new Set<RelayModel>(["sonnet", "opus"]);
+const MODELS: ReadonlySet<string> = new Set<RelayModel>(["sonnet", "opus", "fable"]);
 const EFFORTS: ReadonlySet<string> = new Set<RelayEffort>(["low", "medium", "high"]);
 
 function fromEnv(modelVar: string, effortVar: string, fallback: AiProfile): AiProfile {

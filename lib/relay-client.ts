@@ -19,7 +19,7 @@ export interface ChatMessage {
 
 export interface StreamChatOptions {
   conversationId?: string;
-  model?: "sonnet" | "opus";
+  model?: "sonnet" | "opus" | "fable";
   effort?: "low" | "medium" | "high";
   /** Claude Max account of the relay pool, or "auto". */
   account?: string;

@@ -32,7 +32,9 @@ const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";
 // ignored and the relay default applies.
 const MODEL_ALIASES = {
   sonnet: process.env.CLAUDE_MODEL_SONNET || "claude-sonnet-5",
-  opus: process.env.CLAUDE_MODEL_OPUS || "claude-opus-5",
+  opus: process.env.CLAUDE_MODEL_OPUS || "claude-opus-5-5",
+  // Fable 5.1 (Mythos-class) — available to the agency's Max subscriptions.
+  fable: process.env.CLAUDE_MODEL_FABLE || "claude-fable-5-1",
 };
 const EFFORT_LEVELS = new Set(["low", "medium", "high"]);
 function resolveModel(alias, useBedrock) {

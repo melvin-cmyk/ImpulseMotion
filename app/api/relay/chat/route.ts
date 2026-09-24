@@ -35,7 +35,7 @@ const MAX_MESSAGES = 30;
 const MAX_MESSAGE_CHARS = 20000;
 const STAFF_MAX_TURNS = 40;
 const STAFF_BUDGET_MS = 280_000;
-const MODELS = new Set<RelayModel>(["sonnet", "opus"]);
+const MODELS = new Set<RelayModel>(["sonnet", "opus", "fable"]);
 const EFFORTS = new Set<RelayEffort>(["low", "medium", "high"]);
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,30}$/;
 

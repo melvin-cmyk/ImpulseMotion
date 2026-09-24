@@ -28,7 +28,7 @@ export const maxDuration = 300;
 const COPILOT_BUDGET_MS = 280_000;
 const COPILOT_MAX_TURNS = 40;
 
-const MODELS = new Set<RelayModel>(["sonnet", "opus"]);
+const MODELS = new Set<RelayModel>(["sonnet", "opus", "fable"]);
 const EFFORTS = new Set<RelayEffort>(["low", "medium", "high"]);
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,30}$/;
 

@@ -71,13 +71,14 @@ export function filesNote(files: ChatFile[]): string {
 export const FILES_NOTE_RE = /\n\n\[Fichiers déposés dans [^\]]*\]$/;
 
 // ── Model / effort preferences ──────────────────────────────────────────────
-export type AiModel = "sonnet" | "opus";
+export type AiModel = "sonnet" | "opus" | "fable";
 export type AiEffort = "low" | "medium" | "high";
 export interface AiPrefs { model: AiModel; effort: AiEffort; /** "auto" or a Claude Max account id of the relay pool */ account?: string }
 
 export const MODEL_OPTIONS: Array<{ value: AiModel; label: string; hint: string }> = [
-  { value: "opus", label: "Opus", hint: "Le plus fort pour orchestrer des analyses" },
-  { value: "sonnet", label: "Sonnet", hint: "Rapide et économe" },
+  { value: "opus", label: "Opus 5.5", hint: "Le plus fort pour orchestrer des analyses" },
+  { value: "fable", label: "Fable 5.1", hint: "Le plus intelligent, consomme le plus de quota" },
+  { value: "sonnet", label: "Sonnet 5", hint: "Rapide et économe" },
 ];
 export const EFFORT_OPTIONS: Array<{ value: AiEffort; label: string; hint: string }> = [
   { value: "low", label: "Réflexion courte", hint: "Le moins cher" },

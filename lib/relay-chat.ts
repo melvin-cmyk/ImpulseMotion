@@ -61,7 +61,7 @@ export interface RelayChatBody {
   sessionKey?: string;
 }
 
-export type RelayModel = "sonnet" | "opus";
+export type RelayModel = "sonnet" | "opus" | "fable";
 export type RelayEffort = "low" | "medium" | "high";
 
 interface RelayEvent { type: string; text?: string; message?: string }
