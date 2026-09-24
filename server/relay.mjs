@@ -98,7 +98,7 @@ pruneSessions();
 // Amazon Bedrock — used ONLY when a caller asks for it (`provider: "bedrock"`,
 // today the private client bots): inference then runs in the agency's AWS
 // account, EU region, instead of the host's Claude subscription. Credentials
-// come from the host's AWS profile (~/.aws). No silent fallback either way.
+// come from the host's AWS profile (~/.aws). Also the quota fallback target (see below).
 const BEDROCK_MODEL = process.env.BEDROCK_MODEL || "eu.anthropic.claude-sonnet-4-6";
 const BEDROCK_REGION = process.env.BEDROCK_REGION || "eu-west-3";
 // No browser ever talks to the relay directly — only the Next.js backend does,
@@ -115,13 +115,21 @@ const CLIENT_DATA_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-client-data.mjs";
 const SCOPED_ADS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-scoped-ads.mjs";
 const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // HQ (hqforwork.com) — mémoire d'entreprise de l'agence : skills, knowledge,
-// projets, policies. Ce n'est PAS une entrée de mcp-claude.json : c'est le
-// connecteur claude.ai du compte hôte ("claude.ai mcp hq"), que le CLI ne charge
-// que sans --strict-mcp-config. Il agit avec l'identité propriétaire de
-// l'agence, donc : IA interne uniquement (jamais un bot client), et uniquement
-// les outils de lecture listés ci-dessous.
+// projets, policies. Ce n'est PAS une entrée de mcp-claude.json : le CLI ne le
+// charge que sans --strict-mcp-config, depuis le compte hôte, sous deux formes :
+//   - abonnement Claude Max : le connecteur claude.ai "claude.ai mcp hq"
+//     (préfixe mcp__claude_ai_mcp_hq__) ;
+//   - Bedrock (bascule quota) : les connecteurs claude.ai ne se chargent pas,
+//     seul le serveur MCP HTTP "hq" de ~/.claude.json (OAuth du compte hôte,
+//     préfixe mcp__hq__) est disponible — il doit avoir été authentifié une
+//     fois (`claude` → /mcp → hq) sinon HQ manque, ce que le log signale.
+// Il agit avec l'identité propriétaire de l'agence, donc : IA interne
+// uniquement (jamais un bot client), et uniquement les outils de lecture
+// listés ci-dessous.
 const HQ_SERVER = "hq";
 const HQ_TOOL_PREFIX = "mcp__claude_ai_mcp_hq__";
+const HQ_LOCAL_TOOL_PREFIX = "mcp__hq__";
+const HQ_INIT_NAMES = new Set(["claude.ai mcp hq", HQ_SERVER]);
 const HQ_READ_TOOLS = [
   "hq_context_grounding", "hq_companies_list", "search", "fetch", "hq_content_get",
   "hq_knowledge_list", "hq_knowledge_get", "hq_files_list", "hq_files_read",
@@ -256,7 +264,20 @@ const SCOPED_ADS_SERVERS = {
  * temp file, removed once the CLI exits.
  * Returns { path, cleanup, servers } — servers being the surviving list.
  */
-function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId }) {
+// The host's "hq" HTTP server (OAuth done once via `claude` → /mcp). Read from
+// ~/.claude.json so the entry (url, OAuth client) stays the one the token was
+// issued for; --restricted never loads it on its own, hence the explicit copy.
+const HQ_LOCAL_FALLBACK = { type: "http", url: "https://hq-mcp.hq.computer/mcp" };
+function hqLocalEntry() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude.json"), "utf8"));
+    const e = cfg?.mcpServers?.[HQ_SERVER];
+    if (e && typeof e.url === "string") return e;
+  } catch { /* fall through */ }
+  return HQ_LOCAL_FALLBACK;
+}
+
+function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqLocal = false }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -269,6 +290,7 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId 
   const baseServers = base.mcpServers || {};
   const mcpServers = {};
   const kept = [];
+  if (hqLocal) mcpServers[HQ_SERVER] = hqLocalEntry();
 
   for (const name of servers) {
     if (name === CLIENT_DATA_SERVER) {
@@ -385,16 +407,20 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     dataScope && typeof dataScope === "object" && typeof dataScope.ga4PropertyId === "string" && dataScope.ga4PropertyId.trim()
       ? dataScope.ga4PropertyId.trim().slice(0, 64)
       : null;
-  // HQ carries the agency owner's identity: never for a client bot (dataScope
-  // or Bedrock = bot client). Pulled out of `servers` either way — it has no
-  // entry in the mcp-config, the CLI gets it from the host claude.ai account.
-  const useHq = servers.includes(HQ_SERVER) && !dataScope && !useBedrock;
+  // HQ carries the agency owner's identity: never for a client bot (dataScope,
+  // or an explicit `provider: "bedrock"` caller). A staff chat pushed onto
+  // Bedrock by the quota fallback keeps HQ, through the host's local "hq"
+  // server instead of the claude.ai connector. Pulled out of `servers` either
+  // way — it has no entry in the mcp-config, the CLI gets it from the host.
+  const clientBot = !!dataScope || provider === "bedrock";
+  const useHq = servers.includes(HQ_SERVER) && !clientBot;
+  const hqToolPrefix = useBedrock ? HQ_LOCAL_TOOL_PREFIX : HQ_TOOL_PREFIX;
   if (servers.includes(HQ_SERVER) && !useHq) console.error("[chat] hq refusé — requête de bot client");
   servers = servers.filter((s) => s !== HQ_SERVER);
 
   // Every chat goes through a generated config: scopes are pinned in the
   // environment of stdio servers, never left to the prompt.
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId });
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqLocal: useHq && useBedrock });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -405,7 +431,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   const toolPatterns = servers.flatMap((s) =>
     SERVER_TOOL_ALLOWLIST[s] ? SERVER_TOOL_ALLOWLIST[s].map((t) => `mcp__${s}__${t}`) : [`mcp__${s}__*`],
   );
-  if (useHq) toolPatterns.push(...HQ_READ_TOOLS.map((t) => `${HQ_TOOL_PREFIX}${t}`));
+  if (useHq) toolPatterns.push(...HQ_READ_TOOLS.map((t) => `${hqToolPrefix}${t}`));
 
   // Scope the AI to only the accountIds the caller is allowed to query.
   // Callers may override the base prompt for one-shot tasks (recommendations,
@@ -472,10 +498,11 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
     ...(effort ? ["--effort", effort] : []),
     "--mcp-config", mcpConfigPath,
     // Only the servers we declare: never the claude.ai connectors of the host
-    // account — except for HQ, which only exists as one. The other connectors
-    // then load too, but stay unusable: in --print mode a tool outside
-    // --allowedTools is denied, and only HQ_READ_TOOLS are listed.
-    ...(useHq ? [] : ["--strict-mcp-config"]),
+    // account — except for HQ on the subscription, which only exists as one.
+    // The other connectors then load too, but stay unusable: in --print mode a
+    // tool outside --allowedTools is denied, and only HQ_READ_TOOLS are listed.
+    // On Bedrock the connectors never load; HQ is then the declared "hq" entry.
+    ...(useHq && !useBedrock ? [] : ["--strict-mcp-config"]),
     "--system-prompt", scopedSystemPrompt,
     // One-shot calls leave nothing on disk; named conversations persist so
     // the next turn can --resume them.
@@ -568,6 +595,11 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
 
       // System init — send tool/server info
       if (event.type === "system" && event.subtype === "init") {
+        if (useHq) {
+          const hq = (event.mcp_servers || []).filter((m) => HQ_INIT_NAMES.has(m.name));
+          const ok = hq.some((m) => m.status === "connected");
+          if (!ok) console.error(`[chat] hq indisponible (${useBedrock ? "bedrock : serveur hq de ~/.claude.json non authentifié ?" : "connecteur claude.ai"}) — ${hq.map((m) => `${m.name}=${m.status}`).join(", ") || "absent"}`);
+        }
         send("init", {
           tools: (event.tools || []).filter(t => t.startsWith("mcp__")),
           servers: event.mcp_servers || [],
