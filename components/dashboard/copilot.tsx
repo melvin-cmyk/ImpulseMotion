@@ -21,7 +21,45 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { validateWidgetConfig, validateWidgetWidth, type ResolvedWidget } from "@/lib/dashboard-types";
 
-interface ChatMessage { role: "user" | "assistant"; content: string }
+/** Image attached to a user message: base64 (no data: prefix) + its media type. */
+interface ChatImage { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string; name?: string }
+
+interface ChatMessage { role: "user" | "assistant"; content: string; images?: ChatImage[] }
+
+const MAX_IMAGES_PER_MESSAGE = 4;
+// Images are downsized in the browser so a screenshot costs ~100–300 KB and
+// the whole POST stays far under Vercel's 4.5 MB body limit.
+const IMAGE_MAX_EDGE = 1600;
+const IMAGE_JPEG_QUALITY = 0.85;
+const SPREADSHEET_EXT_RE = /\.(xlsx?|xlsm|csv|tsv|numbers|ods)$/i;
+
+/** Downscale + re-encode a picked image; PNG stays PNG only when small (screenshots with text). */
+async function prepareImage(file: File): Promise<ChatImage> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error(`Image illisible : ${file.name}`));
+      el.src = url;
+    });
+    const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas indisponible");
+    ctx.drawImage(img, 0, 0, w, h);
+    const keepPng = file.type === "image/png" && file.size <= 600_000 && scale === 1;
+    const mediaType: ChatImage["mediaType"] = keepPng ? "image/png" : "image/jpeg";
+    const dataUrl = canvas.toDataURL(mediaType, IMAGE_JPEG_QUALITY);
+    return { mediaType, data: dataUrl.slice(dataUrl.indexOf(",") + 1), name: file.name };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 type ProposalStatus = "pending" | "applying" | "applied" | "refused" | "failed" | "invalid";
 
@@ -124,16 +162,22 @@ function proposalLabel(action: Record<string, unknown>, widgets: ResolvedWidget[
 }
 
 export function CopilotPanel({
-  dashboardId, widgets, onApplied, onClose,
+  dashboardId, widgets, onApplied, onClose, sheetsShareEmail,
 }: {
   dashboardId: string;
   widgets: ResolvedWidget[];
   onApplied: () => void;
   onClose: () => void;
+  /** Google account the consultant must share a Sheet with (editor) so the copilot can read it. */
+  sheetsShareEmail: string;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
   const [input, setInput] = useState("");
+  const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
+  const [showSheetHelp, setShowSheetHelp] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [streamText, setStreamText] = useState<string | null>(null);
   const [toolNote, setToolNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -183,10 +227,40 @@ export function CopilotPanel({
     }).catch(() => {});
   }, [dashboardId]);
 
+  /** Files from the picker, a paste or a drop: images are downsized and queued;
+   *  spreadsheets get the Google Sheets instructions instead of an upload. */
+  async function addFiles(files: FileList | File[]) {
+    const list = Array.from(files);
+    if (!list.length) return;
+    setError(null);
+    const images = list.filter((f) => f.type.startsWith("image/"));
+    const sheets = list.filter((f) => SPREADSHEET_EXT_RE.test(f.name));
+    if (sheets.length) setShowSheetHelp(true);
+    const other = list.length - images.length - sheets.length;
+    if (other > 0) setError("Seules les images sont jointes directement ; un tableur passe par Google Sheets (voir ci-dessous).");
+    const room = MAX_IMAGES_PER_MESSAGE - pendingImages.length;
+    if (images.length > room) setError(`${MAX_IMAGES_PER_MESSAGE} images maximum par message.`);
+    const prepared: ChatImage[] = [];
+    for (const f of images.slice(0, Math.max(0, room))) {
+      try { prepared.push(await prepareImage(f)); }
+      catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    }
+    if (prepared.length) setPendingImages((prev) => [...prev, ...prepared].slice(0, MAX_IMAGES_PER_MESSAGE));
+  }
+
+  function copyShareEmail() {
+    navigator.clipboard?.writeText(sheetsShareEmail).then(() => {
+      setCopiedEmail(true);
+      setTimeout(() => setCopiedEmail(false), 1500);
+    }).catch(() => {});
+  }
+
   async function send() {
     const text = input.trim();
-    if (!text || busy) return;
+    const images = pendingImages;
+    if ((!text && !images.length) || busy) return;
     setInput("");
+    setPendingImages([]);
     setError(null);
     setTruncated(false);
     setBusy(true);
@@ -196,11 +270,12 @@ export function CopilotPanel({
     // Feed apply outcomes back so the model can correct itself.
     const notes = pendingNotesRef.current;
     pendingNotesRef.current = [];
+    const body = text || (images.length > 1 ? "Voici des images." : "Voici une image.");
     const content = notes.length
-      ? `[Résultat des propositions précédentes : ${notes.join(" ; ")}]\n\n${text}`
-      : text;
+      ? `[Résultat des propositions précédentes : ${notes.join(" ; ")}]\n\n${body}`
+      : body;
 
-    const next: ChatMessage[] = [...messages, { role: "user" as const, content }];
+    const next: ChatMessage[] = [...messages, { role: "user" as const, content, ...(images.length ? { images } : {}) }];
     setMessages(next);
     setStreamText("");
 
@@ -268,6 +343,7 @@ export function CopilotPanel({
       setError(e instanceof Error ? e.message : String(e));
       setMessages(messages); // roll back the user message on failure
       setInput(text);
+      setPendingImages(images);
     } finally {
       setBusy(false);
       busyRef.current = false;
@@ -345,6 +421,20 @@ export function CopilotPanel({
     if (m.role === "user") {
       return (
         <div key={i} className="ml-8 bg-violet-950/50 border border-violet-900/40 rounded-xl px-3 py-2 text-sm text-gray-200 whitespace-pre-wrap">
+          {m.images && m.images.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-1.5">
+              {m.images.map((im, k) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={k}
+                  src={`data:${im.mediaType};base64,${im.data}`}
+                  alt={im.name ?? `Image ${k + 1}`}
+                  title={im.name}
+                  className="h-16 w-16 object-cover rounded-md border border-violet-900/60"
+                />
+              ))}
+            </div>
+          )}
           {m.content.replace(/^\[Résultat des propositions précédentes[^\]]*\]\n\n/, "")}
         </div>
       );
@@ -407,9 +497,15 @@ export function CopilotPanel({
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && !streamText && (
-          <div className="text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-3 py-3">
-            Exemples : « Ajoute une courbe du ROAS sur 90 jours », « Passe le tableau
-            Google en pleine largeur », « Que dire des perfs de ce compte ? »
+          <div className="text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 space-y-1.5">
+            <p>
+              Exemples : « Ajoute une courbe du ROAS sur 90 jours », « Passe le tableau
+              Google en pleine largeur », « Que dire des perfs de ce compte ? »
+            </p>
+            <p>
+              Vous pouvez joindre des images (captures, créas) avec le trombone ou en les collant.
+              Pour un Excel, partagez-le en Google Sheet avec <span className="text-gray-300">{sheetsShareEmail}</span> puis collez le lien.
+            </p>
           </div>
         )}
         {messages.map(renderMessage)}
@@ -430,22 +526,85 @@ export function CopilotPanel({
 
       <form
         onSubmit={(e) => { e.preventDefault(); send(); }}
-        className="p-3 border-t border-gray-800 flex gap-2"
+        onDragOver={(e) => { e.preventDefault(); }}
+        onDrop={(e) => { e.preventDefault(); if (!busy) void addFiles(e.dataTransfer.files); }}
+        className="p-3 border-t border-gray-800 space-y-2"
       >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Demandez un ajout, une analyse…"
-          disabled={busy}
-          className="flex-1 px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-white focus:border-violet-500 focus:outline-none disabled:opacity-60"
-        />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
-        >
-          {busy ? "…" : "Envoyer"}
-        </button>
+        {showSheetHelp && (
+          <div className="text-[11px] text-gray-300 bg-gray-900 border border-violet-900/50 rounded-lg px-3 py-2 space-y-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-semibold text-violet-300">Partager un Excel ou un CSV</div>
+              <button type="button" onClick={() => setShowSheetHelp(false)} className="text-gray-500 hover:text-white">✕</button>
+            </div>
+            <ol className="list-decimal pl-4 space-y-0.5 text-gray-400">
+              <li>Importez le fichier dans Google Sheets (Fichier → Importer).</li>
+              <li>
+                Partagez la feuille avec{" "}
+                <button type="button" onClick={copyShareEmail} title="Copier l'adresse" className="font-mono text-gray-200 hover:text-white underline decoration-dotted">
+                  {sheetsShareEmail}
+                </button>{" "}
+                en <span className="text-gray-200">Éditeur</span>.{copiedEmail && <span className="text-emerald-400"> Copié</span>}
+              </li>
+              <li>Collez le lien de la feuille ici, avec le nom de l&apos;onglet à lire.</li>
+            </ol>
+          </div>
+        )}
+        {pendingImages.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {pendingImages.map((im, k) => (
+              <div key={k} className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`data:${im.mediaType};base64,${im.data}`} alt={im.name ?? `Image ${k + 1}`} title={im.name} className="h-14 w-14 object-cover rounded-md border border-gray-700" />
+                <button
+                  type="button"
+                  onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== k))}
+                  aria-label="Retirer l'image"
+                  className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-gray-800 border border-gray-600 text-gray-300 text-[10px] leading-none hover:bg-red-700"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,.xlsx,.xls,.csv"
+            multiple
+            hidden
+            onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
+            title="Joindre des images (ou un Excel via Google Sheets)"
+            aria-label="Joindre un fichier"
+            className="px-2.5 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 disabled:opacity-50"
+          >
+            📎
+          </button>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (files.length && !busy) { e.preventDefault(); void addFiles(files); }
+            }}
+            placeholder={pendingImages.length ? "Que faire de ces images ?" : "Demandez un ajout, une analyse…"}
+            disabled={busy}
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-white focus:border-violet-500 focus:outline-none disabled:opacity-60"
+          />
+          <button
+            type="submit"
+            disabled={busy || (!input.trim() && pendingImages.length === 0)}
+            className="px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
+          >
+            {busy ? "…" : "Envoyer"}
+          </button>
+        </div>
       </form>
     </aside>
   );

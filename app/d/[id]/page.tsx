@@ -18,6 +18,7 @@ import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordi
 import { WidgetBody, WidgetFrame } from "@/components/dashboard/renderers";
 import { WidgetForm, DashboardSettingsForm, EditControls, SortableWidgetFrame } from "@/components/dashboard/editor";
 import { CopilotPanel } from "@/components/dashboard/copilot";
+import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
 import { DEFAULT_PAGE_ID, type DashboardPageInfo, type ResolvedWidget } from "@/lib/dashboard-types";
 import { PageForm, PageTabs } from "@/components/dashboard/pages";
 import { describeRange, lastFullDays, prevRange } from "@/lib/date-ranges";
@@ -496,6 +497,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
 
       {isStaff && showCopilot && payload && (
         <CopilotPanel
+          sheetsShareEmail={SHEETS_SHARE_EMAIL}
           dashboardId={payload.dashboard.id}
           widgets={widgets}
           onApplied={load}

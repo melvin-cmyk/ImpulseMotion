@@ -115,6 +115,11 @@ const CLIENT_DATA_SERVER = "client-data";
 const CLIENT_DATA_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-client-data.mjs";
 const SCOPED_ADS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-scoped-ads.mjs";
 const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
+// Image attachments (copilote) — bounded so a chat can't ship megabytes of pixels.
+const IMAGE_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const IMAGE_MAX_B64_CHARS = 2_000_000; // ≈1.5 MB per image
+const IMAGES_PER_MESSAGE = 4;
+const IMAGES_PER_PROMPT = 6;
 // HQ (hqforwork.com) — mémoire d'entreprise de l'agence : skills, knowledge,
 // projets, policies. Ce n'est PAS une entrée de mcp-claude.json : le CLI ne le
 // charge que sans --strict-mcp-config, depuis le compte hôte, sous deux formes :
@@ -146,6 +151,9 @@ const ALLOWED_MCP_SERVERS = new Set([
   "meta-ads-impulse",
   "mcp-google-ads",
   "mcp-google-analytics",
+  // Google Sheets (n8n, compte data@ de l'agence) : lecture seule, staff.
+  // Le consultant partage sa feuille avec ce compte, puis colle le lien.
+  "mcp-google-sheet",
   CLIENT_DATA_SERVER,
   HQ_SERVER,
 ]);
@@ -153,6 +161,7 @@ const ALLOWED_MCP_SERVERS = new Set([
 // Per-server explicit tool allowlist (read-only). Servers absent from this map
 // expose read-only tools only and are allowed wholesale (mcp__<server>__*).
 const SERVER_TOOL_ALLOWLIST = {
+  "mcp-google-sheet": ["search_sheet", "Get_row_s_in_sheet_in_Google_Sheets"],
   "mcp-google-analytics": [
     "get_data_retention_settings", "get_data_stream", "get_enhanced_measurement_settings",
     "get_metadata", "get_property", "list_accounts", "list_audiences",
@@ -381,6 +390,19 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
 
   const sessionKey = typeof options.sessionKey === "string" && SESSION_KEY_RE.test(options.sessionKey) ? options.sessionKey : null;
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  // Images attached to user messages ({ mediaType, data } base64). They go to
+  // the CLI as image content blocks over stdin (--input-format stream-json);
+  // the text path is untouched when there are none.
+  const imagesOf = (m) => (Array.isArray(m?.images) ? m.images : [])
+    .filter((im) => im && IMAGE_MEDIA_TYPES.has(im.mediaType) && typeof im.data === "string" && im.data.length > 0 && im.data.length <= IMAGE_MAX_B64_CHARS)
+    .slice(0, IMAGES_PER_MESSAGE);
+  // Fresh session: the whole history is replayed as text, plus the most recent
+  // images (older ones are described, not re-sent — the budget is bounded).
+  const historyImages = () => {
+    const out = [];
+    messages.forEach((m, i) => { if (m.role === "user") for (const im of imagesOf(m)) out.push({ ...im, index: i + 1 }); });
+    return out.slice(-IMAGES_PER_PROMPT);
+  };
   const flattenHistory = () => {
     if (messages.length === 1 && messages[0].role === "user") return messages[0].content;
     const parts = [];
@@ -481,6 +503,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   if (sessionKey && existing && !canResume) forgetSession(sessionKey);
   const sessionId = canResume ? existing.id : (sessionKey ? crypto.randomUUID() : null);
   const prompt = canResume && lastUser ? lastUser.content : flattenHistory();
+  const promptImages = canResume && lastUser ? imagesOf(lastUser).map((im) => ({ ...im, index: messages.length })) : historyImages();
   if (sessionKey) {
     sessions[sessionKey] = { id: sessionId, fingerprint, updatedAt: Date.now() };
     saveSessions();
@@ -493,7 +516,8 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   scopedSystemPrompt += `\n\nDATE DU JOUR : ${todayParis} (Europe/Paris). Les données du jour sont partielles : par défaut, raisonne sur des jours complets (ex. « 7 derniers jours » = J-7 → J-1) et passe des dates explicites aux outils.`;
 
   const args = [
-    "--print", prompt,
+    // With images the prompt travels on stdin as content blocks instead.
+    ...(promptImages.length ? ["--print", "--input-format", "stream-json"] : ["--print", prompt]),
     "--output-format", "stream-json",
     "--verbose",
     "--include-partial-messages",
@@ -545,6 +569,14 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
+  if (promptImages.length) {
+    const content = [{ type: "text", text: prompt }];
+    for (const im of promptImages) {
+      content.push({ type: "text", text: `[Image jointe par le consultant au message ${im.index}${im.name ? ` : ${String(im.name).slice(0, 80)}` : ""}]` });
+      content.push({ type: "image", source: { type: "base64", media_type: im.mediaType, data: im.data } });
+    }
+    child.stdin.write(JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n");
+  }
   child.stdin.end();
 
   let buffer = "";

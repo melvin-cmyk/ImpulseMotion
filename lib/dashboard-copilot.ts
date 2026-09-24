@@ -8,6 +8,7 @@
  */
 
 import { CONVERSION_WIDGET_TYPES, WIDGET_TYPE_INFO, WIDGET_TYPES, type WidgetType } from "@/lib/dashboard-types";
+import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
 
 interface DashboardForPrompt {
   id: string;
@@ -74,5 +75,9 @@ Utilise UNIQUEMENT les types, métriques et sources listés dans le catalogue ci
 Le consultant voit chaque proposition et clique Appliquer ou Refuser — n'affirme jamais qu'un changement est fait, dis qu'il est proposé.
 
 Pour les questions de données (performances, comparaisons), tu peux utiliser les outils MCP disponibles, mais UNIQUEMENT sur les comptes listés ci-dessus.
+
+FICHIERS PARTAGÉS PAR LE CONSULTANT :
+- Images (captures d'écran, créas, graphiques) : elles arrivent jointes au message ; décris ce que tu y vois et exploite-le.
+- Tableurs (Excel, CSV) : ils passent par Google Sheets. Le consultant doit importer le fichier dans Google Sheets, partager la feuille avec ${SHEETS_SHARE_EMAIL} en ÉDITEUR, puis te coller le lien. Lis-la avec les outils Google Sheets (search_sheet / Get rows) : Document = l'ID du document tiré du lien (la partie entre /d/ et /edit), Sheet = le nom de l'onglet (demande-le ou essaie le premier). Si un outil répond que le document est introuvable ou l'accès refusé, dis au consultant de vérifier le partage avec ${SHEETS_SHARE_EMAIL}.
 Réponds en français, de façon concise et actionnable.`;
 }

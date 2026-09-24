@@ -25,8 +25,17 @@ export type McpServer = (typeof MCP_SERVER_WHITELIST)[number];
  */
 export const HQ_SERVER = "hq" as const;
 
+/**
+ * Google Sheets via n8n, en lecture seule (le relay ne laisse passer que les
+ * outils de lecture). Le compte Google derrière est celui de l'agence : le
+ * consultant partage sa feuille avec SHEETS_SHARE_EMAIL puis colle le lien.
+ * Staff uniquement, comme HQ — jamais attribuable à un client.
+ */
+export const SHEETS_SERVER = "mcp-google-sheet" as const;
+export const SHEETS_SHARE_EMAIL = process.env.NEXT_PUBLIC_SHEETS_SHARE_EMAIL || "data@impulse-analytics.com";
+
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
-export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER] as const;
+export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER] as const;
 
 /** Serveur MCP stdio des données e-commerce (server/mcp-client-data.mjs), scoped par le relay. */
 export const CLIENT_DATA_SERVER = "client-data" as const;

@@ -18,7 +18,7 @@ import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
 import { STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
-import { teeRelayStream } from "@/lib/relay-chat";
+import { teeRelayStream, type RelayImage, type RelayMessage } from "@/lib/relay-chat";
 import { recordAiUsage } from "@/lib/ai-usage";
 
 export const maxDuration = 120;
@@ -39,17 +39,49 @@ async function loadDashboard(id: string) {
   });
 }
 
-function sanitizeMessages(raw: unknown): Array<{ role: "user" | "assistant"; content: string }> | null {
+// Image attachments: the browser downsizes them before upload (≤1600px JPEG),
+// these caps are the server-side backstop (Vercel bodies are capped at 4.5 MB).
+const IMAGE_MEDIA_TYPES = new Set<RelayImage["mediaType"]>(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MAX_IMAGES_PER_MESSAGE = 4;
+const MAX_IMAGE_B64_CHARS = 2_000_000;
+const MAX_IMAGES_PER_THREAD = 12;
+
+function sanitizeImages(raw: unknown): RelayImage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RelayImage[] = [];
+  for (const im of raw.slice(0, MAX_IMAGES_PER_MESSAGE)) {
+    const mediaType = (im as Record<string, unknown>)?.mediaType;
+    const data = (im as Record<string, unknown>)?.data;
+    const name = (im as Record<string, unknown>)?.name;
+    if (typeof mediaType !== "string" || !IMAGE_MEDIA_TYPES.has(mediaType as RelayImage["mediaType"])) continue;
+    if (typeof data !== "string" || !data || data.length > MAX_IMAGE_B64_CHARS || !/^[A-Za-z0-9+/=]+$/.test(data)) continue;
+    out.push({ mediaType: mediaType as RelayImage["mediaType"], data, ...(typeof name === "string" ? { name: name.slice(0, 120) } : {}) });
+  }
+  return out;
+}
+
+function sanitizeMessages(raw: unknown): RelayMessage[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   // Sliding window: long threads are truncated, never rejected — a hard
   // reject at 40 messages used to brick the copilot for the dashboard.
   const recent = raw.slice(-MAX_MESSAGES);
-  const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+  const messages: RelayMessage[] = [];
   for (const m of recent) {
     const role = (m as Record<string, unknown>)?.role;
     const content = (m as Record<string, unknown>)?.content;
     if ((role !== "user" && role !== "assistant") || typeof content !== "string") return null;
-    messages.push({ role, content: content.slice(0, MAX_MESSAGE_CHARS) });
+    const images = role === "user" ? sanitizeImages((m as Record<string, unknown>).images) : [];
+    messages.push({ role, content: content.slice(0, MAX_MESSAGE_CHARS), ...(images.length ? { images } : {}) });
+  }
+  // Only the most recent images are kept in the thread — older ones would
+  // otherwise pile up in the transcript (and in every replay).
+  let budget = MAX_IMAGES_PER_THREAD;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const im = messages[i].images;
+    if (!im) continue;
+    if (budget <= 0) { delete messages[i].images; continue; }
+    if (im.length > budget) messages[i].images = im.slice(0, budget);
+    budget -= messages[i].images!.length;
   }
   return messages;
 }

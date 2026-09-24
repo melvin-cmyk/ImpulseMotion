@@ -17,7 +17,11 @@ import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
 import { parseUsageEvent, type RelayUsage } from "@/lib/ai-usage";
 
-export interface RelayMessage { role: "user" | "assistant"; content: string }
+/** Image attached to a user message — base64 without the data: prefix. The
+ *  relay hands it to the CLI as an image content block. */
+export interface RelayImage { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string; name?: string }
+
+export interface RelayMessage { role: "user" | "assistant"; content: string; images?: RelayImage[] }
 
 export interface RelayChatBody {
   messages: RelayMessage[];
