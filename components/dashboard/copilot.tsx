@@ -72,6 +72,33 @@ interface Proposal {
 
 const MAX_THREAD_MESSAGES = 40;
 
+type CopilotModel = "sonnet" | "opus";
+type CopilotEffort = "low" | "medium" | "high";
+const MODEL_OPTIONS: Array<{ value: CopilotModel; label: string; hint: string }> = [
+  { value: "opus", label: "Opus", hint: "Le plus fort pour orchestrer des analyses" },
+  { value: "sonnet", label: "Sonnet", hint: "Rapide et économe" },
+];
+const EFFORT_OPTIONS: Array<{ value: CopilotEffort; label: string; hint: string }> = [
+  { value: "low", label: "Réflexion courte", hint: "Le moins cher" },
+  { value: "medium", label: "Réflexion moyenne", hint: "Bon compromis pour les analyses" },
+  { value: "high", label: "Réflexion longue", hint: "Le plus fort, le plus cher" },
+];
+const PREFS_KEY = "copilot:prefs";
+
+function loadPrefs(): { model: CopilotModel; effort: CopilotEffort } {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      return {
+        model: MODEL_OPTIONS.some((o) => o.value === p.model) ? p.model : "opus",
+        effort: EFFORT_OPTIONS.some((o) => o.value === p.effort) ? p.effort : "low",
+      };
+    }
+  } catch { /* private mode, blocked storage */ }
+  return { model: "opus", effort: "low" };
+}
+
 // Tolerant fence matcher: ```action, ```json, or bare ``` — the JSON content
 // decides whether it's really a proposal.
 const FENCE_RE = /```[a-zA-Z]*[ \t]*\r?\n?([\s\S]*?)```/g;
@@ -175,6 +202,7 @@ export function CopilotPanel({
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
   const [input, setInput] = useState("");
   const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
+  const [prefs, setPrefs] = useState<{ model: CopilotModel; effort: CopilotEffort }>({ model: "opus", effort: "low" });
   const [showSheetHelp, setShowSheetHelp] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -216,6 +244,16 @@ export function CopilotPanel({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamText]);
+
+  useEffect(() => { setPrefs(loadPrefs()); }, []);
+
+  function updatePrefs(patch: Partial<{ model: CopilotModel; effort: CopilotEffort }>) {
+    setPrefs((prev) => {
+      const next = { ...prev, ...patch };
+      try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
 
   const persist = useCallback((msgs: ChatMessage[], props: Record<string, Proposal>) => {
     const statuses: Record<string, string> = {};
@@ -285,7 +323,7 @@ export function CopilotPanel({
       const res = await fetch(`/api/dashboards/${dashboardId}/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next.slice(-MAX_THREAD_MESSAGES) }),
+        body: JSON.stringify({ messages: next.slice(-MAX_THREAD_MESSAGES), model: prefs.model, effort: prefs.effort }),
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
@@ -487,12 +525,36 @@ export function CopilotPanel({
 
   return (
     <aside className="fixed right-0 top-12 bottom-0 w-full sm:w-[420px] bg-gray-950 border-l border-gray-800 flex flex-col z-40 shadow-2xl">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-        <div>
-          <h2 className="text-sm font-bold text-white">Copilote IA</h2>
-          <p className="text-[11px] text-gray-500">Propose des widgets — rien n&apos;est appliqué sans validation</p>
+      <div className="px-4 py-3 border-b border-gray-800 space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-bold text-white">Copilote IA</h2>
+            <p className="text-[11px] text-gray-500">Propose des widgets — rien n&apos;est appliqué sans validation</p>
+          </div>
+          <button type="button" onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
         </div>
-        <button type="button" onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
+        <div className="flex gap-2" title="Changer de modèle en cours de conversation redémarre la session côté IA (l'historique est renvoyé).">
+          <label className="sr-only" htmlFor="copilot-model">Modèle</label>
+          <select
+            id="copilot-model"
+            value={prefs.model}
+            disabled={busy}
+            onChange={(e) => updatePrefs({ model: e.target.value as CopilotModel })}
+            className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] bg-gray-900 border border-gray-800 text-gray-300 focus:border-violet-500 focus:outline-none disabled:opacity-60"
+          >
+            {MODEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label} — {o.hint}</option>)}
+          </select>
+          <label className="sr-only" htmlFor="copilot-effort">Réflexion</label>
+          <select
+            id="copilot-effort"
+            value={prefs.effort}
+            disabled={busy}
+            onChange={(e) => updatePrefs({ effort: e.target.value as CopilotEffort })}
+            className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] bg-gray-900 border border-gray-800 text-gray-300 focus:border-violet-500 focus:outline-none disabled:opacity-60"
+          >
+            {EFFORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label} — {o.hint}</option>)}
+          </select>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">

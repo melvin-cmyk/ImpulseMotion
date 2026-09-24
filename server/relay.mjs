@@ -115,6 +115,12 @@ const CLIENT_DATA_SERVER = "client-data";
 const CLIENT_DATA_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-client-data.mjs";
 const SCOPED_ADS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-scoped-ads.mjs";
 const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
+// Agentic loop cap. 15 by default; staff surfaces with the sandbox ask for more.
+const MAX_TURNS_CAP = 40;
+// Pseudo-server "web": not an MCP server but the CLI's built-in WebSearch /
+// WebFetch. Staff only (never a client bot: a fetched page is an injection
+// vector). WebSearch is an Anthropic server-side tool, absent on Bedrock.
+const WEB_SERVER = "web";
 // Image attachments (copilote) — bounded so a chat can't ship megabytes of pixels.
 const IMAGE_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const IMAGE_MAX_B64_CHARS = 2_000_000; // ≈1.5 MB per image
@@ -373,7 +379,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   const effort = resolveEffort(options.effort);
   // Tool-driven sessions may cap the agentic loop lower than the default: a
   // short, deterministic lookup (HQ client context) has no business running 15 turns.
-  const maxTurns = Number.isInteger(options.maxTurns) && options.maxTurns >= 1 && options.maxTurns <= 15 ? options.maxTurns : 15;
+  const maxTurns = Number.isInteger(options.maxTurns) && options.maxTurns >= 1 && options.maxTurns <= MAX_TURNS_CAP ? options.maxTurns : 15;
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
@@ -414,8 +420,8 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   };
 
   // Intersect incoming allowedServers with the global whitelist.
-  let servers = (Array.isArray(allowedServers) ? allowedServers : [])
-    .filter((s) => typeof s === "string" && ALLOWED_MCP_SERVERS.has(s));
+  const requestedServers = Array.isArray(allowedServers) ? allowedServers : [];
+  let servers = requestedServers.filter((s) => typeof s === "string" && ALLOWED_MCP_SERVERS.has(s));
 
   // "client-data" only ever runs pinned to a server-side clientKey.
   const clientKey =
@@ -432,6 +438,8 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   // server instead of the claude.ai connector. Pulled out of `servers` either
   // way — it has no entry in the mcp-config, the CLI gets it from the host.
   const clientBot = !!dataScope || provider === "bedrock";
+  const useWeb = requestedServers.includes(WEB_SERVER) && !clientBot;
+  const builtinTools = ["ToolSearch", ...(useWeb ? ["WebFetch", ...(useBedrock ? [] : ["WebSearch"])] : [])];
   let useHq = servers.includes(HQ_SERVER) && !clientBot;
   const hqToolPrefix = useBedrock ? HQ_LOCAL_TOOL_PREFIX : HQ_TOOL_PREFIX;
   if (servers.includes(HQ_SERVER) && !useHq) console.error("[chat] hq refusé — requête de bot client");
@@ -457,6 +465,8 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     SERVER_TOOL_ALLOWLIST[s] ? SERVER_TOOL_ALLOWLIST[s].map((t) => `mcp__${s}__${t}`) : [`mcp__${s}__*`],
   );
   if (useHq) toolPatterns.push(...HQ_READ_TOOLS.map((t) => `${hqToolPrefix}${t}`));
+  // Built-ins are denied in --print mode unless allowed explicitly, like MCP tools.
+  if (useWeb) toolPatterns.push(...builtinTools.filter((t) => t !== "ToolSearch"));
 
   // Scope the AI to only the accountIds the caller is allowed to query.
   // Callers may override the base prompt for one-shot tasks (recommendations,
@@ -541,7 +551,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     // ignores those settings files and drops Bash & co; --tools keeps a single
     // built-in, ToolSearch, which the CLI needs to load deferred MCP tools.
     "--restricted",
-    "--tools", "ToolSearch",
+    "--tools", builtinTools.join(","),
   ];
   if (toolPatterns.length > 0) {
     args.push("--allowedTools", ...toolPatterns);
@@ -549,7 +559,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ""}`);
+  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${useWeb ? " | web" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ""}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.

@@ -18,10 +18,17 @@ import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
 import { STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
-import { teeRelayStream, type RelayImage, type RelayMessage } from "@/lib/relay-chat";
+import { teeRelayStream, type RelayEffort, type RelayImage, type RelayMessage, type RelayModel } from "@/lib/relay-chat";
 import { recordAiUsage } from "@/lib/ai-usage";
 
-export const maxDuration = 120;
+// Long enough for a multi-step analysis (tools + sandbox); the relay caps the
+// session itself (RELAY_CHAT_MAX_BUDGET_MS) and ends cleanly with error+done.
+export const maxDuration = 300;
+const COPILOT_BUDGET_MS = 280_000;
+const COPILOT_MAX_TURNS = 40;
+
+const MODELS = new Set<RelayModel>(["sonnet", "opus"]);
+const EFFORTS = new Set<RelayEffort>(["low", "medium", "high"]);
 
 const MAX_MESSAGES = 40;
 // Generous per-message cap: assistant replies with tables + action blocks can
@@ -176,12 +183,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     dashboard.hqSlug && dashboard.hqContextMd ? { slug: dashboard.hqSlug, brief: dashboard.hqContextMd } : null,
   );
 
+  // The consultant picks the model and the reasoning effort in the panel;
+  // anything else falls back to the staff profile.
+  const model: RelayModel = MODELS.has(body.model) ? body.model : STAFF_CHAT_PROFILE.model;
+  const effort: RelayEffort = EFFORTS.has(body.effort) ? body.effort : STAFF_CHAT_PROFILE.effort;
+
   const relayBody = {
     messages,
     systemPrompt,
     sessionKey: `copilot:${dashboard.id}:${guard.session.userId}`,
-    model: STAFF_CHAT_PROFILE.model,
-    effort: STAFF_CHAT_PROFILE.effort,
+    model,
+    effort,
+    maxTurns: COPILOT_MAX_TURNS,
+    budgetMs: COPILOT_BUDGET_MS,
     // Staff-only route: ads servers (scoped to this dashboard below) + HQ read-only.
     allowedServers: [...STAFF_MCP_SERVERS],
     accountScope: {

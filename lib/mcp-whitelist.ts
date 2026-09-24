@@ -34,8 +34,16 @@ export const HQ_SERVER = "hq" as const;
 export const SHEETS_SERVER = "mcp-google-sheet" as const;
 export const SHEETS_SHARE_EMAIL = process.env.NEXT_PUBLIC_SHEETS_SHARE_EMAIL || "data@impulse-analytics.com";
 
+/**
+ * Pseudo-serveur « web » : pas un MCP mais les outils intégrés du CLI
+ * (recherche web + lecture d'URL), activés par le relay pour le staff
+ * seulement — une page tierce est un vecteur d'injection, donc jamais pour un
+ * bot client.
+ */
+export const WEB_SERVER = "web" as const;
+
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
-export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER] as const;
+export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER, WEB_SERVER] as const;
 
 /** Serveur MCP stdio des données e-commerce (server/mcp-client-data.mjs), scoped par le relay. */
 export const CLIENT_DATA_SERVER = "client-data" as const;
