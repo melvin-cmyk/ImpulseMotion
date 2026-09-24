@@ -16,71 +16,14 @@
  * - apply successes/failures are fed back to the model on the next message
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { validateWidgetConfig, validateWidgetWidth, type ResolvedWidget } from "@/lib/dashboard-types";
-
-/** Image attached to a user message: base64 (no data: prefix) + its media type. */
-interface ChatImage { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string; name?: string }
-
-/** File dropped by the consultant, stored in the conversation's sandbox workspace (relay). */
-interface ChatFile { name: string; path: string; bytes: number }
+import { AiMarkdown } from "@/components/ai/ai-markdown";
+import { AttachButton, MessageAttachments, PendingAttachments, useAttachments } from "@/components/ai/attachments";
+import { ModelPicker } from "@/components/ai/model-picker";
+import { FILES_NOTE_RE, filesNote, loadPrefs, savePrefs, DEFAULT_PREFS, type AiPrefs, type ChatFile, type ChatImage } from "@/lib/ai-chat-shared";
 
 interface ChatMessage { role: "user" | "assistant"; content: string; images?: ChatImage[]; files?: ChatFile[] }
-
-// Vercel caps request bodies at 4.5 MB; base64 adds a third.
-const UPLOAD_MAX_BYTES = 3 * 1024 * 1024;
-const UPLOAD_EXT_RE = /\.(xlsx?|xlsm|csv|tsv|txt|md|json|pdf|docx?|pptx?)$/i;
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} o`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} Ko`;
-  return `${(n / 1024 / 1024).toFixed(1)} Mo`;
-}
-
-function readAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-    reader.onerror = () => reject(new Error(`Lecture impossible : ${file.name}`));
-    reader.readAsDataURL(file);
-  });
-}
-
-const MAX_IMAGES_PER_MESSAGE = 4;
-// Images are downsized in the browser so a screenshot costs ~100–300 KB and
-// the whole POST stays far under Vercel's 4.5 MB body limit.
-const IMAGE_MAX_EDGE = 1600;
-const IMAGE_JPEG_QUALITY = 0.85;
-
-/** Downscale + re-encode a picked image; PNG stays PNG only when small (screenshots with text). */
-async function prepareImage(file: File): Promise<ChatImage> {
-  const url = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error(`Image illisible : ${file.name}`));
-      el.src = url;
-    });
-    const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(img.width, img.height));
-    const w = Math.max(1, Math.round(img.width * scale));
-    const h = Math.max(1, Math.round(img.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Canvas indisponible");
-    ctx.drawImage(img, 0, 0, w, h);
-    const keepPng = file.type === "image/png" && file.size <= 600_000 && scale === 1;
-    const mediaType: ChatImage["mediaType"] = keepPng ? "image/png" : "image/jpeg";
-    const dataUrl = canvas.toDataURL(mediaType, IMAGE_JPEG_QUALITY);
-    return { mediaType, data: dataUrl.slice(dataUrl.indexOf(",") + 1), name: file.name };
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
 
 type ProposalStatus = "pending" | "applying" | "applied" | "refused" | "failed" | "invalid";
 
@@ -93,32 +36,7 @@ interface Proposal {
 
 const MAX_THREAD_MESSAGES = 40;
 
-type CopilotModel = "sonnet" | "opus";
-type CopilotEffort = "low" | "medium" | "high";
-const MODEL_OPTIONS: Array<{ value: CopilotModel; label: string; hint: string }> = [
-  { value: "opus", label: "Opus", hint: "Le plus fort pour orchestrer des analyses" },
-  { value: "sonnet", label: "Sonnet", hint: "Rapide et économe" },
-];
-const EFFORT_OPTIONS: Array<{ value: CopilotEffort; label: string; hint: string }> = [
-  { value: "low", label: "Réflexion courte", hint: "Le moins cher" },
-  { value: "medium", label: "Réflexion moyenne", hint: "Bon compromis pour les analyses" },
-  { value: "high", label: "Réflexion longue", hint: "Le plus fort, le plus cher" },
-];
 const PREFS_KEY = "copilot:prefs";
-
-function loadPrefs(): { model: CopilotModel; effort: CopilotEffort } {
-  try {
-    const raw = localStorage.getItem(PREFS_KEY);
-    if (raw) {
-      const p = JSON.parse(raw);
-      return {
-        model: MODEL_OPTIONS.some((o) => o.value === p.model) ? p.model : "opus",
-        effort: EFFORT_OPTIONS.some((o) => o.value === p.effort) ? p.effort : "low",
-      };
-    }
-  } catch { /* private mode, blocked storage */ }
-  return { model: "opus", effort: "low" };
-}
 
 // Tolerant fence matcher: ```action, ```json, or bare ``` — the JSON content
 // decides whether it's really a proposal.
@@ -222,15 +140,11 @@ export function CopilotPanel({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
   const [input, setInput] = useState("");
-  const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
-  const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
-  const [uploading, setUploading] = useState<string | null>(null);
-  const [prefs, setPrefs] = useState<{ model: CopilotModel; effort: CopilotEffort }>({ model: "opus", effort: "low" });
+  const [prefs, setPrefs] = useState<AiPrefs>(DEFAULT_PREFS);
   const [showSheetHelp, setShowSheetHelp] = useState(false);
   const [memorizing, setMemorizing] = useState(false);
   const [memoNote, setMemoNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [copiedEmail, setCopiedEmail] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [streamText, setStreamText] = useState<string | null>(null);
   const [toolNote, setToolNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -270,15 +184,13 @@ export function CopilotPanel({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamText]);
 
-  useEffect(() => { setPrefs(loadPrefs()); }, []);
+  useEffect(() => { setPrefs(loadPrefs(PREFS_KEY)); }, []);
 
-  function updatePrefs(patch: Partial<{ model: CopilotModel; effort: CopilotEffort }>) {
-    setPrefs((prev) => {
-      const next = { ...prev, ...patch };
-      try { localStorage.setItem(PREFS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
+  function updatePrefs(patch: Partial<AiPrefs>) {
+    setPrefs((prev) => { const next = { ...prev, ...patch }; savePrefs(PREFS_KEY, next); return next; });
   }
+
+  const att = useAttachments({ uploadUrl: `/api/dashboards/${dashboardId}/assistant/files`, disabled: busy });
 
   const persist = useCallback((msgs: ChatMessage[], props: Record<string, Proposal>) => {
     const statuses: Record<string, string> = {};
@@ -289,50 +201,6 @@ export function CopilotPanel({
       body: JSON.stringify({ messages: msgs.slice(-MAX_THREAD_MESSAGES), proposals: statuses }),
     }).catch(() => {});
   }, [dashboardId]);
-
-  /** Files from the picker, a paste or a drop: images are downsized and sent
-   *  with the message; documents (Excel, CSV, PDF, Word…) go to the
-   *  conversation's sandbox workspace, where the AI reads them with Python. */
-  async function addFiles(files: FileList | File[]) {
-    const list = Array.from(files);
-    if (!list.length) return;
-    setError(null);
-    const images = list.filter((f) => f.type.startsWith("image/"));
-    const docs = list.filter((f) => !f.type.startsWith("image/") && UPLOAD_EXT_RE.test(f.name));
-    const other = list.length - images.length - docs.length;
-    if (other > 0) setError("Formats acceptés : images, Excel, CSV, PDF, Word, PowerPoint, texte.");
-    const room = MAX_IMAGES_PER_MESSAGE - pendingImages.length;
-    if (images.length > room) setError(`${MAX_IMAGES_PER_MESSAGE} images maximum par message.`);
-    const prepared: ChatImage[] = [];
-    for (const f of images.slice(0, Math.max(0, room))) {
-      try { prepared.push(await prepareImage(f)); }
-      catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    }
-    if (prepared.length) setPendingImages((prev) => [...prev, ...prepared].slice(0, MAX_IMAGES_PER_MESSAGE));
-    for (const f of docs) {
-      if (f.size > UPLOAD_MAX_BYTES) {
-        setError(`${f.name} dépasse ${fmtBytes(UPLOAD_MAX_BYTES)} — pour un gros tableur, partagez-le en Google Sheet.`);
-        setShowSheetHelp(true);
-        continue;
-      }
-      setUploading(f.name);
-      try {
-        const data = await readAsBase64(f);
-        const res = await fetch(`/api/dashboards/${dashboardId}/assistant/files`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: f.name, data }),
-        });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
-        setPendingFiles((prev) => [...prev.filter((p) => p.path !== body.path), { name: f.name, path: body.path, bytes: body.bytes }]);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setUploading(null);
-      }
-    }
-  }
 
   /** Summarise the thread into a dated note in the client's HQ project journal. */
   async function memorize() {
@@ -365,12 +233,9 @@ export function CopilotPanel({
 
   async function send() {
     const text = input.trim();
-    const images = pendingImages;
-    const files = pendingFiles;
-    if ((!text && !images.length && !files.length) || busy || uploading) return;
+    if ((!text && !att.hasPending) || busy || att.busy) return;
+    const { images, files } = att.take();
     setInput("");
-    setPendingImages([]);
-    setPendingFiles([]);
     setError(null);
     setTruncated(false);
     setBusy(true);
@@ -382,12 +247,9 @@ export function CopilotPanel({
     pendingNotesRef.current = [];
     const body = text || (files.length ? "Voici le(s) fichier(s), analyse-les." : images.length > 1 ? "Voici des images." : "Voici une image.");
     // Uploaded documents live in the sandbox workspace: tell the model where.
-    const fileNote = files.length
-      ? `\n\n[Fichiers déposés dans /work/${files.map((f) => `${f.path} (${fmtBytes(f.bytes)})`).join(", /work/")} — lis-les avec run_python]`
-      : "";
     const content = (notes.length
       ? `[Résultat des propositions précédentes : ${notes.join(" ; ")}]\n\n${body}`
-      : body) + fileNote;
+      : body) + filesNote(files);
 
     const next: ChatMessage[] = [...messages, { role: "user" as const, content, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }];
     setMessages(next);
@@ -457,8 +319,7 @@ export function CopilotPanel({
       setError(e instanceof Error ? e.message : String(e));
       setMessages(messages); // roll back the user message on failure
       setInput(text);
-      setPendingImages(images);
-      setPendingFiles(files);
+      att.restore(images, files);
     } finally {
       setBusy(false);
       busyRef.current = false;
@@ -538,30 +399,8 @@ export function CopilotPanel({
     if (m.role === "user") {
       return (
         <div key={i} className="ml-8 bg-violet-950/50 border border-violet-900/40 rounded-xl px-3 py-2 text-sm text-gray-200 whitespace-pre-wrap">
-          {m.images && m.images.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-1.5">
-              {m.images.map((im, k) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={k}
-                  src={`data:${im.mediaType};base64,${im.data}`}
-                  alt={im.name ?? `Image ${k + 1}`}
-                  title={im.name}
-                  className="h-16 w-16 object-cover rounded-md border border-violet-900/60"
-                />
-              ))}
-            </div>
-          )}
-          {m.files && m.files.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-1.5">
-              {m.files.map((f) => (
-                <span key={f.path} className="text-[11px] px-2 py-0.5 rounded-md bg-gray-900 border border-violet-900/60 text-gray-300" title={f.path}>
-                  📄 {f.name} <span className="text-gray-500">{fmtBytes(f.bytes)}</span>
-                </span>
-              ))}
-            </div>
-          )}
-          {m.content.replace(/^\[Résultat des propositions précédentes[^\]]*\]\n\n/, "").replace(/\n\n\[Fichiers déposés dans [^\]]*\]$/, "")}
+          <MessageAttachments images={m.images} files={m.files} />
+          {m.content.replace(/^\[Résultat des propositions précédentes[^\]]*\]\n\n/, "").replace(FILES_NOTE_RE, "")}
         </div>
       );
     }
@@ -570,29 +409,7 @@ export function CopilotPanel({
     return (
       <div key={i} className="mr-4 space-y-2">
         {clean && (
-          <div className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              // `sandbox:out/x.png` → the files proxy of this dashboard (staff + scope checked server-side).
-              urlTransform={(url: string) => (url.startsWith("sandbox:") ? `${filesBase}/${url.slice(8).replace(/^\/+/, "")}` : defaultUrlTransform(url))}
-              components={{
-                img: ({ src, alt }: { src?: string; alt?: string }) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={typeof src === "string" ? src : undefined} alt={alt ?? ""} className="max-w-full rounded-lg border border-gray-800 my-2" loading="lazy" />
-                ),
-                a: ({ href, children }: { href?: string; children?: ReactNode }) => {
-                  const local = typeof href === "string" && href.startsWith(filesBase);
-                  return (
-                    <a href={href} target="_blank" rel="noopener noreferrer" className={local ? "inline-flex items-center gap-1 text-violet-300 hover:text-violet-200 no-underline border border-violet-900/60 rounded-md px-2 py-0.5" : undefined}>
-                      {local ? "⬇ " : null}{children}
-                    </a>
-                  );
-                },
-              }}
-            >
-              {clean}
-            </ReactMarkdown>
-          </div>
+          <AiMarkdown content={clean} filesBase={filesBase} className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2" />
         )}
         {msgProposals.map((p) => (
           <div key={p.key} className={`bg-gray-900 border rounded-xl px-3 py-2 ${p.status === "invalid" ? "border-amber-800/60" : "border-violet-800/50"}`}>
@@ -659,28 +476,7 @@ export function CopilotPanel({
             {memoNote.text}
           </div>
         )}
-        <div className="flex gap-2" title="Changer de modèle en cours de conversation redémarre la session côté IA (l'historique est renvoyé).">
-          <label className="sr-only" htmlFor="copilot-model">Modèle</label>
-          <select
-            id="copilot-model"
-            value={prefs.model}
-            disabled={busy}
-            onChange={(e) => updatePrefs({ model: e.target.value as CopilotModel })}
-            className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] bg-gray-900 border border-gray-800 text-gray-300 focus:border-violet-500 focus:outline-none disabled:opacity-60"
-          >
-            {MODEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label} — {o.hint}</option>)}
-          </select>
-          <label className="sr-only" htmlFor="copilot-effort">Réflexion</label>
-          <select
-            id="copilot-effort"
-            value={prefs.effort}
-            disabled={busy}
-            onChange={(e) => updatePrefs({ effort: e.target.value as CopilotEffort })}
-            className="flex-1 min-w-0 px-2 py-1 rounded-md text-[11px] bg-gray-900 border border-gray-800 text-gray-300 focus:border-violet-500 focus:outline-none disabled:opacity-60"
-          >
-            {EFFORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label} — {o.hint}</option>)}
-          </select>
-        </div>
+        <ModelPicker prefs={prefs} onChange={updatePrefs} disabled={busy} idPrefix="copilot" />
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -715,8 +511,8 @@ export function CopilotPanel({
 
       <form
         onSubmit={(e) => { e.preventDefault(); send(); }}
-        onDragOver={(e) => { e.preventDefault(); }}
-        onDrop={(e) => { e.preventDefault(); if (!busy) void addFiles(e.dataTransfer.files); }}
+        onDragOver={att.onDragOver}
+        onDrop={att.onDrop}
         className="p-3 border-t border-gray-800 space-y-2"
       >
         {showSheetHelp && (
@@ -738,68 +534,30 @@ export function CopilotPanel({
             </ol>
           </div>
         )}
-        {(pendingFiles.length > 0 || uploading) && (
-          <div className="flex flex-wrap gap-1.5">
-            {pendingFiles.map((f) => (
-              <span key={f.path} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-gray-900 border border-gray-700 text-gray-300">
-                📄 {f.name} <span className="text-gray-500">{fmtBytes(f.bytes)}</span>
-                <button type="button" aria-label="Retirer le fichier" onClick={() => setPendingFiles((prev) => prev.filter((p) => p.path !== f.path))} className="text-gray-500 hover:text-red-400 ml-1">✕</button>
-              </span>
-            ))}
-            {uploading && <span className="text-[11px] text-gray-500 px-2 py-0.5">Envoi de {uploading}…</span>}
-          </div>
-        )}
-        {pendingImages.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {pendingImages.map((im, k) => (
-              <div key={k} className="relative">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`data:${im.mediaType};base64,${im.data}`} alt={im.name ?? `Image ${k + 1}`} title={im.name} className="h-14 w-14 object-cover rounded-md border border-gray-700" />
-                <button
-                  type="button"
-                  onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== k))}
-                  aria-label="Retirer l'image"
-                  className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-gray-800 border border-gray-600 text-gray-300 text-[10px] leading-none hover:bg-red-700"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <PendingAttachments att={att} />
+        {att.error && <div className="text-[11px] text-amber-400">{att.error}</div>}
         <div className="flex gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,.json,.pdf,.doc,.docx,.ppt,.pptx"
-            multiple
-            hidden
-            onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }}
-          />
+          <AttachButton att={att} disabled={busy} />
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={busy}
-            title="Joindre des images ou des fichiers (Excel, CSV, PDF, Word…)"
-            aria-label="Joindre un fichier"
-            className="px-2.5 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 disabled:opacity-50"
+            onClick={() => setShowSheetHelp((v) => !v)}
+            title="Partager un Google Sheet vivant avec le copilote"
+            aria-label="Aide Google Sheets"
+            className="px-2.5 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600"
           >
-            📎
+            ▦
           </button>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onPaste={(e) => {
-              const files = Array.from(e.clipboardData?.files ?? []);
-              if (files.length && !busy) { e.preventDefault(); void addFiles(files); }
-            }}
-            placeholder={pendingImages.length ? "Que faire de ces images ?" : "Demandez un ajout, une analyse…"}
+            onPaste={att.onPaste}
+            placeholder={att.hasPending ? "Que faire de ces fichiers ?" : "Demandez un ajout, une analyse…"}
             disabled={busy}
             className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-white focus:border-violet-500 focus:outline-none disabled:opacity-60"
           />
           <button
             type="submit"
-            disabled={busy || !!uploading || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)}
+            disabled={busy || att.busy || (!input.trim() && !att.hasPending)}
             className="px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
           >
             {busy ? "…" : "Envoyer"}

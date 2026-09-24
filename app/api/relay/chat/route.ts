@@ -1,37 +1,51 @@
 /**
  * POST /api/relay/chat
- * Server-side proxy for the relay chat API.
+ * Server-side proxy for the relay chat API (console /ai).
  *
  * The browser only knows /api/relay/chat; the relay URL and shared secret
- * stay server-side. This proxy also enriches the request with the caller's
- * MCP permissions and ad-account ACL so the relay can scope the AI.
+ * stay server-side. Only whitelisted fields of the browser's body reach the
+ * relay (messages with attachments, conversation id, model/effort for staff):
+ * the MCP servers, the account scope, the system prompt and the provider are
+ * decided here from the session and the caller's ACL.
+ *
+ * Staff (admin, consultant): ads servers within their scope, HQ read-only,
+ * Google Sheets, web, and the Python sandbox whose workspace is the named
+ * conversation (`console:<userId>:<conversationId>`, see ./files).
+ * Clients: only the servers of their ACL, no HQ, no sandbox, no web.
  */
 
-import { HQ_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { HQ_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
-import { teeRelayStream } from "@/lib/relay-chat";
+import { teeRelayStream, type RelayChatBody, type RelayEffort, type RelayModel } from "@/lib/relay-chat";
+import { sanitizeThread, toRelayMessages } from "@/lib/relay-attachments";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { getAllowedMcpServers, getAllowedAccountIds } from "@/lib/acl";
-
-export const maxDuration = 120;
-
 import { RELAY_URLS } from "@/lib/relay-server";
+import { relayHeaders } from "@/lib/relay-headers";
+import { buildConsoleSystemPrompt } from "@/lib/ai-tool-guidance";
 
-const RELAY_SECRET = process.env.RELAY_SHARED_SECRET || "";
+export const maxDuration = 300;
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // The relay session budget already bounds a turn; the history the browser
 // resends is only replayed when the relay starts a new session.
 const MAX_MESSAGES = 30;
+const MAX_MESSAGE_CHARS = 20000;
+const STAFF_MAX_TURNS = 40;
+const STAFF_BUDGET_MS = 280_000;
+const MODELS = new Set<RelayModel>(["sonnet", "opus"]);
+const EFFORTS = new Set<RelayEffort>(["low", "medium", "high"]);
 
 export async function POST(req: NextRequest) {
   const guard = await requireSession();
   if ("error" in guard) return guard.error;
 
-  const body = await req.json();
-  const { conversationId, ...rest } = body ?? {};
-  const messages = Array.isArray(rest.messages) ? rest.messages.slice(-MAX_MESSAGES) : [];
+  const body = await req.json().catch(() => ({}));
+  const thread = sanitizeThread(body?.messages, { maxMessages: MAX_MESSAGES, maxChars: MAX_MESSAGE_CHARS });
+  if (!thread) return new Response(JSON.stringify({ error: "messages invalid" }), { status: 400, headers: { "Content-Type": "application/json" } });
+  const conversationId = typeof body?.conversationId === "string" && UUID_RE.test(body.conversationId) ? body.conversationId : null;
 
   const [allowedServers, metaIds, googleIds, tiktokIds] = await Promise.all([
     getAllowedMcpServers(guard.session.userId),
@@ -41,17 +55,18 @@ export async function POST(req: NextRequest) {
   ]);
 
   const isStaff = guard.session.role === "admin" || guard.session.role === "consultant";
-  const enrichedBody = {
-    ...rest,
-    messages,
-    sessionKey: typeof conversationId === "string" && UUID_RE.test(conversationId) ? `console:${guard.session.userId}:${conversationId}` : undefined,
-    // The browser never picks the model: staff chats with MCP tools run on
-    // the staff profile (Opus 5, low effort); clients keep the relay default.
-    model: isStaff ? STAFF_CHAT_PROFILE.model : undefined,
-    effort: isStaff ? STAFF_CHAT_PROFILE.effort : undefined,
-    maxTurns: undefined,
+  const relayBody: RelayChatBody = {
+    messages: toRelayMessages(thread),
+    systemPrompt: isStaff ? buildConsoleSystemPrompt() : undefined,
+    sessionKey: conversationId ? `console:${guard.session.userId}:${conversationId}` : undefined,
+    // Staff pick the model and effort in the console (staff profile as the
+    // fallback); clients keep the relay default.
+    model: isStaff ? (MODELS.has(body?.model) ? body.model : STAFF_CHAT_PROFILE.model) : undefined,
+    effort: isStaff ? (EFFORTS.has(body?.effort) ? body.effort : STAFF_CHAT_PROFILE.effort) : undefined,
+    maxTurns: isStaff ? STAFF_MAX_TURNS : undefined,
+    budgetMs: isStaff ? STAFF_BUDGET_MS : undefined,
     allowedServers: isStaff
-      ? [...STAFF_MCP_SERVERS]
+      ? [...STAFF_MCP_SERVERS, ...(conversationId ? [SANDBOX_SERVER] : [])]
       : allowedServers.filter((s) => s !== HQ_SERVER),
     accountScope: {
       meta: metaIds,
@@ -63,9 +78,6 @@ export async function POST(req: NextRequest) {
     },
   };
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (RELAY_SECRET) headers.Authorization = `Bearer ${RELAY_SECRET}`;
-
   for (const url of RELAY_URLS) {
     const isLocalhost = url.includes("localhost");
     const timeoutMs = isLocalhost ? 3000 : 100000;
@@ -73,8 +85,8 @@ export async function POST(req: NextRequest) {
     try {
       const res = await fetch(`${url}/api/chat`, {
         method: "POST",
-        headers,
-        body: JSON.stringify(enrichedBody),
+        headers: relayHeaders(),
+        body: JSON.stringify(relayBody),
         signal: AbortSignal.timeout(timeoutMs),
         // @ts-expect-error Node.js fetch option
         duplex: "half",

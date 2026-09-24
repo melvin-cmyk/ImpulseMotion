@@ -18,6 +18,7 @@ import crypto from "node:crypto";
 import { createQuotaMonitor, looksLikeUsageLimit, makeWebhookNotifier } from "./quota.mjs";
 import * as hqOauth from "./hq-oauth.mjs";
 import { hqToolCall } from "./hq-client.mjs";
+let hqProjectsCache = null;
 
 const execFileAsync = promisify(execFile);
 
@@ -1075,6 +1076,33 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ ok: true, result: text.slice(0, 500) }));
       } catch (e) {
         console.error("[hq] journal échec:", e.message);
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    // Liste des projets HQ (pour choisir le dossier d'une note), cache 10 min.
+    if (url.pathname === "/api/hq/projects" && req.method === "GET") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      try {
+        if (!hqProjectsCache || hqProjectsCache.at < Date.now() - 10 * 60 * 1000) {
+          const company = process.env.HQ_COMPANY || "impulse-analytics";
+          const raw = await hqToolCall("hq_projects_list", { company });
+          let list = [];
+          try { list = JSON.parse(raw); } catch { list = []; }
+          hqProjectsCache = {
+            at: Date.now(),
+            projects: (Array.isArray(list) ? list : []).map((p) => ({ slug: String(p.slug ?? ""), name: String(p.name ?? p.slug ?? "") })).filter((p) => p.slug),
+          };
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ projects: hqProjectsCache.projects }));
+      } catch (e) {
         res.writeHead(502, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: e.message }));
       }

@@ -13,6 +13,14 @@ const RELAY_PROXY_TOOLS = "/api/relay/tools";
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** Images attached to a user message (base64, no data: prefix). */
+  images?: Array<{ mediaType: string; data: string; name?: string }>;
+}
+
+export interface StreamChatOptions {
+  conversationId?: string;
+  model?: "sonnet" | "opus";
+  effort?: "low" | "medium" | "high";
 }
 
 export interface StreamEvent {
@@ -70,17 +78,18 @@ export async function streamChat(
   messages: ChatMessage[],
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
-  conversationId?: string,
+  options: StreamChatOptions = {},
 ): Promise<void> {
   const res = await fetch(RELAY_PROXY_CHAT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages, conversationId }),
+    body: JSON.stringify({ messages, ...options }),
     signal,
   });
 
   if (!res.ok) {
-    throw new Error(`Relay error: ${res.status}`);
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ?? `Relay error: ${res.status}`);
   }
 
   await readStream(res, onEvent);
