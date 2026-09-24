@@ -180,7 +180,7 @@ const HQ_TOOL_PREFIX = "mcp__claude_ai_mcp_hq__";
 const HQ_LOCAL_TOOL_PREFIX = "mcp__hq__";
 const HQ_INIT_NAMES = new Set(["claude.ai mcp hq", HQ_SERVER]);
 const HQ_READ_TOOLS = [
-  "hq_context_grounding", "hq_companies_list", "search", "fetch", "hq_content_get",
+  "hq_ping", "hq_whoami", "hq_context_grounding", "hq_companies_list", "search", "fetch", "hq_content_get",
   "hq_knowledge_list", "hq_knowledge_get", "hq_files_list", "hq_files_read",
   "hq_projects_list", "hq_project_get", "hq_project_status",
   "hq_policies_list", "hq_policy_get", "hq_skill_list", "hq_skill_get",
