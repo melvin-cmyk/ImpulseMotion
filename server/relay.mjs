@@ -130,6 +130,25 @@ const WORKSPACE_ID_RE = /^[a-f0-9]{24}$/;
 const WORKSPACE_PATH_RE = /^(out|uploads)\/[A-Za-z0-9._ \-()]{1,120}$/;
 const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
 const SANDBOX_UID = 1000;
+// Skills HQ synchronisées par claude.ai sur le compte hôte (~/.claude/skills/synced/<id>/<slug>/) :
+// SKILL.md + assets (fonds, logos de la DA Impulse). Montées en lecture seule sur
+// /skills dans le bac à sable pour que le modèle utilise les vrais assets.
+// SKILLS_DIR dans l'env du service force un dossier précis.
+const SKILLS_SYNC_ROOT = path.join(process.env.HOME || os.homedir(), ".claude", "skills", "synced");
+function syncedSkillsDir() {
+  const forced = process.env.SKILLS_DIR;
+  if (forced) return path.isAbsolute(forced) && fs.existsSync(forced) ? forced : null;
+  let best = null;
+  try {
+    for (const e of fs.readdirSync(SKILLS_SYNC_ROOT, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      const abs = path.join(SKILLS_SYNC_ROOT, e.name);
+      const mtime = fs.statSync(abs).mtimeMs;
+      if (!best || mtime > best.mtime) best = { abs, mtime };
+    }
+  } catch { /* pas de skills synchronisées */ }
+  return best ? best.abs : null;
+}
 function workspaceIdFor(sessionKey) {
   return crypto.createHash("sha256").update(sessionKey).digest("hex").slice(0, 24);
 }
@@ -357,7 +376,11 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
       mcpServers[name] = {
         command: "node",
         args: [SANDBOX_MCP_SCRIPT],
-        env: { WORKSPACE_DIR: workspaceDir, ...(process.env.SANDBOX_IMAGE ? { SANDBOX_IMAGE: process.env.SANDBOX_IMAGE } : {}) },
+        env: {
+          WORKSPACE_DIR: workspaceDir,
+          ...(process.env.SANDBOX_IMAGE ? { SANDBOX_IMAGE: process.env.SANDBOX_IMAGE } : {}),
+          ...(syncedSkillsDir() ? { SKILLS_DIR: syncedSkillsDir() } : {}),
+        },
       };
       kept.push(name);
       continue;
