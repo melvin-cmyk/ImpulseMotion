@@ -18,7 +18,7 @@ export async function GET() {
       if (!res.ok) continue;
       const json = await res.json();
       const accounts = (Array.isArray(json.accounts) ? json.accounts : []).map((a: Record<string, unknown>) => ({
-        id: String(a.id), label: String(a.label), level: typeof a.level === "number" ? a.level : null, fallbackActive: !!a.fallbackActive,
+        id: String(a.id), label: String(a.label), level: typeof a.level === "number" ? a.level : null, fallbackActive: !!a.fallbackActive, usageVisible: a.usageVisible === false ? false : null,
       }));
       return NextResponse.json({ accounts, fallbackEnabled: !!json.fallbackEnabled }, { headers: { "Cache-Control": "no-store" } });
     } catch { /* next url */ }

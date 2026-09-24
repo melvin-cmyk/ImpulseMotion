@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { execFile } from "node:child_process";
 import { createQuotaMonitor } from "./quota.mjs";
 
 const FILE = process.env.MAX_ACCOUNTS_FILE || "/root/.config/impulsemotion/max-accounts.json";
@@ -107,7 +108,10 @@ export function pick({ preferred = null, exclude = [] } = {}) {
   const candidates = ids().filter((id) => !exclude.includes(id));
   const room = (id) => { const m = monitorFor(id); return m && !m.fallbackActive(); };
   if (preferred && candidates.includes(preferred) && room(preferred)) return preferred;
-  const open = candidates.filter(room).sort((a, b) => monitorFor(a).level() - monitorFor(b).level());
+  // Accounts whose usage is not visible (setup-token scope) rank as half used:
+  // after a clearly fresh account, before a nearly dry one.
+  const rank = (id) => { const m = monitorFor(id); return m.state.usageVisible === false ? 50 : m.level(); };
+  const open = candidates.filter(room).sort((a, b) => rank(a) - rank(b));
   return open[0] ?? null;
 }
 
@@ -125,6 +129,7 @@ export function snapshot() {
       fallbackActive: s?.fallbackActive ?? true,
       exhaustedUntil: s?.exhaustedUntil ?? null,
       checkedAt: s?.checkedAt ?? null,
+      usageVisible: s?.usageVisible ?? null,
       error: s?.error ?? null,
     };
   });
@@ -138,7 +143,10 @@ export async function add({ label, token }) {
   if (accounts.some((a) => a.token === token)) throw new Error("ce jeton est déjà enregistré");
   const probe = createQuotaMonitor({ readToken: () => token, label: clean, notify: async () => {} });
   const snap = await probe.probe();
-  if (snap.error) throw new Error(`jeton refusé par Anthropic (${snap.error})`);
+  if (/usage endpoint 401/.test(snap.error || "")) throw new Error("jeton refusé par Anthropic (401)");
+  // Usage not readable with this token (setup-token scope → 403, or a
+  // transient 429/5xx): prove it works for inference instead.
+  if (snap.usageVisible !== true) await pingCli(token);
   let id = clean.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "max";
   if (!ID_RE.test(id) || isKnown(id)) id = `${id}-${crypto.randomBytes(2).toString("hex")}`;
   accounts.push({ id, label: clean, token, addedAt: new Date().toISOString() });
@@ -146,6 +154,20 @@ export async function add({ label, token }) {
   monitorFor(id);
   console.log(`[max-accounts] ajouté ${id} (${clean}) — ${snap.level}%`);
   return { id, label: clean, level: snap.level };
+}
+
+/** One minimal CLI turn with the token; throws when Anthropic refuses it. */
+function pingCli(token) {
+  return new Promise((resolve, reject) => {
+    execFile("claude", ["--print", "Réponds OK.", "--output-format", "json", "--model", "sonnet", "--no-session-persistence", "--max-turns", "1", "--restricted", "--tools", "", "--strict-mcp-config", "--mcp-config", "/root/ImpulseMotion/config/mcp-claude.json"],
+      { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: token, TERM: "dumb" }, cwd: process.env.RELAY_CLAUDE_CWD || "/var/lib/impulsemotion-relay", timeout: 90_000, maxBuffer: 1024 * 1024 },
+      (err, stdout) => {
+        let d = null;
+        try { const t = String(stdout || ""); d = JSON.parse(t.slice(t.indexOf("{"))); } catch { /* no JSON */ }
+        if (d && d.is_error === false) return resolve();
+        reject(new Error(`jeton refusé par le CLI (${(d?.result || err?.message || "réponse illisible").toString().slice(0, 120)})`));
+      });
+  });
 }
 
 export function remove(id) {

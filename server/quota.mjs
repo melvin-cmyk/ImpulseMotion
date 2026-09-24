@@ -35,6 +35,8 @@ export function createQuotaMonitor(opts = {}) {
     /** Set by markExhausted(): Bedrock until then, whatever the probe says. */
     exhaustedUntil: 0,
     exhaustedReason: null,
+    /** false when the token cannot read the usage endpoint (setup-token scope). */
+    usageVisible: null,
     /** Dedup of Slack notices: one warn and one switch per 5-hour window. */
     warnedFor: null,
     switchedFor: null,
@@ -70,7 +72,17 @@ export function createQuotaMonitor(opts = {}) {
         headers: { Authorization: `Bearer ${readToken()}`, "anthropic-beta": "oauth-2025-04-20", "Content-Type": "application/json" },
         signal: AbortSignal.timeout(10_000),
       });
+      if (res.status === 403) {
+        // `claude setup-token` tokens carry the inference scope only: the
+        // usage endpoint refuses them. The account stays usable; exhaustion
+        // is then learnt from the CLI's own errors (markExhausted).
+        state.usageVisible = false;
+        state.checkedAt = new Date().toISOString();
+        state.error = null;
+        return snapshot();
+      }
       if (!res.ok) throw new Error(`usage endpoint ${res.status}`);
+      state.usageVisible = true;
       const j = await res.json();
       const pick = (w) => (w ? { utilization: Number(w.utilization) || 0, resetsAt: w.resets_at || null } : null);
       state.fiveHour = pick(j.five_hour);
@@ -139,6 +151,7 @@ export function createQuotaMonitor(opts = {}) {
       warnPct,
       switchPct,
       fallbackActive: fallbackActive(),
+      usageVisible: state.usageVisible,
       exhaustedUntil: state.exhaustedUntil ? new Date(state.exhaustedUntil).toISOString() : null,
       exhaustedReason: state.exhaustedReason,
     };

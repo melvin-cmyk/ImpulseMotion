@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { EFFORT_OPTIONS, MODEL_OPTIONS, type AiEffort, type AiModel, type AiPrefs } from "@/lib/ai-chat-shared";
 
-interface AccountOption { id: string; label: string; level: number | null; fallbackActive: boolean }
+interface AccountOption { id: string; label: string; level: number | null; fallbackActive: boolean; usageVisible?: boolean | null }
 
 export function ModelPicker({ prefs, onChange, disabled, idPrefix = "ai" }: {
   prefs: AiPrefs;
@@ -44,7 +44,7 @@ export function ModelPicker({ prefs, onChange, disabled, idPrefix = "ai" }: {
             <option value="auto">Compte : auto</option>
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.label}{a.level !== null ? ` — ${Math.round(a.level)} %` : ""}{a.fallbackActive ? " (saturé)" : ""}
+                {a.label}{a.level !== null && a.usageVisible !== false ? ` — ${Math.round(a.level)} %` : ""}{a.fallbackActive ? " (saturé)" : ""}
               </option>
             ))}
           </select>

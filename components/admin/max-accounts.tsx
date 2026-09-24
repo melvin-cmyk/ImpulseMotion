@@ -14,6 +14,8 @@ interface PoolAccount {
   fiveHour: { utilization: number; resetsAt: string | null } | null;
   sevenDay: { utilization: number; resetsAt: string | null } | null;
   fallbackActive: boolean; exhaustedUntil: string | null; checkedAt: string | null; error: string | null;
+  /** false: the token cannot read the usage endpoint (setup-token scope) — exhaustion is learnt from the CLI. */
+  usageVisible: boolean | null;
 }
 
 function pctOf(w: PoolAccount["fiveHour"]) { return Math.max(0, Math.min(100, Math.round(w?.utilization ?? 0))); }
@@ -97,6 +99,11 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
                   <button type="button" onClick={() => remove(a.id, a.label)} disabled={busy} className="text-[11px] text-gray-500 hover:text-red-400 disabled:opacity-50">Retirer</button>
                 )}
               </div>
+              {a.usageVisible === false ? (
+                <div className="mt-3 text-[11px] text-gray-500">
+                  Utilisation non visible pour ce type de jeton : le compte est retiré de la rotation quand Claude signale son quota, jusqu&apos;à la fenêtre suivante.
+                </div>
+              ) : (
               <div className="mt-3 space-y-2">
                 <div>
                   <div className="flex justify-between text-[11px] text-gray-500"><span>5 heures</span><span className="tabular-nums text-gray-300">{p5} %</span></div>
@@ -107,6 +114,7 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
                   <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden mt-1"><div className={`h-full ${tone(p7)}`} style={{ width: `${p7}%` }} /></div>
                 </div>
               </div>
+              )}
               <div className="text-[11px] text-gray-600 mt-2">
                 {a.error ? `erreur : ${a.error}` : a.checkedAt ? `vérifié à ${new Date(a.checkedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "pas encore vérifié"}
               </div>
