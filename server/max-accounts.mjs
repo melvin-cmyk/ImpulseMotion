@@ -2,10 +2,16 @@
  * Pool of Claude Max subscriptions for the relay's CLI.
  *
  * The host's own login (~/.claude/.credentials.json) is the account "host".
- * Extra accounts are long-lived OAuth tokens produced by `claude setup-token`
- * on a machine logged into that subscription, stored 0600 in
+ * Extra accounts come in two kinds, stored 0600 in
  * ~/.config/impulsemotion/max-accounts.json:
- *   { "accounts": [ { "id": "max-2", "label": "Max Sung-Min", "token": "sk-ant-oat01-…", "addedAt": "…" } ] }
+ *   - "login": a full `claude auth login` done in its own CLAUDE_CONFIG_DIR
+ *     (/root/.claude-accounts/<id>, whose projects/ is a symlink to the
+ *     host's so transcripts resume across accounts). Full scopes: the usage
+ *     endpoint answers, so the consultants see the account's utilisation.
+ *     { "id": "data-impulse", "label": "data@impulse", "kind": "login", "configDir": "/root/.claude-accounts/data-impulse" }
+ *   - "token": a long-lived `claude setup-token` token (inference scope
+ *     only: no usage visibility, exhaustion learnt from CLI errors).
+ *     { "id": "max-2", "label": "Max Sung-Min", "token": "sk-ant-oat01-…", "addedAt": "…" }
  * Each account gets its own quota monitor (server/quota.mjs). pick() chooses
  * where a chat runs: the caller's explicit choice when it still has room,
  * otherwise the account with the most room; none left → Bedrock.
@@ -31,7 +37,8 @@ let deps = { warnPct: undefined, switchPct: undefined, notify: undefined, probeM
 function load() {
   try {
     const j = JSON.parse(fs.readFileSync(FILE, "utf8"));
-    accounts = (Array.isArray(j.accounts) ? j.accounts : []).filter((a) => a && ID_RE.test(String(a.id)) && TOKEN_RE.test(String(a.token)));
+    accounts = (Array.isArray(j.accounts) ? j.accounts : []).filter((a) =>
+      a && ID_RE.test(String(a.id)) && (a.kind === "login" ? typeof a.configDir === "string" && a.configDir.startsWith("/") : TOKEN_RE.test(String(a.token))));
   } catch (err) {
     if (err.code !== "ENOENT") console.error("[max-accounts] fichier illisible:", err.message);
     accounts = [];
@@ -55,7 +62,9 @@ function monitorFor(id) {
     switchPct: deps.switchPct,
     notify: deps.notify,
     label: id === HOST_ACCOUNT ? "Claude Max (compte serveur)" : `Claude Max « ${acc.label} »`,
-    ...(acc ? { readToken: () => accounts.find((a) => a.id === id)?.token ?? "" } : {}),
+    ...(acc?.kind === "login"
+      ? { credentialsPath: path.join(acc.configDir, ".credentials.json"), refresh: () => pingCli({ CLAUDE_CONFIG_DIR: acc.configDir }).catch((e) => console.error(`[max-accounts] ${id}: refresh échoué — ${e.message}`)) }
+      : acc ? { readToken: () => accounts.find((a) => a.id === id)?.token ?? "" } : { refresh: () => pingCli({}).catch((e) => console.error(`[max-accounts] host: refresh échoué — ${e.message}`)) }),
   });
   m.start(deps.probeMs);
   monitors.set(id, m);
@@ -87,7 +96,8 @@ export function labelOf(id) {
 export function envFor(id) {
   if (id === HOST_ACCOUNT) return {};
   const acc = accounts.find((a) => a.id === id);
-  return acc ? { CLAUDE_CODE_OAUTH_TOKEN: acc.token } : {};
+  if (!acc) return {};
+  return acc.kind === "login" ? { CLAUDE_CONFIG_DIR: acc.configDir } : { CLAUDE_CODE_OAUTH_TOKEN: acc.token };
 }
 
 export function monitor(id) {
@@ -130,6 +140,7 @@ export function snapshot() {
       exhaustedUntil: s?.exhaustedUntil ?? null,
       checkedAt: s?.checkedAt ?? null,
       usageVisible: s?.usageVisible ?? null,
+      kind: id === HOST_ACCOUNT ? "login" : (accounts.find((a) => a.id === id)?.kind ?? "token"),
       error: s?.error ?? null,
     };
   });
@@ -146,7 +157,7 @@ export async function add({ label, token }) {
   if (/usage endpoint 401/.test(snap.error || "")) throw new Error("jeton refusé par Anthropic (401)");
   // Usage not readable with this token (setup-token scope → 403, or a
   // transient 429/5xx): prove it works for inference instead.
-  if (snap.usageVisible !== true) await pingCli(token);
+  if (snap.usageVisible !== true) await pingCli({ CLAUDE_CODE_OAUTH_TOKEN: token });
   let id = clean.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "max";
   if (!ID_RE.test(id) || isKnown(id)) id = `${id}-${crypto.randomBytes(2).toString("hex")}`;
   accounts.push({ id, label: clean, token, addedAt: new Date().toISOString() });
@@ -156,11 +167,11 @@ export async function add({ label, token }) {
   return { id, label: clean, level: snap.level };
 }
 
-/** One minimal CLI turn with the token; throws when Anthropic refuses it. */
-function pingCli(token) {
+/** One minimal CLI turn under `extraEnv` (a token or a config dir); throws when Anthropic refuses it. */
+function pingCli(extraEnv) {
   return new Promise((resolve, reject) => {
     execFile("claude", ["--print", "Réponds OK.", "--output-format", "json", "--model", "sonnet", "--no-session-persistence", "--max-turns", "1", "--restricted", "--tools", "", "--strict-mcp-config", "--mcp-config", "/root/ImpulseMotion/config/mcp-claude.json"],
-      { env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: token, TERM: "dumb" }, cwd: process.env.RELAY_CLAUDE_CWD || "/var/lib/impulsemotion-relay", timeout: 90_000, maxBuffer: 1024 * 1024 },
+      { env: { ...process.env, ...extraEnv, TERM: "dumb" }, cwd: process.env.RELAY_CLAUDE_CWD || "/var/lib/impulsemotion-relay", timeout: 90_000, maxBuffer: 1024 * 1024 },
       (err, stdout) => {
         let d = null;
         try { const t = String(stdout || ""); d = JSON.parse(t.slice(t.indexOf("{"))); } catch { /* no JSON */ }

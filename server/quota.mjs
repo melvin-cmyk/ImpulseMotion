@@ -66,12 +66,26 @@ export function createQuotaMonitor(opts = {}) {
     return level() >= switchPct;
   }
 
-  async function probe() {
+  let refreshedAt = 0;
+  async function probe(retried = false) {
     try {
       const res = await fetch(USAGE_URL, {
         headers: { Authorization: `Bearer ${readToken()}`, "anthropic-beta": "oauth-2025-04-20", "Content-Type": "application/json" },
         signal: AbortSignal.timeout(10_000),
       });
+      if (res.status === 401 && !retried && typeof opts.refresh === "function" && Date.now() - refreshedAt > 60 * 60 * 1000) {
+        // Access token expired while the account sat idle: let the CLI
+        // refresh it (one tiny turn), then read the new token once.
+        refreshedAt = Date.now();
+        log(`${label}: jeton expiré, rafraîchissement`);
+        await opts.refresh();
+        return probe(true);
+      }
+      if (res.status === 429) {
+        // Probing too often (three accounts, tests): keep the last reading.
+        state.checkedAt = new Date().toISOString();
+        return snapshot();
+      }
       if (res.status === 403) {
         // `claude setup-token` tokens carry the inference scope only: the
         // usage endpoint refuses them. The account stays usable; exhaustion
