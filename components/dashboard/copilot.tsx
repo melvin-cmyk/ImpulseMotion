@@ -16,22 +16,43 @@
  * - apply successes/failures are fed back to the model on the next message
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { validateWidgetConfig, validateWidgetWidth, type ResolvedWidget } from "@/lib/dashboard-types";
 
 /** Image attached to a user message: base64 (no data: prefix) + its media type. */
 interface ChatImage { mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif"; data: string; name?: string }
 
-interface ChatMessage { role: "user" | "assistant"; content: string; images?: ChatImage[] }
+/** File dropped by the consultant, stored in the conversation's sandbox workspace (relay). */
+interface ChatFile { name: string; path: string; bytes: number }
+
+interface ChatMessage { role: "user" | "assistant"; content: string; images?: ChatImage[]; files?: ChatFile[] }
+
+// Vercel caps request bodies at 4.5 MB; base64 adds a third.
+const UPLOAD_MAX_BYTES = 3 * 1024 * 1024;
+const UPLOAD_EXT_RE = /\.(xlsx?|xlsm|csv|tsv|txt|md|json|pdf|docx?|pptx?)$/i;
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} o`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} Ko`;
+  return `${(n / 1024 / 1024).toFixed(1)} Mo`;
+}
+
+function readAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(new Error(`Lecture impossible : ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
 
 const MAX_IMAGES_PER_MESSAGE = 4;
 // Images are downsized in the browser so a screenshot costs ~100–300 KB and
 // the whole POST stays far under Vercel's 4.5 MB body limit.
 const IMAGE_MAX_EDGE = 1600;
 const IMAGE_JPEG_QUALITY = 0.85;
-const SPREADSHEET_EXT_RE = /\.(xlsx?|xlsm|csv|tsv|numbers|ods)$/i;
 
 /** Downscale + re-encode a picked image; PNG stays PNG only when small (screenshots with text). */
 async function prepareImage(file: File): Promise<ChatImage> {
@@ -202,8 +223,12 @@ export function CopilotPanel({
   const [proposals, setProposals] = useState<Record<string, Proposal>>({});
   const [input, setInput] = useState("");
   const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
+  const [uploading, setUploading] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<{ model: CopilotModel; effort: CopilotEffort }>({ model: "opus", effort: "low" });
   const [showSheetHelp, setShowSheetHelp] = useState(false);
+  const [memorizing, setMemorizing] = useState(false);
+  const [memoNote, setMemoNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [copiedEmail, setCopiedEmail] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [streamText, setStreamText] = useState<string | null>(null);
@@ -265,17 +290,17 @@ export function CopilotPanel({
     }).catch(() => {});
   }, [dashboardId]);
 
-  /** Files from the picker, a paste or a drop: images are downsized and queued;
-   *  spreadsheets get the Google Sheets instructions instead of an upload. */
+  /** Files from the picker, a paste or a drop: images are downsized and sent
+   *  with the message; documents (Excel, CSV, PDF, Word…) go to the
+   *  conversation's sandbox workspace, where the AI reads them with Python. */
   async function addFiles(files: FileList | File[]) {
     const list = Array.from(files);
     if (!list.length) return;
     setError(null);
     const images = list.filter((f) => f.type.startsWith("image/"));
-    const sheets = list.filter((f) => SPREADSHEET_EXT_RE.test(f.name));
-    if (sheets.length) setShowSheetHelp(true);
-    const other = list.length - images.length - sheets.length;
-    if (other > 0) setError("Seules les images sont jointes directement ; un tableur passe par Google Sheets (voir ci-dessous).");
+    const docs = list.filter((f) => !f.type.startsWith("image/") && UPLOAD_EXT_RE.test(f.name));
+    const other = list.length - images.length - docs.length;
+    if (other > 0) setError("Formats acceptés : images, Excel, CSV, PDF, Word, PowerPoint, texte.");
     const room = MAX_IMAGES_PER_MESSAGE - pendingImages.length;
     if (images.length > room) setError(`${MAX_IMAGES_PER_MESSAGE} images maximum par message.`);
     const prepared: ChatImage[] = [];
@@ -284,6 +309,51 @@ export function CopilotPanel({
       catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     }
     if (prepared.length) setPendingImages((prev) => [...prev, ...prepared].slice(0, MAX_IMAGES_PER_MESSAGE));
+    for (const f of docs) {
+      if (f.size > UPLOAD_MAX_BYTES) {
+        setError(`${f.name} dépasse ${fmtBytes(UPLOAD_MAX_BYTES)} — pour un gros tableur, partagez-le en Google Sheet.`);
+        setShowSheetHelp(true);
+        continue;
+      }
+      setUploading(f.name);
+      try {
+        const data = await readAsBase64(f);
+        const res = await fetch(`/api/dashboards/${dashboardId}/assistant/files`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: f.name, data }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
+        setPendingFiles((prev) => [...prev.filter((p) => p.path !== body.path), { name: f.name, path: body.path, bytes: body.bytes }]);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setUploading(null);
+      }
+    }
+  }
+
+  /** Summarise the thread into a dated note in the client's HQ project journal. */
+  async function memorize() {
+    if (memorizing || busy || messages.length < 2) return;
+    setMemorizing(true);
+    setMemoNote(null);
+    try {
+      const res = await fetch(`/api/dashboards/${dashboardId}/assistant/memorize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: messages.slice(-MAX_THREAD_MESSAGES).map((m) => ({ role: m.role, content: m.content })) }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
+      setMemoNote({ ok: true, text: `Note ajoutée au journal HQ du projet « ${body.project} ».` });
+      pendingNotesRef.current.push("les conclusions de la conversation ont été consignées dans le journal HQ du client");
+    } catch (e) {
+      setMemoNote({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setMemorizing(false);
+    }
   }
 
   function copyShareEmail() {
@@ -296,9 +366,11 @@ export function CopilotPanel({
   async function send() {
     const text = input.trim();
     const images = pendingImages;
-    if ((!text && !images.length) || busy) return;
+    const files = pendingFiles;
+    if ((!text && !images.length && !files.length) || busy || uploading) return;
     setInput("");
     setPendingImages([]);
+    setPendingFiles([]);
     setError(null);
     setTruncated(false);
     setBusy(true);
@@ -308,12 +380,16 @@ export function CopilotPanel({
     // Feed apply outcomes back so the model can correct itself.
     const notes = pendingNotesRef.current;
     pendingNotesRef.current = [];
-    const body = text || (images.length > 1 ? "Voici des images." : "Voici une image.");
-    const content = notes.length
+    const body = text || (files.length ? "Voici le(s) fichier(s), analyse-les." : images.length > 1 ? "Voici des images." : "Voici une image.");
+    // Uploaded documents live in the sandbox workspace: tell the model where.
+    const fileNote = files.length
+      ? `\n\n[Fichiers déposés dans /work/${files.map((f) => `${f.path} (${fmtBytes(f.bytes)})`).join(", /work/")} — lis-les avec run_python]`
+      : "";
+    const content = (notes.length
       ? `[Résultat des propositions précédentes : ${notes.join(" ; ")}]\n\n${body}`
-      : body;
+      : body) + fileNote;
 
-    const next: ChatMessage[] = [...messages, { role: "user" as const, content, ...(images.length ? { images } : {}) }];
+    const next: ChatMessage[] = [...messages, { role: "user" as const, content, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }];
     setMessages(next);
     setStreamText("");
 
@@ -382,6 +458,7 @@ export function CopilotPanel({
       setMessages(messages); // roll back the user message on failure
       setInput(text);
       setPendingImages(images);
+      setPendingFiles(files);
     } finally {
       setBusy(false);
       busyRef.current = false;
@@ -455,6 +532,8 @@ export function CopilotPanel({
     updateProposal(p.key, { status: "refused" });
   }
 
+  const filesBase = `/api/dashboards/${dashboardId}/assistant/files`;
+
   function renderMessage(m: ChatMessage, i: number) {
     if (m.role === "user") {
       return (
@@ -473,7 +552,16 @@ export function CopilotPanel({
               ))}
             </div>
           )}
-          {m.content.replace(/^\[Résultat des propositions précédentes[^\]]*\]\n\n/, "")}
+          {m.files && m.files.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-1.5">
+              {m.files.map((f) => (
+                <span key={f.path} className="text-[11px] px-2 py-0.5 rounded-md bg-gray-900 border border-violet-900/60 text-gray-300" title={f.path}>
+                  📄 {f.name} <span className="text-gray-500">{fmtBytes(f.bytes)}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {m.content.replace(/^\[Résultat des propositions précédentes[^\]]*\]\n\n/, "").replace(/\n\n\[Fichiers déposés dans [^\]]*\]$/, "")}
         </div>
       );
     }
@@ -483,7 +571,27 @@ export function CopilotPanel({
       <div key={i} className="mr-4 space-y-2">
         {clean && (
           <div className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{clean}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              // `sandbox:out/x.png` → the files proxy of this dashboard (staff + scope checked server-side).
+              urlTransform={(url: string) => (url.startsWith("sandbox:") ? `${filesBase}/${url.slice(8).replace(/^\/+/, "")}` : defaultUrlTransform(url))}
+              components={{
+                img: ({ src, alt }: { src?: string; alt?: string }) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={typeof src === "string" ? src : undefined} alt={alt ?? ""} className="max-w-full rounded-lg border border-gray-800 my-2" loading="lazy" />
+                ),
+                a: ({ href, children }: { href?: string; children?: ReactNode }) => {
+                  const local = typeof href === "string" && href.startsWith(filesBase);
+                  return (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className={local ? "inline-flex items-center gap-1 text-violet-300 hover:text-violet-200 no-underline border border-violet-900/60 rounded-md px-2 py-0.5" : undefined}>
+                      {local ? "⬇ " : null}{children}
+                    </a>
+                  );
+                },
+              }}
+            >
+              {clean}
+            </ReactMarkdown>
           </div>
         )}
         {msgProposals.map((p) => (
@@ -531,8 +639,26 @@ export function CopilotPanel({
             <h2 className="text-sm font-bold text-white">Copilote IA</h2>
             <p className="text-[11px] text-gray-500">Propose des widgets — rien n&apos;est appliqué sans validation</p>
           </div>
-          <button type="button" onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
+          <div className="flex items-center gap-2">
+            {messages.length >= 2 && (
+              <button
+                type="button"
+                onClick={memorize}
+                disabled={memorizing || busy}
+                title="Résume les conclusions de cette conversation dans le journal HQ du client"
+                className="px-2 py-1 rounded-md text-[11px] font-semibold bg-gray-900 border border-gray-800 text-gray-300 hover:text-white hover:border-violet-700 disabled:opacity-50"
+              >
+                {memorizing ? "Mémorisation…" : "Mémoriser dans HQ"}
+              </button>
+            )}
+            <button type="button" onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
+          </div>
         </div>
+        {memoNote && (
+          <div className={`text-[11px] rounded-md px-2 py-1 border ${memoNote.ok ? "text-emerald-300 bg-emerald-950/30 border-emerald-900/50" : "text-amber-300 bg-amber-950/30 border-amber-900/50"}`}>
+            {memoNote.text}
+          </div>
+        )}
         <div className="flex gap-2" title="Changer de modèle en cours de conversation redémarre la session côté IA (l'historique est renvoyé).">
           <label className="sr-only" htmlFor="copilot-model">Modèle</label>
           <select
@@ -565,8 +691,9 @@ export function CopilotPanel({
               Google en pleine largeur », « Que dire des perfs de ce compte ? »
             </p>
             <p>
-              Vous pouvez joindre des images (captures, créas) avec le trombone ou en les collant.
-              Pour un Excel, partagez-le en Google Sheet avec <span className="text-gray-300">{sheetsShareEmail}</span> puis collez le lien.
+              Joignez des images, Excel, CSV, PDF ou Word avec le trombone, en les collant ou en les déposant :
+              l&apos;IA les analyse avec Python et peut produire graphiques et exports.
+              Un Google Sheet vivant ? Partagez-le avec <span className="text-gray-300">{sheetsShareEmail}</span> puis collez le lien.
             </p>
           </div>
         )}
@@ -611,6 +738,17 @@ export function CopilotPanel({
             </ol>
           </div>
         )}
+        {(pendingFiles.length > 0 || uploading) && (
+          <div className="flex flex-wrap gap-1.5">
+            {pendingFiles.map((f) => (
+              <span key={f.path} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-gray-900 border border-gray-700 text-gray-300">
+                📄 {f.name} <span className="text-gray-500">{fmtBytes(f.bytes)}</span>
+                <button type="button" aria-label="Retirer le fichier" onClick={() => setPendingFiles((prev) => prev.filter((p) => p.path !== f.path))} className="text-gray-500 hover:text-red-400 ml-1">✕</button>
+              </span>
+            ))}
+            {uploading && <span className="text-[11px] text-gray-500 px-2 py-0.5">Envoi de {uploading}…</span>}
+          </div>
+        )}
         {pendingImages.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {pendingImages.map((im, k) => (
@@ -633,7 +771,7 @@ export function CopilotPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,.xlsx,.xls,.csv"
+            accept="image/*,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,.json,.pdf,.doc,.docx,.ppt,.pptx"
             multiple
             hidden
             onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }}
@@ -642,7 +780,7 @@ export function CopilotPanel({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={busy}
-            title="Joindre des images (ou un Excel via Google Sheets)"
+            title="Joindre des images ou des fichiers (Excel, CSV, PDF, Word…)"
             aria-label="Joindre un fichier"
             className="px-2.5 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 disabled:opacity-50"
           >
@@ -661,7 +799,7 @@ export function CopilotPanel({
           />
           <button
             type="submit"
-            disabled={busy || (!input.trim() && pendingImages.length === 0)}
+            disabled={busy || !!uploading || (!input.trim() && pendingImages.length === 0 && pendingFiles.length === 0)}
             className="px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
           >
             {busy ? "…" : "Envoyer"}

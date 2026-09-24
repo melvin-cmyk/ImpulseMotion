@@ -16,7 +16,7 @@ import { buildCopilotSystemPrompt } from "@/lib/dashboard-copilot";
 import { resolveBinding } from "@/lib/dashboard-widgets";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
-import { STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { teeRelayStream, type RelayEffort, type RelayImage, type RelayMessage, type RelayModel } from "@/lib/relay-chat";
 import { recordAiUsage } from "@/lib/ai-usage";
@@ -67,18 +67,37 @@ function sanitizeImages(raw: unknown): RelayImage[] {
   return out;
 }
 
-function sanitizeMessages(raw: unknown): RelayMessage[] | null {
+/** Metadata of documents dropped in the sandbox workspace (display only — the
+ *  relay finds the files by path, the note in the message text tells the AI). */
+interface ThreadFile { name: string; path: string; bytes: number }
+type ThreadMessage = RelayMessage & { files?: ThreadFile[] };
+
+function sanitizeFiles(raw: unknown): ThreadFile[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ThreadFile[] = [];
+  for (const f of raw.slice(0, 8)) {
+    const name = (f as Record<string, unknown>)?.name;
+    const path = (f as Record<string, unknown>)?.path;
+    const bytes = (f as Record<string, unknown>)?.bytes;
+    if (typeof name !== "string" || typeof path !== "string" || !/^uploads\/[A-Za-z0-9._ \-()]{1,120}$/.test(path)) continue;
+    out.push({ name: name.slice(0, 120), path, bytes: typeof bytes === "number" && bytes >= 0 ? Math.floor(bytes) : 0 });
+  }
+  return out;
+}
+
+function sanitizeMessages(raw: unknown): ThreadMessage[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   // Sliding window: long threads are truncated, never rejected — a hard
   // reject at 40 messages used to brick the copilot for the dashboard.
   const recent = raw.slice(-MAX_MESSAGES);
-  const messages: RelayMessage[] = [];
+  const messages: ThreadMessage[] = [];
   for (const m of recent) {
     const role = (m as Record<string, unknown>)?.role;
     const content = (m as Record<string, unknown>)?.content;
     if ((role !== "user" && role !== "assistant") || typeof content !== "string") return null;
     const images = role === "user" ? sanitizeImages((m as Record<string, unknown>).images) : [];
-    messages.push({ role, content: content.slice(0, MAX_MESSAGE_CHARS), ...(images.length ? { images } : {}) });
+    const files = role === "user" ? sanitizeFiles((m as Record<string, unknown>).files) : [];
+    messages.push({ role, content: content.slice(0, MAX_MESSAGE_CHARS), ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) });
   }
   // Only the most recent images are kept in the thread — older ones would
   // otherwise pile up in the transcript (and in every replay).
@@ -189,15 +208,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const effort: RelayEffort = EFFORTS.has(body.effort) ? body.effort : STAFF_CHAT_PROFILE.effort;
 
   const relayBody = {
-    messages,
+    // The relay only needs role/content/images; file metadata stays in the thread.
+    messages: messages.map((m): RelayMessage => ({ role: m.role, content: m.content, ...(m.images ? { images: m.images } : {}) })),
     systemPrompt,
     sessionKey: `copilot:${dashboard.id}:${guard.session.userId}`,
     model,
     effort,
     maxTurns: COPILOT_MAX_TURNS,
     budgetMs: COPILOT_BUDGET_MS,
-    // Staff-only route: ads servers (scoped to this dashboard below) + HQ read-only.
-    allowedServers: [...STAFF_MCP_SERVERS],
+    // Staff-only route: ads servers (scoped to this dashboard below), HQ
+    // read-only, Sheets, web, and the Python sandbox (workspace = this
+    // conversation, see files/[...path]/route.ts for its outputs).
+    allowedServers: [...STAFF_MCP_SERVERS, SANDBOX_SERVER],
     accountScope: {
       meta: binding.metaAccountId ? [binding.metaAccountId] : [],
       google: binding.googleCustomerId ? [binding.googleCustomerId] : [],

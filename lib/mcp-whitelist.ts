@@ -42,6 +42,14 @@ export const SHEETS_SHARE_EMAIL = process.env.NEXT_PUBLIC_SHEETS_SHARE_EMAIL || 
  */
 export const WEB_SERVER = "web" as const;
 
+/**
+ * Bac à sable Python (server/mcp-sandbox.mjs) : un workspace par conversation
+ * côté relay, staff uniquement. Hors de STAFF_MCP_SERVERS pour l'instant :
+ * seules les surfaces qui savent afficher ses sorties (liens `sandbox:` →
+ * /api/.../files) le demandent — le copilote dashboard aujourd'hui.
+ */
+export const SANDBOX_SERVER = "sandbox" as const;
+
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
 export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER, WEB_SERVER] as const;
 

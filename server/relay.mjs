@@ -17,6 +17,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { createQuotaMonitor, looksLikeUsageLimit, makeWebhookNotifier } from "./quota.mjs";
 import * as hqOauth from "./hq-oauth.mjs";
+import { hqToolCall } from "./hq-client.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -114,6 +115,37 @@ const MCP_CONFIG = "/root/ImpulseMotion/config/mcp-claude.json";
 const CLIENT_DATA_SERVER = "client-data";
 const CLIENT_DATA_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-client-data.mjs";
 const SCOPED_ADS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-scoped-ads.mjs";
+// Bac à sable Python (server/mcp-sandbox.mjs, image server/sandbox/Dockerfile) :
+// staff uniquement, un workspace par conversation (sessionKey) sous WORKSPACES_DIR,
+// dont les sorties (out/) et dépôts (uploads/) sont servis par /api/files.
+const SANDBOX_SERVER = "sandbox";
+const SANDBOX_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-sandbox.mjs";
+const WORKSPACES_DIR = path.join(RELAY_CLAUDE_CWD, "workspaces");
+const WORKSPACE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const WORKSPACE_ID_RE = /^[a-f0-9]{24}$/;
+const WORKSPACE_PATH_RE = /^(out|uploads)\/[A-Za-z0-9._ \-()]{1,120}$/;
+const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+const SANDBOX_UID = 1000;
+function workspaceIdFor(sessionKey) {
+  return crypto.createHash("sha256").update(sessionKey).digest("hex").slice(0, 24);
+}
+function pruneWorkspaces() {
+  let dirs;
+  try { dirs = fs.readdirSync(WORKSPACES_DIR); } catch { return; }
+  const cutoff = Date.now() - WORKSPACE_TTL_MS;
+  for (const d of dirs) {
+    const abs = path.join(WORKSPACES_DIR, d);
+    try {
+      let newest = fs.statSync(abs).mtimeMs;
+      for (const sub of ["out", "uploads"]) {
+        try { for (const f of fs.readdirSync(path.join(abs, sub))) newest = Math.max(newest, fs.statSync(path.join(abs, sub, f)).mtimeMs); } catch { /* none */ }
+      }
+      if (newest < cutoff) { fs.rmSync(abs, { recursive: true, force: true }); console.log(`[workspace] purgé ${d}`); }
+    } catch { /* ignore */ }
+  }
+}
+setInterval(pruneWorkspaces, 60 * 60 * 1000).unref();
+pruneWorkspaces();
 const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // Agentic loop cap. 15 by default; staff surfaces with the sandbox ask for more.
 const MAX_TURNS_CAP = 40;
@@ -154,6 +186,7 @@ const HQ_READ_TOOLS = [
 // The per-request `allowedServers` list is intersected with this set, so even
 // a malicious caller can't open up new MCP surface area.
 const ALLOWED_MCP_SERVERS = new Set([
+  SANDBOX_SERVER,
   "meta-ads-impulse",
   "mcp-google-ads",
   "mcp-google-analytics",
@@ -289,7 +322,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null }) {
+function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, workspaceDir = null }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -305,6 +338,16 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
   if (hqToken) mcpServers[HQ_SERVER] = hqLocalEntry(hqToken);
 
   for (const name of servers) {
+    if (name === SANDBOX_SERVER) {
+      if (!workspaceDir) { console.error("[chat] sandbox désactivé (pas de workspace : sessionKey absente ou bot client)"); continue; }
+      mcpServers[name] = {
+        command: "node",
+        args: [SANDBOX_MCP_SCRIPT],
+        env: { WORKSPACE_DIR: workspaceDir, ...(process.env.SANDBOX_IMAGE ? { SANDBOX_IMAGE: process.env.SANDBOX_IMAGE } : {}) },
+      };
+      kept.push(name);
+      continue;
+    }
     if (name === CLIENT_DATA_SERVER) {
       const dataUrl = process.env.DATA_DATABASE_URL || "";
       if (!clientKey || !dataUrl) {
@@ -453,7 +496,16 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
 
   // Every chat goes through a generated config: scopes are pinned in the
   // environment of stdio servers, never left to the prompt.
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken });
+  // Sandbox: staff only, and only for a named conversation (its workspace).
+  let workspaceDir = null;
+  if (servers.includes(SANDBOX_SERVER)) {
+    if (clientBot || !sessionKey) servers = servers.filter((s) => s !== SANDBOX_SERVER);
+    else {
+      workspaceDir = path.join(WORKSPACES_DIR, workspaceIdFor(sessionKey));
+      for (const sub of ["uploads", "out"]) fs.mkdirSync(path.join(workspaceDir, sub), { recursive: true });
+    }
+  }
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, workspaceDir });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -940,6 +992,92 @@ const server = http.createServer(async (req, res) => {
         if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "chat failed" })); }
         else res.end();
       });
+      return;
+    }
+
+    // Workspace files: GET /api/files/<ws>/<out|uploads>/<name> streams a
+    // file; POST /api/files/<ws> { name, data(base64) } stores a consultant
+    // upload in uploads/; GET /api/files/<ws> lists both folders.
+    const filesMatch = url.pathname.match(/^\/api\/files\/([a-f0-9]{24})(?:\/(.+))?$/);
+    if (filesMatch) {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const wsDir = path.join(WORKSPACES_DIR, filesMatch[1]);
+      const rel = filesMatch[2] ? decodeURIComponent(filesMatch[2]) : null;
+      if (req.method === "GET" && rel) {
+        if (!WORKSPACE_PATH_RE.test(rel)) { res.writeHead(400); res.end("bad path"); return; }
+        const abs = path.join(wsDir, rel);
+        let st;
+        try { st = fs.statSync(abs); } catch { res.writeHead(404); res.end("not found"); return; }
+        if (!st.isFile()) { res.writeHead(404); res.end("not found"); return; }
+        res.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": String(st.size), "Cache-Control": "private, max-age=300" });
+        fs.createReadStream(abs).pipe(res);
+        return;
+      }
+      if (req.method === "GET") {
+        const list = [];
+        for (const sub of ["uploads", "out"]) {
+          try {
+            for (const f of fs.readdirSync(path.join(wsDir, sub))) {
+              const st = fs.statSync(path.join(wsDir, sub, f));
+              if (st.isFile()) list.push({ path: `${sub}/${f}`, bytes: st.size, mtime: st.mtimeMs });
+            }
+          } catch { /* none */ }
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ files: list }));
+        return;
+      }
+      if (req.method === "POST" && !rel) {
+        const body = await readBody(req);
+        const name = typeof body?.name === "string" ? body.name.replace(/[^A-Za-z0-9._ \-()]/g, "_").slice(0, 120) : "";
+        if (!name || name.startsWith(".") || typeof body?.data !== "string") { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name/data requis" })); return; }
+        const buf = Buffer.from(body.data, "base64");
+        if (!buf.length || buf.length > UPLOAD_MAX_BYTES) { res.writeHead(413, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "fichier vide ou > 25 Mo" })); return; }
+        const dir = path.join(wsDir, "uploads");
+        fs.mkdirSync(dir, { recursive: true });
+        const abs = path.join(dir, name);
+        fs.writeFileSync(abs, buf, { mode: 0o644 });
+        try { fs.chownSync(abs, SANDBOX_UID, SANDBOX_UID); fs.chownSync(dir, SANDBOX_UID, SANDBOX_UID); fs.chownSync(wsDir, SANDBOX_UID, SANDBOX_UID); } catch { /* best effort */ }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ path: `uploads/${name}`, bytes: buf.length }));
+        return;
+      }
+      res.writeHead(405); res.end();
+      return;
+    }
+
+    // Mémoire client : ajoute une entrée datée au journal du projet HQ du
+    // client. Écriture faite par le code (pas par le modèle), bearer du relay.
+    if (url.pathname === "/api/hq/journal" && req.method === "POST") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const body = await readBody(req);
+      const project = typeof body?.project === "string" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(body.project) ? body.project : null;
+      const slug = typeof body?.slug === "string" ? body.slug.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) : "";
+      const content = typeof body?.content === "string" ? body.content.slice(0, 40_000) : "";
+      const company = typeof body?.company === "string" && /^[a-z0-9-]{1,60}$/.test(body.company) ? body.company : (process.env.HQ_COMPANY || "impulse-analytics");
+      if (!project || !slug || !content.trim()) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "project, slug et content requis" }));
+        return;
+      }
+      try {
+        const text = await hqToolCall("hq_project_journal_append", { company, project, slug, content });
+        console.log(`[hq] journal ${company}/${project} ← ${slug}`);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, result: text.slice(0, 500) }));
+      } catch (e) {
+        console.error("[hq] journal échec:", e.message);
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
       return;
     }
 

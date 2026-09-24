@@ -16,6 +16,7 @@ export type AiFeature =
   | "client_bot"
   | "console"
   | "copilot"
+  | "copilot_memorize"
   | "report"
   | "report_chat"
   | "creative_analysis"
