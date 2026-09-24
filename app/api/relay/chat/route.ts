@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   const isStaff = guard.session.role === "admin" || guard.session.role === "consultant";
   const relayBody: RelayChatBody = {
     messages: toRelayMessages(thread),
-    systemPrompt: isStaff ? buildConsoleSystemPrompt() : undefined,
+    systemPrompt: isStaff ? buildConsoleSystemPrompt(guard.session.user?.email ?? null) : undefined,
     sessionKey: conversationId ? `console:${guard.session.userId}:${conversationId}` : undefined,
     // Staff pick the model and effort in the console (staff profile as the
     // fallback); clients keep the relay default.

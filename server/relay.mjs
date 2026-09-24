@@ -184,6 +184,9 @@ const HQ_READ_TOOLS = [
   "hq_knowledge_list", "hq_knowledge_get", "hq_files_list", "hq_files_read",
   "hq_projects_list", "hq_project_get", "hq_project_status",
   "hq_policies_list", "hq_policy_get", "hq_skill_list", "hq_skill_get",
+  // Additive writes only (a dated file is created, nothing is edited or
+  // removed): the consultant can ask the AI to log a note itself.
+  "hq_project_journal_append", "hq_knowledge_capture",
 ];
 
 // Global whitelist — only servers declared here can ever be routed to the AI.

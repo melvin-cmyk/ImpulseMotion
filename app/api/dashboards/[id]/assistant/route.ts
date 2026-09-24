@@ -142,6 +142,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // The cached HQ brief (7-day TTL, lib/hq-client-context.ts) replaces a
     // live HQ exploration on every question about the client.
     dashboard.hqSlug && dashboard.hqContextMd ? { slug: dashboard.hqSlug, brief: dashboard.hqContextMd } : null,
+    guard.session.user?.email ?? null,
   );
 
   // The consultant picks the model and the reasoning effort in the panel;

@@ -23,6 +23,7 @@ export function buildCopilotSystemPrompt(
   dashboard: DashboardForPrompt,
   clientLabel: string,
   hq: { slug: string; brief: string } | null = null,
+  author: string | null = null,
 ): string {
   const pages = dashboard.pages ?? [];
   const pageName = (pageId: string | null | undefined) => {
@@ -76,6 +77,7 @@ Le consultant voit chaque proposition et clique Appliquer ou Refuser — n'affir
 
 Pour les questions de données (performances, comparaisons), tu peux utiliser les outils MCP disponibles, mais UNIQUEMENT sur les comptes listés ci-dessus.
 
-${staffToolGuidance()}
+${staffToolGuidance(author)}${hq ? `
+Le dossier HQ de ce client est projects/${hq.slug} : c'est là que va une note de journal demandée par le consultant.` : ""}
 Réponds en français, de façon concise et actionnable.`;
 }
