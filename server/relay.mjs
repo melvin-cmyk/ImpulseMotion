@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { createQuotaMonitor, looksLikeUsageLimit, makeWebhookNotifier } from "./quota.mjs";
+import * as hqOauth from "./hq-oauth.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -119,10 +120,11 @@ const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // charge que sans --strict-mcp-config, depuis le compte hôte, sous deux formes :
 //   - abonnement Claude Max : le connecteur claude.ai "claude.ai mcp hq"
 //     (préfixe mcp__claude_ai_mcp_hq__) ;
-//   - Bedrock (bascule quota) : les connecteurs claude.ai ne se chargent pas,
-//     seul le serveur MCP HTTP "hq" de ~/.claude.json (OAuth du compte hôte,
-//     préfixe mcp__hq__) est disponible — il doit avoir été authentifié une
-//     fois (`claude` → /mcp → hq) sinon HQ manque, ce que le log signale.
+//   - Bedrock (bascule quota) : les connecteurs claude.ai ne se chargent pas.
+//     Le relay déclare alors lui-même un serveur MCP HTTP "hq" (préfixe
+//     mcp__hq__) avec un bearer qu'il tient à jour (server/hq-oauth.mjs,
+//     jeton obtenu une fois par OAuth navigateur). Sans jeton, HQ manque,
+//     ce que le log signale.
 // Il agit avec l'identité propriétaire de l'agence, donc : IA interne
 // uniquement (jamais un bot client), et uniquement les outils de lecture
 // listés ci-dessous.
@@ -264,20 +266,15 @@ const SCOPED_ADS_SERVERS = {
  * temp file, removed once the CLI exits.
  * Returns { path, cleanup, servers } — servers being the surviving list.
  */
-// The host's "hq" HTTP server (OAuth done once via `claude` → /mcp). Read from
-// ~/.claude.json so the entry (url, OAuth client) stays the one the token was
-// issued for; --restricted never loads it on its own, hence the explicit copy.
-const HQ_LOCAL_FALLBACK = { type: "http", url: "https://hq-mcp.hq.computer/mcp" };
-function hqLocalEntry() {
-  try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude.json"), "utf8"));
-    const e = cfg?.mcpServers?.[HQ_SERVER];
-    if (e && typeof e.url === "string") return e;
-  } catch { /* fall through */ }
-  return HQ_LOCAL_FALLBACK;
+// HQ as a plain HTTP MCP entry, authenticated by the relay's own bearer
+// (--restricted never loads the host's user-scope servers, and the CLI's
+// OAuth store is not something we can fill from outside).
+const HQ_MCP_URL = process.env.HQ_MCP_URL || "https://hq-mcp.hq.computer/mcp";
+function hqLocalEntry(token) {
+  return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqLocal = false }) {
+function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -290,7 +287,7 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
   const baseServers = base.mcpServers || {};
   const mcpServers = {};
   const kept = [];
-  if (hqLocal) mcpServers[HQ_SERVER] = hqLocalEntry();
+  if (hqToken) mcpServers[HQ_SERVER] = hqLocalEntry(hqToken);
 
   for (const name of servers) {
     if (name === CLIENT_DATA_SERVER) {
@@ -358,7 +355,7 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
 }
 
 // ── Chat via Claude CLI with streaming ──────────────────────────────────────
-function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider, options = {}) {
+async function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider, options = {}) {
   // Subscription exhausted (or nearly): every chat runs on Bedrock until the
   // window resets. Explicit Bedrock callers (client bots) are unchanged.
   const fallback = provider !== "bedrock" && BEDROCK_FALLBACK && quota.fallbackActive();
@@ -413,14 +410,20 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
   // server instead of the claude.ai connector. Pulled out of `servers` either
   // way — it has no entry in the mcp-config, the CLI gets it from the host.
   const clientBot = !!dataScope || provider === "bedrock";
-  const useHq = servers.includes(HQ_SERVER) && !clientBot;
+  let useHq = servers.includes(HQ_SERVER) && !clientBot;
   const hqToolPrefix = useBedrock ? HQ_LOCAL_TOOL_PREFIX : HQ_TOOL_PREFIX;
   if (servers.includes(HQ_SERVER) && !useHq) console.error("[chat] hq refusé — requête de bot client");
   servers = servers.filter((s) => s !== HQ_SERVER);
+  // On Bedrock HQ needs the relay's own bearer; without one the chat runs without HQ.
+  let hqToken = null;
+  if (useHq && useBedrock) {
+    hqToken = await hqOauth.getAccessToken();
+    if (!hqToken) { console.error("[chat] hq indisponible sur Bedrock — aucun jeton HQ valide (voir server/hq-oauth.mjs)"); useHq = false; }
+  }
 
   // Every chat goes through a generated config: scopes are pinned in the
   // environment of stdio servers, never left to the prompt.
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqLocal: useHq && useBedrock });
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -598,7 +601,7 @@ function handleChat(messages, allowedServers, accountScope, res, systemPromptOve
         if (useHq) {
           const hq = (event.mcp_servers || []).filter((m) => HQ_INIT_NAMES.has(m.name));
           const ok = hq.some((m) => m.status === "connected");
-          if (!ok) console.error(`[chat] hq indisponible (${useBedrock ? "bedrock : serveur hq de ~/.claude.json non authentifié ?" : "connecteur claude.ai"}) — ${hq.map((m) => `${m.name}=${m.status}`).join(", ") || "absent"}`);
+          if (!ok) console.error(`[chat] hq indisponible (${useBedrock ? "bedrock : jeton HQ refusé ?" : "connecteur claude.ai"}) — ${hq.map((m) => `${m.name}=${m.status}`).join(", ") || "absent"}`);
         }
         send("init", {
           tools: (event.tools || []).filter(t => t.startsWith("mcp__")),
@@ -890,6 +893,10 @@ const server = http.createServer(async (req, res) => {
         effort: body.effort,
         maxTurns: body.maxTurns,
         sessionKey: body.sessionKey,
+      }).catch((err) => {
+        console.error("[chat] échec avant lancement:", err.message || err);
+        if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "chat failed" })); }
+        else res.end();
       });
       return;
     }
