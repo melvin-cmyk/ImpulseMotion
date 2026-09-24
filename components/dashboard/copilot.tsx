@@ -261,7 +261,7 @@ export function CopilotPanel({
       const res = await fetch(`/api/dashboards/${dashboardId}/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next.slice(-MAX_THREAD_MESSAGES), model: prefs.model, effort: prefs.effort }),
+        body: JSON.stringify({ messages: next.slice(-MAX_THREAD_MESSAGES), model: prefs.model, effort: prefs.effort, account: prefs.account }),
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));

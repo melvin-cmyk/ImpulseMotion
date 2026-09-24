@@ -37,6 +37,7 @@ const STAFF_MAX_TURNS = 40;
 const STAFF_BUDGET_MS = 280_000;
 const MODELS = new Set<RelayModel>(["sonnet", "opus"]);
 const EFFORTS = new Set<RelayEffort>(["low", "medium", "high"]);
+const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,30}$/;
 
 export async function POST(req: NextRequest) {
   const guard = await requireSession();
@@ -63,6 +64,8 @@ export async function POST(req: NextRequest) {
     // fallback); clients keep the relay default.
     model: isStaff ? (MODELS.has(body?.model) ? body.model : STAFF_CHAT_PROFILE.model) : undefined,
     effort: isStaff ? (EFFORTS.has(body?.effort) ? body.effort : STAFF_CHAT_PROFILE.effort) : undefined,
+    // Preferred Claude Max account of the pool ("auto" → the relay chooses).
+    account: isStaff && typeof body?.account === "string" && ACCOUNT_RE.test(body.account) && body.account !== "auto" ? body.account : undefined,
     maxTurns: isStaff ? STAFF_MAX_TURNS : undefined,
     budgetMs: isStaff ? STAFF_BUDGET_MS : undefined,
     allowedServers: isStaff

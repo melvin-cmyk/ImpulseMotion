@@ -44,6 +44,9 @@ export interface RelayChatBody {
   provider?: "bedrock";
   /** Model alias resolved by the relay (see lib/ai-profiles.ts). Ignored on Bedrock. */
   model?: RelayModel;
+  /** Preferred Claude Max account of the pool ("host" or an id from /api/relay/accounts);
+   *  the relay falls back to the account with the most room, then Bedrock. */
+  account?: string;
   /** Reasoning effort passed to the CLI — "low" spends the fewest thinking tokens. */
   effort?: RelayEffort;
   /** Cap on the agentic loop (1–15); short tool lookups should not run the default 15. */

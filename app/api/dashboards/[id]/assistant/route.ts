@@ -30,6 +30,7 @@ const COPILOT_MAX_TURNS = 40;
 
 const MODELS = new Set<RelayModel>(["sonnet", "opus"]);
 const EFFORTS = new Set<RelayEffort>(["low", "medium", "high"]);
+const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,30}$/;
 
 const MAX_MESSAGES = 40;
 // Generous per-message cap: assistant replies with tables + action blocks can
@@ -155,6 +156,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     sessionKey: `copilot:${dashboard.id}:${guard.session.userId}`,
     model,
     effort,
+    account: typeof body.account === "string" && ACCOUNT_RE.test(body.account) && body.account !== "auto" ? body.account : undefined,
     maxTurns: COPILOT_MAX_TURNS,
     budgetMs: COPILOT_BUDGET_MS,
     // Staff-only route: ads servers (scoped to this dashboard below), HQ

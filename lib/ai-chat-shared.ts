@@ -73,7 +73,7 @@ export const FILES_NOTE_RE = /\n\n\[Fichiers déposés dans [^\]]*\]$/;
 // ── Model / effort preferences ──────────────────────────────────────────────
 export type AiModel = "sonnet" | "opus";
 export type AiEffort = "low" | "medium" | "high";
-export interface AiPrefs { model: AiModel; effort: AiEffort }
+export interface AiPrefs { model: AiModel; effort: AiEffort; /** "auto" or a Claude Max account id of the relay pool */ account?: string }
 
 export const MODEL_OPTIONS: Array<{ value: AiModel; label: string; hint: string }> = [
   { value: "opus", label: "Opus", hint: "Le plus fort pour orchestrer des analyses" },
@@ -94,6 +94,7 @@ export function loadPrefs(key: string): AiPrefs {
       return {
         model: MODEL_OPTIONS.some((o) => o.value === p.model) ? p.model : DEFAULT_PREFS.model,
         effort: EFFORT_OPTIONS.some((o) => o.value === p.effort) ? p.effort : DEFAULT_PREFS.effort,
+        account: typeof p.account === "string" && /^[a-z0-9][a-z0-9-]{1,30}$/.test(p.account) ? p.account : "auto",
       };
     }
   } catch { /* private mode, blocked storage */ }

@@ -10,6 +10,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { PageHeader, Card, Kpi, Pill } from "@/components/ui/surface";
+import { MaxAccountsPanel } from "@/components/admin/max-accounts";
 
 type Totals = { messages: number; inputTokens: number; cacheWriteTokens: number; cacheReadTokens: number; outputTokens: number };
 type Quota = {
@@ -200,6 +201,8 @@ export default function AdminUsagePage() {
           </div>
         )}
       </section>
+
+      <MaxAccountsPanel warnPct={quota?.warnPct ?? 80} switchPct={quota?.switchPct ?? 95} />
 
       <section className="space-y-2">
         <h2 className="text-base font-semibold text-white">Où partent les tokens (toutes surfaces)</h2>

@@ -21,6 +21,8 @@ export interface StreamChatOptions {
   conversationId?: string;
   model?: "sonnet" | "opus";
   effort?: "low" | "medium" | "high";
+  /** Claude Max account of the relay pool, or "auto". */
+  account?: string;
 }
 
 export interface StreamEvent {

@@ -215,7 +215,7 @@ export default function AIPage() {
           })
         },
         abort.signal,
-        { conversationId, model: prefs.model, effort: prefs.effort },
+        { conversationId, model: prefs.model, effort: prefs.effort, account: prefs.account },
       )
     } catch (err) {
       if ((err as Error).name !== "AbortError") {

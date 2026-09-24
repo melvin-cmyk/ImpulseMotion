@@ -15,9 +15,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { createQuotaMonitor, looksLikeUsageLimit, makeWebhookNotifier } from "./quota.mjs";
+import { looksLikeUsageLimit, makeWebhookNotifier } from "./quota.mjs";
 import * as hqOauth from "./hq-oauth.mjs";
 import { hqToolCall } from "./hq-client.mjs";
+import * as maxAccounts from "./max-accounts.mjs";
 let hqProjectsCache = null;
 
 const execFileAsync = promisify(execFile);
@@ -222,7 +223,10 @@ if (!RELAY_SHARED_SECRET) {
 
 // Claude Max quota → Bedrock fallback (see server/quota.mjs).
 const BEDROCK_FALLBACK = process.env.BEDROCK_FALLBACK === "1";
-const quota = createQuotaMonitor({
+// Pool de comptes Claude Max (server/max-accounts.mjs) : le login du serveur
+// + les jetons `claude setup-token` ajoutés via /api/accounts. Un moniteur de
+// quota par compte ; `quota` reste celui du compte serveur (compatibilité).
+maxAccounts.init({
   warnPct: process.env.QUOTA_WARN_PCT,
   switchPct: process.env.QUOTA_SWITCH_PCT,
   notify: makeWebhookNotifier({
@@ -231,8 +235,9 @@ const quota = createQuotaMonitor({
     slackChannel: process.env.RELAY_ALERT_SLACK_CHANNEL,
     appUrl: (process.env.APP_URL || "https://impulsemotion.vercel.app").replace(/\/$/, ""),
   }),
+  probeMs: Number(process.env.QUOTA_PROBE_MS || 300_000),
 });
-quota.start(Number(process.env.QUOTA_PROBE_MS || 300_000));
+const quota = maxAccounts.hostMonitor();
 
 const SYSTEM_PROMPT = `Tu es l'assistant IA d'ImpulseMotion, une agence marketing digitale.
 Tu as accès aux données publicitaires de l'agence via des outils MCP (Meta Ads, Google Ads, Google Analytics).
@@ -417,22 +422,32 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
 async function handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider, options = {}) {
   // Subscription exhausted (or nearly): every chat runs on Bedrock until the
   // window resets. Explicit Bedrock callers (client bots) are unchanged.
-  const fallback = provider !== "bedrock" && BEDROCK_FALLBACK && quota.fallbackActive();
+  // Which Claude Max account answers: the caller's pick while it has room,
+  // else the account with the most room, else Bedrock (quota fallback).
+  const preferredAccount = typeof options.account === "string" && maxAccounts.isKnown(options.account) ? options.account : null;
+  const excludedAccounts = Array.isArray(options.excludeAccounts) ? options.excludeAccounts : [];
+  let account = provider === "bedrock" ? null : maxAccounts.pick({ preferred: preferredAccount, exclude: excludedAccounts });
+  // Fallback disabled: try a login anyway rather than refusing the chat.
+  if (!account && provider !== "bedrock" && !BEDROCK_FALLBACK) account = preferredAccount ?? maxAccounts.HOST_ACCOUNT;
+  const fallback = provider !== "bedrock" && !account;
   const useBedrock = provider === "bedrock" || fallback;
+  const accountMonitor = account ? maxAccounts.monitor(account) : null;
   const model = resolveModel(options.model, useBedrock);
   const effort = resolveEffort(options.effort);
   // Tool-driven sessions may cap the agentic loop lower than the default: a
   // short, deterministic lookup (HQ client context) has no business running 15 turns.
   const maxTurns = Number.isInteger(options.maxTurns) && options.maxTurns >= 1 && options.maxTurns <= MAX_TURNS_CAP ? options.maxTurns : 15;
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-  });
-  // Flush headers + a first byte right away: proxies (and undici fetch with a
-  // headers-only timeout) must see the response before the CLI warms up.
-  res.flushHeaders?.();
-  res.write(": connected\n\n");
+  if (!res.headersSent) {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    // Flush headers + a first byte right away: proxies (and undici fetch with a
+    // headers-only timeout) must see the response before the CLI warms up.
+    res.flushHeaders?.();
+    res.write(": connected\n\n");
+  }
 
   const send = (type, data) => {
     res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
@@ -485,14 +500,16 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   const useWeb = requestedServers.includes(WEB_SERVER) && !clientBot;
   const builtinTools = ["ToolSearch", ...(useWeb ? ["WebFetch", ...(useBedrock ? [] : ["WebSearch"])] : [])];
   let useHq = servers.includes(HQ_SERVER) && !clientBot;
-  const hqToolPrefix = useBedrock ? HQ_LOCAL_TOOL_PREFIX : HQ_TOOL_PREFIX;
+  // HQ always goes through the relay's own bearer (server/hq-oauth.mjs): the
+  // host's claude.ai connector would tie HQ to one Max login, and the pool
+  // runs chats under other logins. Without a token the chat runs without HQ.
+  const hqToolPrefix = HQ_LOCAL_TOOL_PREFIX;
   if (servers.includes(HQ_SERVER) && !useHq) console.error("[chat] hq refusé — requête de bot client");
   servers = servers.filter((s) => s !== HQ_SERVER);
-  // On Bedrock HQ needs the relay's own bearer; without one the chat runs without HQ.
   let hqToken = null;
-  if (useHq && useBedrock) {
+  if (useHq) {
     hqToken = await hqOauth.getAccessToken();
-    if (!hqToken) { console.error("[chat] hq indisponible sur Bedrock — aucun jeton HQ valide (voir server/hq-oauth.mjs)"); useHq = false; }
+    if (!hqToken) { console.error("[chat] hq indisponible — aucun jeton HQ valide (voir server/hq-oauth.mjs)"); useHq = false; }
   }
 
   // Every chat goes through a generated config: scopes are pinned in the
@@ -592,7 +609,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     // The other connectors then load too, but stay unusable: in --print mode a
     // tool outside --allowedTools is denied, and only HQ_READ_TOOLS are listed.
     // On Bedrock the connectors never load; HQ is then the declared "hq" entry.
-    ...(useHq && !useBedrock ? [] : ["--strict-mcp-config"]),
+    "--strict-mcp-config",
     "--system-prompt", scopedSystemPrompt,
     // One-shot calls leave nothing on disk; named conversations persist so
     // the next turn can --resume them.
@@ -612,7 +629,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${useWeb ? " | web" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ""}`);
+  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${useWeb ? " | web" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
@@ -628,7 +645,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
             // Background/small-model calls must stay on Bedrock too.
             ANTHROPIC_DEFAULT_HAIKU_MODEL: BEDROCK_MODEL,
           }
-        : {}),
+        : maxAccounts.envFor(account)),
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -646,6 +663,24 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   let fullText = "";
   let sentContent = false;
   let finished = false;
+  // Set when the account ran dry before any content went out: the chat is
+  // relaunched on another account (or Bedrock) over the same response.
+  let retrying = false;
+  // The first ~160 chars of a reply are held back until they are clearly not
+  // an account error ("Failed to authenticate", "usage limit"…): the CLI
+  // streams those as ordinary assistant text, and a held error lets the turn
+  // be relaunched on another account without leaking the error to the client.
+  let head = "";
+  let sawDelta = false; // deltas streamed → the assistant message's text is a duplicate
+  const HEAD_LIMIT = 160;
+  const isAccountError = (t) => looksLikeUsageLimit(t) || /failed to authenticate|oauth access token/i.test(t);
+  const flushHead = () => {
+    if (!head) return;
+    send("delta", { text: head });
+    fullText += head;
+    sentContent = true;
+    head = "";
+  };
 
   const finish = (payload) => {
     if (finished) return;
@@ -696,7 +731,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
         if (useHq) {
           const hq = (event.mcp_servers || []).filter((m) => HQ_INIT_NAMES.has(m.name));
           const ok = hq.some((m) => m.status === "connected");
-          if (!ok) console.error(`[chat] hq indisponible (${useBedrock ? "bedrock : jeton HQ refusé ?" : "connecteur claude.ai"}) — ${hq.map((m) => `${m.name}=${m.status}`).join(", ") || "absent"}`);
+          if (!ok) console.error(`[chat] hq indisponible (jeton HQ refusé ?) — ${hq.map((m) => `${m.name}=${m.status}`).join(", ") || "absent"}`);
         }
         send("init", {
           tools: (event.tools || []).filter(t => t.startsWith("mcp__")),
@@ -709,9 +744,14 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
       if (event.type === "stream_event") {
         const e = event.event;
         if (e?.type === "content_block_delta" && e.delta?.type === "text_delta" && e.delta.text) {
-          send("delta", { text: e.delta.text });
-          fullText += e.delta.text;
-          sentContent = true;
+          sawDelta = true;
+          if (!sentContent) {
+            head += e.delta.text;
+            if (!isAccountError(head) && head.length >= HEAD_LIMIT) flushHead();
+          } else {
+            send("delta", { text: e.delta.text });
+            fullText += e.delta.text;
+          }
         }
         continue; // message_start/stop, thinking_delta, input_json_delta… are noise here
       }
@@ -723,13 +763,13 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
         for (const block of event.message.content) {
           if (block.type === "tool_use") {
             send("tool_call", { id: block.id, name: block.name, input: block.input });
-          } else if (block.type === "text" && block.text && !sentContent) {
-            send("delta", { text: block.text });
-            fullText += block.text;
+          } else if (block.type === "text" && block.text && !sentContent && !sawDelta) {
+            head += block.text;
+            if (!isAccountError(head)) flushHead();
             sentFallbackText = true;
           }
         }
-        if (sentFallbackText) sentContent = true;
+        if (sentFallbackText && !head) sentContent = true;
         continue;
       }
 
@@ -757,10 +797,28 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
           };
           send("error", { message: reasons[event.subtype] || `Fin anormale: ${event.subtype}` });
         }
-        if (!useBedrock && event.is_error && looksLikeUsageLimit(event.result)) {
-          // The subscription just ran dry: next requests go to Bedrock.
-          void quota.markExhausted(event.result);
-          if (BEDROCK_FALLBACK) send("error", { message: "Quota de l'abonnement Claude atteint — bascule sur Amazon Bedrock activée, relancez votre demande." });
+        // A pool account whose token is refused (revoked, expired) is treated
+        // like a dry one: parked for a while, the turn relaunched elsewhere.
+        const authFailed = !useBedrock && account !== maxAccounts.HOST_ACCOUNT && event.is_error && /failed to authenticate|oauth access token|401/i.test(String(event.result || ""));
+        const accountError = !useBedrock && event.is_error && (looksLikeUsageLimit(event.result) || authFailed);
+        if (!accountError) flushHead(); else head = "";
+        if (accountError) {
+          // This account just ran dry: mark it, and relaunch the turn on
+          // another account (or Bedrock) if nothing has been sent yet.
+          void accountMonitor?.markExhausted(authFailed ? `jeton refusé : ${String(event.result).slice(0, 120)}` : event.result);
+          const nextExclude = [...excludedAccounts, account];
+          const alternative = maxAccounts.pick({ preferred: preferredAccount, exclude: nextExclude });
+          if (!sentContent && (alternative || BEDROCK_FALLBACK)) {
+            console.log(`[chat] compte ${account} saturé — relance sur ${alternative ?? "bedrock"}`);
+            retrying = true;
+            finished = true;
+            clearTimeout(sessionBudget);
+            clearInterval(heartbeat);
+            cleanupScopedMcp();
+            void handleChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider, { ...options, excludeAccounts: nextExclude });
+            continue;
+          }
+          if (alternative || BEDROCK_FALLBACK) send("error", { message: `Compte Claude Max « ${maxAccounts.labelOf(account)} » saturé — relancez votre demande, elle partira sur ${alternative ? "un autre compte" : "Amazon Bedrock"}.` });
         }
         if (event.result && !sentContent) {
           send("content", { text: event.result });
@@ -779,6 +837,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
           turns: event.num_turns || 0,
           duration: event.duration_ms || 0,
           provider: useBedrock ? "bedrock" : "subscription",
+          account: useBedrock ? null : account,
           fallback,
           model,
           effort,
@@ -792,11 +851,12 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   child.stderr.on("data", (chunk) => {
     const t = chunk.toString().trim();
     if (t) console.error(`[claude] ${t.slice(0, 300)}`);
-    if (t && !useBedrock && looksLikeUsageLimit(t)) void quota.markExhausted(t);
+    if (t && !useBedrock && looksLikeUsageLimit(t)) void accountMonitor?.markExhausted(t);
   });
 
   child.on("close", (code) => {
     cleanupScopedMcp();
+    if (retrying) return; // the relaunched attempt owns the response now
     console.log(`[chat] Exit code ${code}, text length: ${fullText.length}`);
     if (code !== 0 && !fullText && sessionKey) {
       // A transcript the CLI could not resume (or a crashed first turn) must
@@ -988,6 +1048,7 @@ const server = http.createServer(async (req, res) => {
         effort: body.effort,
         maxTurns: body.maxTurns,
         sessionKey: body.sessionKey,
+        account: body.account,
       }).catch((err) => {
         console.error("[chat] échec avant lancement:", err.message || err);
         if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "chat failed" })); }
@@ -1109,6 +1170,41 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Pool de comptes Claude Max : liste (sans jetons), ajout, retrait.
+    if (url.pathname === "/api/accounts") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      try {
+        if (req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ accounts: maxAccounts.snapshot(), fallbackEnabled: BEDROCK_FALLBACK }));
+          return;
+        }
+        if (req.method === "POST") {
+          const body = await readBody(req);
+          const added = await maxAccounts.add({ label: body?.label, token: body?.token });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, account: added, accounts: maxAccounts.snapshot() }));
+          return;
+        }
+        if (req.method === "DELETE") {
+          const body = await readBody(req);
+          maxAccounts.remove(String(body?.id ?? ""));
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true, accounts: maxAccounts.snapshot() }));
+          return;
+        }
+        res.writeHead(405); res.end();
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
     if (url.pathname === "/api/quota" && req.method === "GET") {
       if (!authorized(req)) {
         res.writeHead(401, { "Content-Type": "application/json" });
@@ -1118,7 +1214,7 @@ const server = http.createServer(async (req, res) => {
       const refresh = url.searchParams.get("refresh") === "1";
       const snap = refresh ? await quota.probe() : quota.snapshot();
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ ...snap, fallbackEnabled: BEDROCK_FALLBACK, bedrockModel: BEDROCK_MODEL, subscriptionModel: CLAUDE_MODEL }));
+      res.end(JSON.stringify({ ...snap, accounts: maxAccounts.snapshot(), fallbackEnabled: BEDROCK_FALLBACK, bedrockModel: BEDROCK_MODEL, subscriptionModel: CLAUDE_MODEL }));
       return;
     }
 
