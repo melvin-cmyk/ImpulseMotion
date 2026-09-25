@@ -68,9 +68,13 @@ async function mintFromEnv() {
   return { token: j.access_token, expiresAt: expiry(j.expires_in) };
 }
 
-/** Pulls the first JSON-looking value of `key` out of a tool's text answer. */
+function parseJson(text) {
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+/** Pulls the first JSON-looking value of `key` out of a tool's text answer (escaped quotes tolerated). */
 function grab(text, key) {
-  const m = new RegExp(`"${key}"\\s*:\\s*"?([^",}\\s]+)"?`).exec(text || "");
+  const m = new RegExp(`\\\\?"${key}\\\\?"\\s*:\\s*\\\\?"?([^",}\\s\\\\]+)`).exec(text || "");
   return m ? m[1] : null;
 }
 
@@ -89,10 +93,17 @@ async function mintFromHq() {
   while (Date.now() < deadline) {
     await sleep(1500);
     const status = await hqToolCall("hq_secrets_sandbox_status", { jobId });
-    const token = grab(status, "access_token");
-    if (token) return { token, expiresAt: expiry(grab(status, "expires_in")) };
-    if (/"(status|state)"\s*:\s*"(failed|succeeded)"/.test(status)) {
-      throw new Error(`HQ sandbox : tâche terminée sans jeton (${status.replace(/\s+/g, " ").slice(0, 200)})`);
+    // { jobId, status: queued|running|succeeded|failed, output: "<stdout as text>" }
+    const st = parseJson(status);
+    const output = typeof st?.output === "string" ? st.output : status;
+    const payload = parseJson(output);
+    const token = typeof payload?.access_token === "string" ? payload.access_token : grab(output, "access_token");
+    if (token) return { token, expiresAt: expiry(payload?.expires_in ?? grab(output, "expires_in")) };
+    const state = st?.status || st?.state || grab(status, "status");
+    if (state === "failed" || state === "succeeded") {
+      // The output may hold an OAuth error body; never a secret, but keep it short.
+      const hint = payload?.error ? ` (${payload.error}${payload.error_description ? ` : ${payload.error_description}` : ""})` : "";
+      throw new Error(`HQ sandbox : tâche ${state} sans jeton${hint.slice(0, 200)}`);
     }
   }
   throw new Error("HQ sandbox : délai dépassé en attendant le jeton.");
