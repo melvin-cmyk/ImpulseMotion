@@ -50,8 +50,16 @@ export const WEB_SERVER = "web" as const;
  */
 export const SANDBOX_SERVER = "sandbox" as const;
 
+/**
+ * Google Workspace via le CLI officiel gws (server/mcp-gws.mjs) : Drive, Sheets,
+ * Docs, Gmail, Calendar de l'identité partagée data@impulse-analytics.com, en
+ * lecture seule (le serveur n'expose que des méthodes get/list/export). Staff
+ * uniquement, comme HQ — jamais attribuable à un client.
+ */
+export const GWS_SERVER = "gws" as const;
+
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
-export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER, WEB_SERVER] as const;
+export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER] as const;
 
 /** Serveur MCP stdio des données e-commerce (server/mcp-client-data.mjs), scoped par le relay. */
 export const CLIENT_DATA_SERVER = "client-data" as const;

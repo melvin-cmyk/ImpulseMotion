@@ -19,6 +19,7 @@ import { looksLikeUsageLimit, makeWebhookNotifier } from "./quota.mjs";
 import * as hqOauth from "./hq-oauth.mjs";
 import { hqToolCall } from "./hq-client.mjs";
 import * as maxAccounts from "./max-accounts.mjs";
+import * as gwsAuth from "./gws-auth.mjs";
 let hqProjectsCache = null;
 
 const execFileAsync = promisify(execFile);
@@ -124,6 +125,12 @@ const SCOPED_ADS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-scoped-ads.mjs";
 // dont les sorties (out/) et dépôts (uploads/) sont servis par /api/files.
 const SANDBOX_SERVER = "sandbox";
 const SANDBOX_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-sandbox.mjs";
+// Google Workspace (server/mcp-gws.mjs) : CLI gws officiel installé sur l'hôte,
+// identité partagée data@impulse-analytics.com, lecture seule, staff uniquement.
+// Le jeton d'accès court est minté par le relay (server/gws-auth.mjs) et passé
+// en env au serveur stdio ; les secrets ne sortent jamais du relay.
+const GWS_SERVER = "gws";
+const GWS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-gws.mjs";
 const WORKSPACES_DIR = path.join(RELAY_CLAUDE_CWD, "workspaces");
 const WORKSPACE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const WORKSPACE_ID_RE = /^[a-f0-9]{24}$/;
@@ -216,6 +223,7 @@ const HQ_READ_TOOLS = [
 // a malicious caller can't open up new MCP surface area.
 const ALLOWED_MCP_SERVERS = new Set([
   SANDBOX_SERVER,
+  GWS_SERVER,
   "meta-ads-impulse",
   "mcp-google-ads",
   "mcp-google-analytics",
@@ -355,7 +363,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, workspaceDir = null }) {
+function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, workspaceDir = null, gwsAuthState = null }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -380,6 +388,19 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
           WORKSPACE_DIR: workspaceDir,
           ...(process.env.SANDBOX_IMAGE ? { SANDBOX_IMAGE: process.env.SANDBOX_IMAGE } : {}),
           ...(syncedSkillsDir() ? { SKILLS_DIR: syncedSkillsDir() } : {}),
+        },
+      };
+      kept.push(name);
+      continue;
+    }
+    if (name === GWS_SERVER) {
+      if (!gwsAuthState) continue;
+      mcpServers[name] = {
+        command: "node",
+        args: [GWS_MCP_SCRIPT],
+        env: {
+          ...(gwsAuthState.token ? { GWS_ACCESS_TOKEN: gwsAuthState.token, GWS_TOKEN_EXPIRES_AT: String(gwsAuthState.expiresAt) } : {}),
+          ...(gwsAuthState.error ? { GWS_AUTH_ERROR: gwsAuthState.error } : {}),
         },
       };
       kept.push(name);
@@ -554,7 +575,17 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
       for (const sub of ["uploads", "out"]) fs.mkdirSync(path.join(workspaceDir, sub), { recursive: true });
     }
   }
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, workspaceDir });
+  // Google Workspace: staff only. The token is minted here (never by the
+  // model); without one the server still starts so gws_status can explain.
+  let gwsAuthState = null;
+  if (servers.includes(GWS_SERVER)) {
+    if (clientBot) { servers = servers.filter((s) => s !== GWS_SERVER); console.error("[chat] gws refusé — requête de bot client"); }
+    else {
+      try { gwsAuthState = await gwsAuth.getAccessToken(); }
+      catch (err) { gwsAuthState = { error: err.message }; }
+    }
+  }
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, workspaceDir, gwsAuthState });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -660,7 +691,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${useWeb ? " | web" : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
+  console.log(`[chat] Prompt: "${prompt.slice(0, 80)}..." | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
@@ -1003,8 +1034,8 @@ const server = http.createServer(async (req, res) => {
       // "<server>.<tool>" for mcporter. Reject any other shape or unknown server.
       const firstDot = String(body.tool).indexOf(".");
       const serverName = firstDot > 0 ? String(body.tool).slice(0, firstDot) : "";
-      // HQ is chat-only: no direct call, its read-only list lives in handleChat.
-      if (!serverName || serverName === HQ_SERVER || !ALLOWED_MCP_SERVERS.has(serverName)) {
+      // HQ and gws are chat-only: no direct call, their allowlists live in handleChat.
+      if (!serverName || serverName === HQ_SERVER || serverName === GWS_SERVER || !ALLOWED_MCP_SERVERS.has(serverName)) {
         res.writeHead(403, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "tool not allowed" }));
         return;
