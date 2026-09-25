@@ -401,6 +401,9 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
         env: {
           ...(gwsAuthState.token ? { GWS_ACCESS_TOKEN: gwsAuthState.token, GWS_TOKEN_EXPIRES_AT: String(gwsAuthState.expiresAt) } : {}),
           ...(gwsAuthState.error ? { GWS_AUTH_ERROR: gwsAuthState.error } : {}),
+          // Same workspace as the sandbox: uploads/attachments come from it,
+          // downloads land in out/ and are served by /api/files.
+          ...(workspaceDir ? { WORKSPACE_DIR: workspaceDir } : {}),
         },
       };
       kept.push(name);

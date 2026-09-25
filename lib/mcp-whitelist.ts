@@ -53,8 +53,8 @@ export const SANDBOX_SERVER = "sandbox" as const;
 /**
  * Google Workspace via le CLI officiel gws (server/mcp-gws.mjs) : Drive, Sheets,
  * Docs, Gmail, Calendar de l'identité partagée data@impulse-analytics.com, en
- * lecture seule (le serveur n'expose que des méthodes get/list/export). Staff
- * uniquement, comme HQ — jamais attribuable à un client.
+ * lecture et en écriture (l'écriture exige confirm_write, sur demande explicite
+ * du consultant). Staff uniquement, comme HQ — jamais attribuable à un client.
  */
 export const GWS_SERVER = "gws" as const;
 
