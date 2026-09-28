@@ -37,7 +37,8 @@ export function DashboardMembersManager({
   bot: DashboardBotInfo;
 }) {
   const { data: session } = useSession();
-  const isAdmin = session?.role === "admin";
+  // Who may see a dashboard is the client side: real admins only (lib/roles.ts).
+  const isAdmin = session?.baseRole === "admin";
 
   const [members, setMembers] = useState(initialMembers);
   const [botUsers, setBotUsers] = useState<Set<string>>(() => new Set(bot?.accessUserIds ?? []));
@@ -127,7 +128,7 @@ export function DashboardMembersManager({
     <div className="mt-3 pt-3 border-t border-gray-800/60 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1.5 min-w-0">
-          {group("Consultants", consultants, "violet", false)}
+          {consultants.length > 0 && group("Consultants", consultants, "violet", false)}
           {group("Clients", clients, "blue", true)}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-[11px] uppercase tracking-wide font-medium text-gray-500 w-24 shrink-0">Bot privé</span>
@@ -161,7 +162,6 @@ export function DashboardMembersManager({
           />
           <select value={role} onChange={(e) => setRole(e.target.value as Role)} className={inputCls}>
             <option value="client">Client</option>
-            <option value="consultant">Consultant</option>
           </select>
           <button
             type="submit" disabled={busy}

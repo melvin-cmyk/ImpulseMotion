@@ -291,6 +291,23 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         </div>
       </div>
 
+      {user.role !== "client" && (
+        <section>
+          <h2 className={sectionTitleCls}>Accès</h2>
+          <Card padded>
+            <p className="text-sm text-gray-300">
+              {user.role === "admin" ? "Admin" : "Consultant"} : accès à tous les comptes publicitaires, à tous les clients et à tous les outils de l&apos;IA. Rien à attribuer.
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {user.role === "admin"
+                ? "Un admin gère en plus la partie client : les logins, les dashboards ouverts aux clients et leur assistant IA."
+                : "La partie client (logins, dashboards ouverts aux clients, assistant IA des clients) reste gérée par les admins."}
+            </p>
+          </Card>
+        </section>
+      )}
+
+      {user.role === "client" && (
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className={sectionTitleCls + " mb-0"}>Comptes publicitaires attribués</h2>
@@ -307,13 +324,11 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </div>
         <p className="text-xs text-gray-500 mb-3">
-          {user.role === "admin"
-            ? "Un admin voit tous les comptes du Business Manager : cette liste n'a pas d'effet sur lui."
-            : "Cette liste définit tout ce que cette personne peut voir dans l'application : cockpit, clients, rapports, dashboards, alertes et analyse des créas ne montrent que les clients dont un compte figure ici. Un client sans compte attribué ne voit rien."}
+          Les comptes dont ce client peut voir les données. Ils sont ajoutés automatiquement quand un dashboard lui est ouvert.
         </p>
         <div className="flex flex-col gap-2 mb-4">
           {user.adAccounts.length === 0 && (
-            <p className="text-sm text-gray-500">Aucun compte attribué{user.role !== "admin" ? " — cette personne ne voit aucune donnée client." : "."}</p>
+            <p className="text-sm text-gray-500">Aucun compte attribué — ce client ne voit aucune donnée.</p>
           )}
           {user.adAccounts.map((a) => (
             <Card key={a.id} padded className="flex items-center justify-between !p-3">
@@ -420,6 +435,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           </form>
         </Card>
       </section>
+      )}
 
       <section>
         <h2 className={sectionTitleCls}>Dashboards</h2>
@@ -458,6 +474,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         )}
       </section>
 
+      {user.role === "client" && (
       <section>
         <h2 className={sectionTitleCls}>Serveurs MCP autorisés pour l&apos;IA</h2>
         <div className="flex flex-col gap-2">
@@ -476,6 +493,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
           ))}
         </div>
       </section>
+      )}
 
       <section>
         <h2 className={sectionTitleCls}>Réinitialiser le mot de passe</h2>

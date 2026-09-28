@@ -101,7 +101,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Bot,
         label: "Bots clients",
         match: (p) => p.startsWith("/admin/bots"),
-        adminOnly: true,
+        realAdminOnly: true,
       },
       {
         href: "/admin/alerts",

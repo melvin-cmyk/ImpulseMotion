@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRealAdmin } from "@/lib/auth-helpers";
 import {
   CLIENT_KEY_RE,
   parseBotSources,
@@ -61,7 +61,7 @@ function serializeBot(bot: BotRow) {
 
 /** Dashboard + bot complet (sans le hash du token) + accès. */
 export async function GET(_req: Request, { params }: Ctx) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
 
   const { dashboardId } = await params;
@@ -81,7 +81,7 @@ export async function GET(_req: Request, { params }: Ctx) {
 
 /** Upsert du bot : { enabled?, name?, clientKey?, businessContext?, sources? }. */
 export async function PUT(req: Request, { params }: Ctx) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
 
   const { dashboardId } = await params;

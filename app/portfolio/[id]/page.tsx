@@ -255,7 +255,7 @@ export default function ClientSheetPage() {
           </div>
           <Link href={`/d/${c.id}${rangeQs}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Dashboard client</Link>
           {c.metaAccountId && <Link href={`/creatives?accountId=act_${c.metaAccountId}`} className={btn}><Sparkles className="w-3.5 h-3.5" /> Analyse créas</Link>}
-          {isAdmin && <Link href={`/admin/bots/${c.id}`} className={btn}><Bot className="w-3.5 h-3.5" /> Bot privé</Link>}
+          {session?.baseRole === "admin" && <Link href={`/admin/bots/${c.id}`} className={btn}><Bot className="w-3.5 h-3.5" /> Bot privé</Link>}
           <Link href={`/reports?new=1&dashboardId=${c.id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white"><FileText className="w-3.5 h-3.5" /> Rapport IA</Link>
         </div>
       </div>

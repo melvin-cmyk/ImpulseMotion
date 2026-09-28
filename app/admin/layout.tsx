@@ -22,7 +22,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </Link>
           <div className="flex items-center gap-1 text-sm">
             {isRealAdmin && <AdminNavLink href="/admin">Utilisateurs</AdminNavLink>}
-            {isAdmin && <AdminNavLink href="/admin/bots">Bots clients</AdminNavLink>}
+            {isRealAdmin && <AdminNavLink href="/admin/bots">Bots clients</AdminNavLink>}
             {isAdmin && <AdminNavLink href="/admin/usage">Consommation IA</AdminNavLink>}
             <AdminNavLink href="/reports">Rapports IA</AdminNavLink>
             <AdminNavLink href="/admin/alerts">Alertes</AdminNavLink>

@@ -9,7 +9,7 @@
 import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff, requireAdmin } from "@/lib/auth-helpers";
+import { requireStaff, requireRealAdmin } from "@/lib/auth-helpers";
 import { addDashboardMember, removeDashboardMember, memberSelect, MemberError } from "@/lib/dashboard-members";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -32,8 +32,9 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   return NextResponse.json({ members });
 }
 
+// Who may see a dashboard is the client side: real admins only (lib/roles.ts).
 export async function POST(req: NextRequest, { params }: Ctx) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
   const { id } = await params;
 
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
   const { id } = await params;
   const userId = req.nextUrl.searchParams.get("userId");

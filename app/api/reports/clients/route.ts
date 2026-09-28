@@ -2,9 +2,9 @@
  * GET /api/reports/clients → staff: the client list for report pickers.
  * One entry per dashboard (a client = an ad account pair), with its report
  * frequency and last report. Duplicated dashboards (same accounts) are
- * collapsed on the first created one. A consultant also gets the accounts
- * assigned to them that have no dashboard yet (lib/report-clients.ts): the
- * dashboard is created with their first report.
+ * collapsed on the first created one. The clients that have no dashboard yet
+ * are listed too (lib/report-clients.ts): the dashboard is created with
+ * their first report.
  */
 
 import { getAccountScope, dashboardWhere } from "@/lib/scope";

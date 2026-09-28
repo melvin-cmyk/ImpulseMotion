@@ -50,8 +50,15 @@ export async function POST(req: NextRequest) {
   if (!metaAccountId && !googleCustomerId) {
     return NextResponse.json({ error: "Un compte Meta ou Google est requis" }, { status: 400 });
   }
-  const consultants = parseEmails(body?.consultants);
-  const clients = parseEmails(body?.clients);
+  // Everybody on the staff sees every dashboard: nobody is attached as a
+  // consultant any more. Opening a dashboard to a client is the client side,
+  // kept to the real admins (lib/roles.ts).
+  const realAdmin = guard.session.baseRole === "admin";
+  const consultants: string[] = [];
+  const clients = realAdmin ? parseEmails(body?.clients) : [];
+  if (!realAdmin && parseEmails(body?.clients).length) {
+    return NextResponse.json({ error: "Seul un admin peut ouvrir un dashboard à un client" }, { status: 403 });
+  }
   const both = consultants.find((e) => clients.includes(e));
   if (both) return NextResponse.json({ error: `${both} ne peut pas être à la fois consultant et client` }, { status: 400 });
 

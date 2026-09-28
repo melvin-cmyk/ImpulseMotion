@@ -63,7 +63,8 @@ function BotPill({ bot }: { bot: NonNullable<OverviewItem["bot"]> }) {
 export function BotsPanel() {
   const pathname = usePathname() ?? "";
   const { data: session } = useSession();
-  const isAdmin = session?.role === "admin";
+  // Setting up a client's private assistant is for the real admins (lib/roles.ts).
+  const isAdmin = session?.baseRole === "admin";
   const [items, setItems] = useState<OverviewItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 

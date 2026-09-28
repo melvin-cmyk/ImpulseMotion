@@ -29,6 +29,14 @@ describe("clients without a dashboard", () => {
     expect(list).toEqual([{ id: "account:meta=111111,google=3333333333", name: "Naturalia", metaAccountId: "111111", googleCustomerId: "3333333333" }]);
   });
 
+  it("tells apart the accounts of a client that has several on a platform", () => {
+    const list = buildPending(input({
+      scope: { meta: ["111111", "222222"], google: [] },
+      groups: [{ name: "Cotton Bird", accounts: [{ platform: "meta", accountId: "111111", name: "Cotton Bird España" }, { platform: "meta", accountId: "222222", name: "Cotton Bird Nederland" }] }],
+    }));
+    expect(list.map((c) => c.name)).toEqual(["Cotton Bird — Cotton Bird España", "Cotton Bird — Cotton Bird Nederland"]);
+  });
+
   it("reads back the id it wrote and nothing else", () => {
     expect(parsePendingId(pendingId("111111", null))).toEqual({ metaAccountId: "111111", googleCustomerId: null });
     expect(parsePendingId(pendingId(null, "3333333333"))).toEqual({ metaAccountId: null, googleCustomerId: "3333333333" });

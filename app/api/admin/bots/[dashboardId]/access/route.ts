@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRealAdmin } from "@/lib/auth-helpers";
 import { addDashboardMember, MemberError } from "@/lib/dashboard-members";
 
 type Ctx = { params: Promise<{ dashboardId: string }> };
@@ -11,7 +11,7 @@ type Ctx = { params: Promise<{ dashboardId: string }> };
  * temporaire renvoyé UNE fois.
  */
 export async function POST(req: Request, { params }: Ctx) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
 
   const { dashboardId } = await params;

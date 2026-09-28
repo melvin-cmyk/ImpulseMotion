@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRealAdmin } from "@/lib/auth-helpers";
 
 /** Liste tous les dashboards (= clients) avec l'état de leur bot privé. Admin only. */
 export async function GET() {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
 
   const dashboards = await prisma.dashboard.findMany({

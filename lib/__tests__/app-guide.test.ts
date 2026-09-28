@@ -50,7 +50,9 @@ describe("roles", () => {
     expect(isRealAdminPath("/admin/users/abc")).toBe(true);
     expect(isRealAdminPath("/api/admin/users/abc/ad-accounts")).toBe(true);
     expect(isRealAdminPath("/admin/auto-alerts")).toBe(false);
-    expect(isRealAdminPath("/admin/bots")).toBe(false);
+    expect(isRealAdminPath("/admin/bots")).toBe(true);
+    expect(isRealAdminPath("/api/admin/bots/abc/access")).toBe(true);
+    expect(isRealAdminPath("/admin/alerts")).toBe(false);
     expect(isRealAdminPath("/admin/usersettings")).toBe(false);
   });
 });

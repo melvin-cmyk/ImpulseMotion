@@ -14,15 +14,15 @@ export const APP_MAP = `MENU DE GAUCHE
 Espace interne
 - Cockpit (/cockpit) : page d'accueil. Onglet « Pilotage » = Global Cockpit : tous les clients de l'agence sur la dernière semaine complète, comparés aux 8 semaines précédentes, triés par urgence (Priorités du jour), rythme de dépense contre le budget du mois, suivi d'action par client (à faire, en cours, fait, responsable, échéance, note). Clients, budgets et objectifs viennent du Google Sheet de l'agence. Onglet « Activité » = alertes ouvertes, changements récents, derniers rapports IA. Depuis le Cockpit : Mes alertes (/me/alerts) et Mes budgets (/me/budgets).
 - Clients (/portfolio) : tableau de tous les clients avec dépense, revenu, ROAS, CPA, rythme budgétaire, CRM HubSpot, points d'attention ; tri par colonne. Cliquer un client ouvre sa fiche (/portfolio/<client>) : KPI, dépenses quotidiennes, suivi du budget mensuel, entonnoir, vue par plateforme, top créas Meta, rapports IA, dernières alertes. Dans la fiche : saisir le budget mensuel, choisir le dossier HQ du client, changer la période.
-- Rapports IA (/reports) : bouton « Nouveau rapport » → choisir le client, la période, la comparaison, des consignes facultatives → l'IA rédige synthèse, analyse et next steps. Dans un rapport : régénérer, discuter avec l'IA du rapport, exporter en PDF (imprimer), supprimer. Rapport automatique : fréquence réglée par client.
+- Rapports IA (/reports) : bouton « Nouveau rapport » → choisir le client (tous les clients de l'agence sont dans la liste, même sans dashboard), la période, la comparaison, des consignes facultatives → l'IA rédige synthèse, analyse et next steps. Dans un rapport : régénérer, discuter avec l'IA du rapport, exporter en PDF (imprimer), supprimer. Rapport automatique : fréquence réglée par client.
 - Analyse Ads (/creatives) : analyse des publicités d'UN compte Meta, choisi dans la barre de compte en haut de la section. Sous-pages — Performance : Créas (/creatives, fiche d'une créa avec notes et tags), Launch (/launch, créas lancées récemment), Top Charts (/top-charts), Fatigue (/fatigue, créas qui s'usent), Funnel (/creative-team). Comparer : Compare (/compare), Comparaisons (/comparaisons, par format et statut), Patterns (/patterns), Angles (/angles). Contenu : Audience (/audience), Top Copy (/top-copy, meilleurs textes), Top Landing Pages (/top-landing-page), Naming (/naming, convention de nommage qui alimente les analyses).
 - AI Assistant (/ai) : console de discussion avec l'IA branchée sur les données : Meta Ads, Google Ads, Google Analytics, HQ (mémoire de l'agence), Notion, Google Workspace (Drive, Sheets, Docs, Gmail, Calendar), recherche web. Choix du modèle et du compte IA, historique des conversations, bouton « Mémoriser dans HQ ». C'est là qu'on pose une question sur les chiffres d'un client.
 Espace clients (ce que voient les clients)
-- Dashboards clients (/d) : un dashboard par client. Ouvrir un dashboard : période et comparaison, widgets à déplacer et régler, pages, copilote IA du dashboard (accepte images et fichiers), personnes rattachées (consultants, clients). Un client connecté ne voit que ses dashboards.
+- Dashboards clients (/d) : un dashboard par client, visibles par toute l'équipe. « Nouveau dashboard » → choisir le client dans la liste (ses comptes Meta et Google viennent avec) → créer. Ouvrir un dashboard : période et comparaison, widgets à déplacer et régler, pages, copilote IA du dashboard (accepte images et fichiers). Un client connecté ne voit que les dashboards qu'un admin lui a ouverts.
 - Assistant IA (/bot) : les bots privés des clients, tels que le client les voit.
 Administration
-- Utilisateurs & accès (/admin) : créer une personne, changer son rôle, lui attribuer des comptes publicitaires. Réservé aux admins.
-- Bots clients (/admin/bots) : un assistant privé par client (contexte métier, sources de données, accès par email).
+- Utilisateurs & accès (/admin) : créer une personne, changer son rôle, réinitialiser un mot de passe. Réservé aux admins.
+- Bots clients (/admin/bots) : l'assistant IA privé d'un client (contexte métier, sources de données, clients autorisés). Réservé aux admins.
 - Alertes (/admin/alerts) : règles d'alerte manuelles sur Meta et Google Ads (ROAS, CPA, CTR, dépenses, fréquence), envoi Slack ou email, derniers déclenchements.
 - Alertes automatiques (/admin/auto-alerts) : tous les comptes sont surveillés sans réglage (paiement, diffusion, créas, conversions, performance, budget). Par client : choisir le canal Slack c_<client>, « Connecter », « Tester », « Régler » (sujets, récurrence, jours ouvrés). Boutons « Actualiser les comptes », « Retrouver les canaux c_ », « Vérifier maintenant ». Canal privé : taper /invite @BotAds dans Slack puis « Vérifier ».
 - Consommation IA (/admin/usage) : tokens par surface, quota des abonnements Claude, facturation Bedrock par client.
@@ -30,7 +30,7 @@ Administration
 
 RACCOURCIS
 - Recherche de client partout : ⌘K (ou Ctrl+K), en haut de l'écran.
-- Accès : un changement de rôle ou de comptes est pris en compte en moins d'une minute, sans se reconnecter.
+- Accès : consultants et admins voient tous les comptes, tous les clients et tous les outils de l'IA, rien n'est à attribuer. Seuls les admins gèrent la partie client : logins, dashboards ouverts aux clients, assistant IA des clients. Un changement de rôle est pris en compte en moins d'une minute, sans se reconnecter.
 
 OÙ FAIRE QUOI
 - Savoir quel client traiter aujourd'hui → Cockpit, Priorités du jour.
@@ -39,7 +39,8 @@ OÙ FAIRE QUOI
 - Comprendre pourquoi une performance baisse → AI Assistant pour la question, Analyse Ads pour les créas (Fatigue, Top Charts).
 - Trouver les meilleures créas ou les meilleurs textes → Analyse Ads : Top Charts, Top Copy.
 - Être prévenu d'un problème → Alertes automatiques (rien à régler, relier le canal Slack) ; seuil précis → Alertes.
-- Donner un accès à un client → Dashboards clients, ouvrir le dashboard, personnes rattachées (un admin le fait).
+- Donner à un client l'accès à son dashboard ou à l'assistant IA → c'est un admin qui le fait : Dashboards clients, « Gérer les accès » sur le dashboard.
+- Un client n'apparaît pas dans une liste → Alertes automatiques, « Actualiser les comptes » relit les comptes Meta et Google Ads.
 - Lire un document Notion, un Google Sheet, la mémoire HQ → AI Assistant.
 - Un compte Meta affiché « META NON RELIÉ » dans le Cockpit → le compte n'est pas partagé avec l'agence : le signaler à un admin.`;
 

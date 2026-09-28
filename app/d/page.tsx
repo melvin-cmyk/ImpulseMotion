@@ -86,7 +86,7 @@ export default async function DashboardsIndex() {
         <div>
           <h1 className="text-2xl font-bold text-white">Dashboards clients</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Un espace cloisonné par client : seuls les consultants et clients rattachés par un admin y accèdent.
+            Un dashboard par client. Toute l&apos;équipe les voit ; un client ne voit que ceux qu&apos;un admin lui a ouverts.
           </p>
         </div>
         {isAdmin && <CreateDashboardForm />}
@@ -120,7 +120,7 @@ export default async function DashboardsIndex() {
         {dashboards.length === 0 && (
           <div className="text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-5 py-6">
             {isAdmin
-              ? "Aucun dashboard pour l'instant — créez-en un et rattachez-y consultants et clients."
+              ? "Aucun dashboard pour l'instant — créez le premier avec « Nouveau dashboard »."
               : "Aucun dashboard ne vous a été attribué — demandez à un admin de vous y rattacher."}
           </div>
         )}

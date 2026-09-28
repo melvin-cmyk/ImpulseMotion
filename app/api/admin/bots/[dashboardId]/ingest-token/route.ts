@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRealAdmin } from "@/lib/auth-helpers";
 import { generateIngestToken, requestOrigin } from "@/lib/admin-bots";
 
 type Ctx = { params: Promise<{ dashboardId: string }> };
@@ -10,7 +10,7 @@ type Ctx = { params: Promise<{ dashboardId: string }> };
  * Le token est renvoyé UNE fois ; seul son sha256 est stocké. Régénérer révoque l'ancien.
  */
 export async function POST(req: Request, { params }: Ctx) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
 
   const { dashboardId } = await params;
