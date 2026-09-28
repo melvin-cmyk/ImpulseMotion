@@ -103,8 +103,11 @@ async function openRelayStream(
 
 /**
  * Wraps a relay SSE body: forwards every byte untouched and accumulates the
- * text deltas plus the relay's final `usage` event; `onFinish(text, sawDone,
- * usage)` runs once when the stream ends (or is cancelled). Chat routes use it
+ * text deltas plus the relay's `usage` events — a running total after each
+ * model call (`partial`), replaced by the final one — so a turn that is cut
+ * (time budget, Stop, closed tab) is still billed for what it consumed.
+ * `onFinish(text, sawDone, usage)` runs once when the stream ends (or is
+ * cancelled). Chat routes use it
  * to persist the answer and to write the usage ledger.
  */
 export function teeRelayStream(
@@ -150,7 +153,12 @@ export function teeRelayStream(
         if (buffer) parseLine(buffer);
         await finish();
       },
-    }),
+      // The browser went away (Stop, closed tab): what was consumed so far
+      // still goes to the ledger.
+      async cancel() {
+        await finish();
+      },
+    } as Transformer<Uint8Array, Uint8Array>),
   );
 }
 
@@ -191,6 +199,8 @@ export async function relayComplete(
   let buffer = "";
   let fullText = "";
   let lastError: string | null = null;
+  // Running totals (`partial`) then the final one: only the last is recorded.
+  let lastUsage: RelayUsage | null = null;
   const killer = setTimeout(() => reader.cancel().catch(() => undefined), maxMs);
 
   try {
@@ -210,14 +220,12 @@ export async function relayComplete(
         if (evt.type === "delta" && evt.text) fullText += evt.text;
         else if (evt.type === "content" && evt.text && !fullText) fullText = evt.text;
         else if (evt.type === "error" && evt.message) lastError = evt.message;
-        else if (evt.type === "usage" && opts.onUsage) {
-          const usage = parseUsageEvent(evt);
-          if (usage) { try { opts.onUsage(usage); } catch { /* ledger is best effort */ } }
-        }
+        else if (evt.type === "usage") lastUsage = parseUsageEvent(evt) ?? lastUsage;
       }
     }
   } finally {
     clearTimeout(killer);
+    if (lastUsage && opts.onUsage) { try { opts.onUsage(lastUsage); } catch { /* ledger is best effort */ } }
   }
 
   const result = fullText.trim();

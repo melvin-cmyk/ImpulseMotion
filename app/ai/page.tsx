@@ -205,6 +205,7 @@ export default function AIPage() {
                 last.toolResults = [...(last.toolResults || []), { id: event.id || "", content: event.content || "", is_error: event.is_error || false }]
                 break
               case "usage":
+                if (event.partial) break
                 last.usage = { cost: event.cost || 0, turns: event.turns || 0, duration: event.duration || 0 }
                 break
               case "error":

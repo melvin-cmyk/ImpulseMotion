@@ -41,6 +41,8 @@ export interface StreamEvent {
   turns?: number;
   duration?: number;
   message?: string;
+  /** usage: running total after a model call, replaced by the final one. */
+  partial?: boolean;
   /** error: the turn was cut by the time budget and can be relaunched on the same session. */
   resumable?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

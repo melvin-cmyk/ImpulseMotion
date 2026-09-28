@@ -739,6 +739,25 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   // The relay itself stopped the CLI (time budget, client gone): the session
   // is sound and must stay resumable, even if no text was written yet.
   let stoppedByRelay = false;
+  // Tokens counted live, one model call at a time: a turn that is cut never
+  // reaches the CLI's final `result`, and must still reach the usage ledger.
+  const startedAt = Date.now();
+  const live = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0, pendingOutput: 0 };
+  const sendLiveUsage = () => {
+    if (!live.calls && !live.pendingOutput && !live.input && !live.cacheRead && !live.cacheWrite) return;
+    send("usage", {
+      partial: true,
+      cost: 0,
+      turns: live.calls,
+      duration: Date.now() - startedAt,
+      provider: useBedrock ? "bedrock" : "subscription",
+      account: useBedrock ? null : account,
+      fallback,
+      model,
+      effort,
+      tokens: { input: live.input, output: live.output + live.pendingOutput, cacheRead: live.cacheRead, cacheWrite: live.cacheWrite },
+    });
+  };
   // The first ~160 chars of a reply are held back until they are clearly not
   // an account error ("Failed to authenticate", "usage limit"…): the CLI
   // streams those as ordinary assistant text, and a held error lets the turn
@@ -778,6 +797,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     : DEFAULT_BUDGET_MS;
   const sessionBudget = setTimeout(() => {
     stoppedByRelay = true;
+    sendLiveUsage();
     if (!child.killed) child.kill("SIGTERM");
     // With a session the work is not lost: the transcript and the workspace
     // stay, and the chat surfaces relaunch the turn by themselves (resumable).
@@ -833,7 +853,19 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
         // can say it is alive: thinking, writing, or preparing a tool call
         // (a long script is streamed for a while before the call is sent).
         if (e?.type === "message_start") {
+          const u = e.message?.usage || {};
+          live.input += u.input_tokens || 0;
+          live.cacheRead += u.cache_read_input_tokens || 0;
+          live.cacheWrite += u.cache_creation_input_tokens || 0;
+          live.pendingOutput = u.output_tokens || 0;
           send("activity", { phase: "thinking" });
+        } else if (e?.type === "message_delta") {
+          if (typeof e.usage?.output_tokens === "number") live.pendingOutput = e.usage.output_tokens;
+        } else if (e?.type === "message_stop") {
+          live.output += live.pendingOutput;
+          live.pendingOutput = 0;
+          live.calls += 1;
+          sendLiveUsage();
         } else if (e?.type === "content_block_start") {
           const kind = e.content_block?.type;
           if (kind === "tool_use") {
