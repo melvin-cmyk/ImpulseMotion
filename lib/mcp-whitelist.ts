@@ -58,8 +58,17 @@ export const SANDBOX_SERVER = "sandbox" as const;
  */
 export const GWS_SERVER = "gws" as const;
 
+/**
+ * Notion de l'agence, par un serveur MCP n8n (config/mcp-claude.json). n8n
+ * tient l'accès à Notion et non un compte Claude : Notion est donc là quel que
+ * soit le compte qui répond. Lecture, et écritures qui ajoutent seulement
+ * (liste dans server/relay.mjs). Staff uniquement, comme HQ — jamais
+ * attribuable à un client.
+ */
+export const NOTION_SERVER = "notion" as const;
+
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
-export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER] as const;
+export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER, NOTION_SERVER] as const;
 
 /** Serveur MCP stdio des données e-commerce (server/mcp-client-data.mjs), scoped par le relay. */
 export const CLIENT_DATA_SERVER = "client-data" as const;

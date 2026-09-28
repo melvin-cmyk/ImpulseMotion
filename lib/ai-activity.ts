@@ -28,6 +28,7 @@ const SERVER_LABELS: Array<[string, string]> = [
   ["mcp__hq__", "HQ"],
   ["mcp__sandbox__", "Python"],
   ["mcp__gws__", "Google Workspace"],
+  ["mcp__notion__", "Notion"],
   ["mcp__client-data__", "Données client"],
 ];
 
@@ -61,6 +62,7 @@ const SERVER_ACTIONS: Array<[string, string]> = [
   ["mcp__claude_ai_mcp_hq__", "Consultation de HQ"],
   ["mcp__hq__", "Consultation de HQ"],
   ["mcp__gws__", "Google Workspace"],
+  ["mcp__notion__", "Lecture de Notion"],
   ["mcp__client-data__", "Lecture des données du client"],
 ];
 

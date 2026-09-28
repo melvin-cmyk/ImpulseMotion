@@ -15,6 +15,10 @@
     "mcp-google-sheet": {
       "type": "http",
       "url": "https://impulseai.app.n8n.cloud/mcp/55774f5e-04c3-4283-8647-d3fc80584c08"
+    },
+    "notion": {
+      "type": "http",
+      "url": "https://impulseai.app.n8n.cloud/mcp/notion-read-write-mcp"
     }
   }
 }
