@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "if [ \"$VERCEL_ENV\" = \"production\" ]; then prisma migrate deploy; fi && prisma generate && next build",
+    "build": "if [ \"$VERCEL_ENV\" = \"production\" ]; then DATABASE_URL=\"$(echo \"$DATABASE_URL\" | sed 's/-pooler\\././')\" prisma migrate deploy; fi && prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
