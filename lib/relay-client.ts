@@ -41,6 +41,8 @@ export interface StreamEvent {
   turns?: number;
   duration?: number;
   message?: string;
+  /** error: the turn was cut by the time budget and can be relaunched on the same session. */
+  resumable?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delta?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

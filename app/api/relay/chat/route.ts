@@ -83,17 +83,26 @@ export async function POST(req: NextRequest) {
 
   for (const url of RELAY_URLS) {
     const isLocalhost = url.includes("localhost");
-    const timeoutMs = isLocalhost ? 3000 : 100000;
 
     try {
-      const res = await fetch(`${url}/api/chat`, {
-        method: "POST",
-        headers: relayHeaders(),
-        body: JSON.stringify(relayBody),
-        signal: AbortSignal.timeout(timeoutMs),
-        // @ts-expect-error Node.js fetch option
-        duplex: "half",
-      });
+      // Headers-only timeout: AbortSignal.timeout on the fetch also governs
+      // the streamed body and was cutting every long turn after 100 s. The
+      // session time budget lives in the relay, which ends with error+done.
+      const ctl = new AbortController();
+      const headersTimer = setTimeout(() => ctl.abort(), isLocalhost ? 3000 : 15000);
+      let res: Response;
+      try {
+        res = await fetch(`${url}/api/chat`, {
+          method: "POST",
+          headers: relayHeaders(),
+          body: JSON.stringify(relayBody),
+          signal: ctl.signal,
+          // @ts-expect-error Node.js fetch option
+          duplex: "half",
+        });
+      } finally {
+        clearTimeout(headersTimer);
+      }
 
       if (!res.ok || !res.body) continue;
 
@@ -108,7 +117,8 @@ export async function POST(req: NextRequest) {
         status: 200,
         headers: {
           "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
           "X-Relay-URL": url,
         },
       });

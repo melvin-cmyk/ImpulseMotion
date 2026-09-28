@@ -22,7 +22,7 @@ import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { AttachButton, MessageAttachments, PendingAttachments, useAttachments } from "@/components/ai/attachments";
 import { ModelPicker } from "@/components/ai/model-picker";
 import { AiActivity } from "@/components/ai/activity";
-import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
+import { AUTO_CONTINUE_PROMPT, INITIAL_ACTIVITY, MAX_AUTO_CONTINUES, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 import { FILES_NOTE_RE, filesNote, loadPrefs, savePrefs, DEFAULT_PREFS, type AiPrefs, type ChatFile, type ChatImage } from "@/lib/ai-chat-shared";
 
 interface ChatMessage { role: "user" | "assistant"; content: string; images?: ChatImage[]; files?: ChatFile[] }
@@ -150,6 +150,7 @@ export function CopilotPanel({
   const [streamText, setStreamText] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityState>(INITIAL_ACTIVITY);
   const [startedAt, setStartedAt] = useState(0);
+  const [round, setRound] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -245,6 +246,7 @@ export function CopilotPanel({
     busyRef.current = true;
     setActivity(INITIAL_ACTIVITY);
     setStartedAt(Date.now());
+    setRound(0);
 
     // Feed apply outcomes back so the model can correct itself.
     const notes = pendingNotesRef.current;
@@ -262,10 +264,16 @@ export function CopilotPanel({
     let acc = "";
     let sawDone = false;
     try {
+      // A turn cut by the time budget is relaunched on the same relay session
+      // (hidden « poursuite automatique » message) until the work is done.
+      let turn: ChatMessage[] = next;
+      for (let attempt = 0; ; attempt++) {
+      let resumable = false;
+      sawDone = false;
       const res = await fetch(`/api/dashboards/${dashboardId}/assistant`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: next.slice(-MAX_THREAD_MESSAGES), model: prefs.model, effort: prefs.effort, account: prefs.account }),
+        body: JSON.stringify({ messages: turn.slice(-MAX_THREAD_MESSAGES), model: prefs.model, effort: prefs.effort, account: prefs.account }),
       });
       if (!res.ok || !res.body) {
         const body = await res.json().catch(() => ({}));
@@ -294,12 +302,20 @@ export function CopilotPanel({
             setStreamText(acc);
           } else if (event.type === "done") {
             sawDone = true;
+          } else if (event.type === "error" && event.resumable === true) {
+            resumable = true;
           } else if (event.type === "error") {
             // Keep partial text if any — surface the error alongside.
             if (!acc.trim()) throw new Error(String(event.message ?? "Erreur IA"));
             setError(String(event.message ?? "Erreur IA"));
           }
         }
+      }
+      if (!(resumable || !sawDone) || attempt >= MAX_AUTO_CONTINUES) break;
+      setRound(attempt + 1);
+      setActivity((a) => ({ ...a, phase: "starting", tool: null, pending: [] }));
+      turn = [...next, ...(acc.trim() ? [{ role: "assistant" as const, content: acc }] : []), { role: "user" as const, content: AUTO_CONTINUE_PROMPT }];
+      if (acc && !acc.endsWith("\n\n")) acc += "\n\n";
       }
       if (!acc.trim()) throw new Error("Réponse vide du copilote — réessayez");
       if (!sawDone) setTruncated(true);
@@ -499,7 +515,7 @@ export function CopilotPanel({
         {streamText !== null && (
           <div className="mr-4 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-300 whitespace-pre-wrap">
             {streamText}
-            <AiActivity state={activity} startedAt={startedAt} className={streamText ? "mt-2" : undefined} />
+            <AiActivity state={activity} startedAt={startedAt} round={round} className={streamText ? "mt-2" : undefined} />
           </div>
         )}
         {truncated && (

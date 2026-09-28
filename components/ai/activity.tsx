@@ -12,7 +12,7 @@ import { activityLabel, formatElapsed, type ActivityState } from "@/lib/ai-activ
 
 const LONG_TASK_MS = 45_000;
 
-export function AiActivity({ state, startedAt, className }: { state: ActivityState; startedAt: number; className?: string }) {
+export function AiActivity({ state, startedAt, round, className }: { state: ActivityState; startedAt: number; /** automatic relaunches so far */ round?: number; className?: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -29,7 +29,12 @@ export function AiActivity({ state, startedAt, className }: { state: ActivitySta
           {state.steps > 0 ? `étape ${state.steps} · ` : ""}{formatElapsed(elapsed)}
         </span>
       </div>
-      {elapsed > LONG_TASK_MS && (
+      {round ? (
+        <div className="text-[11px] text-gray-500 mt-1">
+          Tâche longue : reprise automatique n° {round} après la limite de temps, le travail déjà fait est conservé.
+        </div>
+      ) : null}
+      {!round && elapsed > LONG_TASK_MS && (
         <div className="text-[11px] text-gray-500 mt-1">
           L&apos;IA travaille toujours. Un deck ou une analyse complète peut prendre plusieurs minutes — laissez cette page ouverte.
         </div>

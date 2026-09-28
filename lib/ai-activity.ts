@@ -117,3 +117,10 @@ export function formatElapsed(ms: number): string {
   if (s < 60) return `${s} s`;
   return `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")}`;
 }
+
+/** Turns cut by the time budget are relaunched by the chat itself, this many times at most. */
+export const MAX_AUTO_CONTINUES = 5;
+
+/** Hidden user message of an automatic relaunch (the relay resumes the session). */
+export const AUTO_CONTINUE_PROMPT =
+  "[Poursuite automatique] Ton tour précédent a été interrompu par la limite de temps, pas par le consultant. Reprends exactement où tu en étais : vérifie ce qui est déjà produit, ne refais pas ce qui est fait, et va jusqu'au livrable.";

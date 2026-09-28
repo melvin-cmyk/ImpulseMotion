@@ -145,13 +145,18 @@ const SKILLS_SYNC_ROOT = path.join(process.env.HOME || os.homedir(), ".claude", 
 function syncedSkillsDir() {
   const forced = process.env.SKILLS_DIR;
   if (forced) return path.isAbsolute(forced) && fs.existsSync(forced) ? forced : null;
+  // Several accounts sync their skills here (one folder each): the agency
+  // set is the one holding the most skills, not the most recently touched —
+  // a personal account syncing a handful of skills must not shadow it.
   let best = null;
   try {
     for (const e of fs.readdirSync(SKILLS_SYNC_ROOT, { withFileTypes: true })) {
       if (!e.isDirectory()) continue;
       const abs = path.join(SKILLS_SYNC_ROOT, e.name);
+      let count = 0;
+      try { count = fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).length; } catch { continue; }
       const mtime = fs.statSync(abs).mtimeMs;
-      if (!best || mtime > best.mtime) best = { abs, mtime };
+      if (!best || count > best.count || (count === best.count && mtime > best.mtime)) best = { abs, mtime, count };
     }
   } catch { /* pas de skills synchronisées */ }
   return best ? best.abs : null;
@@ -731,6 +736,9 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   // Set when the account ran dry before any content went out: the chat is
   // relaunched on another account (or Bedrock) over the same response.
   let retrying = false;
+  // The relay itself stopped the CLI (time budget, client gone): the session
+  // is sound and must stay resumable, even if no text was written yet.
+  let stoppedByRelay = false;
   // The first ~160 chars of a reply are held back until they are clearly not
   // an account error ("Failed to authenticate", "usage limit"…): the CLI
   // streams those as ordinary assistant text, and a held error lets the turn
@@ -752,7 +760,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     finished = true;
     clearTimeout(sessionBudget);
     clearInterval(heartbeat);
-    if (payload?.error) send("error", { message: payload.error });
+    if (payload?.error) send("error", { message: payload.error, ...(payload.resumable ? { resumable: true } : {}) });
     send("done", {});
     res.end();
   };
@@ -769,8 +777,11 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     ? Math.min(Math.max(requested, 10_000), MAX_BUDGET_MS)
     : DEFAULT_BUDGET_MS;
   const sessionBudget = setTimeout(() => {
+    stoppedByRelay = true;
     if (!child.killed) child.kill("SIGTERM");
-    finish({ error: `Temps de session dépassé (${Math.round(SESSION_BUDGET_MS / 1000)}s) — réessayez avec une demande plus ciblée` });
+    // With a session the work is not lost: the transcript and the workspace
+    // stay, and the chat surfaces relaunch the turn by themselves (resumable).
+    finish({ error: `Temps de session dépassé (${Math.round(SESSION_BUDGET_MS / 1000)}s) — réessayez avec une demande plus ciblée`, resumable: !!sessionKey });
   }, SESSION_BUDGET_MS);
 
   // SSE comment heartbeat so idle proxies don't drop the connection during
@@ -941,7 +952,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     cleanupScopedMcp();
     if (retrying) return; // the relaunched attempt owns the response now
     console.log(`[chat] Exit code ${code}, text length: ${fullText.length}`);
-    if (code !== 0 && !fullText && sessionKey) {
+    if (code !== 0 && !fullText && sessionKey && !stoppedByRelay) {
       // A transcript the CLI could not resume (or a crashed first turn) must
       // not poison the conversation: the next turn starts a fresh session.
       forgetSession(sessionKey);
@@ -960,6 +971,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     clearTimeout(sessionBudget);
     clearInterval(heartbeat);
     if (!child.killed) {
+      stoppedByRelay = true;
       child.kill("SIGTERM");
       console.log("[chat] Client disconnected, killed child");
     }

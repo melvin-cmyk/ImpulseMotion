@@ -20,7 +20,7 @@ import { AiMarkdown } from "@/components/ai/ai-markdown"
 import { AttachButton, MessageAttachments, PendingAttachments, useAttachments } from "@/components/ai/attachments"
 import { ModelPicker } from "@/components/ai/model-picker"
 import { AiActivity } from "@/components/ai/activity"
-import { INITIAL_ACTIVITY, formatToolName, reduceActivity, type ActivityState } from "@/lib/ai-activity"
+import { AUTO_CONTINUE_PROMPT, INITIAL_ACTIVITY, MAX_AUTO_CONTINUES, formatToolName, reduceActivity, type ActivityState } from "@/lib/ai-activity"
 import { DEFAULT_PREFS, FILES_NOTE_RE, filesNote, loadPrefs, savePrefs, type AiPrefs, type ChatFile, type ChatImage } from "@/lib/ai-chat-shared"
 
 interface UIMessage {
@@ -36,6 +36,8 @@ interface UIMessage {
   /** Live status of the running turn (never persisted). */
   activity?: ActivityState
   startedAt?: number
+  /** Automatic relaunches of this turn after a time-budget cut. */
+  round?: number
 }
 
 interface ConversationMeta { id: string; title: string; updatedAt: number }
@@ -172,9 +174,19 @@ export default function AIPage() {
     ]
 
     try {
+      // A turn cut by the time budget (or a dropped stream) is relaunched on
+      // the same relay session, in the same bubble, until the work is done.
+      let turn = history
+      for (let round = 0; ; round++) {
+      let sawDone = false
+      let resumable = false
+      let text = ""
       await streamChat(
-        history,
+        turn,
         (event: StreamEvent) => {
+          if (event.type === "done") sawDone = true
+          if (event.type === "delta" || event.type === "content") text += event.text || ""
+          if (event.type === "error" && event.resumable) { resumable = true; return }
           setMessages((prev) => {
             const updated = [...prev]
             const last = { ...updated[updated.length - 1] }
@@ -206,6 +218,29 @@ export default function AIPage() {
         abort.signal,
         { conversationId, model: prefs.model, effort: prefs.effort, account: prefs.account },
       )
+      const cut = resumable || !sawDone
+      if (!cut || abort.signal.aborted) break
+      if (round >= MAX_AUTO_CONTINUES) {
+        setMessages((prev) => {
+          const updated = [...prev]
+          const last = { ...updated[updated.length - 1] }
+          last.content += `\n\n**Tâche interrompue :** la limite de temps a été atteinte ${MAX_AUTO_CONTINUES + 1} fois de suite. Le travail déjà fait est conservé — écrivez « continue » pour reprendre, ou réduisez la demande.`
+          updated[updated.length - 1] = last
+          return updated
+        })
+        break
+      }
+      setMessages((prev) => {
+        const updated = [...prev]
+        const last = { ...updated[updated.length - 1] }
+        if (last.content && !last.content.endsWith("\n\n")) last.content += "\n\n"
+        last.round = round + 1
+        last.activity = { ...(last.activity ?? INITIAL_ACTIVITY), phase: "starting", tool: null, pending: [] }
+        updated[updated.length - 1] = last
+        return updated
+      })
+      turn = [...turn, ...(text ? [{ role: "assistant" as const, content: text }] : []), { role: "user" as const, content: AUTO_CONTINUE_PROMPT }]
+      }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setMessages((prev) => {
@@ -403,7 +438,7 @@ export default function AIPage() {
                   )}
 
                   {msg.isStreaming && (
-                    <AiActivity state={msg.activity ?? INITIAL_ACTIVITY} startedAt={msg.startedAt ?? Date.now()} className={msg.content ? "mt-3" : undefined} />
+                    <AiActivity state={msg.activity ?? INITIAL_ACTIVITY} startedAt={msg.startedAt ?? Date.now()} round={msg.round} className={msg.content ? "mt-3" : undefined} />
                   )}
 
                   {msg.content && !msg.isStreaming && (
