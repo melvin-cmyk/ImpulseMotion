@@ -2,9 +2,9 @@
  * HQ brief of a client (what the agency memory knows about it) — staff only.
  *
  * GET  → the cached brief ({ context | null, fresh })
- * POST → refresh it now through the relay (one HQ session), then return it.
- *        Reports refresh it themselves when stale; this is the manual path
- *        after a consultant updated the client folder in HQ.
+ * POST → read it now through the relay (one HQ session), then return it.
+ *        This is the only path that reads HQ: reports and the copilot use
+ *        the stored brief and never refresh it themselves.
  */
 
 import { NextRequest, NextResponse } from "next/server";

@@ -1,8 +1,8 @@
 /**
  * "What does the agency already know about this client?" — read from HQ
- * (hqforwork.com, the agency memory) BEFORE an AI report is written, so the
- * report is judged against the client's real objectives (KPI cible, modèle,
- * saisonnalité, décisions et tests récents) instead of the numbers alone.
+ * (hqforwork.com, the agency memory) when a consultant asks for it, so the
+ * reports and the copilot judge the numbers against the client's real
+ * objectives (KPI cible, modèle, saisonnalité, décisions et tests récents).
  *
  * How it reads HQ: through the relay, the same read-only HQ tools the staff
  * console uses (server/relay.mjs HQ_READ_TOOLS). The CLI is told exactly
@@ -10,10 +10,10 @@
  * prose files are context) and to answer with one JSON fence — a short,
  * low-effort session, not an open-ended exploration.
  *
- * Token discipline: the brief is cached on the Dashboard (hqContextMd /
- * hqContextAt) for HQ_CONTEXT_TTL_MS. Weekly reports therefore cost one HQ
- * session per client per week at most; the report chat reuses the brief
- * stored in the report snapshot for free.
+ * Token discipline: nothing reads HQ on its own. The only HQ session is the
+ * one a consultant starts from the client sheet (POST hq-context); the brief
+ * is stored on the Dashboard (hqContextMd / hqContextAt) and reused as is by
+ * the reports (storedHqContext), the report chat and the copilot.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -120,6 +120,12 @@ type DashboardForHq = { id: string; name: string; metaAccountId: string | null; 
 
 export function isHqContextFresh(d: Pick<DashboardForHq, "hqContextMd" | "hqContextAt">, now = Date.now()): boolean {
   return !!d.hqContextMd && !!d.hqContextAt && now - d.hqContextAt.getTime() < HQ_CONTEXT_TTL_MS;
+}
+
+/** The brief already stored on the dashboard, whatever its age — no relay call. */
+export function storedHqContext(d: Pick<DashboardForHq, "hqSlug" | "hqContextMd" | "hqContextAt">): HqClientContext | null {
+  if (!d.hqSlug || !d.hqContextMd || !d.hqContextAt) return null;
+  return { slug: d.hqSlug, brief: d.hqContextMd, sources: [], fetchedAt: d.hqContextAt.toISOString() };
 }
 
 /** One relay session with HQ read tools; throws when the relay is down. */

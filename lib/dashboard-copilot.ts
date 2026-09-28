@@ -46,8 +46,8 @@ export function buildCopilotSystemPrompt(
     .map((t: WidgetType) => `- ${t} (${WIDGET_TYPE_INFO[t].label}) : config ${WIDGET_TYPE_INFO[t].configDoc}`)
     .join("\n");
   const hqBlock = hq
-    ? `\n\nCE QUE L'AGENCE SAIT DU CLIENT (HQ, dossier projects/${hq.slug} — objectifs, KPI cible, décisions, tests, règles) :\n${hq.brief}\nCe brief suffit pour la plupart des questions : n'interroge HQ (outils hq_*) que pour un détail qui n'y figure pas.`
-    : "";
+    ? `\n\nCE QUE L'AGENCE SAIT DU CLIENT (HQ, dossier projects/${hq.slug} — objectifs, KPI cible, décisions, tests, règles) :\n${hq.brief}\nN'interroge HQ (outils hq_*) que si le consultant te le demande.`
+    : "\n\nHQ (mémoire de l'agence) : ne le consulte (outils hq_*) que si le consultant te le demande explicitement — jamais de ta propre initiative avant une analyse ou une modification du dashboard.";
 
   return `Tu es le copilote IA d'ImpulseMotion pour les consultants. Tu aides à composer le dashboard de pilotage du client "${clientLabel}".
 

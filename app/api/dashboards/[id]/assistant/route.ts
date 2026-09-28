@@ -139,8 +139,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const systemPrompt = buildCopilotSystemPrompt(
     { ...dashboard, widgets: dashboard.widgets, pages: dashboard.pages },
     dashboard.user.name ?? dashboard.user.email ?? "client",
-    // The cached HQ brief (7-day TTL, lib/hq-client-context.ts) replaces a
-    // live HQ exploration on every question about the client.
+    // The HQ brief the consultant loaded from the client sheet, when there is
+    // one (lib/hq-client-context.ts) — never fetched here.
     dashboard.hqSlug && dashboard.hqContextMd ? { slug: dashboard.hqSlug, brief: dashboard.hqContextMd } : null,
     guard.session.user?.email ?? null,
   );
