@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ACL_CHANGED_EVENT } from "@/lib/acl-version";
 
 /** One row of GET /api/me/accounts/preview (already scoped server-side). */
 export interface PreviewAccount {
@@ -83,6 +84,14 @@ export function useAccountList(userId: string | null, enabled = true) {
 
   useEffect(() => {
     if (enabled) void load();
+  }, [enabled, load]);
+
+  // An admin changed the viewer's accounts: the list on screen is out of date.
+  useEffect(() => {
+    if (!enabled) return;
+    const onChange = () => { void load(false); };
+    window.addEventListener(ACL_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(ACL_CHANGED_EVENT, onChange);
   }, [enabled, load]);
 
   return { accounts, loading, loaded, reload: load };

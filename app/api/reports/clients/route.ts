@@ -2,7 +2,9 @@
  * GET /api/reports/clients → staff: the client list for report pickers.
  * One entry per dashboard (a client = an ad account pair), with its report
  * frequency and last report. Duplicated dashboards (same accounts) are
- * collapsed on the first created one.
+ * collapsed on the first created one. A consultant also gets the accounts
+ * assigned to them that have no dashboard yet (lib/report-clients.ts): the
+ * dashboard is created with their first report.
  */
 
 import { getAccountScope, dashboardWhere } from "@/lib/scope";
@@ -10,6 +12,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { groupDashboardsByAccount } from "@/lib/portfolio";
+import { pendingReportClients } from "@/lib/report-clients";
 
 export async function GET() {
   const guard = await requireStaff();
@@ -48,5 +51,12 @@ export async function GET() {
         : null,
     }));
 
-  return NextResponse.json({ clients });
+  const pending = (await pendingReportClients(guard.session.userId, scope)).map((p) => ({
+    ...p,
+    reportFrequency: null,
+    owner: null,
+    lastReport: null,
+  }));
+
+  return NextResponse.json({ clients: [...clients, ...pending].sort((a, b) => a.name.localeCompare(b.name, "fr")) });
 }

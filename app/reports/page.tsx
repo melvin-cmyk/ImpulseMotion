@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FileText, Plus, Loader2, Bot, Clock } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { NewReportForm, type ReportClient } from "@/components/reports/new-report-form";
+import { ACL_CHANGED_EVENT } from "@/lib/acl-version";
 
 interface ReportRow {
   id: string;
@@ -63,6 +64,13 @@ export default function ReportsPage() {
     // Deferred so the lint rule about synchronous setState in effects stays honest.
     const t = setTimeout(() => { void load(); }, 0);
     return () => clearTimeout(t);
+  }, [load]);
+
+  // A client added by an admin shows up without signing out and in again.
+  useEffect(() => {
+    const onChange = () => { void load(); };
+    window.addEventListener(ACL_CHANGED_EVENT, onChange);
+    return () => window.removeEventListener(ACL_CHANGED_EVENT, onChange);
   }, [load]);
 
   const generating = reports?.some((r) => r.status === "generating");

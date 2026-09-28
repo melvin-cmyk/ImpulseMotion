@@ -14,6 +14,8 @@ import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { generateClientReport, defaultReportTitle, resolveCompare } from "@/lib/report-generate";
 import { REPORT_LIST_SELECT, serializeReportRow } from "@/lib/reports-api";
+import { parsePendingId, pendingReportClients } from "@/lib/report-clients";
+import { createDashboardForUser } from "@/lib/dashboard-widgets";
 
 export const maxDuration = 300;
 
@@ -24,6 +26,8 @@ export async function GET(req: NextRequest) {
   if ("error" in guard) return guard.error;
 
   const dashboardId = req.nextUrl.searchParams.get("dashboardId");
+  // A client without a dashboard yet has no report either.
+  if (dashboardId && parsePendingId(dashboardId)) return NextResponse.json({ reports: [] });
   const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 50) || 50, 1), 200);
   const scope = await getAccountScope(guard.session);
   const reports = await prisma.clientReport.findMany({
@@ -40,16 +44,30 @@ export async function POST(req: NextRequest) {
   if ("error" in guard) return guard.error;
 
   const body = await req.json().catch(() => ({}));
-  const dashboardId = typeof body.dashboardId === "string" ? body.dashboardId : "";
+  let dashboardId = typeof body.dashboardId === "string" ? body.dashboardId : "";
   const since = typeof body.since === "string" ? body.since : "";
   const until = typeof body.until === "string" ? body.until : "";
   if (!dashboardId) return NextResponse.json({ error: "dashboardId requis" }, { status: 400 });
   if (!DATE_RE.test(since) || !DATE_RE.test(until) || since > until) {
     return NextResponse.json({ error: "since/until invalides (YYYY-MM-DD)" }, { status: 400 });
   }
+  const scope = await getAccountScope(guard.session);
+  if (parsePendingId(dashboardId)) {
+    // An account assigned to the consultant that has no dashboard yet: the
+    // list is rebuilt here, so only what they were really given can be opened.
+    const pending = (await pendingReportClients(guard.session.userId, scope)).find((p) => p.id === dashboardId);
+    if (!pending) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
+    const created = await createDashboardForUser({
+      userId: guard.session.userId,
+      name: pending.name,
+      metaAccountId: pending.metaAccountId,
+      googleCustomerId: pending.googleCustomerId,
+    });
+    dashboardId = created.id;
+  }
   const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } });
   if (!dashboard) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
-  if (!dashboardInScope(await getAccountScope(guard.session), dashboard)) {
+  if (!dashboardInScope(scope, dashboard)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

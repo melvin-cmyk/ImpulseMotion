@@ -2,10 +2,22 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { aclVersion } from "@/lib/acl-version";
 
 /** How long a session token may keep its cached role before the database has
- *  the final word again. Bounds how long a revoked admin keeps their powers. */
-const ROLE_TTL_MS = 5 * 60 * 1000;
+ *  the final word again. Bounds how long a revoked admin keeps their powers,
+ *  and how long a consultant waits for a new role or a new account to show —
+ *  short, so nobody has to sign out and in again after an admin's change. */
+const ROLE_TTL_MS = 20 * 1000;
+
+/** Role and accounts of a user, as the session carries them. */
+async function readAccess(userId: string): Promise<{ role: string; acl: string } | null> {
+  const db = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, adAccounts: { select: { platform: true, accountId: true } } },
+  });
+  return db ? { role: db.role, acl: aclVersion(db.role, db.adAccounts) } : null;
+}
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET,
@@ -45,6 +57,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.userId = user.id;
         token.role = (user as { role?: string }).role ?? "client";
         token.roleCheckedAt = Date.now();
+        token.acl = (await readAccess(user.id as string).catch(() => null))?.acl;
         return token;
       }
       if (!token.userId) return token;
@@ -56,18 +69,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const checkedAt = (token.roleCheckedAt as number | undefined) ?? 0;
       if (token.role && Date.now() - checkedAt < ROLE_TTL_MS) return token;
 
-      const db = await prisma.user.findUnique({
-        where: { id: token.userId as string },
-        select: { role: true },
-      });
+      const db = await readAccess(token.userId as string);
       if (!db) {
         // Account deleted → drop the identity; the proxy and requireSession
         // then treat the request as anonymous.
         delete token.userId;
         delete token.role;
+        delete token.acl;
         return token;
       }
       token.role = db.role;
+      token.acl = db.acl;
       token.roleCheckedAt = Date.now();
       return token;
     },
@@ -76,6 +88,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         ...session,
         userId: token.userId as string,
         role: (token.role as string) ?? "client",
+        aclVersion: (token.acl as string | undefined) ?? "",
       };
     },
   },

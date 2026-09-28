@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { Sidebar, SecondaryNav } from "@/components/sidebar";
 import { SessionProvider } from "next-auth/react";
+import { AclWatcher } from "@/components/acl-watcher";
 import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
 import { CommandPalette } from "@/components/command-palette";
@@ -51,7 +52,8 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className={`${geist.variable} antialiased`}>
-        <SessionProvider session={session}>
+        <SessionProvider session={session} refetchInterval={30} refetchOnWindowFocus>
+          <AclWatcher />
           <CreativesProvider>
             {showApp && isClient ? (
               // Client chrome: just their dashboard — no internal nav.
