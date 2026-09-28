@@ -21,6 +21,8 @@ import { validateWidgetConfig, validateWidgetWidth, type ResolvedWidget } from "
 import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { AttachButton, MessageAttachments, PendingAttachments, useAttachments } from "@/components/ai/attachments";
 import { ModelPicker } from "@/components/ai/model-picker";
+import { AiActivity } from "@/components/ai/activity";
+import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 import { FILES_NOTE_RE, filesNote, loadPrefs, savePrefs, DEFAULT_PREFS, type AiPrefs, type ChatFile, type ChatImage } from "@/lib/ai-chat-shared";
 
 interface ChatMessage { role: "user" | "assistant"; content: string; images?: ChatImage[]; files?: ChatFile[] }
@@ -146,7 +148,8 @@ export function CopilotPanel({
   const [memoNote, setMemoNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [streamText, setStreamText] = useState<string | null>(null);
-  const [toolNote, setToolNote] = useState<string | null>(null);
+  const [activity, setActivity] = useState<ActivityState>(INITIAL_ACTIVITY);
+  const [startedAt, setStartedAt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -240,7 +243,8 @@ export function CopilotPanel({
     setTruncated(false);
     setBusy(true);
     busyRef.current = true;
-    setToolNote(null);
+    setActivity(INITIAL_ACTIVITY);
+    setStartedAt(Date.now());
 
     // Feed apply outcomes back so the model can correct itself.
     const notes = pendingNotesRef.current;
@@ -281,14 +285,13 @@ export function CopilotPanel({
           if (!trimmed.startsWith("data: ")) continue;
           let event: Record<string, unknown>;
           try { event = JSON.parse(trimmed.slice(6)); } catch { continue; }
+          setActivity((a) => reduceActivity(a, event));
           if (event.type === "delta" && typeof event.text === "string") {
             acc += event.text;
             setStreamText(acc);
           } else if (event.type === "content" && typeof event.text === "string" && !acc) {
             acc = event.text;
             setStreamText(acc);
-          } else if (event.type === "tool_call") {
-            setToolNote(`Outil : ${String(event.name ?? "…")}`);
           } else if (event.type === "done") {
             sawDone = true;
           } else if (event.type === "error") {
@@ -324,7 +327,6 @@ export function CopilotPanel({
       setBusy(false);
       busyRef.current = false;
       setStreamText(null);
-      setToolNote(null);
     }
   }
 
@@ -496,8 +498,8 @@ export function CopilotPanel({
         {messages.map(renderMessage)}
         {streamText !== null && (
           <div className="mr-4 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-300 whitespace-pre-wrap">
-            {streamText || "…"}
-            {toolNote && <div className="text-[11px] text-violet-400 mt-1">{toolNote}</div>}
+            {streamText}
+            <AiActivity state={activity} startedAt={startedAt} className={streamText ? "mt-2" : undefined} />
           </div>
         )}
         {truncated && (

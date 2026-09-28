@@ -26,7 +26,9 @@ export interface StreamChatOptions {
 }
 
 export interface StreamEvent {
-  type: "init" | "delta" | "content" | "tool_call" | "tool_result" | "usage" | "error" | "done";
+  type: "init" | "delta" | "content" | "activity" | "tool_call" | "tool_result" | "usage" | "error" | "done";
+  /** activity: "thinking" | "writing" | "tool" (with `name`). */
+  phase?: string;
   text?: string;
   name?: string;
   id?: string;

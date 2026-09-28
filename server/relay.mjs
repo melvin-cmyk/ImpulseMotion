@@ -818,7 +818,24 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
             fullText += e.delta.text;
           }
         }
-        continue; // message_start/stop, thinking_delta, input_json_delta… are noise here
+        // What the model is doing between two visible events, so the chat
+        // can say it is alive: thinking, writing, or preparing a tool call
+        // (a long script is streamed for a while before the call is sent).
+        if (e?.type === "message_start") {
+          send("activity", { phase: "thinking" });
+        } else if (e?.type === "content_block_start") {
+          const kind = e.content_block?.type;
+          if (kind === "tool_use") {
+            // The sentence announcing the work must not wait for the end.
+            if (head && !isAccountError(head)) flushHead();
+            send("activity", { phase: "tool", name: e.content_block.name });
+          } else if (kind === "thinking") {
+            send("activity", { phase: "thinking" });
+          } else if (kind === "text") {
+            send("activity", { phase: "writing" });
+          }
+        }
+        continue; // message_stop, thinking_delta, input_json_delta… are noise here
       }
 
       // Assistant message (may contain tool_use blocks); text fallback only
@@ -827,6 +844,7 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
         let sentFallbackText = false;
         for (const block of event.message.content) {
           if (block.type === "tool_use") {
+            if (head && !isAccountError(head)) flushHead();
             send("tool_call", { id: block.id, name: block.name, input: block.input });
           } else if (block.type === "text" && block.text && !sentContent && !sawDelta) {
             head += block.text;

@@ -19,6 +19,8 @@ import { streamChat, type StreamEvent } from "@/lib/relay-client"
 import { AiMarkdown } from "@/components/ai/ai-markdown"
 import { AttachButton, MessageAttachments, PendingAttachments, useAttachments } from "@/components/ai/attachments"
 import { ModelPicker } from "@/components/ai/model-picker"
+import { AiActivity } from "@/components/ai/activity"
+import { INITIAL_ACTIVITY, formatToolName, reduceActivity, type ActivityState } from "@/lib/ai-activity"
 import { DEFAULT_PREFS, FILES_NOTE_RE, filesNote, loadPrefs, savePrefs, type AiPrefs, type ChatFile, type ChatImage } from "@/lib/ai-chat-shared"
 
 interface UIMessage {
@@ -31,6 +33,9 @@ interface UIMessage {
   toolResults?: { id: string; content: string; is_error: boolean }[]
   usage?: { cost: number; turns: number; duration: number }
   isStreaming?: boolean
+  /** Live status of the running turn (never persisted). */
+  activity?: ActivityState
+  startedAt?: number
 }
 
 interface ConversationMeta { id: string; title: string; updatedAt: number }
@@ -76,24 +81,6 @@ function saveConversation(id: string, messages: UIMessage[]) {
     for (const gone of loadList().filter((c) => !list.some((k) => k.id === c.id))) localStorage.removeItem(CONV_KEY(gone.id))
     localStorage.setItem(LIST_KEY, JSON.stringify(list))
   } catch { /* quota or private mode: the thread still lives in memory */ }
-}
-
-const TOOL_LABELS: Array<[string, string]> = [
-  ["mcp__meta-ads-impulse__", "Meta : "],
-  ["mcp__mcp-google-ads__", "Google Ads : "],
-  ["mcp__mcp-google-analytics__", "GA4 : "],
-  ["mcp__mcp-google-sheet__", "Sheets : "],
-  ["mcp__claude_ai_mcp_hq__", "HQ : "],
-  ["mcp__hq__", "HQ : "],
-  ["mcp__sandbox__", "Python : "],
-  ["mcp__gws__", "Google Workspace : "],
-]
-function formatToolName(name: string) {
-  for (const [prefix, label] of TOOL_LABELS) if (name.startsWith(prefix)) return label + name.slice(prefix.length).replace(/1$/, "")
-  if (name === "WebSearch") return "Recherche web"
-  if (name === "WebFetch") return "Lecture de page"
-  if (name === "ToolSearch") return "Chargement d'outils"
-  return name
 }
 
 export default function AIPage() {
@@ -164,7 +151,7 @@ export default function AIPage() {
     const content = body + filesNote(files)
 
     const userMsg: UIMessage = { id: crypto.randomUUID(), role: "user", content, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }
-    const assistantMsg: UIMessage = { id: crypto.randomUUID(), role: "assistant", content: "", toolCalls: [], toolResults: [], isStreaming: true }
+    const assistantMsg: UIMessage = { id: crypto.randomUUID(), role: "assistant", content: "", toolCalls: [], toolResults: [], isStreaming: true, activity: INITIAL_ACTIVITY, startedAt: Date.now() }
 
     setMessages((prev) => [...prev, userMsg, assistantMsg])
     setInput("")
@@ -191,6 +178,7 @@ export default function AIPage() {
           setMessages((prev) => {
             const updated = [...prev]
             const last = { ...updated[updated.length - 1] }
+            last.activity = reduceActivity(last.activity ?? INITIAL_ACTIVITY, event)
             switch (event.type) {
               case "delta":
                 last.content += event.text || ""
@@ -414,11 +402,8 @@ export default function AIPage() {
                     />
                   )}
 
-                  {msg.isStreaming && !msg.content && (
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Analyse en cours...</span>
-                    </div>
+                  {msg.isStreaming && (
+                    <AiActivity state={msg.activity ?? INITIAL_ACTIVITY} startedAt={msg.startedAt ?? Date.now()} className={msg.content ? "mt-3" : undefined} />
                   )}
 
                   {msg.content && !msg.isStreaming && (
