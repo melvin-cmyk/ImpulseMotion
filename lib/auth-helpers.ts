@@ -27,6 +27,18 @@ export function isStaff(session: { role?: string | null } | null | undefined): b
   return session?.role === "admin" || session?.role === "consultant";
 }
 
+/** People management and AI subscriptions: the person must really be an admin (lib/roles.ts). */
+export async function requireRealAdmin() {
+  const session = await auth();
+  if (!session?.userId) {
+    return { error: NextResponse.json({ error: "unauthorized" }, { status: 401 }) } as const;
+  }
+  if (session.baseRole !== "admin") {
+    return { error: NextResponse.json({ error: "forbidden" }, { status: 403 }) } as const;
+  }
+  return { session } as const;
+}
+
 export async function requireAdmin() {
   const session = await auth();
   if (!session?.userId) {

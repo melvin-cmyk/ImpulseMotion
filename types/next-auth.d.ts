@@ -4,6 +4,8 @@ declare module "next-auth" {
   interface Session extends DefaultSession {
     userId: string;
     role: string;
+    /** Role of the person in the database; `role` is the one applied (lib/roles.ts). */
+    baseRole: string;
     /** Fingerprint of the role and the ad accounts (lib/acl-version.ts). */
     aclVersion: string;
   }

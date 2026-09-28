@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar, SecondaryNav } from "@/components/sidebar";
 import { SessionProvider } from "next-auth/react";
 import { AclWatcher } from "@/components/acl-watcher";
+import { GuideBot } from "@/components/guide-bot";
 import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
 import { CommandPalette } from "@/components/command-palette";
@@ -74,6 +75,8 @@ export default async function RootLayout({
               </div>
             ) : showApp ? (
               <div className="flex h-screen bg-gray-950 text-gray-100">
+                {/* Staff only: clients get their own chrome above, without the guide. */}
+                <GuideBot />
                 <Sidebar />
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">

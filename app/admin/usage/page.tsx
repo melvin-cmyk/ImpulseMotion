@@ -40,6 +40,7 @@ const FEATURE_LABEL: Record<string, string> = {
   alert_compose: "Rédaction d'alerte (IA)",
   alert_ai: "Alertes IA (scan quotidien)",
   auto_alert: "Alertes automatiques (lecture IA)",
+  guide: "Guide de l'application",
 };
 type ClientUsage = {
   key: string;

@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { Card } from "@/components/ui/surface";
 
 interface PoolAccount {
@@ -21,6 +22,8 @@ interface PoolAccount {
 function pctOf(w: PoolAccount["fiveHour"]) { return Math.max(0, Math.min(100, Math.round(w?.utilization ?? 0))); }
 
 export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; switchPct: number }) {
+  // Adding or removing a subscription stays with the real admins (lib/roles.ts).
+  const canManage = useSession().data?.baseRole === "admin";
   const [accounts, setAccounts] = useState<PoolAccount[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [label, setLabel] = useState("");
@@ -95,7 +98,7 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
                   <div className="text-sm font-semibold text-white">{a.label}</div>
                   <div className={`text-[11px] mt-0.5 ${a.fallbackActive ? "text-amber-300" : "text-emerald-300"}`}>{a.fallbackActive ? "saturé — hors rotation" : "disponible"}</div>
                 </div>
-                {a.id !== "host" && (
+                {a.id !== "host" && canManage && (
                   <button type="button" onClick={() => remove(a.id, a.label)} disabled={busy} className="text-[11px] text-gray-500 hover:text-red-400 disabled:opacity-50">Retirer</button>
                 )}
               </div>
@@ -122,7 +125,7 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
           );
         })}
       </div>
-      <form onSubmit={add} className="flex flex-wrap items-end gap-2">
+      {canManage && <form onSubmit={add} className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-gray-400 flex flex-col gap-1">
           Libellé
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Max Sung-Min" maxLength={60} className="px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-white focus:border-violet-500 focus:outline-none w-48" />
@@ -134,7 +137,7 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
         <button type="submit" disabled={busy || !label.trim() || !token.trim()} className="px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50">
           {busy ? "Vérification…" : "Ajouter le compte"}
         </button>
-      </form>
+      </form>}
     </section>
   );
 }

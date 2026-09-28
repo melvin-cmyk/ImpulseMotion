@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { aclVersion } from "@/lib/acl-version";
+import { effectiveRole } from "@/lib/roles";
 
 /** How long a session token may keep its cached role before the database has
  *  the final word again. Bounds how long a revoked admin keeps their powers,
@@ -87,7 +88,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return {
         ...session,
         userId: token.userId as string,
-        role: (token.role as string) ?? "client",
+        // What the checks apply, and what the person really is (lib/roles.ts).
+        role: effectiveRole(token.role as string | undefined),
+        baseRole: (token.role as string) ?? "client",
         aclVersion: (token.acl as string | undefined) ?? "",
       };
     },

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireRealAdmin } from "@/lib/auth-helpers";
 
 type Ctx = { params: Promise<{ id: string }> };
 const PLATFORMS = new Set(["meta", "google", "tiktok"]);
 
 export async function POST(req: Request, { params }: Ctx) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
 
   const { id: userId } = await params;
@@ -31,7 +31,7 @@ export async function POST(req: Request, { params }: Ctx) {
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
 
   const { id: userId } = await params;

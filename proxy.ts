@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
+import { isRealAdminPath } from "@/lib/roles";
 
 // Route surface reachable by the "client" role — the dashboard and the API it
 // needs, nothing else. Everything outside redirects to /client (pages) or 403s (APIs).
@@ -18,14 +19,6 @@ const CLIENT_ALLOWED_PREFIXES = [
   "/api/me/password",
 ];
 
-// Admin-only surface (user & ACL management). Consultants get the rest of /admin.
-const ADMIN_ONLY_PREFIXES = ["/admin/users", "/api/admin/users", "/admin/bots", "/api/admin/bots"];
-
-function isAdminOnly(pathname: string): boolean {
-  // /admin index page is the user-management screen
-  if (pathname === "/admin") return true;
-  return ADMIN_ONLY_PREFIXES.some((p) => pathname.startsWith(p));
-}
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
@@ -45,7 +38,8 @@ export default auth((req) => {
       return NextResponse.redirect(new URL("/login", req.url));
     }
     const isStaff = session.role === "admin" || session.role === "consultant";
-    const allowed = isAdminOnly(pathname) ? session.role === "admin" : isStaff;
+    // People management stays with the real admins; the rest follows the applied role.
+    const allowed = isRealAdminPath(pathname) ? session.baseRole === "admin" : isStaff;
     if (!allowed) {
       if (pathname.startsWith("/api/")) {
         return NextResponse.json({ error: "forbidden" }, { status: 403 });

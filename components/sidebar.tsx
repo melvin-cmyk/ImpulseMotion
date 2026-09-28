@@ -29,6 +29,8 @@ type NavItem = {
   label: string
   match?: (path: string) => boolean
   adminOnly?: boolean
+  /** People management: only for the persons who really are admins (lib/roles.ts). */
+  realAdminOnly?: boolean
 }
 type NavSection = { label: string; hint?: string; items: NavItem[] }
 
@@ -92,7 +94,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: ShieldCheck,
         label: "Utilisateurs & accès",
         match: (p) => p === "/admin" || p.startsWith("/admin/users"),
-        adminOnly: true,
+        realAdminOnly: true,
       },
       {
         href: "/admin/bots",
@@ -123,6 +125,7 @@ export function Sidebar() {
   const { data: session } = useSession()
   const role = session?.role ?? "client"
   const isAdmin = role === "admin"
+  const baseRole = session?.baseRole ?? role
 
   return (
     <div className="w-52 bg-gray-950 border-r border-gray-800 flex flex-col py-4 px-3 gap-1 shrink-0 overflow-y-auto">
@@ -134,7 +137,7 @@ export function Sidebar() {
       </div>
 
       {NAV_SECTIONS.map((section) => {
-        const items = section.items.filter((it) => !it.adminOnly || isAdmin)
+        const items = section.items.filter((it) => (!it.adminOnly || isAdmin) && (!it.realAdminOnly || baseRole === "admin"))
         if (items.length === 0) return null
         return (
           <div key={section.label} className="mb-3">
@@ -176,7 +179,7 @@ export function Sidebar() {
         </div>
         <div className="min-w-0">
           <div className="text-xs text-gray-400 truncate">{session?.user?.name ?? session?.user?.email ?? "Impulse Media"}</div>
-          <div className="text-[10px] text-violet-400 font-semibold uppercase tracking-wide">{ROLE_LABELS[role] ?? role}</div>
+          <div className="text-[10px] text-violet-400 font-semibold uppercase tracking-wide">{ROLE_LABELS[baseRole] ?? baseRole}</div>
         </div>
       </div>
     </div>

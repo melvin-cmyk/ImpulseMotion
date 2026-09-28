@@ -9,7 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth-helpers";
+import { requireAdmin, requireRealAdmin } from "@/lib/auth-helpers";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
 
@@ -33,6 +33,8 @@ async function relay(method: "GET" | "POST" | "DELETE", body?: unknown) {
   return NextResponse.json({ error: lastError }, { status: 502 });
 }
 
+// Reading the usage of the pool is for every admin; adding or removing a
+// subscription (a token) is for the people who really are admins.
 export async function GET() {
   const guard = await requireAdmin();
   if ("error" in guard) return guard.error;
@@ -40,7 +42,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
   const body = await req.json().catch(() => ({}));
   const label = typeof body.label === "string" ? body.label.trim().slice(0, 60) : "";
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
   const body = await req.json().catch(() => ({}));
   const id = typeof body.id === "string" && /^[a-z0-9][a-z0-9-]{1,30}$/.test(body.id) ? body.id : "";
