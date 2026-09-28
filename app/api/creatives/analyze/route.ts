@@ -166,7 +166,9 @@ function normalize(raw: unknown, byId: Map<string, Creative>): Omit<CreativeAnal
   };
 }
 
-async function analyze(accountId: string, since: string, until: string, refresh: boolean): Promise<CreativeAnalysis> {
+type Asker = { id: string; email: string | null; role: string };
+
+async function analyze(accountId: string, since: string, until: string, refresh: boolean, asker: Asker): Promise<CreativeAnalysis> {
   const { creatives: all, meta } = await loadCreatives(accountId, { since, until }, refresh);
   const top = [...all].sort((a, b) => b.spend - a.spend).slice(0, TOP_N);
   if (top.length === 0) throw new Error("Aucune créa avec des impressions sur la période");
@@ -180,7 +182,11 @@ async function analyze(accountId: string, since: string, until: string, refresh:
     },
     {
       maxMs: 240_000,
-      onUsage: (usage) => void recordAiUsage(usage, { feature: "creative_analysis", clientName: `meta:${accountId}` }),
+      onUsage: (usage) => void recordAiUsage(usage, {
+        feature: "creative_analysis",
+        clientName: `meta:${accountId}`,
+        user: asker,
+      }),
     },
   );
   const parsed = parseLooseJson<unknown>(text);
@@ -220,8 +226,8 @@ export async function POST(request: NextRequest) {
   const key = `meta:creative-analysis:v1:${accountId.replace(/^act_/, "")}:${since}_${until}`;
   try {
     const result = refresh
-      ? await analyze(accountId, since, until, true)
-      : await cached(key, () => analyze(accountId, since, until, false), Math.max(TTL_MS, ttlForRange({ since, until })));
+      ? await analyze(accountId, since, until, true, { id: guard.session.userId, email: guard.session.user?.email ?? null, role: guard.session.baseRole })
+      : await cached(key, () => analyze(accountId, since, until, false, { id: guard.session.userId, email: guard.session.user?.email ?? null, role: guard.session.baseRole }), Math.max(TTL_MS, ttlForRange({ since, until })));
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

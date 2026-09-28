@@ -25,7 +25,7 @@ Administration
 - Bots clients (/admin/bots) : l'assistant IA privé d'un client (contexte métier, sources de données, clients autorisés). Réservé aux admins.
 - Alertes (/admin/alerts) : règles d'alerte manuelles sur Meta et Google Ads (ROAS, CPA, CTR, dépenses, fréquence), envoi Slack ou email, derniers déclenchements.
 - Alertes automatiques (/admin/auto-alerts) : tous les comptes sont surveillés sans réglage (paiement, diffusion, créas, conversions, performance, budget). Par client : choisir le canal Slack c_<client>, « Connecter », « Tester », « Régler » (sujets, récurrence, jours ouvrés). Boutons « Actualiser les comptes », « Retrouver les canaux c_ », « Vérifier maintenant ». Canal privé : taper /invite @BotAds dans Slack puis « Vérifier ».
-- Consommation IA (/admin/usage) : tokens par surface, quota des abonnements Claude, facturation Bedrock par client.
+- Consommation IA (/admin/usage) : tokens consommés par profil (qui consomme quoi, détail par surface, export CSV), tokens par surface, quota des abonnements Claude, facturation Bedrock par client.
 - Réglages (/settings) : état des connexions aux plateformes, compte, changer son mot de passe.
 
 RACCOURCIS

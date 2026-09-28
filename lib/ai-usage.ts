@@ -213,6 +213,83 @@ export function summarizeByFeature(rows: Array<UsageRow & { feature: string; pro
     .sort((a, b) => totalTokens(b) - totalTokens(a));
 }
 
+/** What one person — or the application itself, for the scheduled runs — consumed. */
+export interface ProfileUsage extends UsageTotals {
+  /** user id, else email, else "system" */
+  key: string;
+  userId: string | null;
+  email: string | null;
+  /** filled by the caller from the accounts (lib/ai-usage knows no name) */
+  name: string | null;
+  role: string;
+  /** every counter summed */
+  tokens: number;
+  /** share of the month's tokens, 0 → 1 */
+  share: number;
+  /** list-price value reported by the model runtime (USD) — indicative on a subscription */
+  costUsd: number;
+  /** tokens that ran on the subscription / on Bedrock */
+  subscriptionTokens: number;
+  bedrockTokens: number;
+  features: Array<{ feature: string; tokens: number } & UsageTotals>;
+}
+
+export const SYSTEM_PROFILE = "system";
+
+/**
+ * Token spend per profile — who consumes what. Rows without a person
+ * (scheduled reports, automatic alerts) are gathered under one line, so the
+ * total of the table is the total of the month.
+ */
+export function summarizeByUser(rows: Array<UsageRow & { feature: string; provider: string; userId: string | null; costUsd: number }>): ProfileUsage[] {
+  const by = new Map<string, ProfileUsage & { byFeature: Map<string, { feature: string; tokens: number } & UsageTotals> }>();
+  let all = 0;
+  for (const r of rows) {
+    const key = r.userId ?? (r.userEmail ? `email:${r.userEmail.toLowerCase()}` : SYSTEM_PROFILE);
+    let p = by.get(key);
+    if (!p) {
+      p = {
+        key, userId: r.userId, email: r.userEmail, name: null, role: key === SYSTEM_PROFILE ? SYSTEM_PROFILE : r.userRole,
+        tokens: 0, share: 0, costUsd: 0, subscriptionTokens: 0, bedrockTokens: 0, features: [], byFeature: new Map(), ...emptyTotals(),
+      };
+      by.set(key, p);
+    }
+    const tokens = r.inputTokens + r.cacheWriteTokens + r.cacheReadTokens + r.outputTokens;
+    add(p, r);
+    p.email ??= r.userEmail;
+    p.tokens += tokens;
+    p.costUsd += r.costUsd;
+    if (r.provider === "bedrock") p.bedrockTokens += tokens; else p.subscriptionTokens += tokens;
+    let f = p.byFeature.get(r.feature);
+    if (!f) { f = { feature: r.feature, tokens: 0, ...emptyTotals() }; p.byFeature.set(r.feature, f); }
+    add(f, r);
+    f.tokens += tokens;
+    all += tokens;
+  }
+  return [...by.values()]
+    .map(({ byFeature, ...p }) => ({
+      ...p,
+      costUsd: Math.round(p.costUsd * 100) / 100,
+      share: all > 0 ? Math.round((p.tokens / all) * 10_000) / 10_000 : 0,
+      features: [...byFeature.values()].sort((a, b) => b.tokens - a.tokens),
+    }))
+    .sort((a, b) => b.tokens - a.tokens);
+}
+
+/** One line per profile and surface — ready for a spreadsheet. */
+export function profilesCsv(month: string, profiles: ProfileUsage[]): string {
+  const lines = [["mois", "profil", "email", "role", "surface", "messages", "tokens_entree", "tokens_cache_ecrit", "tokens_cache_lu", "tokens_sortie", "tokens_total"].join(";")];
+  for (const p of profiles) {
+    for (const f of p.features) {
+      lines.push([
+        month, p.name ?? (p.key === SYSTEM_PROFILE ? "Automatique" : ""), p.email ?? "", p.role, f.feature,
+        f.messages, f.inputTokens, f.cacheWriteTokens, f.cacheReadTokens, f.outputTokens, f.tokens,
+      ].map(csvCell).join(";"));
+    }
+  }
+  return lines.join("\n") + "\n";
+}
+
 /** "2026-09" → [start, end) in UTC; invalid or missing → the current month. */
 export function monthRange(month: string | null | undefined, now = new Date()): { month: string; start: Date; end: Date } {
   const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month ?? "");

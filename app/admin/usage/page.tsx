@@ -42,6 +42,19 @@ const FEATURE_LABEL: Record<string, string> = {
   auto_alert: "Alertes automatiques (lecture IA)",
   guide: "Guide de l'application",
 };
+type ProfileUsage = Totals & {
+  key: string;
+  email: string | null;
+  name: string | null;
+  role: string;
+  tokens: number;
+  share: number;
+  costUsd: number;
+  subscriptionTokens: number;
+  bedrockTokens: number;
+  features: Array<Totals & { feature: string; tokens: number }>;
+};
+const ROLE_LABEL: Record<string, string> = { admin: "Admin", consultant: "Consultant", client: "Client", staff: "Équipe", system: "Automatique" };
 type ClientUsage = {
   key: string;
   clientName: string;
@@ -90,6 +103,8 @@ export default function AdminUsagePage() {
   const [month, setMonth] = useState(currentMonth);
   const [clients, setClients] = useState<ClientUsage[]>([]);
   const [features, setFeatures] = useState<FeatureUsage[]>([]);
+  const [profiles, setProfiles] = useState<ProfileUsage[]>([]);
+  const [openProfile, setOpenProfile] = useState<string | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
 
@@ -113,6 +128,7 @@ export default function AdminUsagePage() {
         if (!res.ok) throw new Error(data.error || `Erreur ${res.status}`);
         setClients(data.clients ?? []);
         setFeatures(data.features ?? []);
+        setProfiles(data.profiles ?? []);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Erreur"))
       .finally(() => setLoading(false));
@@ -240,6 +256,83 @@ export default function AdminUsagePage() {
                     <td className="px-4 py-3 text-right text-gray-500 tabular-nums">{f.messages ? (f.turns / f.messages).toFixed(1) : "—"}</td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </Card>
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-white">Consommation par profil</h2>
+            <p className="text-xs text-gray-500">
+              Ce que chaque personne a consommé ce mois-ci, toutes surfaces confondues. « Automatique » = ce que l&apos;application lance seule
+              (rapports programmés, alertes). Cliquez sur une ligne pour le détail par surface.
+            </p>
+          </div>
+          {profiles.length > 0 && (
+            <a href={`/api/admin/usage?month=${month}&format=csv&by=profile`} className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-800">
+              Exporter en CSV
+            </a>
+          )}
+        </div>
+        {profiles.length === 0 ? (
+          <Card padded><p className="text-sm text-gray-400">Aucune session enregistrée ce mois-ci.</p></Card>
+        ) : (
+          <Card className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+                  <th className="px-4 py-3 font-medium">Profil</th>
+                  <th className="px-4 py-3 font-medium">Rôle</th>
+                  <th className="px-4 py-3 font-medium text-right">Messages</th>
+                  <th className="px-4 py-3 font-medium text-right">Entrée</th>
+                  <th className="px-4 py-3 font-medium text-right">Cache écrit</th>
+                  <th className="px-4 py-3 font-medium text-right">Cache lu</th>
+                  <th className="px-4 py-3 font-medium text-right">Sortie</th>
+                  <th className="px-4 py-3 font-medium text-right">Total tokens</th>
+                  <th className="px-4 py-3 font-medium">Part du mois</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profiles.map((p) => {
+                  const isOpen = openProfile === p.key;
+                  const label = p.key === "system" ? "Automatique" : p.name || p.email || "Profil inconnu";
+                  return (
+                    <Fragment key={p.key}>
+                      <tr className="border-b border-gray-800/60 hover:bg-gray-900/60">
+                        <td className="px-4 py-3">
+                          <button type="button" onClick={() => setOpenProfile(isOpen ? null : p.key)} aria-expanded={isOpen} className="text-left">
+                            <span className="font-medium text-white">{isOpen ? "▾" : "▸"} {label}</span>
+                            {p.email && p.name && <span className="block text-[11px] text-gray-500">{p.email}</span>}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-400">{ROLE_LABEL[p.role] ?? p.role}</td>
+                        <TokenCells t={p} className="px-4 py-3 text-right text-gray-300 tabular-nums" />
+                        <td className="px-4 py-3 text-right font-semibold text-white tabular-nums">{int(p.tokens)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-800">
+                              <div className="h-full bg-violet-500" style={{ width: `${Math.max(1, Math.round(p.share * 100))}%` }} />
+                            </div>
+                            <span className="text-xs text-gray-400 tabular-nums">{Math.round(p.share * 100)} %</span>
+                          </div>
+                          {p.bedrockTokens > 0 && <span className="text-[10px] text-amber-300">dont {int(p.bedrockTokens)} sur Bedrock</span>}
+                        </td>
+                      </tr>
+                      {isOpen && p.features.map((f) => (
+                        <tr key={`${p.key}|${f.feature}`} className="border-b border-gray-800/40 bg-gray-950/60 text-xs">
+                          <td className="px-4 py-2 pl-9 text-gray-300">{FEATURE_LABEL[f.feature] ?? f.feature}</td>
+                          <td className="px-4 py-2" />
+                          <TokenCells t={f} className="px-4 py-2 text-right text-gray-400 tabular-nums" />
+                          <td className="px-4 py-2 text-right text-gray-200 tabular-nums">{int(f.tokens)}</td>
+                          <td className="px-4 py-2 text-gray-500 tabular-nums">{p.tokens ? Math.round((f.tokens / p.tokens) * 100) : 0} % de ce profil</td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </Card>
