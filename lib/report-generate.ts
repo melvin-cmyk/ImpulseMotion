@@ -12,7 +12,7 @@ import { relayComplete, extractFence, parseLooseJson } from "@/lib/relay-chat";
 import { collectReportData, periodLabel, type ReportData, type ReportKpi, type ReportNextStep } from "@/lib/report-data";
 import { prevRange, type CompareRange } from "@/lib/dashboard-widgets";
 import { fmtMetric, fmtMoney } from "@/components/portfolio/format";
-import { storedHqContext } from "@/lib/hq-client-context";
+import { getHqClientContext } from "@/lib/hq-client-context";
 import { recordAiUsage } from "@/lib/ai-usage";
 
 /** Same day one year earlier (Feb 29 → Feb 28). */
@@ -333,12 +333,14 @@ export async function generateClientReport(reportId: string): Promise<void> {
       const isYear = report.compareSince === shiftYear(report.periodSince) && report.compareUntil === shiftYear(report.periodUntil);
       compare = { since: report.compareSince, until: report.compareUntil, kind: isPrev ? "prev" : isYear ? "year" : "custom" };
     }
-    // HQ is read on the consultant's request only (client sheet → « lire »):
-    // a report never opens an HQ session by itself, it uses the brief stored
-    // on the dashboard when there is one.
+    // HQ first: what the agency knows about the client shapes how the
+    // numbers are read. Cached per dashboard, never blocking (a missing brief
+    // is a warning in the snapshot, not a failed report). Reports are the one
+    // surface that reads HQ by itself; the copilot waits for the consultant.
+    const hq = await getHqClientContext(report.dashboardId, { maxMs: 90_000 });
     const data = await collectReportData(report.dashboard, report.periodSince, report.periodUntil, compare);
-    const hq = storedHqContext(report.dashboard);
-    if (hq) data.hqContext = { slug: hq.slug, brief: hq.brief, fetchedAt: hq.fetchedAt };
+    if (hq.context) data.hqContext = { slug: hq.context.slug, brief: hq.context.brief, fetchedAt: hq.context.fetchedAt };
+    if (hq.warning) data.warnings.push(hq.warning);
 
     const raw = await relayComplete(
       {

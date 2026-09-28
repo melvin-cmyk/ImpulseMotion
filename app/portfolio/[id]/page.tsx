@@ -145,7 +145,7 @@ export default function ClientSheetPage() {
         throw new Error(body.error ?? `Erreur ${res.status}`);
       }
       setSheet({ ...sheet, client: { ...sheet.client, hqSlug: slug || null, hqContextAt: null } });
-      setToast({ message: slug ? `Dossier HQ « ${slug} » enregistré — cliquez sur « lire » pour charger son contexte` : "Dossier HQ retiré", tone: "ok" });
+      setToast({ message: slug ? `Dossier HQ « ${slug} » enregistré — le contexte sera relu au prochain rapport` : "Dossier HQ retiré", tone: "ok" });
     } catch (e) {
       setToast({ message: `Impossible d'enregistrer le dossier HQ : ${e instanceof Error ? e.message : "erreur"}`, tone: "error" });
     } finally {
@@ -287,7 +287,7 @@ export default function ClientSheetPage() {
               <option value="monthly">le 1er du mois (mois précédent)</option>
             </select>
           </label>
-          <label className="text-xs text-gray-400 inline-flex items-center gap-2" title="Dossier projects/{slug} du client dans HQ (mémoire de l'agence) : objectifs, KPI cible, décisions, tests. Lu seulement à votre demande (« lire ») ; les rapports IA et le copilote utilisent ensuite ce contexte.">
+          <label className="text-xs text-gray-400 inline-flex items-center gap-2" title="Dossier projects/{slug} du client dans HQ (mémoire de l'agence) : objectifs, KPI cible, décisions, tests. Lu avant chaque rapport IA, mis en cache 7 jours ; le copilote du dashboard ne consulte HQ qu'à votre demande.">
             <BookOpen className="w-4 h-4 text-violet-400" /> Dossier HQ
             <input
               type="text"
