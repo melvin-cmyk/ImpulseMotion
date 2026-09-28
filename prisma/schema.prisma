@@ -447,3 +447,74 @@ model AiUsage {
   @@index([createdAt])
   @@index([dashboardId, createdAt])
 }
+
+// ── Global Cockpit ───────────────────────────────────────────────────────────
+// Agency-wide weekly view (staff). Clients come from the budget sheet; their
+// ad accounts are matched by name, then corrected by an admin.
+
+/// Admin overrides of a client of the budget sheet (key = brand token of the sheet).
+model CockpitClient {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  /// display name override (null = name of the sheet)
+  name      String?
+  /// cpa | roas | brand — null = deduced from the sheet targets, then from the data
+  kpiMode   String?
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One ad account attached to a cockpit client.
+model CockpitAccount {
+  id        String   @id @default(cuid())
+  clientKey String
+  /// meta | google
+  platform  String
+  accountId String
+  name      String
+  currency  String?
+  /// short label shown when a client has several accounts on a platform
+  label     String?
+  /// cpa | roas | brand — null = the client's model
+  mode      String?
+  /// auto (matched by name) | manual (set by an admin, never overwritten)
+  source    String   @default("auto")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([platform, accountId])
+  @@index([clientKey])
+}
+
+/// Result of one build (twice a day): the page reads the latest one, the
+/// older ones are the memory that shows how each client evolved.
+model CockpitSnapshot {
+  id         String   @id @default(cuid())
+  /// Monday of the week read (YYYY-MM-DD)
+  weekStart  String
+  /// full | partial (time budget hit, some accounts reused from the previous build)
+  status     String   @default("full")
+  clients    Int      @default(0)
+  dataJson   String   @db.Text
+  durationMs Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Follow-up of a client by the team (what the site calls « action »).
+model CockpitAction {
+  id        String   @id @default(cuid())
+  clientKey String   @unique
+  /// todo | doing | done | "" (none)
+  state     String   @default("")
+  owner     String?
+  /// YYYY-MM-DD
+  due       String?
+  note      String?  @db.Text
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}

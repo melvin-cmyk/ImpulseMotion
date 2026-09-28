@@ -42,9 +42,9 @@ import { GET as LIST } from "@/app/api/relay/conversations/route";
 
 const ID = "3f2b8c1e-5d4a-4f6b-9c7d-1a2b3c4d5e6f";
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
-const put = (id: string, messages: unknown) =>
-  PUT(new NextRequest(`http://x/api/relay/conversations/${id}`, { method: "PUT", body: JSON.stringify({ messages }) }), ctx(id));
-const get = (id: string) => GET(new NextRequest(`http://x/api/relay/conversations/${id}`), ctx(id));
+const put = async (id: string, messages: unknown) =>
+  (await PUT(new NextRequest(`http://x/api/relay/conversations/${id}`, { method: "PUT", body: JSON.stringify({ messages }) }), ctx(id)))!;
+const get = async (id: string) => (await GET(new NextRequest(`http://x/api/relay/conversations/${id}`), ctx(id)))!;
 
 describe("console conversations are private to their owner", () => {
   beforeEach(() => { rows.clear(); currentUser = "alice"; });
@@ -61,8 +61,8 @@ describe("console conversations are private to their owner", () => {
     currentUser = "bob";
     expect((await get(ID)).status).toBe(404);
     expect((await put(ID, [{ id: "1", role: "user", content: "écrasé" }])).status).toBe(404);
-    expect((await DELETE(new NextRequest("http://x", { method: "DELETE" }), ctx(ID))).status).toBe(404);
-    expect((await (await LIST()).json()).conversations).toEqual([]);
+    expect((await DELETE(new NextRequest("http://x", { method: "DELETE" }), ctx(ID)))!.status).toBe(404);
+    expect((await (await LIST())!.json()).conversations).toEqual([]);
     currentUser = "alice";
     expect((await (await get(ID)).json()).messages[0].content).toBe("Confidentiel");
   });

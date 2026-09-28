@@ -5,6 +5,12 @@
     },
     "app/api/cron/alerts/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/cockpit/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/cockpit/global/refresh/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -15,6 +21,22 @@
     {
       "path": "/api/cron/reports",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/cockpit",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/cockpit?retry=1",
+      "schedule": "20 5 * * *"
+    },
+    {
+      "path": "/api/cron/cockpit",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/cockpit?retry=1",
+      "schedule": "20 12 * * *"
     }
   ]
 }
