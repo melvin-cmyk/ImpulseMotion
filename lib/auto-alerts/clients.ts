@@ -49,7 +49,7 @@ export interface DashboardRow {
 }
 
 export interface BuildInput {
-  /** Accounts read at the platforms (closed ones are left out unless a dashboard uses them). */
+  /** Accounts read at the platforms; an account they do not list is not watched. */
   available: AvailableAccount[];
   /** Account → client of the budget sheet (CockpitAccount). */
   cockpit: Array<{ platform: string; accountId: string; clientKey: string }>;
@@ -85,19 +85,11 @@ export function buildClients(input: BuildInput): ClientDraft[] {
     if (!a.active || !a.accountId) continue;
     accounts.set(node(a.platform, a.accountId), { platform: a.platform, accountId: norm(a.platform, a.accountId), name: a.name, currency: a.currency });
   }
-  const listed = new Map(input.available.map((a) => [node(a.platform, a.accountId), a]));
+  // An account the agency can no longer read is not watched, even when a
+  // dashboard still points to it: there is nothing to check on it, and a
+  // message « accès perdu » every time is noise. It comes back by itself the
+  // day the platform lists it again.
   const dashboards = [...input.dashboards].sort((a, b) => ts(a.createdAt) - ts(b.createdAt) || a.id.localeCompare(b.id));
-  // An account a dashboard uses stays watched even when the platform no
-  // longer lists it: losing the access is precisely what must be reported.
-  for (const d of dashboards) {
-    for (const [platform, id] of [["meta", d.metaAccountId], ["google", d.googleCustomerId]] as Array<[AutoPlatform, string | null]>) {
-      if (!id || !norm(platform, id)) continue;
-      const k = node(platform, id);
-      if (accounts.has(k)) continue;
-      const known = listed.get(k);
-      accounts.set(k, { platform, accountId: norm(platform, id), name: known?.name ?? "", currency: known?.currency ?? null });
-    }
-  }
 
   const parent = new Map<string, string>([...accounts.keys()].map((k) => [k, k]));
   const find = (x: string): string => {

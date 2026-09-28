@@ -55,17 +55,20 @@ describe("buildClients", () => {
   it("names a client after its account when the dashboard is named after an id", () => {
     const clients = buildClients(input({
       available: [meta("215903989640516", "Maison Dupont")],
-      dashboards: [board("a", "215903989640516", "act_215903989640516"), board("bb", "Compte 1543285195886235", "1543285195886235")],
+      dashboards: [board("a", "215903989640516", "act_215903989640516")],
     }));
-    expect(clients.map((c) => c.name).sort()).toEqual(["Compte Meta 1543285195886235", "Maison Dupont"]);
+    expect(clients.map((c) => c.name)).toEqual(["Maison Dupont"]);
+    expect(buildClients(input({ available: [meta("1543285195886235", "")] }))[0].name).toBe("Compte Meta 1543285195886235");
     expect(looksLikeId("Compte 1543285195886235")).toBe(true);
     expect(looksLikeId("Studio 54")).toBe(false);
   });
 
-  it("keeps an account of a dashboard the platform no longer lists", () => {
-    const clients = buildClients(input({ dashboards: [board("a", "ICN Business School", "30")] }));
-    expect(clients[0]).toMatchObject({ key: "meta:30", name: "ICN Business School" });
-    expect(clients[0].accounts[0].name).toBe("ICN Business School");
+  it("does not watch an account the agency can no longer read", () => {
+    // The dashboard still points to account 30, the platform no longer lists it.
+    expect(buildClients(input({ dashboards: [board("a", "ICN Business School", "30")] }))).toEqual([]);
+    const clients = buildClients(input({ available: [google("31", "ICN - ARTEM")], dashboards: [board("a", "ICN Business School", "30", "31")] }));
+    expect(clients).toHaveLength(1);
+    expect(clients[0].accounts.map((a) => a.accountId)).toEqual(["31"]);
   });
 });
 
