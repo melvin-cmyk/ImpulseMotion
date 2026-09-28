@@ -1,20 +1,20 @@
 "use client";
 
 /**
- * Global Cockpit — the agency's weekly view: who needs attention, why, and
- * where each client stands against its monthly budget. Reads the latest
+ * Global Cockpit — who needs attention, why, and where each client stands
+ * against its monthly budget, read by day, by week or by month. Reads the latest
  * stored snapshot (built twice a day); admins can rebuild it and correct the
  * accounts attached to each client.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Settings2, Search } from "lucide-react";
-import type { Severity } from "@/lib/cockpit/engine";
+import type { PeriodKind, Severity } from "@/lib/cockpit/engine";
 import type { CockpitClientRow, CockpitData, EvolutionPoint } from "@/lib/cockpit/build";
 import type { CockpitActionView } from "@/lib/cockpit/view";
 import { COCKPIT_CFG } from "@/lib/cockpit/engine";
 import {
-  ACTION_LABEL, CATEGORY_LABEL, SEVERITY_RANK, TXT, budgetRows, cause, kpiText, money, noKpi, pacePts, perfWorse, pct, spendText,
+  ACTION_LABEL, CATEGORY_LABEL, PERIOD_KINDS, SEVERITY_RANK, TXT, budgetRows, cause, kpiText, money, noKpi, pacePts, perfWorse, pct, periodWords, spendText,
   type BudgetRow, type MoneyOptions,
 } from "@/lib/cockpit/display";
 import { Badges, Chip, Muted, PaceGauge, SeverityBadge, Tag } from "@/components/cockpit/global-parts";
@@ -24,8 +24,11 @@ import { CockpitConfig } from "@/components/cockpit/global-config";
 type Tab = "act" | "watch" | "ok" | "all" | "budget";
 type SortKey = "spend" | "perf" | "pace" | null;
 
+const PERIOD_KEY = "impulse_cockpit_period";
+
 interface Payload {
   data: CockpitData | null;
+  periods?: PeriodKind[];
   snapshotAt: string | null;
   status: string | null;
   evolution: Record<string, EvolutionPoint[]>;
@@ -75,17 +78,35 @@ export function GlobalCockpit() {
   const [full, setFull] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [config, setConfig] = useState(false);
+  const [period, setPeriod] = useState<PeriodKind>("week");
+
+  useEffect(() => {
+    // After mount only: the reading chosen last time, kept in this browser.
+    const t = setTimeout(() => {
+      try {
+        const saved = localStorage.getItem(PERIOD_KEY);
+        if (saved === "day" || saved === "month") setPeriod(saved);
+      } catch { /* storage unavailable */ }
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+
+  const choosePeriod = (p: PeriodKind) => {
+    setPeriod(p);
+    setOpen(null);
+    try { localStorage.setItem(PERIOD_KEY, p); } catch { /* storage unavailable */ }
+  };
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/cockpit/global", { cache: "no-store" });
+      const res = await fetch(`/api/cockpit/global?period=${period}`, { cache: "no-store" });
       if (!res.ok) throw new Error(`Erreur ${res.status}`);
       setPayload(await res.json());
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [period]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -171,6 +192,8 @@ export function GlobalCockpit() {
     );
   }
 
+  const words = periodWords(data.period, data.hist_weeks);
+  const available = payload.periods ?? ["week"];
   const showPrio = tab === "act" && !query.trim() && top.length > 0;
   const topKeys = new Set(top.map((c) => c.key));
   const table = showPrio && !full ? filtered.filter((c) => !topKeys.has(c.key)) : filtered;
@@ -196,12 +219,30 @@ export function GlobalCockpit() {
         <div>
           <h1 className="text-xl font-semibold text-white">Global Cockpit</h1>
           <p className="text-xs text-gray-400">
-            Semaine {data.w0_label} · vs moyenne {data.hist_weeks} sem. · actualisé le{" "}
+            {words.read} {data.w0_label} · vs {words.baseLong} · actualisé le{" "}
             {new Date(data.generated).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
             {payload.status === "partial" && <span className="ml-2 text-amber-300">· données partielles</span>}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div role="group" aria-label="Période lue" className="inline-flex overflow-hidden rounded-lg border border-gray-800">
+            {PERIOD_KINDS.map((p) => {
+              const ready = available.includes(p);
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => choosePeriod(p)}
+                  disabled={!ready}
+                  aria-pressed={period === p}
+                  title={ready ? undefined : "Disponible après la prochaine actualisation du cockpit"}
+                  className={`px-3 py-1.5 text-xs font-medium ${period === p ? "bg-violet-600 text-white" : "text-gray-300 hover:bg-gray-900"} disabled:cursor-not-allowed disabled:text-gray-600`}
+                >
+                  {periodWords(p, 0).tab}
+                </button>
+              );
+            })}
+          </div>
           <button type="button" onClick={() => setToEur((v) => !v)} aria-pressed={toEur} className={`rounded-lg border px-2.5 py-1.5 text-xs ${toEur ? "border-violet-600 bg-violet-950/50 text-violet-200" : "border-gray-800 text-gray-300 hover:border-gray-700"}`}>
             {toEur ? "Devises : tout en €" : "Devises : locales"}
           </button>
@@ -226,7 +267,8 @@ export function GlobalCockpit() {
         <summary className="cursor-pointer text-gray-300">Comment lire ce cockpit</summary>
         <div className="mt-2 space-y-1">
           <p><b className="text-gray-200">À traiter</b> = Urgences + Actions requises. Urgence : intervenir aujourd&apos;hui (dégradation majeure sur un compte à fortes dépenses). Action requise : à traiter cette semaine. À surveiller : dérive naissante. Sans alerte : RAS.</p>
-          <p><b className="text-gray-200">Δ 8 sem.</b> = vs moyenne des 8 semaines précédentes (structurel) · <b className="text-gray-200">Δ S-1</b> = vs semaine précédente.</p>
+          <p><b className="text-gray-200">Jour, Semaine, Mois</b> : la même lecture sur la journée d&apos;hier, sur la dernière semaine complète, ou sur le mois en cours comparé aux mêmes jours des mois précédents. Les seuils en euros et en conversions suivent la durée de la période.</p>
+          <p><b className="text-gray-200">Δ {words.base}</b> = vs {words.baseLong} (structurel) · <b className="text-gray-200">Δ {words.prev}</b> = vs {words.prevLong}.</p>
           <p><b className="text-gray-200">Cause</b> = composant du funnel (CPM × CTR × CVR, × AOV en ROAS) qui explique le plus la dérive.</p>
           <p><b className="text-gray-200">Rythme budgétaire</b> : jauge = % du budget mensuel dépensé, repère = attendu à ce stade du mois, écart en points. Les budgets viennent de la feuille des budgets de l&apos;agence.</p>
           <p><b className="text-gray-200">Devises</b> : chaque client dans la devise de son compte ; le bouton convertit tout en €. Les totaux du haut sont toujours en € ({data.fx_note}).</p>
@@ -237,7 +279,7 @@ export function GlobalCockpit() {
         <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
           <p className="text-xs text-gray-400">Dépenses totales</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-white">{eur(data.tot_eur_w0)}</p>
-          <p className="mt-1 text-[11px] text-gray-500">semaine {data.w0_label} <Chip d={delta} kind="spend" label={`vs moy. ${data.hist_weeks} sem.`} /></p>
+          <p className="mt-1 text-[11px] text-gray-500">{data.w0_label} <Chip d={delta} kind="spend" label={`vs ${words.moy.toLowerCase()}`} /></p>
         </div>
         <button type="button" onClick={() => setTab("act")} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 text-left hover:border-gray-700">
           <p className="text-xs text-gray-400">Comptes prioritaires</p>
@@ -257,7 +299,7 @@ export function GlobalCockpit() {
       </section>
 
       <p className="text-[11px] text-gray-500">
-        Qualité des données : {data.quality.accounts - data.quality.issues}/{data.quality.accounts} canaux actualisés · budgets du mois : {data.quality.budgeted}/{data.quality.accounts} canaux, couvrant {Math.round(data.quality.budget_coverage * 100)} % des dépenses hebdomadaires. Les alertes budget suivent un rythme linéaire, à vérifier selon le plan média.
+        Qualité des données : {data.quality.accounts - data.quality.issues}/{data.quality.accounts} canaux actualisés · budgets du mois : {data.quality.budgeted}/{data.quality.accounts} canaux, couvrant {Math.round(data.quality.budget_coverage * 100)} % des dépenses {words.spendOf}. Les alertes budget suivent un rythme linéaire, à vérifier selon le plan média.
       </p>
 
       {payload.canEdit && data.unmatched.length > 0 && (
@@ -319,7 +361,7 @@ export function GlobalCockpit() {
                       </div>
                       <p className="mt-2 text-sm text-gray-200">{c.alert.reason}</p>
                       <p className="mt-1 text-xs text-gray-400">{ca ? <>Signal à vérifier : <b className="text-red-300">{ca.txt}</b> ({ca.where})</> : `Cause : ${TXT.noCause.toLowerCase()}`}</p>
-                      <p className="mt-1 text-xs text-gray-500">{spendText(c, o)} de dépenses cette semaine{before ? ` · niveau précédent : ${before === "ok" ? "sans alerte" : before === "watch" ? "à surveiller" : before === "action" ? "action requise" : "urgence"}` : ""}</p>
+                      <p className="mt-1 text-xs text-gray-500">{spendText(c, o)} de dépenses {words.here}{before ? ` · niveau précédent : ${before === "ok" ? "sans alerte" : before === "watch" ? "à surveiller" : before === "action" ? "action requise" : "urgence"}` : ""}</p>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <button type="button" onClick={() => setOpen(c.key)} className="rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-violet-500">Ouvrir le diagnostic</button>
                         <ActionButton action={payload.actions[c.key]} onClick={() => setOpen(c.key)} name={c.name} />
@@ -347,7 +389,7 @@ export function GlobalCockpit() {
                   <tr>
                     <th className="px-3 py-2 font-medium">Client</th>
                     <th className="px-3 py-2 font-medium">Niveau</th>
-                    <th className="px-3 py-2 text-right font-medium"><button type="button" onClick={() => sortBy("spend")} className="hover:text-gray-300">Dépenses 7 j{arrow("spend")}</button></th>
+                    <th className="px-3 py-2 text-right font-medium"><button type="button" onClick={() => sortBy("spend")} className="hover:text-gray-300">{words.spend}{arrow("spend")}</button></th>
                     <th className="px-3 py-2 text-right font-medium"><button type="button" onClick={() => sortBy("perf")} className="hover:text-gray-300">CPA / ROAS{arrow("perf")}</button></th>
                     <th className="px-3 py-2 font-medium">Cause principale</th>
                     <th className="px-3 py-2 font-medium"><button type="button" onClick={() => sortBy("pace")} className="hover:text-gray-300">Rythme budgétaire{arrow("pace")}</button></th>
@@ -370,17 +412,17 @@ export function GlobalCockpit() {
                           {before && <div className="mt-1 text-[10px] text-gray-500">avant : {before === "ok" ? "sans alerte" : before === "watch" ? "à surveiller" : before === "action" ? "action requise" : "urgence"}</div>}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
-                          <b className="text-white">{spendText(c, o)}</b> <Chip d={r.spend_d} kind="spend" label="8 sem." />
-                          {!c.mixed && <div className="mt-0.5 text-[11px] text-gray-500">{TXT.moy} {money(r.spend_base, c.ccy, o)} · S-1 {pct(r.spend_d_wow)}</div>}
+                          <b className="text-white">{spendText(c, o)}</b> <Chip d={r.spend_d} kind="spend" label={words.base} />
+                          {!c.mixed && <div className="mt-0.5 text-[11px] text-gray-500">{words.moy} {money(r.spend_base, c.ccy, o)} · {words.prev} {pct(r.spend_d_wow)}</div>}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
                           <b className="text-white">{noKpi(c.kpi_mode) ? <Muted>{c.kpi_mode === "brand" ? TXT.brand : TXT.mixte}</Muted> : kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b>{" "}
                           {r.zero_conv ? <Tag className="bg-red-500/20 text-red-300">0 conv</Tag>
                             : noKpi(c.kpi_mode) ? null
                             : r.low_vol ? <Muted>{TXT.lowVol} · {Math.round(r.conv)} conv</Muted>
-                            : <Chip d={r.kpi_d} kind="perf" label="8 sem." mode={c.kpi_mode} />}
+                            : <Chip d={r.kpi_d} kind="perf" label={words.base} mode={c.kpi_mode} />}
                           {c.kpi_mode === "mixte" ? <div className="mt-0.5 text-[11px] text-gray-500">voir le détail par canal</div>
-                            : c.kpi_mode !== "brand" && r.kpi_base !== null ? <div className="mt-0.5 text-[11px] text-gray-500">{TXT.moy} {kpiText(r.kpi_base, c.kpi_mode, c.ccy, o)} · S-1 {pct(r.kpi_d_wow)}</div> : null}
+                            : c.kpi_mode !== "brand" && r.kpi_base !== null ? <div className="mt-0.5 text-[11px] text-gray-500">{words.moy} {kpiText(r.kpi_base, c.kpi_mode, c.ccy, o)} · {words.prev} {pct(r.kpi_d_wow)}</div> : null}
                         </td>
                         <td className="px-3 py-2.5 text-xs">
                           {ca ? <><b className="text-red-300">{ca.txt}</b><br /><Muted>{ca.where}</Muted></>
@@ -406,8 +448,8 @@ export function GlobalCockpit() {
                       <button type="button" onClick={() => setOpen(c.key)} className="text-left font-medium text-white hover:underline">{c.name}</button>
                       <SeverityBadge severity={c.alert.severity} />
                     </div>
-                    <div className="flex items-center justify-between gap-2"><Muted>Dépenses 7 j</Muted><span className="tabular-nums"><b className="text-white">{spendText(c, o)}</b> <Chip d={r.spend_d} kind="spend" label="8 sem." /></span></div>
-                    <div className="flex items-center justify-between gap-2"><Muted>CPA / ROAS</Muted><span className="tabular-nums"><b className="text-white">{noKpi(c.kpi_mode) ? (c.kpi_mode === "brand" ? TXT.brand : TXT.mixte) : kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b> {noKpi(c.kpi_mode) || r.low_vol ? null : <Chip d={r.kpi_d} kind="perf" label="8 sem." mode={c.kpi_mode} />}</span></div>
+                    <div className="flex items-center justify-between gap-2"><Muted>{words.spend}</Muted><span className="tabular-nums"><b className="text-white">{spendText(c, o)}</b> <Chip d={r.spend_d} kind="spend" label={words.base} /></span></div>
+                    <div className="flex items-center justify-between gap-2"><Muted>CPA / ROAS</Muted><span className="tabular-nums"><b className="text-white">{noKpi(c.kpi_mode) ? (c.kpi_mode === "brand" ? TXT.brand : TXT.mixte) : kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b> {noKpi(c.kpi_mode) || r.low_vol ? null : <Chip d={r.kpi_d} kind="perf" label={words.base} mode={c.kpi_mode} />}</span></div>
                     {ca && <div className="flex items-center justify-between gap-2"><Muted>Cause</Muted><span><b className="text-red-300">{ca.txt}</b> <Muted>{ca.where}</Muted></span></div>}
                     {c.pacing && <div className="flex items-center justify-between gap-2"><Muted>Rythme budgétaire</Muted><PaceGauge p={c.pacing} /></div>}
                     <ActionButton action={payload.actions[c.key]} onClick={() => setOpen(c.key)} name={c.name} full />
@@ -425,6 +467,7 @@ export function GlobalCockpit() {
           key={opened.key}
           client={opened}
           starts={data.week_starts}
+          words={words}
           evolution={payload.evolution[opened.key] ?? []}
           action={payload.actions[opened.key] ?? null}
           o={o}

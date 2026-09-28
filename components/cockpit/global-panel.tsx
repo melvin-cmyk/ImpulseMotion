@@ -11,7 +11,7 @@ import { X } from "lucide-react";
 import type { ClientRow, PlatformRow } from "@/lib/cockpit/engine";
 import type { EvolutionPoint } from "@/lib/cockpit/build";
 import type { CockpitActionView } from "@/lib/cockpit/view";
-import { SEVERITY_LABEL, TXT, cause, kpiText, modeLabel, money, noKpi, spendText, type MoneyOptions } from "@/lib/cockpit/display";
+import { SEVERITY_LABEL, TXT, cause, kpiText, modeLabel, money, noKpi, spendText, type MoneyOptions, type PeriodWords } from "@/lib/cockpit/display";
 import { Badges, Chip, Muted, PaceGauge, SeverityBadge, Spark, Tag } from "@/components/cockpit/global-parts";
 
 const COMPONENT: Record<string, string> = { cpm: "CPM", ctr: "CTR", cvr: "CVR", aov: "AOV" };
@@ -25,7 +25,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function PlatformBlock({ c, v, starts, o }: { c: ClientRow; v: PlatformRow; starts: string[]; o: MoneyOptions }) {
+function PlatformBlock({ c, v, starts, o, words }: { c: ClientRow; v: PlatformRow; starts: string[]; o: MoneyOptions; words: PeriodWords }) {
   return (
     <section className="rounded-xl border border-gray-800 bg-gray-900/60 p-3">
       <h4 className="mb-1 flex flex-wrap items-center gap-1.5 text-sm font-semibold text-white">
@@ -37,10 +37,10 @@ function PlatformBlock({ c, v, starts, o }: { c: ClientRow; v: PlatformRow; star
         <p className="text-xs text-red-300">Compte illisible : {v.err}</p>
       ) : (
         <>
-          <Row label="Dépenses 7 j">
+          <Row label={words.spend}>
             <b className="text-white">{money(v.spend, v.ccy, o)}</b>
-            <Chip d={v.spend_d} kind="spend" label="8 sem." />
-            <Chip d={v.spend_d_wow} kind="spend" label="S-1" />
+            <Chip d={v.spend_d} kind="spend" label={words.base} />
+            <Chip d={v.spend_d_wow} kind="spend" label={words.prev} />
           </Row>
           {v.mode === "brand" ? (
             <Row label="KPI"><Muted>{TXT.brandDetail}</Muted></Row>
@@ -49,10 +49,10 @@ function PlatformBlock({ c, v, starts, o }: { c: ClientRow; v: PlatformRow; star
               <b className="text-white">{kpiText(v.kpi, v.mode, v.ccy, o)}</b>
               {v.zero_conv ? <Tag className="bg-red-500/20 text-red-300">0 conv</Tag>
                 : v.low_vol ? <Muted>{TXT.lowVol} · {Math.round(v.conv)} conv</Muted>
-                : <><Chip d={v.kpi_d} kind="perf" label="8 sem." mode={v.mode} /><Chip d={v.kpi_d_wow} kind="perf" label="S-1" mode={v.mode} /></>}
+                : <><Chip d={v.kpi_d} kind="perf" label={words.base} mode={v.mode} /><Chip d={v.kpi_d_wow} kind="perf" label={words.prev} mode={v.mode} /></>}
             </Row>
           )}
-          <Row label="Funnel vs moy. 8 sem.">
+          <Row label={`Funnel vs ${words.moy.toLowerCase()}`}>
             {v.diag ? Object.entries(v.diag).map(([k, d]) => {
               const bad = k === "cpm" ? d > 0.10 : d < -0.10;
               const good = k === "cpm" ? d < -0.10 : d > 0.10;
@@ -64,7 +64,7 @@ function PlatformBlock({ c, v, starts, o }: { c: ClientRow; v: PlatformRow; star
             }) : <Muted>{TXT.noData}</Muted>}
           </Row>
           <Row label="Rythme budgétaire"><PaceGauge p={v.pacing} /></Row>
-          <Row label="9 semaines"><Spark weeks={v.weeks} starts={starts} width={200} height={30} /></Row>
+          <Row label={words.spark}><Spark weeks={v.weeks} starts={starts} width={200} height={30} /></Row>
         </>
       )}
     </section>
@@ -74,10 +74,11 @@ function PlatformBlock({ c, v, starts, o }: { c: ClientRow; v: PlatformRow; star
 const field = "w-full rounded-lg border border-gray-800 bg-gray-950 px-2.5 py-1.5 text-sm text-white focus:border-violet-500 focus:outline-none";
 
 export function DiagnosticPanel({
-  client, starts, evolution, action, o, onClose, onSaved,
+  client, starts, words, evolution, action, o, onClose, onSaved,
 }: {
   client: ClientRow & { missing?: string[] };
   starts: string[];
+  words: PeriodWords;
   evolution: EvolutionPoint[];
   action: CockpitActionView | null;
   o: MoneyOptions;
@@ -151,17 +152,17 @@ export function DiagnosticPanel({
             <h4 className="mb-1 text-sm font-semibold text-white">
               Vue d&apos;ensemble — {c.kpi_mode === "mixte" ? TXT.mixte : modeLabel(c.kpi_mode)}{c.ccy ? ` · ${c.ccy}` : ""}
             </h4>
-            <Row label="Dépenses 7 j">
+            <Row label={words.spend}>
               <b className="text-white">{spendText(c, o)}</b>
-              <Chip d={r.spend_d} kind="spend" label="8 sem." />
-              <Chip d={r.spend_d_wow} kind="spend" label="S-1" />
+              <Chip d={r.spend_d} kind="spend" label={words.base} />
+              <Chip d={r.spend_d_wow} kind="spend" label={words.prev} />
             </Row>
             {c.kpi_mode === "brand" ? <Row label="KPI"><Muted>{TXT.brandDetail}</Muted></Row>
               : c.kpi_mode === "mixte" ? null : (
                 <Row label={c.kpi_mode === "roas" ? "ROAS" : "CPA"}>
                   <b className="text-white">{kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b>
                   {r.low_vol ? <Muted>{TXT.lowVol} · {Math.round(r.conv)} conv · KPI non significatif</Muted>
-                    : <><Chip d={r.kpi_d} kind="perf" label="8 sem." mode={c.kpi_mode} /><Chip d={r.kpi_d_wow} kind="perf" label="S-1" mode={c.kpi_mode} /></>}
+                    : <><Chip d={r.kpi_d} kind="perf" label={words.base} mode={c.kpi_mode} /><Chip d={r.kpi_d_wow} kind="perf" label={words.prev} mode={c.kpi_mode} /></>}
                 </Row>
               )}
             {(c.target_roas || c.target_cpl) && !noKpi(c.kpi_mode) && (
@@ -174,12 +175,12 @@ export function DiagnosticPanel({
               {ca ? <span><b className="text-red-300">{ca.txt}</b> <Muted>({ca.where})</Muted></span> : <Muted>{TXT.noCause}</Muted>}
             </Row>
             <Row label="Rythme budgétaire"><PaceGauge p={c.pacing} /></Row>
-            <Row label="9 semaines (dépenses)"><Spark weeks={r.weeks} starts={starts} width={240} height={34} /></Row>
+            <Row label={`${words.spark} (dépenses)`}><Spark weeks={r.weeks} starts={starts} width={240} height={34} /></Row>
           </section>
 
           <section className="space-y-2">
             <h4 className="text-sm font-semibold text-white">Performance par canal</h4>
-            {Object.values(c.platforms).map((v) => <PlatformBlock key={v.key} c={c} v={v} starts={starts} o={o} />)}
+            {Object.values(c.platforms).map((v) => <PlatformBlock key={v.key} c={c} v={v} starts={starts} o={o} words={words} />)}
           </section>
 
           {history.length > 1 && (

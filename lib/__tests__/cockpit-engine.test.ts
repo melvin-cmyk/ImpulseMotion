@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildClient, classify, pacingOf, seriesMetrics, sortClients, worsening, type ClientInput, type WeekPoint } from "@/lib/cockpit/engine";
+import { PERIOD_LIMITS, buildClient, classify, pacingOf, seriesMetrics, sortClients, worsening, type ClientInput, type WeekPoint } from "@/lib/cockpit/engine";
 import { accountLabel, accountMatches, matchAccounts } from "@/lib/cockpit/match";
 import { brandToken, commonName, parseAmount, parseBudgetSheet, parseCsv, parseMonth, parsePlatform, sheetClients } from "@/lib/cockpit/sheet";
-import { bucket, cockpitCalendar } from "@/lib/cockpit/weeks";
+import { bucket, bucketRanges, cockpitCalendar, cockpitPeriods, monthBefore } from "@/lib/cockpit/weeks";
+import { periodWords } from "@/lib/cockpit/display";
+import { pickPeriod, periodsOf } from "@/lib/cockpit/view";
+import type { CockpitData } from "@/lib/cockpit/build";
 import { parseEcb } from "@/lib/cockpit/fx";
 
 const week = (spend: number, conv: number, value = 0, impressions = 100_000, clicks = 1000): WeekPoint => ({ spend, conv, value, impressions, clicks });
@@ -214,7 +217,8 @@ describe("calendar and currencies", () => {
     expect(cal.weekStarts[0]).toBe("2026-07-27");
     expect(cal.weekStarts).toHaveLength(9);
     expect(cal.month).toMatchObject({ key: "2026-09", elapsed: 27, days: 30 });
-    expect(cal.fetch).toEqual({ since: "2026-07-27", until: "2026-09-27" });
+    // The window also covers the three months the month to date is compared to.
+    expect(cal.fetch).toEqual({ since: "2026-06-01", until: "2026-09-27" });
     // Mid-week: the running week is not read.
     expect(cockpitCalendar(new Date("2026-10-01T08:00:00Z")).w0).toEqual({ since: "2026-09-21", until: "2026-09-27" });
     // On the 1st, the pace is still the month that just closed.
@@ -235,5 +239,82 @@ describe("calendar and currencies", () => {
     expect(fx.date).toBe("2026-09-25");
     expect(fx.rates.USD).toBeCloseTo(0.8);
     expect(fx.rates.ZAR).toBeCloseTo(0.05);
+  });
+});
+
+describe("cockpit by day and by month", () => {
+  const cal = cockpitCalendar(new Date("2026-09-28T08:00:00Z"));
+  const day = (date: string, spend: number, conv = 0) => ({ date, spend, conv, value: 0, impressions: 0, clicks: 0 });
+
+  it("reads yesterday against the eight days before", () => {
+    const p = cockpitPeriods("day", cal);
+    expect(p.label).toBe("27/09");
+    expect(p.ranges).toHaveLength(9);
+    expect(p.ranges[0]).toEqual({ since: "2026-09-19", until: "2026-09-19" });
+    expect(p.ranges[8]).toEqual({ since: "2026-09-27", until: "2026-09-27" });
+    const points = bucketRanges([day("2026-09-27", 300), day("2026-09-26", 100), day("2026-09-18", 999), day("2026-09-28", 999)], p.ranges);
+    expect(points.map((x) => x.spend)).toEqual([0, 0, 0, 0, 0, 0, 0, 100, 300]);
+  });
+
+  it("reads the month to date against the same days of the three months before", () => {
+    const p = cockpitPeriods("month", cal);
+    expect(p.label).toBe("01/09 → 27/09");
+    expect(p.ranges).toEqual([
+      { since: "2026-06-01", until: "2026-06-27" },
+      { since: "2026-07-01", until: "2026-07-27" },
+      { since: "2026-08-01", until: "2026-08-27" },
+      { since: "2026-09-01", until: "2026-09-27" },
+    ]);
+    expect(p.starts).toEqual(["06/26", "07/26", "08/26", "09/26"]);
+    // The 28th of August is after the 27th: it belongs to no period.
+    expect(bucketRanges([day("2026-08-28", 50), day("2026-08-27", 20)], p.ranges)[2].spend).toBe(20);
+  });
+
+  it("never reads past the end of a shorter month, and crosses the year", () => {
+    const march = cockpitPeriods("month", cockpitCalendar(new Date("2026-04-01T08:00:00Z")));
+    expect(march.ranges.map((r) => r.until)).toEqual(["2025-12-31", "2026-01-31", "2026-02-28", "2026-03-31"]);
+    expect(monthBefore("2026-01", 1)).toEqual({ key: "2025-12", first: "2025-12-01", days: 31 });
+    expect(monthBefore("2026-03", 14).key).toBe("2025-01");
+  });
+
+  it("keeps the week as it was", () => {
+    const p = cockpitPeriods("week", cal);
+    expect(p.label).toBe("21/09 → 27/09");
+    expect(p.ranges[8]).toEqual({ since: "2026-09-21", until: "2026-09-27" });
+    expect(p.ranges).toHaveLength(9);
+  });
+
+  it("scales the amounts and the volumes to the length of the period", () => {
+    // 1 600 € in a day is a big account; the same in a week is not.
+    const drift = [...flat(8, week(1600, 40)), week(1600, 20)];
+    expect(buildClient(client({ platforms: [meta(drift)] }), { ...ctx, limits: PERIOD_LIMITS.day }).alert.severity).toBe("urgent");
+    expect(buildClient(client({ platforms: [meta(drift)] }), ctx).alert.severity).toBe("action");
+    // 4 conversions are enough to read a day, not a week.
+    expect(seriesMetrics([...flat(8, week(100, 4)), week(100, 4)], "cpa", PERIOD_LIMITS.day).low_vol).toBe(false);
+    expect(seriesMetrics([...flat(8, week(100, 4)), week(100, 4)], "cpa").low_vol).toBe(true);
+  });
+
+  it("reads a month on four points", () => {
+    const m = seriesMetrics([week(1000, 50), week(1000, 50), week(1000, 50), week(2000, 50)], "cpa", PERIOD_LIMITS.month);
+    expect(m.weeks).toEqual([1000, 1000, 1000, 2000]);
+    expect(m.n_base).toBe(3);
+    expect(m.spend_d).toBeCloseTo(1);
+  });
+
+  it("serves the reading asked for, and the week when a build has no other", () => {
+    const base = { generated: "", w0_label: "21/09 → 27/09", hist_weeks: 8, week_starts: [], clients: [], tot_eur_w0: 10, tot_eur_base: 0, quality: { accounts: 0, issues: 0, budgeted: 0, budget_coverage: 0 }, month: "2026-09", fx: {}, fx_note: "", unmatched: [], partial: false, warnings: [] } as CockpitData;
+    const withDay: CockpitData = { ...base, views: { day: { period: "day", w0_label: "27/09", hist_weeks: 8, week_starts: [], clients: [], tot_eur_w0: 2, tot_eur_base: 0, quality: base.quality } } };
+    expect(pickPeriod(withDay, "day")).toMatchObject({ period: "day", w0_label: "27/09", tot_eur_w0: 2, month: "2026-09" });
+    expect(pickPeriod(withDay, "day").views).toBeUndefined();
+    expect(pickPeriod(withDay, "month")).toMatchObject({ period: "week", w0_label: "21/09 → 27/09" });
+    expect(pickPeriod(base, "day").period).toBe("week");
+    expect(periodsOf(withDay)).toEqual(["day", "week"]);
+    expect(periodsOf(base)).toEqual(["week"]);
+  });
+
+  it("words each reading", () => {
+    expect(periodWords("day", 8)).toMatchObject({ base: "8 j.", prev: "J-1", spark: "9 jours" });
+    expect(periodWords("month", 3)).toMatchObject({ base: "3 mois", prev: "M-1", spark: "4 mois" });
+    expect(periodWords(undefined, 8)).toMatchObject({ base: "8 sem.", prev: "S-1", spark: "9 semaines" });
   });
 });

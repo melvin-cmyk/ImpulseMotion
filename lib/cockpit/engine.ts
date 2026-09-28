@@ -16,6 +16,10 @@
  *
  * Thresholds live in COCKPIT_CFG — the same ones the interface uses to colour
  * the deltas, so a level and its chips never disagree.
+ *
+ * The same reading exists by day and by month (PeriodKind): the « weeks » of
+ * this file are then days or months, and the thresholds that are amounts or
+ * volumes follow the length of the period (PERIOD_LIMITS).
  */
 
 export type KpiMode = "cpa" | "roas" | "brand" | "mixte";
@@ -37,6 +41,27 @@ export const COCKPIT_CFG = {
   minShare: 0.20,
   histWeeks: 8,
 } as const;
+
+/** Length of the period read: yesterday, the last full week, the month to date. */
+export type PeriodKind = "day" | "week" | "month";
+
+export interface PeriodLimits {
+  /** Points of a series, the period read included. */
+  points: number;
+  /** Below this spend (EUR) over the period a client never goes above « À surveiller ». */
+  microEur: number;
+  /** From this spend (EUR) over the period a big drift is an urgency. */
+  bigEur: number;
+  /** A KPI computed on fewer conversions than this is not read as a trend. */
+  lowVolConv: number;
+}
+
+/** Amounts and volumes of the week, scaled to a day (÷ 7) and to a month (× 4). */
+export const PERIOD_LIMITS: Record<PeriodKind, PeriodLimits> = {
+  day: { points: 9, microEur: 70, bigEur: 1_500, lowVolConv: 3 },
+  week: { points: COCKPIT_CFG.histWeeks + 1, microEur: COCKPIT_CFG.microEur, bigEur: COCKPIT_CFG.urgent.bigEur, lowVolConv: COCKPIT_CFG.lowVolConv },
+  month: { points: 4, microEur: 2_000, bigEur: 40_000, lowVolConv: 30 },
+};
 
 export interface WeekPoint {
   spend: number;
@@ -178,8 +203,8 @@ export function worsening(kpiDelta: number | null, mode: AccountMode | KpiMode):
 }
 
 /** Metrics of one series of 9 weekly points (an account, or a client's blend). */
-export function seriesMetrics(weeksIn: WeekPoint[], mode: AccountMode | KpiMode): SeriesMetrics {
-  const n = COCKPIT_CFG.histWeeks + 1;
+export function seriesMetrics(weeksIn: WeekPoint[], mode: AccountMode | KpiMode, limits: PeriodLimits = PERIOD_LIMITS.week): SeriesMetrics {
+  const n = limits.points;
   const weeks = [...Array(Math.max(0, n - weeksIn.length)).fill(EMPTY_WEEK), ...weeksIn.slice(-n)] as WeekPoint[];
   const w0 = weeks[n - 1];
   const prev = weeks[n - 2];
@@ -194,7 +219,7 @@ export function seriesMetrics(weeksIn: WeekPoint[], mode: AccountMode | KpiMode)
   const spendBase = base.length ? baseAgg.spend / base.length : null;
   const measurable = mode === "cpa" || mode === "roas";
   const zeroConv = measurable && w0.spend > 0 && w0.conv === 0;
-  const lowVol = measurable && !zeroConv && w0.conv < COCKPIT_CFG.lowVolConv;
+  const lowVol = measurable && !zeroConv && w0.conv < limits.lowVolConv;
 
   let diag: Diag | null = null;
   if (measurable && base.length && w0.spend > 0) {
@@ -279,13 +304,16 @@ export interface AlertContext {
   pacing: Pacing | null;
   /** EUR value of one unit of each platform's currency */
   eurOf: (amount: number, ccy: string | null) => number;
+  /** thresholds of the period read; the week's when absent */
+  limits?: PeriodLimits;
 }
 
 /** Every finding of a client, then the single most severe one. */
 export function classify(ctx: AlertContext): CockpitAlert {
   const found: Array<{ severity: Severity; category: AlertCategory; reason: string; weight: number }> = [];
+  const limits = ctx.limits ?? PERIOD_LIMITS.week;
   const total = ctx.platforms.reduce((s, p) => s + ctx.eurOf(p.spend, p.ccy), 0) || 1;
-  const big = ctx.eur_w0 >= COCKPIT_CFG.urgent.bigEur;
+  const big = ctx.eur_w0 >= limits.bigEur;
 
   // Data: an account that could not be read hides everything else about it.
   const broken = ctx.platforms.filter((p) => p.err);
@@ -304,7 +332,7 @@ export function classify(ctx: AlertContext): CockpitAlert {
     const eur = silent.reduce((s, p) => s + ctx.eurOf(p.spend, p.ccy), 0);
     const repeated = silent.some((p) => p.zero_weeks >= 2);
     found.push({
-      severity: eur >= COCKPIT_CFG.urgent.bigEur ? "urgent" : repeated && eur >= COCKPIT_CFG.microEur ? "action" : "watch",
+      severity: eur >= limits.bigEur ? "urgent" : repeated && eur >= limits.microEur ? "action" : "watch",
       category: "measurement",
       reason: `Aucune conversion malgré les dépenses : ${silent.map((p) => p.label).join(", ")}`,
       weight: eur,
@@ -365,7 +393,7 @@ export function classify(ctx: AlertContext): CockpitAlert {
   if (!found.length) return { severity: "ok", category: "delivery", reason: "Aucun seuil franchi", next_action: "" };
 
   // Small accounts never raise an urgency; a budget gap stays actionable whatever the size.
-  const micro = ctx.eur_w0 < COCKPIT_CFG.microEur;
+  const micro = ctx.eur_w0 < limits.microEur;
   for (const f of found) {
     if (micro && f.category !== "budget" && f.category !== "data" && RANK[f.severity] < RANK.watch) f.severity = "watch";
   }
@@ -388,14 +416,17 @@ export interface BuildContext {
   /** EUR value of one unit of each currency (EUR: 1) */
   fx: Record<string, number>;
   month: { elapsed: number; days: number };
+  /** thresholds of the period read; the week's when absent */
+  limits?: PeriodLimits;
 }
 
 export function buildClient(input: ClientInput, ctx: BuildContext): ClientRow {
+  const limits = ctx.limits ?? PERIOD_LIMITS.week;
   const rate = (ccy: string | null) => (ccy ? ctx.fx[ccy] ?? null : null);
   const eurOf = (amount: number, ccy: string | null) => amount * (rate(ccy) ?? 1);
 
   const platforms: PlatformRow[] = input.platforms.map((p) => ({
-    ...seriesMetrics(p.err ? [] : p.weeks, p.mode),
+    ...seriesMetrics(p.err ? [] : p.weeks, p.mode, limits),
     key: p.key, plat: p.plat, label: p.label, accountId: p.accountId, ccy: p.ccy, mode: p.mode,
     budget: p.budget,
     pacing: p.err ? null : pacingOf(p.budget, p.mtd, ctx.month),
@@ -416,7 +447,7 @@ export function buildClient(input: ClientInput, ctx: BuildContext): ClientRow {
     return a && b ? (amount * a) / b : amount;
   };
 
-  const n = COCKPIT_CFG.histWeeks + 1;
+  const n = limits.points;
   const blendedWeeks: WeekPoint[] = Array.from({ length: n }, (_, i) => {
     const w: WeekPoint = { ...EMPTY_WEEK };
     for (const p of live) {
@@ -431,7 +462,7 @@ export function buildClient(input: ClientInput, ctx: BuildContext): ClientRow {
     }
     return w;
   });
-  const blended = seriesMetrics(blendedWeeks, input.kpi_mode);
+  const blended = seriesMetrics(blendedWeeks, input.kpi_mode, limits);
 
   // Budget of the platforms that have a readable account, against what those accounts spent.
   let budget = 0, mtd = 0, budgeted = false;
@@ -447,7 +478,7 @@ export function buildClient(input: ClientInput, ctx: BuildContext): ClientRow {
 
   const eurW0 = Math.round(platforms.reduce((s, p) => s + eurOf(p.spend, p.ccy), 0));
   const eurBase = Math.round(platforms.reduce((s, p) => s + eurOf(p.spend_base ?? 0, p.ccy), 0));
-  const alert = classify({ kpi_mode: input.kpi_mode, eur_w0: eurW0, blended, platforms, pacing, eurOf });
+  const alert = classify({ kpi_mode: input.kpi_mode, eur_w0: eurW0, blended, platforms, pacing, eurOf, limits });
 
   const total = platforms.reduce((s, p) => s + eurOf(p.spend, p.ccy), 0) || 1;
   let worse = input.kpi_mode === "cpa" || input.kpi_mode === "roas" ? (blended.low_vol ? 0 : worsening(blended.kpi_d, input.kpi_mode)) : 0;

@@ -113,3 +113,49 @@ export function budgetRows(clients: ClientRow[]): BudgetRow[] {
 }
 
 export const SEVERITY_RANK: Record<Severity, number> = { urgent: 0, action: 1, watch: 2, ok: 3 };
+
+/** The wording of a reading: the same screen says « 8 sem. », « 8 j. » or « 3 mois ». */
+export interface PeriodWords {
+  /** button of the switch */
+  tab: string;
+  /** before the period in the header: « Semaine 21/09 → 27/09 » */
+  read: string;
+  /** reference of a delta against the average: « 8 sem. » */
+  base: string;
+  /** reference of a delta against the period before: « S-1 » */
+  prev: string;
+  /** « Moy. 8 sem. » */
+  moy: string;
+  /** label of the spend of the period */
+  spend: string;
+  /** label of the chart */
+  spark: string;
+  /** « cette semaine » */
+  here: string;
+  /** the two references, spelt out for the help */
+  baseLong: string;
+  prevLong: string;
+  /** adjective of the spend in the data-quality line */
+  spendOf: string;
+}
+
+export const PERIOD_KINDS = ["day", "week", "month"] as const;
+
+export function periodWords(kind: "day" | "week" | "month" | undefined, hist: number): PeriodWords {
+  if (kind === "day") {
+    return {
+      tab: "Jour", read: "Journée du", base: `${hist} j.`, prev: "J-1", moy: `Moy. ${hist} j.`, spend: "Dépenses du jour",
+      spark: `${hist + 1} jours`, here: "sur la journée", baseLong: `moyenne des ${hist} jours précédents`, prevLong: "veille", spendOf: "de la journée",
+    };
+  }
+  if (kind === "month") {
+    return {
+      tab: "Mois", read: "Mois en cours,", base: `${hist} mois`, prev: "M-1", moy: `Moy. ${hist} mois`, spend: "Dépenses du mois",
+      spark: `${hist + 1} mois`, here: "ce mois-ci", baseLong: `moyenne des mêmes jours des ${hist} mois précédents`, prevLong: "mêmes jours du mois précédent", spendOf: "du mois",
+    };
+  }
+  return {
+    tab: "Semaine", read: "Semaine", base: `${hist} sem.`, prev: "S-1", moy: `Moy. ${hist} sem.`, spend: "Dépenses 7 j",
+    spark: `${hist + 1} semaines`, here: "cette semaine", baseLong: `moyenne des ${hist} semaines précédentes`, prevLong: "semaine précédente", spendOf: "hebdomadaires",
+  };
+}

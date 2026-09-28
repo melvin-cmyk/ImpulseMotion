@@ -62,14 +62,14 @@ export function Badges({ c }: { c: ClientRow & { missing?: string[] } }) {
   );
 }
 
-/** Spend of the 9 weeks; the last bar (the week read) is highlighted. */
+/** Spend of each period; the last bar (the period read) is highlighted. */
 export function Spark({ weeks, starts, width = 120, height = 26 }: { weeks: number[]; starts: string[]; width?: number; height?: number }) {
   if (!weeks.length) return null;
   const n = weeks.length;
   const max = Math.max(...weeks, 1);
   const bw = width / n - 2;
   return (
-    <svg width={width} height={height} role="img" aria-label={`Dépenses hebdomadaires, ${n} semaines`} className="shrink-0">
+    <svg width={width} height={height} role="img" aria-label={`Dépenses sur ${n} périodes${starts.length ? `, du ${starts[0]} au ${starts[starts.length - 1]}` : ""}`} className="shrink-0">
       {weeks.map((v, i) => {
         const h = Math.max(1, (v / max) * (height - 2));
         return (
