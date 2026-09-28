@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Build id baked into the client bundle, compared with /api/version by
+  // open tabs (components/ai/stale-build.tsx).
+  env: { NEXT_PUBLIC_APP_BUILD: process.env.VERCEL_GIT_COMMIT_SHA ?? "dev" },
   // trailingSlash: true,
   images: {
     // Allow Meta CDN hostnames so next/image can optimise (or pass through) ad creative thumbnails.

@@ -801,7 +801,12 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
     if (!child.killed) child.kill("SIGTERM");
     // With a session the work is not lost: the transcript and the workspace
     // stay, and the chat surfaces relaunch the turn by themselves (resumable).
-    finish({ error: `Temps de session dépassé (${Math.round(SESSION_BUDGET_MS / 1000)}s) — réessayez avec une demande plus ciblée`, resumable: !!sessionKey });
+    finish({
+      error: sessionKey
+        ? "La tâche est longue et n'est pas terminée. Le travail déjà fait est conservé : écrivez « continue » pour la poursuivre."
+        : "La demande a pris trop de temps pour aboutir en une fois. Relancez-la, ou découpez-la en étapes plus courtes.",
+      resumable: !!sessionKey,
+    });
   }, SESSION_BUDGET_MS);
 
   // SSE comment heartbeat so idle proxies don't drop the connection during

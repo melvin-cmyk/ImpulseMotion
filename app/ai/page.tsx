@@ -20,6 +20,7 @@ import { AiMarkdown } from "@/components/ai/ai-markdown"
 import { AttachButton, MessageAttachments, PendingAttachments, useAttachments } from "@/components/ai/attachments"
 import { ModelPicker } from "@/components/ai/model-picker"
 import { AiActivity } from "@/components/ai/activity"
+import { StaleBuildBanner } from "@/components/ai/stale-build"
 import { AUTO_CONTINUE_PROMPT, INITIAL_ACTIVITY, MAX_AUTO_CONTINUES, formatToolName, reduceActivity, type ActivityState } from "@/lib/ai-activity"
 import { DEFAULT_PREFS, FILES_NOTE_RE, filesNote, loadPrefs, savePrefs, type AiPrefs, type ChatFile, type ChatImage } from "@/lib/ai-chat-shared"
 
@@ -363,6 +364,8 @@ export default function AIPage() {
           {memo.note && <span className={memo.note.ok ? "text-emerald-400" : "text-amber-400"}>{memo.note.text}</span>}
         </div>
       )}
+
+      <StaleBuildBanner className="mx-6 mt-3" />
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4 space-y-4" onDrop={att.onDrop} onDragOver={att.onDragOver}>

@@ -22,6 +22,7 @@ import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { AttachButton, MessageAttachments, PendingAttachments, useAttachments } from "@/components/ai/attachments";
 import { ModelPicker } from "@/components/ai/model-picker";
 import { AiActivity } from "@/components/ai/activity";
+import { StaleBuildBanner } from "@/components/ai/stale-build";
 import { AUTO_CONTINUE_PROMPT, INITIAL_ACTIVITY, MAX_AUTO_CONTINUES, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 import { FILES_NOTE_RE, filesNote, loadPrefs, savePrefs, DEFAULT_PREFS, type AiPrefs, type ChatFile, type ChatImage } from "@/lib/ai-chat-shared";
 
@@ -498,6 +499,7 @@ export function CopilotPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <StaleBuildBanner />
         {messages.length === 0 && !streamText && (
           <div className="text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 space-y-1.5">
             <p>
