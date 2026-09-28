@@ -5,7 +5,7 @@ vi.mock("@/lib/cockpit/fetch", () => ({ listMetaAccounts: vi.fn(), listGoogleAcc
 vi.mock("@/lib/cockpit/build", () => ({ syncAccounts: vi.fn() }));
 
 import { buildClients, looksLikeId, reconcile, type BuildInput } from "@/lib/auto-alerts/clients";
-import { tagAccount } from "@/lib/auto-alerts/run";
+import { MAX_MESSAGES, floodedKinds, tagAccount } from "@/lib/auto-alerts/run";
 import type { Finding } from "@/lib/auto-alerts/detect";
 
 const meta = (accountId: string, name: string, active = true) => ({ platform: "meta" as const, accountId, name, currency: "EUR", active });
@@ -110,5 +110,28 @@ describe("tagAccount", () => {
     const out = tagAccount(account, { findings: [finding], evaluated: new Set(["meta:account"] as const), series: [] }, { siblings: 1, openKeys: new Set() });
     expect(out).toMatchObject({ dormant: false });
     expect(out.findings).toHaveLength(1);
+  });
+});
+
+describe("what reaches Slack", () => {
+  const stop = (n: number) => Array.from({ length: n }, (_, i) => ({ clientId: `c${i}`, kinds: ["spend_stopped"] }));
+
+  it("holds a break seen on many clients at once", () => {
+    expect(floodedKinds(stop(3), 40)).toEqual([]);
+    // 12 of 40 clients stopped the same morning: the platform, not the clients.
+    expect(floodedKinds(stop(12), 40)).toEqual(["spend_stopped"]);
+    expect(floodedKinds(stop(11), 40)).toEqual([]);
+    // Few clients scanned: four is the floor.
+    expect(floodedKinds(stop(4), 8)).toEqual(["spend_stopped"]);
+  });
+
+  it("only holds the breaks, and only the kind that floods", () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ clientId: `c${i}`, kinds: ["account_blocked", "perf_drift"] }));
+    expect(floodedKinds(many, 20)).toEqual([]);
+    expect(floodedKinds([...stop(6), { clientId: "x", kinds: ["spend_spike"] }], 10)).toEqual(["spend_stopped"]);
+  });
+
+  it("caps a run", () => {
+    expect(MAX_MESSAGES).toBeLessThanOrEqual(10);
   });
 });

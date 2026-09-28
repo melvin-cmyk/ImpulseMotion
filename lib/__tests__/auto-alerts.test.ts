@@ -37,6 +37,30 @@ describe("detectFromDays", () => {
     expect(detectFromDays({ platform: "meta", full: series([3, 4, 2, 5, 3, 4, 2, 3, 4, 0]), today: null, currency: "EUR" })).toEqual([]);
   });
 
+  it("raises a sharp drop, not the weekend an account has every week", () => {
+    expect(kinds(detectFromDays({ platform: "meta", full: series([200, 200, 200, 200, 200, 200, 200, 200, 200, 80]), today: null, currency: "EUR" }))).toEqual(["spend_drop"]);
+    // Low every seventh day: the same day last week was low too.
+    const weekly = series([200, 200, 60, 200, 200, 200, 200, 200, 200, 60]);
+    expect(detectFromDays({ platform: "meta", full: weekly, today: null, currency: "EUR" })).toEqual([]);
+    // A drop of a third is not a break.
+    expect(detectFromDays({ platform: "meta", full: series([200, 200, 200, 200, 200, 200, 200, 200, 200, 130]), today: null, currency: "EUR" })).toEqual([]);
+  });
+
+  it("reads its amounts in EUR whatever the currency of the account", () => {
+    // 8 300 JPY a day is about 50 EUR: a drop of 4 800 JPY is 29 EUR, under the 50 EUR it takes.
+    const jpy = series([8300, 8300, 8300, 8300, 8300, 8300, 8300, 8300, 8300, 3500]);
+    expect(detectFromDays({ platform: "google", full: jpy, today: null, currency: "JPY", eurRate: 0.006 })).toEqual([]);
+    // The same figures in EUR are a break.
+    expect(kinds(detectFromDays({ platform: "google", full: jpy, today: null, currency: "EUR" }))).toEqual(["spend_drop"]);
+    // 3 000 JPY a day is 18 EUR: too small to matter, even at a full stop.
+    expect(detectFromDays({ platform: "google", full: series([3000, 3000, 3000, 3000, 3000, 3000, 3000, 3000, 3000, 0]), today: null, currency: "JPY", eurRate: 0.006 })).toEqual([]);
+  });
+
+  it("does not call a stop what happens every week", () => {
+    const weekly = series([200, 200, 0, 200, 200, 200, 200, 200, 200, 0]);
+    expect(detectFromDays({ platform: "meta", full: weekly, today: null, currency: "EUR" })).toEqual([]);
+  });
+
   it("raises a spike", () => {
     expect(kinds(detectFromDays({ platform: "meta", full: series([100, 100, 100, 100, 100, 100, 100, 100, 100, 400]), today: null, currency: "EUR" }))).toEqual(["spend_spike"]);
   });
@@ -185,14 +209,16 @@ describe("planIncidents", () => {
 });
 
 describe("config", () => {
-  it("defaults to everything, twice a day", () => {
+  it("defaults to the sharp breaks only, twice a day", () => {
     const c = normalizeConfig({});
     expect(c.frequency).toBe("2x");
-    expect(enabledKinds(c).has("spend_stopped")).toBe(true);
+    expect([...enabledKinds(c)].sort()).toEqual(["access_lost", "account_blocked", "conversions_zero", "spend_cap", "spend_drop", "spend_spike", "spend_stopped"]);
+    // What moves slowly or comes in numbers stays in the application unless switched on.
+    expect(enabledKinds(normalizeConfig({ topics: { performance: true } })).has("perf_drift")).toBe(true);
   });
   it("drops the kinds of a topic switched off", () => {
-    const c = normalizeConfig({ topics: { budget: false }, frequency: "nope" });
-    expect(enabledKinds(c).has("pacing")).toBe(false);
+    const c = normalizeConfig({ topics: { delivery: false }, frequency: "nope" });
+    expect(enabledKinds(c).has("spend_stopped")).toBe(false);
     expect(c.frequency).toBe("2x");
   });
   it("maps a cron firing to its slot and respects the frequency", () => {

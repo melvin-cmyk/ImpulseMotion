@@ -25,7 +25,7 @@ export function toDayPoint(row: Record<string, unknown>): DayPoint {
   return { date: String(s.date ?? ""), spend: costFrom(m), conversions: num(m.conversions), revenue: value > 0 ? value : null };
 }
 
-export async function scanGoogleAccount(customerId: string, currency: string, now: Date = new Date()): Promise<ScanResult> {
+export async function scanGoogleAccount(customerId: string, currency: string, now: Date = new Date(), rates: Record<string, number> = {}): Promise<ScanResult> {
   const out: ScanResult = { findings: [], evaluated: new Set(), errors: [], currency, series: [] };
   const today = todayIn(TZ, now);
   const since = addDays(today, -FULL_DAYS);
@@ -38,7 +38,7 @@ export async function scanGoogleAccount(customerId: string, currency: string, no
     const full = points.slice(0, -1);
     const todayPoint = points[points.length - 1];
     out.series = full;
-    let found = detectFromDays({ platform: "google", full, today: { spend: todayPoint.spend, hour: hourIn(TZ, now) }, currency });
+    let found = detectFromDays({ platform: "google", full, today: { spend: todayPoint.spend, hour: hourIn(TZ, now) }, currency, eurRate: rates[currency] });
     if (found.some((f) => f.kind === "spend_stopped")) {
       const enabled = await gaql(customerId, "SELECT campaign.id FROM campaign WHERE campaign.status = 'ENABLED' LIMIT 1");
       if (!enabled.length) found = found.filter((f) => f.kind !== "spend_stopped");

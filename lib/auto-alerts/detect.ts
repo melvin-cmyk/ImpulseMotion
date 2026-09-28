@@ -21,6 +21,7 @@ export type FindingKind =
   | "account_blocked"
   | "spend_cap"
   | "spend_stopped"
+  | "spend_drop"
   | "spend_spike"
   | "conversions_zero"
   | "perf_drift"
@@ -55,13 +56,22 @@ export interface DayPoint {
 
 export const THRESHOLDS = {
   /** Under this average daily spend an account (or ad) is too small to alert on. */
-  minDailySpend: 10,
+  minDailySpend: 30,
   /** Yesterday counts as "stopped" under this share of the baseline. */
   stopRatio: 0.1,
   /** Local hour after which a day still at zero is suspicious. */
   todayZeroHour: 13,
-  spikeRatio: 2.5,
-  spikeMinDelta: 50,
+  /** Yesterday is a spike from twice the average of the week, and a drop under half of it. */
+  spikeRatio: 2,
+  spikeMinDelta: 100,
+  dropRatio: 0.5,
+  dropMinDelta: 50,
+  /**
+   * The same weekday one week before must tell the same story: an account that
+   * slows down every weekend has not changed, it has a rhythm.
+   */
+  sameDaySpike: 1.5,
+  sameDayDrop: 0.5,
   /** Baseline conversions per day needed before "zero conversion" means anything. */
   minDailyConversions: 2,
   driftCpaPct: 60,
@@ -103,6 +113,8 @@ export interface DaysInput {
   /** Today's partial day; null when unknown. */
   today: { spend: number; hour: number } | null;
   currency: string;
+  /** EUR value of one unit of `currency`: the thresholds are amounts in EUR. 1 when absent. */
+  eurRate?: number;
 }
 
 const scopeOf = (p: AutoPlatform): Scope => (p === "google" ? "google:days" : "meta:days");
@@ -113,15 +125,25 @@ export function detectFromDays(input: DaysInput): Finding[] {
   const { platform, full, today, currency } = input;
   const out: Finding[] = [];
   if (full.length < 8) return out;
-  const T = THRESHOLDS;
+  // Thresholds that are amounts are in EUR: 8 000 JPY a day is a small account, not a big one.
+  const rate = input.eurRate && input.eurRate > 0 ? input.eurRate : 1;
+  const T = {
+    ...THRESHOLDS,
+    minDailySpend: THRESHOLDS.minDailySpend / rate,
+    spikeMinDelta: THRESHOLDS.spikeMinDelta / rate,
+    dropMinDelta: THRESHOLDS.dropMinDelta / rate,
+    driftMinSpend: THRESHOLDS.driftMinSpend / rate,
+  };
   const yesterday = full[full.length - 1];
   const base = full.slice(-8, -1);
   const avg = mean(base.map((d) => d.spend));
   const scope = scopeOf(platform);
+  // Same weekday, one week before.
+  const sameDay = full[full.length - 8];
 
   // ── Delivery stopped ──────────────────────────────────────────────────────
   let stopped = false;
-  if (avg >= T.minDailySpend && yesterday.spend <= avg * T.stopRatio) {
+  if (avg >= T.minDailySpend && yesterday.spend <= avg * T.stopRatio && sameDay.spend > avg * T.stopRatio) {
     stopped = true;
     const since = [...full].reverse().findIndex((d) => d.spend > avg * T.stopRatio);
     const days = since === -1 ? full.length : since;
@@ -141,11 +163,26 @@ export function detectFromDays(input: DaysInput): Finding[] {
   if (stopped) return out; // everything below is a consequence of the stop
 
   // ── Spend spike ───────────────────────────────────────────────────────────
-  if (avg >= T.minDailySpend && yesterday.spend >= avg * T.spikeRatio && yesterday.spend - avg >= T.spikeMinDelta) {
+  if (
+    avg >= T.minDailySpend && yesterday.spend >= avg * T.spikeRatio && yesterday.spend - avg >= T.spikeMinDelta &&
+    yesterday.spend >= sameDay.spend * T.sameDaySpike
+  ) {
     out.push({
       key: `${platform}:spend_spike`, scope, platform, kind: "spend_spike", severity: "warning", needsAi: true,
       title: `${label(platform)} · Dépense anormalement haute`,
       detail: `${money(yesterday.spend, currency)} dépensés hier, soit ${(yesterday.spend / avg).toFixed(1).replace(".", ",")} fois la moyenne des 7 jours précédents (${money(avg, currency)}/jour).`,
+    });
+  }
+
+  // ── Sharp drop: still delivering, at less than half of the usual ──────────
+  if (
+    avg >= T.minDailySpend && yesterday.spend <= avg * T.dropRatio && avg - yesterday.spend >= T.dropMinDelta &&
+    yesterday.spend < sameDay.spend * T.sameDayDrop
+  ) {
+    out.push({
+      key: `${platform}:spend_drop`, scope, platform, kind: "spend_drop", severity: "warning", needsAi: true,
+      title: `${label(platform)} · Dépense en forte baisse`,
+      detail: `${money(yesterday.spend, currency)} dépensés hier, soit ${round((1 - yesterday.spend / avg) * 100)} % de moins que la moyenne des 7 jours précédents (${money(avg, currency)}/jour).`,
     });
   }
 
@@ -392,7 +429,7 @@ export function pruneFindings(findings: Finding[]): Finding[] {
   return findings
     .filter((f) => {
       if (f.platform !== "meta") return true;
-      if ((blocked || capped) && (f.kind === "spend_stopped" || f.kind === "ad_stopped" || f.kind === "pacing" || f.kind === "perf_drift" || f.kind === "conversions_zero")) return false;
+      if ((blocked || capped) && (f.kind === "spend_stopped" || f.kind === "spend_drop" || f.kind === "ad_stopped" || f.kind === "pacing" || f.kind === "perf_drift" || f.kind === "conversions_zero")) return false;
       if (metaStopped && (f.kind === "ad_stopped" || f.kind === "pacing")) return false;
       return true;
     })

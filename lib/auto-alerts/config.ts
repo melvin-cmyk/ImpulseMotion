@@ -1,7 +1,10 @@
 /**
  * Automatic alerting — what a client is watched for, and how often.
  * Stored per client in AlertClient.autoAlertConfig; an empty object means
- * "everything, twice a day", so a new client is covered without any setup.
+ * "the sharp breaks, twice a day", so a new client is covered without any
+ * setup and without filling its channel: what moves slowly (performance,
+ * budget pace) or comes in numbers (ads) is read in the cockpit, and only
+ * reaches Slack for the clients where someone switched it on.
  */
 
 import type { FindingKind } from "@/lib/auto-alerts/detect";
@@ -11,7 +14,7 @@ export type Frequency = "1x" | "2x" | "4x";
 
 export const TOPICS: Array<{ id: TopicId; label: string; hint: string; kinds: FindingKind[] }> = [
   { id: "billing", label: "Compte et paiement", hint: "Compte désactivé, paiement refusé, plafond de dépense atteint, accès au compte perdu", kinds: ["account_blocked", "spend_cap", "access_lost"] },
-  { id: "delivery", label: "Diffusion", hint: "Dépense qui s'arrête ou qui s'emballe", kinds: ["spend_stopped", "spend_spike"] },
+  { id: "delivery", label: "Diffusion", hint: "Dépense qui s'arrête, qui chute de moitié ou qui double du jour au lendemain", kinds: ["spend_stopped", "spend_drop", "spend_spike"] },
   { id: "creatives", label: "Créas", hint: "Créa refusée, en erreur, ou active qui ne dépense plus", kinds: ["ad_blocked", "ad_stopped"] },
   { id: "tracking", label: "Conversions", hint: "Plus aucune conversion alors que le compte dépense", kinds: ["conversions_zero"] },
   { id: "performance", label: "Performance", hint: "CPA ou ROAS qui décroche sur 3 jours", kinds: ["perf_drift"] },
@@ -35,7 +38,7 @@ export interface AutoAlertConfig {
 }
 
 export const DEFAULT_CONFIG: AutoAlertConfig = {
-  topics: { billing: true, delivery: true, creatives: true, tracking: true, performance: true, budget: true },
+  topics: { billing: true, delivery: true, tracking: true, creatives: false, performance: false, budget: false },
   frequency: "2x",
   weekdaysOnly: false,
 };

@@ -124,7 +124,7 @@ export default function AutoAlertsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Alertes automatiques"
-        subtitle={<>Chaque compte est vérifié sans réglage : paiement, diffusion, créas, conversions, performance, budget. Le canal Slack du client ne reçoit un message que lorsque quelque chose change. {linked}/{data.clients.length} clients reliés à Slack · {openIncidents} point{openIncidents > 1 ? "s" : ""} en cours.</>}
+        subtitle={<>Chaque compte est vérifié sans réglage. Seules les ruptures nettes partent dans Slack : compte bloqué, dépense à l&apos;arrêt, en forte baisse ou qui double, plus aucune conversion. Un message seulement quand quelque chose change, dix au plus par passage ; performance, budget et créas s&apos;activent client par client. {linked}/{data.clients.length} clients reliés à Slack · {openIncidents} point{openIncidents > 1 ? "s" : ""} en cours.</>}
         action={
           <div className="flex items-center gap-2">
             <button className={ghostBtnCls} disabled={!!busy} title="Relit les comptes Meta et Google Ads : nouveaux comptes, comptes renommés" onClick={() => act("sync", async () => {

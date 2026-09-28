@@ -11,11 +11,12 @@ import { prisma } from "@/lib/prisma";
 import { pruneFindings, type DayPoint, type Finding } from "@/lib/auto-alerts/detect";
 import { scanMetaAccount, type ScanResult } from "@/lib/auto-alerts/meta";
 import { scanGoogleAccount } from "@/lib/auto-alerts/google";
-import { applyPlan, markNotified, markNotifyError, planIncidents } from "@/lib/auto-alerts/incidents";
+import { applyPlan, markNotified, markNotifyError, planIncidents, type Plan } from "@/lib/auto-alerts/incidents";
 import { buildDigest, hasNews, writeReading } from "@/lib/auto-alerts/message";
 import { autoAlertWebhook, postDigest } from "@/lib/auto-alerts/slack";
 import { enabledKinds, isDue, parseConfig } from "@/lib/auto-alerts/config";
 import { parseAccounts, syncAlertClients, type AlertAccount } from "@/lib/auto-alerts/clients";
+import { loadFx } from "@/lib/cockpit/fx";
 
 export interface RunOptions {
   /** Detect only: no incident written, nothing sent, no AI. */
@@ -59,6 +60,30 @@ export interface RunResult {
 }
 
 const CONCURRENCY = 4;
+/** Ceiling on Slack messages per run: what does not fit waits for the next run, critical first. */
+export const MAX_MESSAGES = 10;
+/**
+ * The same sharp break on many clients at once is not many problems, it is
+ * one: a platform that reports late, an API that answers zeros. From this
+ * many clients (and this share of those scanned) nothing is sent for it.
+ */
+export const FLOOD = { minClients: 4, share: 0.3 } as const;
+const FLOOD_KINDS = new Set<string>(["spend_stopped", "spend_drop", "spend_spike", "conversions_zero", "access_lost"]);
+const KIND_LABEL: Record<string, string> = {
+  spend_stopped: "dépense à l'arrêt", spend_drop: "dépense en forte baisse", spend_spike: "dépense anormalement haute",
+  conversions_zero: "plus aucune conversion", access_lost: "accès au compte perdu",
+};
+
+/** Pure: the kinds announced on too many clients at once to be believed one by one. */
+export function floodedKinds(announced: Array<{ clientId: string; kinds: string[] }>, scanned: number): string[] {
+  const clients = new Map<string, Set<string>>();
+  for (const a of announced) for (const k of a.kinds) {
+    if (!FLOOD_KINDS.has(k)) continue;
+    clients.set(k, (clients.get(k) ?? new Set()).add(a.clientId));
+  }
+  const limit = Math.max(FLOOD.minClients, Math.ceil(scanned * FLOOD.share));
+  return [...clients.entries()].filter(([, ids]) => ids.size >= limit).map(([k]) => k).sort();
+}
 /** Ceiling on AI readings per run, whatever happens to the accounts that day. */
 const MAX_AI_CALLS = 15;
 
@@ -117,7 +142,12 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
   result.clients = clients.length;
 
   const canSend = !opts.dryRun && autoAlertWebhook() !== null;
+  // EUR value of each currency: the thresholds of the detectors are amounts in EUR.
+  const rates = (await loadFx()).rates;
   let next = 0;
+
+  interface Pending { client: (typeof clients)[number]; run: ClientRun; plan: Plan; announcedIds: string[]; series: Record<string, DayPoint[]>; target: string; channel: string | null }
+  const pending: Pending[] = [];
 
   const one = async (c: (typeof clients)[number]): Promise<ClientRun> => {
     const accounts = parseAccounts(c.accountsJson);
@@ -139,7 +169,7 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
       const label = count[a.platform] > 1 ? `${PLATFORM[a.platform]} — ${a.name}` : PLATFORM[a.platform];
       try {
         const scan = await within(
-          a.platform === "meta" ? scanMetaAccount(a.accountId, now) : scanGoogleAccount(a.accountId, a.currency ?? fallbackCurrency, now),
+          a.platform === "meta" ? scanMetaAccount(a.accountId, now, rates) : scanGoogleAccount(a.accountId, a.currency ?? fallbackCurrency, now, rates),
           label,
         );
         run.errors.push(...scan.errors.map((e) => (count[a.platform] > 1 ? `${a.name} — ${e}` : e)));
@@ -161,34 +191,17 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
     if (opts.dryRun) return run;
 
     const plan = planIncidents(existing, run.findings, evaluated, now);
-    // A topic switched off closes its incidents without a word.
-    for (const r of plan.resolve) if (!kinds.has(r.incident.kind as never)) r.say = false;
+    for (const r of plan.resolve) {
+      // A topic switched off closes its incidents without a word; so does a warning
+      // that went away — only the end of a critical problem is worth a message.
+      if (!kinds.has(r.incident.kind as never) || r.incident.severity !== "critical") r.say = false;
+    }
     const { announcedIds } = await applyPlan(c.id, plan, now);
     await prisma.alertClient.update({ where: { id: c.id }, data: { lastScanAt: now, dormant: run.dormant } });
     run.announced = plan.announce.length;
     run.resolved = plan.resolve.length;
-    if (!hasNews(plan) || !target || !canSend) return run;
-
-    // The AI reads only what is new and unexplained — a reminder has already been read.
-    const unexplained = plan.announce.filter((a) => a.reason !== "reminder" && a.finding.needsAi).map((a) => a.finding);
-    let reading: string | null = null;
-    if (unexplained.length && result.aiCalls < MAX_AI_CALLS) {
-      result.aiCalls++;
-      reading = await writeReading({ dashboardId: c.dashboardId, name: c.name }, plan.announce.map((a) => a.finding), series);
-      run.aiUsed = reading !== null;
-    }
-    const link = c.dashboardId ? `${appUrl()}/portfolio/${c.dashboardId}` : `${appUrl()}/admin/auto-alerts`;
-    run.text = buildDigest({ clientName: c.name, plan, reading, link, stillOpen: plan.touch.length });
-    try {
-      await postDigest(target, run.text, { id: c.id, name: c.name });
-      await markNotified(plan, announcedIds, now);
-      run.sent = true;
-      result.messages++;
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e);
-      run.errors.push(`slack ${channel} : ${m}`);
-      await markNotifyError(announcedIds, m).catch(() => undefined);
-    }
+    // Nothing is sent from here: the run decides once every client has been read.
+    if (hasNews(plan) && target && canSend) pending.push({ client: c, run, plan, announcedIds, series, target, channel });
     return run;
   };
 
@@ -210,6 +223,53 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
     }
   });
   await Promise.all(workers);
+
+  // ── What reaches Slack ─────────────────────────────────────────────────────
+  const flooded = new Set(floodedKinds(
+    pending.map((p) => ({ clientId: p.client.id, kinds: p.plan.announce.map((a) => a.finding.kind) })),
+    result.runs.filter((r) => !r.dormant).length,
+  ));
+  for (const kind of flooded) {
+    const n = pending.filter((p) => p.plan.announce.some((a) => a.finding.kind === kind)).length;
+    result.errors.push(`Anomalie générale suspectée : « ${KIND_LABEL[kind] ?? kind} » sur ${n} clients en même temps — rien n'a été envoyé dans Slack pour ce sujet, à vérifier côté plateforme.`);
+  }
+  const toSend = pending
+    .map((p) => {
+      const keep = p.plan.announce.map((a, i) => ({ a, id: p.announcedIds[i] })).filter((x) => !flooded.has(x.a.finding.kind));
+      return { ...p, plan: { ...p.plan, announce: keep.map((x) => x.a) }, announcedIds: keep.map((x) => x.id) };
+    })
+    .filter((p) => hasNews(p.plan))
+    // Critical first, then the clients with the most to say.
+    .sort((x, y) =>
+      Number(y.plan.announce.some((a) => a.finding.severity === "critical")) - Number(x.plan.announce.some((a) => a.finding.severity === "critical"))
+      || y.plan.announce.length - x.plan.announce.length || x.client.name.localeCompare(y.client.name));
+  if (toSend.length > MAX_MESSAGES) {
+    result.errors.push(`${toSend.length} messages à envoyer, ${MAX_MESSAGES} au plus par passage : les ${toSend.length - MAX_MESSAGES} autres partiront au passage suivant.`);
+  }
+  for (const p of toSend.slice(0, MAX_MESSAGES)) {
+    if (opts.deadlineAt && Date.now() >= opts.deadlineAt) { result.timedOut = true; break; }
+    const { client: c, run, plan, announcedIds } = p;
+    // The AI reads only what is new and unexplained — a reminder has already been read.
+    const unexplained = plan.announce.filter((a) => a.reason !== "reminder" && a.finding.needsAi).map((a) => a.finding);
+    let reading: string | null = null;
+    if (unexplained.length && result.aiCalls < MAX_AI_CALLS) {
+      result.aiCalls++;
+      reading = await writeReading({ dashboardId: c.dashboardId, name: c.name }, plan.announce.map((a) => a.finding), p.series);
+      run.aiUsed = reading !== null;
+    }
+    const link = c.dashboardId ? `${appUrl()}/portfolio/${c.dashboardId}` : `${appUrl()}/admin/auto-alerts`;
+    run.text = buildDigest({ clientName: c.name, plan, reading, link, stillOpen: plan.touch.length });
+    try {
+      await postDigest(p.target, run.text, { id: c.id, name: c.name });
+      await markNotified(plan, announcedIds, now);
+      run.sent = true;
+      result.messages++;
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      result.errors.push(`${c.name} — slack ${p.channel} : ${m}`);
+      await markNotifyError(announcedIds, m).catch(() => undefined);
+    }
+  }
   result.runs.sort((a, b) => b.findings.length - a.findings.length || a.name.localeCompare(b.name));
   return result;
 }

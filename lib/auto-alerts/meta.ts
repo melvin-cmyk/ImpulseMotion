@@ -67,7 +67,7 @@ export function toAdStatus(a: RawAd): AdStatus {
   };
 }
 
-export async function scanMetaAccount(accountId: string, now: Date = new Date()): Promise<ScanResult> {
+export async function scanMetaAccount(accountId: string, now: Date = new Date(), rates: Record<string, number> = {}): Promise<ScanResult> {
   const token = getMetaSystemToken();
   const settings = await getAccountProfileSettings("meta", accountId);
   const currency = settings.currency ?? "EUR";
@@ -107,7 +107,7 @@ export async function scanMetaAccount(accountId: string, now: Date = new Date())
     const full = points.slice(0, -1);
     const todayPoint = points[points.length - 1];
     out.series = full;
-    let found = detectFromDays({ platform: "meta", full, today: { spend: todayPoint.spend, hour: hourIn(tz, now) }, currency });
+    let found = detectFromDays({ platform: "meta", full, today: { spend: todayPoint.spend, hour: hourIn(tz, now) }, currency, eurRate: rates[currency] });
 
     // A stop is only worth a message if something is still supposed to run.
     if (found.some((f) => f.kind === "spend_stopped")) {
