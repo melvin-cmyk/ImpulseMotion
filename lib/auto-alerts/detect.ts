@@ -29,8 +29,9 @@ export type FindingKind =
   | "pacing";
 
 export interface Finding {
+  /** The run adds the account to both (`…@<accountId>`): a client may have several. */
   key: string;
-  scope: Scope;
+  scope: Scope | `${Scope}@${string}`;
   platform: AutoPlatform;
   kind: FindingKind;
   severity: Severity;

@@ -211,18 +211,14 @@ model Dashboard {
   hqSlug           String?
   hqContextMd      String?           @db.Text
   hqContextAt      DateTime?
-  // Automatic alerting (lib/auto-alerts): internal Slack channel of the client
-  // ("#c_client" or a channel id) and an off switch. No channel = incidents are
-  // tracked in-app only.
+  // Legacy (first version of the automatic alerting, per dashboard): read once
+  // when an AlertClient is created, to carry the channel and settings over.
   slackChannel     String?
-  /// Slack id of that channel (C… / G…) once resolved — what the bot posts to.
   slackChannelId   String?
   autoAlerts       Boolean           @default(true)
-  /// {"topics": {"billing": true, …}, "frequency": "1x"|"2x"|"4x", "weekdaysOnly": bool} — see lib/auto-alerts/config.ts
   autoAlertConfig  String            @default("{}") @db.Text
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-  incidents        AutoIncident[]
   widgets          DashboardWidget[]
   pages            DashboardPage[]
   threads          AssistantThread[]
@@ -235,14 +231,47 @@ model Dashboard {
   @@index([userId])
 }
 
+/// A client of the automatic alerting (lib/auto-alerts/clients.ts): every ad
+/// account the agency can read belongs to one, with or without a dashboard.
+model AlertClient {
+  id              String         @id @default(cuid())
+  /// "c:<cockpit client key>" when the accounts belong to a client of the
+  /// budget sheet, else the first account ("meta:<id>" | "google:<id>").
+  key             String         @unique
+  name            String
+  /// [{"platform":"meta"|"google","accountId":"…","name":"…","currency":"EUR"}]
+  accountsJson    String         @default("[]") @db.Text
+  /// Oldest dashboard on one of the accounts, when there is one (link of the message).
+  dashboardId     String?
+  /// Internal Slack channel ("#c_client" or a channel id). No channel =
+  /// incidents are tracked in-app only.
+  slackChannel    String?
+  /// Slack id of that channel (C… / G…) once resolved — what the bot posts to.
+  slackChannelId  String?
+  autoAlerts      Boolean        @default(true)
+  /// {"topics": {"billing": true, …}, "frequency": "1x"|"2x"|"4x", "weekdaysOnly": bool} — see lib/auto-alerts/config.ts
+  autoAlertConfig String         @default("{}") @db.Text
+  /// No account spent anything over the last ten days at the last scan.
+  dormant         Boolean        @default(false)
+  /// None of its accounts is readable any more; kept for its history.
+  gone            Boolean        @default(false)
+  lastScanAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  incidents       AutoIncident[]
+}
+
 /// A problem found by the automatic scan, followed over time so the Slack
 /// channel only hears about changes (new, worse, reminder, resolved).
 model AutoIncident {
   id             String    @id @default(cuid())
-  dashboardId    String
-  /// Stable within a client: "meta:spend_stopped", "meta:ad_stopped:<adId>"…
+  /// null only on rows of the first version, until they are attached to their client.
+  clientId       String?
+  /// Legacy: the dashboard the first version hung incidents on.
+  dashboardId    String?
+  /// Stable within a client: "meta:spend_stopped@<accountId>", "meta:ad_stopped:<adId>@<accountId>"…
   key            String
-  /// Group of checks that produced it (meta:account | meta:days | meta:ads | meta:pacing | google:days)
+  /// Group of checks that produced it, per account ("meta:days@<accountId>", "google:days@<accountId>"…)
   scope          String
   platform       String
   kind           String
@@ -263,10 +292,10 @@ model AutoIncident {
   notifiedAt     DateTime?
   lastNotifiedAt DateTime?
   notifyError    String?
-  dashboard      Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  client         AlertClient? @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
-  @@unique([dashboardId, key])
-  @@index([dashboardId, status])
+  @@unique([clientId, key])
+  @@index([clientId, status])
 }
 
 // Additional data sources attached to a client (HubSpot today; Shopify / CSV later).

@@ -70,7 +70,7 @@ export function readingPrompt(clientName: string, findings: Finding[], series: R
 
 /** Returns null on any failure: the digest goes out without the reading. */
 export async function writeReading(
-  client: { dashboardId: string; name: string },
+  client: { dashboardId: string | null; name: string },
   findings: Finding[],
   series: Record<string, DayPoint[]>,
 ): Promise<string | null> {

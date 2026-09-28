@@ -9,12 +9,16 @@ type Channel = { id: string; name: string; isPrivate: boolean; isMember: boolean
 type Incident = { id: string; severity: string; title: string; detail: string; firstSeenAt: string; notifiedAt: string | null; notifyError: string | null };
 type Config = { topics: Record<string, boolean>; frequency: string; weekdaysOnly: boolean };
 type SlackStatus = "connected" | "public" | "absent" | "none" | "unknown";
+type Account = { platform: "meta" | "google"; accountId: string; name: string };
 type Client = {
-  dashboardId: string;
+  clientId: string;
   name: string;
+  accounts: Account[];
   meta: boolean;
   google: boolean;
   enabled: boolean;
+  /** no account spent anything over the last ten days */
+  dormant: boolean;
   slackChannel: string | null;
   slackChannelId: string | null;
   slackStatus: SlackStatus;
@@ -28,9 +32,9 @@ type Payload = {
   topics: Topic[];
   frequencies: Frequency[];
 };
-type Suggestion = { dashboardId: string; client: string; channel: Channel; by: string };
+type Suggestion = { clientId: string; client: string; channel: Channel; by: string };
 type Finding = { severity: string; title: string; detail: string };
-type ScanRun = { dashboardId: string; name: string; findings: Finding[]; announced: number; resolved: number; sent: boolean; errors: string[] };
+type ScanRun = { clientId: string; name: string; findings: Finding[]; announced: number; resolved: number; sent: boolean; errors: string[] };
 
 const STATUS: Record<SlackStatus, { label: string; tone: "emerald" | "amber" | "red" | "default" | "blue"; help: string }> = {
   connected: { label: "Slack connecté", tone: "emerald", help: "Le bot est membre du canal." },
@@ -65,6 +69,8 @@ export default function AutoAlertsPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
   const [scan, setScan] = useState<ScanRun[] | null>(null);
+  const [query, setQuery] = useState("");
+  const [hideDormant, setHideDormant] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -96,16 +102,22 @@ export default function AutoAlertsPage() {
   if (error) return <p className="text-sm text-red-400">{error}</p>;
   if (!data) return <p className="text-sm text-gray-500">Chargement…</p>;
 
+  const plain = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const q = plain(query.trim());
+  const shown = data.clients.filter((c) =>
+    (!hideDormant || !c.dormant || c.incidents.length > 0)
+    && (!q || plain(c.name).includes(q) || c.accounts.some((a) => plain(a.name).includes(q) || a.accountId.includes(q))));
+  const dormantCount = data.clients.filter((c) => c.dormant).length;
   const linked = data.clients.filter((c) => c.slackStatus === "connected" || c.slackStatus === "public").length;
   const openIncidents = data.clients.reduce((n, c) => n + c.incidents.length, 0);
 
-  const setChannel = (c: Client, value: string) => act(`channel:${c.dashboardId}`, async () => {
+  const setChannel = (c: Client, value: string) => act(`channel:${c.clientId}`, async () => {
     const ch = data.slack.free.find((x) => x.id === value);
-    await call("PATCH", { dashboardId: c.dashboardId, slackChannel: ch ? ch.name : value || null, slackChannelId: ch?.id ?? null });
+    await call("PATCH", { clientId: c.clientId, slackChannel: ch ? ch.name : value || null, slackChannelId: ch?.id ?? null });
     return value ? `Canal enregistré pour ${c.name}` : `Canal retiré pour ${c.name}`;
   });
-  const setConfig = (c: Client, patch: Partial<Config>) => act(`config:${c.dashboardId}`, async () => {
-    await call("PATCH", { dashboardId: c.dashboardId, config: { ...c.config, ...patch } });
+  const setConfig = (c: Client, patch: Partial<Config>) => act(`config:${c.clientId}`, async () => {
+    await call("PATCH", { clientId: c.clientId, config: { ...c.config, ...patch } });
   });
 
   return (
@@ -115,6 +127,13 @@ export default function AutoAlertsPage() {
         subtitle={<>Chaque compte est vérifié sans réglage : paiement, diffusion, créas, conversions, performance, budget. Le canal Slack du client ne reçoit un message que lorsque quelque chose change. {linked}/{data.clients.length} clients reliés à Slack · {openIncidents} point{openIncidents > 1 ? "s" : ""} en cours.</>}
         action={
           <div className="flex items-center gap-2">
+            <button className={ghostBtnCls} disabled={!!busy} title="Relit les comptes Meta et Google Ads : nouveaux comptes, comptes renommés" onClick={() => act("sync", async () => {
+              const res = await call("POST", { action: "sync" });
+              const added = res.created ? `, ${res.created} nouveau${res.created > 1 ? "x" : ""}` : "";
+              return `${res.clients} clients${added}.${res.warnings?.length ? ` ${res.warnings.join(" · ")}` : ""}`;
+            })}>
+              {busy === "sync" ? "Lecture…" : "Actualiser les comptes"}
+            </button>
             <button className={ghostBtnCls} disabled={!!busy || !data.slack.ok} onClick={() => act("suggest", async () => {
               const res = await call("POST", { action: "suggest" });
               setSuggestions(res.suggestions ?? []);
@@ -149,7 +168,7 @@ export default function AutoAlertsPage() {
             <div className="flex items-center gap-2">
               <button className={ghostBtnCls} onClick={() => setSuggestions(null)}>Ignorer</button>
               <button className={btnCls} disabled={!!busy} onClick={() => act("apply", async () => {
-                for (const s of suggestions) await call("PATCH", { dashboardId: s.dashboardId, slackChannel: s.channel.name, slackChannelId: s.channel.id });
+                for (const s of suggestions) await call("PATCH", { clientId: s.clientId, slackChannel: s.channel.name, slackChannelId: s.channel.id });
                 const n = suggestions.length;
                 setSuggestions(null);
                 return `${n} client${n > 1 ? "s" : ""} relié${n > 1 ? "s" : ""} à son canal.`;
@@ -159,14 +178,14 @@ export default function AutoAlertsPage() {
           bodyClassName="divide-y divide-gray-800"
         >
           {suggestions.map((s) => (
-            <div key={s.dashboardId} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
+            <div key={s.clientId} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
               <span className="text-white">{s.client} <span className="text-gray-500">→</span> <span className="text-violet-300">#{s.channel.name}</span></span>
               <span className="flex items-center gap-2">
                 <Pill tone={s.by === "nom identique" ? "emerald" : "amber"}>{s.by}</Pill>
                 {s.channel.isPrivate && !s.channel.isMember && <Pill tone="red">bot à inviter</Pill>}
-                <button className={btnCls} disabled={!!busy} onClick={() => act(`apply:${s.dashboardId}`, async () => {
-                  await call("PATCH", { dashboardId: s.dashboardId, slackChannel: s.channel.name, slackChannelId: s.channel.id });
-                  setSuggestions((list) => (list ?? []).filter((x) => x.dashboardId !== s.dashboardId));
+                <button className={btnCls} disabled={!!busy} onClick={() => act(`apply:${s.clientId}`, async () => {
+                  await call("PATCH", { clientId: s.clientId, slackChannel: s.channel.name, slackChannelId: s.channel.id });
+                  setSuggestions((list) => (list ?? []).filter((x) => x.clientId !== s.clientId));
                 })}>Appliquer</button>
               </span>
             </div>
@@ -178,7 +197,7 @@ export default function AutoAlertsPage() {
         <Section title="Résultat de la vérification" action={<button className={ghostBtnCls} onClick={() => setScan(null)}>Fermer</button>} bodyClassName="divide-y divide-gray-800">
           {scan.filter((r) => r.findings.length || r.errors.length).length === 0 && <p className="px-4 py-3 text-sm text-gray-400">Rien à signaler sur les comptes vérifiés.</p>}
           {scan.filter((r) => r.findings.length || r.errors.length).map((r) => (
-            <div key={r.dashboardId} className="px-4 py-3 space-y-1">
+            <div key={r.clientId} className="px-4 py-3 space-y-1">
               <p className="text-sm font-medium text-white">{r.name} {r.sent && <Pill tone="emerald">envoyé dans Slack</Pill>}</p>
               {r.findings.map((f, i) => (
                 <p key={i} className="text-xs text-gray-300"><Pill tone={f.severity === "critical" ? "red" : "amber"}>{f.title}</Pill> <span className="ml-1">{f.detail}</span></p>
@@ -189,22 +208,41 @@ export default function AutoAlertsPage() {
         </Section>
       )}
 
-      <Section title="Clients" bodyClassName="divide-y divide-gray-800">
-        {data.clients.length === 0 && <p className="px-4 py-3 text-sm text-gray-400">Aucun client relié à un compte publicitaire.</p>}
-        {data.clients.map((c) => {
+      <Section
+        title={`Clients (${shown.length}${shown.length !== data.clients.length ? ` sur ${data.clients.length}` : ""})`}
+        action={
+          <div className="flex items-center gap-3">
+            {dormantCount > 0 && (
+              <label className="flex items-center gap-1.5 text-xs text-gray-400">
+                <input type="checkbox" className="accent-violet-500" checked={hideDormant} onChange={(e) => setHideDormant(e.target.checked)} />
+                Masquer les {dormantCount} sans dépense
+              </label>
+            )}
+            <input className={`${selectCls} w-48`} type="search" placeholder="Chercher un client, un compte" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Chercher un client" />
+          </div>
+        }
+        bodyClassName="divide-y divide-gray-800"
+      >
+        {data.clients.length === 0 && <p className="px-4 py-3 text-sm text-gray-400">Aucun compte publicitaire lu. Cliquez sur « Actualiser les comptes ».</p>}
+        {data.clients.length > 0 && shown.length === 0 && <p className="px-4 py-3 text-sm text-gray-400">Aucun client ne correspond.</p>}
+        {shown.map((c) => {
           const st = STATUS[c.slackStatus];
-          const isOpen = open === c.dashboardId;
+          const isOpen = open === c.clientId;
           const critical = c.incidents.filter((i) => i.severity === "critical").length;
           const options = [
             ...(c.slackChannelId || c.slackChannel ? [{ id: c.slackChannelId ?? c.slackChannel ?? "", name: (c.slackChannel ?? "").replace(/^#/, "") || (c.slackChannelId ?? "") }] : []),
             ...data.slack.free.map((f) => ({ id: f.id, name: f.name + (f.isPrivate && !f.isMember ? " (privé)" : "") })),
           ];
           return (
-            <div key={c.dashboardId} className={c.enabled ? "" : "opacity-60"}>
+            <div key={c.clientId} className={c.enabled ? "" : "opacity-60"}>
               <div className="px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <button className="text-left min-w-0 flex-1" onClick={() => setOpen(isOpen ? null : c.dashboardId)}>
+                <button className="text-left min-w-0 flex-1" onClick={() => setOpen(isOpen ? null : c.clientId)}>
                   <span className="text-sm font-medium text-white">{c.name}</span>
-                  <span className="ml-2 text-[11px] text-gray-500">{[c.meta && "Meta", c.google && "Google"].filter(Boolean).join(" · ")}</span>
+                  <span className="ml-2 text-[11px] text-gray-500">
+                    {[c.meta && "Meta", c.google && "Google"].filter(Boolean).join(" · ")}
+                    {c.accounts.length > 1 && ` · ${c.accounts.length} comptes`}
+                  </span>
+                  {c.dormant && <span title="Aucune dépense sur les dix derniers jours"><Pill className="ml-2">sans dépense</Pill></span>}
                   {c.incidents.length > 0 && (
                     <Pill tone={critical ? "red" : "amber"} className="ml-2">{c.incidents.length} point{c.incidents.length > 1 ? "s" : ""} en cours</Pill>
                   )}
@@ -215,21 +253,21 @@ export default function AutoAlertsPage() {
                   {options.map((o) => <option key={o.id} value={o.id}>#{o.name}</option>)}
                 </select>
                 {c.slackStatus === "public" && (
-                  <button className={btnCls} disabled={!!busy} title="Le bot rejoint le canal public" onClick={() => act(`connect:${c.dashboardId}`, async () => { await call("POST", { action: "connect", dashboardId: c.dashboardId }); return `Le bot a rejoint le canal de ${c.name}.`; })}>
-                    {busy === `connect:${c.dashboardId}` ? "Connexion…" : "Connecter"}
+                  <button className={btnCls} disabled={!!busy} title="Le bot rejoint le canal public" onClick={() => act(`connect:${c.clientId}`, async () => { await call("POST", { action: "connect", clientId: c.clientId }); return `Le bot a rejoint le canal de ${c.name}.`; })}>
+                    {busy === `connect:${c.clientId}` ? "Connexion…" : "Connecter"}
                   </button>
                 )}
                 {c.slackStatus === "absent" && (
-                  <button className={btnCls} disabled={!!busy} title="À faire après avoir tapé /invite @BotAds dans le canal" onClick={() => act(`connect:${c.dashboardId}`, async () => { await call("POST", { action: "connect", dashboardId: c.dashboardId }); return `Le bot voit bien le canal de ${c.name}.`; })}>
-                    {busy === `connect:${c.dashboardId}` ? "Vérification…" : "Vérifier"}
+                  <button className={btnCls} disabled={!!busy} title="À faire après avoir tapé /invite @BotAds dans le canal" onClick={() => act(`connect:${c.clientId}`, async () => { await call("POST", { action: "connect", clientId: c.clientId }); return `Le bot voit bien le canal de ${c.name}.`; })}>
+                    {busy === `connect:${c.clientId}` ? "Vérification…" : "Vérifier"}
                   </button>
                 )}
                 {(c.slackStatus === "connected" || c.slackStatus === "public") && (
-                  <button className={ghostBtnCls} disabled={!!busy} title="Envoie un message de test dans le canal" onClick={() => act(`test:${c.dashboardId}`, async () => { await call("POST", { action: "test", dashboardId: c.dashboardId }); return `Message de test envoyé dans le canal de ${c.name}.`; })}>
-                    {busy === `test:${c.dashboardId}` ? "Envoi…" : "Tester"}
+                  <button className={ghostBtnCls} disabled={!!busy} title="Envoie un message de test dans le canal" onClick={() => act(`test:${c.clientId}`, async () => { await call("POST", { action: "test", clientId: c.clientId }); return `Message de test envoyé dans le canal de ${c.name}.`; })}>
+                    {busy === `test:${c.clientId}` ? "Envoi…" : "Tester"}
                   </button>
                 )}
-                <button className={ghostBtnCls} onClick={() => setOpen(isOpen ? null : c.dashboardId)}>{isOpen ? "Fermer" : "Régler"}</button>
+                <button className={ghostBtnCls} onClick={() => setOpen(isOpen ? null : c.clientId)}>{isOpen ? "Fermer" : "Régler"}</button>
               </div>
 
               {c.slackStatus === "absent" && (
@@ -240,6 +278,14 @@ export default function AutoAlertsPage() {
 
               {isOpen && (
                 <div className="px-4 pb-4 grid gap-4 md:grid-cols-2">
+                  <div className="md:col-span-2 space-y-1">
+                    <p className="text-xs text-gray-400">Compte{c.accounts.length > 1 ? "s" : ""} surveillé{c.accounts.length > 1 ? "s" : ""}</p>
+                    {c.accounts.map((a) => (
+                      <p key={`${a.platform}:${a.accountId}`} className="text-xs text-gray-300">
+                        {a.platform === "meta" ? "Meta Ads" : "Google Ads"} · {a.name} <span className="text-gray-600">{a.accountId}</span>
+                      </p>
+                    ))}
+                  </div>
                   <div className="space-y-2">
                     <p className="text-xs text-gray-400">Sujets surveillés</p>
                     {data.topics.map((t) => (
@@ -262,15 +308,15 @@ export default function AutoAlertsPage() {
                     </label>
                     <label className="flex items-center gap-2 text-sm text-gray-200">
                       <input type="checkbox" className="accent-violet-500" checked={c.enabled} disabled={!!busy}
-                        onChange={(e) => act(`enabled:${c.dashboardId}`, async () => { await call("PATCH", { dashboardId: c.dashboardId, autoAlerts: e.target.checked }); })} />
+                        onChange={(e) => act(`enabled:${c.clientId}`, async () => { await call("PATCH", { clientId: c.clientId, autoAlerts: e.target.checked }); })} />
                       Surveillance active pour ce client
                     </label>
-                    <button className={btnCls} disabled={!!busy} onClick={() => act(`scan:${c.dashboardId}`, async () => {
-                      const res = await call("POST", { action: "scan", dashboardId: c.dashboardId });
+                    <button className={btnCls} disabled={!!busy} onClick={() => act(`scan:${c.clientId}`, async () => {
+                      const res = await call("POST", { action: "scan", clientId: c.clientId });
                       setScan(res.runs ?? []);
                       return `${c.name} vérifié.`;
                     })}>
-                      {busy === `scan:${c.dashboardId}` ? "Vérification…" : "Vérifier ce client maintenant"}
+                      {busy === `scan:${c.clientId}` ? "Vérification…" : "Vérifier ce client maintenant"}
                     </button>
                   </div>
                   {c.incidents.length > 0 && (

@@ -1,39 +1,43 @@
 /**
  * Automatic alerting — one run over every client.
  *
- * A client = the dashboards sharing an ad account (same grouping as the
- * portfolio). Incidents hang on the oldest dashboard of the group; the Slack
- * channel is the first one set in the group. No channel → incidents are still
- * tracked, nothing is sent and no AI is called.
+ * A client = a group of ad accounts (lib/auto-alerts/clients.ts), with or
+ * without a dashboard. Each account is scanned on its own and its findings
+ * carry the account in their key. No channel → incidents are still tracked,
+ * nothing is sent and no AI is called.
  */
 
 import { prisma } from "@/lib/prisma";
-import { groupDashboardsByAccount } from "@/lib/portfolio";
-import { getAccountProfileSettings } from "@/lib/account-settings";
-import { pruneFindings, type DayPoint, type Finding, type Scope } from "@/lib/auto-alerts/detect";
-import { scanMetaAccount } from "@/lib/auto-alerts/meta";
+import { pruneFindings, type DayPoint, type Finding } from "@/lib/auto-alerts/detect";
+import { scanMetaAccount, type ScanResult } from "@/lib/auto-alerts/meta";
 import { scanGoogleAccount } from "@/lib/auto-alerts/google";
 import { applyPlan, markNotified, markNotifyError, planIncidents } from "@/lib/auto-alerts/incidents";
 import { buildDigest, hasNews, writeReading } from "@/lib/auto-alerts/message";
 import { autoAlertWebhook, postDigest } from "@/lib/auto-alerts/slack";
 import { enabledKinds, isDue, parseConfig } from "@/lib/auto-alerts/config";
+import { parseAccounts, syncAlertClients, type AlertAccount } from "@/lib/auto-alerts/clients";
 
 export interface RunOptions {
   /** Detect only: no incident written, nothing sent, no AI. */
   dryRun?: boolean;
-  /** Restrict to these dashboards (any member of a client group). */
-  dashboardIds?: string[];
+  /** Restrict to these clients. */
+  clientIds?: string[];
   /** Cron firing: each client is scanned only at the slots of its own frequency. */
   scheduled?: boolean;
+  /** Read the platforms again for new accounts before scanning (the cron does). */
+  sync?: boolean;
   /** Hard stop for the whole run (ms since epoch). */
   deadlineAt?: number;
   now?: Date;
 }
 
 export interface ClientRun {
-  dashboardId: string;
+  clientId: string;
   name: string;
   channel: string | null;
+  accounts: number;
+  /** No account spent anything over the last ten days. */
+  dormant: boolean;
   findings: Finding[];
   announced: number;
   resolved: number;
@@ -54,7 +58,7 @@ export interface RunResult {
   runs: ClientRun[];
 }
 
-const CONCURRENCY = 3;
+const CONCURRENCY = 4;
 /** Ceiling on AI readings per run, whatever happens to the accounts that day. */
 const MAX_AI_CALLS = 15;
 
@@ -68,72 +72,99 @@ function within<T>(p: Promise<T>, what: string): Promise<T> {
 }
 
 const appUrl = () => (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://app.impulse-analytics.com").replace(/\/$/, "");
+const PLATFORM = { meta: "Meta Ads", google: "Google Ads" } as const;
+
+export interface AccountOutcome { findings: Finding[]; evaluated: string[]; dormant: boolean }
+
+/**
+ * Pure: what one account contributes to its client. Findings and scopes get
+ * the account in their key; the title names the account when the client has
+ * several on the platform. An account that spent nothing for ten days raises
+ * nothing new — a closed account of 2023 is not news — but what is already
+ * open on it keeps being followed.
+ */
+export function tagAccount(account: AlertAccount, scan: Pick<ScanResult, "findings" | "evaluated" | "series">, opts: { siblings: number; openKeys: ReadonlySet<string> }): AccountOutcome {
+  const read = scan.evaluated.has(account.platform === "meta" ? "meta:days" : "google:days");
+  const dormant = read && scan.series.every((d) => d.spend <= 0);
+  const findings = scan.findings
+    .map((f): Finding => ({
+      ...f,
+      key: `${f.key}@${account.accountId}`,
+      scope: `${f.scope}@${account.accountId}` as Finding["scope"],
+      title: opts.siblings > 1 ? `${f.title} (${account.name})` : f.title,
+    }))
+    .filter((f) => !dormant || opts.openKeys.has(f.key));
+  return { findings, evaluated: [...scan.evaluated].map((s) => `${s}@${account.accountId}`), dormant };
+}
 
 export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
   const now = opts.now ?? new Date();
-  const rows = await prisma.dashboard.findMany({
-    select: { id: true, name: true, metaAccountId: true, googleCustomerId: true, createdAt: true, slackChannel: true, slackChannelId: true, autoAlerts: true, autoAlertConfig: true },
-  });
-  let { groups } = groupDashboardsByAccount(rows);
-  groups = groups.filter((g) => g.members.every((m) => m.autoAlerts));
-  if (opts.dashboardIds?.length) {
-    const wanted = new Set(opts.dashboardIds);
-    groups = groups.filter((g) => g.dashboardIds.some((id) => wanted.has(id)));
+  const result: RunResult = { clients: 0, scanned: 0, withFindings: 0, messages: 0, aiCalls: 0, timedOut: false, errors: [], runs: [] };
+  if (opts.sync || (await prisma.alertClient.count()) === 0) {
+    try {
+      result.errors.push(...(await syncAlertClients()).warnings);
+    } catch (e) {
+      result.errors.push(`Liste des clients non mise à jour — ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
-  if (opts.scheduled) groups = groups.filter((g) => isDue(parseConfig(g.primary.autoAlertConfig), now));
 
-  const result: RunResult = { clients: groups.length, scanned: 0, withFindings: 0, messages: 0, aiCalls: 0, timedOut: false, errors: [], runs: [] };
+  // Longest without a scan first: a run cut by its time budget resumes with the others.
+  let clients = await prisma.alertClient.findMany({
+    where: { gone: false, autoAlerts: true, ...(opts.clientIds?.length ? { id: { in: opts.clientIds } } : {}) },
+    orderBy: [{ lastScanAt: { sort: "asc", nulls: "first" } }, { name: "asc" }],
+  });
+  if (opts.scheduled) clients = clients.filter((c) => isDue(parseConfig(c.autoAlertConfig), now));
+  result.clients = clients.length;
+
   const canSend = !opts.dryRun && autoAlertWebhook() !== null;
   let next = 0;
 
-  const one = async (g: (typeof groups)[number]): Promise<ClientRun> => {
-    const dashboardId = g.primary.id;
-    const name = g.primary.name;
-    const linked = g.members.find((m) => m.slackChannelId || m.slackChannel);
-    const channel = linked?.slackChannel ?? linked?.slackChannelId ?? null;
-    const target = linked?.slackChannelId ?? linked?.slackChannel ?? null;
-    const kinds = enabledKinds(parseConfig(g.primary.autoAlertConfig));
-    const run: ClientRun = { dashboardId, name, channel, findings: [], announced: 0, resolved: 0, sent: false, aiUsed: false, errors: [] };
+  const one = async (c: (typeof clients)[number]): Promise<ClientRun> => {
+    const accounts = parseAccounts(c.accountsJson);
+    const channel = c.slackChannel ?? c.slackChannelId ?? null;
+    const target = c.slackChannelId ?? c.slackChannel ?? null;
+    const kinds = enabledKinds(parseConfig(c.autoAlertConfig));
+    const run: ClientRun = { clientId: c.id, name: c.name, channel, accounts: accounts.length, dormant: false, findings: [], announced: 0, resolved: 0, sent: false, aiUsed: false, errors: [] };
 
-    const evaluated = new Set<Scope>();
+    const existing = await prisma.autoIncident.findMany({ where: { clientId: c.id } });
+    const openKeys = new Set(existing.filter((i) => i.status === "open").map((i) => i.key));
+    const count = { meta: accounts.filter((a) => a.platform === "meta").length, google: accounts.filter((a) => a.platform === "google").length };
+    const fallbackCurrency = accounts.find((a) => a.currency)?.currency ?? "EUR";
+
+    const evaluated = new Set<string>();
     const series: Record<string, DayPoint[]> = {};
     const found: Finding[] = [];
-    let currency = "EUR";
-    if (g.metaAccountId) {
+    const dormant: boolean[] = [];
+    await Promise.all(accounts.map(async (a) => {
+      const label = count[a.platform] > 1 ? `${PLATFORM[a.platform]} — ${a.name}` : PLATFORM[a.platform];
       try {
-        const meta = await within(scanMetaAccount(g.metaAccountId, now), "Meta Ads");
-        found.push(...meta.findings);
-        meta.evaluated.forEach((s) => evaluated.add(s));
-        run.errors.push(...meta.errors);
-        series["Meta Ads"] = meta.series;
-        currency = meta.currency;
+        const scan = await within(
+          a.platform === "meta" ? scanMetaAccount(a.accountId, now) : scanGoogleAccount(a.accountId, a.currency ?? fallbackCurrency, now),
+          label,
+        );
+        run.errors.push(...scan.errors.map((e) => (count[a.platform] > 1 ? `${a.name} — ${e}` : e)));
+        // Topics first, symptoms second: with "paiement" switched off, a blocked
+        // account must not hide the stop of delivery it causes.
+        const kept = pruneFindings(scan.findings.filter((f) => kinds.has(f.kind)));
+        const out = tagAccount(a, { ...scan, findings: kept }, { siblings: count[a.platform], openKeys });
+        found.push(...out.findings);
+        out.evaluated.forEach((s) => evaluated.add(s));
+        dormant.push(out.dormant);
+        if (!out.dormant) series[label] = scan.series;
       } catch (e) {
+        dormant.push(false);
         run.errors.push(e instanceof Error ? e.message : String(e));
       }
-    } else {
-      try { currency = (await getAccountProfileSettings("google", g.googleCustomerId ?? "")).currency ?? "EUR"; } catch { /* EUR */ }
-    }
-    if (g.googleCustomerId) {
-      try {
-        const google = await within(scanGoogleAccount(g.googleCustomerId, currency, now), "Google Ads");
-        found.push(...google.findings);
-        google.evaluated.forEach((s) => evaluated.add(s));
-        run.errors.push(...google.errors);
-        series["Google Ads"] = google.series;
-      } catch (e) {
-        run.errors.push(e instanceof Error ? e.message : String(e));
-      }
-    }
-    // Topics first, symptoms second: with "paiement" switched off, a blocked
-    // account must not hide the stop of delivery it causes.
-    run.findings = pruneFindings(found.filter((f) => kinds.has(f.kind)));
+    }));
+    run.dormant = dormant.length > 0 && dormant.every(Boolean);
+    run.findings = found.sort((a, b) => Number(b.severity === "critical") - Number(a.severity === "critical"));
     if (opts.dryRun) return run;
 
-    const existing = await prisma.autoIncident.findMany({ where: { dashboardId } });
     const plan = planIncidents(existing, run.findings, evaluated, now);
     // A topic switched off closes its incidents without a word.
     for (const r of plan.resolve) if (!kinds.has(r.incident.kind as never)) r.say = false;
-    const { announcedIds } = await applyPlan(dashboardId, plan, now);
+    const { announcedIds } = await applyPlan(c.id, plan, now);
+    await prisma.alertClient.update({ where: { id: c.id }, data: { lastScanAt: now, dormant: run.dormant } });
     run.announced = plan.announce.length;
     run.resolved = plan.resolve.length;
     if (!hasNews(plan) || !target || !canSend) return run;
@@ -143,12 +174,13 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
     let reading: string | null = null;
     if (unexplained.length && result.aiCalls < MAX_AI_CALLS) {
       result.aiCalls++;
-      reading = await writeReading({ dashboardId, name }, plan.announce.map((a) => a.finding), series);
+      reading = await writeReading({ dashboardId: c.dashboardId, name: c.name }, plan.announce.map((a) => a.finding), series);
       run.aiUsed = reading !== null;
     }
-    run.text = buildDigest({ clientName: name, plan, reading, link: `${appUrl()}/portfolio/${dashboardId}`, stillOpen: plan.touch.length });
+    const link = c.dashboardId ? `${appUrl()}/portfolio/${c.dashboardId}` : `${appUrl()}/admin/auto-alerts`;
+    run.text = buildDigest({ clientName: c.name, plan, reading, link, stillOpen: plan.touch.length });
     try {
-      await postDigest(target, run.text, { id: dashboardId, name });
+      await postDigest(target, run.text, { id: c.id, name: c.name });
       await markNotified(plan, announcedIds, now);
       run.sent = true;
       result.messages++;
@@ -160,20 +192,20 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
     return run;
   };
 
-  const workers = Array.from({ length: Math.min(CONCURRENCY, groups.length) }, async () => {
+  const workers = Array.from({ length: Math.min(CONCURRENCY, clients.length) }, async () => {
     for (;;) {
       if (opts.deadlineAt && Date.now() >= opts.deadlineAt) { result.timedOut = true; return; }
       const i = next++;
-      if (i >= groups.length) return;
-      const g = groups[i];
+      if (i >= clients.length) return;
+      const c = clients[i];
       try {
-        const run = await one(g);
+        const run = await one(c);
         result.scanned++;
         if (run.findings.length) result.withFindings++;
         for (const e of run.errors) result.errors.push(`${run.name} — ${e}`);
         result.runs.push(run);
       } catch (e) {
-        result.errors.push(`${g.primary.name} — ${e instanceof Error ? e.message : String(e)}`);
+        result.errors.push(`${c.name} — ${e instanceof Error ? e.message : String(e)}`);
       }
     }
   });

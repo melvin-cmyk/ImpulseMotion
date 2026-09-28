@@ -1,42 +1,27 @@
 /**
- * GET   /api/admin/auto-alerts            → clients, their Slack link, settings, open incidents
- * PATCH /api/admin/auto-alerts            → { dashboardId, slackChannel?, slackChannelId?, autoAlerts?, config? }
- * POST  /api/admin/auto-alerts            → { action: "suggest" | "connect" | "test" | "scan", dashboardId?, dryRun? }
+ * GET   /api/admin/auto-alerts            → clients, their accounts, Slack link, settings, open incidents
+ * PATCH /api/admin/auto-alerts            → { clientId, slackChannel?, slackChannelId?, autoAlerts?, config? }
+ * POST  /api/admin/auto-alerts            → { action: "suggest" | "connect" | "test" | "scan" | "sync", clientId?, dryRun? }
  *
- * Staff only. A consultant sees and edits the clients assigned to them.
+ * Staff only. A consultant sees and edits the clients that have an account assigned to them.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { getAccountScope, googleInScope, metaInScope, type AccountScope } from "@/lib/scope";
-import { groupDashboardsByAccount } from "@/lib/portfolio";
+import { getAccountScope } from "@/lib/scope";
 import { FREQUENCIES, TOPICS, normalizeConfig, parseConfig } from "@/lib/auto-alerts/config";
 import { autoAlertWebhook, cleanChannel, joinChannel, linkStatus, listClientChannels, matchChannels, postDigest, type SlackChannel } from "@/lib/auto-alerts/slack";
 import { matchWithAi } from "@/lib/auto-alerts/match-ai";
 import { runAutoAlerts } from "@/lib/auto-alerts/run";
+import { loadAlertClients, syncAlertClients, type StoredClient } from "@/lib/auto-alerts/clients";
 
 export const maxDuration = 300;
 
-const SELECT = {
-  id: true, name: true, metaAccountId: true, googleCustomerId: true, createdAt: true,
-  slackChannel: true, slackChannelId: true, autoAlerts: true, autoAlertConfig: true,
-} as const;
-
 const CHANNEL_ID_RE = /^[CG][A-Z0-9]{8,}$/;
 
-async function loadGroups(scope: AccountScope) {
-  const rows = await prisma.dashboard.findMany({ select: SELECT });
-  const { groups } = groupDashboardsByAccount(rows);
-  return groups.filter((g) => scope.all || metaInScope(scope, g.metaAccountId) || googleInScope(scope, g.googleCustomerId));
-}
-
-type Group = Awaited<ReturnType<typeof loadGroups>>[number];
-const linkedOf = (g: Group) => g.members.find((m) => m.slackChannelId || m.slackChannel) ?? null;
-const linkOf = (g: Group, channels: SlackChannel[]) => {
-  const linked = linkedOf(g);
-  return linkStatus({ slackChannel: linked?.slackChannel ?? null, slackChannelId: linked?.slackChannelId ?? null }, channels);
-};
+const isLinked = (c: StoredClient) => !!(c.slackChannelId || c.slackChannel);
+const linkOf = (c: StoredClient, channels: SlackChannel[]) => linkStatus({ slackChannel: c.slackChannel, slackChannelId: c.slackChannelId }, channels);
 
 /** Slack explains a refusal with a code; the page needs a sentence. */
 function slackHint(error: string): string {
@@ -59,38 +44,40 @@ async function channelsOrError(): Promise<{ channels: SlackChannel[]; error: str
 export async function GET() {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
-  const groups = await loadGroups(await getAccountScope(guard.session));
+  const clients = await loadAlertClients(await getAccountScope(guard.session));
   const [slack, incidents] = await Promise.all([
     channelsOrError(),
     prisma.autoIncident.findMany({
-      where: { dashboardId: { in: groups.map((g) => g.primary.id) }, status: "open" },
+      where: { clientId: { in: clients.map((c) => c.id) }, status: "open" },
       orderBy: { firstSeenAt: "desc" },
-      select: { id: true, dashboardId: true, kind: true, platform: true, severity: true, title: true, detail: true, firstSeenAt: true, lastSeenAt: true, notifiedAt: true, notifyError: true },
+      select: { id: true, clientId: true, kind: true, platform: true, severity: true, title: true, detail: true, firstSeenAt: true, lastSeenAt: true, notifiedAt: true, notifyError: true },
     }),
   ]);
   const taken = new Set<string>();
-  const clients = groups.map((g) => {
-    const linked = linkedOf(g);
+  const rows = clients.map((c) => {
     const link = slack.error
-      ? { status: linked ? ("unknown" as const) : ("none" as const), channel: null }
-      : linkOf(g, slack.channels);
+      ? { status: isLinked(c) ? ("unknown" as const) : ("none" as const), channel: null }
+      : linkOf(c, slack.channels);
     if (link.channel) taken.add(link.channel.id);
     return {
-      dashboardId: g.primary.id,
-      name: g.primary.name,
-      meta: !!g.metaAccountId,
-      google: !!g.googleCustomerId,
-      enabled: g.members.every((m) => m.autoAlerts),
-      slackChannel: linked?.slackChannel ?? null,
-      slackChannelId: linked?.slackChannelId ?? null,
+      clientId: c.id,
+      name: c.name,
+      accounts: c.accounts.map((a) => ({ platform: a.platform, accountId: a.accountId, name: a.name })),
+      meta: c.accounts.some((a) => a.platform === "meta"),
+      google: c.accounts.some((a) => a.platform === "google"),
+      enabled: c.autoAlerts,
+      dormant: c.dormant,
+      lastScanAt: c.lastScanAt,
+      slackChannel: c.slackChannel,
+      slackChannelId: c.slackChannelId,
       slackStatus: link.status,
       slackPrivate: link.channel?.isPrivate ?? null,
-      config: parseConfig(g.primary.autoAlertConfig),
-      incidents: incidents.filter((i) => i.dashboardId === g.primary.id),
+      config: parseConfig(c.autoAlertConfig),
+      incidents: incidents.filter((i) => i.clientId === c.id),
     };
   });
   return NextResponse.json({
-    clients,
+    clients: rows,
     slack: { ok: !slack.error, error: slack.error, total: slack.channels.length, free: slack.channels.filter((c) => !taken.has(c.id)) },
     topics: TOPICS.map(({ id, label, hint }) => ({ id, label, hint })),
     frequencies: FREQUENCIES,
@@ -101,9 +88,9 @@ export async function PATCH(req: NextRequest) {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const body = await req.json().catch(() => ({}));
-  const groups = await loadGroups(await getAccountScope(guard.session));
-  const g = groups.find((x) => x.dashboardIds.includes(String(body.dashboardId ?? "")));
-  if (!g) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
+  const clients = await loadAlertClients(await getAccountScope(guard.session));
+  const c = clients.find((x) => x.id === String(body.clientId ?? ""));
+  if (!c) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
 
   const data: Record<string, unknown> = {};
   if ("slackChannel" in body) {
@@ -122,8 +109,7 @@ export async function PATCH(req: NextRequest) {
   if (body.config !== undefined) data.autoAlertConfig = JSON.stringify(normalizeConfig(body.config));
   if (!Object.keys(data).length) return NextResponse.json({ error: "rien à modifier" }, { status: 400 });
 
-  // One client = every dashboard of the group: they must not disagree.
-  await prisma.dashboard.updateMany({ where: { id: { in: g.dashboardIds } }, data });
+  await prisma.alertClient.update({ where: { id: c.id }, data });
   return NextResponse.json({ ok: true });
 }
 
@@ -132,14 +118,24 @@ export async function POST(req: NextRequest) {
   if ("error" in guard) return guard.error;
   const body = await req.json().catch(() => ({}));
   const action = String(body.action ?? "");
-  const groups = await loadGroups(await getAccountScope(guard.session));
-  const one = () => groups.find((x) => x.dashboardIds.includes(String(body.dashboardId ?? "")));
+
+  if (action === "sync") {
+    // Reads the platforms again: new accounts, renamed accounts, new clients of the sheet.
+    try {
+      return NextResponse.json(await syncAlertClients());
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
+    }
+  }
+
+  const clients = await loadAlertClients(await getAccountScope(guard.session));
+  const one = () => clients.find((x) => x.id === String(body.clientId ?? ""));
 
   if (action === "suggest") {
     const slack = await channelsOrError();
     if (slack.error) return NextResponse.json({ error: slack.error }, { status: 502 });
-    const todo = groups.filter((g) => !linkedOf(g)).map((g) => ({ id: g.primary.id, name: g.primary.name }));
-    const used = new Set(groups.map((g) => linkOf(g, slack.channels).channel?.id).filter(Boolean));
+    const todo = clients.filter((c) => !isLinked(c)).map((c) => ({ id: c.id, name: c.name }));
+    const used = new Set(clients.map((c) => linkOf(c, slack.channels).channel?.id).filter(Boolean));
     const free = slack.channels.filter((c) => !used.has(c.id));
     const { matches, unmatched } = matchChannels(todo, free);
     let ai: typeof matches = [];
@@ -155,44 +151,44 @@ export async function POST(req: NextRequest) {
     const name = (id: string) => todo.find((t) => t.id === id)?.name ?? id;
     return NextResponse.json({
       suggestions: [
-        ...matches.map((m) => ({ dashboardId: m.clientId, client: name(m.clientId), channel: m.channel, by: m.confidence === "exact" ? "nom identique" : "nom proche" })),
-        ...ai.map((m) => ({ dashboardId: m.clientId, client: name(m.clientId), channel: m.channel, by: "proposé par l'IA" })),
+        ...matches.map((m) => ({ clientId: m.clientId, client: name(m.clientId), channel: m.channel, by: m.confidence === "exact" ? "nom identique" : "nom proche" })),
+        ...ai.map((m) => ({ clientId: m.clientId, client: name(m.clientId), channel: m.channel, by: "proposé par l'IA" })),
       ],
       aiError,
     });
   }
 
   if (action === "connect" || action === "test") {
-    const g = one();
-    if (!g) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
-    const linked = linkedOf(g);
-    if (!linked) return NextResponse.json({ error: "aucun canal Slack choisi pour ce client" }, { status: 400 });
+    const c = one();
+    if (!c) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
+    if (!isLinked(c)) return NextResponse.json({ error: "aucun canal Slack choisi pour ce client" }, { status: 400 });
     const slack = await channelsOrError();
     if (slack.error) return NextResponse.json({ error: slack.error }, { status: 502 });
-    const link = linkOf(g, slack.channels);
+    const link = linkOf(c, slack.channels);
     if (!link.channel) return NextResponse.json({ error: slackHint("channel_not_found") }, { status: 409 });
     try {
       if (action === "connect") {
         if (link.channel.isPrivate && !link.channel.isMember) return NextResponse.json({ error: slackHint("is_private") }, { status: 409 });
         if (!link.channel.isMember) await joinChannel(link.channel.id);
       } else {
-        await postDigest(link.channel.id, `:white_check_mark: *${g.primary.name}* — test des alertes automatiques ImpulseMotion. Les prochaines alertes de ce client arriveront ici.`, { id: g.primary.id, name: g.primary.name });
+        await postDigest(link.channel.id, `:white_check_mark: *${c.name}* — test des alertes automatiques ImpulseMotion. Les prochaines alertes de ce client arriveront ici.`, { id: c.id, name: c.name });
       }
     } catch (e) {
       return NextResponse.json({ error: slackHint(e instanceof Error ? e.message : String(e)) }, { status: 502 });
     }
-    if (linked.slackChannelId !== link.channel.id) {
-      await prisma.dashboard.updateMany({ where: { id: { in: g.dashboardIds } }, data: { slackChannelId: link.channel.id, slackChannel: `#${link.channel.name}` } });
+    if (c.slackChannelId !== link.channel.id) {
+      await prisma.alertClient.update({ where: { id: c.id }, data: { slackChannelId: link.channel.id, slackChannel: `#${link.channel.name}` } });
     }
     return NextResponse.json({ ok: true });
   }
 
   if (action === "scan") {
-    const g = body.dashboardId ? one() : null;
-    if (body.dashboardId && !g) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
+    const c = body.clientId ? one() : null;
+    if (body.clientId && !c) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
+    if (!c && !clients.length) return NextResponse.json({ error: "aucun client à vérifier" }, { status: 404 });
     const result = await runAutoAlerts({
       dryRun: body.dryRun === true,
-      dashboardIds: g ? [g.primary.id] : groups.map((x) => x.primary.id),
+      clientIds: c ? [c.id] : clients.map((x) => x.id),
       deadlineAt: Date.now() + 270_000,
     });
     return NextResponse.json(result);

@@ -12,7 +12,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import type { Finding, Scope, Severity } from "@/lib/auto-alerts/detect";
+import type { Finding, Severity } from "@/lib/auto-alerts/detect";
 
 export const REMIND_AFTER_MS = 72 * 3600 * 1000;
 export const MAX_REMINDERS = 1;
@@ -49,7 +49,7 @@ export interface Plan {
 const rank = (s: string) => (s === "critical" ? 2 : 1);
 
 /** Pure: what to do with this run's findings given what is already known. */
-export function planIncidents(existing: IncidentState[], findings: Finding[], evaluated: ReadonlySet<Scope>, now: Date = new Date()): Plan {
+export function planIncidents(existing: IncidentState[], findings: Finding[], evaluated: ReadonlySet<string>, now: Date = new Date()): Plan {
   const plan: Plan = { announce: [], touch: [], miss: [], resolve: [] };
   const byKey = new Map(existing.map((i) => [i.key, i]));
   const seen = new Set<string>();
@@ -82,7 +82,7 @@ export function planIncidents(existing: IncidentState[], findings: Finding[], ev
   for (const inc of existing) {
     if (inc.status !== "open" || seen.has(inc.key)) continue;
     // A scope that could not be read this run says nothing about its incidents.
-    if (!evaluated.has(inc.scope as Scope)) continue;
+    if (!evaluated.has(inc.scope)) continue;
     if (inc.missCount + 1 >= MISSES_TO_RESOLVE) plan.resolve.push({ incident: inc, say: !!inc.notifiedAt });
     else plan.miss.push(inc.id);
   }
@@ -95,7 +95,7 @@ export interface AppliedPlan {
 }
 
 /** Writes the plan. Delivery is recorded apart (markNotified) once Slack answered. */
-export async function applyPlan(dashboardId: string, plan: Plan, now: Date = new Date()): Promise<AppliedPlan> {
+export async function applyPlan(clientId: string, plan: Plan, now: Date = new Date()): Promise<AppliedPlan> {
   const announcedIds: string[] = [];
   for (const a of plan.announce) {
     const f = a.finding;
@@ -105,8 +105,8 @@ export async function applyPlan(dashboardId: string, plan: Plan, now: Date = new
       lastSeenAt: now, missCount: 0,
     };
     const row = await prisma.autoIncident.upsert({
-      where: { dashboardId_key: { dashboardId, key: f.key } },
-      create: { dashboardId, key: f.key, status: "open", firstSeenAt: now, ...data },
+      where: { clientId_key: { clientId, key: f.key } },
+      create: { clientId, key: f.key, status: "open", firstSeenAt: now, ...data },
       update: a.reason === "new" && a.incidentId
         // Reopened (or never delivered): a fresh incident as far as the channel is concerned.
         ? { status: "open", resolvedAt: null, remindCount: 0, ...data }

@@ -1,6 +1,6 @@
 /**
  * Automatic alerting — what a client is watched for, and how often.
- * Stored per client in Dashboard.autoAlertConfig; an empty object means
+ * Stored per client in AlertClient.autoAlertConfig; an empty object means
  * "everything, twice a day", so a new client is covered without any setup.
  */
 

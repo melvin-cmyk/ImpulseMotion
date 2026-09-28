@@ -12,7 +12,7 @@ function checkCronAuth(req: NextRequest): boolean {
 /** Four firings a day (vercel.json); each client follows its own frequency. Quiet accounts cost a few API reads and no AI. */
 export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const result = await runAutoAlerts({ scheduled: true, deadlineAt: Date.now() + 270_000 });
+  const result = await runAutoAlerts({ scheduled: true, sync: true, deadlineAt: Date.now() + 270_000 });
   const { runs, ...summary } = result;
   return NextResponse.json({
     ...summary,
