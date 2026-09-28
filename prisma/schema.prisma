@@ -26,6 +26,7 @@ model User {
   clientReports        ClientReport[]
   botAccesses          ClientBotAccess[]
   botConversations     BotConversation[]
+  consoleConversations ConsoleConversation[]
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 }
@@ -395,6 +396,23 @@ model BotConversation {
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([botId, userId, updatedAt])
+}
+
+/// Conversations of the staff AI console (/ai). Private to their owner: every
+/// read and write is filtered by userId, nothing is kept in the browser.
+/// `id` is the conversation uuid that also names the relay session and the
+/// sandbox workspace (console:<userId>:<id>).
+model ConsoleConversation {
+  id           String   @id
+  userId       String
+  title        String
+  /// JSON [{ id, role, content, images?, files?, toolCalls?, toolResults?, usage? }] — no image pixels
+  messagesJson String   @default("[]") @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
 }
 
 /// Billing ledger of the AI run on Amazon Bedrock (today: the private client

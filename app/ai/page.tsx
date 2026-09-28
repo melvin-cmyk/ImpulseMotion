@@ -8,12 +8,13 @@
  * Python (graphiques et exports rendus via /api/relay/files), images et
  * documents joints, choix du modèle, « Mémoriser dans HQ ».
  *
- * Les conversations vivent dans le navigateur (localStorage, pixels des
- * images non conservés) ; le relay garde la session CLI par conversation.
+ * Les conversations sont enregistrées côté serveur, privées au consultant
+ * connecté (pixels des images non conservés) ; rien n'en reste dans le
+ * navigateur. Le relay garde la session CLI par conversation.
  */
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Send, Loader2, Bot, User, Wrench, Plus, Copy, Check, History, Square } from "lucide-react"
+import { Send, Loader2, Bot, User, Wrench, Plus, Copy, Check, History, Square, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { streamChat, type StreamEvent } from "@/lib/relay-client"
 import { AiMarkdown } from "@/components/ai/ai-markdown"
@@ -44,46 +45,86 @@ interface UIMessage {
 interface ConversationMeta { id: string; title: string; updatedAt: number }
 
 const PREFS_KEY = "console:prefs"
-const LIST_KEY = "console:conversations"
-const CONV_KEY = (id: string) => `console:conv:${id}`
-const MAX_CONVERSATIONS = 20
+const LEGACY_LIST_KEY = "console:conversations"
+const LEGACY_CONV_KEY = (id: string) => `console:conv:${id}`
 const MAX_HISTORY = 30
 
-function loadList(): ConversationMeta[] {
+/** What is stored of a message: no image pixels, no tool output, no live state. */
+function slimMessages(messages: UIMessage[]) {
+  return messages
+    .filter((m) => m.content || m.images?.length || m.files?.length)
+    .map((m) => ({
+      id: m.id, role: m.role, content: m.content,
+      ...(m.images?.length ? { images: m.images.map((im) => ({ mediaType: im.mediaType, data: "", name: im.name })) } : {}),
+      ...(m.files?.length ? { files: m.files } : {}),
+      ...(m.toolCalls?.length ? { toolCalls: m.toolCalls, toolResults: (m.toolResults ?? []).map((r) => ({ ...r, content: "" })) } : {}),
+      ...(m.usage ? { usage: m.usage } : {}),
+    }))
+}
+
+// Conversations are kept on the server, private to the signed-in consultant
+// (/api/relay/conversations) — nothing of them stays in the browser.
+async function fetchList(): Promise<ConversationMeta[]> {
   try {
-    const raw = localStorage.getItem(LIST_KEY)
-    const list = raw ? JSON.parse(raw) : []
-    return Array.isArray(list) ? list.filter((c) => c && typeof c.id === "string") : []
+    const res = await fetch("/api/relay/conversations", { cache: "no-store" })
+    if (!res.ok) return []
+    const json = await res.json()
+    return Array.isArray(json.conversations) ? json.conversations : []
   } catch { return [] }
 }
 
-function loadConversation(id: string): UIMessage[] {
+async function fetchConversation(id: string): Promise<UIMessage[]> {
   try {
-    const raw = localStorage.getItem(CONV_KEY(id))
-    const list = raw ? JSON.parse(raw) : []
-    return Array.isArray(list) ? list : []
+    const res = await fetch(`/api/relay/conversations/${id}`, { cache: "no-store" })
+    if (!res.ok) return []
+    const json = await res.json()
+    return Array.isArray(json.messages) ? json.messages : []
   } catch { return [] }
 }
 
-/** Persists a conversation without image pixels (localStorage is ~5 MB per origin). */
-function saveConversation(id: string, messages: UIMessage[]) {
+async function saveConversation(id: string, messages: UIMessage[]): Promise<boolean> {
   try {
-    const slim = messages
-      .filter((m) => m.content || m.images?.length || m.files?.length)
-      .map((m) => ({
-        id: m.id, role: m.role, content: m.content,
-        ...(m.images?.length ? { images: m.images.map((im) => ({ mediaType: im.mediaType, data: "", name: im.name })) } : {}),
-        ...(m.files?.length ? { files: m.files } : {}),
-        ...(m.toolCalls?.length ? { toolCalls: m.toolCalls, toolResults: (m.toolResults ?? []).map((r) => ({ ...r, content: "" })) } : {}),
-        ...(m.usage ? { usage: m.usage } : {}),
-      }))
-    localStorage.setItem(CONV_KEY(id), JSON.stringify(slim))
-    const first = messages.find((m) => m.role === "user")?.content.replace(FILES_NOTE_RE, "").trim() ?? ""
-    const title = (first || "Nouvelle conversation").slice(0, 60)
-    const list = [{ id, title, updatedAt: Date.now() }, ...loadList().filter((c) => c.id !== id)].slice(0, MAX_CONVERSATIONS)
-    for (const gone of loadList().filter((c) => !list.some((k) => k.id === c.id))) localStorage.removeItem(CONV_KEY(gone.id))
-    localStorage.setItem(LIST_KEY, JSON.stringify(list))
-  } catch { /* quota or private mode: the thread still lives in memory */ }
+    const res = await fetch(`/api/relay/conversations/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: slimMessages(messages) }),
+    })
+    return res.ok
+  } catch { return false }
+}
+
+/**
+ * One-off: conversations an earlier version kept in this browser are moved to
+ * the account of whoever is signed in, then wiped from the browser.
+ */
+async function moveLegacyConversations(): Promise<void> {
+  let ids: string[] = []
+  try {
+    const raw = localStorage.getItem(LEGACY_LIST_KEY)
+    const list = raw ? JSON.parse(raw) : []
+    ids = Array.isArray(list) ? list.map((c) => c?.id).filter((id): id is string => typeof id === "string") : []
+  } catch { return }
+  for (const id of ids.reverse()) {
+    try {
+      const raw = localStorage.getItem(LEGACY_CONV_KEY(id))
+      const msgs = raw ? JSON.parse(raw) : []
+      if (!Array.isArray(msgs) || !msgs.length) continue
+      const res = await fetch(`/api/relay/conversations/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: slimMessages(msgs) }),
+      })
+      // Server down or signed out: keep them for a later try. A refused
+      // entry (4xx) is dropped with the rest.
+      if (res.status >= 500 || res.status === 401) return
+    } catch (e) {
+      if (e instanceof TypeError) return // network failure: try again next time
+    }
+  }
+  try {
+    for (const id of ids) localStorage.removeItem(LEGACY_CONV_KEY(id))
+    localStorage.removeItem(LEGACY_LIST_KEY)
+  } catch { /* private mode */ }
 }
 
 export default function AIPage() {
@@ -100,6 +141,9 @@ export default function AIPage() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  // Set once the consultant acts, so the restored conversation never overwrites it.
+  const startedRef = useRef(false)
+  const [saveError, setSaveError] = useState(false)
   const att = useAttachments({ uploadUrl: "/api/relay/files", uploadExtra: { conversationId }, disabled: isLoading })
   const filesBase = `/api/relay/files/${conversationId}`
 
@@ -112,12 +156,20 @@ export default function AIPage() {
   // Restore prefs + the most recent conversation.
   useEffect(() => {
     setPrefs(loadPrefs(PREFS_KEY))
-    const list = loadList()
-    setConversations(list)
-    if (list[0]) {
-      const msgs = loadConversation(list[0].id)
-      if (msgs.length) { setConversationId(list[0].id); setMessages(msgs) }
-    }
+    let cancelled = false
+    void (async () => {
+      await moveLegacyConversations()
+      const list = await fetchList()
+      if (cancelled) return
+      setConversations(list)
+      if (!list[0]) return
+      const msgs = await fetchConversation(list[0].id)
+      // Do not replace a conversation the consultant already started typing in.
+      if (cancelled || !msgs.length || startedRef.current) return
+      setConversationId(list[0].id)
+      setMessages(msgs)
+    })()
+    return () => { cancelled = true }
   }, [])
 
   function updatePrefs(patch: Partial<AiPrefs>) {
@@ -125,12 +177,22 @@ export default function AIPage() {
   }
 
   function persist(id: string, msgs: UIMessage[]) {
-    saveConversation(id, msgs)
-    setConversations(loadList())
+    void (async () => {
+      const saved = await saveConversation(id, msgs)
+      setSaveError(!saved)
+      setConversations(await fetchList())
+    })()
+  }
+
+  async function deleteConversation(id: string) {
+    try { await fetch(`/api/relay/conversations/${id}`, { method: "DELETE" }) } catch { /* listed again below if it failed */ }
+    if (id === conversationId) { setConversationId(crypto.randomUUID()); setMessages([]) }
+    setConversations(await fetchList())
   }
 
   function newConversation() {
     if (isLoading) abortRef.current?.abort()
+    startedRef.current = true
     setConversationId(crypto.randomUUID())
     setMessages([])
     setMemo((m) => ({ ...m, open: false, note: null }))
@@ -138,10 +200,12 @@ export default function AIPage() {
     inputRef.current?.focus()
   }
 
-  function openConversation(id: string) {
+  async function openConversation(id: string) {
     if (isLoading) abortRef.current?.abort()
+    startedRef.current = true
+    const msgs = await fetchConversation(id)
     setConversationId(id)
-    setMessages(loadConversation(id))
+    setMessages(msgs)
     setMemo((m) => ({ ...m, open: false, note: null }))
     setShowHistory(false)
   }
@@ -156,6 +220,7 @@ export default function AIPage() {
     const userMsg: UIMessage = { id: crypto.randomUUID(), role: "user", content, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) }
     const assistantMsg: UIMessage = { id: crypto.randomUUID(), role: "assistant", content: "", toolCalls: [], toolResults: [], isStreaming: true, activity: INITIAL_ACTIVITY, startedAt: Date.now() }
 
+    startedRef.current = true
     setMessages((prev) => [...prev, userMsg, assistantMsg])
     setInput("")
     setIsLoading(true)
@@ -335,11 +400,17 @@ export default function AIPage() {
               <div className="absolute right-0 mt-1 w-72 max-h-80 overflow-auto bg-gray-950 border border-gray-800 rounded-xl shadow-2xl z-30 p-1">
                 {conversations.length === 0 && <div className="text-xs text-gray-500 px-3 py-2">Aucune conversation enregistrée.</div>}
                 {conversations.map((c) => (
-                  <button key={c.id} type="button" onClick={() => openConversation(c.id)} className={`w-full text-left px-3 py-2 rounded-lg text-xs hover:bg-gray-900 ${c.id === conversationId ? "text-violet-300" : "text-gray-300"}`}>
-                    <div className="truncate">{c.title}</div>
-                    <div className="text-[10px] text-gray-600">{new Date(c.updatedAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</div>
-                  </button>
+                  <div key={c.id} className="group flex items-center rounded-lg hover:bg-gray-900">
+                    <button type="button" onClick={() => openConversation(c.id)} className={`flex-1 min-w-0 text-left px-3 py-2 text-xs ${c.id === conversationId ? "text-violet-300" : "text-gray-300"}`}>
+                      <div className="truncate">{c.title}</div>
+                      <div className="text-[10px] text-gray-600">{new Date(c.updatedAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</div>
+                    </button>
+                    <button type="button" onClick={() => deleteConversation(c.id)} title="Supprimer cette conversation" className="px-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 focus:opacity-100">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 ))}
+                <div className="text-[10px] text-gray-600 px-3 py-2 border-t border-gray-900 mt-1">Historique privé : visible uniquement depuis votre compte.</div>
               </div>
             )}
           </div>
@@ -366,6 +437,11 @@ export default function AIPage() {
       )}
 
       <StaleBuildBanner className="mx-6 mt-3" />
+      {saveError && (
+        <div className="mx-6 mt-3 text-xs text-amber-200 bg-amber-950/40 border border-amber-900/50 rounded-lg px-3 py-2">
+          Cette conversation n&apos;a pas pu être enregistrée dans votre historique. Elle reste affichée tant que la page est ouverte.
+        </div>
+      )}
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4 space-y-4" onDrop={att.onDrop} onDragOver={att.onDragOver}>
