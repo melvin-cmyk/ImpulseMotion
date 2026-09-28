@@ -23,7 +23,8 @@ export type AiFeature =
   | "recommend"
   | "hq_context"
   | "alert_compose"
-  | "alert_ai";
+  | "alert_ai"
+  | "auto_alert";
 
 export interface RelayUsage {
   provider: string;

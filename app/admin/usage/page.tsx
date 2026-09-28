@@ -39,6 +39,7 @@ const FEATURE_LABEL: Record<string, string> = {
   hq_context: "Contexte HQ client",
   alert_compose: "Rédaction d'alerte (IA)",
   alert_ai: "Alertes IA (scan quotidien)",
+  auto_alert: "Alertes automatiques (lecture IA)",
 };
 type ClientUsage = {
   key: string;

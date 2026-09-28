@@ -11,6 +11,12 @@
     },
     "app/api/cockpit/global/refresh/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/auto-alerts/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/admin/auto-alerts/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -37,6 +43,10 @@
     {
       "path": "/api/cron/cockpit?retry=1",
       "schedule": "20 12 * * *"
+    },
+    {
+      "path": "/api/cron/auto-alerts",
+      "schedule": "0 6,9,12,15 * * *"
     }
   ]
 }

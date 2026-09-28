@@ -25,6 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             {isAdmin && <AdminNavLink href="/admin/usage">Consommation IA</AdminNavLink>}
             <AdminNavLink href="/reports">Rapports IA</AdminNavLink>
             <AdminNavLink href="/admin/alerts">Alertes</AdminNavLink>
+            <AdminNavLink href="/admin/auto-alerts">Alertes automatiques</AdminNavLink>
             <AdminNavLink href="/portfolio">Portfolio</AdminNavLink>
             <span className="mx-2 h-4 w-px bg-gray-800" />
             <AdminNavLink href="/cockpit" muted>Retour à l&apos;app</AdminNavLink>

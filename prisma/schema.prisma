@@ -211,8 +211,18 @@ model Dashboard {
   hqSlug           String?
   hqContextMd      String?           @db.Text
   hqContextAt      DateTime?
+  // Automatic alerting (lib/auto-alerts): internal Slack channel of the client
+  // ("#c_client" or a channel id) and an off switch. No channel = incidents are
+  // tracked in-app only.
+  slackChannel     String?
+  /// Slack id of that channel (C… / G…) once resolved — what the bot posts to.
+  slackChannelId   String?
+  autoAlerts       Boolean           @default(true)
+  /// {"topics": {"billing": true, …}, "frequency": "1x"|"2x"|"4x", "weekdaysOnly": bool} — see lib/auto-alerts/config.ts
+  autoAlertConfig  String            @default("{}") @db.Text
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+  incidents        AutoIncident[]
   widgets          DashboardWidget[]
   pages            DashboardPage[]
   threads          AssistantThread[]
@@ -223,6 +233,40 @@ model Dashboard {
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// A problem found by the automatic scan, followed over time so the Slack
+/// channel only hears about changes (new, worse, reminder, resolved).
+model AutoIncident {
+  id             String    @id @default(cuid())
+  dashboardId    String
+  /// Stable within a client: "meta:spend_stopped", "meta:ad_stopped:<adId>"…
+  key            String
+  /// Group of checks that produced it (meta:account | meta:days | meta:ads | meta:pacing | google:days)
+  scope          String
+  platform       String
+  kind           String
+  severity       String // critical | warning
+  status         String    @default("open") // open | resolved
+  title          String
+  detail         String    @db.Text
+  entityLevel    String?
+  entityId       String?
+  entityName     String?
+  /// Consecutive runs without seeing it; closed at 2.
+  missCount      Int       @default(0)
+  remindCount    Int       @default(0)
+  firstSeenAt    DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  resolvedAt     DateTime?
+  /// First delivery to Slack; null = never delivered.
+  notifiedAt     DateTime?
+  lastNotifiedAt DateTime?
+  notifyError    String?
+  dashboard      Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@unique([dashboardId, key])
+  @@index([dashboardId, status])
 }
 
 // Additional data sources attached to a client (HubSpot today; Shopify / CSV later).
