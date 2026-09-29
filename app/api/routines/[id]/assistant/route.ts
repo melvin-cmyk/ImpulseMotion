@@ -1,5 +1,5 @@
 /**
- * The AI that writes a routine with the consultant — staff only.
+ * The AI that writes a routine with the consultant — whoever has access to the routines (lib/routines/access.ts).
  *
  * GET  → the saved conversation ({ messages, proposals, checks })
  * PUT  → saves the conversation ({ messages, proposals }) and answers with the
@@ -16,7 +16,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 import { relayStream, teeRelayStream } from "@/lib/relay-chat";
 import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay-attachments";
@@ -115,7 +115,7 @@ async function loadRoutine(id: string, session: Session) {
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const { id } = await params;
   const loaded = await loadRoutine(id, guard.session);
@@ -127,7 +127,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const { id } = await params;
   const loaded = await loadRoutine(id, guard.session);
@@ -143,7 +143,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const { id } = await params;
   const loaded = await loadRoutine(id, guard.session);

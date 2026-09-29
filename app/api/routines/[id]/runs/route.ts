@@ -1,12 +1,12 @@
 /**
- * History of a routine — staff only.
+ * History of a routine — whoever has access to the routines (lib/routines/access.ts).
  *
  * GET ?page=1&pageSize=20 → { runs, total, page, pageSize, pages }, most recent
  * first, dry runs and missed runs included.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { listRuns, routineForSession, runView } from "@/lib/routines/store";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -19,7 +19,7 @@ function whole(value: string | null, fallback: number, max: number): number {
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return NextResponse.json({ error: found.status === 403 ? "forbidden" : "not found" }, { status: found.status });

@@ -32,6 +32,8 @@ type NavItem = {
   adminOnly?: boolean
   /** People management: only for the persons who really are admins (lib/roles.ts). */
   realAdminOnly?: boolean
+  /** Shown to who may enter the routines: `session.routinesAccess`, decided on the server (ROUTINES_ACCESS). */
+  routinesOnly?: boolean
 }
 type NavSection = { label: string; hint?: string; items: NavItem[] }
 
@@ -64,6 +66,7 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/routines",
         icon: Repeat,
         label: "Routines",
+        routinesOnly: true,
         match: (p) => p === "/routines" || p.startsWith("/routines/"),
       },
       {
@@ -144,7 +147,7 @@ export function Sidebar() {
       </div>
 
       {NAV_SECTIONS.map((section) => {
-        const items = section.items.filter((it) => (!it.adminOnly || isAdmin) && (!it.realAdminOnly || baseRole === "admin"))
+        const items = section.items.filter((it) => (!it.adminOnly || isAdmin) && (!it.realAdminOnly || baseRole === "admin") && (!it.routinesOnly || session?.routinesAccess === true))
         if (items.length === 0) return null
         return (
           <div key={section.label} className="mb-3">

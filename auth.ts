@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { aclVersion } from "@/lib/acl-version";
 import { effectiveRole } from "@/lib/roles";
+import { hasRoutinesAccess } from "@/lib/routines/access-rule";
 
 /** How long a session token may keep its cached role before the database has
  *  the final word again. Bounds how long a revoked admin keeps their powers,
@@ -85,13 +86,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
     async session({ session, token }) {
+      const role = effectiveRole(token.role as string | undefined);
+      const baseRole = (token.role as string) ?? "client";
       return {
         ...session,
         userId: token.userId as string,
         // What the checks apply, and what the person really is (lib/roles.ts).
-        role: effectiveRole(token.role as string | undefined),
-        baseRole: (token.role as string) ?? "client",
+        role,
+        baseRole,
         aclVersion: (token.acl as string | undefined) ?? "",
+        // Decided here, on the server (ROUTINES_ACCESS): the menu shows « Routines » on this word alone.
+        routinesAccess: hasRoutinesAccess({ userId: token.userId as string | undefined, role, baseRole }),
       };
     },
   },

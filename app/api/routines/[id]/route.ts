@@ -1,5 +1,5 @@
 /**
- * One routine — staff only.
+ * One routine — whoever has access to the routines (lib/routines/access.ts).
  *
  * GET    → the routine ({ routine }), with its health: how many live runs in
  *          a row were not a full success, the last error, and how many items
@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { adminRuleRefusal } from "@/lib/routines/admin-rule";
 import { hashDefinition } from "@/lib/routines/hash";
 import { computeNextRunAt } from "@/lib/routines/schedule";
@@ -34,7 +34,7 @@ const conflict = (error: string) => NextResponse.json({ error }, { status: 409 }
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Ctx) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return found.status === 403 ? FORBIDDEN() : NOT_FOUND();
@@ -58,7 +58,7 @@ async function archive(routine: RoutineRecord, actor: Actor): Promise<void> {
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return found.status === 403 ? FORBIDDEN() : NOT_FOUND();
@@ -114,7 +114,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(_req: NextRequest, { params }: Ctx) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return found.status === 403 ? FORBIDDEN() : NOT_FOUND();

@@ -9,7 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { cleanMetaMessage, isMetaWriteError, listPromotablePages } from "@/lib/meta-write";
 import { META_ACCOUNT_INVALID, isMetaAccountId } from "@/lib/routines/accounts";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
@@ -17,7 +17,7 @@ import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export async function GET(req: NextRequest) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const metaAccountId = new URL(req.url).searchParams.get("metaAccountId")?.trim() ?? "";
   if (!isMetaAccountId(metaAccountId)) return NextResponse.json({ error: META_ACCOUNT_INVALID }, { status: 400 });

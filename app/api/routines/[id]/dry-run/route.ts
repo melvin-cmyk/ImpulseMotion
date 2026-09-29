@@ -1,5 +1,5 @@
 /**
- * Dry run of a routine — staff only.
+ * Dry run of a routine — whoever has access to the routines (lib/routines/access.ts).
  *
  * POST → runs every step without writing anything: `ctx.write` is null, no
  *        item is reserved, and what would have been written comes back in
@@ -12,7 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { compactResult, runRoutine } from "@/lib/routines/engine";
 import { countsText } from "@/lib/routines/counts";
 import { actorOf, getRoutine, recordDryRun, routineForSession, routineView } from "@/lib/routines/store";
@@ -24,7 +24,7 @@ export const maxDuration = 300;
 const PREVIEW_ROWS = 50;
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return NextResponse.json({ error: found.status === 403 ? "forbidden" : "not found" }, { status: found.status });

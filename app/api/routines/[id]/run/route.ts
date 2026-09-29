@@ -1,5 +1,5 @@
 /**
- * "Run now" — staff only.
+ * "Run now" — whoever has access to the routines (lib/routines/access.ts).
  *
  * POST → one live run of an active routine, under the same lock as the cron:
  *        a routine that is already running answers 409 and nothing starts.
@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { adminRuleRefusal } from "@/lib/routines/admin-rule";
 import { compactResult, runLocked } from "@/lib/routines/engine";
 import { actorOf, getRoutine, logEvent, routineForSession, routineView } from "@/lib/routines/store";
@@ -19,7 +19,7 @@ export const maxDuration = 300;
 const PREVIEW_ROWS = 50;
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return NextResponse.json({ error: found.status === 403 ? "forbidden" : "not found" }, { status: found.status });

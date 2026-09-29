@@ -81,6 +81,8 @@ beforeEach(async () => {
   session = CONSULTANT;
   for (const s of [CONSULTANT, ADMIN, SCOPED]) await db.user.create({ data: { id: s.userId, role: s.baseRole } });
   await db.userAdAccount.create({ data: { userId: SCOPED.userId, platform: "meta", accountId: "act_564381881705822" } });
+  // The space is open to all the staff here; the lock itself is tested in routines-access.test.ts.
+  vi.stubEnv("ROUTINES_ACCESS", "staff");
   vi.stubEnv("ROUTINE_PLATFORM_WRITE_NEEDS_ADMIN", "");
   vi.stubEnv("CRON_SECRET", "s3cret");
 });

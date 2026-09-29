@@ -1,5 +1,5 @@
 /**
- * Applies a definition to a routine — staff only.
+ * Applies a definition to a routine — whoever has access to the routines (lib/routines/access.ts).
  *
  * POST { proposal } (or the proposal itself as the body)
  *
@@ -22,7 +22,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { handlerFor, writesPlatform } from "@/lib/routines/steps";
 import { proposalNotices } from "@/lib/routines/proposal-notices";
 import { actorOf, applyDefinition, chosenPageOf, getRoutine, routineForSession, routineView } from "@/lib/routines/store";
@@ -52,7 +52,7 @@ async function preflightStep(step: Parameters<typeof handlerFor>[0], routine: St
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return NextResponse.json({ error: found.status === 403 ? "forbidden" : "not found" }, { status: found.status });

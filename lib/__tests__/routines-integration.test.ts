@@ -35,6 +35,8 @@ const ai = vi.hoisted(() => {
   delete process.env.N8N_ROUTINES_WEBHOOK_URL;
   process.env.CRON_SECRET = "cron-secret";
   delete process.env.ROUTINE_PLATFORM_WRITE_NEEDS_ADMIN;
+  // The space is open to all the staff here; the lock itself is tested in routines-access.test.ts.
+  process.env.ROUTINES_ACCESS = "staff";
   return { complete: vi.fn() };
 });
 

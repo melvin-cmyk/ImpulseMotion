@@ -1,6 +1,6 @@
 /**
  * « J'ai vérifié » — what a person decided of an item that was to be checked.
- * Staff only. Nothing is written on any platform here: the ad is READ.
+ * For whoever has access to the routines (lib/routines/access.ts). Nothing is written on any platform here: the ad is READ.
  *
  * POST { outcome: "exists", adId }  the ad exists, here is its id. The server
  *        reads it: it must be in the ad set the item was made for. Read
@@ -18,7 +18,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { cleanMetaMessage, isMetaId, readAdById } from "@/lib/meta-write";
 import { MAX_ITEM_ATTEMPTS, splitItemKey } from "@/lib/routines/types";
 import { actorOf, externalIdTaken, getItem, logEvent, resolveItem, routineForSession } from "@/lib/routines/store";
@@ -26,7 +26,7 @@ import { actorOf, externalIdTaken, getItem, logEvent, resolveItem, routineForSes
 const refuse = (status: number, error: string, code?: string) => NextResponse.json({ error, ...(code ? { code } : {}) }, { status });
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string; itemId: string }> }) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const { id, itemId } = await params;
   const found = await routineForSession(guard.session, id);

@@ -1,5 +1,5 @@
 /**
- * Activation of a routine — staff only.
+ * Activation of a routine — whoever has access to the routines (lib/routines/access.ts).
  *
  * POST → ready, paused or error → active, and the next run is scheduled.
  *
@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { adminRuleRefusal } from "@/lib/routines/admin-rule";
 import { hashDefinition } from "@/lib/routines/hash";
 import { computeNextRunAt } from "@/lib/routines/schedule";
@@ -20,7 +20,7 @@ import { parseStoredDefinition, parseStoredSchedule } from "@/lib/routines/valid
 const conflict = (error: string, extra: Record<string, unknown> = {}) => NextResponse.json({ error, ...extra }, { status: 409 });
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return NextResponse.json({ error: found.status === 403 ? "forbidden" : "not found" }, { status: found.status });

@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 import { isRealAdminPath } from "@/lib/roles";
+import { hasRoutinesAccess, isRoutinesPath } from "@/lib/routines/access-rule";
 
 // Route surface reachable by the "client" role — the dashboard and the API it
 // needs, nothing else. Everything outside redirects to /client (pages) or 403s (APIs).
@@ -58,6 +59,15 @@ export default auth((req) => {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
     return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  // The space of the routines is closed to who has not the access (ROUTINES_ACCESS): same answer as for a
+  // client elsewhere, a redirection for a page and 403 for the API. The routes check again by themselves.
+  if (session.role !== "client" && isRoutinesPath(pathname) && !hasRoutinesAccess(session)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    return NextResponse.redirect(new URL("/", req.url));
   }
 
   // Clients only ever see their dashboard.

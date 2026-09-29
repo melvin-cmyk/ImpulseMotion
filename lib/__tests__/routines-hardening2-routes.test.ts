@@ -81,6 +81,8 @@ beforeEach(async () => {
   vi.stubEnv("N8N_AUTO_ALERT_WEBHOOK_URL", N8N);
   vi.stubEnv("N8N_ALERT_WEBHOOK_SECRET", "n8n-secret-value");
   vi.stubEnv("RELAY_SHARED_SECRET", "relay-secret-value");
+  // The space is open to all the staff here; the lock itself is tested in routines-access.test.ts.
+  vi.stubEnv("ROUTINES_ACCESS", "staff");
   vi.stubEnv("ROUTINE_PLATFORM_WRITE_NEEDS_ADMIN", "");
   vi.stubGlobal("fetch", vi.fn(async (target: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(target));

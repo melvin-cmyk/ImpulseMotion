@@ -76,6 +76,8 @@ const withBlock = `Voici.\n\`\`\`routine\n${JSON.stringify(proposal)}\n\`\`\``;
 const thread = [{ role: "user", content: "Crée la routine" }, { role: "assistant", content: withBlock }];
 
 beforeEach(() => {
+  // The space is open to all the staff here; the lock itself is tested in routines-access.test.ts.
+  vi.stubEnv("ROUTINES_ACCESS", "staff");
   rows.clear(); updates.length = 0; relayCalls.length = 0; usageRows.length = 0;
   relayDown = false;
   validation = { ok: false, errors: ["refusée"] };

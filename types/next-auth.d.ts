@@ -8,6 +8,8 @@ declare module "next-auth" {
     baseRole: string;
     /** Fingerprint of the role and the ad accounts (lib/acl-version.ts). */
     aclVersion: string;
+    /** The person may enter the space of the routines (lib/routines/access-rule.ts), decided on the server. */
+    routinesAccess: boolean;
   }
   interface User {
     role?: string;

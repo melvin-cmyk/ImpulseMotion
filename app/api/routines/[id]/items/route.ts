@@ -1,5 +1,5 @@
 /**
- * Items of a routine that a person has to look at — staff only.
+ * Items of a routine that a person has to look at — whoever has access to the routines (lib/routines/access.ts).
  *
  * GET → { items } : the items whose outcome is unknown (« à vérifier ») and
  *       those given up after their attempts, most recent first. What the
@@ -7,14 +7,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { itemsToCheck, routineForSession } from "@/lib/routines/store";
 import { splitItemKey } from "@/lib/routines/types";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return NextResponse.json({ error: found.status === 403 ? "forbidden" : "not found" }, { status: found.status });

@@ -1,5 +1,5 @@
 /**
- * Routines — staff only.
+ * Routines — whoever has access to the routines (lib/routines/access.ts).
  *
  * GET  → the routines the caller may see ({ routines }), archived ones left out
  *        unless ?archived=1
@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/auth-helpers";
+import { requireRoutinesAccess } from "@/lib/routines/access";
 import { bindingOutOfScope, dashboardInScope, getAccountScope } from "@/lib/scope";
 import { cleanMetaMessage, isMetaId, listPromotablePages } from "@/lib/meta-write";
 import type { RoutinePage } from "@/lib/routines/context";
@@ -26,7 +26,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 export async function GET(req: NextRequest) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const scope = await getAccountScope(guard.session);
   const params = new URL(req.url).searchParams;
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireStaff();
+  const guard = await requireRoutinesAccess();
   if ("error" in guard) return guard.error;
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "corps de requête invalide" }, { status: 400 });
