@@ -25,7 +25,9 @@ export type AiFeature =
   | "alert_compose"
   | "alert_ai"
   | "auto_alert"
-  | "guide";
+  | "guide"
+  | "routine_compose"
+  | "routine_ai_step";
 
 export interface RelayUsage {
   provider: string;

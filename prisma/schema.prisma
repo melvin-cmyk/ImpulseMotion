@@ -591,3 +591,111 @@ model CockpitAction {
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 }
+
+/// Automation written by a consultant with an AI, then run as a fixed plan of
+/// typed steps (lib/routines). createdById has no relation to User, like
+/// AiUsage: the history outlives the account.
+model Routine {
+  id                  String         @id @default(cuid())
+  name                String
+  description         String?        @db.Text
+  /// draft | ready | active | paused | error | archived
+  status              String         @default("draft")
+  createdById         String
+  createdByEmail      String?
+  dashboardId         String?
+  clientName          String         @default("—")
+  metaAccountId       String?
+  googleCustomerId    String?
+  definitionJson      String         @default("{}") @db.Text
+  definitionHash      String         @default("")
+  writesPlatform      Boolean        @default(false)
+  scheduleJson        String         @default("{}") @db.Text
+  timezone            String         @default("Europe/Paris")
+  nextRunAt           DateTime?
+  lockedUntil         DateTime?
+  lastRunAt           DateTime?
+  lastRunStatus       String?
+  consecutiveFailures Int            @default(0)
+  maxItemsPerRun      Int            @default(20)
+  dryRunHash          String?
+  dryRunAt            DateTime?
+  activatedById       String?
+  activatedAt         DateTime?
+  /// {"messages":[…],"proposals":{…}}
+  chatJson            String         @default("{}") @db.Text
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  runs                RoutineRun[]
+  items               RoutineItem[]
+  events              RoutineEvent[]
+
+  @@index([status, nextRunAt])
+  @@index([createdById, updatedAt])
+  @@index([dashboardId])
+}
+
+model RoutineRun {
+  id             String    @id @default(cuid())
+  routineId      String
+  /// schedule | manual | dry_run
+  trigger        String
+  /// running | success | partial | failed | infra_failed | missed
+  status         String    @default("running")
+  definitionHash String
+  startedById    String?
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  durationMs     Int       @default(0)
+  itemsPlanned   Int       @default(0)
+  itemsCreated   Int       @default(0)
+  itemsSkipped   Int       @default(0)
+  itemsFailed    Int       @default(0)
+  stepsJson      String    @default("[]") @db.Text
+  error          String?   @db.Text
+  routine        Routine   @relation(fields: [routineId], references: [id], onDelete: Cascade)
+
+  @@index([routineId, startedAt])
+  @@index([status, startedAt])
+}
+
+/// Idempotence of the writes: one row per routine and item key, reserved
+/// before the platform call. runId is a plain id, without relation.
+model RoutineItem {
+  id         String   @id @default(cuid())
+  routineId  String
+  runId      String?
+  stepId     String
+  itemKey    String
+  /// pending | created | failed | uncertain
+  status     String   @default("pending")
+  externalId String?
+  label      String?
+  error      String?  @db.Text
+  attempts   Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  routine    Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+
+  @@unique([routineId, itemKey])
+  @@index([routineId, status])
+  @@index([runId])
+}
+
+/// Audit log of a routine. No relation to User (the log outlives the
+/// account); deleted with the routine, which is archived rather than deleted.
+model RoutineEvent {
+  id             String   @id @default(cuid())
+  routineId      String
+  /// created | definition_applied | dry_run | activated | paused | resumed | auto_disabled | run_manual | archived
+  kind           String
+  userId         String?
+  userEmail      String?
+  userRole       String?
+  definitionHash String?
+  detail         String?  @db.Text
+  createdAt      DateTime @default(now())
+  routine        Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+
+  @@index([routineId, createdAt])
+}

@@ -41,6 +41,8 @@ const FEATURE_LABEL: Record<string, string> = {
   alert_ai: "Alertes IA (scan quotidien)",
   auto_alert: "Alertes automatiques (lecture IA)",
   guide: "Guide de l'application",
+  routine_compose: "Routines (création avec l'IA)",
+  routine_ai_step: "Routines (synthèse IA à l'exécution)",
 };
 type ProfileUsage = Totals & {
   key: string;

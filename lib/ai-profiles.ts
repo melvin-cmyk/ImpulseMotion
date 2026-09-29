@@ -11,6 +11,9 @@
  * - HQ_CONTEXT: the deterministic "what do we know about this client" lookup
  *   in HQ before a report. A few file reads and a compact brief: Sonnet, low
  *   effort, short turn cap.
+ * - ROUTINE_COMPOSE: the conversation that writes a routine with a
+ *   consultant (lib/routines). It reads real accounts and Sheets, then has to
+ *   produce a plan that validates: Opus at MEDIUM effort, 20 turns.
  * - One-shot writers (report body, creative analysis, action plans) keep the
  *   relay default (no profile): everything they need is inline in the prompt.
  *
@@ -43,3 +46,6 @@ export const STAFF_CHAT_PROFILE: AiProfile = fromEnv("AI_STAFF_MODEL", "AI_STAFF
 
 /** HQ client-context lookup before a report (lib/hq-client-context.ts). */
 export const HQ_CONTEXT_PROFILE: AiProfile = fromEnv("AI_HQ_MODEL", "AI_HQ_EFFORT", { model: "sonnet", effort: "low", maxTurns: 15 });
+
+/** Routine composer: conversation that ends on a validated plan of steps (app/api/routines/[id]/assistant). */
+export const ROUTINE_COMPOSE_PROFILE: AiProfile = fromEnv("AI_ROUTINE_MODEL", "AI_ROUTINE_EFFORT", { model: "opus", effort: "medium", maxTurns: 20 });
