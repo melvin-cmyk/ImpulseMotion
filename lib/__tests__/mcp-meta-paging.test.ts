@@ -39,7 +39,28 @@ describe("nextCall", () => {
     expect(JSON.parse(JSON.parse(step.args.input).time_range)).toEqual({ since: day(24), until: "2026-09-28" });
     const month = nextCall(legacy({ ...preset, date_preset: "this_month" }), readPage(result(daily(0, 25), true)), "2026-09-29")!;
     expect(JSON.parse(JSON.parse(month.args.input).time_range).until).toBe("2026-09-29");
-    expect(nextCall(legacy({ ...preset, date_preset: "last_month" }), readPage(result(daily(0, 25), true)), "2026-09-29")).toBeNull();
+    expect(nextCall(legacy({ ...preset, date_preset: "inconnu" }), readPage(result(daily(0, 25), true)), "2026-09-29")).toBeNull();
+  });
+
+  it("connaît la fin des périodes closes : mois, trimestre, année, semaine", () => {
+    const until = (date_preset: string, rows: object[], today: string) => {
+      const step = nextCall(legacy({ ...params, time_range: "", date_preset }), readPage(result(rows, true)), today);
+      return step ? JSON.parse(JSON.parse(step.args.input).time_range).until : null;
+    };
+    const from = (start: string, count: number) => Array.from({ length: count }, (_, i) => {
+      const d = new Date(`${start}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + i);
+      return { date_start: d.toISOString().slice(0, 10), spend: "1" };
+    });
+    expect(until("last_month", from("2026-08-01", 25), "2026-09-29")).toBe("2026-08-31");
+    expect(until("last_month", from("2026-02-01", 25), "2026-03-10")).toBe("2026-02-28");
+    expect(until("last_month", from("2025-12-01", 25), "2026-01-05")).toBe("2025-12-31");
+    expect(until("last_quarter", from("2026-04-01", 25), "2026-09-29")).toBe("2026-06-30");
+    expect(until("last_quarter", from("2025-10-01", 25), "2026-02-10")).toBe("2025-12-31");
+    expect(until("last_year", from("2025-01-01", 25), "2026-09-29")).toBe("2025-12-31");
+    // 2026-09-29 est un mardi : la semaine close va du lundi 21 au dimanche 27.
+    expect(until("last_week_mon_sun", from("2026-09-01", 25), "2026-09-29")).toBe("2026-09-27");
+    expect(until("last_week_sun_sat", from("2026-09-01", 25), "2026-09-29")).toBe("2026-09-26");
+    expect(until("last_week_mon_sun", from("2026-08-20", 25), "2026-09-27")).toBe("2026-09-20");
   });
 
   it("ne tourne pas en rond quand une page entière tient sur un seul jour", () => {
