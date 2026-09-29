@@ -6,8 +6,10 @@
  * (includeTable). {{row.<column>}} reads the FIRST row received: it is meant
  * for plans that end on a single row (rows.limit 1, account level).
  *
- * A message that depends on rows (table, or {{row.…}}) is not sent when the
- * step receives none: the step is skipped, nothing is posted.
+ * A message placed after rows is not sent when there are none (no new row in
+ * the Sheet, no campaign that spent): the step is skipped, nothing is posted,
+ * whether or not the message shows the rows. Only a message with no source
+ * above it leaves every time.
  *
  * Delivery by the n8n webhook of the automatic alerts (lib/routines/notify.ts).
  * In a dry run nothing is sent and the message is shown in `planned`.
@@ -59,9 +61,9 @@ export function composeMessage(
   catch (e) { return { kind: "error", message: errorMessage(e) }; }
   const rows = ctx.input;
   const empty = !rows || rows.rows.length === 0;
-  if (empty && (readsRow || opts.includeTable)) {
-    return { kind: "skip", reason: rows ? "Aucune ligne reçue : message non envoyé." : "L'étape ne reçoit aucune ligne : message non envoyé." };
-  }
+  // Rows were expected and there are none: the run had nothing to do, the message would say otherwise.
+  if (rows && empty) return { kind: "skip", reason: "Aucune ligne reçue : message non envoyé." };
+  if (empty && (readsRow || opts.includeTable)) return { kind: "skip", reason: "L'étape ne reçoit aucune ligne : message non envoyé." };
 
   let rendered: { text: string; missing: string[] };
   try { rendered = renderTemplateDetailed(template, scopeFromContext(ctx, empty ? null : rows.rows[0])); }

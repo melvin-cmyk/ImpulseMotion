@@ -78,6 +78,9 @@ function table(defaults: () => Rec, unique?: (row: Rec) => string) {
       const row = rows.find((r) => matches(r, flat));
       return row ? pick(row, select) : null;
     },
+    async findFirst(args: { where?: Rec; select?: Rec; orderBy?: Rec } = {}) {
+      return (await api.findMany({ ...args, take: 1 }))[0] ?? null;
+    },
     async findMany({ where, select, orderBy, skip, take }: { where?: Rec; select?: Rec; orderBy?: Rec; skip?: number; take?: number } = {}) {
       let out = rows.filter((r) => matches(r, where));
       if (orderBy) {
@@ -129,6 +132,10 @@ export const db = {
   user: table(() => ({ role: "consultant" })),
   dashboard: table(() => ({ name: "Pilotage", metaAccountId: null, googleCustomerId: null })),
   userAdAccount: table(() => ({})),
+  // Read or written by the real steps (integration tests): account settings, AI ledger, internal Slack channels.
+  accountSetting: table(() => ({ platform: "meta", aov: null, currency: null, timezone: null, conversionEvent: null })),
+  aiUsage: table(() => ({ createdAt: new Date() })),
+  alertClient: table(() => ({ accountsJson: "[]", dashboardId: null, slackChannel: null, slackChannelId: null, gone: false })),
 };
 
 export function resetDb(): void {

@@ -69,8 +69,14 @@ const NESTED_FIELDS: Partial<Record<StepType, Record<string, readonly string[]>>
 /** Never accepted at any depth of a step that writes on a platform: ads are created paused, full stop. */
 const FORBIDDEN_PLATFORM_KEYS = new Set(["status", "effective_status", "configured_status", "effectivestatus", "configuredstatus"]);
 
+/**
+ * meta.create_ads is one of them: its rows are those it received, each with
+ * what became of it (meta_statut, meta_ad_id, meta_erreur). What follows it
+ * reads these rows, so a message says what was created and is not sent when
+ * the creation did not go through.
+ */
 const ROW_PRODUCERS: ReadonlySet<StepType> = new Set<StepType>([
-  "sheet.read", "meta.insights", "google.insights", "rows.filter", "rows.sort", "rows.limit", "rows.select",
+  "sheet.read", "meta.insights", "google.insights", "rows.filter", "rows.sort", "rows.limit", "rows.select", "meta.create_ads",
 ]);
 const SOURCES: ReadonlySet<StepType> = new Set<StepType>(["sheet.read", "meta.insights", "google.insights"]);
 /** Steps that cannot do anything without rows. Messages need rows only if they show them. */

@@ -12,6 +12,7 @@
  * the window must appear. Campaigns are kept on `metrics.impressions > 0`.
  *
  * Output, one row per account or campaign:
+ *   date_start, date_stop the window read (YYYY-MM-DD), same names as meta.insights
  *   spend, cpa            account currency (cost_micros / 1 000 000), 2 decimals
  *   ctr                   percentage (2.35 = 2,35 %)
  *   roas                  conversion value / spend
@@ -93,8 +94,11 @@ const round = (n: number, digits = 2) => Math.round(n * 10 ** digits) / 10 ** di
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 const text = (v: unknown): Cell => (v === undefined || v === null || v === "" ? null : String(v));
 
+/** Columns that carry the window, named as meta.insights names them. */
+export const DATE_COLUMNS = ["date_start", "date_stop"] as const;
+
 /** One GAQL row (camelCase or snake_case) → one row of the step, micros converted. */
-export function toInsightRow(raw: Record<string, unknown>, level: Level, metrics: readonly Metric[]): Row {
+export function toInsightRow(raw: Record<string, unknown>, level: Level, metrics: readonly Metric[], range?: DateRange): Row {
   const m = obj(raw.metrics);
   const customer = obj(raw.customer);
   const campaign = obj(raw.campaign);
@@ -116,6 +120,7 @@ export function toInsightRow(raw: Record<string, unknown>, level: Level, metrics
   const row: Row = level === "campaign"
     ? { campaign_id: text(campaign.id), campaign_name: text(campaign.name), campaign_status: text(campaign.status), currency }
     : { account_id: text(customer.id), account_name: text(customer.descriptiveName ?? customer.descriptive_name), currency };
+  if (range) { row.date_start = range.since; row.date_stop = range.until; }
   for (const metric of metrics) row[metric] = computed[metric];
   return row;
 }
@@ -171,9 +176,9 @@ export const googleInsightsHandler: StepHandler<GoogleInsightsStep> = {
     try {
       const range = windowRange(step.window, ctx.routine.timezone, ctx.now);
       const raw = await query(customerId, buildGaql(step.level, step.metrics, range));
-      const rows = raw.map((r) => toInsightRow(r, step.level, step.metrics));
+      const rows = raw.map((r) => toInsightRow(r, step.level, step.metrics, range));
       const truncated = step.level === "campaign" && raw.length >= MAX_CAMPAIGNS;
-      const columns = [...IDENTITY[step.level].columns, ...step.metrics];
+      const columns = [...IDENTITY[step.level].columns, ...DATE_COLUMNS, ...step.metrics];
       return done(rowsIn, rows.length, {
         output: { rows: { columns, rows, truncated } },
         warnings: [

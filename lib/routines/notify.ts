@@ -12,6 +12,12 @@
  * No noise: a step sends ONE message per run, never one per row. The rows go
  * in the message as a short text table (renderTable), cut cleanly.
  *
+ * One message is not asked by a step: the one that says a routine switched
+ * itself off (notifyAutoDisabled). It goes to the agency's internal channel
+ * for the client, the one the automatic alerts use, and nowhere else: the
+ * application cannot write to a person, and a channel named in a routine may
+ * be read by the client.
+ *
  * Both senders take the WriteGuard of a live run and check it first.
  */
 
@@ -200,4 +206,48 @@ export async function sendEmail(guard: WriteGuard, input: { to: string[]; subjec
   // 4xx: secret, payload or workflow not published — a new attempt changes nothing.
   const functional = res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429;
   throw new NotifyError(`envoi d'e-mail refusé : ${detail}`, functional ? "functional" : "infra");
+}
+
+// ── Routine switched off ─────────────────────────────────────────────────
+
+export interface AutoDisabledNotice {
+  routine: { id: string; name: string; clientName: string };
+  /** Consecutive functional failures that switched the routine off. */
+  failures: number;
+  lastError: string | null;
+  /** Who activated or wrote the routine, as an e-mail address: said in the message, nobody is mentioned. */
+  owner: string | null;
+  /** Internal channel of the client (lib/routines/store.ts, internalChannelFor); null = none known. */
+  channel: string | null;
+}
+
+const appUrl = () => (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://app.impulse-analytics.com").replace(/\/$/, "");
+const oneLine = (text: string, max: number) => {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+};
+
+export function autoDisabledText(notice: Omit<AutoDisabledNotice, "channel">): string {
+  const client = notice.routine.clientName.trim();
+  return [
+    `Routine arrêtée automatiquement : « ${oneLine(notice.routine.name, 120)} »${client && client !== "—" ? ` (client ${oneLine(client, 120)})` : ""}`,
+    `${notice.failures} échecs de suite. Dernière erreur : ${notice.lastError ? oneLine(notice.lastError, 600) : "sans message"}`,
+    "Elle ne s'exécutera plus : corriger avec l'IA, refaire un essai à blanc, puis l'activer de nouveau.",
+    `${notice.owner ? `Activée par ${oneLine(notice.owner, 120)} · ` : ""}${appUrl()}/routines/${notice.routine.id}`,
+  ].join("\n");
+}
+
+/**
+ * ONE message when a routine switches itself off. Never throws: the outcome
+ * is a sentence, kept with the event `auto_disabled`.
+ */
+export async function notifyAutoDisabled(guard: WriteGuard, notice: AutoDisabledNotice): Promise<{ sent: boolean; detail: string }> {
+  const channel = notice.channel ? cleanSlackChannel(notice.channel) : null;
+  if (!channel) return { sent: false, detail: "Aucun message envoyé : aucun canal Slack interne n'est connu pour ce client." };
+  try {
+    await sendSlackMessage(guard, { channel, text: autoDisabledText(notice), routine: { id: notice.routine.id, name: notice.routine.name } });
+    return { sent: true, detail: `Message envoyé dans ${channel}.` };
+  } catch (e) {
+    return { sent: false, detail: `Message non envoyé dans ${channel} : ${oneLine(e instanceof Error ? e.message : String(e), 200)}` };
+  }
 }

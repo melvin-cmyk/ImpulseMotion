@@ -108,11 +108,11 @@ describe("google.insights — run", () => {
 
     expect(out).toMatchObject({ status: "ok", rowsOut: 2, planned: [], written: [] });
     expect(out.output.rows).toEqual({
-      columns: ["campaign_id", "campaign_name", "campaign_status", "currency", "spend", "conversions", "cpa", "roas", "ctr"],
+      columns: ["campaign_id", "campaign_name", "campaign_status", "currency", "date_start", "date_stop", "spend", "conversions", "cpa", "roas", "ctr"],
       truncated: false,
       rows: [
-        { campaign_id: "11", campaign_name: "Marque", campaign_status: "PAUSED", currency: "EUR", spend: 123.46, conversions: 4, cpa: 30.86, roas: 5, ctr: 2.35 },
-        { campaign_id: "12", campaign_name: "Générique", campaign_status: "ENABLED", currency: "EUR", spend: 5, conversions: 0, cpa: null, roas: 0, ctr: 0 },
+        { campaign_id: "11", campaign_name: "Marque", campaign_status: "PAUSED", currency: "EUR", date_start: "2026-09-22", date_stop: "2026-09-28", spend: 123.46, conversions: 4, cpa: 30.86, roas: 5, ctr: 2.35 },
+        { campaign_id: "12", campaign_name: "Générique", campaign_status: "ENABLED", currency: "EUR", date_start: "2026-09-22", date_stop: "2026-09-28", spend: 5, conversions: 0, cpa: null, roas: 0, ctr: 0 },
       ],
     });
   });

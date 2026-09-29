@@ -169,6 +169,49 @@ export async function logEvent(
   });
 }
 
+/** Adds a line to the latest event of a kind (what was done about it, after the fact). */
+export async function noteOnLastEvent(routineId: string, kind: RoutineEventKind, note: string): Promise<void> {
+  const last = await prisma.routineEvent.findFirst({ where: { routineId, kind }, orderBy: { createdAt: "desc" }, select: { id: true, detail: true } });
+  if (!last) return;
+  await prisma.routineEvent.update({ where: { id: last.id }, data: { detail: clip([last.detail, note].filter(Boolean).join(" "), MAX_DETAIL_CHARS) } });
+}
+
+const bareMeta = (id: string) => id.trim().replace(/^act_/, "");
+const bareGoogle = (id: string) => id.trim().replace(/-/g, "");
+
+/**
+ * Internal Slack channel of the agency for the client of a routine: the one
+ * the automatic alerts already post in (AlertClient, lib/auto-alerts). Found
+ * by the ad accounts of the routine, then by its dashboard. Null when the
+ * client has no channel: nothing is guessed, and never a channel written in
+ * the routine itself, which may be one the client reads.
+ */
+export async function internalChannelFor(
+  routine: Pick<RoutineRecord, "dashboardId" | "metaAccountId" | "googleCustomerId">,
+): Promise<string | null> {
+  const meta = routine.metaAccountId ? bareMeta(routine.metaAccountId) : null;
+  const google = routine.googleCustomerId ? bareGoogle(routine.googleCustomerId) : null;
+  if (!meta && !google && !routine.dashboardId) return null;
+  const clients = await prisma.alertClient.findMany({
+    where: { gone: false },
+    select: { accountsJson: true, dashboardId: true, slackChannel: true, slackChannelId: true },
+  });
+  const holds = (json: string): boolean => {
+    const accounts = parseJson(json, []);
+    if (!Array.isArray(accounts)) return false;
+    return accounts.some((a) => {
+      if (!a || typeof a !== "object") return false;
+      const { platform, accountId } = a as { platform?: unknown; accountId?: unknown };
+      if (typeof accountId !== "string") return false;
+      return (platform === "meta" && !!meta && bareMeta(accountId) === meta) || (platform === "google" && !!google && bareGoogle(accountId) === google);
+    });
+  };
+  const withChannel = clients.filter((c) => c.slackChannelId || c.slackChannel);
+  const found = withChannel.find((c) => holds(c.accountsJson))
+    ?? (routine.dashboardId ? withChannel.find((c) => c.dashboardId === routine.dashboardId) : undefined);
+  return found ? found.slackChannelId || found.slackChannel : null;
+}
+
 /** The session as the audit trail wants it. */
 export function actorOf(session: { userId: string; baseRole?: string | null; role?: string | null; user?: { email?: string | null } | null }): Actor {
   return { userId: session.userId, email: session.user?.email ?? null, role: session.baseRole ?? session.role ?? null };
@@ -248,6 +291,13 @@ export async function ownerProblem(routine: Pick<RoutineRecord, "createdById" | 
   if (role !== "admin" && role !== "consultant") return "La personne qui a activé la routine ne fait plus partie de l'équipe.";
   const outside = bindingOutOfScope(await getAccountScope({ userId: user.id, role }), routine);
   return outside ? `Le compte ${outside} n'est plus dans le périmètre de la personne qui a activé la routine.` : null;
+}
+
+/** E-mail of the person who answers for the routine: who activated it, its author otherwise. */
+export async function ownerEmail(routine: Pick<RoutineRecord, "createdById" | "createdByEmail" | "activatedById">): Promise<string | null> {
+  if (!routine.activatedById || routine.activatedById === routine.createdById) return routine.createdByEmail;
+  const user = await prisma.user.findUnique({ where: { id: routine.activatedById }, select: { email: true } }).catch(() => null);
+  return user?.email ?? routine.createdByEmail;
 }
 
 // ── Items ────────────────────────────────────────────────────────────────

@@ -92,7 +92,7 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
         const result = (body.result ?? body.run ?? {}) as { status?: string; totals?: { created?: number; skipped?: number; failed?: number } };
         const st = RUN_STATUS[String(result.status)]?.label ?? String(result.status ?? "terminée");
         const t = result.totals ?? {};
-        setNotice({ ok: body.ok !== false, text: `Exécution ${st.toLowerCase()} : ${t.created ?? 0} créé(s), ${t.skipped ?? 0} ignoré(s), ${t.failed ?? 0} échoué(s). Détail dans l'historique.` });
+        setNotice({ ok: body.ok !== false, text: `Exécution ${st.toLowerCase()} : ${t.created ?? 0} écriture(s) faite(s), publicités, lignes et messages confondus ; ${t.skipped ?? 0} élément(s) ignoré(s), ${t.failed ?? 0} échoué(s). Détail dans l'historique.` });
         setHistoryKey((k) => k + 1);
         setTab("history");
       } else {

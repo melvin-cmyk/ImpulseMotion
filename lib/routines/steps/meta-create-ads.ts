@@ -8,8 +8,10 @@
  *     cell can change a text, a link or an image, never where the ad goes;
  *   - the ad set is re-read and compared with the account and the campaign
  *     before anything is sent, here once and again by createPausedAd;
- *   - dry run (ctx.write null): reads only, `planned` lists every ad that
- *     would be created. ctx.claimItem is not called: it writes in the database;
+ *   - dry run (ctx.write null): reads only, `planned` lists the ads that would
+ *     really be created. ctx.claimItem is asked for each row: in a dry run the
+ *     engine answers from the database without reserving anything, so a row
+ *     already created, or whose outcome is unknown, is not announced again;
  *   - live: claimItem before Meta, settleItem after. `already_done` and
  *     `uncertain` create nothing. An ad of the same name already in the ad set
  *     is attached instead of created again;
@@ -17,6 +19,8 @@
  *     item stays reserved and the engine turns it `uncertain`. The step stops
  *     there, nothing is sent again;
  *   - ceiling (maxItemsPerRun) and deadline: the rows left wait for the next run;
+ *   - the rows that come out are those this run dealt with, each with its
+ *     outcome (meta_statut, meta_ad_id, meta_erreur);
  *   - the status written back in the Sheet is a reflection: its failure is a
  *     warning, never a failure of the step.
  *
@@ -31,6 +35,7 @@ import {
   type PausedAdInput,
 } from "@/lib/meta-write";
 import { readSheet, sheetRefError, updateCells, type CellUpdate } from "@/lib/relay-sheets";
+import { wasDeferred } from "@/lib/routines/store";
 import { renderTemplateDetailed, scopeFromContext, templateError } from "@/lib/routines/template";
 import {
   MAX_ITEMS_PER_RUN_CAP,
@@ -56,6 +61,8 @@ export const OUT_STATUS = "meta_statut";
 export const OUT_AD_ID = "meta_ad_id";
 export const OUT_ERROR = "meta_erreur";
 
+const UNCERTAIN = "résultat d'une exécution précédente inconnu : à vérifier dans le gestionnaire de publicités, aucune création";
+
 type ItemState = "créée" | "déjà présente" | "déjà traitée" | "à vérifier" | "échec" | "refusée" | "en attente" | "prévue";
 
 interface Item {
@@ -65,6 +72,8 @@ interface Item {
   adId?: string;
   error?: string;
   input?: PausedAdInput;
+  /** The state was found in the database, left there by an earlier run. */
+  earlier?: boolean;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -173,7 +182,16 @@ function previewOf(input: PausedAdInput, key: string): Record<string, Cell> {
   };
 }
 
-function outputRows(input: RowSet, items: Item[]): RowSet {
+/**
+ * Rows that come out of the step: those this run dealt with (created,
+ * attached, planned, failed, refused, outcome unknown). A row done by an
+ * earlier run, or left for the next one, is not news: a message placed after
+ * the step must not announce it, and is not sent when nothing is left to say.
+ */
+const dealtWith = (item: Item) => item.state !== "en attente" && item.state !== "déjà traitée" && !item.earlier;
+
+function outputRows(input: RowSet, all: Item[]): RowSet {
+  const items = all.filter(dealtWith);
   const added = [OUT_STATUS, OUT_AD_ID, OUT_ERROR].filter((c) => !input.columns.includes(c));
   return {
     columns: [...input.columns, ...added],
@@ -381,7 +399,7 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
     }
     const ready = items.filter((i) => i.input);
     const done = (): StepRunOutcome => ({
-      status: "ok", rowsIn, rowsOut: items.length,
+      status: "ok", rowsIn, rowsOut: items.filter(dealtWith).length,
       output: { rows: outputRows(ctx.input!, items) }, planned, written, warnings,
     });
     if (ready.length === 0) return done();
@@ -412,6 +430,25 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
       }
 
       if (!live) {
+        // Same question as a live run, answered by the engine without reserving anything.
+        let seen: Awaited<ReturnType<StepContext["claimItem"]>>;
+        try {
+          seen = await ctx.claimItem(step.id, item.key, input.name);
+        } catch (err) {
+          stopped = { message: `État de « ${item.key} » illisible en base : ${messageOf(err)}`, class: "infra" };
+          break;
+        }
+        if (seen === "already_done") {
+          if (!wasDeferred(ctx.runId, item.key)) item.state = "déjà traitée";
+          continue;
+        }
+        if (seen === "uncertain") {
+          item.state = "à vérifier";
+          item.earlier = true;
+          item.error = UNCERTAIN;
+          warnings.push(`Ligne « ${item.key} » : ${item.error}.`);
+          continue;
+        }
         started++;
         let existing: Awaited<ReturnType<typeof findAdByName>> = null;
         try {
@@ -437,10 +474,12 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
         stopped = { message: `Réservation impossible pour « ${item.key} » : ${messageOf(err)}`, class: "infra" };
         break;
       }
-      if (claim === "already_done") { item.state = "déjà traitée"; continue; }
+      // Put off by the engine (ceiling, time): the row waits, it is not done.
+      if (claim === "already_done") { if (!wasDeferred(ctx.runId, item.key)) item.state = "déjà traitée"; continue; }
       if (claim === "uncertain") {
         item.state = "à vérifier";
-        item.error = "résultat d'une exécution précédente inconnu : à vérifier dans le gestionnaire de publicités, aucune création";
+        item.earlier = true;
+        item.error = UNCERTAIN;
         warnings.push(`Ligne « ${item.key} » : ${item.error}.`);
         continue;
       }

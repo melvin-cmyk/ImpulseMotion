@@ -203,7 +203,11 @@ export interface WriteGuard { readonly [writeGuardBrand]: true; readonly runId: 
 
 export interface StepContext {
   mode: RunMode;
-  routine: { id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; timezone: string; maxItemsPerRun: number };
+  routine: {
+    id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; timezone: string; maxItemsPerRun: number;
+    /** Client the routine works for, and its dashboard: what the AI usage is recorded under. Set by the engine. */
+    clientName?: string; dashboardId?: string | null;
+  };
   runId: string; now: Date; deadlineAt: number;
   input: RowSet | null;
   outputs: Record<string, StepOutput>;

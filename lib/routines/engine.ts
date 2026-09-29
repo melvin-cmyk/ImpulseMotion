@@ -18,11 +18,12 @@
  */
 
 import { hashDefinition } from "@/lib/routines/hash";
+import { notifyAutoDisabled } from "@/lib/routines/notify";
 import { catchUpDecision, computeNextRunAt } from "@/lib/routines/schedule";
 import { handlerFor } from "@/lib/routines/steps";
 import {
-  acquireRunLock, claimItem, finishRun, forgetDeferred, getRoutine, markUnsettledUncertain, noteDeferred, ownerProblem,
-  peekItem, recordMissedRun, recordRunOutcome, releaseRunLock, settleItem, startRun,
+  acquireRunLock, claimItem, finishRun, forgetDeferred, getRoutine, internalChannelFor, markUnsettledUncertain, noteDeferred, noteOnLastEvent, ownerProblem,
+  ownerEmail, peekItem, recordMissedRun, recordRunOutcome, releaseRunLock, settleItem, startRun,
   type FailureKind, type RoutineRecord,
 } from "@/lib/routines/store";
 import { parseStoredDefinition, parseStoredSchedule, resolveInputId, stepDependencies } from "@/lib/routines/validate";
@@ -30,7 +31,7 @@ import { mintWriteGuard } from "@/lib/routines/write-guard";
 import {
   MAX_ITEMS_PER_RUN_CAP, RUN_BUDGET_MS,
   type ErrorClass, type RoutineDefinition, type RoutineStep, type RunMode, type RunResult, type RunTrigger,
-  type Schedule, type StepContext, type StepOutput, type StepResult, type StepRunOutcome,
+  type Schedule, type StepContext, type StepOutput, type StepResult, type StepRunOutcome, type WriteGuard,
 } from "@/lib/routines/types";
 
 export interface RunOptions {
@@ -203,6 +204,7 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
     routine: {
       id: routine.id, name: routine.name, metaAccountId: routine.metaAccountId, googleCustomerId: routine.googleCustomerId,
       timezone: routine.timezone, maxItemsPerRun: cap,
+      clientName: routine.clientName, dashboardId: routine.dashboardId,
     },
     runId, now, deadlineAt, input,
     // Each step sees the outputs of the steps before it, and cannot change them for the next ones.
@@ -316,12 +318,32 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
     const kept = await recordRunOutcome({ routineId: routine.id, status, failure, at: now, definitionHash: routine.definitionHash, message: error });
     consecutiveFailures = kept.consecutiveFailures;
     autoDisabled = kept.autoDisabled;
+    if (autoDisabled && guard) await announceAutoDisabled(guard, routine, consecutiveFailures, error);
   }
 
   return {
     runId, mode, status, steps, totals, timedOut,
     definitionHash: routine.definitionHash, error, deferred, consecutiveFailures, autoDisabled,
   };
+}
+
+/**
+ * Says once, in the agency's channel for the client, that the routine has
+ * switched itself off, and keeps what was done with the event. Whatever goes
+ * wrong here, the run has ended and its result stands.
+ */
+async function announceAutoDisabled(guard: WriteGuard, routine: RoutineRecord, failures: number, lastError: string | null): Promise<void> {
+  let detail: string;
+  try {
+    const channel = await internalChannelFor(routine);
+    const owner = await ownerEmail(routine);
+    ({ detail } = await notifyAutoDisabled(guard, {
+      routine: { id: routine.id, name: routine.name, clientName: routine.clientName }, failures, lastError, owner, channel,
+    }));
+  } catch (e) {
+    detail = `Message non envoyé : ${errorMessage(e)}`;
+  }
+  await noteOnLastEvent(routine.id, "auto_disabled", detail).catch(() => {});
 }
 
 async function runStep(step: RoutineStep, ctx: StepContext, rowsIn: number, budgetMs: number): Promise<StepRunOutcome> {

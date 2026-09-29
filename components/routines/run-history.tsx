@@ -90,7 +90,8 @@ export function RunHistory({ routineId, timezone, refreshKey }: { routineId: str
                       <span>{run.totals.planned} prévu{run.totals.planned > 1 ? "s" : ""}</span>
                     ) : (
                       <>
-                        <span className="text-emerald-300">{run.totals.created} créé{run.totals.created > 1 ? "s" : ""}</span>
+                        {/* Every write counts: ads, Sheet rows and messages alike (the detail is under each step). */}
+                        <span className="text-emerald-300">{run.totals.created} écriture{run.totals.created > 1 ? "s" : ""} faite{run.totals.created > 1 ? "s" : ""}</span>
                         <span>{run.totals.skipped} ignoré{run.totals.skipped > 1 ? "s" : ""}</span>
                         <span className={run.totals.failed ? "text-red-300" : undefined}>{run.totals.failed} échoué{run.totals.failed > 1 ? "s" : ""}</span>
                       </>

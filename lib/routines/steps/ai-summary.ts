@@ -214,10 +214,18 @@ export interface AiSummaryDeps {
   now: () => number;
 }
 
+/** A client without a name is stored as "—" (Routine.clientName): the routine's name says more. */
+export function clientOf(routine: StepContext["routine"]): string {
+  const client = routine.clientName?.trim();
+  return client && client !== "—" ? client : routine.name;
+}
+
 const DEFAULT_DEPS: AiSummaryDeps = {
   complete: relayComplete,
-  // System run: no user. The routine's name stands for the client, which the step context does not carry.
-  record: (usage, routine) => recordAiUsage(usage, { feature: "routine_ai_step", clientName: routine.name, user: null }),
+  // System run: no user. Recorded under the client of the routine; its name stands in when the context has none.
+  record: (usage, routine) => recordAiUsage(usage, {
+    feature: "routine_ai_step", dashboardId: routine.dashboardId ?? null, clientName: clientOf(routine), user: null,
+  }),
   now: () => Date.now(),
 };
 

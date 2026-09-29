@@ -171,7 +171,7 @@ describe("routines — live run", () => {
     expect(ctxOf("prevenir").outputs.resume.text).toBe("Semaine calme.");
     expect(Object.keys(ctxOf("prevenir").outputs)).toEqual(["lire", "deux", "resume"]);
     expect(ctxOf("tout").input?.rows).toHaveLength(3);
-    expect(ctxOf("tout").routine).toEqual({ id: expect.any(String), name: "Créas de la semaine", metaAccountId: "act_123", googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20 });
+    expect(ctxOf("tout").routine).toEqual({ id: expect.any(String), name: "Créas de la semaine", metaAccountId: "act_123", googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20, clientName: "—", dashboardId: null });
   });
 
   it("creates nothing twice: a second run finds every key done", async () => {

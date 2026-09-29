@@ -214,7 +214,7 @@ describe("slack.message", () => {
     expect(out.output.rows?.rows).toHaveLength(40);
   });
 
-  it("sends nothing when the message depends on rows and there are none", async () => {
+  it("sends nothing when there are no rows to speak of", async () => {
     const empty: RowSet = { columns: ["campagne"], rows: [], truncated: false };
     for (const input of [empty, null]) {
       const out = await slackMessageHandler.run(step, context(input, live(), { resume: { text: "x" } }));
@@ -222,7 +222,12 @@ describe("slack.message", () => {
       expect(out.warnings[0]).toContain("message non envoyé");
     }
     expect(sent).toEqual([]);
-    const textOnly = await slackMessageHandler.run({ ...step, includeTable: false }, context(empty, live(), { resume: { text: "rien à signaler" } }));
+    // Rows were expected and none came: a message without table would announce work that was not done.
+    const afterNothing = await slackMessageHandler.run({ ...step, includeTable: false }, context(empty, live(), { resume: { text: "rien à signaler" } }));
+    expect(afterNothing).toMatchObject({ status: "skipped", written: [] });
+    expect(sent).toEqual([]);
+    // No source above the message: it leaves at every run.
+    const textOnly = await slackMessageHandler.run({ ...step, includeTable: false }, context(null, live(), { resume: { text: "rien à signaler" } }));
     expect(textOnly.status).toBe("ok");
     expect(sent).toHaveLength(1);
     expect(sent[0].body.text).toBe("Bilan du 2026-09-29 : rien à signaler");

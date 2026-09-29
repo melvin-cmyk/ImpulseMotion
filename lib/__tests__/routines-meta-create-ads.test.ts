@@ -241,13 +241,26 @@ describe("meta.create_ads — preflight (reads only)", () => {
 });
 
 describe("meta.create_ads — dry run", () => {
+  it("announces only what would really be created: not a key already done, nor one whose outcome is unknown", async () => {
+    const { handler, ctx } = await context("dry_run", [row("A1"), row("A2"), row("A3")], { claims: { A1: "already_done", A2: "uncertain" } });
+    const out = await handler.run(step(), ctx);
+    expect(out.status).toBe("ok");
+    expect(posts()).toHaveLength(0);
+    expect(out.planned.map((p) => p.itemKey)).toEqual(["A3"]);
+    // Meta is not asked about the rows the database already answers for.
+    expect(calls.filter((c) => c.path === `/${ADSET}/ads`)).toHaveLength(1);
+    expect(out.output.rows?.rows.map((r) => [r.id, r.meta_statut])).toEqual([["A3", "prévue"]]);
+    expect(out.warnings.join(" ")).toMatch(/A2.*à vérifier/);
+  });
+
   it("sends no write request and lists every ad that would be created", async () => {
     const { handler, ctx, claimItem, settleItem } = await context("dry_run", [row("A1"), row("A2"), row("A3")]);
     const out = await handler.run(step(), ctx);
     expect(out.status).toBe("ok");
     expect(posts()).toHaveLength(0);
     expect(calls.every((c) => c.method === "GET")).toBe(true);
-    expect(claimItem).not.toHaveBeenCalled();
+    // Asked, never settled: in a dry run the engine answers from the database and reserves nothing.
+    expect(claimItem.mock.calls.map((c) => c[1])).toEqual(["A1", "A2", "A3"]);
     expect(settleItem).not.toHaveBeenCalled();
     expect(out.written).toEqual([]);
     expect(out.planned.map((p) => p.itemKey)).toEqual(["A1", "A2", "A3"]);
@@ -346,7 +359,9 @@ describe("meta.create_ads — live run", () => {
     expect(settleItem).not.toHaveBeenCalled();
     expect(out.written).toEqual([]);
     expect(out.status).toBe("ok");
-    expect(out.output.rows?.rows.map((r) => r.meta_statut)).toEqual(["déjà traitée", "à vérifier"]);
+    // Rows of earlier runs are not news: nothing comes out, a message placed after has nothing to announce.
+    expect(out).toMatchObject({ rowsIn: 2, rowsOut: 0 });
+    expect(out.output.rows?.rows).toEqual([]);
     expect(out.warnings.join(" ")).toMatch(/A2.*à vérifier/);
   });
 
@@ -384,7 +399,8 @@ describe("meta.create_ads — live run", () => {
     // Never settled: the engine turns the reservation into `uncertain`.
     expect(settleItem).not.toHaveBeenCalled();
     expect(out.written).toEqual([]);
-    expect(out.output.rows?.rows.map((r) => r.meta_statut)).toEqual(["à vérifier", "en attente", "en attente"]);
+    // The rows that wait for the next run do not come out.
+    expect(out.output.rows?.rows.map((r) => r.meta_statut)).toEqual(["à vérifier"]);
     expectNoToken(out);
   });
 
@@ -508,7 +524,7 @@ describe("meta.create_ads — ceiling and deadline", () => {
     expect(out.written).toHaveLength(3);
     expect(out.status).toBe("ok");
     expect(out.warnings.join(" ")).toMatch(/Plafond de 3 publicités/);
-    expect(out.output.rows?.rows.map((r) => r.meta_statut)).toEqual(["créée", "créée", "créée", "en attente", "en attente", "en attente", "en attente"]);
+    expect(out.output.rows?.rows.map((r) => [r.id, r.meta_statut])).toEqual([["K1", "créée"], ["K2", "créée"], ["K3", "créée"]]);
   });
 
   it("does not count the rows already done, and never goes over the cap of 50", async () => {
