@@ -21,8 +21,8 @@ const NOW = new Date("2026-09-29T08:00:00Z");
 const DAILY: Schedule = { kind: "daily", time: "09:00" };
 const ACCOUNT = "act_564381881705822";
 const ADSET = createAdsStep.adsetId;
-/** Key of a row in RoutineItem, as the real step writes it: step, ad set, value of the key column. */
-const keyOf = (rowId: string | number) => itemKeyOf("creer", ADSET, rowId);
+/** Key of a row in RoutineItem, as the real step writes it: ad set, then value of the key column. */
+const keyOf = (rowId: string | number) => itemKeyOf(ADSET, rowId);
 const hashOf = (definition: RoutineDefinition, schedule: Schedule, maxItemsPerRun: number, extra: { metaAccountId?: string | null; googleCustomerId?: string | null; timezone?: string } = {}) =>
   hashDefinition({ definition, schedule, maxItemsPerRun, metaAccountId: ACCOUNT, googleCustomerId: null, timezone: "Europe/Paris", ...extra });
 
@@ -55,8 +55,8 @@ let platformCalls: string[] = [];
  * Stand-in for meta.create_ads, behaving as the real step does
  * (lib/routines/steps/meta-create-ads.ts): it asks ctx.claimItem for every
  * row, in a dry run too (the engine then answers from the database and
- * reserves nothing), under the key the real step uses (step, ad set, value of
- * the key column); what it plans and writes is named by the value of the key
+ * reserves nothing), under the key the real step uses (ad set, value of the
+ * key column); what it plans and writes is named by the value of the key
  * column; it fills `planned` in a dry run only; it counts what it does.
  */
 const createsAds: Behaviour = async (step, ctx) => {
@@ -64,7 +64,7 @@ const createsAds: Behaviour = async (step, ctx) => {
   const counts = { adsCreated: 0, skipped: 0, failed: 0, deferred: 0 };
   for (const row of ctx.input?.rows ?? []) {
     const rowKey = String(row.id);
-    const key = itemKeyOf(step.id, (step as MetaCreateAdsStep).adsetId, rowKey);
+    const key = itemKeyOf((step as MetaCreateAdsStep).adsetId, rowKey);
     const claim = await ctx.claimItem(step.id, key, String(row.nom));
     if (claim.state === "deferred") { counts.deferred++; continue; }
     if (claim.state !== "claimed") { counts.skipped++; continue; }
@@ -155,8 +155,9 @@ describe("routines — dry run", () => {
 
   it("does not take a key of another ad set, or of another form, for one already done", async () => {
     const routine = await seed([readStep, createAdsStep]);
-    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: itemKeyOf("creer", "120210000000000777", "crea-1"), status: "created" } });
+    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: itemKeyOf("120210000000000777", "crea-1"), status: "created" } });
     await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: "crea-2", status: "created" } });
+    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: `creer:${ADSET}:crea-3`, status: "created" } });
     const result = await dry(routine);
     expect(result.steps[1].planned.map((p) => p.itemKey)).toEqual(["crea-1", "crea-2", "crea-3"]);
   });
@@ -219,7 +220,7 @@ describe("routines — live run", () => {
     expect(ctxOf("prevenir").outputs.resume.text).toBe("Semaine calme.");
     expect(Object.keys(ctxOf("prevenir").outputs)).toEqual(["lire", "deux", "resume"]);
     expect(ctxOf("tout").input?.rows).toHaveLength(3);
-    expect(ctxOf("tout").routine).toEqual({ id: expect.any(String), name: "Créas de la semaine", metaAccountId: "act_564381881705822", googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20, clientName: "—", dashboardId: null });
+    expect(ctxOf("tout").routine).toEqual({ id: expect.any(String), name: "Créas de la semaine", metaAccountId: "act_564381881705822", googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20, clientName: "—", dashboardId: null, pageId: null });
   });
 
   it("creates nothing twice: a second run finds every key done", async () => {
@@ -381,7 +382,8 @@ describe("routines — failures", () => {
       expect(await live(await reload(routine.id))).toMatchObject({ status: "infra_failed", consecutiveFailures: 0, autoDisabled: false });
     }
     expect(await reload(routine.id)).toMatchObject({ status: "active", consecutiveFailures: 0, lastRunStatus: "infra_failed" });
-    expect(db.routineEvent.rows).toEqual([]);
+    // Never switched off; told once that it is degraded, at the third run, and not again.
+    expect(db.routineEvent.rows.map((e) => e.kind)).toEqual(["degraded_notified"]);
   });
 
   it("counts consecutive failures only: a success resets, an infrastructure failure does not", async () => {
@@ -480,10 +482,11 @@ describe("routines — items", () => {
 
   it("never creates again what is created, nor what is unknown", async () => {
     expect(await claimItem(args("k1"))).toEqual({ state: "claimed", attempts: 1 });
-    expect(await settleItem({ routineId: "r1", itemKey: "k1", status: "created", externalId: "ad_1" })).toBe(true);
+    expect(await settleItem({ routineId: "r1", itemKey: "k1", status: "created", externalId: "ad_1" })).toBe("settled");
     expect(await claimItem(args("k1", "run2"))).toMatchObject({ state: "already_done", externalId: "ad_1" });
     // Settled once: a late answer does not rewrite it.
-    expect(await settleItem({ routineId: "r1", itemKey: "k1", status: "failed", error: "trop tard" })).toBe(false);
+    expect(await settleItem({ routineId: "r1", itemKey: "k1", status: "failed", error: "trop tard" })).toBeNull();
+    expect(await settleItem({ routineId: "r1", itemKey: "k1", status: "failed", error: "trop tard", runId: "run1" })).toBeNull();
     expect(db.routineItem.rows[0]).toMatchObject({ status: "created", externalId: "ad_1", runId: "run1" });
 
     // Reserved, never settled (creation timed out): unknown, for good.
@@ -600,18 +603,30 @@ describe("routines — run lock", () => {
     expect(seen.map((s) => s.stepId)).toEqual(["lire", "prevenir"]);
   });
 
-  // Was « keeps the routine due »: a routine left due after a crash was started again every 15 minutes,
-  // with whatever it had already sent (defect 2 of the review). The schedule now moves on with the lock.
-  it("gives the lock back when the run crashes, and does not start it again at the next firing", async () => {
+  // Two cases, since the second review. Nothing started (the run could not even be recorded): the occurrence is
+  // not lost, the schedule goes back. Something started and the run crashed: it is never started again (defect 2).
+  it("gives the lock back and puts the schedule back when the run could not even be recorded", async () => {
     const routine = await seed([readStep]);
     const create = db.routineRun.create;
     db.routineRun.create = async () => { throw new Error("connection lost"); };
     await expect(runLocked(routine.id, { trigger: "schedule", now: NOW })).rejects.toThrow("connection lost");
     db.routineRun.create = create;
     expect(await reload(routine.id)).toMatchObject({ lockedUntil: null, status: "active" });
+    expect((await reload(routine.id)).nextRunAt?.toISOString()).toBe("2026-09-29T07:00:00.000Z");
+    expect(seen).toEqual([]);
+    expect((await runLocked(routine.id, { trigger: "schedule", now: new Date(NOW.getTime() + 900_000) })).outcome).toBe("ran");
+  });
+
+  it("does not start again a run that crashed after it had started", async () => {
+    const routine = await seed([readStep]);
+    const updateMany = db.routineRun.updateMany;
+    db.routineRun.updateMany = async () => { throw new Error("connection lost"); };
+    await expect(runLocked(routine.id, { trigger: "schedule", now: NOW })).rejects.toThrow("connection lost");
+    db.routineRun.updateMany = updateMany;
+    expect(await reload(routine.id)).toMatchObject({ lockedUntil: null, status: "active" });
     expect((await reload(routine.id)).nextRunAt?.toISOString()).toBe("2026-09-30T07:00:00.000Z");
     expect((await runLocked(routine.id, { trigger: "schedule", now: new Date(NOW.getTime() + 900_000) })).outcome).toBe("busy");
-    expect(seen).toEqual([]);
+    expect(seen.map((s) => s.stepId)).toEqual(["lire"]);
   });
 
   it("leaves a routine that was switched off without a next run", async () => {

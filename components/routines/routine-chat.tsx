@@ -30,7 +30,7 @@ import { shiftProposalKeys, type ProposalState } from "@/components/routines/rou
 interface ChatMessage { role: "user" | "assistant"; content: string }
 
 type Check =
-  | { ok: true; proposal: RoutineProposal; writesPlatform: boolean }
+  | { ok: true; proposal: RoutineProposal; writesPlatform: boolean; notices: string[] }
   | { ok: false; errors: string[] };
 
 /** What an application attempt answered; kept for the session only. */
@@ -42,10 +42,13 @@ function readChecks(raw: unknown): Record<string, Check> {
   const out: Record<string, Check> = {};
   if (!raw || typeof raw !== "object") return out;
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const v = value as { ok?: unknown; proposal?: unknown; errors?: unknown; writesPlatform?: unknown } | null;
+    const v = value as { ok?: unknown; proposal?: unknown; errors?: unknown; writesPlatform?: unknown; notices?: unknown } | null;
     if (!v || typeof v !== "object") continue;
     if (v.ok === true && v.proposal && typeof v.proposal === "object") {
-      out[key] = { ok: true, proposal: v.proposal as RoutineProposal, writesPlatform: v.writesPlatform === true };
+      out[key] = {
+        ok: true, proposal: v.proposal as RoutineProposal, writesPlatform: v.writesPlatform === true,
+        notices: Array.isArray(v.notices) ? v.notices.filter((n): n is string => typeof n === "string") : [],
+      };
     } else if (v.ok === false) {
       out[key] = { ok: false, errors: Array.isArray(v.errors) ? v.errors.filter((e): e is string => typeof e === "string") : [] };
     }
@@ -334,6 +337,7 @@ export function RoutineChat({
         draftName={draftName}
         errors={errors}
         issues={outcome.issues}
+        notices={check?.ok && (state === "pending" || state === "failed" || state === "applying") ? check.notices : undefined}
         metaAccountId={metaAccountId}
         timezone={timezone}
         onApply={() => { if (proposal) void apply(key, proposal); }}

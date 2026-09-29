@@ -73,9 +73,9 @@ async function load() {
 }
 
 type Claim = ItemClaim | ItemClaim["state"];
-/** Key of a row in the database: the step, the ad set, the value of the key column. */
-const K = (rowKey: string, adset = ADSET) => itemKeyOf("creer", adset, rowKey);
-const rowKeyOf = (key: string) => key.split(":").slice(2).join(":");
+/** Key of a row in the database: the ad set, then the value of the key column. */
+const K = (rowKey: string, adset = ADSET) => itemKeyOf(adset, rowKey);
+const rowKeyOf = (key: string) => key.split(":").slice(1).join(":");
 
 /** `claims` is keyed by the value of the key column; the answers are those of the engine (ItemClaim). */
 async function context(mode: "live" | "dry_run", rows: Row[] | null, opts: { claims?: Record<string, Claim>; maxItemsPerRun?: number; deadlineAt?: number; metaAccountId?: string | null; signal?: AbortSignal } = {}) {
@@ -207,26 +207,26 @@ describe("meta.create_ads — validation", () => {
 describe("meta.create_ads — preflight (reads only)", () => {
   const routine = (metaAccountId: string | null = `act_${ACCOUNT}`) => ({ id: "r1", name: "Créas", metaAccountId, googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20 });
 
-  it("passes when the campaign and the ad set are in the account and the Page is readable", async () => {
+  it("passes when the campaign and the ad set are in the account and the Page is one the account can promote", async () => {
     const { handler } = await load();
     expect(await handler.preflight(step(), routine())).toEqual([]);
     expect(posts()).toHaveLength(0);
-    expect(calls.map((c) => c.path)).toEqual(expect.arrayContaining([`/${CAMPAIGN}`, `/${ADSET}`, `/${PAGE}`]));
+    expect(calls.map((c) => c.path)).toEqual(expect.arrayContaining([`/${CAMPAIGN}`, `/${ADSET}`, `/act_${ACCOUNT}/promote_pages`]));
   });
 
-  it("reports an ad set of another account, a campaign of another account, an unreadable Page", async () => {
+  it("reports an ad set of another account, a campaign of another account, a Page the account cannot promote", async () => {
     const { handler } = await load();
     reply = (c) => {
       if (c.path === `/${ADSET}`) return json({ id: ADSET, account_id: "111111111111111", campaign_id: CAMPAIGN });
       if (c.path === `/${CAMPAIGN}`) return json({ id: CAMPAIGN, account_id: "111111111111111" });
-      if (c.path === `/${PAGE}`) return metaError(100, "Unsupported get request. Object does not exist");
+      if (c.path === `/act_${ACCOUNT}/promote_pages`) return json({ data: [{ id: "103591049029999", name: "Une autre" }] });
       return happy(c);
     };
     const issues = await handler.preflight(step(), routine());
     expect(issues.filter((i) => i.severity === "error").map((i) => i.message)).toEqual([
       expect.stringMatching(/campagne .* n'appartient pas au compte/),
       expect.stringMatching(/ensemble de publicités .* n'appartient pas au compte/),
-      expect.stringMatching(/Page .* illisible/),
+      expect.stringMatching(/Page .* n'est pas de celles que le compte publicitaire de la routine peut promouvoir/),
     ]);
     expect(posts()).toHaveLength(0);
   });
@@ -257,8 +257,9 @@ describe("meta.create_ads — dry run", () => {
     expect(out.status).toBe("ok");
     expect(posts()).toHaveLength(0);
     expect(out.planned.map((p) => p.itemKey)).toEqual(["A3"]);
-    // Meta is not asked about the rows the database already answers for.
-    expect(calls.filter((c) => c.path === `/${ADSET}/ads`)).toHaveLength(1);
+    // Meta is asked about the row to create, and about the one whose outcome is unknown (looked for by its name);
+    // not about the row the database knows as done.
+    expect(calls.filter((c) => c.path === `/${ADSET}/ads`)).toHaveLength(2);
     expect(out.output.rows?.rows.map((r) => [r.id, r.meta_statut])).toEqual([["A3", "prévue"]]);
     expect(out.warnings.join(" ")).toMatch(/A2.*à vérifier/);
   });
@@ -367,7 +368,8 @@ describe("meta.create_ads — live run", () => {
     const { handler, ctx, settleItem } = await context("live", [row("A1"), row("A2")], { claims: { A1: "already_done", A2: "uncertain" } });
     const out = await handler.run(step(), ctx);
     expect(posts()).toHaveLength(0);
-    expect(calls.filter((c) => c.path === `/${ADSET}/ads`)).toHaveLength(0);
+    // One read: the row whose outcome is unknown is looked for by its name. Not found, it stays to be checked.
+    expect(calls.filter((c) => c.path === `/${ADSET}/ads`)).toHaveLength(1);
     expect(settleItem).not.toHaveBeenCalled();
     expect(out.written).toEqual([]);
     expect(out.status).toBe("ok");
@@ -599,7 +601,7 @@ describe("meta.create_ads — status written back", () => {
     expect(updates).toEqual([
       { row: 3, column: "Statut", value: "créée (en pause)" },
       { row: 3, column: "Ad ID", value: out.written[0].externalId },
-      { row: 3, column: "Erreur", value: "" },
+      // The error cell of a row that went well is empty already: a cell that is right is left alone.
       { row: 4, column: "Statut", value: "refusée" },
       { row: 4, column: "Erreur", value: expect.stringMatching(/image refusée/) },
     ]);

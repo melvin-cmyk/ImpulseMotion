@@ -22,7 +22,8 @@ import { relayStream, teeRelayStream } from "@/lib/relay-chat";
 import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay-attachments";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { chatJsonWith, readRoutineContext } from "@/lib/routines/context";
-import { validateProposal } from "@/lib/routines/validate";
+import { proposalNotices } from "@/lib/routines/proposal-notices";
+import { validateProposal, type ProposalContext } from "@/lib/routines/validate";
 import { writesPlatform } from "@/lib/routines/steps";
 import type { RoutineProposal } from "@/lib/routines/types";
 import {
@@ -39,12 +40,14 @@ type Session = { userId: string; role?: string | null; user?: { email?: string |
 const PROPOSAL_STATUSES = new Set(["pending", "applied", "refused", "failed", "invalid"]);
 
 type Check =
-  | { ok: true; proposal: RoutineProposal; writesPlatform: boolean }
+  | { ok: true; proposal: RoutineProposal; writesPlatform: boolean; notices: string[] }
   | { ok: false; errors: string[] };
 
+type Routine = { id: string; definitionJson: string; chatJson: string };
+
 /** validateProposal answers { ok, value } (lot A); { ok, proposal }, the form first agreed on, is read too. */
-const validator: ProposalValidator = (input) => {
-  const result = validateProposal(input) as
+const validatorFor = (context: ProposalContext): ProposalValidator => (input) => {
+  const result = validateProposal(input, context) as
     | { ok: true; value?: RoutineProposal; proposal?: RoutineProposal }
     | { ok: false; errors: string[] };
   if (!result.ok) return { ok: false, errors: result.errors };
@@ -52,17 +55,25 @@ const validator: ProposalValidator = (input) => {
   return proposal ? { ok: true, proposal } : { ok: false, errors: ["validation sans résultat"] };
 };
 
-/** One entry per assistant message that carries (or tried to carry) a proposal. */
-function checksOf(messages: Array<{ role: string; content: string }>): Record<string, Check> {
+/**
+ * One entry per assistant message that carries (or tried to carry) a proposal.
+ * Validated against what the routine has fixed (the Page chosen when it was
+ * created), with what the proposal would change of what is already done.
+ */
+async function checksOf(routine: Routine, messages: Array<{ role: string; content: string }>): Promise<Record<string, Check>> {
   const out: Record<string, Check> = {};
-  messages.forEach((m, i) => {
-    if (m.role !== "assistant") return;
+  const validator = validatorFor({ pageId: readRoutineContext(routine.chatJson).page?.id ?? null });
+  for (const [i, m] of messages.entries()) {
+    if (m.role !== "assistant") continue;
     const check = checkRoutineProposal(m.content, validator);
-    if (check.kind === "none") return;
+    if (check.kind === "none") continue;
     out[proposalKey(i)] = check.kind === "valid"
-      ? { ok: true, proposal: check.proposal, writesPlatform: writesPlatform(check.proposal.definition.steps) }
+      ? {
+          ok: true, proposal: check.proposal, writesPlatform: writesPlatform(check.proposal.definition.steps),
+          notices: await proposalNotices(routine, check.proposal.definition).catch(() => []),
+        }
       : { ok: false, errors: check.errors };
-  });
+  }
   return out;
 }
 
@@ -111,7 +122,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if ("error" in loaded) return loaded.error;
 
   const chat = readChat(loaded.routine.chatJson);
-  const checks = checksOf(chat.messages);
+  const checks = await checksOf(loaded.routine, chat.messages);
   return NextResponse.json({ messages: chat.messages, proposals: sanitizeStatuses(chat.proposals, checks), checks });
 }
 
@@ -124,7 +135,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const body = await req.json().catch(() => ({}));
   const messages = sanitizeMessages(body.messages) ?? [];
-  const checks = checksOf(messages);
+  const checks = await checksOf(loaded.routine, messages);
   const proposals = sanitizeStatuses(body.proposals, checks);
   // The Page chosen when the routine was created stays with the conversation it is meant for.
   await prisma.routine.update({ where: { id }, data: { chatJson: chatJsonWith(loaded.routine.chatJson, { messages, proposals }) } });

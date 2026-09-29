@@ -1,7 +1,9 @@
 /**
  * One routine — staff only.
  *
- * GET    → the routine ({ routine })
+ * GET    → the routine ({ routine }), with its health: how many live runs in
+ *          a row were not a full success, the last error, and how many items
+ *          wait for a person
  * PATCH  → { name? } and/or { action: "pause" | "resume" | "archive" }
  *          pause   : active → paused, leaves the schedule
  *          resume  : paused → active, if the dry run still covers the routine
@@ -19,7 +21,9 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { adminRuleRefusal } from "@/lib/routines/admin-rule";
 import { hashDefinition } from "@/lib/routines/hash";
 import { computeNextRunAt } from "@/lib/routines/schedule";
-import { actorOf, getRoutine, logEvent, renameRoutine, routineForSession, routineView, setStatus, type Actor, type RoutineRecord } from "@/lib/routines/store";
+import {
+  actorOf, getRoutine, itemsToCheck, logEvent, renameRoutine, routineForSession, routineHealth, routineView, setStatus, type Actor, type RoutineRecord,
+} from "@/lib/routines/store";
 import { parseStoredDefinition, parseStoredSchedule, validateName } from "@/lib/routines/validate";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -34,7 +38,17 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return found.status === 403 ? FORBIDDEN() : NOT_FOUND();
-  return NextResponse.json({ routine: routineView(found.routine) }, { headers: NO_STORE });
+  const [health, toCheck] = await Promise.all([
+    routineHealth(found.routine.id).catch(() => null),
+    itemsToCheck(found.routine.id).catch(() => []),
+  ]);
+  return NextResponse.json({
+    routine: {
+      ...routineView(found.routine),
+      degradedRuns: health?.degradedRuns ?? 0, degradedAtLeast: health?.atLeast ?? false, degradedError: health?.lastError ?? null,
+      itemsToCheck: toCheck.length,
+    },
+  }, { headers: NO_STORE });
 }
 
 async function archive(routine: RoutineRecord, actor: Actor): Promise<void> {

@@ -25,19 +25,20 @@
  */
 
 import { hashDefinition } from "@/lib/routines/hash";
-import { notifyAutoDisabled } from "@/lib/routines/notify";
-import { catchUpDecision, computeNextRunAt } from "@/lib/routines/schedule";
+import { notifyAutoDisabled, notifyDegraded } from "@/lib/routines/notify";
+import { catchUpDecision, computeNextRunAt, lastOccurrenceAt } from "@/lib/routines/schedule";
 import { handlerFor, writesPlatform } from "@/lib/routines/steps";
 import {
-  LOCK_TTL_MS, acquireRunLock, claimItem, closeRun, confirmItem, finishRun, getRoutine, internalChannelFor, lastLiveRuns, markUnsettledUncertain,
-  noteLastRun, noteOnLastEvent, ownerProblem, ownerEmail, peekItem, recordMissedRun, recordRunOutcome, releaseRunLock, runningRunsBefore,
-  settleItem, startRun, switchOff,
+  LOCK_TTL_MS, acquireRunLock, chosenPageOf, claimItem, closeRun, confirmItem, countScheduledRunsSince, degradedAlreadyNotified, expiredLocks,
+  finishRun, getRoutine, hasRunSince, internalChannelFor, lastLiveRuns, listItems, logEvent, markUnsettledUncertain,
+  noteLastRun, noteOnLastEvent, ownerProblem, ownerEmail, peekItem, recordMissedRun, recordRunOutcome, releaseRunLock, routineHealth, runningRunsBefore,
+  settleItem, startRun, switchOff, traceUntracedRun,
   type FailureKind, type RoutineRecord,
 } from "@/lib/routines/store";
 import { parseStoredDefinition, parseStoredSchedule, resolveInputId, stepDependencies } from "@/lib/routines/validate";
 import { mintWriteGuard, revokeWriteGuard } from "@/lib/routines/write-guard";
 import {
-  MAX_CONSECUTIVE_FAILURES, MAX_ITEMS_PER_RUN_CAP, MIN_START_MS, MIN_START_PLATFORM_MS, RUN_BUDGET_MS, WRITE_COUNT_KEYS, emptyCounts, writesOf,
+  DEGRADED_AFTER_RUNS, MAX_CONSECUTIVE_FAILURES, MAX_ITEMS_PER_RUN_CAP, MAX_RESUMES_PER_SLOT, MIN_START_MS, MIN_START_PLATFORM_MS, RUN_BUDGET_MS, WRITE_COUNT_KEYS, emptyCounts, writesOf,
   type ErrorClass, type ItemClaim, type RoutineDefinition, type RoutineStep, type RunMode, type RunResult, type RunTrigger,
   type Schedule, type StepContext, type StepOutput, type StepResult, type StepRunOutcome, type WriteCounts, type WriteGuard, type WriteKind,
 } from "@/lib/routines/types";
@@ -65,6 +66,15 @@ export interface EngineRunResult extends RunResult {
   autoDisabled: boolean;
   /** What the person must read before going on (a dry run that showed nothing to create). */
   warnings: string[];
+}
+
+/** The run could not even be recorded: nothing was read, nothing was written. runLocked puts the schedule back. */
+export class RunNotStartedError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "RunNotStartedError";
+    this.cause = cause;
+  }
 }
 
 /** Dry run of a routine that creates ads, with nothing to create: activation stays open, the person is told. */
@@ -153,6 +163,7 @@ function normalize(outcome: unknown, rowsIn: number): StepRunOutcome {
     warnings: Array.isArray(o.warnings) ? o.warnings.filter((w): w is string => typeof w === "string") : [],
   };
   if (o.timedOut === true) result.timedOut = true;
+  if (Array.isArray(o.notices)) result.notices = o.notices.filter((n): n is string => typeof n === "string" && !!n).slice(0, 20);
   const counts = givenCounts(o.counts);
   if (Object.keys(counts).length) result.counts = counts;
   if (status === "failed") {
@@ -222,10 +233,16 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
   const deadlineAt = opts.deadlineAt ?? startedAt + RUN_BUDGET_MS;
   const cap = Math.max(1, Math.min(routine.maxItemsPerRun, MAX_ITEMS_PER_RUN_CAP));
 
-  const runId = await startRun({
-    routineId: routine.id, trigger, definitionHash: routine.definitionHash,
-    startedById: opts.startedById ?? null, startedAt: now,
-  });
+  let runId: string;
+  try {
+    runId = await startRun({
+      routineId: routine.id, trigger, definitionHash: routine.definitionHash,
+      startedById: opts.startedById ?? null, startedAt: now,
+    });
+  } catch (e) {
+    throw new RunNotStartedError(e);
+  }
+  const chosenPage = chosenPageOf(routine);
 
   // One guard per live run, none in a dry run. Both end with the run, whatever ends it.
   const guard = mode === "live" ? mintWriteGuard("live", runId) : null;
@@ -254,7 +271,7 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
     if (!loaded.ok) fatal = { class: "functional", message: loaded.error };
     if (!fatal && trigger === "schedule") {
       try {
-        const problem = await ownerProblem(routine);
+        const problem = await ownerProblem({ ...routine, writesPlatform: routine.writesPlatform || (loaded.ok && writesPlatform(loaded.value.definition.steps)) });
         if (problem) fatal = { class: "functional", message: problem };
       } catch (e) {
         fatal = { class: "infra", message: `Vérification du périmètre impossible : ${errorMessage(e)}` };
@@ -267,6 +284,7 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
         id: routine.id, name: routine.name, metaAccountId: routine.metaAccountId, googleCustomerId: routine.googleCustomerId,
         timezone: routine.timezone, maxItemsPerRun: cap,
         clientName: routine.clientName, dashboardId: routine.dashboardId,
+        pageId: chosenPage?.id ?? null,
       },
       runId, now, deadlineAt, input,
       // Each step sees the outputs of the steps before it, and cannot change them for the next ones.
@@ -289,10 +307,12 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
         return got;
       },
       peekItem: (_stepId, itemKey) => peekItem(routine.id, itemKey),
+      listItems: () => listItems(routine.id),
       async settleItem(_stepId, itemKey, r) {
         if (mode !== "live") return;
-        const settled = await settleItem({ routineId: routine.id, itemKey, status: r.status, externalId: r.externalId, error: r.error });
-        if (settled && r.status === "failed") tally.failed++;
+        // Book-keeping, not a write on a platform: a step given up that hears from the platform afterwards may still say so.
+        const settled = await settleItem({ routineId: routine.id, itemKey, status: r.status, externalId: r.externalId, error: r.error, runId });
+        if (settled === "settled" && r.status === "failed") tally.failed++;
       },
       async confirmItem(_stepId, itemKey, externalId) {
         if (mode !== "live" || stop.signal.aborted) return;
@@ -305,8 +325,9 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
       for (const [index, step] of list.entries()) {
         const began = clock();
         const push = (outcome: StepRunOutcome, stepCounts: WriteCounts = emptyCounts()) => {
-          const { counts: _given, ...rest } = outcome;
+          const { counts: _given, notices, ...rest } = outcome;
           void _given;
+          for (const notice of notices ?? []) if (typeof notice === "string" && notice && !warnings.includes(notice)) warnings.push(notice.slice(0, 500));
           steps.push({ stepId: step.id, type: step.type, durationMs: Math.max(0, clock() - began), ...rest, counts: stepCounts });
           for (const key of WRITE_COUNT_KEYS) counts[key] += stepCounts[key];
           if (outcome.status === "ok") outputs[step.id] = outcome.output;
@@ -352,10 +373,16 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
 
         let cut = 0;
         if (handler.writes === "platform") {
-          if (outcome.planned.length > cap) {
-            cut = outcome.planned.length - cap;
-            outcome.planned = outcome.planned.slice(0, cap);
-            outcome.counts = {};
+          // The ceiling bounds what is created on the platform. The status the step plans to write back in a
+          // Sheet is not an item: it is neither counted against the ceiling nor cut, in a dry run as in a live one.
+          const onPlatform = outcome.planned.filter((p) => p.target === "meta");
+          if (onPlatform.length > cap) {
+            cut = onPlatform.length - cap;
+            const kept = new Set(onPlatform.slice(0, cap));
+            outcome.planned = outcome.planned.filter((p) => p.target !== "meta" || kept.has(p));
+            const { adsCreated: _created, adsAttached: _attached, ...others } = outcome.counts ?? {};
+            void _created; void _attached;
+            outcome.counts = others;
           }
           // An ad that existed and was attached is not a creation: the ceiling bounds what is created.
           const created = outcome.written.filter((w) => !w.attached).length;
@@ -442,6 +469,7 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
       consecutiveFailures = kept.consecutiveFailures;
       autoDisabled = kept.autoDisabled;
       if (autoDisabled) await announceAutoDisabled(runId, routine, `${consecutiveFailures} échecs de suite.`, error);
+      else if (status !== "success") await noticeDegraded(routine, runId).catch(() => false);
     }
 
     return {
@@ -449,6 +477,40 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
       definitionHash: routine.definitionHash, error, deferred: counts.deferred, consecutiveFailures, autoDisabled, warnings,
     };
   }
+}
+
+/**
+ * After DEGRADED_AFTER_RUNS live runs in a row that are not a full success
+ * (partial, failed, outage, interrupted), says ONCE, in the agency's channel
+ * for the client, that the routine is degraded. The routine goes on. Nothing
+ * more is said until a run has succeeded: the event `degraded_notified` names
+ * the run it was said at, and is written BEFORE the message leaves, so that a
+ * message that could not be sent is not sent again and again either.
+ */
+export async function noticeDegraded(routine: RoutineRecord, runId: string): Promise<boolean> {
+  const health = await routineHealth(routine.id);
+  if (health.degradedRuns < DEGRADED_AFTER_RUNS) return false;
+  if (await degradedAlreadyNotified(routine.id)) return false;
+  await logEvent(routine.id, "degraded_notified", { userId: null }, {
+    definitionHash: routine.definitionHash,
+    detail: `[run ${runId}] ${health.degradedRuns} exécutions de suite sans succès complet. Dernière erreur : ${health.lastError ?? "sans message"}`,
+  });
+  let detail: string;
+  let guard: WriteGuard | null = null;
+  try {
+    guard = mintWriteGuard("live", runId);
+    const channel = await internalChannelFor(routine);
+    const owner = await ownerEmail(routine);
+    ({ detail } = await notifyDegraded(guard, {
+      routine: { id: routine.id, name: routine.name, clientName: routine.clientName }, runs: health.degradedRuns, lastError: health.lastError, owner, channel,
+    }));
+  } catch (e) {
+    detail = `Message non envoyé : ${errorMessage(e)}`;
+  } finally {
+    revokeWriteGuard(guard);
+  }
+  await noteOnLastEvent(routine.id, "degraded_notified", detail).catch(() => {});
+  return true;
 }
 
 /**
@@ -491,7 +553,7 @@ async function runStep(step: RoutineStep, ctx: StepContext, rowsIn: number, budg
   }
 }
 
-// ── Runs that never ended ────────────────────────────────────────────────
+// ── Runs that never ended, runs that never started ───────────────────────
 
 /**
  * Closes the runs left `running` for longer than a lock lasts: the function
@@ -506,8 +568,11 @@ async function runStep(step: RoutineStep, ctx: StepContext, rowsIn: number, budg
  * Three live runs interrupted IN A ROW are no longer a mere outage (a routine
  * that never fits in its time budget): the routine is then switched off, with
  * the one message of the automatic stop.
+ *
+ * Called for every routine (the cron), it also traces the runs that never
+ * started: see traceLostRuns.
  */
-export async function closeInterruptedRuns(now: Date, opts: { routineId?: string } = {}): Promise<{ closed: number; disabled: string[] }> {
+export async function closeInterruptedRuns(now: Date, opts: { routineId?: string } = {}): Promise<{ closed: number; disabled: string[]; traced: number }> {
   const stale = await runningRunsBefore(new Date(now.getTime() - LOCK_TTL_MS), opts);
   const disabled: string[] = [];
   let closed = 0;
@@ -521,33 +586,74 @@ export async function closeInterruptedRuns(now: Date, opts: { routineId?: string
 
     const last = await lastLiveRuns(run.routineId, MAX_CONSECUTIVE_FAILURES);
     const allInterrupted = last.length >= MAX_CONSECUTIVE_FAILURES && last.every((r) => r.status === "infra_failed" && (r.error ?? "").startsWith(INTERRUPTED));
-    if (!allInterrupted) continue;
     const routine = await getRoutine(run.routineId);
     if (!routine || routine.status !== "active") continue;
+    if (!allInterrupted) {
+      await noticeDegraded(routine, run.id).catch(() => false);
+      continue;
+    }
     const reason = `${MAX_CONSECUTIVE_FAILURES} exécutions interrompues de suite.`;
     if (await switchOff(routine.id, routine.definitionHash, `${reason} Dernier : ${error}`)) {
       disabled.push(routine.id);
       await announceAutoDisabled(run.id, routine, reason, error);
     }
   }
-  return { closed, disabled };
+  const traced = opts.routineId ? 0 : await traceLostRuns(now).catch(() => 0);
+  return { closed, disabled, traced };
+}
+
+/**
+ * « Schedule moved on, no run traced »: a lock was taken (and with it the
+ * schedule moved), then the database went away before the run could be
+ * recorded AND before the schedule could be put back. What is left is a lock
+ * that expired without being given back, and no run since it was taken. The
+ * run that never was is traced as an outage, so that the history says what
+ * happened to that occurrence.
+ */
+export async function traceLostRuns(now: Date): Promise<number> {
+  let traced = 0;
+  for (const routine of await expiredLocks(now)) {
+    if (await traceLostRun(routine, now, true)) traced++;
+  }
+  return traced;
+}
+
+async function traceLostRun(routine: RoutineRecord, now: Date, clearLock: boolean): Promise<boolean> {
+  if (!routine.lockedUntil || routine.lockedUntil.getTime() >= now.getTime()) return false;
+  const takenAt = new Date(routine.lockedUntil.getTime() - LOCK_TTL_MS);
+  if (await hasRunSince(routine.id, takenAt)) return false;
+  const runId = await traceUntracedRun(routine, takenAt, now, clearLock);
+  if (!runId) return false;
+  await noticeDegraded(routine, runId).catch(() => false);
+  return true;
 }
 
 // ── Run under lock (cron and "run now") ──────────────────────────────────
+
+export type BusyReason = "not_found" | "not_active" | "locked" | "not_due";
 
 export type LockedRun =
   | { outcome: "ran"; result: EngineRunResult; nextRunAt: Date | null }
   | { outcome: "missed"; nextRunAt: Date | null }
   /** Not started for lack of time before the deadline: nothing was touched, the routine is still due. */
   | { outcome: "postponed"; neededMs: number }
-  /** Not taken: already running, not active, or (cron) not due any more. */
-  | { outcome: "busy" };
+  /** Not taken: already running, not active, or (cron) not due any more. `reason` says which. */
+  | { outcome: "busy"; reason: BusyReason; status?: string };
 
 /** Time a routine needs before the deadline to be started at all. */
 export function minStartMs(routine: Pick<RoutineRecord, "writesPlatform" | "definitionJson">): number {
   const definition = parseStoredDefinition(routine.definitionJson);
   const platform = routine.writesPlatform || (definition.ok && writesPlatform(definition.value.steps));
   return platform ? MIN_START_PLATFORM_MS : MIN_START_MS;
+}
+
+/** Why the lock was not given, read from the routine as it is now. */
+async function whyBusy(routineId: string, now: Date, scheduled: boolean): Promise<LockedRun & { outcome: "busy" }> {
+  const routine = await getRoutine(routineId).catch(() => null);
+  if (!routine) return { outcome: "busy", reason: "not_found" };
+  if (routine.status !== "active") return { outcome: "busy", reason: "not_active", status: routine.status };
+  if (routine.lockedUntil && routine.lockedUntil.getTime() >= now.getTime()) return { outcome: "busy", reason: "locked" };
+  return { outcome: "busy", reason: scheduled ? "not_due" : "locked" };
 }
 
 /**
@@ -558,6 +664,15 @@ export function minStartMs(routine: Pick<RoutineRecord, "writesPlatform" | "defi
  * STATEMENT THAT TAKES THE LOCK, before any step: if the run crashes or the
  * function is killed, the routine is not due any more and nothing is sent a
  * second time by the next firing. A manual run leaves the schedule as it is.
+ *
+ * Two cases put the schedule back:
+ *   - nothing started (the run could not even be recorded): the occurrence
+ *     is not lost, nextRunAt is set back to what it was and the lock given
+ *     back. When that fails too, the next firing traces the run that never
+ *     was (traceLostRuns);
+ *   - the run stopped for lack of time with rows left: the routine is due
+ *     again at once, for the next firing of the cron, MAX_RESUMES_PER_SLOT
+ *     times per occurrence of the schedule.
  *
  * With less than minStartMs() left before the deadline, nothing is started
  * and nothing is touched: the routine stays due for the next firing.
@@ -571,7 +686,8 @@ export async function runLocked(
   const scheduled = opts.trigger === "schedule";
 
   const before = await getRoutine(routineId);
-  if (!before || before.status !== "active") return { outcome: "busy" };
+  if (!before) return { outcome: "busy", reason: "not_found" };
+  if (before.status !== "active") return { outcome: "busy", reason: "not_active", status: before.status };
   if (opts.deadlineAt !== undefined) {
     const neededMs = minStartMs(before);
     if (opts.deadlineAt - clock() < neededMs) return { outcome: "postponed", neededMs };
@@ -580,23 +696,45 @@ export async function runLocked(
   const following = schedule.ok ? computeNextRunAt(schedule.value, before.timezone, now) : null;
 
   const lock = await acquireRunLock(routineId, now, scheduled ? { due: true, advance: { from: before.nextRunAt, to: following } } : {});
-  if (!lock) return { outcome: "busy" };
+  if (!lock) return whyBusy(routineId, now, scheduled);
 
+  /** What the lock is given back with; undefined leaves the schedule as the lock set it. */
+  let next: { nextRunAt: Date | null } | undefined;
+  let begun = false;
   try {
+    // The lock taken over was one that expired with no run traced: the run that never was is traced first.
+    await traceLostRun(before, now, false).catch(() => false);
     // A run of this routine that never ended is closed before a new one starts.
     await closeInterruptedRuns(now, { routineId }).catch(() => {});
     const routine = await getRoutine(routineId);
-    if (!routine || routine.status !== "active") return { outcome: "busy" };
+    if (!routine) return { outcome: "busy", reason: "not_found" };
+    if (routine.status !== "active") return { outcome: "busy", reason: "not_active", status: routine.status };
 
     if (scheduled && catchUpDecision(before.nextRunAt, now) === "missed") {
       await recordMissedRun(routine, before.nextRunAt!, now);
+      begun = true;
       return { outcome: "missed", nextRunAt: following };
     }
+    begun = true;
     const result = await runRoutine(routine, { mode: "live", trigger: opts.trigger, startedById: opts.startedById ?? null, now, deadlineAt: opts.deadlineAt, clock });
+
+    // Out of time with rows left: due again for the next firing, a few times per occurrence.
+    if (scheduled && schedule.ok && result.timedOut && result.deferred > 0 && !result.autoDisabled) {
+      const slot = lastOccurrenceAt(schedule.value, before.timezone, now) ?? now;
+      const runs = await countScheduledRunsSince(routineId, slot).catch(() => Number.MAX_SAFE_INTEGER);
+      if (runs <= MAX_RESUMES_PER_SLOT) {
+        next = { nextRunAt: now };
+        return { outcome: "ran", result, nextRunAt: now };
+      }
+    }
     // Switched off: recordRunOutcome has emptied nextRunAt, it stays empty.
     return { outcome: "ran", result, nextRunAt: result.autoDisabled ? null : scheduled ? following : routine.nextRunAt };
+  } catch (e) {
+    // Nothing started: the occurrence is not lost, the schedule goes back to what it was.
+    if (scheduled && (!begun || e instanceof RunNotStartedError)) next = { nextRunAt: before.nextRunAt };
+    throw e;
   } finally {
-    // The schedule has moved already: on a crash the run is not started again, it is closed as interrupted.
-    await releaseRunLock(lock).catch(() => {});
+    // Otherwise the schedule has moved already: on a crash the run is not started again, it is closed as interrupted.
+    await releaseRunLock(lock, next).catch(() => {});
   }
 }

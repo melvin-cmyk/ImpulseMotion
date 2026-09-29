@@ -21,6 +21,8 @@ export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone:
   const [fromHistory, setFromHistory] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** What the server asks the person to read with the dry run just launched (the ad set has changed, an Instagram account not checked). */
+  const [notices, setNotices] = useState<string[]>([]);
   const blocked = actionBlocked("dry_run", routine);
 
   // The last dry run of the history, until one is launched from here.
@@ -50,6 +52,7 @@ export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone:
       const view = toRunView({ trigger: "dry_run", startedAt: Date.now(), ...(body.result ?? body.run ?? {}) });
       if (!view) throw new Error("Réponse illisible du serveur");
       setRun(view);
+      setNotices((Array.isArray(body.warnings) ? body.warnings : []).filter((w: unknown): w is string => typeof w === "string"));
       setFromHistory(false);
       onDone(body.routine);
     } catch (e) {
@@ -101,6 +104,10 @@ export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone:
             {run.durationMs > 0 && <span>· {durationLabel(run.durationMs)}</span>}
             {runCounters(run).map((c) => <span key={c.key + c.text}>· {c.text}</span>)}
           </div>
+
+          {!outdated && notices.filter((n) => n !== nothingSeen).map((notice, i) => (
+            <div key={i} role="alert" className="text-sm text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-2 font-semibold break-words">{notice}</div>
+          ))}
 
           {nothingSeen && (
             <div role="alert" className="text-sm text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-2 font-semibold">

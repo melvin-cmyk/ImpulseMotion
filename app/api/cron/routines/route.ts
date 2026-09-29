@@ -12,7 +12,10 @@
  *
  * A routine that is started moves its schedule on at once (runLocked): a run
  * that crashes or is killed is not started again 15 minutes later. It is
- * closed as interrupted here, at the next firing.
+ * closed as interrupted here, at the next firing. Two exceptions put a
+ * routine back on the list of what is due: a run that could not even be
+ * recorded, and a run that stopped for lack of time with rows left (three
+ * times per occurrence of the schedule at most).
  * A routine late by more than 12 hours is recorded as missed.
  */
 
@@ -38,8 +41,12 @@ export async function GET(req: NextRequest) {
   }
   const deadlineAt = Date.now() + RUN_BUDGET_MS;
   let interrupted = 0;
+  /** Runs that never started (database lost right after the lock), traced by this firing. */
+  let traced = 0;
   try {
-    interrupted = (await closeInterruptedRuns(new Date())).closed;
+    const closed = await closeInterruptedRuns(new Date());
+    interrupted = closed.closed;
+    traced = closed.traced;
   } catch (e) {
     console.error("[cron/routines] clôture des exécutions interrompues", e instanceof Error ? e.message : e);
   }
@@ -69,6 +76,7 @@ export async function GET(req: NextRequest) {
     skipped: runs.filter((r) => r.outcome === "busy").length,
     deferred,
     interrupted,
+    traced,
     timedOut: deferred > 0,
     runs,
   });

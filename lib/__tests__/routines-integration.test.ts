@@ -297,8 +297,8 @@ interface RunBody {
 const step = (body: RunBody, id: string) => body.result.steps.find((s) => s.stepId === id)!;
 const routineRow = (id: string) => db.routine.rows.find((r) => r.id === id)!;
 const items = (id: string) => db.routineItem.rows.filter((r) => r.routineId === id);
-/** Key of a row in RoutineItem: the step, the ad set it writes in, the value of the key column. */
-const K = (rowKey: string, adset = ADSET) => `creer:${adset}:${rowKey}`;
+/** Key of a row in RoutineItem: the ad set the routine writes in, then the value of the key column. */
+const K = (rowKey: string, adset = ADSET) => `${adset}:${rowKey}`;
 
 async function draft(name: string, accounts: { meta?: boolean; google?: boolean } = { meta: true }): Promise<string> {
   const res = await CREATE(req({
@@ -474,9 +474,9 @@ describe("exemple 1 — les nouvelles lignes du Sheet deviennent des publicités
     expect(applied.body.issues?.filter((i) => i.severity === "error")).toEqual([]);
     expect(applied.status).toBe(200);
     expect(writes()).toEqual([]);
-    // The campaign, the ad set, the Page and the header of the Sheet were really read.
+    // The campaign, the ad set, the Pages the account can promote and the header of the Sheet were really read.
     const paths = world.calls.map((c) => c.path);
-    expect(paths).toEqual(expect.arrayContaining([`/v22.0/${CAMPAIGN}`, `/v22.0/${ADSET}`, `/v22.0/${PAGE}`, "/api/sheets/read"]));
+    expect(paths).toEqual(expect.arrayContaining([`/v22.0/${CAMPAIGN}`, `/v22.0/${ADSET}`, `/v22.0/act_${ACCOUNT}/promote_pages`, "/api/sheets/read"]));
     expect(routineRow(id)).toMatchObject({ status: "ready", writesPlatform: true, dryRunHash: null });
   });
 
@@ -727,17 +727,32 @@ describe("exemple 1 — quand Meta ne répond pas ou refuse", () => {
     expect(step(second, "creer").written.map((w) => w.itemKey)).toEqual(["crea-3"]);
     expect(items(id).find((i) => i.itemKey === K("crea-2"))).toMatchObject({ status: "uncertain" });
 
-    // Even with the status cell emptied by hand, the database refuses to create it again.
+    // With the status cell emptied by hand the row comes back: the database refuses to create it again. Meta did
+    // create the ad before the answer was lost: it is looked for by its name, found paused, and attached.
     const grid = world.sheets.get(`${DOC}/Créas`)!;
     grid[2][CREAS_HEADER.indexOf("statut")] = "";
     const third = await run(id);
     expect(graphPosts("/ads").filter((c) => new URLSearchParams(c.body).get("name") === "Pub 2")).toHaveLength(1);
-    expect(step(third, "creer").warnings.join(" ")).toMatch(/crea-2.*à vérifier dans le gestionnaire de publicités/);
-    expect(sheetRows(CREAS)[1].statut).toBe("à vérifier");
-    // No ad was created; the only write is the status of the row, put back in the Sheet.
-    expect(third.result.counts).toMatchObject({ adsCreated: 0, adsAttached: 0, sheetRows: 1, skipped: 1 });
-    expect(world.slack).toHaveLength(1);
+    expect(step(third, "creer").warnings.join(" ")).toMatch(/crea-2.*retrouvée par son nom .*en pause/);
+    const ad = world.meta.ads.find((a) => a.name === "Pub 2")!;
+    expect(sheetRows(CREAS)[1]).toMatchObject({ statut: "déjà présente (en pause)", id_pub: ad.id });
+    expect(items(id).find((i) => i.itemKey === K("crea-2"))).toMatchObject({ status: "created", externalId: ad.id });
+    // No ad was created: one was attached, and its row written in the Sheet.
+    expect(third.result.counts).toMatchObject({ adsCreated: 0, adsAttached: 1, sheetRows: 1 });
     expect(world.meta.ads.filter((a) => a.name === "Pub 2")).toHaveLength(1);
+
+    // When Meta has no ad of that name, the row stays to be checked, and is never created again.
+    world.meta.ads.splice(world.meta.ads.indexOf(ad), 1);
+    const item = items(id).find((i) => i.itemKey === K("crea-2"))!;
+    item.status = "uncertain";
+    item.externalId = null;
+    grid[2][CREAS_HEADER.indexOf("statut")] = "";
+    grid[2][CREAS_HEADER.indexOf("id_pub")] = "";
+    const fourth = await run(id);
+    expect(graphPosts("/ads").filter((c) => new URLSearchParams(c.body).get("name") === "Pub 2")).toHaveLength(1);
+    expect(step(fourth, "creer").warnings.join(" ")).toMatch(/crea-2.*à vérifier dans le gestionnaire de publicités/);
+    expect(sheetRows(CREAS)[1].statut).toBe("à vérifier");
+    expect(items(id).find((i) => i.itemKey === K("crea-2"))).toMatchObject({ status: "uncertain", externalId: null });
   });
 
   it("refus de Meta sur une ligne : les autres sont créées, l'historique le dit, la ligne attend une correction", async () => {

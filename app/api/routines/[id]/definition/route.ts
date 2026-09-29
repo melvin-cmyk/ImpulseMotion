@@ -10,6 +10,12 @@
  *   3. with no blocking issue, the definition is stored, the routine goes
  *      back to `ready` and its previous dry run is forgotten.
  *
+ * A proposal cannot go against what the routine has fixed: with a Facebook
+ * Page chosen when the routine was created, a proposal that publishes under
+ * another Page is refused (400). What the proposal changes of a routine that
+ * has already worked is said in `notices` (the ad set has changed: rows will
+ * be created again).
+ *
  * 400 → the proposal is invalid ({ errors })
  * 422 → a preflight found a blocking issue, nothing was stored ({ issues })
  * 200 → stored ({ routine, issues }) — the issues left are warnings
@@ -18,7 +24,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { handlerFor, writesPlatform } from "@/lib/routines/steps";
-import { actorOf, applyDefinition, getRoutine, routineForSession, routineView } from "@/lib/routines/store";
+import { proposalNotices } from "@/lib/routines/proposal-notices";
+import { actorOf, applyDefinition, chosenPageOf, getRoutine, routineForSession, routineView } from "@/lib/routines/store";
 import { validateProposal } from "@/lib/routines/validate";
 import type { PreflightIssue, StepContext } from "@/lib/routines/types";
 
@@ -56,14 +63,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const body = await req.json().catch(() => null);
-  const checked = validateProposal(body && typeof body === "object" && "proposal" in body ? body.proposal : body);
+  const chosenPage = chosenPageOf(routine);
+  const checked = validateProposal(body && typeof body === "object" && "proposal" in body ? body.proposal : body, { pageId: chosenPage?.id ?? null });
   if (!checked.ok) return NextResponse.json({ error: "proposition invalide", errors: checked.errors }, { status: 400 });
   const proposal = checked.value;
 
   const target: StepContext["routine"] = {
     id: routine.id, name: proposal.name, metaAccountId: routine.metaAccountId, googleCustomerId: routine.googleCustomerId,
     timezone: routine.timezone, maxItemsPerRun: proposal.maxItemsPerRun,
+    pageId: chosenPage?.id ?? null,
   };
+  // Read before the definition is replaced: what it changes is said with what was there.
+  const notices = await proposalNotices(routine, proposal.definition).catch(() => []);
   const issues = (await Promise.all(proposal.definition.steps.map((step) => preflightStep(step, target)))).flat();
   if (issues.some((i) => i.severity === "error")) {
     return NextResponse.json({ error: "vérification préalable en échec", issues }, { status: 422 });
@@ -77,5 +88,5 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!definitionHash) return NextResponse.json({ error: "Cette routine est archivée." }, { status: 409 });
 
   const fresh = await getRoutine(routine.id);
-  return NextResponse.json({ ok: true, definitionHash, issues, routine: routineView(fresh ?? routine) });
+  return NextResponse.json({ ok: true, definitionHash, issues, notices, routine: routineView(fresh ?? routine) });
 }

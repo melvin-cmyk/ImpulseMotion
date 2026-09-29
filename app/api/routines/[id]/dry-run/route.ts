@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { compactResult, runRoutine } from "@/lib/routines/engine";
+import { countsText } from "@/lib/routines/counts";
 import { actorOf, getRoutine, recordDryRun, routineForSession, routineView } from "@/lib/routines/store";
 import { RUN_BUDGET_MS } from "@/lib/routines/types";
 
@@ -40,7 +41,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   });
   // The hash is the one of the definition that ran: changed meanwhile, it will not match at activation.
   if (result.status === "success") {
-    const seen = `${result.totals.planned} écriture(s) prévue(s)`;
+    // By nature of write, as the history shows them: ads, rows of a Sheet and messages are not added up.
+    const seen = countsText(result.counts, "dry_run");
     await recordDryRun(routine.id, result.definitionHash, now, actorOf(guard.session), [seen, ...result.warnings].join(" — "));
   }
 
@@ -48,6 +50,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   return NextResponse.json({
     ok: result.status === "success",
     warning: result.warnings[0] ?? null,
+    warnings: result.warnings,
     result: compactResult(result, PREVIEW_ROWS),
     routine: routineView(fresh ?? routine),
   });

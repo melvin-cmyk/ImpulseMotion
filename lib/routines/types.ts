@@ -62,6 +62,17 @@ export const DEFAULT_TIMEZONE = "Europe/Paris";
 export const CATCH_UP_MAX_HOURS = 12;
 /** Consecutive functional failures that switch a routine off (infra failures do not count). */
 export const MAX_CONSECUTIVE_FAILURES = 3;
+/**
+ * Live runs in a row that are not a full success (partial, failed, outage)
+ * after which the agency is told ONCE, in the internal channel of the client.
+ * The routine goes on; nothing more is said until a run succeeds.
+ */
+export const DEGRADED_AFTER_RUNS = 3;
+/**
+ * A scheduled run that stopped for lack of time with rows left stays due for
+ * the next firing of the cron, this many times per occurrence of the schedule.
+ */
+export const MAX_RESUMES_PER_SLOT = 3;
 /** Budget of one run, under the 300 s of the Vercel function. */
 export const RUN_BUDGET_MS = 270_000;
 /** A failed item is tried again on later runs, up to this many attempts in all; then it is given up. */
@@ -104,6 +115,8 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 export const EVENT_KINDS = [
   "created", "definition_applied", "dry_run", "activated", "paused", "resumed",
   "auto_disabled", "run_manual", "archived",
+  // Told once that the routine is degraded; a person settled an item that was to be checked.
+  "degraded_notified", "item_resolved",
 ] as const;
 export type RoutineEventKind = (typeof EVENT_KINDS)[number];
 
@@ -241,13 +254,37 @@ export const emptyCounts = (): WriteCounts => ({ adsCreated: 0, adsAttached: 0, 
 export const writesOf = (c: WriteCounts): number => c.adsCreated + c.adsAttached + c.sheetRows + c.messages;
 
 /**
- * Key of an item in RoutineItem, unique per routine. It names the step and
- * where the step writes (the ad set, for meta.create_ads): the same row sent
- * to another ad set is another item, never « already done ».
+ * Key of an item in RoutineItem, unique per routine: WHERE the routine writes
+ * (the ad set, for meta.create_ads), then the value of the key column.
+ *   - the same row sent to another ad set is another item, never « already
+ *     done » (and the dry run says that the rows will be created again);
+ *   - the id of the step is NOT part of it: a routine has one meta.create_ads
+ *     step at most, and an AI that rewrites the routine may name that step
+ *     otherwise. The rows already created must stay so.
  */
-export function itemKeyOf(stepId: string, scope: string, rowKey: string | number): string {
-  return `${stepId}:${scope}:${String(rowKey).trim()}`;
+export function itemKeyOf(scope: string, rowKey: string | number): string {
+  return `${scope}:${String(rowKey).trim()}`;
 }
+
+/**
+ * What meta.create_ads writes in the status column of a Sheet: a closed list.
+ * « à vérifier » may be followed by « : » and what is to be checked. « créée »
+ * alone is a row created by an earlier run whose status had not reached the
+ * Sheet. The AI that writes the routines is told this list.
+ */
+export const META_SHEET_STATUSES = [
+  "créée (en pause)", "déjà présente (en pause)", "créée", "échec", `abandonnée après ${MAX_ITEM_ATTEMPTS} tentatives`, "refusée", "à vérifier",
+] as const;
+
+/** "<adsetId>:<row key>" → its two parts; a key of another form is given whole, without ad set. */
+export function splitItemKey(itemKey: string): { adsetId: string | null; rowKey: string } {
+  const at = itemKey.indexOf(":");
+  const scope = at > 0 ? itemKey.slice(0, at) : "";
+  return /^\d{5,25}$/.test(scope) ? { adsetId: scope, rowKey: itemKey.slice(at + 1) } : { adsetId: null, rowKey: itemKey };
+}
+
+/** What a step may know of the items of its routine (StepContext.listItems). */
+export interface KnownItem { itemKey: string; status: ItemStatus; externalId: string | null }
 
 export interface StepContext {
   mode: RunMode;
@@ -255,6 +292,8 @@ export interface StepContext {
     id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; timezone: string; maxItemsPerRun: number;
     /** Client the routine works for, and its dashboard: what the AI usage is recorded under. Set by the engine. */
     clientName?: string; dashboardId?: string | null;
+    /** Facebook Page chosen in the form that created the routine: when set, the ads are published by THAT Page. */
+    pageId?: string | null;
   };
   runId: string; now: Date; deadlineAt: number;
   input: RowSet | null;
@@ -272,11 +311,17 @@ export interface StepContext {
    * the database and nothing is reserved.
    */
   claimItem(stepId: string, itemKey: string, label: string): Promise<ItemClaim>;
-  /** A failure that carries an externalId is kept `uncertain`: the object exists, it is never created again. */
+  /** Items of the routine, every ad set included: to say what a change of ad set will create again. Read only. */
+  listItems?(): Promise<KnownItem[]>;
+  /**
+   * A failure that carries an externalId is kept `uncertain`: the object exists, it is never created again.
+   * A step the engine gave up may still settle what it had reserved: the id of
+   * the object is kept, and the item stays `uncertain` until the object is read again.
+   */
   settleItem(stepId: string, itemKey: string, r: { status: "created" | "failed"; externalId?: string; error?: string }): Promise<void>;
   /** Same answer as claimItem without reserving anything, whatever the mode: to count the rows a step leaves for the next run. */
   peekItem?(stepId: string, itemKey: string): Promise<ItemClaim>;
-  /** An `uncertain` item whose object was read again by its id and found as wanted becomes `created`. No-op in a dry run. */
+  /** An `uncertain` item whose object was read again (by its id, or found by its name when no id was kept) and found as wanted becomes `created`. No-op in a dry run. */
   confirmItem?(stepId: string, itemKey: string, externalId: string): Promise<void>;
 }
 
@@ -312,7 +357,11 @@ export interface StepResult {
 export interface PreflightIssue { stepId: string; severity: "error" | "warning"; message: string }
 
 /** What a handler returns; the engine adds stepId, type and durationMs, and completes the counters. */
-export type StepRunOutcome = Omit<StepResult, "stepId" | "type" | "durationMs" | "counts"> & { counts?: Partial<WriteCounts> };
+export type StepRunOutcome = Omit<StepResult, "stepId" | "type" | "durationMs" | "counts"> & {
+  counts?: Partial<WriteCounts>;
+  /** What the person must read before going on, said with the run and not only under the step. */
+  notices?: string[];
+};
 
 export interface StepHandler<S extends RoutineStep = RoutineStep> {
   type: S["type"];

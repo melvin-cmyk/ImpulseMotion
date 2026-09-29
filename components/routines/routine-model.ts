@@ -11,6 +11,7 @@ import {
   STEP_WRITES, WRITE_COUNT_KEYS, emptyCounts,
   type Cell, type PlannedWrite, type RoutineStep, type RowSet, type Schedule, type StepResult, type StepType, type WriteCounts,
 } from "@/lib/routines/types";
+import { counterTexts, type CounterText } from "@/lib/routines/counts";
 import { parseSchedule } from "@/components/routines/schedule-label";
 
 type Tone = "default" | "violet" | "emerald" | "amber" | "red" | "blue";
@@ -57,6 +58,49 @@ export interface RoutineView {
   lastRunStatus: string | null;
   consecutiveFailures: number;
   createdByEmail: string | null;
+  /** Live runs in a row, up to the latest, that were not a full success; `degradedAtLeast` when the count stopped at what was read. */
+  degradedRuns: number;
+  degradedAtLeast: boolean;
+  degradedError: string | null;
+  /** Rows a person has to look at (outcome unknown, or given up). */
+  itemsToCheck: number;
+}
+
+/** Runs in a row without a full success from which the routine is said degraded (DEGRADED_AFTER_RUNS). */
+export const DEGRADED_FROM = 3;
+
+/**
+ * Banner of a routine that goes on running without succeeding: « routine
+ * dégradée depuis N exécutions », with the last error. Null below three runs,
+ * and for a routine that no longer runs (it has its own banner).
+ */
+export function degradedBanner(r: Pick<RoutineView, "status" | "degradedRuns" | "degradedAtLeast" | "degradedError">): { title: string; error: string | null } | null {
+  if (r.status !== "active" && r.status !== "paused") return null;
+  if (r.degradedRuns < DEGRADED_FROM) return null;
+  return {
+    title: `Routine dégradée depuis ${r.degradedAtLeast ? "au moins " : ""}${r.degradedRuns} exécutions : aucune n'a entièrement réussi.`,
+    error: r.degradedError,
+  };
+}
+
+export interface ItemToCheckView {
+  id: string; rowKey: string; adsetId: string | null; label: string | null; status: "uncertain" | "abandoned";
+  externalId: string | null; error: string | null; attempts: number; updatedAt: string | null;
+}
+
+export function toItemsToCheck(raw: unknown): ItemToCheckView[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(isRecord).filter((i) => typeof i.id === "string").map((i) => ({
+    id: String(i.id),
+    rowKey: str(i.rowKey) ?? str(i.itemKey) ?? "?",
+    adsetId: str(i.adsetId),
+    label: str(i.label),
+    status: i.status === "abandoned" ? "abandoned" as const : "uncertain" as const,
+    externalId: str(i.externalId),
+    error: str(i.error),
+    attempts: int(i.attempts),
+    updatedAt: date(i.updatedAt),
+  }));
 }
 
 const KNOWN_TYPES = new Set<string>(Object.keys(STEP_WRITES));
@@ -100,6 +144,10 @@ export function toRoutineView(raw: unknown): RoutineView | null {
     lastRunStatus: str(raw.lastRunStatus),
     consecutiveFailures: int(raw.consecutiveFailures),
     createdByEmail: str(raw.createdByEmail),
+    degradedRuns: int(raw.degradedRuns),
+    degradedAtLeast: raw.degradedAtLeast === true,
+    degradedError: str(raw.degradedError),
+    itemsToCheck: int(raw.itemsToCheck),
   };
 }
 
@@ -295,9 +343,7 @@ export function toRunView(raw: unknown): RunView | null {
   };
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
-
-export interface RunCounter { key: keyof WriteCounts; text: string; tone: "done" | "plain" | "bad" | "wait" }
+export type RunCounter = CounterText;
 
 /**
  * The counters of a run, one per nature of write, as the history shows them:
@@ -306,19 +352,7 @@ export interface RunCounter { key: keyof WriteCounts; text: string; tone: "done"
  * creates some.
  */
 export function runCounters(run: Pick<RunView, "counts" | "trigger" | "steps">): RunCounter[] {
-  const c = run.counts;
-  const dry = run.trigger === "dry_run";
-  const ads = run.steps.some((s) => STEP_WRITES[s.type] === "platform");
-  const out: RunCounter[] = [];
-  if (ads || c.adsCreated) out.push({ key: "adsCreated", tone: "done", text: dry ? plural(c.adsCreated, "publicité à créer", "publicités à créer") : plural(c.adsCreated, "publicité créée", "publicités créées") });
-  if (c.adsAttached) out.push({ key: "adsAttached", tone: "done", text: dry ? plural(c.adsAttached, "publicité à rattacher", "publicités à rattacher") : plural(c.adsAttached, "publicité rattachée", "publicités rattachées") });
-  if (c.sheetRows) out.push({ key: "sheetRows", tone: "done", text: dry ? plural(c.sheetRows, "ligne de Sheet à écrire", "lignes de Sheet à écrire") : plural(c.sheetRows, "ligne écrite dans un Sheet", "lignes écrites dans un Sheet") });
-  if (c.messages) out.push({ key: "messages", tone: "done", text: dry ? plural(c.messages, "message à envoyer", "messages à envoyer") : plural(c.messages, "message envoyé", "messages envoyés") });
-  if (!out.length) out.push({ key: "adsCreated", tone: "plain", text: dry ? "aucune écriture prévue" : "aucune écriture" });
-  if (c.skipped) out.push({ key: "skipped", tone: "plain", text: plural(c.skipped, "ignorée", "ignorées") });
-  if (c.failed) out.push({ key: "failed", tone: "bad", text: `${c.failed} en échec` });
-  if (c.deferred) out.push({ key: "deferred", tone: "wait", text: plural(c.deferred, "reportée", "reportées") });
-  return out;
+  return counterTexts(run.counts, run.trigger === "dry_run" ? "dry_run" : "live", run.steps.some((s) => STEP_WRITES[s.type] === "platform"));
 }
 
 export const EMPTY_DRY_RUN_WARNING = "L'essai n'a rien trouvé à créer : vous activez sans avoir vu d'exemple.";

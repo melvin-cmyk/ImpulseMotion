@@ -116,6 +116,21 @@ export function computeNextRunAt(schedule: Schedule, timezone: string | null | u
   return null;
 }
 
+/**
+ * Last occurrence of the schedule at or before `now`: the occurrence a run
+ * started at `now` belongs to. Null for a manual schedule, or when none fell
+ * in the last 70 days.
+ */
+export function lastOccurrenceAt(schedule: Schedule, timezone: string | null | undefined, now: Date): Date | null {
+  let at = computeNextRunAt(schedule, timezone, new Date(now.getTime() - SEARCH_DAYS * DAY_MS));
+  let last: Date | null = null;
+  for (let i = 0; at && at.getTime() <= now.getTime() && i < 2 * SEARCH_DAYS; i++) {
+    last = at;
+    at = computeNextRunAt(schedule, timezone, at);
+  }
+  return last;
+}
+
 export type CatchUp = "wait" | "run" | "missed";
 
 /** What to do with a routine whose nextRunAt is `dueAt`, at `now`. */

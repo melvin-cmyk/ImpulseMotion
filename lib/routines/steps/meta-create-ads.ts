@@ -11,9 +11,15 @@
  *     is looked for does not change from one run to the next;
  *   - the ad set is re-read and compared with the account and the campaign
  *     before anything is sent, here once and again by createPausedAd;
- *   - an item is known in the database under a key that names the step and
- *     the ad set (itemKeyOf): the same row sent to another ad set is another
- *     item, never « already done »;
+ *   - the Page is one the account of the routine can promote, and the one
+ *     chosen when the routine was created if one was: read again before the
+ *     first creation of every run, a blocking error otherwise. Same rule for
+ *     the Instagram account when the token can list those of the account;
+ *     when it cannot, a warning, said in the preview of the dry run;
+ *   - an item is known in the database under a key that names the ad set and
+ *     the row (itemKeyOf), not the step: a step renamed by the AI keeps its
+ *     rows done. The same row sent to another ad set is another item; the
+ *     dry run then says that the rows will be created again;
  *   - dry run (ctx.write null): reads only, `planned` lists the ads that would
  *     really be created. ctx.claimItem is asked for each row: in a dry run the
  *     engine answers from the database without reserving anything, so a row
@@ -22,7 +28,10 @@
  *   - an ad that exists is looked for by the id kept in the database first,
  *     by its name after. An item that carries an ad id is NEVER played again
  *     as a creation: that ad is read by its id. Paused, the item is closed as
- *     created; otherwise the row is « à vérifier » and nothing is created;
+ *     created; otherwise the row is « à vérifier » and nothing is created.
+ *     An item whose outcome is unknown and that carries no id is looked for by
+ *     its name: found paused it is attached, found otherwise or not found it
+ *     stays to be checked. It is never created again by the routine;
  *   - an ad of the same name already in the ad set is attached only when it
  *     is PAUSED. At any other status the row is « à vérifier », with the
  *     status read: nothing is created, nothing is modified, and the Sheet
@@ -41,7 +50,14 @@
  *   - the rows that come out are those this run dealt with, each with its
  *     outcome (meta_statut, meta_ad_id, meta_erreur);
  *   - the status written back in the Sheet is a reflection: its failure is a
- *     warning, never a failure of the step.
+ *     warning, never a failure of the step. It is put right at every run: a
+ *     row the database knows (created, to be checked, given up) whose cells
+ *     are empty or say otherwise is written again, and nothing is created.
+ *
+ * STATUSES written in the status column, a closed list (the prompt of the AI
+ * that writes the routines documents it, SHEET_STATUSES):
+ *   créée (en pause) · déjà présente (en pause) · créée · échec ·
+ *   abandonnée après 3 tentatives · refusée · à vérifier · à vérifier : <quoi>
  *
  * A row the step refuses (empty or duplicate key, link that is not public
  * https…) is a warning and creates nothing. First version: image only (see
@@ -49,15 +65,16 @@
  */
 
 import {
-  CALL_TO_ACTIONS, MAX_AD_NAME_CHARS, checkAdIdentity, cleanMetaMessage, createPausedAd, findAdByName, isCallToAction,
-  isMetaId, isMetaWriteError, pausedAdInputError, readAdById, verifyAdsetInAccount, verifyCampaignInAccount,
+  CALL_TO_ACTIONS, MAX_AD_NAME_CHARS, checkInstagramActor, cleanMetaMessage, createPausedAd, findAdByName, isCallToAction,
+  isMetaId, isMetaWriteError, pausedAdInputError, readAdById, verifyAdsetInAccount, verifyCampaignInAccount, verifyPagePromotable,
   type PausedAdInput,
 } from "@/lib/meta-write";
 import { readSheet, sheetRefError, updateCells, type CellUpdate } from "@/lib/relay-sheets";
+import { adsetChangeNotice } from "@/lib/routines/notices";
 import { renderTemplateDetailed, rowOnlyTemplateError, scopeFromContext, templateError } from "@/lib/routines/template";
 import { assertCanWrite } from "@/lib/routines/write-guard-check";
 import {
-  MAX_ITEMS_PER_RUN_CAP, MAX_ITEM_ATTEMPTS, itemKeyOf,
+  MAX_ITEMS_PER_RUN_CAP, MAX_ITEM_ATTEMPTS, META_SHEET_STATUSES, itemKeyOf,
   type Cell, type ErrorClass, type ItemClaim, type MetaCreateAdsStep, type PlannedWrite, type PreflightIssue, type Row, type RowSet,
   type StepContext, type StepHandler, type StepRunOutcome,
 } from "@/lib/routines/types";
@@ -84,6 +101,15 @@ const UNCERTAIN = "résultat d'une exécution précédente inconnu : à vérifie
 /** Rows left after the ceiling or the deadline that are looked up in the database to be counted right. */
 const MAX_PEEKED_ROWS = 200;
 
+/** What the status column of the Sheet may hold once the step has written it. The variable part follows « à vérifier : ». */
+export const SHEET_STATUSES = META_SHEET_STATUSES;
+
+/** The Page of the step is not the one the routine was created with. */
+export function chosenPageError(step: Pick<MetaCreateAdsStep, "pageId">, chosenPageId: string | null | undefined): string | null {
+  if (!chosenPageId || step.pageId === chosenPageId) return null;
+  return `La Page Facebook choisie à la création de la routine est ${chosenPageId} : les publicités sont publiées sous cette Page, pas sous ${step.pageId}. Reprenez « pageId » : "${chosenPageId}".`;
+}
+
 /** `abandonnée` = failed MAX_ITEM_ATTEMPTS times, given up. `déjà présente` = found PAUSED and attached. */
 type ItemState = "créée" | "déjà présente" | "déjà traitée" | "à vérifier" | "échec" | "abandonnée" | "refusée" | "en attente" | "prévue";
 
@@ -106,14 +132,16 @@ export const ABANDONED_STATUS = `abandonnée après ${MAX_ITEM_ATTEMPTS} tentati
 /** Status of a row as the Sheet and the history show it. « en pause » is said of an ad that was read PAUSED, and of no other. */
 function statusText(item: Item, forSheet: boolean): string {
   if (item.state === "abandonnée") return ABANDONED_STATUS;
+  // Created by an earlier run: the database says so, nobody has read the ad again. « en pause » is not said.
+  if (item.state === "déjà traitée") return "créée";
   if (item.state === "à vérifier") return item.note ? `à vérifier : ${item.note}` : "à vérifier";
   if (forSheet && (item.state === "créée" || item.state === "déjà présente")) return `${item.state} (en pause)`;
   return item.state;
 }
 
-/** Key of a row in RoutineItem: the step, the ad set, then the value of the key column. */
-export function metaItemKey(step: Pick<MetaCreateAdsStep, "id" | "adsetId">, rowKey: string): string {
-  return itemKeyOf(step.id, step.adsetId, rowKey);
+/** Key of a row in RoutineItem: the ad set, then the value of the key column. Not the step: see itemKeyOf. */
+export function metaItemKey(step: Pick<MetaCreateAdsStep, "adsetId">, rowKey: string): string {
+  return itemKeyOf(step.adsetId, rowKey);
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -242,12 +270,24 @@ function outputRows(input: RowSet, all: Item[]): RowSet {
 
 // ── Status written back in the Sheet ─────────────────────────────────────────
 
-const REPORTED: ItemState[] = ["créée", "déjà présente", "à vérifier", "échec", "abandonnée", "refusée", "prévue"];
+const REPORTED: ItemState[] = ["créée", "déjà présente", "déjà traitée", "à vérifier", "échec", "abandonnée", "refusée", "prévue"];
 
-/** Cells to rewrite, found by key in the sheet as it is now. Read only. */
+const cellText = (value: Cell | undefined): string => (value === null || value === undefined ? "" : String(value).trim());
+
+/** What the status cell may already say of a row created by an earlier run without being put right. */
+const saysCreated = (cell: string) => cell.startsWith("créée") || cell.startsWith("déjà présente");
+
+/**
+ * Cells to rewrite, found by key in the sheet as it is now. Read only.
+ *
+ * Only the cells that are empty or say something else than what is known are
+ * written: a status that could not be written on the day of the creation is
+ * written by the next run, and a Sheet that is right is left alone.
+ */
 async function writeBackUpdates(step: MetaCreateAdsStep, items: Item[], warnings: string[]): Promise<CellUpdate[]> {
   const back = step.writeBack;
-  const reported = items.filter((i) => i.key && REPORTED.includes(i.state));
+  // A row done by an earlier run is reported when the database knows its ad: there is something to put right.
+  const reported = items.filter((i) => i.key && REPORTED.includes(i.state) && (i.state !== "déjà traitée" || !!i.adId));
   if (!back || reported.length === 0) return [];
   const sheet = await readSheet(back.sheet, { maxRows: 5000 });
   if (!sheet.columns.includes(step.keyColumn)) {
@@ -261,24 +301,37 @@ async function writeBackUpdates(step: MetaCreateAdsStep, items: Item[], warnings
     return [];
   }
   const rowsOf = new Map<string, number[]>();
+  const cellsOf = new Map<number, Row>();
   sheet.rows.forEach((row, i) => {
     const key = String(row[step.keyColumn] ?? "").trim();
     const n = sheet.rowNumbers[i];
-    if (key && Number.isInteger(n)) rowsOf.set(key, [...(rowsOf.get(key) ?? []), n]);
+    if (key && Number.isInteger(n)) { rowsOf.set(key, [...(rowsOf.get(key) ?? []), n]); cellsOf.set(n, row); }
   });
   const updates: CellUpdate[] = [];
   let lost = 0;
+  let repaired = 0;
   for (const item of reported) {
     const found = rowsOf.get(item.key) ?? [];
     // A key on several rows is one of the refusals reported: every such row gets the message.
     if (found.length === 0 || (found.length > 1 && item.state !== "refusée")) { lost++; continue; }
+    const earlier = item.state === "déjà traitée";
     for (const row of found) {
-      updates.push({ row, column: back.statusColumn, value: statusText(item, true) });
-      if (back.adIdColumn && item.adId) updates.push({ row, column: back.adIdColumn, value: item.adId });
-      if (back.errorColumn) updates.push({ row, column: back.errorColumn, value: item.error ?? "" });
+      const now = cellsOf.get(row) ?? {};
+      const wanted: Array<{ column: string; value: string }> = [{ column: back.statusColumn, value: statusText(item, true) }];
+      if (back.adIdColumn && item.adId) wanted.push({ column: back.adIdColumn, value: item.adId });
+      if (back.errorColumn) wanted.push({ column: back.errorColumn, value: item.error ?? "" });
+      const differing = wanted.filter((w) => {
+        const cell = cellText(now[w.column]);
+        // « créée (en pause) », written on the day it was read paused, is not replaced by the plain « créée ».
+        if (earlier && w.column === back.statusColumn) return !saysCreated(cell);
+        return cell !== w.value.trim();
+      });
+      if (differing.length && earlier) repaired++;
+      for (const w of differing) updates.push({ row, column: w.column, value: w.value });
     }
   }
   if (lost) warnings.push(`Retour dans le Sheet : ${lost} ligne(s) introuvable(s) par leur clé, non mises à jour.`);
+  if (repaired) warnings.push(`Retour dans le Sheet : ${repaired} ligne(s) déjà créée(s) par une exécution précédente, dont le statut ou l'identifiant manquait, remise(s) à jour. Rien n'a été créé.`);
   const seen = new Set<string>();
   return updates.filter((u) => {
     const cell = `${u.row}:${u.column}`;
@@ -403,9 +456,17 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
       await verifyAdsetInAccount(accountId, step.campaignId, step.adsetId);
     } catch (err) { report(err); }
 
-    const identity = await checkAdIdentity(accountId, step.pageId, step.instagramActorId);
-    if (identity.pageReadable === false) add("error", identity.notes[0] ?? `Page ${step.pageId} inaccessible.`);
-    else for (const note of identity.notes) add("warning", note);
+    // The Page: the one chosen when the routine was created, and one the account can promote. Both block.
+    const chosen = chosenPageError(step, routine.pageId);
+    if (chosen) add("error", chosen);
+    try {
+      await verifyPagePromotable(accountId, step.pageId);
+    } catch (err) { report(err); }
+    if (step.instagramActorId) {
+      const instagram = await checkInstagramActor(accountId, step.instagramActorId);
+      if (instagram.allowed === false) add("error", instagram.note ?? "Compte Instagram refusé.");
+      else if (instagram.note) add("warning", instagram.note);
+    }
 
     if (step.writeBack) {
       try {
@@ -446,16 +507,32 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
       }
     }
     const ready = items.filter((i) => i.input);
+    const said: string[] = [];
     const done = (): StepRunOutcome => ({
       status: "ok", rowsIn, rowsOut: items.filter(dealtWith).length,
       output: { rows: outputRows(ctx.input!, items) }, planned, written, warnings, counts,
       ...(outOfTime ? { timedOut: true } : {}),
+      ...(said.length ? { notices: said } : {}),
     });
     if (ready.length === 0) return done();
 
-    // Where the ads go: read again at every run, before the first item is reserved.
+    // Where the ads go, and under whose name: read again at every run, before the first item is reserved.
+    const chosen = chosenPageError(step, ctx.routine.pageId);
+    if (chosen) return failure(rowsIn, chosen, "functional", warnings);
+    const notices: string[] = [];
+    let instagramNote: string | null = null;
     try {
       await verifyAdsetInAccount(accountId, step.campaignId, step.adsetId);
+      await verifyPagePromotable(accountId, step.pageId);
+      if (step.instagramActorId) {
+        const instagram = await checkInstagramActor(accountId, step.instagramActorId);
+        if (instagram.allowed === false) return failure(rowsIn, instagram.note ?? "Compte Instagram refusé.", "functional", warnings);
+        if (instagram.note) {
+          instagramNote = instagram.note;
+          warnings.push(instagram.note);
+          if (!live) notices.push(instagram.note);
+        }
+      }
     } catch (err) {
       return failure(rowsIn, messageOf(err), classOfWrite(err), warnings);
     }
@@ -485,12 +562,35 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
         warnings.push(`Ligne « ${item.key} » ${ABANDONED_STATUS} : ${item.error}`);
         return;
       }
-      // uncertain. The ad is known: THAT ad is read by its id, none is looked for by name, none is created.
+      // uncertain. Nothing is created, whatever is found.
       item.state = "à vérifier";
       item.earlier = true;
       const adId = claim.externalId;
       if (!adId) {
-        item.error = UNCERTAIN;
+        // No id was kept (the platform answered too late, or never): the ad is looked for by its name in the ad set.
+        let found: Awaited<ReturnType<typeof findAdByName>> = null;
+        let unread: string | null = null;
+        try { found = await findAdByName(step.adsetId, item.input!.name); } catch (err) { unread = messageOf(err); }
+        if (found && found.status === "PAUSED") {
+          item.state = "déjà présente";
+          item.earlier = false;
+          item.adId = found.id;
+          counts.adsAttached++;
+          warnings.push(`Ligne « ${item.key} » : le résultat d'une exécution précédente était inconnu ; la publicité « ${item.input!.name} » a été retrouvée par son nom (${found.id}), en pause${live ? " : rattachée, la ligne est close" : ""}. Rien n'a été créé.`);
+          if (live) {
+            try { await ctx.confirmItem?.(step.id, metaItemKey(step, item.key), found.id); } catch (err) {
+              warnings.push(`Ligne « ${item.key} » : état non enregistré (${messageOf(err)}).`);
+            }
+            written.push({ itemKey: item.key, externalId: found.id, target: "meta", attached: true, summary: `Publicité « ${item.input!.name} » retrouvée par son nom : en pause, rattachée` });
+          }
+          return;
+        }
+        if (found) {
+          item.note = `une publicité du même nom existe au statut ${found.status}`;
+          item.error = `${item.note} (${found.id}) : aucune autre n'est créée, rien n'est modifié`;
+        } else {
+          item.error = unread ? `${UNCERTAIN} (recherche par nom impossible : ${unread})` : `${UNCERTAIN} ; aucune publicité de ce nom n'a été trouvée dans l'ensemble`;
+        }
         counts.skipped++;
         warnings.push(`Ligne « ${item.key} » : ${item.error}.`);
         return;
@@ -586,7 +686,10 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
         }
         item.state = "prévue";
         counts.adsCreated++;
-        planned.push({ target: "meta", summary: `Créer en pause la publicité « ${input.name} »`, itemKey: item.key, preview: previewOf(input, item.key) });
+        planned.push({
+          target: "meta", summary: `Créer en pause la publicité « ${input.name} »`, itemKey: item.key,
+          preview: { ...previewOf(input, item.key), ...(step.instagramActorId ? { instagram: instagramNote ? `${step.instagramActorId} — non vérifié` : step.instagramActorId } : {}) },
+        });
         continue;
       }
 
@@ -668,6 +771,24 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
       }
     }
 
+    // The same rows, done in another ad set: the change of ad set creates them again, and says so.
+    const again = items.filter((i) => i.state === "prévue" || i.state === "créée");
+    if (again.length && ctx.listItems) {
+      try {
+        const elsewhere = new Set<string>();
+        const suffix = new Map(again.map((i) => [i.key, true]));
+        for (const known of await ctx.listItems()) {
+          const at = known.itemKey.indexOf(":");
+          if (at <= 0 || known.itemKey.slice(0, at) === step.adsetId) continue;
+          const rowKey = known.itemKey.slice(at + 1);
+          if (suffix.has(rowKey) && (known.status === "created" || !!known.externalId)) elsewhere.add(rowKey);
+        }
+        const notice = adsetChangeNotice(elsewhere.size, live);
+        if (notice) { warnings.push(notice); said.push(notice); }
+      } catch { /* a notice, not a control: the run goes on */ }
+    }
+    said.push(...notices);
+
     // Rows that were not looked at: those the database already answers for are not waiting.
     const rest = ready.slice(at);
     if (rest.length) {
@@ -677,7 +798,7 @@ export const metaCreateAdsHandler: StepHandler<MetaCreateAdsStep> = {
         for (const item of rest.slice(0, MAX_PEEKED_ROWS)) {
           let seen: ItemClaim;
           try { seen = await ctx.peekItem(step.id, metaItemKey(step, item.key)); } catch { seen = { state: "claimed" }; }
-          if (seen.state === "already_done") { item.state = "déjà traitée"; item.earlier = true; counts.skipped++; }
+          if (seen.state === "already_done") { item.state = "déjà traitée"; item.earlier = true; if (seen.externalId) item.adId = seen.externalId; counts.skipped++; }
           else if (seen.state === "abandoned") { item.state = "abandonnée"; item.earlier = true; item.error = seen.error ?? "erreur non conservée"; counts.skipped++; }
           else if (seen.state === "uncertain") counts.skipped++;
           else waiting++;

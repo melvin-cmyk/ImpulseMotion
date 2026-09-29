@@ -394,7 +394,7 @@ describe("2 — une exécution qui plante n'est pas relancée, et n'envoie pas u
     row.nextRunAt = new Date(Date.now() + 20 * 3_600_000);
     row.lockedUntil = new Date(started.getTime() + 330_000);
     const run = await db.routineRun.create({ data: { routineId: routine.id, trigger: "schedule", status: "running", definitionHash: routine.definitionHash, startedAt: started } });
-    await db.routineItem.create({ data: { routineId: routine.id, runId: run.id, stepId: "creer", itemKey: `creer:${ADSET}:c1`, status: "pending" } });
+    await db.routineItem.create({ data: { routineId: routine.id, runId: run.id, stepId: "creer", itemKey: `${ADSET}:c1`, status: "pending" } });
 
     const res = await cron.GET(new NextRequest("http://x/api/cron/routines", { headers: { authorization: "Bearer cron-secret" } }));
     const body = await res.json();
@@ -723,7 +723,7 @@ describe("12 — webhook sans secret", () => {
 // ── 10. One rule for the account ids ─────────────────────────────────────
 
 describe("10 — identifiants de compte : une seule règle, partagée", () => {
-  const META = ["act_564381881705822", "564381881705822", "act_12345678", "act_123", "123", "act_1234567", "act_12; DROP", "https://x", "", "act_", "act_12345678901234567890123"];
+  const META = ["act_564381881705822", "564381881705822", "act_12345678", "act_123456", "act_123", "123", "act_12345", "act_12; DROP", "https://x", "", "act_", "act_12345678901234567890123"];
   const GOOGLE = ["4768893847", "476-889-3847", "12345-6", "123456", "47688938", "476889384712", "476-8893847", "abc", ""];
 
   it("ce que la création de la routine accepte, le module Meta et l'étape Google l'acceptent, et inversement", async () => {
@@ -732,7 +732,8 @@ describe("10 — identifiants de compte : une seule règle, partagée", () => {
     const { cleanCustomerId } = await import("@/lib/routines/steps/google-insights");
     const ad = { campaignId: CAMPAIGN, adsetId: ADSET, pageId: PAGE, name: "n", primaryText: "t", linkUrl: "https://a.example.org", imageUrl: "https://a.example.org/i.jpg" };
 
-    expect(META.filter((id) => isMetaAccountId(id))).toEqual(["act_564381881705822", "564381881705822", "act_12345678"]);
+    // Two accounts of the agency have 8 digits: the lower bound is 6, to leave room under them.
+    expect(META.filter((id) => isMetaAccountId(id))).toEqual(["act_564381881705822", "564381881705822", "act_12345678", "act_123456"]);
     for (const id of META) expect(pausedAdInputError({ accountId: id, ...ad }) === null, `Meta ${id}`).toBe(isMetaAccountId(id));
     expect(GOOGLE.filter((id) => isGoogleCustomerId(id))).toEqual(["4768893847", "476-889-3847"]);
     for (const id of GOOGLE) expect(cleanCustomerId(id) !== null, `Google ${id}`).toBe(isGoogleCustomerId(id));
@@ -854,7 +855,7 @@ describe("14 — la vraie étape, avec le vrai moteur", () => {
     const routine = await applied([READ, CREATE_ONLY], { maxItemsPerRun: 2 });
     // c1: created by an earlier run, not confirmed paused then, paused since. Read again by its id, on top of two creations.
     world.ads.push({ id: "90000555", name: "Visuel c1", status: "PAUSED", adset_id: ADSET });
-    await db.routineItem.create({ data: { routineId: routine.id, runId: "old", stepId: "creer", itemKey: `creer:${ADSET}:c1`, status: "uncertain", externalId: "90000555" } });
+    await db.routineItem.create({ data: { routineId: routine.id, runId: "old", stepId: "creer", itemKey: `${ADSET}:c1`, status: "uncertain", externalId: "90000555" } });
     const result = await live(routine);
     expect(result.status).toBe("success");
     expect(stepOf(result, "creer").counts).toMatchObject({ adsCreated: 2, adsAttached: 1, deferred: 0 });
@@ -954,12 +955,12 @@ describe("A — refus de Meta sur une ligne", () => {
   });
 });
 
-describe("B — la clé d'un élément distingue l'étape et l'ensemble de publicités", () => {
+describe("B — la clé d'un élément distingue l'ensemble de publicités", () => {
   it("changer d'ensemble ne fait pas passer les anciennes clés pour « déjà traitées »", async () => {
     const routine = await applied([READ, CREATE_ONLY]);
     await live(routine);
     expect(world.ads.map((a) => a.adset_id)).toEqual([ADSET, ADSET, ADSET]);
-    expect(items().map((i) => i.itemKey)).toEqual([`creer:${ADSET}:c1`, `creer:${ADSET}:c2`, `creer:${ADSET}:c3`]);
+    expect(items().map((i) => i.itemKey)).toEqual([`${ADSET}:c1`, `${ADSET}:c2`, `${ADSET}:c3`]);
 
     // The consultant sends the same Sheet to another ad set.
     await applied([READ, { ...CREATE_ONLY, adsetId: ADSET_2 }], {}, routine.id);
@@ -970,7 +971,7 @@ describe("B — la clé d'un élément distingue l'étape et l'ensemble de publi
     expect(world.ads.map((a) => a.adset_id)).toEqual([ADSET, ADSET, ADSET, ADSET_2, ADSET_2, ADSET_2]);
     expect(items()).toHaveLength(6);
     expect(new Set(items().map((i) => i.itemKey)).size).toBe(6);
-    expect(items().slice(3).map((i) => i.itemKey)).toEqual([`creer:${ADSET_2}:c1`, `creer:${ADSET_2}:c2`, `creer:${ADSET_2}:c3`]);
+    expect(items().slice(3).map((i) => i.itemKey)).toEqual([`${ADSET_2}:c1`, `${ADSET_2}:c2`, `${ADSET_2}:c3`]);
 
     // Back to the first ad set: its rows are done, nothing is created again.
     await applied([READ, CREATE_ONLY], {}, routine.id);

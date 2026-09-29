@@ -265,6 +265,41 @@ export function autoDisabledText(notice: Omit<AutoDisabledNotice, "channel">): s
   ].join("\n");
 }
 
+export interface DegradedNotice {
+  routine: { id: string; name: string; clientName: string };
+  /** Live runs in a row that were not a full success. */
+  runs: number;
+  lastError: string | null;
+  owner: string | null;
+  channel: string | null;
+}
+
+export function degradedText(notice: Omit<DegradedNotice, "channel">): string {
+  const client = notice.routine.clientName.trim();
+  return [
+    `Routine dégradée : « ${oneLine(notice.routine.name, 120)} »${client && client !== "—" ? ` (client ${oneLine(client, 120)})` : ""}`,
+    `${notice.runs} exécutions de suite sans succès complet. Dernière erreur : ${notice.lastError ? oneLine(notice.lastError, 600) : "sans message"}`,
+    "Elle continue de s'exécuter. Ce message ne sera pas répété tant qu'une exécution n'aura pas réussi : le détail est dans son historique.",
+    `${notice.owner ? `Activée par ${oneLine(notice.owner, 120)} · ` : ""}${appUrl()}/routines/${notice.routine.id}`,
+  ].join("\n");
+}
+
+/**
+ * ONE message per episode, in the agency's internal channel for the client,
+ * when a routine has not fully succeeded for several runs in a row. Same
+ * channel and same form as the message of the automatic stop. Never throws.
+ */
+export async function notifyDegraded(guard: WriteGuard, notice: DegradedNotice): Promise<{ sent: boolean; detail: string }> {
+  const channel = notice.channel ? cleanSlackChannel(notice.channel) : null;
+  if (!channel) return { sent: false, detail: "Aucun message envoyé : aucun canal Slack interne n'est connu pour ce client." };
+  try {
+    await sendSlackMessage(guard, { channel, text: degradedText(notice), routine: { id: notice.routine.id, name: notice.routine.name } });
+    return { sent: true, detail: `Message envoyé dans ${channel}.` };
+  } catch (e) {
+    return { sent: false, detail: `Message non envoyé dans ${channel} : ${oneLine(e instanceof Error ? e.message : String(e), 200)}` };
+  }
+}
+
 /**
  * ONE message when a routine switches itself off. Never throws: the outcome
  * is a sentence, kept with the event `auto_disabled`.

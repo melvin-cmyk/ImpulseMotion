@@ -390,7 +390,22 @@ export function validateName(input: unknown): Validation<string> {
 /** A proposal with its ceiling always set: what the definition route stores. */
 export type ValidProposal = RoutineProposal & { maxItemsPerRun: number };
 
-export function validateProposal(input: unknown): Validation<ValidProposal> {
+/** What the routine the proposal is made for has fixed: the proposal cannot go against it. */
+export interface ProposalContext {
+  /** Facebook Page chosen in the form that created the routine. */
+  pageId?: string | null;
+}
+
+/** A proposal that publishes under another Page than the one chosen for the routine is refused. */
+export function chosenPageErrors(definition: RoutineDefinition, context: ProposalContext | undefined): string[] {
+  const chosen = context?.pageId;
+  if (!chosen) return [];
+  return definition.steps.flatMap((step, i) => (step.type === "meta.create_ads" && step.pageId !== chosen
+    ? [`Étape ${i + 1} « ${step.id} » (meta.create_ads) : la Page Facebook choisie à la création de la routine est ${chosen}. Les publicités sont publiées sous cette Page, pas sous ${step.pageId} : reprenez "pageId": "${chosen}".`]
+    : []));
+}
+
+export function validateProposal(input: unknown, context?: ProposalContext): Validation<ValidProposal> {
   if (!isPlainObject(input)) return { ok: false, errors: ["La proposition doit être un objet."] };
   const errors: string[] = [];
   const allowed = ["name", "description", "schedule", "definition", "maxItemsPerRun", "explanation", "assumptions"];
@@ -425,6 +440,7 @@ export function validateProposal(input: unknown): Validation<ValidProposal> {
   if (!maxItems.ok) errors.push(...maxItems.errors);
   const definition = validateDefinition(input.definition);
   if (!definition.ok) errors.push(...definition.errors);
+  else errors.push(...chosenPageErrors(definition.value, context));
 
   if (errors.length || !name.ok || !schedule.ok || !maxItems.ok || !definition.ok) return { ok: false, errors: errors.slice(0, MAX_ERRORS) };
   return {

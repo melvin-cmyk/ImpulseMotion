@@ -16,8 +16,10 @@ import { scheduleTitle } from "@/components/routines/schedule-label";
 import { STEP_FAMILY, canApplyProposal, describeStep, stepsWritePlatform, type ProposalState } from "@/components/routines/routine-model";
 
 export function ProposalCard({
-  state, proposal, draftName, errors, issues, metaAccountId, timezone, onApply, onRefuse, onRecheck,
+  state, proposal, draftName, errors, issues, notices, metaAccountId, timezone, onApply, onRefuse, onRecheck,
 }: {
+  /** What the proposal changes of what the routine has already done (the ad set has changed: rows created again). */
+  notices?: string[];
   state: ProposalState;
   /** Validated by the server; absent while checking and when invalid. */
   proposal?: RoutineProposal | null;
@@ -63,6 +65,13 @@ export function ProposalCard({
               </span>
             </div>
           )}
+
+          {(notices ?? []).map((notice, i) => (
+            <div key={i} role="alert" className="flex items-start gap-2 text-xs text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-2 font-semibold">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span className="break-words">{notice}</span>
+            </div>
+          ))}
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-400">
             <span className="inline-flex items-center gap-1.5"><CalendarClock className="w-3.5 h-3.5 text-violet-400" />{scheduleTitle(proposal.schedule, timezone)}</span>

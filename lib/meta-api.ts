@@ -14,6 +14,7 @@
  */
 
 import { MetaApiError } from "@/lib/meta-errors";
+import { metaAccountDigits } from "@/lib/routines/accounts";
 import { assertWriteGuard } from "@/lib/routines/write-guard-check";
 import type { WriteGuard } from "@/lib/routines/types";
 
@@ -430,8 +431,9 @@ function writePath(target: MetaWriteTarget): string {
     if (!/^\d{5,25}$/.test(target.adId)) throw new Error("Écriture refusée : identifiant de publicité invalide");
     return `/${target.adId}`;
   }
-  const id = target.accountId.replace(/^act_/, "");
-  if (!/^\d{5,25}$/.test(id)) throw new Error("Écriture refusée : identifiant de compte invalide");
+  // The one rule for an ad account id, shared with the creation of the routine (lib/routines/accounts.ts).
+  const id = metaAccountDigits(target.accountId);
+  if (!id) throw new Error("Écriture refusée : identifiant de compte invalide");
   return `/act_${id}/${target.kind === "ad" ? "ads" : "adcreatives"}`;
 }
 

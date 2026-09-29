@@ -183,7 +183,7 @@ describe("routines — route de l'IA de création : conversation et propositions
   it("valide chaque proposition et dit si elle crée des publicités", async () => {
     validation = { ok: true, value: proposal };
     const json = await (await PUT(req("PUT", { messages: thread }), ctx())).json();
-    expect(json.checks).toEqual({ m1: { ok: true, proposal, writesPlatform: true } });
+    expect(json.checks).toEqual({ m1: { ok: true, proposal, writesPlatform: true, notices: [] } });
     expect(json.proposals).toEqual({ m1: "pending" });
   });
 

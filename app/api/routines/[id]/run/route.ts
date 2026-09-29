@@ -35,8 +35,23 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const ran = await runLocked(routine.id, {
     trigger: "manual", startedById: guard.session.userId, now, deadlineAt: now.getTime() + RUN_BUDGET_MS,
   });
+  if (ran.outcome === "postponed") {
+    return NextResponse.json({ error: "Exécution non lancée : le temps manque pour la mener à bien. Réessayez.", code: "postponed" }, { status: 409 });
+  }
   if (ran.outcome !== "ran") {
-    return NextResponse.json({ error: "Cette routine est déjà en cours d'exécution.", code: "busy" }, { status: 409 });
+    // The exact reason: a routine stopped or paused a moment ago is not « already running ».
+    const reason = ran.outcome === "busy" ? ran.reason : "locked";
+    const fresh = await getRoutine(routine.id);
+    const stopped = ran.outcome === "busy" && ran.status === "error";
+    const error = reason === "not_found" ? "Cette routine n'existe plus."
+      : reason === "not_active"
+        ? stopped ? "Cette routine vient d'être arrêtée après des échecs répétés : elle n'a pas été exécutée. Refaites un essai à blanc, puis activez-la."
+          : "Cette routine n'est plus active (mise en pause, modifiée ou archivée entre-temps) : elle n'a pas été exécutée."
+        : "Cette routine est déjà en cours d'exécution.";
+    return NextResponse.json(
+      { error, code: reason === "locked" || reason === "not_due" ? "busy" : reason, ...(fresh ? { routine: routineView(fresh) } : {}) },
+      { status: reason === "not_found" ? 404 : 409 },
+    );
   }
   await logEvent(routine.id, "run_manual", actorOf(guard.session), {
     definitionHash: ran.result.definitionHash, detail: `Exécution ${ran.result.runId} : ${ran.result.status}`,

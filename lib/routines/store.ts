@@ -23,10 +23,11 @@ import { prisma } from "@/lib/prisma";
 import { initialChatJson, type RoutinePage } from "@/lib/routines/context";
 import { hashDefinition } from "@/lib/routines/hash";
 import { effectiveRole } from "@/lib/roles";
+import { readRoutineContext } from "@/lib/routines/context";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 import {
-  DEFAULT_TIMEZONE, MAX_CONSECUTIVE_FAILURES, MAX_ITEM_ATTEMPTS, WRITE_COUNT_KEYS, emptyCounts,
-  type ItemClaim, type RoutineDefinition, type RoutineEventKind, type RoutineStatus, type RunStatus, type RunTrigger, type Schedule,
+  DEFAULT_TIMEZONE, MAX_CONSECUTIVE_FAILURES, MAX_ITEM_ATTEMPTS, PLATFORM_WRITE_NEEDS_ADMIN_ENV, WRITE_COUNT_KEYS, emptyCounts, platformWriteNeedsAdmin,
+  type ItemClaim, type ItemStatus, type KnownItem, type RoutineDefinition, type RoutineEventKind, type RoutineStatus, type RunStatus, type RunTrigger, type Schedule,
   type StepResult, type WriteCounts,
 } from "@/lib/routines/types";
 
@@ -303,12 +304,18 @@ export async function dueRoutineIds(now: Date, take = 50): Promise<string[]> {
  * author otherwise) must still be staff and still have the accounts of the
  * routine in scope. Null when all is well, the reason otherwise.
  */
-export async function ownerProblem(routine: Pick<RoutineRecord, "createdById" | "activatedById" | "metaAccountId" | "googleCustomerId">): Promise<string | null> {
+export async function ownerProblem(
+  routine: Pick<RoutineRecord, "createdById" | "activatedById" | "metaAccountId" | "googleCustomerId"> & { writesPlatform?: boolean },
+): Promise<string | null> {
   const userId = routine.activatedById || routine.createdById;
   const user = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } }) : null;
   if (!user) return "La personne qui a activé la routine n'a plus de compte.";
   const role = effectiveRole(user.role);
   if (role !== "admin" && role !== "consultant") return "La personne qui a activé la routine ne fait plus partie de l'équipe.";
+  // The rule asked of who activates, resumes or runs by hand holds for the schedule too: the run answers to who activated.
+  if (routine.writesPlatform && platformWriteNeedsAdmin() && user.role !== "admin") {
+    return `Cette routine crée des publicités et la règle ${PLATFORM_WRITE_NEEDS_ADMIN_ENV} est en vigueur : elle a été activée par une personne qui n'est pas administrateur. Elle est à réactiver par un administrateur.`;
+  }
   const outside = bindingOutOfScope(await getAccountScope({ userId: user.id, role }), routine);
   return outside ? `Le compte ${outside} n'est plus dans le périmètre de la personne qui a activé la routine.` : null;
 }
@@ -391,31 +398,119 @@ export async function peekItem(routineId: string, itemKey: string): Promise<Item
   return existing ? answerOf(existing) : { state: "claimed", attempts: 1 };
 }
 
+const LATE_WITH_ID = "La plateforme a répondu après la fin de l'exécution : l'objet existe sous cet identifiant. Il est relu à l'exécution suivante, jamais créé de nouveau.";
+
 /**
- * Closes a reservation. Only a pending item can be settled. A failure that
- * carries an external id is stored `uncertain`: the object exists on the
- * platform, the item must never come back as one to create.
+ * Closes a reservation. A failure that carries an external id is stored
+ * `uncertain`: the object exists on the platform, the item must never come
+ * back as one to create.
+ *
+ * A pending item is settled as asked. An item the engine has already turned
+ * `uncertain` (the step was given up, the platform answered afterwards) may
+ * still be settled BY THE RUN THAT RESERVED IT (`runId`), while it carries no
+ * id yet:
+ *   - the platform answered with an id: the id is kept and the item stays
+ *     `uncertain` until the object has been read again;
+ *   - the platform refused, nothing exists: the item is `failed`, to be tried
+ *     again like any refusal.
+ * Returns "settled", "late" (settled after the end) or null (nothing changed).
  */
-export async function settleItem(args: { routineId: string; itemKey: string; status: "created" | "failed"; externalId?: string; error?: string }): Promise<boolean> {
+export async function settleItem(
+  args: { routineId: string; itemKey: string; status: "created" | "failed"; externalId?: string; error?: string; runId?: string },
+): Promise<"settled" | "late" | null> {
   const status = args.status === "failed" && args.externalId ? "uncertain" : args.status;
   const { count } = await prisma.routineItem.updateMany({
     where: { routineId: args.routineId, itemKey: args.itemKey, status: "pending" },
     data: { status, externalId: args.externalId ?? null, error: clip(args.error, MAX_ERROR_CHARS) },
   });
-  return count === 1;
+  if (count === 1) return "settled";
+  if (!args.runId) return null;
+  const late = await prisma.routineItem.updateMany({
+    where: { routineId: args.routineId, itemKey: args.itemKey, runId: args.runId, status: "uncertain", externalId: null },
+    data: args.externalId
+      ? { status: "uncertain", externalId: args.externalId, error: clip(args.error ? `${LATE_WITH_ID} ${args.error}` : LATE_WITH_ID, MAX_ERROR_CHARS) }
+      : args.status === "failed"
+        ? { status: "failed", error: clip(args.error, MAX_ERROR_CHARS) }
+        : {},
+  });
+  return late.count === 1 ? "late" : null;
 }
 
 /**
- * An item whose object was read again by its id and found as wanted (the ad
- * is there, paused): `uncertain` → `created`. Conditional on the id read being
- * the one stored.
+ * An item whose object was read again and found as wanted (the ad is there,
+ * paused): `uncertain` → `created`. Conditional on the id read being the one
+ * stored, or on no id being stored (the ad was found by its name).
  */
 export async function confirmItem(args: { routineId: string; itemKey: string; externalId: string }): Promise<boolean> {
   if (!args.externalId) return false;
   const { count } = await prisma.routineItem.updateMany({
-    where: { routineId: args.routineId, itemKey: args.itemKey, externalId: args.externalId, status: { in: ["uncertain", "failed"] } },
-    data: { status: "created", error: null },
+    where: {
+      routineId: args.routineId, itemKey: args.itemKey, status: { in: ["uncertain", "failed"] },
+      OR: [{ externalId: args.externalId }, { externalId: null }],
+    },
+    data: { status: "created", externalId: args.externalId, error: null },
   });
+  return count === 1;
+}
+
+const MAX_LISTED_ITEMS = 5000;
+
+/** Items of a routine, every ad set included, as a step may know them. */
+export async function listItems(routineId: string): Promise<KnownItem[]> {
+  const rows = await prisma.routineItem.findMany({
+    where: { routineId }, select: { itemKey: true, status: true, externalId: true }, take: MAX_LISTED_ITEMS,
+  });
+  return rows.map((r) => ({ itemKey: r.itemKey, status: r.status as ItemStatus, externalId: r.externalId }));
+}
+
+// ── Items a person has to look at ────────────────────────────────────────
+
+export interface ItemToCheck {
+  id: string; itemKey: string; label: string | null; status: "uncertain" | "abandoned";
+  externalId: string | null; error: string | null; attempts: number; updatedAt: number;
+}
+
+/** Items whose outcome is unknown, or given up after their attempts: what « J'ai vérifié » settles. */
+export async function itemsToCheck(routineId: string, take = 200): Promise<ItemToCheck[]> {
+  const rows = await prisma.routineItem.findMany({
+    where: { routineId, OR: [{ status: "uncertain" }, { status: "failed", attempts: { gte: MAX_ITEM_ATTEMPTS } }] },
+    orderBy: { updatedAt: "desc" },
+    take,
+  });
+  return rows.map((r) => ({
+    id: r.id, itemKey: r.itemKey, label: r.label, status: r.status === "uncertain" ? "uncertain" as const : "abandoned" as const,
+    externalId: r.externalId, error: r.error, attempts: r.attempts, updatedAt: r.updatedAt.getTime(),
+  }));
+}
+
+export function getItem(routineId: string, itemId: string) {
+  return prisma.routineItem.findFirst({ where: { id: itemId, routineId } });
+}
+
+/** True when another item of the routine already answers for this object. */
+export async function externalIdTaken(routineId: string, externalId: string, exceptItemId: string): Promise<boolean> {
+  const other = await prisma.routineItem.findFirst({ where: { routineId, externalId, id: { not: exceptItemId } }, select: { id: true } });
+  return !!other;
+}
+
+/**
+ * What a person decided of an item that was to be checked. Conditional on the
+ * item being still as it was read (`from`): of two people, one wins.
+ *   exists  the object is there under `externalId`; `created` when it was
+ *           read as wanted (paused), kept `uncertain` with its id otherwise
+ *   retry   nothing exists: the item is `failed` with one attempt left
+ */
+export async function resolveItem(
+  args: { routineId: string; itemId: string; from: { status: string; attempts: number } } & (
+    | { outcome: "exists"; externalId: string; confirmed: boolean; note: string }
+    | { outcome: "retry" }
+  ),
+): Promise<boolean> {
+  const where = { id: args.itemId, routineId: args.routineId, status: args.from.status, attempts: args.from.attempts };
+  const data = args.outcome === "exists"
+    ? { status: args.confirmed ? "created" : "uncertain", externalId: args.externalId, error: args.confirmed ? null : clip(args.note, MAX_ERROR_CHARS) }
+    : { status: "failed", externalId: null, attempts: Math.min(args.from.attempts, MAX_ITEM_ATTEMPTS - 1), error: "Vérifié par une personne : rien n'avait été créé. À retenter." };
+  const { count } = await prisma.routineItem.updateMany({ where, data });
   return count === 1;
 }
 
@@ -470,6 +565,119 @@ export function lastLiveRuns(routineId: string, take: number): Promise<RoutineRu
     orderBy: { startedAt: "desc" },
     take,
   });
+}
+
+/** Runs of a routine whose trigger was the schedule, started at or after `since`. */
+export function countScheduledRunsSince(routineId: string, since: Date): Promise<number> {
+  return prisma.routineRun.count({ where: { routineId, trigger: "schedule", startedAt: { gte: since } } });
+}
+
+/** Moves the next run of an active routine, outside any lock (a run that ran out of time stays due). */
+export async function setNextRunAt(routineId: string, nextRunAt: Date | null): Promise<boolean> {
+  const { count } = await prisma.routine.updateMany({ where: { id: routineId, status: "active" }, data: { nextRunAt } });
+  return count === 1;
+}
+
+/**
+ * Active routines whose lock has expired without being given back. With a run
+ * traced since the lock was taken, that run is closed as interrupted
+ * (runningRunsBefore). Without any, the database went away right after the
+ * lock: see traceUntracedRun.
+ */
+export async function expiredLocks(now: Date, take = 50): Promise<RoutineRecord[]> {
+  return prisma.routine.findMany({ where: { status: "active", lockedUntil: { lt: now } }, take });
+}
+
+/** True when a run of the routine started at or after `since`, whatever became of it. */
+export async function hasRunSince(routineId: string, since: Date): Promise<boolean> {
+  return (await prisma.routineRun.count({ where: { routineId, startedAt: { gte: since } } })) > 0;
+}
+
+/**
+ * Traces a run that never started: the lock was taken, the schedule moved on,
+ * then the database could not be reached, neither to record the run nor to
+ * put the schedule back. An outage: `infra_failed`. The lock is cleared,
+ * conditional on being the one that was found.
+ */
+export async function traceUntracedRun(
+  routine: Pick<RoutineRecord, "id" | "definitionHash" | "lockedUntil">, takenAt: Date, now: Date,
+  /** False when the caller has just taken the lock over: it is its own now. */
+  clearLock = true,
+): Promise<string | null> {
+  if (clearLock) {
+    const { count } = await prisma.routine.updateMany({ where: { id: routine.id, lockedUntil: routine.lockedUntil }, data: { lockedUntil: null } });
+    if (count !== 1) return null;
+  }
+  const run = await prisma.routineRun.create({
+    data: {
+      routineId: routine.id, trigger: "schedule", status: "infra_failed", definitionHash: routine.definitionHash,
+      startedAt: takenAt, finishedAt: now,
+      error: "Exécution non démarrée : la base est devenue injoignable juste après la prise du verrou. Le planning avait avancé ; rien n'a été lu ni écrit. Elle n'est pas rejouée.",
+    },
+    select: { id: true },
+  });
+  await noteLastRun(routine.id, takenAt, "infra_failed");
+  return run.id;
+}
+
+/**
+ * True when the agency has already been told of the degradation the routine
+ * is in: a `degraded_notified` event names a run ([run <id>]) and no live run
+ * has succeeded since that run.
+ */
+export async function degradedAlreadyNotified(routineId: string): Promise<boolean> {
+  const event = await lastEvent(routineId, "degraded_notified");
+  const runId = /^\[run ([^\]]+)\]/.exec(event?.detail ?? "")?.[1];
+  if (!event || !runId) return false;
+  const run = await prisma.routineRun.findUnique({ where: { id: runId }, select: { startedAt: true } });
+  if (!run) return false;
+  const since = await prisma.routineRun.count({
+    where: { routineId, status: "success", trigger: { in: ["schedule", "manual"] }, startedAt: { gt: run.startedAt } },
+  });
+  return since === 0;
+}
+
+/** The latest event of a kind, or null. */
+export function lastEvent(routineId: string, kind: RoutineEventKind) {
+  return prisma.routineEvent.findFirst({ where: { routineId, kind }, orderBy: { createdAt: "desc" } });
+}
+
+/** Events of a kind, most recent first. */
+export function eventsOf(routineId: string, kind: RoutineEventKind, take = 20) {
+  return prisma.routineEvent.findMany({ where: { routineId, kind }, orderBy: { createdAt: "desc" }, take });
+}
+
+export interface RoutineHealth {
+  /** Live runs in a row, up to the latest, that are not a full success. */
+  degradedRuns: number;
+  /** True when the count stopped at what was read: « at least ». */
+  atLeast: boolean;
+  lastError: string | null;
+  /** Ids of these runs, most recent first. */
+  runIds: string[];
+}
+
+const HEALTH_RUNS = 50;
+
+/**
+ * How many live runs in a row were not a full success. Runs that were missed
+ * (too late to start) and runs still going are not counted either way.
+ */
+export async function routineHealth(routineId: string): Promise<RoutineHealth> {
+  const runs = (await lastLiveRuns(routineId, HEALTH_RUNS)).filter((r) => r.status !== "missed" && r.status !== "running");
+  const runIds: string[] = [];
+  let lastError: string | null = null;
+  for (const run of runs) {
+    if (run.status === "success") break;
+    if (!runIds.length) lastError = run.error;
+    runIds.push(run.id);
+  }
+  return { degradedRuns: runIds.length, atLeast: runIds.length === runs.length && runs.length >= HEALTH_RUNS, lastError, runIds };
+}
+
+/** Facebook Page chosen when the routine was created, or null. */
+export function chosenPageOf(routine: Pick<RoutineRecord, "chatJson">): { id: string; name: string } | null {
+  return readRoutineContext(routine.chatJson).page ?? null;
 }
 
 /** Switches a routine off outside the count of functional failures (runs interrupted again and again). */

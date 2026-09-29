@@ -346,6 +346,65 @@ export async function listPromotablePages(accountId: string): Promise<{ pages: P
   return { pages, complete: !data?.paging?.next };
 }
 
+const PROMOTE_MAX_PAGES = 10;
+
+/**
+ * The Page is one of those the ad account can promote. Throws `refused` when
+ * it is not: the token of the agency reads the Pages of many clients, and an
+ * ad of a client must never leave under the Page of another. Throws `infra`
+ * when the list could not be read, or not to its end: not knowing is not yes.
+ */
+export async function verifyPagePromotable(accountId: string, pageId: string): Promise<PromotablePage> {
+  const account = bareAccount(String(accountId ?? ""));
+  if (!account) throw new MetaWriteError("refused", "Compte publicitaire invalide");
+  if (!isMetaId(pageId)) throw new MetaWriteError("refused", "Identifiant de page invalide");
+  let after: string | undefined;
+  try {
+    for (let page = 0; page < PROMOTE_MAX_PAGES; page++) {
+      const data = await metaGraphGetOnce<{ data?: Array<{ id?: string; name?: string }>; paging?: { cursors?: { after?: string }; next?: string } }>(
+        `/act_${account}/promote_pages`, getMetaSystemToken(), { fields: "id,name", limit: "200", ...(after ? { after } : {}) });
+      const found = (Array.isArray(data?.data) ? data.data : []).find((p) => p?.id === pageId);
+      if (found) return { id: pageId, name: String(found.name ?? pageId).slice(0, 120) };
+      after = data?.paging?.next ? data.paging.cursors?.after : undefined;
+      if (!after) {
+        throw new MetaWriteError("refused", `La Page ${pageId} n'est pas de celles que le compte publicitaire de la routine peut promouvoir : aucune publicité n'est créée sous cette Page`);
+      }
+    }
+  } catch (err) {
+    throw fromReadError(err, "Pages du compte publicitaire illisibles");
+  }
+  throw new MetaWriteError("infra", `Pages du compte publicitaire trop nombreuses pour y chercher la Page ${pageId}`);
+}
+
+export interface InstagramCheck {
+  /** true = the accounts of the ad account could be listed; false = the token cannot read them. */
+  readable: boolean;
+  /** true = listed; false = the list was read to its end without it; null = not known. */
+  allowed: boolean | null;
+  note: string | null;
+}
+
+/**
+ * Instagram account given for the ads, against those of the ad account. Never
+ * throws. The system-user token often cannot read them (verified 2026-09-29
+ * for the edges of a Page): `readable` is then false, nothing is concluded
+ * and Meta decides at creation.
+ */
+export async function checkInstagramActor(accountId: string, instagramUserId: string): Promise<InstagramCheck> {
+  const account = bareAccount(String(accountId ?? ""));
+  if (!account || !isMetaId(instagramUserId)) return { readable: true, allowed: false, note: "Identifiant de compte Instagram invalide" };
+  try {
+    const data = await metaGraphGetOnce<{ data?: Array<{ id?: string }>; paging?: { next?: string } }>(
+      `/act_${account}/instagram_accounts`, getMetaSystemToken(), { fields: "id", limit: "200" });
+    if (!Array.isArray(data?.data)) return { readable: false, allowed: null, note: `Compte Instagram ${instagramUserId} non vérifié : la liste des comptes Instagram du compte publicitaire n'est pas lisible (Meta tranchera à la création)` };
+    if (data.data.some((a) => a?.id === instagramUserId)) return { readable: true, allowed: true, note: null };
+    if (data.paging?.next) return { readable: true, allowed: null, note: `Compte Instagram ${instagramUserId} non vérifié : le compte publicitaire en a plus de 200 (Meta tranchera à la création)` };
+    return { readable: true, allowed: false, note: `Le compte Instagram ${instagramUserId} n'est pas de ceux du compte publicitaire de la routine : aucune publicité n'est créée sous ce compte` };
+  } catch (err) {
+    return { readable: false, allowed: null, note: `Compte Instagram ${instagramUserId} non vérifié : ${fromReadError(err, "liste des comptes Instagram illisible avec le jeton de l'agence").message} (Meta tranchera à la création)` };
+  }
+}
+
 export interface IdentityCheck {
   /** true = readable with the token; false = Meta refused; null = could not be checked. */
   pageReadable: boolean | null;

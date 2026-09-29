@@ -16,9 +16,10 @@ import { RoutineChat } from "@/components/routines/routine-chat";
 import { DefinitionView } from "@/components/routines/definition-view";
 import { DryRunPanel } from "@/components/routines/dry-run-panel";
 import { RunHistory } from "@/components/routines/run-history";
+import { ItemsToCheck } from "@/components/routines/items-to-check";
 import { scheduleTitle } from "@/components/routines/schedule-label";
 import {
-  ROUTINE_STATUS, RUN_STATUS, actionBlocked, dateTimeLabel, exampleByKey, hasDefinition, runCounters, toRoutineView, toRunView,
+  ROUTINE_STATUS, RUN_STATUS, actionBlocked, dateTimeLabel, degradedBanner, exampleByKey, hasDefinition, runCounters, toRoutineView, toRunView,
   type RoutineAction, type RoutineView,
 } from "@/components/routines/routine-model";
 
@@ -101,7 +102,8 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
           text: action === "activate" ? "Routine activée." : action === "pause" ? "Routine mise en pause." : action === "resume" ? "Routine reprise." : "Routine archivée.",
         });
       }
-      if (!body.routine) await load();
+      // Always read again: the health of the routine and its rows to check come with the routine itself.
+      await load();
     } catch (e) {
       setNotice({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -168,6 +170,18 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
           </span>
         </div>
       )}
+
+      {(() => {
+        const degraded = degradedBanner(routine);
+        return degraded && (
+          <div role="alert" className="text-sm text-amber-200 bg-amber-950/30 border border-amber-900/50 rounded-xl px-4 py-3">
+            <strong>{degraded.title}</strong> Elle continue de s&apos;exécuter. Consultez l&apos;historique et corrigez avec l&apos;IA.
+            {degraded.error && <span className="block mt-1 text-xs text-amber-300 break-words">Dernière erreur : {degraded.error}</span>}
+          </div>
+        );
+      })()}
+
+      <ItemsToCheck routineId={routine.id} timezone={routine.timezone} refreshKey={historyKey} readOnly={archived} onChanged={() => { void load(); }} />
 
       {routine.status === "error" && (
         <div className="text-sm text-red-300 bg-red-950/30 border border-red-900/50 rounded-xl px-4 py-3">
