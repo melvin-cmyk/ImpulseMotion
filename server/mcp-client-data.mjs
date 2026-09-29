@@ -11,12 +11,17 @@
  * Statut "canceled" exclu par défaut (param include_canceled). Montants EUR TTC
  * (grand_total), arrondis à 2 décimales, 200 lignes max par réponse.
  * Les dates sont interprétées en Europe/Paris (bornes incluses).
+ *
+ * Les réponses qui portent une liste (rows, by_type, top_codes) partent en
+ * tableau : les clés ne sont écrites qu'une fois, en en-tête de colonnes, au
+ * lieu d'être répétées sur chaque ligne. Mêmes valeurs, aucune ligne retirée.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import pg from "pg";
+import { renderValue } from "./mcp-compact-generic.mjs";
 
 const CLIENT_KEY = process.env.CLIENT_KEY || "";
 const DATA_DATABASE_URL = process.env.DATA_DATABASE_URL || "";
@@ -95,7 +100,7 @@ function baseParams(p, args) {
 }
 
 function ok(payload) {
-  return { content: [{ type: "text", text: JSON.stringify(payload) }] };
+  return { content: [{ type: "text", text: renderValue(payload).text }] };
 }
 function fail(err) {
   const message = err instanceof Error ? err.message : String(err);

@@ -21,6 +21,16 @@
  * n'y a droit que sur demande explicite du consultant) ; fichiers uniquement
  * dans le workspace de la conversation ; CLI lancé en utilisateur non
  * privilégié avec une configuration temporaire isolée ; jeton redacté.
+ *
+ * Le workspace est aussi celui du bac à sable : ce qu'il contient a pu être
+ * posé par du code dicté par une injection, liens symboliques compris. Le CLI
+ * n'y travaille donc jamais. Les fichiers à envoyer sont ouverts par ce
+ * serveur sans suivre de lien (openDir), puis copiés dans un dossier de
+ * transit que le bac à sable ne voit pas ; le CLI tourne dans ce dossier ; ce
+ * qu'il a téléchargé est ensuite rangé dans le workspace, là encore sans
+ * suivre de lien. Ce qui est vérifié est ce qui est envoyé. Les dossiers
+ * temporaires (transit, configuration du CLI) sont créés hors du workspace,
+ * où que pointe TMPDIR, et retirés quand le serveur s'arrête.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -30,6 +40,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { capMiddle, fmtBytes, renderJson } from "./mcp-compact-generic.mjs";
 
 const TOKEN = process.env.GWS_ACCESS_TOKEN || "";
 const AUTH_ERROR = process.env.GWS_AUTH_ERROR || "";
@@ -57,6 +68,7 @@ const FLAG_DENY = new Set(["params", "json", "upload", "upload-content-type", "o
 const FLAG_DENY_RE = /token|credential|secret|config|log|keyring|project/i;
 const PATH_DIRS = (process.env.PATH || "/usr/local/bin:/usr/bin:/bin").split(":").filter(Boolean);
 const IS_ROOT = typeof process.getuid === "function" && process.getuid() === 0;
+const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
 
 function findGws() {
   for (const dir of [...PATH_DIRS, "/usr/local/bin", "/usr/bin"]) {
@@ -70,38 +82,205 @@ function redact(text) {
   return TOKEN ? String(text || "").split(TOKEN).join("[REDACTED]") : String(text || "");
 }
 
-function capText(text, cap = OUTPUT_CAP) {
-  if (text.length <= cap) return text;
-  const head = Math.floor(cap * 0.7);
-  return `${text.slice(0, head)}\n…[${text.length - cap} caractères tronqués]…\n${text.slice(-(cap - head))}`;
+const capText = (text, cap = OUTPUT_CAP, hint = "") => capMiddle(text, cap, { hint }).text;
+
+/** Chemins de l'hôte (workspace, dossier de transit) rendus sous leur nom côté modèle : /work. */
+function modelPaths(text, hostDirs) {
+  let out = String(text ?? "");
+  for (const dir of hostDirs) if (dir) out = out.split(dir).join("/work");
+  // Les chemins sont passés au CLI en ./ : il les rend parfois tels quels.
+  return out.split("/work/./").join("/work/");
 }
 
-function fmtBytes(n) {
-  if (n < 1024) return `${n} o`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`;
-  return `${(n / 1024 / 1024).toFixed(1)} Mo`;
+/**
+ * stdout du CLI → texte pour le modèle. Le JSON indenté devient un tableau (une
+ * ligne d'en-tête, une ligne par élément) ou du JSON minifié, sans retirer ni
+ * réécrire de valeur : etag sert aux mises à jour conditionnelles, kind est
+ * constant et ne coûte qu'une mention. Une erreur est seulement minifiée.
+ */
+function shapeStdout(stdout, { failed = false } = {}) {
+  const r = renderJson(stdout, { table: !failed });
+  return capText(r.text.trim(), OUTPUT_CAP, "réduis avec fields, pageSize ou une requête plus précise ; suite d'une liste : pageToken");
 }
 
-/** Resolve a /work-relative path inside the conversation workspace, or throw. */
-function inWorkspace(p, { mustExist = false, underOut = false } = {}) {
+// ── Accès de l'hôte au workspace ────────────────────────────────────────────
+
+/** Nom d'une entrée relativement à un dossier déjà ouvert (l'équivalent d'openat). */
+const viaFd = (dirFd, name) => `/proc/self/fd/${dirFd}/${name}`;
+
+/** Erreur d'ouverture dite avec le chemin côté modèle, lien symbolique nommé comme tel. */
+function openError(e, dirFd, name, shown) {
+  let link = e.code === "ELOOP";
+  try { link = link || fs.lstatSync(viaFd(dirFd, name)).isSymbolicLink(); } catch { /* absent */ }
+  if (link) return new Error(`Lien symbolique refusé : ${shown} — seuls les vrais fichiers du workspace sont envoyés ou remplacés`);
+  if (e.code === "ENOENT") return new Error(`Fichier introuvable dans le workspace : ${shown} (list_files pour voir ce qui existe)`);
+  return new Error(String(e.message).replace(/'\/proc\/self\/fd\/\d+\/[^']*'/, `'${shown}'`));
+}
+
+/**
+ * Ouvre un dossier du workspace et rend son descripteur. La descente se fait
+ * composant par composant, chaque ouverture relative au descripteur du parent
+ * et en O_NOFOLLOW : un lien posé par le bac à sable, à n'importe quel niveau,
+ * fait échouer l'ouverture au lieu d'emmener l'hôte ailleurs. `create` crée les
+ * dossiers manquants (mkdir ne suit pas un lien) et les rend à RUN_UID.
+ */
+function openDir(parts, { create = false } = {}) {
+  let fd = fs.openSync(WORKSPACE_DIR, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+  try {
+    parts.forEach((part, i) => {
+      let made = false;
+      if (create) { try { fs.mkdirSync(viaFd(fd, part), 0o755); made = true; } catch (e) { if (e.code !== "EEXIST") throw e; } }
+      let next;
+      try { next = fs.openSync(viaFd(fd, part), O_RDONLY | O_DIRECTORY | O_NOFOLLOW); }
+      catch (e) { throw openError(e, fd, part, `/work/${parts.slice(0, i + 1).join("/")}`); }
+      fs.closeSync(fd);
+      fd = next;
+      if (made && IS_ROOT) fs.fchownSync(fd, RUN_UID, RUN_UID);
+    });
+    return fd;
+  } catch (e) {
+    fs.closeSync(fd);
+    throw e;
+  }
+}
+
+/** Chemin relatif à /work → composants dans le workspace de la conversation, ou erreur. */
+function workspaceParts(p, { underOut = false } = {}) {
   if (!WORKSPACE_DIR) throw new Error("Pas de workspace dans cette conversation : les fichiers (upload, pièces jointes, téléchargements) ne sont disponibles que dans une conversation nommée avec le bac à sable.");
   const rel = String(p ?? "").replace(/^\/work\/?/, "").replace(/^\.\/+/, "");
   if (!rel) throw new Error("Chemin de fichier vide.");
   const abs = path.resolve(WORKSPACE_DIR, rel);
   if (!abs.startsWith(WORKSPACE_DIR + path.sep)) throw new Error(`Chemin hors du workspace : ${p}`);
   if (underOut && !abs.startsWith(path.join(WORKSPACE_DIR, "out") + path.sep)) throw new Error(`Les téléchargements vont dans /work/out : ${p}`);
-  if (mustExist && !(fs.existsSync(abs) && fs.statSync(abs).isFile())) throw new Error(`Fichier introuvable dans le workspace : ${p} (list_files pour voir ce qui existe)`);
-  return abs;
+  return path.relative(WORKSPACE_DIR, abs).split(path.sep);
 }
 
-function snapshotOut() {
-  const m = new Map();
+function copyFd(src, dst) {
+  const buf = Buffer.allocUnsafe(1024 * 1024);
+  for (let n = fs.readSync(src, buf, 0, buf.length, null); n > 0; n = fs.readSync(src, buf, 0, buf.length, null)) fs.writeSync(dst, buf, 0, n);
+}
+
+// Dossiers temporaires en cours d'usage : retirés aussi quand le serveur est coupé.
+const liveTmp = new Set();
+function dropTmp(dir) {
+  if (!dir) return;
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  liveTmp.delete(dir);
+}
+process.on("exit", () => { for (const dir of [...liveTmp]) dropTmp(dir); });
+for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(sig, () => process.exit(0));
+process.stdin.on("end", () => process.exit(0));
+process.stdin.on("close", () => process.exit(0));
+
+const inside = (real, dir) => real === dir || real.startsWith(dir + path.sep);
+
+/**
+ * Dossier temporaire de l'hôte, réservé à RUN_UID. L'emplacement réel est
+ * contrôlé : TMPDIR peut pointer dans le workspace, que le bac à sable monte.
+ */
+function makeTmp(prefix) {
+  const ws = WORKSPACE_DIR ? fs.realpathSync(WORKSPACE_DIR) : "";
+  for (const base of new Set([os.tmpdir(), "/tmp"])) {
+    let real;
+    try { real = fs.realpathSync(base); } catch { continue; }
+    if (ws && inside(real, ws)) continue;
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(real, prefix)));
+    liveTmp.add(dir);
+    if (ws && inside(dir, ws)) { dropTmp(dir); continue; }
+    if (IS_ROOT) { try { fs.chownSync(dir, RUN_UID, RUN_UID); } catch { /* best effort */ } }
+    return dir;
+  }
+  throw new Error("Aucun dossier temporaire hors du workspace sur le serveur de l'IA : commande non lancée.");
+}
+
+/** Dossier de transit du CLI : sur l'hôte, hors du workspace, réservé à RUN_UID. */
+const makeStage = () => makeTmp("im-gws-transit-");
+
+/** Crée un sous-dossier du dossier de transit (que seul l'hôte a rempli jusque-là). */
+function stageDir(stage, parts) {
+  let dir = stage;
+  for (const part of parts) {
+    dir = path.join(dir, part);
+    try { fs.mkdirSync(dir, 0o700); if (IS_ROOT) fs.chownSync(dir, RUN_UID, RUN_UID); } catch (e) { if (e.code !== "EEXIST") throw e; }
+  }
+  return dir;
+}
+
+/**
+ * Copie un vrai fichier du workspace dans le dossier de transit, sous le même
+ * chemin relatif. `sent` retient ce qui y est déjà : le même fichier demandé
+ * deux fois (upload et pièce jointe, pièce jointe répétée) n'est copié qu'une
+ * fois. Un fichier qui a plusieurs noms (lien dur) est refusé : l'autre nom
+ * peut être hors du workspace.
+ */
+function stageIn(stage, p, sent) {
+  const parts = workspaceParts(p);
+  const name = parts[parts.length - 1];
+  const shown = `/work/${parts.join("/")}`;
+  if (sent.has(parts.join("/"))) return parts.join("/");
+  const dirFd = openDir(parts.slice(0, -1));
+  let src = -1;
   try {
-    for (const f of fs.readdirSync(path.join(WORKSPACE_DIR, "out"))) {
-      try { const st = fs.statSync(path.join(WORKSPACE_DIR, "out", f)); if (st.isFile()) m.set(f, `${st.size}:${Math.round(st.mtimeMs)}`); } catch { /* vanished */ }
+    // O_NONBLOCK : un tube nommé posé là ne doit pas bloquer le serveur.
+    try { src = fs.openSync(viaFd(dirFd, name), O_RDONLY | O_NOFOLLOW | O_NONBLOCK); }
+    catch (e) { throw openError(e, dirFd, name, shown); }
+    const st = fs.fstatSync(src);
+    if (!st.isFile()) throw new Error(`Fichier introuvable dans le workspace : ${shown} (list_files pour voir ce qui existe)`);
+    if (st.nlink > 1) throw new Error(`Lien dur refusé : ${shown} — ce fichier a ${st.nlink} noms, seuls les fichiers qui n'en ont qu'un sont envoyés ; copie-le avec run_python (shutil.copyfile) puis envoie la copie`);
+    const dst = fs.openSync(path.join(stageDir(stage, parts.slice(0, -1)), name), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600);
+    try {
+      copyFd(src, dst);
+      if (IS_ROOT) fs.fchownSync(dst, RUN_UID, RUN_UID);
+    } finally { fs.closeSync(dst); }
+  } finally {
+    if (src !== -1) fs.closeSync(src);
+    fs.closeSync(dirFd);
+  }
+  sent.add(parts.join("/"));
+  return parts.join("/");
+}
+
+/** Chemin passé au CLI : toujours en ./, un nom en tiret ne devient jamais une option. */
+const cliPath = (rel) => `./${rel}`;
+
+/**
+ * Range dans le workspace un fichier que le CLI a écrit dans le dossier de
+ * transit. L'ancien nom est retiré (unlink ne suit pas un lien) puis le
+ * fichier est créé en O_EXCL : c'est toujours un fichier neuf, et c'est lui,
+ * par son descripteur, qui est rendu à RUN_UID.
+ */
+function deliver(stage, parts) {
+  const src = fs.openSync(path.join(stage, ...parts), O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+  try {
+    const st = fs.fstatSync(src);
+    if (!st.isFile()) return null;
+    const name = parts[parts.length - 1];
+    const dirFd = openDir(parts.slice(0, -1), { create: true });
+    try {
+      try { fs.unlinkSync(viaFd(dirFd, name)); } catch (e) { if (e.code !== "ENOENT") throw openError(e, dirFd, name, `/work/${parts.join("/")}`); }
+      const dst = fs.openSync(viaFd(dirFd, name), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o644);
+      try {
+        copyFd(src, dst);
+        if (IS_ROOT) fs.fchownSync(dst, RUN_UID, RUN_UID);
+      } finally { fs.closeSync(dst); }
+    } finally { fs.closeSync(dirFd); }
+    return { path: parts.join("/"), bytes: st.size };
+  } finally { fs.closeSync(src); }
+}
+
+/** Vrais fichiers présents sous out/ dans le dossier de transit (chemins en composants). */
+function stagedOutputs(stage) {
+  const found = [];
+  const walk = (parts) => {
+    let entries;
+    try { entries = fs.readdirSync(path.join(stage, ...parts), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.isDirectory()) walk([...parts, e.name]);
+      else if (e.isFile()) found.push([...parts, e.name]);
     }
-  } catch { /* none */ }
-  return m;
+  };
+  walk(["out"]);
+  return found;
 }
 
 function exec(file, args, { env, cwd, timeoutMs = TIMEOUT_MS, dropPrivileges = false } = {}) {
@@ -129,9 +308,9 @@ async function runGws(args, { needToken = true, timeoutMs = TIMEOUT_MS, cwd = nu
   if (needToken && !TOKEN) throw new Error(AUTH_ERROR || "Aucun jeton Google Workspace disponible pour cette conversation.");
   if (running) throw new Error("Une commande Google Workspace est déjà en cours — attends son résultat.");
   running = true;
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "im-gws-"));
+  let tmp = null;
   try {
-    if (IS_ROOT) { try { fs.chownSync(tmp, RUN_UID, RUN_UID); } catch { /* best effort */ } }
+    tmp = makeTmp("im-gws-");
     const env = {
       PATH: PATH_DIRS.join(":"),
       HOME: tmp,
@@ -141,13 +320,11 @@ async function runGws(args, { needToken = true, timeoutMs = TIMEOUT_MS, cwd = nu
       NO_COLOR: "1",
       ...(needToken ? { GOOGLE_WORKSPACE_CLI_TOKEN: TOKEN } : {}),
     };
-    // gws only accepts --upload/--attach/--output paths under its cwd: file
-    // commands run from the workspace (owned by RUN_UID) with relative paths.
     const r = await exec(gws, args, { env, cwd: cwd || tmp, timeoutMs, dropPrivileges: true });
     return { ...r, stdout: redact(r.stdout), stderr: redact(r.stderr) };
   } finally {
     running = false;
-    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ }
+    dropTmp(tmp);
   }
 }
 
@@ -307,7 +484,7 @@ server.registerTool(
       "attach = pièces jointes d'un mail, output = destination d'un téléchargement (sous out/, ex. « out/brief.pdf » avec drive files download ou export ; propose-le ensuite avec [nom](sandbox:out/nom)). " +
       "ÉCRITURE (create, update, delete, insert, batchUpdate, +send, +reply, upload…) : confirm_write=true OBLIGATOIRE, et tu ne le passes que si le consultant a demandé explicitement cette action dans la conversation ; " +
       "pour un envoi de mail ou une suppression, récapitule d'abord (destinataires, objet, contenu / fichier visé) et attends son accord ; dry_run=true permet de prévisualiser sans exécuter. " +
-      "La sortie est le JSON du CLI (tronqué au-delà de 30 000 caractères) : demande des champs précis (fields) et une pageSize raisonnable. gws_help / « schema … » pour la syntaxe exacte. " +
+      "La sortie reprend les données du CLI sans les modifier, sous forme compacte : une liste d'objets devient un tableau (ligne « # nom : n lignes », ligne d'en-tête, puis une ligne par élément, colonnes séparées par des tabulations, cellule vide = champ absent), le reste est du JSON minifié ; coupée au-delà de 30 000 caractères : demande des champs précis (fields) et une pageSize raisonnable. gws_help / « schema … » pour la syntaxe exacte. " +
       "Appelle gws_status d'abord si tu n'as pas encore confirmé la connexion dans cette conversation.",
     inputSchema: {
       command: z.string().min(3).max(120).describe("Service, ressource et méthode (ou +helper) séparés par des espaces"),
@@ -327,6 +504,7 @@ server.registerTool(
     },
   },
   async ({ command, params, body, flags, upload, upload_content_type, attach, output, confirm_write, dry_run, format, page_all, page_limit, timeout_s }) => {
+    let stage = null;
     try {
       const { tokens, isWrite, method } = parseCommand(command);
       const paramsJson = jsonArg(params, "params", 8000);
@@ -336,12 +514,32 @@ server.registerTool(
       if (paramsJson) args.push("--params", paramsJson);
       if (bodyJson) args.push("--json", bodyJson);
       args.push(...extra);
-      const describedFiles = [];
-      const relWs = (abs) => path.relative(WORKSPACE_DIR, abs).split(path.sep).join("/");
-      if (upload) { const abs = inWorkspace(upload, { mustExist: true }); args.push("--upload", relWs(abs)); describedFiles.push(`upload ${upload}`); if (upload_content_type) args.push("--upload-content-type", String(upload_content_type)); }
-      for (const a of attach || []) { const abs = inWorkspace(a, { mustExist: true }); args.push("--attach", relWs(abs)); describedFiles.push(`pièce jointe ${a}`); }
-      if (output) { const abs = inWorkspace(output, { underOut: true }); fs.mkdirSync(path.dirname(abs), { recursive: true }); args.push("--output", relWs(abs)); describedFiles.push(`sortie ${output}`); }
-      const cwd = describedFiles.length ? WORKSPACE_DIR : null;
+      // gws only accepts --upload/--attach/--output paths under its cwd: file
+      // commands run from the transit directory, with the workspace-relative paths.
+      const sent = new Set();
+      if (upload || (attach && attach.length) || output) {
+        // Tous les chemins sont validés avant de créer quoi que ce soit.
+        for (const p of [upload, ...(attach || [])]) if (p) workspaceParts(p);
+        if (output) workspaceParts(output, { underOut: true });
+        stage = makeStage();
+      }
+      if (upload) { args.push("--upload", cliPath(stageIn(stage, upload, sent))); if (upload_content_type) args.push("--upload-content-type", String(upload_content_type)); }
+      // Une pièce jointe donnée deux fois n'est jointe qu'une fois.
+      const attached = new Set();
+      for (const a of attach || []) {
+        const rel = stageIn(stage, a, sent);
+        if (attached.has(rel)) continue;
+        attached.add(rel);
+        args.push("--attach", cliPath(rel));
+      }
+      if (output) {
+        const parts = workspaceParts(output, { underOut: true });
+        // La destination est vérifiée avant de lancer quoi que ce soit.
+        fs.closeSync(openDir(parts.slice(0, -1), { create: true }));
+        stageDir(stage, parts.slice(0, -1));
+        args.push("--output", cliPath(parts.join("/")));
+      }
+      const cwd = stage;
       if (dry_run) args.push("--dry-run");
       if (format) args.push("--format", format);
       if (page_all) args.push("--page-all", "--page-limit", String(Math.min(page_limit ?? 2, MAX_PAGE_LIMIT)));
@@ -352,27 +550,37 @@ server.registerTool(
           isError: true,
         };
       }
-      const before = WORKSPACE_DIR ? snapshotOut() : new Map();
       const started = Date.now();
       const timeoutMs = Math.min(timeout_s ?? TIMEOUT_MS / 1000, MAX_TIMEOUT_S) * 1000;
       const r = await runGws(args, { timeoutMs, cwd });
       const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-      const shown = [`gws ${tokens.join(" ")}`, paramsJson ? `--params ${paramsJson.slice(0, 300)}` : "", bodyJson ? `--json ${bodyJson.slice(0, 300)}${bodyJson.length > 300 ? "…" : ""}` : "", extra.length ? extra.map((x) => x.length > 80 ? `${x.slice(0, 80)}…` : x).join(" ") : "", describedFiles.join(", "), dry_run ? "--dry-run" : ""].filter(Boolean).join(" ");
-      const parts = [shown + (effectiveWrite && !dry_run ? "  [ÉCRITURE]" : "")];
-      if (r.timedOut) parts.push(`⏱ Interrompu après ${timeoutMs / 1000} s (délai dépassé). Réduis le volume ou augmente timeout_s.`);
-      else if (r.launchError) parts.push(`Erreur de lancement : ${r.launchError}`);
-      else if (r.code !== 0) parts.push(`Code de sortie ${r.code} (${elapsed} s)${r.code === 1 ? " — erreur API Google" : r.code === 2 ? " — authentification" : r.code === 3 ? " — arguments invalides (gws_help / schema)" : ""}`);
-      else parts.push(`OK (${elapsed} s)`);
-      if (r.stdout.trim()) parts.push(`--- stdout ---\n${capText(r.stdout)}`);
-      if (r.stderr.trim()) parts.push(`--- stderr ---\n${capText(r.stderr, 6000)}`);
-      if (WORKSPACE_DIR) {
-        const after = snapshotOut();
-        const changed = [...after].filter(([f, sig]) => before.get(f) !== sig).map(([f]) => `/work/out/${f} (${fmtBytes(Number(after.get(f).split(":")[0]))})`);
-        if (changed.length) parts.push(`--- fichiers écrits dans le workspace ---\n${changed.join("\n")}\nPropose-les au consultant avec [nom](sandbox:out/nom).`);
+      // Pas d'écho des paramètres : le modèle vient de les envoyer. Seule la commande
+      // (et ce que le serveur a décidé : écriture, essai à blanc) est rappelée.
+      const shown = `gws ${tokens.join(" ")}${dry_run ? " --dry-run" : effectiveWrite ? " [ÉCRITURE]" : ""}`;
+      const failed = r.timedOut || !!r.launchError || r.code !== 0;
+      const parts = [];
+      if (r.timedOut) parts.push(`${shown} : ⏱ interrompu après ${timeoutMs / 1000} s (délai dépassé). Réduis le volume ou augmente timeout_s.`);
+      else if (r.launchError) parts.push(`${shown} : erreur de lancement : ${r.launchError}`);
+      else if (r.code !== 0) parts.push(`${shown} : code de sortie ${r.code} (${elapsed} s)${r.code === 1 ? " — erreur API Google" : r.code === 2 ? " — authentification" : r.code === 3 ? " — arguments invalides (gws_help / schema)" : ""}`);
+      else parts.push(`${shown} : OK (${elapsed} s)`);
+      // Le chemin de l'hôte n'a pas de sens pour le modèle, sur stdout comme sur stderr.
+      const hostDirs = [stage, WORKSPACE_DIR];
+      if (r.stdout.trim()) parts.push(shapeStdout(modelPaths(r.stdout, hostDirs), { failed }));
+      if (r.stderr.trim()) parts.push(`--- stderr ---\n${capText(modelPaths(r.stderr, hostDirs).trim(), 6000)}`);
+      if (stage) {
+        const written = [];
+        for (const p of stagedOutputs(stage)) {
+          if (sent.has(p.join("/"))) continue;
+          try { const w = deliver(stage, p); if (w) written.push(`/work/${w.path} (${fmtBytes(w.bytes)})`); }
+          catch (e) { parts.push(`Téléchargé mais non rangé dans le workspace : /work/${p.join("/")} — ${e.message}`); }
+        }
+        if (written.length) parts.push(`Écrit dans le workspace : ${written.join(", ")} — à proposer au consultant avec [nom](sandbox:out/nom).`);
       }
-      return { content: [{ type: "text", text: parts.join("\n\n") }], isError: r.timedOut || !!r.launchError || r.code !== 0 };
+      return { content: [{ type: "text", text: parts.join("\n") }], isError: failed };
     } catch (e) {
-      return { content: [{ type: "text", text: `Erreur : ${e.message}` }], isError: true };
+      return { content: [{ type: "text", text: `Erreur : ${modelPaths(e.message, [stage, WORKSPACE_DIR])}` }], isError: true };
+    } finally {
+      dropTmp(stage);
     }
   },
 );
