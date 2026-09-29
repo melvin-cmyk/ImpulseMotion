@@ -107,7 +107,8 @@ describe("routines — shared limits", () => {
 
 // Every step file is a placeholder for now. When a lot replaces a file, its
 // type leaves this list — nothing else in this test changes.
-const STILL_STUBBED: StepType[] = [...ALL];
+// Les quatre lots remplacent tous les bouchons en parallèle : liste vidée par le chef dev.
+const STILL_STUBBED: StepType[] = [];
 
 describe("routines — placeholders", () => {
   const routine: StepContext["routine"] = { id: "r1", name: "Test", metaAccountId: null, googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20 };
@@ -118,6 +119,10 @@ describe("routines — placeholders", () => {
     claimItem: async () => { throw new Error("a placeholder must not claim an item"); },
     settleItem: async () => { throw new Error("a placeholder must not settle an item"); },
   };
+
+  it("no placeholder is left once every lot has delivered", () => {
+    expect(STILL_STUBBED).toEqual([]);
+  });
 
   it.each(STILL_STUBBED)("%s refuses the step and fails without writing", async (type) => {
     const handler = findStepHandler(type)!;
