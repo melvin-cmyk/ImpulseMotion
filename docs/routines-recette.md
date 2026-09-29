@@ -120,7 +120,19 @@ Elles vont du moins risqué au plus risqué. **Arrêtez-vous à la première qui
 - **On doit voir** : l'essai réussit avec un encadré : « L'essai n'a rien trouvé à créer : vous activez sans avoir vu d'exemple. »
 - **Sinon** : signalez-le. Remettez la ligne d'exemple et relancez l'essai avant de continuer.
 
+#### 6 bis. L'activation exige un essai à blanc à jour
+
+- **À faire** : sur une routine dont l'essai à blanc a réussi, demandez à l'IA un petit changement (l'heure, par exemple), appliquez, puis regardez le bouton « Activer ».
+- **On doit voir** : « Activer » est grisé, avec la raison : l'essai à blanc ne correspond plus à la définition. Il redevient cliquable après un nouvel essai réussi.
+- **Sinon** : si l'activation est possible sans refaire l'essai, arrêtez la recette et signalez-le.
+
 ### B. Écritures sans conséquence (Slack, Sheet)
+
+#### 6 ter. Une formule dans une cellule écrite est neutralisée
+
+- **À faire** : créez une routine qui ajoute une ligne dans un onglet `Suivi` du Sheet de test, avec une valeur qui commence par `=` (par exemple un nom de campagne saisi `=1+1`). Essai à blanc, activez, « Exécuter maintenant ».
+- **On doit voir** : la cellule affiche le texte `=1+1` (éventuellement précédé d'une apostrophe), pas le résultat `2`.
+- **Sinon** : si la cellule affiche `2`, signalez-le.
 
 #### 7. Un message Slack simple part, une seule fois
 
@@ -225,10 +237,11 @@ Si `ROUTINE_PLATFORM_WRITE_NEEDS_ADMIN` vaut `1`, les consultants peuvent créer
 
 Dans cet ordre.
 
-1. **Mettez en pause chaque routine active** : page de la routine, bouton « Mettre en pause ». C'est la seule action qui arrête les exécutions. Une routine en pause ne s'exécute plus, ni au planning ni à la main.
+0. **Arrêt général des exécutions planifiées** : sur Vercel, ajoutez `ROUTINES_CRON` avec la valeur `off`, puis redéployez. Plus aucune routine ne part au planning. « Exécuter maintenant » reste possible pour qui a l'accès. Retirez la variable pour reprendre ; une routine en retard de plus de 12 heures est alors notée « manquée », pas rejouée.
+1. **Mettez en pause chaque routine active** : page de la routine, bouton « Mettre en pause ». Une routine en pause ne s'exécute plus, ni au planning ni à la main.
 2. **Refermez l'espace** : sur Vercel, retirez `ROUTINES_ACCESS` (ou mettez `admin`), puis redéployez. Les consultants ne peuvent plus rien créer ni activer.
 3. **Dans Meta**, vérifiez que les publicités créées sont en pause. La routine ne sait ni activer ni supprimer une publicité : ce qui est en pause le reste.
 
-**Attention** : refermer l'espace (étape 2) n'arrête **pas** les routines déjà actives. Elles continuent de s'exécuter à leur heure. Seule la mise en pause (étape 1) les arrête. Faites toujours l'étape 1 d'abord.
+**Attention** : refermer l'espace (étape 2) n'arrête **pas** les routines déjà actives. Elles continuent de s'exécuter à leur heure. Seuls l'arrêt général (étape 0) et la mise en pause (étape 1) les arrêtent.
 
 Pour arrêter définitivement une routine : « Archiver ». Son historique reste consultable.

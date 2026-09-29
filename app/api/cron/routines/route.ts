@@ -39,6 +39,12 @@ export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  // Emergency stop: nothing is run, nothing is touched. Routines stay due;
+  // once switched back on, the ones late by more than 12 hours are recorded
+  // as missed instead of being run.
+  if (process.env.ROUTINES_CRON?.trim().toLowerCase() === "off") {
+    return NextResponse.json({ stopped: true, due: 0, ran: 0, runs: [] });
+  }
   const deadlineAt = Date.now() + RUN_BUDGET_MS;
   let interrupted = 0;
   /** Runs that never started (database lost right after the lock), traced by this firing. */
