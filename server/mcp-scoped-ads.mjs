@@ -30,6 +30,7 @@ import {
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { compactToolResult } from "./mcp-compact.mjs";
+import { followDailyPages } from "./mcp-meta-paging.mjs";
 
 const SERVER_NAME = process.env.SCOPED_SERVER_NAME || "";
 const UPSTREAM_URL = process.env.SCOPED_UPSTREAM_URL || "";
@@ -194,7 +195,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     );
   }
 
-  const raw = await upstream.callTool({ name, arguments: args ?? {} });
+  let raw = await upstream.callTool({ name, arguments: args ?? {} });
+  // Meta coupe une série quotidienne à 25 lignes par page : on va chercher la
+  // suite sur le même compte (arguments déjà contrôlés) et on recolle.
+  if (SERVER_NAME === "meta-ads-impulse") {
+    const followed = await followDailyPages(raw, args ?? {}, (next) => upstream.callTool({ name, arguments: next }));
+    if (followed.pages > 0) console.error(`[mcp-scoped-ads] ${SERVER_NAME}.${name} série poursuivie sur ${followed.pages} page(s)`);
+    raw = followed.result;
+  }
   // Compaction déterministe (server/mcp-compact.mjs) : même lecture pour
   // l'analyste, 75-95 % de tokens en moins sur les JSON n8n.
   const { result, stats } = compactToolResult(raw, { server: SERVER_NAME, tool: name });
