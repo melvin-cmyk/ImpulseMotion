@@ -12,7 +12,7 @@ import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { buildCopilotSystemPrompt } from "@/lib/dashboard-copilot";
+import { buildCopilotSystemPrompt, buildCopilotTurnContext, relayTakesTurnContext } from "@/lib/dashboard-copilot";
 import { resolveBinding } from "@/lib/dashboard-widgets";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
@@ -136,13 +136,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!messages) return NextResponse.json({ error: "messages invalid" }, { status: 400 });
 
   const binding = await resolveBinding(dashboard.userId, dashboard);
-  const systemPrompt = buildCopilotSystemPrompt(
-    { ...dashboard, widgets: dashboard.widgets, pages: dashboard.pages },
+  // The dashboard as it is now. It travels in `turnContext` when the relay
+  // takes it, in the system prompt otherwise (a relay not restarted yet).
+  const state = buildCopilotTurnContext({ ...dashboard, widgets: dashboard.widgets, pages: dashboard.pages });
+  const systemPromptFor = (inlineState: string | null) => buildCopilotSystemPrompt(
+    dashboard,
     dashboard.user.name ?? dashboard.user.email ?? "client",
     // The HQ brief stored by the last report or the client sheet, when there
     // is one (lib/hq-client-context.ts) — never fetched here.
     dashboard.hqSlug && dashboard.hqContextMd ? { slug: dashboard.hqSlug, brief: dashboard.hqContextMd } : null,
     guard.session.user?.email ?? null,
+    inlineState,
   );
 
   // The consultant picks the model and the reasoning effort in the panel;
@@ -150,10 +154,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const model: RelayModel = MODELS.has(body.model) ? body.model : STAFF_CHAT_PROFILE.model;
   const effort: RelayEffort = EFFORTS.has(body.effort) ? body.effort : STAFF_CHAT_PROFILE.effort;
 
-  const relayBody = {
+  const relayBodyFor = (takesTurnContext: boolean) => ({
     // The relay only needs role/content/images; file metadata stays in the thread.
     messages: toRelayMessages(messages),
-    systemPrompt,
+    // The relay puts `turnContext` in the user message, on the first turn and
+    // whenever it has changed since (applied proposals).
+    ...(takesTurnContext ? { systemPrompt: systemPromptFor(null), turnContext: state } : { systemPrompt: systemPromptFor(state) }),
+    // This prompt says itself when HQ may be consulted (on request only): the
+    // relay must not add its own HQ block, which says the opposite.
+    hqGuidance: "caller",
     sessionKey: `copilot:${dashboard.id}:${guard.session.userId}`,
     model,
     effort,
@@ -168,7 +177,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       meta: binding.metaAccountId ? [binding.metaAccountId] : [],
       google: binding.googleCustomerId ? [binding.googleCustomerId] : [],
     },
-  };
+  });
 
   let lastError = "relay unreachable";
   for (const url of RELAY_URLS) {
@@ -177,6 +186,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // tunnel that may need a cold start).
       const health = await fetch(`${url}/health`, { signal: AbortSignal.timeout(4000) });
       if (!health.ok) { lastError = `relay health ${health.status}`; continue; }
+      // The preflight already paid for the answer: reading what this relay
+      // understands costs no extra request.
+      const relayBody = relayBodyFor(relayTakesTurnContext(await health.json().catch(() => null)));
 
       // Headers-only timeout: AbortSignal.timeout on the fetch would ALSO
       // govern the streamed body and cut long copilot sessions mid-reply

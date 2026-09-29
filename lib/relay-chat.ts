@@ -47,6 +47,9 @@ export interface RelayChatBody {
   /** Preferred Claude Max account of the pool ("host" or an id from /api/relay/accounts);
    *  the relay falls back to the account with the most room, then Bedrock. */
   account?: string;
+  /** "caller" = the system prompt already says how to use HQ: the relay
+   *  leaves its own HQ block out. */
+  hqGuidance?: "caller";
   /** Reasoning effort passed to the CLI — "low" spends the fewest thinking tokens. */
   effort?: RelayEffort;
   /** Cap on the agentic loop (1–15); short tool lookups should not run the default 15. */
