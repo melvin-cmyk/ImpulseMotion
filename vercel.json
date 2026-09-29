@@ -17,6 +17,15 @@
     },
     "app/api/admin/auto-alerts/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/routines/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/routines/[id]/dry-run/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/routines/[id]/run/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -59,6 +68,10 @@
     {
       "path": "/api/cron/auto-alerts",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/routines",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

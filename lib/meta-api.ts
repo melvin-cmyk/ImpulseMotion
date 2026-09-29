@@ -14,6 +14,8 @@
  */
 
 import { MetaApiError } from "@/lib/meta-errors";
+import { assertWriteGuard } from "@/lib/routines/write-guard-check";
+import type { WriteGuard } from "@/lib/routines/types";
 
 const META_API_BASE = "https://graph.facebook.com/v22.0";
 
@@ -233,16 +235,21 @@ function parseRetryAfter(res: Response): number | undefined {
   return undefined;
 }
 
-async function metaRequestOnce<T>(url: string, path: string): Promise<OnceResult<T>> {
+async function metaRequestOnce<T>(
+  url: string,
+  path: string,
+  init: RequestInit = {},
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
+): Promise<OnceResult<T>> {
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     const isTimeout = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
     return {
       ok: false,
       error: new MetaApiError({
-        message: isTimeout ? `Meta API timeout after ${REQUEST_TIMEOUT_MS} ms` : `Meta API unreachable: ${e instanceof Error ? e.message : String(e)}`,
+        message: isTimeout ? `Meta API timeout after ${timeoutMs} ms` : `Meta API unreachable: ${e instanceof Error ? e.message : String(e)}`,
         httpStatus: 0,
         path,
         cause: e,
@@ -366,6 +373,156 @@ export function metaGraphGet<T>(
   params: Record<string, string> = {},
 ): Promise<T> {
   return metaFetch<T>(path, accessToken, params);
+}
+
+// ── Writes (routines) ────────────────────────────────────────────────────────
+//
+// Contract, different from the reads above on purpose:
+// - the token travels in the POST body (or in the Authorization header for the
+//   re-reads), never in the URL;
+// - ONE request per token: no retry, no backoff. A POST that timed out, lost
+//   the network or came back 5xx may have been applied: its outcome is unknown
+//   and it is reported as `MetaWriteUncertainError`, never sent again;
+// - failover to the backup token only when Meta REFUSED the request (4xx with
+//   an auth or rate-limit error): nothing was created by that request;
+// - closed list of targets and of fields. `status=PAUSED` is written here, not
+//   by the caller: there is no way to ask for another status, a budget or a bid.
+
+const WRITE_TIMEOUT_MS = 45_000;
+const READ_ONCE_TIMEOUT_MS = 15_000;
+
+/** The only writes the application knows: a creative, a paused ad, pausing an ad. */
+export type MetaWriteTarget =
+  | { kind: "adcreative"; accountId: string }
+  | { kind: "ad"; accountId: string }
+  | { kind: "pause_ad"; adId: string };
+
+const WRITE_FIELDS: Record<MetaWriteTarget["kind"], readonly string[]> = {
+  adcreative: ["name", "object_story_spec"],
+  ad: ["name", "adset_id", "creative"],
+  pause_ad: [],
+};
+
+/** The write may or may not have been applied (timeout, network, 5xx). Never retry it blindly. */
+export class MetaWriteUncertainError extends Error {
+  readonly name = "MetaWriteUncertainError";
+  /** Graph path of the write (no token). */
+  path: string;
+  constructor(path: string, reason: string) {
+    super(`Issue inconnue pour l'écriture ${path} : ${reason}`);
+    this.path = path;
+  }
+}
+
+export function isMetaWriteUncertain(err: unknown): err is MetaWriteUncertainError {
+  return err instanceof MetaWriteUncertainError || (!!err && typeof err === "object" && (err as { name?: string }).name === "MetaWriteUncertainError");
+}
+
+/** Log line of a write or of its checks: Meta may echo a parameter, a token is never printed. */
+function describeSafely(error: MetaApiError): string {
+  let text = error.describe();
+  for (const token of getMetaTokens()) text = text.split(token).join("[token]");
+  return text.replace(/access_token=[^\s&"']+/gi, "access_token=[masked]").slice(0, 400);
+}
+
+function writePath(target: MetaWriteTarget): string {
+  if (target.kind === "pause_ad") {
+    if (!/^\d{5,25}$/.test(target.adId)) throw new Error("Écriture refusée : identifiant de publicité invalide");
+    return `/${target.adId}`;
+  }
+  const id = target.accountId.replace(/^act_/, "");
+  if (!/^\d{5,25}$/.test(id)) throw new Error("Écriture refusée : identifiant de compte invalide");
+  return `/act_${id}/${target.kind === "ad" ? "ads" : "adcreatives"}`;
+}
+
+/** Meta answered and refused: nothing was applied. Anything else is an unknown outcome. */
+function refusedByMeta(error: MetaApiError): boolean {
+  return error.httpStatus >= 200 && error.httpStatus < 500;
+}
+
+/**
+ * POST on the Graph API for the routines (lib/meta-write.ts is the only
+ * caller). Requires the WriteGuard of a live run. See the contract above.
+ */
+export async function metaGraphPost<T>(
+  guard: WriteGuard,
+  target: MetaWriteTarget,
+  accessToken: string,
+  fields: Record<string, string> = {},
+): Promise<T> {
+  assertWriteGuard(guard);
+  const path = writePath(target);
+  const allowed = WRITE_FIELDS[target.kind];
+  for (const [key, value] of Object.entries(fields)) {
+    if (!allowed.includes(key)) throw new Error(`Écriture refusée : champ « ${key} » non autorisé pour ${target.kind}`);
+    if (typeof value !== "string") throw new Error(`Écriture refusée : champ « ${key} » invalide`);
+  }
+  for (const key of allowed) {
+    if (!fields[key]) throw new Error(`Écriture refusée : champ « ${key} » manquant pour ${target.kind}`);
+  }
+  const bodyFor = (token: string) => {
+    const body = new URLSearchParams();
+    for (const key of allowed) body.set(key, fields[key]);
+    // A creative has no delivery status; everything that can deliver is paused.
+    if (target.kind !== "adcreative") body.set("status", "PAUSED");
+    body.set("access_token", token);
+    return body;
+  };
+
+  const tokens = failoverOrder(accessToken);
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const result = await withMetaSlot(() =>
+      metaRequestOnce<T>(`${META_API_BASE}${path}`, path, { method: "POST", body: bodyFor(token) }, WRITE_TIMEOUT_MS));
+    if (result.ok) return result.value;
+    const error = result.error;
+    if (!refusedByMeta(error)) {
+      console.warn(`[meta-api] POST ${path} outcome unknown ${describeSafely(error)} → no retry`);
+      throw new MetaWriteUncertainError(path, error.httpStatus === 0 ? error.message : `HTTP ${error.httpStatus}`);
+    }
+    if ((error.kind === "auth" || error.kind === "rate_limit") && i < tokens.length - 1) {
+      markTokenDown(token, result.retryAfterMs);
+      console.warn(`[meta-api] POST ${path} ${describeSafely(error)} on ${tokenLabel(token)} token → failover to ${tokenLabel(tokens[i + 1])}`);
+      continue;
+    }
+    console.warn(`[meta-api] POST ${path} refused ${describeSafely(error)}`);
+    throw error;
+  }
+  throw new MetaApiError({ message: "META_SYSTEM_TOKEN is not configured", httpStatus: 0, path });
+}
+
+/**
+ * GET for the checks around a write (re-read of an ad set, of a created ad):
+ * token in the Authorization header, one request per token, short timeout.
+ * The answer is wanted now or not at all, so no backoff.
+ */
+export async function metaGraphGetOnce<T>(
+  path: string,
+  accessToken: string,
+  params: Record<string, string> = {},
+): Promise<T> {
+  if (!/^\/[A-Za-z0-9_]+(\/[a-z_]+)?$/.test(path)) throw new Error("Lecture refusée : chemin invalide");
+  const url = new URL(`${META_API_BASE}${path}`);
+  for (const [k, v] of Object.entries(params)) {
+    if (k === "access_token") throw new Error("Lecture refusée : le jeton ne va pas dans l'adresse");
+    url.searchParams.set(k, v);
+  }
+  const tokens = failoverOrder(accessToken);
+  let lastError: MetaApiError | null = null;
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const result = await withMetaSlot(() =>
+      metaRequestOnce<T>(url.toString(), path, { headers: { Authorization: `Bearer ${token}` } }, READ_ONCE_TIMEOUT_MS));
+    if (result.ok) return result.value;
+    lastError = result.error;
+    if ((result.error.kind === "auth" || result.error.kind === "rate_limit") && refusedByMeta(result.error) && i < tokens.length - 1) {
+      markTokenDown(token, result.retryAfterMs);
+      console.warn(`[meta-api] ${path} ${describeSafely(result.error)} on ${tokenLabel(token)} token → failover to ${tokenLabel(tokens[i + 1])}`);
+      continue;
+    }
+    break;
+  }
+  throw lastError ?? new MetaApiError({ message: "Meta API unreachable", httpStatus: 0, path });
 }
 
 /** Follows Graph API cursor paging until `max` rows or no next page. */

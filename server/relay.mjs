@@ -20,6 +20,7 @@ import * as hqOauth from "./hq-oauth.mjs";
 import { hqToolCall } from "./hq-client.mjs";
 import * as maxAccounts from "./max-accounts.mjs";
 import * as gwsAuth from "./gws-auth.mjs";
+import { handleSheetsRequest } from "./sheets-direct.mjs";
 import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promptLogExcerpt } from "./relay-prompt.mjs";
 let hqProjectsCache = null;
 
@@ -339,7 +340,7 @@ const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // fields, announced by /health. The application reads it before relying on a
 // field an older relay would silently ignore (lib/dashboard-copilot.ts), so
 // the relay and the application can be deployed in any order.
-const CAPABILITIES = ["turnContext", "hqGuidance"];
+const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist"];
 // Agentic loop cap. 15 by default; staff surfaces with the sandbox ask for more.
 const MAX_TURNS_CAP = 40;
 // Pseudo-server "web": not an MCP server but the CLI's built-in WebSearch /
@@ -404,8 +405,12 @@ const ALLOWED_MCP_SERVERS = new Set([
   NOTION_SERVER,
 ]);
 
-// Per-server explicit tool allowlist (read-only). Servers absent from this map
-// expose read-only tools only and are allowed wholesale (mcp__<server>__*).
+// Per-server explicit tool allowlist for the CHAT (handleChat). Servers absent
+// from this map are allowed wholesale there (mcp__<server>__*), which does not
+// mean they only hold read tools: mcp-google-ads has Create_Conversion_Action.
+// In a chat the ads servers run behind server/mcp-scoped-ads.mjs, which
+// refuses their write tools; /api/tool has no such proxy and follows
+// DIRECT_TOOL_ALLOWLIST below instead.
 const SERVER_TOOL_ALLOWLIST = {
   "mcp-google-sheet": ["search_sheet", "Get_row_s_in_sheet_in_Google_Sheets"],
   // Notion : lecture, et écritures qui AJOUTENT seulement (sur demande explicite
@@ -423,6 +428,39 @@ const SERVER_TOOL_ALLOWLIST = {
     "run_pivot_report", "run_realtime_report", "run_report",
   ],
 };
+
+// Tools open to /api/tool (direct call, no AI, no scope proxy): read tools
+// only, named one by one. A server absent from this map, or a tool absent from
+// its list, is refused — so a tool added upstream in n8n stays closed until it
+// is listed here. Writes never go through /api/tool: Sheets are written by
+// /api/sheets/* (server/sheets-direct.mjs), nothing else is written at all.
+const DIRECT_TOOL_ALLOWLIST = {
+  "mcp-google-ads": [
+    "List_Customers", "Custom_GAQL_Query", "Get_Campaigns", "Campaign_Performance",
+    "AdGroup_Performance", "Ads_Performance", "Keywords_Performance", "Search_Terms",
+    "Audience_Performance", "Geo_Performance", "Device_Performance", "Daily_Performance",
+    "Conversion_Actions", "List_Conversion_Actions", "Budget_Info",
+  ],
+  "meta-ads-impulse": [
+    "List_Ad_Accounts1", "Get_Campaigns1", "Get_AdSets_Structure1", "Get_Ad_Creatives1",
+    "Account_Overview1", "Campaign_Performance1", "AdSet_Performance1", "Ad_Performance1",
+    "Daily_Performance1", "Campaign_Daily_Trend1", "Conversion_Funnel1",
+    "Age_Gender_Breakdown1", "Device_Breakdown1", "Country_Breakdown1", "Placement_Breakdown1",
+  ],
+  "mcp-google-analytics": SERVER_TOOL_ALLOWLIST["mcp-google-analytics"],
+  "mcp-google-sheet": SERVER_TOOL_ALLOWLIST["mcp-google-sheet"],
+};
+
+/** "<server>.<tool>" → null when /api/tool may call it, the reason otherwise. */
+function directToolRefusal(tool) {
+  const name = typeof tool === "string" ? tool : "";
+  const firstDot = name.indexOf(".");
+  const server = firstDot > 0 ? name.slice(0, firstDot) : "";
+  const allowed = Object.prototype.hasOwnProperty.call(DIRECT_TOOL_ALLOWLIST, server) ? DIRECT_TOOL_ALLOWLIST[server] : null;
+  if (!allowed || !ALLOWED_MCP_SERVERS.has(server)) return "tool not allowed: serveur fermé aux appels directs";
+  if (!allowed.includes(name.slice(firstDot + 1))) return "tool not allowed: seuls les outils de lecture listés par le relay sont ouverts aux appels directs";
+  return null;
+}
 
 // Shared-secret guard for requests from the Next.js backend — mandatory.
 // Every endpoint (except /health) refuses requests that don't present the
@@ -1385,14 +1423,14 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "tool required" }));
         return;
       }
-      // Enforce server-name prefix against whitelist: tool name format is
-      // "<server>.<tool>" for mcporter. Reject any other shape or unknown server.
-      const firstDot = String(body.tool).indexOf(".");
-      const serverName = firstDot > 0 ? String(body.tool).slice(0, firstDot) : "";
-      // HQ, gws and Notion are chat-only: no direct call, their allowlists live in handleChat.
-      if (!serverName || serverName === HQ_SERVER || serverName === GWS_SERVER || serverName === NOTION_SERVER || !ALLOWED_MCP_SERVERS.has(serverName)) {
+      // Tool name format is "<server>.<tool>" for mcporter. Server AND tool
+      // must be listed in DIRECT_TOOL_ALLOWLIST (read tools only). HQ, gws,
+      // Notion, the sandbox and client-data are chat-only: they are not in it.
+      const refusal = directToolRefusal(body.tool);
+      if (refusal) {
+        console.error(`[tool] refus ${String(body.tool).slice(0, 120)}`);
         res.writeHead(403, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "tool not allowed" }));
+        res.end(JSON.stringify({ error: refusal }));
         return;
       }
       // Callers may raise the timeout for slow n8n-backed tools (capped at 30s).
@@ -1445,6 +1483,29 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err.message || String(err) }));
       }
+      return;
+    }
+
+    // Google Sheets without AI, for the routines: read, append, update by
+    // column name (server/sheets-direct.mjs), as data@impulse-analytics.com.
+    const sheetsMatch = url.pathname.match(/^\/api\/sheets\/(read|append|update)$/);
+    if (sheetsMatch && req.method === "POST") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      let body;
+      try { body = await readBody(req); }
+      catch { body = null; }
+      const out = await handleSheetsRequest(sheetsMatch[1], body, {
+        getToken: async () => (await gwsAuth.getAccessToken()).token,
+      });
+      // Counts only: never a cell value in the logs.
+      const size = out.json.result?.rows?.length ?? out.json.result?.appendedRows ?? out.json.result?.updatedCells ?? 0;
+      console.log(`[sheets] ${sheetsMatch[1]} ${String(body?.spreadsheetId ?? "").slice(0, 8)}… → ${out.status}${out.status === 200 ? ` (${size})` : ` ${out.json.class}: ${out.json.error}`}`);
+      res.writeHead(out.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(out.json));
       return;
     }
 

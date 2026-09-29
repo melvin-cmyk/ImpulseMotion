@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   BellRing,
   MessageSquare,
+  Repeat,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
@@ -58,6 +59,12 @@ const NAV_SECTIONS: NavSection[] = [
         icon: FileText,
         label: "Rapports IA",
         match: (p) => REPORT_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
+      },
+      {
+        href: "/routines",
+        icon: Repeat,
+        label: "Routines",
+        match: (p) => p === "/routines" || p.startsWith("/routines/"),
       },
       {
         href: "/creatives",
