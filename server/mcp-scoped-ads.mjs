@@ -62,6 +62,9 @@ const PROFILES = {
     keys: /customer/i,
     norm: (v) => String(v).trim().replace(/-/g, "").replace(/^0+/, ""),
     deny: new Set(["List_Customers"]),
+    // Outils d'écriture (Create_Conversion_Action…) : jamais depuis un chat,
+    // même règle que GA4. Le bot d'un client y aurait sinon accès.
+    denyPattern: /^(create|update|delete|remove|mutate|archive)_/i,
   },
   "mcp-google-analytics": {
     label: "Google Analytics",
@@ -174,11 +177,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 const refusal = (text) => ({ isError: true, content: [{ type: "text", text }] });
-const isDenied = (name) => profile.deny.has(name) || (profile.denyPattern ? profile.denyPattern.test(name) : false);
+const isWrite = (name) => (profile.denyPattern ? profile.denyPattern.test(name) : false);
+const isDenied = (name) => profile.deny.has(name) || isWrite(name);
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
+  if (isWrite(name)) {
+    return refusal(`Outil "${name}" indisponible : les outils qui créent ou modifient ${profile.label} ne sont pas ouverts dans cette conversation.`);
+  }
   if (isDenied(name)) {
     return refusal(
       `Outil "${name}" indisponible : l'énumération des comptes ${profile.label} n'est pas autorisée. ` +

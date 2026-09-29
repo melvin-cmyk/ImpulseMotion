@@ -13,7 +13,7 @@
  */
 
 /** Pages supplémentaires au plus par appel : borne le temps et le volume. */
-export const MAX_EXTRA_PAGES = 8;
+export const MAX_EXTRA_PAGES = 20;
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -54,7 +54,17 @@ function readRange(v) {
 function presetUntil(preset, today) {
   if (typeof preset !== "string") return null;
   if (/^last_\d+d$/.test(preset) || preset === "yesterday") return addDays(today, -1);
-  if (preset === "today" || preset === "this_month" || preset === "this_year" || preset === "this_quarter") return today;
+  if (/^(today|this_month|this_quarter|this_year|this_week_(mon|sun)_today|maximum)$/.test(preset)) return today;
+  const [y, m, d] = today.split("-").map(Number);
+  const iso = (yy, mm, dd) => new Date(Date.UTC(yy, mm, dd)).toISOString().slice(0, 10);
+  // Jour 0 d'un mois = dernier jour du mois précédent.
+  if (preset === "last_month") return iso(y, m - 1, 0);
+  if (preset === "last_quarter") return iso(y, Math.floor((m - 1) / 3) * 3, 0);
+  if (preset === "last_year") return iso(y - 1, 11, 31);
+  // Semaines closes : la dernière se termine dimanche (mon_sun) ou samedi (sun_sat).
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = dimanche
+  if (preset === "last_week_mon_sun") return addDays(today, -(weekday === 0 ? 7 : weekday));
+  if (preset === "last_week_sun_sat") return addDays(today, -(weekday + 1));
   return null;
 }
 
