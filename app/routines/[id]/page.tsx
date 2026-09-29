@@ -18,7 +18,7 @@ import { DryRunPanel } from "@/components/routines/dry-run-panel";
 import { RunHistory } from "@/components/routines/run-history";
 import { scheduleTitle } from "@/components/routines/schedule-label";
 import {
-  ROUTINE_STATUS, RUN_STATUS, actionBlocked, dateTimeLabel, exampleByKey, hasDefinition, toRoutineView,
+  ROUTINE_STATUS, RUN_STATUS, actionBlocked, dateTimeLabel, exampleByKey, hasDefinition, runCounters, toRoutineView, toRunView,
   type RoutineAction, type RoutineView,
 } from "@/components/routines/routine-model";
 
@@ -89,10 +89,10 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
       if (!res.ok) throw new Error(body.error ?? `Erreur ${res.status}`);
 
       if (action === "run") {
-        const result = (body.result ?? body.run ?? {}) as { status?: string; totals?: { created?: number; skipped?: number; failed?: number } };
-        const st = RUN_STATUS[String(result.status)]?.label ?? String(result.status ?? "terminée");
-        const t = result.totals ?? {};
-        setNotice({ ok: body.ok !== false, text: `Exécution ${st.toLowerCase()} : ${t.created ?? 0} écriture(s) faite(s), publicités, lignes et messages confondus ; ${t.skipped ?? 0} élément(s) ignoré(s), ${t.failed ?? 0} échoué(s). Détail dans l'historique.` });
+        const view = toRunView({ trigger: "manual", ...(body.result ?? body.run ?? {}) });
+        const st = RUN_STATUS[String(view?.status)]?.label ?? String(view?.status ?? "terminée");
+        const said = view ? runCounters(view).map((c) => c.text).join(", ") : "résultat illisible";
+        setNotice({ ok: body.ok !== false, text: `Exécution ${st.toLowerCase()} : ${said}. Détail dans l'historique.` });
         setHistoryKey((k) => k + 1);
         setTab("history");
       } else {

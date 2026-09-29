@@ -21,6 +21,7 @@
  * (month_to_date: from the 1st to yesterday).
  */
 
+import { googleCustomerDigits } from "@/lib/routines/accounts";
 import { lastFullDays, monthToDate, YMD_RE, type DateRange } from "@/lib/date-ranges";
 import { costFrom, extractRows } from "@/lib/dashboard-widgets";
 import { relayDirectTool } from "@/lib/relay-tool";
@@ -79,11 +80,9 @@ export function buildGaql(level: Level, metrics: readonly Metric[], range: DateR
     : `SELECT ${select} FROM customer WHERE ${dates}`;
 }
 
-/** "123-456-7890" or "1234567890" → digits; null when it is not a customer id. */
+/** "123-456-7890" or "1234567890" → digits; null when it is not a customer id. The rule is the one of lib/routines/accounts.ts. */
 export function cleanCustomerId(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const digits = value.trim().replace(/-/g, "");
-  return /^\d{8,12}$/.test(digits) ? digits : null;
+  return googleCustomerDigits(value);
 }
 
 const num = (v: unknown): number => {

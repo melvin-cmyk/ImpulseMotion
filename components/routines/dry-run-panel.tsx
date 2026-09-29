@@ -13,7 +13,7 @@ import { FlaskConical, Loader2 } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import { RunSteps } from "@/components/routines/run-steps";
 import {
-  RUN_STATUS, actionBlocked, dateTimeLabel, durationLabel, plannedWrites, toRunView, type RoutineView, type RunView,
+  RUN_STATUS, actionBlocked, dateTimeLabel, durationLabel, emptyDryRunWarning, plannedWrites, runCounters, toRunView, type RoutineView, type RunView,
 } from "@/components/routines/routine-model";
 
 export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone: (routine: unknown) => void }) {
@@ -62,6 +62,7 @@ export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone:
   const outdated = !!run && !!routine.definitionHash && !!run.definitionHash && run.definitionHash !== routine.definitionHash;
   const planned = run ? plannedWrites(run) : [];
   const st = run ? RUN_STATUS[run.status] ?? { label: run.status, tone: "default" as const } : null;
+  const nothingSeen = outdated ? null : emptyDryRunWarning(run, routine);
 
   return (
     <div className="p-4 space-y-4">
@@ -98,16 +99,24 @@ export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone:
             <Pill tone={st.tone}>{st.label}</Pill>
             <span>{fromHistory ? "Dernier essai" : "Essai"} du {dateTimeLabel(run.startedAt, routine.timezone)}</span>
             {run.durationMs > 0 && <span>· {durationLabel(run.durationMs)}</span>}
-            <span>· {run.totals.planned} écriture{run.totals.planned > 1 ? "s" : ""} prévue{run.totals.planned > 1 ? "s" : ""}</span>
-            {run.totals.skipped > 0 && <span>· {run.totals.skipped} ignorée{run.totals.skipped > 1 ? "s" : ""} (déjà faites ou reportées)</span>}
+            {runCounters(run).map((c) => <span key={c.key + c.text}>· {c.text}</span>)}
           </div>
+
+          {nothingSeen && (
+            <div role="alert" className="text-sm text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-2 font-semibold">
+              {nothingSeen}
+              <span className="block mt-1 text-xs font-normal text-amber-300">
+                L&apos;activation reste possible, mais aucune publicité n&apos;a été montrée : relisez la définition, ou ajoutez une ligne au Sheet et relancez l&apos;essai.
+              </span>
+            </div>
+          )}
 
           {outdated && (
             <div className="text-xs text-amber-300 bg-amber-950/30 border border-amber-900/40 rounded-lg px-3 py-2">
               Cet essai porte sur une ancienne définition : relancez-le pour pouvoir activer la routine.
             </div>
           )}
-          {!outdated && run.status === "success" && routine.dryRunValid && (
+          {!outdated && run.status === "success" && routine.dryRunValid && !nothingSeen && (
             <div className="text-xs text-emerald-300 bg-emerald-950/30 border border-emerald-900/40 rounded-lg px-3 py-2">
               Essai réussi sur la définition actuelle. Relisez la liste ci-dessous : si elle vous convient, vous pouvez activer la routine.
             </div>

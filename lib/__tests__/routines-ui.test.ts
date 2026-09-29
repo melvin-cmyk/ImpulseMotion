@@ -59,7 +59,7 @@ describe("routines — libellés de planning", () => {
 // As the store's routineView sends it: parsed JSON, dates in epoch ms, dryRunValid.
 const stored = {
   id: "cku1routine0001", name: "Créas LPEV", description: "", status: "ready", clientName: "LPEV", dashboardId: "d1",
-  metaAccountId: "act_123", googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20, writesPlatform: false,
+  metaAccountId: "act_564381881705822", googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20, writesPlatform: false,
   definition: { version: 1, steps: [{ id: "lire", type: "sheet.read", sheet: { spreadsheetId: "abc", tab: "Créas" }, requiredColumns: ["id"] }] },
   definitionHash: "h1", schedule: { kind: "daily", time: "08:00" },
   nextRunAt: null, lastRunAt: Date.UTC(2026, 9, 5, 7, 0), lastRunStatus: "success", consecutiveFailures: 0,
@@ -243,7 +243,7 @@ describe("routines — libellés", () => {
       { id: "j", type: "slack.message", channel: "#client", text: "Point du {{run.date}}", includeTable: true },
       { id: "k", type: "email.send", to: ["a@b.fr"], subject: "Point", body: "{{steps.h.text}}" },
       {
-        id: "l", type: "meta.create_ads", campaignId: "111", adsetId: "222", pageId: "333", keyColumn: "id",
+        id: "l", type: "meta.create_ads", campaignId: "120210000000000001", adsetId: "120210000000000002", pageId: "104000000000001", keyColumn: "id",
         mapping: { adName: "{{row.nom}}", primaryText: "{{row.texte}}", linkUrl: "{{row.lien}}", mediaType: "video", mediaUrl: "{{row.url}}" },
         writeBack: { sheet, statusColumn: "statut" },
       },

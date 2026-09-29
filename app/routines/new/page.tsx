@@ -5,6 +5,10 @@
  * routine is created as a draft, then the page of the routine opens on the
  * conversation with the AI. The accounts are fixed here for good: the AI and
  * every run are limited to them.
+ *
+ * With a Meta account, the Facebook Page that will publish the ads is picked
+ * in the list of those the account can promote (read only): it is handed to
+ * the AI, which no longer has to ask for it. Optional.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -21,6 +25,8 @@ interface ClientOption {
   googleCustomerId: string | null;
 }
 
+interface PageOption { id: string; name: string }
+
 const FIELD = "w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-500 disabled:opacity-60";
 
 export default function NewRoutinePage() {
@@ -35,6 +41,9 @@ export default function NewRoutinePage() {
   const [name, setName] = useState(example?.name ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Pages of the Meta account they were read for; `error` when the list could not be read. */
+  const [pages, setPages] = useState<{ account: string; list: PageOption[]; complete: boolean; error: string | null } | null>(null);
+  const [pageId, setPageId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +70,24 @@ export default function NewRoutinePage() {
   // An example that creates ads has no use without a Meta account.
   const needsMeta = example?.key === "creas" && !!client && !meta;
 
+  // The Pages the chosen Meta account can promote. Read only; a failure leaves the form usable.
+  useEffect(() => {
+    if (!meta) return;
+    let cancelled = false;
+    fetch(`/api/routines/pages?metaAccountId=${encodeURIComponent(meta)}`)
+      .then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        const list: PageOption[] = (Array.isArray(body.pages) ? body.pages : [])
+          .filter((p: PageOption) => p && typeof p.id === "string" && typeof p.name === "string");
+        setPages({ account: meta, list, complete: body.complete !== false, error: r.ok ? null : String(body.error ?? `Erreur ${r.status}`) });
+      })
+      .catch((e) => { if (!cancelled) setPages({ account: meta, list: [], complete: true, error: e instanceof Error ? e.message : String(e) }); });
+    return () => { cancelled = true; };
+  }, [meta]);
+  const pagesOfAccount = meta && pages?.account === meta ? pages : null;
+  const chosenPage = pagesOfAccount?.list.find((p) => p.id === pageId) ?? null;
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (busy || !client || !name.trim()) return;
@@ -78,6 +105,7 @@ export default function NewRoutinePage() {
           ...(dashboardId ? { dashboardId } : {}),
           ...(meta ? { metaAccountId: meta } : {}),
           ...(google ? { googleCustomerId: google } : {}),
+          ...(meta && chosenPage ? { pageId: chosenPage.id } : {}),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -128,7 +156,7 @@ export default function NewRoutinePage() {
               <select
                 id="routine-client"
                 value={clientId}
-                onChange={(e) => { setClientId(e.target.value); setUseMeta(true); setUseGoogle(true); }}
+                onChange={(e) => { setClientId(e.target.value); setUseMeta(true); setUseGoogle(true); setPageId(""); }}
                 disabled={busy}
                 required
                 className={FIELD}
@@ -172,6 +200,32 @@ export default function NewRoutinePage() {
                   <p className="text-xs text-amber-300 mt-1.5">Cet exemple crée des publicités : il lui faut un compte Meta Ads.</p>
                 )}
               </fieldset>
+            )}
+
+            {meta && (
+              <div>
+                <label htmlFor="routine-page" className="block text-xs font-semibold text-gray-300 mb-1">Page Facebook qui publiera les publicités <span className="font-normal text-gray-500">(facultatif)</span></label>
+                {!pagesOfAccount && (
+                  <div className="flex items-center gap-2 text-gray-500 text-xs"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Lecture des Pages du compte…</div>
+                )}
+                {pagesOfAccount && pagesOfAccount.list.length > 0 && (
+                  <select id="routine-page" value={chosenPage ? pageId : ""} onChange={(e) => setPageId(e.target.value)} disabled={busy} className={FIELD}>
+                    <option value="">Ne pas choisir maintenant</option>
+                    {pagesOfAccount.list.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
+                  </select>
+                )}
+                {pagesOfAccount && pagesOfAccount.list.length === 0 && (
+                  <p className="text-xs text-gray-500 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
+                    {pagesOfAccount.error
+                      ? `La liste des Pages n'a pas pu être lue (${pagesOfAccount.error}). Vous pourrez donner la Page à l'IA.`
+                      : "Aucune Page à promouvoir n'est rattachée à ce compte. Vous pourrez donner la Page à l'IA."}
+                  </p>
+                )}
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Utile seulement si la routine crée des publicités : la Page est transmise à l&apos;IA, qui n&apos;aura pas à vous la demander.
+                  {pagesOfAccount && !pagesOfAccount.complete ? " La liste est incomplète : ce compte a plus de 200 Pages." : ""}
+                </p>
+              </div>
             )}
 
             <div>

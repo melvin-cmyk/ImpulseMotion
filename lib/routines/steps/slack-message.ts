@@ -16,8 +16,9 @@
  */
 
 import {
-  MAX_SLACK_CHARS, NotifyError, SLACK_NOT_CONFIGURED, cleanSlackChannel, defuseSlack, renderTable, sendSlackMessage, slackConfigured, truncateText,
+  MAX_SLACK_CHARS, NotifyError, cleanSlackChannel, defuseSlack, renderTable, sendSlackMessage, slackProblem, truncateText,
 } from "@/lib/routines/notify";
+import { assertCanWrite } from "@/lib/routines/write-guard-check";
 import { renderTemplateDetailed, scopeFromContext, templateError, templateRefs } from "@/lib/routines/template";
 import { type Checked, done, errorMessage, failed, readStepBase, refuse } from "@/lib/routines/steps/sheet-read";
 import type { PlannedWrite, RowSet, SlackMessageStep, StepContext, StepHandler, StepRunOutcome, Template } from "@/lib/routines/types";
@@ -102,13 +103,15 @@ export const slackMessageHandler: StepHandler<SlackMessageStep> = {
   validate,
 
   async preflight(step) {
-    return slackConfigured() ? [] : [{ stepId: step.id, severity: "error", message: SLACK_NOT_CONFIGURED }];
+    const problem = slackProblem();
+    return problem ? [{ stepId: step.id, severity: "error", message: problem }] : [];
   },
 
   async run(step, ctx) {
     const rowsIn = ctx.input?.rows.length ?? 0;
     const through = ctx.input ? { rows: ctx.input } : {};
-    if (!slackConfigured()) return failed(rowsIn, "functional", SLACK_NOT_CONFIGURED);
+    const problem = slackProblem();
+    if (problem) return failed(rowsIn, "functional", problem);
     const channel = cleanSlackChannel(step.channel);
     if (!channel) return failed(rowsIn, "functional", "canal Slack invalide");
 
@@ -120,12 +123,13 @@ export const slackMessageHandler: StepHandler<SlackMessageStep> = {
 
     const planned: PlannedWrite[] = [{ target: "slack", summary, preview: { channel, text } }];
 
-    if (!ctx.write) return done(rowsIn, 0, { output: through, warnings: composed.warnings, planned });
+    if (!ctx.write) return done(rowsIn, 0, { output: through, warnings: composed.warnings, planned, counts: { messages: 1 } });
     try {
+      assertCanWrite(ctx);
       await sendSlackMessage(ctx.write, { channel, text, routine: { id: ctx.routine.id, name: ctx.routine.name } });
     } catch (e) {
-      return failed(rowsIn, e instanceof NotifyError ? e.errorClass : "functional", errorMessage(e), { output: through, planned, warnings: composed.warnings });
+      return failed(rowsIn, e instanceof NotifyError ? e.errorClass : "functional", errorMessage(e), { output: through, warnings: composed.warnings });
     }
-    return done(rowsIn, 1, { output: through, planned, warnings: composed.warnings, written: [{ summary }] });
+    return done(rowsIn, 1, { output: through, warnings: composed.warnings, written: [{ summary, target: "slack" }], counts: { messages: 1 } });
   },
 };

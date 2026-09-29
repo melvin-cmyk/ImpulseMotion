@@ -64,6 +64,15 @@ export const CATCH_UP_MAX_HOURS = 12;
 export const MAX_CONSECUTIVE_FAILURES = 3;
 /** Budget of one run, under the 300 s of the Vercel function. */
 export const RUN_BUDGET_MS = 270_000;
+/** A failed item is tried again on later runs, up to this many attempts in all; then it is given up. */
+export const MAX_ITEM_ATTEMPTS = 3;
+/**
+ * The cron starts no routine with less than this left of its budget: a routine
+ * that writes on a platform needs the time of its reads and of one ad at
+ * least, the others that of their reads. Below, the routine stays due.
+ */
+export const MIN_START_PLATFORM_MS = 90_000;
+export const MIN_START_MS = 30_000;
 
 /**
  * Set to "1" to require a real administrator (baseRole) to activate a routine
@@ -85,7 +94,10 @@ export type RunTrigger = (typeof RUN_TRIGGERS)[number];
 export const RUN_STATUSES = ["running", "success", "partial", "failed", "infra_failed", "missed"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
-/** pending = reserved before the platform call; uncertain = outcome unknown, never recreated automatically. */
+/**
+ * pending = reserved before the platform call; uncertain = outcome unknown, or
+ * object known by its externalId: never recreated automatically.
+ */
 export const ITEM_STATUSES = ["pending", "created", "failed", "uncertain"] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
@@ -201,6 +213,42 @@ export type RunMode = "dry_run" | "live";
 declare const writeGuardBrand: unique symbol;
 export interface WriteGuard { readonly [writeGuardBrand]: true; readonly runId: string }
 
+/**
+ * Answer to a reservation. Only `claimed` allows a creation.
+ *   already_done  created by an earlier run
+ *   uncertain     outcome unknown, never created again by the routine; with
+ *                 `externalId` when the object is known: it is read again by
+ *                 this id, nothing else is created
+ *   abandoned     failed MAX_ITEM_ATTEMPTS times: given up, `error` is the last one
+ *   deferred      put off to the next run (ceiling of items or time budget)
+ * `attempts` counts this attempt in (1 on a first reservation).
+ */
+export type ClaimState = "claimed" | "already_done" | "uncertain" | "abandoned" | "deferred";
+export interface ItemClaim { state: ClaimState; externalId?: string; error?: string; attempts?: number }
+
+/**
+ * What a step wrote (live run) or would write (dry run), by nature of write:
+ * the same counters in both modes. `skipped`, `failed` and `deferred` count
+ * items (rows), whatever they would have written.
+ */
+export interface WriteCounts {
+  adsCreated: number; adsAttached: number; sheetRows: number; messages: number;
+  skipped: number; failed: number; deferred: number;
+}
+export const WRITE_COUNT_KEYS = ["adsCreated", "adsAttached", "sheetRows", "messages", "skipped", "failed", "deferred"] as const satisfies ReadonlyArray<keyof WriteCounts>;
+export const emptyCounts = (): WriteCounts => ({ adsCreated: 0, adsAttached: 0, sheetRows: 0, messages: 0, skipped: 0, failed: 0, deferred: 0 });
+/** Writes of every nature, added up: what the columns itemsPlanned and itemsCreated hold. */
+export const writesOf = (c: WriteCounts): number => c.adsCreated + c.adsAttached + c.sheetRows + c.messages;
+
+/**
+ * Key of an item in RoutineItem, unique per routine. It names the step and
+ * where the step writes (the ad set, for meta.create_ads): the same row sent
+ * to another ad set is another item, never « already done ».
+ */
+export function itemKeyOf(stepId: string, scope: string, rowKey: string | number): string {
+  return `${stepId}:${scope}:${String(rowKey).trim()}`;
+}
+
 export interface StepContext {
   mode: RunMode;
   routine: {
@@ -212,9 +260,24 @@ export interface StepContext {
   input: RowSet | null;
   outputs: Record<string, StepOutput>;
   write: WriteGuard | null;   // null en essai à blanc
-  /** Reserves the item in the database before the platform call (RoutineItem, unique per routine and key). */
-  claimItem(stepId: string, itemKey: string, label: string): Promise<"claimed" | "already_done" | "uncertain">;
+  /**
+   * Aborted by the engine when the run ends or gives the step up: a step looks
+   * at it before every write. The guard is revoked at the same time, so a
+   * write that does not look is refused anyway.
+   */
+  signal?: AbortSignal;
+  /**
+   * Reserves the item in the database before the platform call (RoutineItem,
+   * unique per routine and key). In a dry run the same answer is given from
+   * the database and nothing is reserved.
+   */
+  claimItem(stepId: string, itemKey: string, label: string): Promise<ItemClaim>;
+  /** A failure that carries an externalId is kept `uncertain`: the object exists, it is never created again. */
   settleItem(stepId: string, itemKey: string, r: { status: "created" | "failed"; externalId?: string; error?: string }): Promise<void>;
+  /** Same answer as claimItem without reserving anything, whatever the mode: to count the rows a step leaves for the next run. */
+  peekItem?(stepId: string, itemKey: string): Promise<ItemClaim>;
+  /** An `uncertain` item whose object was read again by its id and found as wanted becomes `created`. No-op in a dry run. */
+  confirmItem?(stepId: string, itemKey: string, externalId: string): Promise<void>;
 }
 
 export interface StepOutput { rows?: RowSet; text?: string }
@@ -223,20 +286,33 @@ export interface PlannedWrite { target: "meta" | "sheet" | "slack" | "email"; su
 /** functional = the routine is wrong (counts towards the automatic stop); infra = relay, network, quota. */
 export type ErrorClass = "functional" | "infra";
 
+/** One write done. `target` and `attached` say its nature, for the counters of a step that gives none. */
+export interface WrittenItem { itemKey?: string; externalId?: string; summary: string; target?: PlannedWrite["target"]; attached?: boolean }
+
 export interface StepResult {
   stepId: string; type: StepType;
   status: "ok" | "skipped" | "failed";
   durationMs: number; rowsIn: number; rowsOut: number;
+  /** `planned` is filled by a dry run only; a live run says what it did in `written`. */
   output: StepOutput; planned: PlannedWrite[];
-  written: Array<{ itemKey?: string; externalId?: string; summary: string }>;
+  written: WrittenItem[];
   warnings: string[];
-  error?: { class: ErrorClass; message: string };
+  /** Set by the engine for every step, from what the handler counted or, failing that, from `planned` and `written`. */
+  counts: WriteCounts;
+  /** The step stopped for lack of time: what is left waits for the next run. */
+  timedOut?: boolean;
+  /**
+   * scope "items": the step did its work and some items failed (a row refused
+   * by Meta). Such a failure is bounded by the attempts of the item and never
+   * counts towards the automatic stop. Absent or "step": the step itself failed.
+   */
+  error?: { class: ErrorClass; message: string; scope?: "step" | "items" };
 }
 
 export interface PreflightIssue { stepId: string; severity: "error" | "warning"; message: string }
 
-/** What a handler returns; the engine adds stepId, type and durationMs. */
-export type StepRunOutcome = Omit<StepResult, "stepId" | "type" | "durationMs">;
+/** What a handler returns; the engine adds stepId, type and durationMs, and completes the counters. */
+export type StepRunOutcome = Omit<StepResult, "stepId" | "type" | "durationMs" | "counts"> & { counts?: Partial<WriteCounts> };
 
 export interface StepHandler<S extends RoutineStep = RoutineStep> {
   type: S["type"];
@@ -253,6 +329,9 @@ export interface RunResult {
   runId: string; mode: RunMode;
   status: "success" | "partial" | "failed" | "infra_failed";
   steps: StepResult[];
+  /** Totals kept in the columns of RoutineRun: writes of every nature added up. The detail is in `counts`. */
   totals: { planned: number; created: number; skipped: number; failed: number };
+  /** By nature of write, added over the steps: planned in a dry run, done in a live run. */
+  counts: WriteCounts;
   timedOut: boolean;
 }

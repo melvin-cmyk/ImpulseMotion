@@ -13,8 +13,9 @@
  */
 
 import {
-  EMAIL_NOT_CONFIGURED, MAX_EMAIL_CHARS, MAX_SUBJECT_CHARS, NotifyError, cleanRecipients, cleanSubject, emailConfigured, renderTable, sendEmail,
+  MAX_EMAIL_CHARS, MAX_SUBJECT_CHARS, NotifyError, cleanRecipients, cleanSubject, emailProblem, renderTable, sendEmail,
 } from "@/lib/routines/notify";
+import { assertCanWrite } from "@/lib/routines/write-guard-check";
 import { renderTemplateDetailed, scopeFromContext, templateError } from "@/lib/routines/template";
 import { type Checked, done, errorMessage, failed, readStepBase, refuse } from "@/lib/routines/steps/sheet-read";
 import { composeMessage, skipped } from "@/lib/routines/steps/slack-message";
@@ -51,13 +52,15 @@ export const emailSendHandler: StepHandler<EmailSendStep> = {
   validate,
 
   async preflight(step) {
-    return emailConfigured() ? [] : [{ stepId: step.id, severity: "error", message: EMAIL_NOT_CONFIGURED }];
+    const problem = emailProblem();
+    return problem ? [{ stepId: step.id, severity: "error", message: problem }] : [];
   },
 
   async run(step, ctx) {
     const rowsIn = ctx.input?.rows.length ?? 0;
     const through = ctx.input ? { rows: ctx.input } : {};
-    if (!emailConfigured()) return failed(rowsIn, "functional", EMAIL_NOT_CONFIGURED);
+    const problem = emailProblem();
+    if (problem) return failed(rowsIn, "functional", problem);
     const recipients = cleanRecipients(step.to);
     if (!recipients.ok) return failed(rowsIn, "functional", recipients.error);
 
@@ -83,12 +86,13 @@ export const emailSendHandler: StepHandler<EmailSendStep> = {
     const to = recipients.to;
     const summary = `E-mail à ${to.join(", ")}`;
     const planned: PlannedWrite[] = [{ target: "email", summary, preview: { to: to.join(", "), subject, text: composed.text } }];
-    if (!ctx.write) return done(rowsIn, 0, { output: through, warnings: composed.warnings, planned });
+    if (!ctx.write) return done(rowsIn, 0, { output: through, warnings: composed.warnings, planned, counts: { messages: 1 } });
     try {
+      assertCanWrite(ctx);
       await sendEmail(ctx.write, { to, subject, text: composed.text });
     } catch (e) {
-      return failed(rowsIn, e instanceof NotifyError ? e.errorClass : "functional", errorMessage(e), { output: through, planned, warnings: composed.warnings });
+      return failed(rowsIn, e instanceof NotifyError ? e.errorClass : "functional", errorMessage(e), { output: through, warnings: composed.warnings });
     }
-    return done(rowsIn, 1, { output: through, planned, warnings: composed.warnings, written: [{ summary }] });
+    return done(rowsIn, 1, { output: through, warnings: composed.warnings, written: [{ summary, target: "email" }], counts: { messages: 1 } });
   },
 };

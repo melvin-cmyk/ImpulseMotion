@@ -15,19 +15,22 @@
  *     `uncertain` and waits for a person.
  *
  * The API routes and the engine go through this module; none of them writes
- * these tables directly. It imports no step handler, so a handler may import
- * it (itemKeyFor, wasDeferred) without a cycle.
+ * these tables directly. It imports no step handler.
  */
 
 import type { Prisma, Routine, RoutineRun } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { initialChatJson, type RoutinePage } from "@/lib/routines/context";
 import { hashDefinition } from "@/lib/routines/hash";
 import { effectiveRole } from "@/lib/roles";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 import {
-  DEFAULT_TIMEZONE, MAX_CONSECUTIVE_FAILURES,
-  type RoutineDefinition, type RoutineEventKind, type RoutineStatus, type RunStatus, type RunTrigger, type Schedule, type StepResult,
+  DEFAULT_TIMEZONE, MAX_CONSECUTIVE_FAILURES, MAX_ITEM_ATTEMPTS, WRITE_COUNT_KEYS, emptyCounts,
+  type ItemClaim, type RoutineDefinition, type RoutineEventKind, type RoutineStatus, type RunStatus, type RunTrigger, type Schedule,
+  type StepResult, type WriteCounts,
 } from "@/lib/routines/types";
+
+export { MAX_ITEM_ATTEMPTS };
 
 export type RoutineRecord = Routine;
 export type RoutineRunRecord = RoutineRun;
@@ -37,8 +40,6 @@ export interface Actor { userId: string | null; email?: string | null; role?: st
 
 /** A run holds its lock a little longer than the 300 s a function may live. */
 export const LOCK_TTL_MS = 330_000;
-/** A failed item is tried again on later runs, up to this many attempts in all. */
-export const MAX_ITEM_ATTEMPTS = 3;
 const MAX_ERROR_CHARS = 2000;
 const MAX_DETAIL_CHARS = 4000;
 
@@ -53,6 +54,8 @@ export interface CreateRoutineInput {
   metaAccountId: string | null;
   googleCustomerId: string | null;
   timezone?: string;
+  /** Facebook Page chosen in the form, for the AI that writes the routine. Kept in chatJson. */
+  page?: RoutinePage | null;
 }
 
 export async function createRoutine(input: CreateRoutineInput, actor: Actor): Promise<RoutineRecord> {
@@ -67,9 +70,10 @@ export async function createRoutine(input: CreateRoutineInput, actor: Actor): Pr
       metaAccountId: input.metaAccountId,
       googleCustomerId: input.googleCustomerId,
       timezone: input.timezone ?? DEFAULT_TIMEZONE,
+      chatJson: initialChatJson({ page: input.page ?? undefined }),
     },
   });
-  await logEvent(routine.id, "created", actor);
+  await logEvent(routine.id, "created", actor, input.page ? { detail: `Page Facebook choisie : ${input.page.name} (${input.page.id})` } : {});
   return routine;
 }
 
@@ -122,9 +126,16 @@ export interface AppliedDefinition {
  * Returns the new hash, or null when the routine is archived or gone.
  */
 export async function applyDefinition(id: string, applied: AppliedDefinition, actor: Actor): Promise<string | null> {
-  const definitionHash = hashDefinition(applied);
+  // The accounts and the timezone are those of the routine, fixed when it was created: they are part of the fingerprint.
+  const routine = await prisma.routine.findUnique({ where: { id }, select: { metaAccountId: true, googleCustomerId: true, timezone: true } });
+  if (!routine) return null;
+  const definitionHash = hashDefinition({
+    definition: applied.definition, schedule: applied.schedule, maxItemsPerRun: applied.maxItemsPerRun,
+    metaAccountId: routine.metaAccountId, googleCustomerId: routine.googleCustomerId, timezone: routine.timezone,
+  });
   const { count } = await prisma.routine.updateMany({
-    where: { id, status: { not: "archived" } },
+    // Conditional on what was hashed: an account changed meanwhile leaves the definition unapplied.
+    where: { id, status: { not: "archived" }, metaAccountId: routine.metaAccountId, googleCustomerId: routine.googleCustomerId, timezone: routine.timezone },
     data: {
       name: applied.name,
       description: applied.description || null,
@@ -239,17 +250,26 @@ export interface RunLock { routineId: string; lockedUntil: Date }
  * Takes an active routine for a run. `due` restricts to a routine whose
  * nextRunAt has come (the cron); "run now" leaves it out. Null = not taken:
  * already running, not active, or not due any more.
+ *
+ * `advance` moves nextRunAt in the SAME statement as the lock, before any step
+ * runs: whatever happens to the run after that (crash, function killed by the
+ * platform), the routine is no longer due and the next firing of the cron does
+ * not start it again. `from` is the nextRunAt the caller has read and computed
+ * `to` from: changed meanwhile, the lock is not taken.
  */
-export async function acquireRunLock(id: string, now: Date, opts: { due?: boolean; ttlMs?: number } = {}): Promise<RunLock | null> {
+export async function acquireRunLock(
+  id: string, now: Date,
+  opts: { due?: boolean; ttlMs?: number; advance?: { from: Date | null; to: Date | null } } = {},
+): Promise<RunLock | null> {
   const lockedUntil = new Date(now.getTime() + (opts.ttlMs ?? LOCK_TTL_MS));
   const { count } = await prisma.routine.updateMany({
     where: {
       id,
       status: "active",
       OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }],
-      ...(opts.due ? { nextRunAt: { lte: now } } : {}),
+      ...(opts.due ? { AND: [{ nextRunAt: { lte: now } }, ...(opts.advance ? [{ nextRunAt: opts.advance.from }] : [])] } : {}),
     },
-    data: { lockedUntil },
+    data: { lockedUntil, ...(opts.advance ? { nextRunAt: opts.advance.to } : {}) },
   });
   return count === 1 ? { routineId: id, lockedUntil } : null;
 }
@@ -302,88 +322,99 @@ export async function ownerEmail(routine: Pick<RoutineRecord, "createdById" | "c
 
 // ── Items ────────────────────────────────────────────────────────────────
 
-/**
- * Items the engine put off to the next run (ceiling of items reached, or time
- * budget spent). StepContext.claimItem has no answer for that case, so the
- * engine answers `already_done` — nothing must be written — and notes the key
- * here; a handler that wants to tell the two apart asks wasDeferred().
- */
-const deferredByRun = new Map<string, Set<string>>();
+export type ClaimResult = ItemClaim;
 
-export function noteDeferred(runId: string, itemKey: string): void {
-  let keys = deferredByRun.get(runId);
-  if (!keys) { keys = new Set(); deferredByRun.set(runId, keys); }
-  keys.add(itemKey);
-}
-export function wasDeferred(runId: string, itemKey: string): boolean {
-  return deferredByRun.get(runId)?.has(itemKey) ?? false;
-}
-export function forgetDeferred(runId: string): void {
-  deferredByRun.delete(runId);
-}
-
-export type ClaimResult = "claimed" | "already_done" | "uncertain";
-
-/** Key of an item, for the steps that have no better one: unique per step and key value. */
-export function itemKeyFor(stepId: string, keyValue: string | number): string {
-  return `${stepId}:${String(keyValue).trim()}`;
-}
+const UNKNOWN_OUTCOME = "Réservé par une exécution précédente, résultat inconnu : à vérifier sur la plateforme.";
+const KNOWN_OBJECT = "L'objet existe sur la plateforme sous cet identifiant : il est relu, jamais créé de nouveau.";
 
 function isUniqueViolation(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { code?: unknown }).code === "P2002";
 }
 
+interface StoredItem { id: string; status: string; externalId: string | null; error: string | null; attempts: number }
+
+/** What a stored item answers to a reservation that does not change it. */
+function answerOf(item: StoredItem): ItemClaim {
+  const known = item.externalId ? { externalId: item.externalId } : {};
+  const error = item.error ? { error: item.error } : {};
+  if (item.status === "created") return { state: "already_done", ...known, attempts: item.attempts };
+  // An item that carries an external id is never played again, whatever its status.
+  if (item.externalId) return { state: "uncertain", ...known, ...error, attempts: item.attempts };
+  if (item.status === "failed") {
+    return item.attempts >= MAX_ITEM_ATTEMPTS
+      ? { state: "abandoned", ...error, attempts: item.attempts }
+      : { state: "claimed", attempts: item.attempts + 1 };
+  }
+  return { state: "uncertain", ...error, attempts: item.attempts };
+}
+
 /**
  * Reserves an item before the platform call. The insert is the guard: the
  * unique constraint lets one caller through. For a key that exists already:
- *   created             → already_done
- *   pending, uncertain  → uncertain (outcome unknown, never created again by the routine)
- *   failed              → claimed again, up to MAX_ITEM_ATTEMPTS attempts
+ *   created                  → already_done
+ *   any status + externalId  → uncertain, and stored so (the object exists: read it, never create another)
+ *   pending, uncertain       → uncertain (outcome unknown, never created again by the routine)
+ *   failed, no externalId    → claimed again, up to MAX_ITEM_ATTEMPTS attempts, then abandoned
  */
-export async function claimItem(args: { routineId: string; runId: string; stepId: string; itemKey: string; label: string }): Promise<ClaimResult> {
+export async function claimItem(args: { routineId: string; runId: string; stepId: string; itemKey: string; label: string }): Promise<ItemClaim> {
   const { routineId, runId, stepId, itemKey } = args;
   if (!itemKey) throw new Error("Clé d'élément vide : réservation refusée");
   const label = clip(args.label, 300);
   try {
     await prisma.routineItem.create({ data: { routineId, runId, stepId, itemKey, label, status: "pending" } });
-    return "claimed";
+    return { state: "claimed", attempts: 1 };
   } catch (e) {
     if (!isUniqueViolation(e)) throw e;
   }
   const existing = await prisma.routineItem.findUnique({ where: { routineId_itemKey: { routineId, itemKey } } });
-  if (!existing) return "uncertain";
-  if (existing.status === "created") return "already_done";
-  if (existing.status === "failed") {
-    if (existing.attempts >= MAX_ITEM_ATTEMPTS) return "already_done";
+  if (!existing) return { state: "uncertain" };
+  const answer = answerOf(existing);
+  if (answer.state === "claimed") {
     const { count } = await prisma.routineItem.updateMany({
-      where: { id: existing.id, status: "failed", attempts: existing.attempts },
+      where: { id: existing.id, status: "failed", externalId: null, attempts: existing.attempts },
       data: { status: "pending", runId, stepId, label, error: null, attempts: { increment: 1 } },
     });
-    return count === 1 ? "claimed" : "uncertain";
+    return count === 1 ? answer : { state: "uncertain" };
   }
-  if (existing.status === "pending") {
+  if (answer.state === "uncertain" && existing.status !== "uncertain") {
     await prisma.routineItem.updateMany({
-      where: { id: existing.id, status: "pending" },
-      data: { status: "uncertain", error: "Réservé par une exécution précédente, résultat inconnu : à vérifier sur la plateforme." },
+      where: { id: existing.id, status: existing.status },
+      data: { status: "uncertain", ...(existing.externalId ? (existing.error ? {} : { error: KNOWN_OBJECT }) : { error: UNKNOWN_OUTCOME }) },
     });
   }
-  return "uncertain";
+  return answer;
 }
 
 /** Same answer as claimItem, without touching anything: what a dry run uses. */
-export async function peekItem(routineId: string, itemKey: string): Promise<ClaimResult> {
+export async function peekItem(routineId: string, itemKey: string): Promise<ItemClaim> {
   const existing = await prisma.routineItem.findUnique({ where: { routineId_itemKey: { routineId, itemKey } } });
-  if (!existing) return "claimed";
-  if (existing.status === "created") return "already_done";
-  if (existing.status === "failed") return existing.attempts >= MAX_ITEM_ATTEMPTS ? "already_done" : "claimed";
-  return "uncertain";
+  return existing ? answerOf(existing) : { state: "claimed", attempts: 1 };
 }
 
-/** Closes a reservation. Only a pending item can be settled. */
+/**
+ * Closes a reservation. Only a pending item can be settled. A failure that
+ * carries an external id is stored `uncertain`: the object exists on the
+ * platform, the item must never come back as one to create.
+ */
 export async function settleItem(args: { routineId: string; itemKey: string; status: "created" | "failed"; externalId?: string; error?: string }): Promise<boolean> {
+  const status = args.status === "failed" && args.externalId ? "uncertain" : args.status;
   const { count } = await prisma.routineItem.updateMany({
     where: { routineId: args.routineId, itemKey: args.itemKey, status: "pending" },
-    data: { status: args.status, externalId: args.externalId ?? null, error: clip(args.error, MAX_ERROR_CHARS) },
+    data: { status, externalId: args.externalId ?? null, error: clip(args.error, MAX_ERROR_CHARS) },
+  });
+  return count === 1;
+}
+
+/**
+ * An item whose object was read again by its id and found as wanted (the ad
+ * is there, paused): `uncertain` → `created`. Conditional on the id read being
+ * the one stored.
+ */
+export async function confirmItem(args: { routineId: string; itemKey: string; externalId: string }): Promise<boolean> {
+  if (!args.externalId) return false;
+  const { count } = await prisma.routineItem.updateMany({
+    where: { routineId: args.routineId, itemKey: args.itemKey, externalId: args.externalId, status: { in: ["uncertain", "failed"] } },
+    data: { status: "created", error: null },
   });
   return count === 1;
 }
@@ -395,15 +426,6 @@ export async function markUnsettledUncertain(runId: string): Promise<number> {
     data: { status: "uncertain", error: "Exécution terminée sans résultat pour cet élément : à vérifier sur la plateforme." },
   });
   return count;
-}
-
-/** Keys of a step that a new run will not create: done, unknown, or failed too many times. */
-export async function settledItemKeys(routineId: string, stepId: string): Promise<Set<string>> {
-  const rows = await prisma.routineItem.findMany({
-    where: { routineId, stepId },
-    select: { itemKey: true, status: true, attempts: true },
-  });
-  return new Set(rows.filter((r) => r.status !== "failed" || r.attempts >= MAX_ITEM_ATTEMPTS).map((r) => r.itemKey));
 }
 
 // ── Runs ─────────────────────────────────────────────────────────────────
@@ -419,6 +441,53 @@ export async function startRun(args: { routineId: string; trigger: RunTrigger; d
   return run.id;
 }
 
+/**
+ * Closes a run that is still `running`, and only such a run: the engine that
+ * ends late does not rewrite a run the cron has closed as interrupted, and the
+ * other way round. False when the run was closed already.
+ */
+export async function closeRun(runId: string, done: { status: Exclude<RunStatus, "running">; finishedAt: Date; durationMs: number; error: string }): Promise<boolean> {
+  const { count } = await prisma.routineRun.updateMany({
+    where: { id: runId, status: "running" },
+    data: { status: done.status, finishedAt: done.finishedAt, durationMs: Math.max(0, Math.round(done.durationMs)), error: clip(done.error, MAX_ERROR_CHARS) },
+  });
+  return count === 1;
+}
+
+/** Runs still `running` that started before `before`, oldest first. */
+export function runningRunsBefore(before: Date, opts: { routineId?: string; take?: number } = {}): Promise<RoutineRunRecord[]> {
+  return prisma.routineRun.findMany({
+    where: { status: "running", startedAt: { lt: before }, ...(opts.routineId ? { routineId: opts.routineId } : {}) },
+    orderBy: { startedAt: "asc" },
+    take: opts.take ?? 50,
+  });
+}
+
+/** The last live runs of a routine (scheduled or by hand), most recent first. */
+export function lastLiveRuns(routineId: string, take: number): Promise<RoutineRunRecord[]> {
+  return prisma.routineRun.findMany({
+    where: { routineId, trigger: { in: ["schedule", "manual"] } },
+    orderBy: { startedAt: "desc" },
+    take,
+  });
+}
+
+/** Switches a routine off outside the count of functional failures (runs interrupted again and again). */
+export async function switchOff(routineId: string, definitionHash: string, detail: string): Promise<boolean> {
+  const disabled = await setStatus(routineId, ["active"], "error", { nextRunAt: null, dryRunHash: null, dryRunAt: null });
+  if (disabled) await logEvent(routineId, "auto_disabled", { userId: null }, { definitionHash, detail });
+  return disabled;
+}
+
+/** Status of the last run, written on the routine without touching the count of failures. */
+export async function noteLastRun(routineId: string, at: Date, status: RunStatus): Promise<void> {
+  // Only when no later run has written its own outcome.
+  await prisma.routine.updateMany({
+    where: { id: routineId, OR: [{ lastRunAt: null }, { lastRunAt: { lt: at } }] },
+    data: { lastRunAt: at, lastRunStatus: status },
+  });
+}
+
 export interface FinishedRun {
   status: Exclude<RunStatus, "running" | "missed">;
   finishedAt: Date;
@@ -429,9 +498,10 @@ export interface FinishedRun {
   error?: string | null;
 }
 
-export async function finishRun(runId: string, done: FinishedRun): Promise<void> {
-  await prisma.routineRun.update({
-    where: { id: runId },
+/** False when the run was no longer `running`: closed as interrupted meanwhile, its record is left as it is. */
+export async function finishRun(runId: string, done: FinishedRun): Promise<boolean> {
+  const { count } = await prisma.routineRun.updateMany({
+    where: { id: runId, status: "running" },
     data: {
       status: done.status,
       finishedAt: done.finishedAt,
@@ -444,6 +514,7 @@ export async function finishRun(runId: string, done: FinishedRun): Promise<void>
       error: clip(done.error, MAX_ERROR_CHARS),
     },
   });
+  return count === 1;
 }
 
 /** A scheduled run that was too late to start (more than 12 hours). */
@@ -458,13 +529,21 @@ export async function recordMissedRun(routine: Pick<RoutineRecord, "id" | "defin
   await prisma.routine.updateMany({ where: { id: routine.id }, data: { lastRunAt: now, lastRunStatus: "missed" } });
 }
 
-export type FailureKind = "none" | "functional" | "infra";
+/**
+ * none        nothing failed: the count of consecutive failures goes back to 0
+ * functional  the run failed as a whole, and it is the routine's fault: counts
+ * infra       relay, network, quota, run interrupted: the count is left as it is
+ * partial     something was written, or only items failed (each bounded by
+ *             its own attempts): the count is left as it is
+ */
+export type FailureKind = "none" | "functional" | "infra" | "partial";
 
 /**
  * Writes the outcome of a live run on the routine and keeps the count of
  * consecutive functional failures: reset by a run without failure, untouched
- * by an infrastructure failure. At the third one the routine is switched off
- * (status `error`, dry run forgotten) and the event `auto_disabled` is logged.
+ * by an infrastructure failure and by a partial run. At the third one the
+ * routine is switched off (status `error`, dry run forgotten) and the event
+ * `auto_disabled` is logged.
  */
 export async function recordRunOutcome(args: {
   routineId: string; status: RunStatus; failure: FailureKind; at: Date; definitionHash: string; message?: string | null;
@@ -539,13 +618,31 @@ export function routineView(r: RoutineRecord) {
 export type RoutineView = ReturnType<typeof routineView>;
 
 export function runView(r: RoutineRunRecord) {
+  const parsed = parseJson(r.stepsJson, []);
+  const steps = (Array.isArray(parsed) ? parsed : []) as StepResult[];
   return {
     id: r.id, routineId: r.routineId, trigger: r.trigger as RunTrigger, status: r.status as RunStatus,
     definitionHash: r.definitionHash, startedById: r.startedById,
     startedAt: r.startedAt.getTime(), finishedAt: ms(r.finishedAt), durationMs: r.durationMs,
     totals: { planned: r.itemsPlanned, created: r.itemsCreated, skipped: r.itemsSkipped, failed: r.itemsFailed },
-    steps: parseJson(r.stepsJson, []) as StepResult[],
+    counts: sumCounts(steps),
+    steps,
     error: r.error,
+    timedOut: steps.some((s) => s?.timedOut === true),
   };
+}
+
+/** Counters by nature of write, added over the steps kept in stepsJson. */
+export function sumCounts(steps: ReadonlyArray<Pick<StepResult, "counts"> | null | undefined>): WriteCounts {
+  const total = emptyCounts();
+  for (const step of steps) {
+    const counts = step && typeof step === "object" ? step.counts : undefined;
+    if (!counts || typeof counts !== "object") continue;
+    for (const key of WRITE_COUNT_KEYS) {
+      const n = (counts as Partial<WriteCounts>)[key];
+      if (typeof n === "number" && Number.isFinite(n) && n > 0) total[key] += Math.round(n);
+    }
+  }
+  return total;
 }
 export type RunView = ReturnType<typeof runView>;

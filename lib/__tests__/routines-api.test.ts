@@ -60,7 +60,7 @@ const proposal = (steps: unknown[] = [readStep, slackStep], extra: Record<string
 });
 
 async function draft(body: Record<string, unknown> = {}): Promise<string> {
-  const res = await CREATE(req({ name: "Bilan du lundi", metaAccountId: "act_123", ...body }));
+  const res = await CREATE(req({ name: "Bilan du lundi", metaAccountId: "act_564381881705822", ...body }));
   expect(res.status).toBe(201);
   return (await res.json()).routine.id;
 }
@@ -80,7 +80,7 @@ beforeEach(async () => {
   resetSteps();
   session = CONSULTANT;
   for (const s of [CONSULTANT, ADMIN, SCOPED]) await db.user.create({ data: { id: s.userId, role: s.baseRole } });
-  await db.userAdAccount.create({ data: { userId: SCOPED.userId, platform: "meta", accountId: "act_123" } });
+  await db.userAdAccount.create({ data: { userId: SCOPED.userId, platform: "meta", accountId: "act_564381881705822" } });
   vi.stubEnv("ROUTINE_PLATFORM_WRITE_NEEDS_ADMIN", "");
   vi.stubEnv("CRON_SECRET", "s3cret");
 });
@@ -105,33 +105,33 @@ describe("routines API — access", () => {
 
   it("checks the accounts received against the scope of the person", async () => {
     session = SCOPED;
-    expect((await CREATE(req({ name: "Mienne", metaAccountId: "act_123" }))).status).toBe(201);
-    expect((await CREATE(req({ name: "Mienne", metaAccountId: "123" }))).status).toBe(201);
-    const other = await CREATE(req({ name: "Pas la mienne", metaAccountId: "act_999" }));
+    expect((await CREATE(req({ name: "Mienne", metaAccountId: "act_564381881705822" }))).status).toBe(201);
+    expect((await CREATE(req({ name: "Mienne", metaAccountId: "564381881705822" }))).status).toBe(201);
+    const other = await CREATE(req({ name: "Pas la mienne", metaAccountId: "act_999000111222333" }));
     expect(other.status).toBe(403);
-    expect(await other.json()).toMatchObject({ error: "forbidden", account: "act_999" });
-    expect((await CREATE(req({ name: "Pas la mienne", metaAccountId: "act_123", googleCustomerId: "1234567890" }))).status).toBe(403);
+    expect(await other.json()).toMatchObject({ error: "forbidden", account: "act_999000111222333" });
+    expect((await CREATE(req({ name: "Pas la mienne", metaAccountId: "act_564381881705822", googleCustomerId: "1234567890" }))).status).toBe(403);
     expect(db.routine.rows).toHaveLength(2);
   });
 
   it("takes the accounts of a dashboard, if the dashboard is in scope", async () => {
-    const mine = await db.dashboard.create({ data: { name: "LPEV", metaAccountId: "act_123", googleCustomerId: null } });
-    const theirs = await db.dashboard.create({ data: { name: "ICN", metaAccountId: "act_999", googleCustomerId: "1112223334" } });
+    const mine = await db.dashboard.create({ data: { name: "LPEV", metaAccountId: "act_564381881705822", googleCustomerId: null } });
+    const theirs = await db.dashboard.create({ data: { name: "ICN", metaAccountId: "act_999000111222333", googleCustomerId: "1112223334" } });
     session = SCOPED;
     const ok = await CREATE(req({ name: "Depuis le dashboard", dashboardId: mine.id }));
     expect(ok.status).toBe(201);
-    expect((await ok.json()).routine).toMatchObject({ dashboardId: mine.id, clientName: "LPEV", metaAccountId: "act_123", status: "draft" });
+    expect((await ok.json()).routine).toMatchObject({ dashboardId: mine.id, clientName: "LPEV", metaAccountId: "act_564381881705822", status: "draft" });
     expect((await CREATE(req({ name: "x", dashboardId: theirs.id }))).status).toBe(403);
     expect((await CREATE(req({ name: "x", dashboardId: "inconnu" }))).status).toBe(404);
     // A dashboard in scope does not open another account.
-    expect((await CREATE(req({ name: "x", dashboardId: mine.id, metaAccountId: "act_999" }))).status).toBe(403);
+    expect((await CREATE(req({ name: "x", dashboardId: mine.id, metaAccountId: "act_999000111222333" }))).status).toBe(403);
     expect(db.routine.rows).toHaveLength(1);
   });
 
   it("hides the routines of accounts out of scope", async () => {
     session = ADMIN;
-    const mine = await draft({ metaAccountId: "act_123" });
-    const theirs = await draft({ metaAccountId: "act_999" });
+    const mine = await draft({ metaAccountId: "act_564381881705822" });
+    const theirs = await draft({ metaAccountId: "act_999000111222333" });
     session = SCOPED;
     expect((await (await LIST(new NextRequest("http://x/api/routines"))).json()).routines.map((r: { id: string }) => r.id)).toEqual([mine]);
     expect((await GET(new NextRequest("http://x"), at(mine))).status).toBe(200);
@@ -148,10 +148,10 @@ describe("routines API — access", () => {
 
 describe("routines API — draft", () => {
   it("creates a draft and logs who did", async () => {
-    const res = await CREATE(req({ name: "  Créas   LPEV ", clientName: "LPEV", metaAccountId: "act_123", googleCustomerId: "123-456-7890" }));
+    const res = await CREATE(req({ name: "  Créas   LPEV ", clientName: "LPEV", metaAccountId: "act_564381881705822", googleCustomerId: "123-456-7890" }));
     const { routine } = await res.json();
     expect(routine).toMatchObject({
-      name: "Créas LPEV", status: "draft", clientName: "LPEV", metaAccountId: "act_123", googleCustomerId: "123-456-7890",
+      name: "Créas LPEV", status: "draft", clientName: "LPEV", metaAccountId: "act_564381881705822", googleCustomerId: "123-456-7890",
       createdById: CONSULTANT.userId, createdByEmail: "lea@impulse.test", timezone: "Europe/Paris", maxItemsPerRun: 20,
       nextRunAt: null, dryRunValid: false, running: false, writesPlatform: false,
     });
@@ -188,7 +188,10 @@ describe("routines API — definition", () => {
     expect(json).toMatchObject({ ok: true, issues: [], routine: { status: "ready", name: "Bilan du lundi", maxItemsPerRun: 10, writesPlatform: true, dryRunValid: false, nextRunAt: null } });
     expect(json.routine.definition.steps.map((s: { id: string }) => s.id)).toEqual(["lire", "creer"]);
     expect(json.routine.schedule).toEqual({ kind: "weekly", time: "09:00", weekdays: [1] });
-    expect(json.definitionHash).toBe(hashDefinition({ definition: json.routine.definition, schedule: json.routine.schedule, maxItemsPerRun: 10 }));
+    expect(json.definitionHash).toBe(hashDefinition({
+      definition: json.routine.definition, schedule: json.routine.schedule, maxItemsPerRun: 10,
+      metaAccountId: "act_564381881705822", googleCustomerId: null, timezone: "Europe/Paris",
+    }));
     expect(row(id).definitionHash).toBe(json.definitionHash);
     expect(events(id)).toEqual(["created", "definition_applied"]);
   });
@@ -203,7 +206,7 @@ describe("routines API — definition", () => {
       proposal([readStep, { ...slackStep, text: "{{env.CRON_SECRET}}" }]),
       proposal([readStep, slackStep], { maxItemsPerRun: 500 }),
       proposal([readStep, slackStep], { schedule: { kind: "daily", time: "09:00", cron: "* * * * *" } }),
-      proposal([readStep, slackStep], { metaAccountId: "act_999" }),
+      proposal([readStep, slackStep], { metaAccountId: "act_999000111222333" }),
       { definition: { version: 1, steps: [slackStep] } }, null, "routine", [],
     ];
     for (const body of forged) {
@@ -213,7 +216,7 @@ describe("routines API — definition", () => {
       expect(json.error).toBe("proposition invalide");
       expect(json.errors.length).toBeGreaterThan(0);
     }
-    expect(row(id)).toMatchObject({ status: "draft", definitionJson: "{}", definitionHash: "", metaAccountId: "act_123" });
+    expect(row(id)).toMatchObject({ status: "draft", definitionJson: "{}", definitionHash: "", metaAccountId: "act_564381881705822" });
     expect(events(id)).toEqual(["created"]);
   });
 
@@ -221,15 +224,15 @@ describe("routines API — definition", () => {
     const id = await draft();
     const checked: unknown[] = [];
     preflights["sheet.read"] = async (step, routine) => { checked.push([step.id, routine.metaAccountId, routine.id]); return [{ stepId: "ailleurs", severity: "warning", message: "Onglet presque plein" }]; };
-    preflights["meta.create_ads"] = async () => [{ stepId: "creer", severity: "error", message: "L'ensemble 222 n'appartient pas au compte act_123" }];
+    preflights["meta.create_ads"] = async () => [{ stepId: "creer", severity: "error", message: "L'ensemble 120210000000000002 n'appartient pas au compte act_564381881705822" }];
 
     const blocked = await DEFINE(req(proposal([readStep, createAdsStep])), at(id));
     expect(blocked.status).toBe(422);
     expect((await blocked.json()).issues).toEqual([
       { stepId: "lire", severity: "warning", message: "Onglet presque plein" },
-      { stepId: "creer", severity: "error", message: "L'ensemble 222 n'appartient pas au compte act_123" },
+      { stepId: "creer", severity: "error", message: "L'ensemble 120210000000000002 n'appartient pas au compte act_564381881705822" },
     ]);
-    expect(checked).toEqual([["lire", "act_123", id]]);
+    expect(checked).toEqual([["lire", "act_564381881705822", id]]);
     expect(row(id)).toMatchObject({ status: "draft", definitionHash: "" });
 
     // A warning does not block; a preflight that cannot look does.
@@ -417,10 +420,10 @@ describe("routines API — pause, resume, rename, archive", () => {
   it("refuses unknown actions and fields that are not its own", async () => {
     const id = await active();
     expect((await PATCH(req({ action: "activate" }), at(id))).status).toBe(400);
-    expect((await PATCH(req({ status: "active", metaAccountId: "act_999", maxItemsPerRun: 500 }), at(id))).status).toBe(400);
+    expect((await PATCH(req({ status: "active", metaAccountId: "act_999000111222333", maxItemsPerRun: 500 }), at(id))).status).toBe(400);
     expect((await PATCH(req({ name: "" }), at(id))).status).toBe(400);
-    expect((await PATCH(req({ name: "Renommée", status: "archived", metaAccountId: "act_999" }), at(id))).status).toBe(200);
-    expect(row(id)).toMatchObject({ name: "Renommée", status: "active", metaAccountId: "act_123", maxItemsPerRun: 20 });
+    expect((await PATCH(req({ name: "Renommée", status: "archived", metaAccountId: "act_999000111222333" }), at(id))).status).toBe(200);
+    expect(row(id)).toMatchObject({ name: "Renommée", status: "active", metaAccountId: "act_564381881705822", maxItemsPerRun: 20 });
   });
 
   it("archives for good", async () => {

@@ -21,6 +21,7 @@ import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 import { relayStream, teeRelayStream } from "@/lib/relay-chat";
 import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay-attachments";
 import { recordAiUsage } from "@/lib/ai-usage";
+import { chatJsonWith, readRoutineContext } from "@/lib/routines/context";
 import { validateProposal } from "@/lib/routines/validate";
 import { writesPlatform } from "@/lib/routines/steps";
 import type { RoutineProposal } from "@/lib/routines/types";
@@ -125,7 +126,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const messages = sanitizeMessages(body.messages) ?? [];
   const checks = checksOf(messages);
   const proposals = sanitizeStatuses(body.proposals, checks);
-  await prisma.routine.update({ where: { id }, data: { chatJson: JSON.stringify({ messages, proposals }) } });
+  // The Page chosen when the routine was created stays with the conversation it is meant for.
+  await prisma.routine.update({ where: { id }, data: { chatJson: chatJsonWith(loaded.routine.chatJson, { messages, proposals }) } });
   return NextResponse.json({ ok: true, proposals, checks });
 }
 
@@ -144,7 +146,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   // Model, effort, servers and accounts are decided here: nothing of them is read from the request.
   const res = await relayStream(buildRoutineRelayBody({
-    routine,
+    routine: { ...routine, page: readRoutineContext(routine.chatJson).page ?? null },
     userId: guard.session.userId,
     author: guard.session.user?.email ?? null,
     messages: toRelayMessages(messages),

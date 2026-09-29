@@ -23,7 +23,7 @@
 
 import { findStepHandler } from "@/lib/routines/steps";
 import { isValidTimezone } from "@/lib/routines/schedule";
-import { STEP_ID_RE, parseTemplate, type TemplateToken } from "@/lib/routines/template";
+import { STEP_ID_RE, parseTemplate, rowOnlyTemplateError, type TemplateToken } from "@/lib/routines/template";
 import {
   DEFAULT_MAX_ITEMS_PER_RUN, MAX_ITEMS_PER_RUN_CAP, MAX_STEPS, SCHEDULE_STEP_MINUTES,
   type RoutineDefinition, type RoutineProposal, type RoutineStep, type Schedule, type StepType,
@@ -260,6 +260,9 @@ export function validateDefinition(input: unknown): Validation<RoutineDefinition
     if (handler.writes === "platform" && forbiddenKey(step)) { errors.push(`${name} : champ de statut refusé.`); continue; }
     const templates = tokensOf(step);
     if (templates.errors.length) { for (const e of templates.errors) errors.push(`${name}, ${e}.`.replace(/\.\.$/, ".")); continue; }
+    // The name by which an ad is found again must be the same at every run: it reads its row and nothing else.
+    const moving = step.type === "meta.create_ads" && typeof step.mapping?.adName === "string" ? rowOnlyTemplateError(step.mapping.adName) : null;
+    if (moving) { errors.push(`${name}, mapping.adName : ${moving}.`); continue; }
     steps.push(step);
   }
   if (errors.length) return fail();

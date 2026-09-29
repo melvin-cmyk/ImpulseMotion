@@ -27,6 +27,9 @@ import { MAX_EMAIL_RECIPIENTS, type Cell, type ErrorClass, type RowSet, type Wri
 
 export const EMAIL_NOT_CONFIGURED = "envoi d'e-mail non configuré (N8N_ROUTINES_WEBHOOK_URL absent)";
 export const SLACK_NOT_CONFIGURED = "envoi Slack non configuré (webhook n8n des alertes automatiques absent)";
+/** Without its secret a webhook would be called with no authentication at all: nothing is sent. */
+export const EMAIL_NO_SECRET = "envoi d'e-mail refusé : le secret du webhook n8n n'est pas configuré (N8N_ROUTINES_WEBHOOK_SECRET ou N8N_ALERT_WEBHOOK_SECRET)";
+export const SLACK_NO_SECRET = "envoi Slack refusé : le secret du webhook n8n n'est pas configuré (N8N_ALERT_WEBHOOK_SECRET)";
 
 export const MAX_SLACK_CHARS = 3500;
 export const MAX_EMAIL_CHARS = 20_000;
@@ -56,8 +59,22 @@ export function routinesWebhook(env: Record<string, string | undefined> = proces
   return { url, secret: (env.N8N_ROUTINES_WEBHOOK_SECRET || env.N8N_ALERT_WEBHOOK_SECRET || "").trim() };
 }
 
-export const emailConfigured = (): boolean => routinesWebhook() !== null;
-export const slackConfigured = (): boolean => autoAlertWebhook() !== null;
+/** Null when an e-mail can be sent, the reason otherwise: no webhook, or a webhook without its secret. */
+export function emailProblem(): string | null {
+  const cfg = routinesWebhook();
+  if (!cfg) return EMAIL_NOT_CONFIGURED;
+  return cfg.secret ? null : EMAIL_NO_SECRET;
+}
+
+/** Null when a Slack message can be sent, the reason otherwise. */
+export function slackProblem(): string | null {
+  const cfg = autoAlertWebhook();
+  if (!cfg) return SLACK_NOT_CONFIGURED;
+  return cfg.secret ? null : SLACK_NO_SECRET;
+}
+
+export const emailConfigured = (): boolean => emailProblem() === null;
+export const slackConfigured = (): boolean => slackProblem() === null;
 
 // ── Validation ───────────────────────────────────────────────────────────
 
@@ -96,12 +113,21 @@ export function truncateText(text: string, maxChars: number): string {
 }
 
 /**
- * A cell or a rendered text cannot ring a whole channel: <!channel>, <!here>,
- * <!everyone> and user or group mentions written in Slack's own syntax are
- * shown as plain text.
+ * A cell or a rendered text cannot use Slack's own syntax, which is whatever
+ * stands between < and >:
+ *   - <!channel>, <!here>, <!everyone>, user, group and channel mentions
+ *     (<@U…>, <!subteam^…>, <#C…>) are shown as plain text: nobody is rung;
+ *   - a link hidden under a text, <https://…|Valider le budget>, is written
+ *     out: « Valider le budget (https://…) ». The address stays readable, it
+ *     can no longer be clicked under words that are not its own;
+ *   - a bare <https://…> loses its brackets.
+ * What is left of a « < » that opens such a sequence is escaped.
  */
 export function defuseSlack(text: string): string {
-  return text.replace(/<(?=[!@])/g, "&lt;");
+  return text
+    .replace(/<((?:https?|mailto|tel|slack|ftp):[^<>|\s]*)\|([^<>]*)>/gi, (_all, url: string, label: string) => (label.trim() ? `${label.trim()} (${url})` : url))
+    .replace(/<((?:https?|mailto|tel|slack|ftp):[^<>|\s]*)>/gi, "$1")
+    .replace(/<(?=[!@#]|[a-z][a-z0-9+.-]*:)/gi, "&lt;");
 }
 
 /** One line for an e-mail subject: no line break (header injection), bounded. */
@@ -164,7 +190,8 @@ export async function sendSlackMessage(guard: WriteGuard, input: { channel: stri
   const channel = cleanSlackChannel(input.channel);
   if (!channel) throw new NotifyError("canal Slack invalide", "functional");
   if (!input.text.trim()) throw new NotifyError("message Slack vide", "functional");
-  if (!slackConfigured()) throw new NotifyError(SLACK_NOT_CONFIGURED, "functional");
+  const problem = slackProblem();
+  if (problem) throw new NotifyError(problem, "functional");
   try {
     await postDigest(channel, truncateText(defuseSlack(input.text), MAX_SLACK_CHARS), input.routine);
   } catch (e) {
@@ -186,12 +213,13 @@ export async function sendEmail(guard: WriteGuard, input: { to: string[]; subjec
   if (!input.text.trim()) throw new NotifyError("e-mail vide", "functional");
   const cfg = routinesWebhook();
   if (!cfg) throw new NotifyError(EMAIL_NOT_CONFIGURED, "functional");
+  if (!cfg.secret) throw new NotifyError(EMAIL_NO_SECRET, "functional");
 
   let res: Response;
   try {
     res = await fetch(cfg.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(cfg.secret ? { "X-Alert-Secret": cfg.secret } : {}) },
+      headers: { "Content-Type": "application/json", "X-Alert-Secret": cfg.secret },
       body: JSON.stringify({ version: 1, kind: "email", to: recipients.to, subject, text: truncateText(input.text, MAX_EMAIL_CHARS) }),
       signal: AbortSignal.timeout(20_000),
     });
@@ -212,8 +240,8 @@ export async function sendEmail(guard: WriteGuard, input: { to: string[]; subjec
 
 export interface AutoDisabledNotice {
   routine: { id: string; name: string; clientName: string };
-  /** Consecutive functional failures that switched the routine off. */
-  failures: number;
+  /** Why the routine switched itself off, in one sentence (« 3 échecs de suite. »). */
+  reason: string;
   lastError: string | null;
   /** Who activated or wrote the routine, as an e-mail address: said in the message, nobody is mentioned. */
   owner: string | null;
@@ -231,7 +259,7 @@ export function autoDisabledText(notice: Omit<AutoDisabledNotice, "channel">): s
   const client = notice.routine.clientName.trim();
   return [
     `Routine arrêtée automatiquement : « ${oneLine(notice.routine.name, 120)} »${client && client !== "—" ? ` (client ${oneLine(client, 120)})` : ""}`,
-    `${notice.failures} échecs de suite. Dernière erreur : ${notice.lastError ? oneLine(notice.lastError, 600) : "sans message"}`,
+    `${oneLine(notice.reason, 200)} Dernière erreur : ${notice.lastError ? oneLine(notice.lastError, 600) : "sans message"}`,
     "Elle ne s'exécutera plus : corriger avec l'IA, refaire un essai à blanc, puis l'activer de nouveau.",
     `${notice.owner ? `Activée par ${oneLine(notice.owner, 120)} · ` : ""}${appUrl()}/routines/${notice.routine.id}`,
   ].join("\n");

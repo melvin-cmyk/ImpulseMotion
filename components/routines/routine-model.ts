@@ -7,7 +7,10 @@
  * statuses, reason why « Activer » is greyed, steps said in French.
  */
 
-import { STEP_WRITES, type Cell, type PlannedWrite, type RoutineStep, type RowSet, type Schedule, type StepResult, type StepType } from "@/lib/routines/types";
+import {
+  STEP_WRITES, WRITE_COUNT_KEYS, emptyCounts,
+  type Cell, type PlannedWrite, type RoutineStep, type RowSet, type Schedule, type StepResult, type StepType, type WriteCounts,
+} from "@/lib/routines/types";
 import { parseSchedule } from "@/components/routines/schedule-label";
 
 type Tone = "default" | "violet" | "emerald" | "amber" | "red" | "blue";
@@ -171,31 +174,74 @@ export interface RunView {
   durationMs: number;
   definitionHash: string | null;
   totals: { planned: number; created: number; skipped: number; failed: number };
+  /** By nature of write, added over the steps: what would be written (dry run) or what was (live run). */
+  counts: WriteCounts;
   steps: StepResult[];
   error: string | null;
   timedOut: boolean;
 }
 
+const TARGETS = ["meta", "sheet", "slack", "email"] as const;
+const isTarget = (v: unknown): v is PlannedWrite["target"] => (TARGETS as readonly unknown[]).includes(v);
+
+function readCounts(raw: unknown): WriteCounts | null {
+  if (!isRecord(raw)) return null;
+  const counts = emptyCounts();
+  for (const key of WRITE_COUNT_KEYS) counts[key] = int(raw[key]);
+  return counts;
+}
+
+/**
+ * Counters of a step. A run stored before the counters existed has none: they
+ * are read from what the step planned or wrote, as the engine does.
+ */
+function countsOf(s: Raw, planned: PlannedWrite[], written: StepResult["written"], type: StepType): WriteCounts {
+  const given = readCounts(s.counts);
+  if (given) return given;
+  const counts = emptyCounts();
+  const fallback: PlannedWrite["target"] | null = STEP_WRITES[type] === "platform" ? "meta" : STEP_WRITES[type] === "sheet" ? "sheet" : STEP_WRITES[type] === "message" ? "slack" : null;
+  for (const item of written.length ? written : planned) {
+    const target = item.target ?? fallback;
+    if (target === "meta") counts["attached" in item && item.attached ? "adsAttached" : "adsCreated"]++;
+    else if (target === "sheet") counts.sheetRows++;
+    else if (target) counts.messages++;
+  }
+  return counts;
+}
+
 function readStepResults(raw: unknown): StepResult[] {
   const parsed = fromJson(raw);
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(isRecord).map((s) => ({
-    stepId: str(s.stepId) ?? "?",
-    type: (KNOWN_TYPES.has(String(s.type)) ? s.type : "rows.select") as StepType,
-    status: s.status === "failed" || s.status === "skipped" ? s.status : "ok",
-    durationMs: int(s.durationMs),
-    rowsIn: int(s.rowsIn),
-    rowsOut: int(s.rowsOut),
-    output: isRecord(s.output) ? { ...(typeof s.output.text === "string" ? { text: s.output.text } : {}), ...readRows(s.output.rows) } : {},
-    planned: Array.isArray(s.planned) ? s.planned.filter(isRecord).map(readPlanned) : [],
-    written: Array.isArray(s.written)
-      ? s.written.filter(isRecord).map((w) => ({ summary: str(w.summary) ?? "", ...(str(w.itemKey) ? { itemKey: str(w.itemKey)! } : {}), ...(str(w.externalId) ? { externalId: str(w.externalId)! } : {}) }))
-      : [],
-    warnings: Array.isArray(s.warnings) ? s.warnings.filter((w): w is string => typeof w === "string") : [],
-    ...(isRecord(s.error) && typeof s.error.message === "string"
-      ? { error: { class: s.error.class === "infra" ? "infra" as const : "functional" as const, message: s.error.message } }
-      : {}),
-  }));
+  return parsed.filter(isRecord).map((s) => {
+    const type = (KNOWN_TYPES.has(String(s.type)) ? s.type : "rows.select") as StepType;
+    const planned = Array.isArray(s.planned) ? s.planned.filter(isRecord).map(readPlanned) : [];
+    const written: StepResult["written"] = Array.isArray(s.written)
+      ? s.written.filter(isRecord).map((w) => ({
+          summary: str(w.summary) ?? "",
+          ...(str(w.itemKey) ? { itemKey: str(w.itemKey)! } : {}),
+          ...(str(w.externalId) ? { externalId: str(w.externalId)! } : {}),
+          ...(isTarget(w.target) ? { target: w.target } : {}),
+          ...(w.attached === true ? { attached: true } : {}),
+        }))
+      : [];
+    return {
+      stepId: str(s.stepId) ?? "?",
+      type,
+      status: s.status === "failed" || s.status === "skipped" ? s.status : "ok",
+      durationMs: int(s.durationMs),
+      rowsIn: int(s.rowsIn),
+      rowsOut: int(s.rowsOut),
+      output: isRecord(s.output) ? { ...(typeof s.output.text === "string" ? { text: s.output.text } : {}), ...readRows(s.output.rows) } : {},
+      planned,
+      written,
+      warnings: Array.isArray(s.warnings) ? s.warnings.filter((w): w is string => typeof w === "string") : [],
+      counts: countsOf(s, planned, written, type),
+      ...(s.timedOut === true ? { timedOut: true } : {}),
+      ...(isRecord(s.error) && typeof s.error.message === "string"
+        ? { error: { class: s.error.class === "infra" ? "infra" as const : "functional" as const, message: s.error.message, ...(s.error.scope === "items" ? { scope: "items" as const } : {}) } }
+        : {}),
+    };
+  });
 }
 
 const isCell = (v: unknown): v is Cell => v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
@@ -209,7 +255,7 @@ function readRows(raw: unknown): { rows?: RowSet } {
 }
 
 function readPlanned(p: Raw): PlannedWrite {
-  const target = p.target === "meta" || p.target === "sheet" || p.target === "slack" || p.target === "email" ? p.target : "sheet";
+  const target = isTarget(p.target) ? p.target : "sheet";
   const preview: PlannedWrite["preview"] = {};
   if (isRecord(p.preview)) {
     for (const [k, v] of Object.entries(p.preview)) {
@@ -225,6 +271,10 @@ export function toRunView(raw: unknown): RunView | null {
   const id = str(raw.id) ?? str(raw.runId);
   if (!id) return null;
   const totals = isRecord(raw.totals) ? raw.totals : {};
+  const steps = readStepResults(raw.steps ?? raw.stepsJson);
+  // The counters of the steps are the reference; those sent with the run are the same, added up.
+  const counts = emptyCounts();
+  for (const s of steps) for (const key of WRITE_COUNT_KEYS) counts[key] += s.counts[key];
   return {
     id,
     trigger: str(raw.trigger) ?? (raw.mode === "dry_run" ? "dry_run" : "manual"),
@@ -238,10 +288,50 @@ export function toRunView(raw: unknown): RunView | null {
       skipped: int(totals.skipped ?? raw.itemsSkipped),
       failed: int(totals.failed ?? raw.itemsFailed),
     },
-    steps: readStepResults(raw.steps ?? raw.stepsJson),
+    counts: steps.length ? counts : readCounts(raw.counts) ?? counts,
+    steps,
     error: str(raw.error),
-    timedOut: raw.timedOut === true,
+    timedOut: raw.timedOut === true || steps.some((s) => s.timedOut === true),
   };
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`;
+
+export interface RunCounter { key: keyof WriteCounts; text: string; tone: "done" | "plain" | "bad" | "wait" }
+
+/**
+ * The counters of a run, one per nature of write, as the history shows them:
+ * the same ones for a dry run (what would be written) and for a live run
+ * (what was). A nature at zero is not shown, except the ads of a routine that
+ * creates some.
+ */
+export function runCounters(run: Pick<RunView, "counts" | "trigger" | "steps">): RunCounter[] {
+  const c = run.counts;
+  const dry = run.trigger === "dry_run";
+  const ads = run.steps.some((s) => STEP_WRITES[s.type] === "platform");
+  const out: RunCounter[] = [];
+  if (ads || c.adsCreated) out.push({ key: "adsCreated", tone: "done", text: dry ? plural(c.adsCreated, "publicité à créer", "publicités à créer") : plural(c.adsCreated, "publicité créée", "publicités créées") });
+  if (c.adsAttached) out.push({ key: "adsAttached", tone: "done", text: dry ? plural(c.adsAttached, "publicité à rattacher", "publicités à rattacher") : plural(c.adsAttached, "publicité rattachée", "publicités rattachées") });
+  if (c.sheetRows) out.push({ key: "sheetRows", tone: "done", text: dry ? plural(c.sheetRows, "ligne de Sheet à écrire", "lignes de Sheet à écrire") : plural(c.sheetRows, "ligne écrite dans un Sheet", "lignes écrites dans un Sheet") });
+  if (c.messages) out.push({ key: "messages", tone: "done", text: dry ? plural(c.messages, "message à envoyer", "messages à envoyer") : plural(c.messages, "message envoyé", "messages envoyés") });
+  if (!out.length) out.push({ key: "adsCreated", tone: "plain", text: dry ? "aucune écriture prévue" : "aucune écriture" });
+  if (c.skipped) out.push({ key: "skipped", tone: "plain", text: plural(c.skipped, "ignorée", "ignorées") });
+  if (c.failed) out.push({ key: "failed", tone: "bad", text: `${c.failed} en échec` });
+  if (c.deferred) out.push({ key: "deferred", tone: "wait", text: plural(c.deferred, "reportée", "reportées") });
+  return out;
+}
+
+export const EMPTY_DRY_RUN_WARNING = "L'essai n'a rien trouvé à créer : vous activez sans avoir vu d'exemple.";
+
+/**
+ * Warning shown with a successful dry run that planned no ad, for a routine
+ * that creates some. Activation stays open (a routine of « new rows » has an
+ * empty Sheet on some days); the person must know what was not seen.
+ */
+export function emptyDryRunWarning(run: Pick<RunView, "counts" | "trigger" | "status" | "steps"> | null, routine: Pick<RoutineView, "writesPlatform">): string | null {
+  if (!run || run.trigger !== "dry_run" || run.status !== "success") return null;
+  const ads = routine.writesPlatform || run.steps.some((s) => STEP_WRITES[s.type] === "platform");
+  return ads && run.counts.adsCreated + run.counts.adsAttached === 0 ? EMPTY_DRY_RUN_WARNING : null;
 }
 
 /** Everything a run would write, step by step, in the order of the routine. */

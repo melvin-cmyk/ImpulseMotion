@@ -15,7 +15,8 @@
  * the tab or in the rows, fails the step with the Sheet untouched. In a dry
  * run (ctx.write null) the tab is read but never written, and every write is
  * listed in `planned` with the values as they would land in the cells. A live
- * run fills `planned` the same way, and `written` with what was done.
+ * run says what it did in `written`. Both count the rows of the Sheet written
+ * (`counts.sheetRows`), the same way.
  *
  * A rendered value that is a plain number ("12.5", "-3") is written as a
  * number; any other text is written as text, with an apostrophe in front when
@@ -33,6 +34,7 @@ import { renderTemplateDetailed, scopeFromContext, templateError } from "@/lib/r
 import {
   type Checked, done, errorMessage, failed, readColumnName, readSheetRef, readStepBase, refuse, unverified,
 } from "@/lib/routines/steps/sheet-read";
+import { assertCanWrite } from "@/lib/routines/write-guard-check";
 import type { Cell, PlannedWrite, Row, SheetWriteStep, StepContext, StepHandler, StepRunOutcome } from "@/lib/routines/types";
 
 export const MAX_WRITE_COLUMNS = 50;
@@ -187,9 +189,10 @@ async function run(step: SheetWriteStep, ctx: StepContext): Promise<StepRunOutco
     ...plan.appends.map((p) => ({ target: "sheet" as const, summary: `Ajout d'une ligne dans « ${tab} »`, ...keyed(p), preview: preview(step, p.values) })),
   ];
   // Dry run: the list of what would be written, and nothing else.
-  if (!ctx.write) return done(rowsIn, 0, { output: through, planned, warnings });
+  if (!ctx.write) return done(rowsIn, 0, { output: through, planned, warnings, counts: { sheetRows: planned.length } });
 
   const written: StepRunOutcome["written"] = [];
+  const guard = ctx.write;
   try {
     const cells: Array<CellUpdate & { owner: number }> = [];
     plan.updates.forEach((u, owner) => {
@@ -199,18 +202,20 @@ async function run(step: SheetWriteStep, ctx: StepContext): Promise<StepRunOutco
       });
     });
     for (const part of chunks(cells, SHEETS_MAX_UPDATES)) {
-      await updateCells(ctx.write, step.sheet, part.map(({ row, column, value }) => ({ row, column, value })));
+      assertCanWrite(ctx);
+      await updateCells(guard, step.sheet, part.map(({ row, column, value }) => ({ row, column, value })));
     }
-    plan.updates.forEach((u) => written.push({ ...keyed(u.prepared), summary: `Ligne ${u.row} de « ${tab} » mise à jour` }));
+    plan.updates.forEach((u) => written.push({ ...keyed(u.prepared), target: "sheet", summary: `Ligne ${u.row} de « ${tab} » mise à jour` }));
     for (const part of chunks(plan.appends, SHEETS_MAX_APPEND_ROWS)) {
-      await appendRows(ctx.write, step.sheet, names, part.map((p) => p.values));
-      part.forEach((p) => written.push({ ...keyed(p), summary: `Ligne ajoutée dans « ${tab} »` }));
+      assertCanWrite(ctx);
+      await appendRows(guard, step.sheet, names, part.map((p) => p.values));
+      part.forEach((p) => written.push({ ...keyed(p), target: "sheet", summary: `Ligne ajoutée dans « ${tab} »` }));
     }
   } catch (e) {
     const partial = written.length ? ` (${written.length} écriture${written.length > 1 ? "s" : ""} déjà faite${written.length > 1 ? "s" : ""})` : "";
-    return failed(rowsIn, e instanceof SheetsError ? e.errorClass : "functional", `${errorMessage(e)}${partial}`, { output: through, planned, written, warnings });
+    return failed(rowsIn, e instanceof SheetsError ? e.errorClass : "functional", `${errorMessage(e)}${partial}`, { output: through, written, warnings, counts: { sheetRows: written.length } });
   }
-  return done(rowsIn, written.length, { output: through, planned, written, warnings });
+  return done(rowsIn, written.length, { output: through, written, warnings, counts: { sheetRows: written.length } });
 }
 
 export const sheetWriteHandler: StepHandler<SheetWriteStep> = {

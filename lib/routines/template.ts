@@ -86,6 +86,21 @@ export function templateError(template: unknown): string | null {
   return parsed.ok ? null : parsed.error;
 }
 
+/**
+ * For a text that must be the same at every run and depend on its row alone
+ * (the name of an ad, by which it is found again): null when the template
+ * reads {{row.<column>}} only, the reason otherwise. The template is supposed
+ * to follow the grammar (templateError first).
+ */
+export function rowOnlyTemplateError(template: Template): string | null {
+  const parsed = parseTemplate(template);
+  if (!parsed.ok) return parsed.error;
+  const moving = parsed.tokens.find((t) => t.kind === "run.date" || t.kind === "step.text");
+  if (!moving) return null;
+  const motif = moving.kind === "step.text" ? `{{steps.${moving.stepId}.text}}` : "{{run.date}}";
+  return `${motif} est refusé dans le nom d'une publicité. Ce nom ne dépend que de la ligne ({{row.<colonne>}}) : s'il changeait d'une exécution à l'autre, la même publicité serait créée une seconde fois`;
+}
+
 /** What a template reads. Throws on a template outside the grammar: validate first. */
 export function templateRefs(template: Template): TemplateRefs {
   const parsed = parseTemplate(template);

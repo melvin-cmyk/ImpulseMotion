@@ -3,11 +3,13 @@
  *
  * POST → one live run of an active routine, under the same lock as the cron:
  *        a routine that is already running answers 409 and nothing starts.
- *        The schedule is left as it is.
+ *        The schedule is left as it is. A routine that creates ads is run
+ *        by who may activate it (ROUTINE_PLATFORM_WRITE_NEEDS_ADMIN).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
+import { adminRuleRefusal } from "@/lib/routines/admin-rule";
 import { compactResult, runLocked } from "@/lib/routines/engine";
 import { actorOf, getRoutine, logEvent, routineForSession, routineView } from "@/lib/routines/store";
 import { RUN_BUDGET_MS } from "@/lib/routines/types";
@@ -25,6 +27,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   if (routine.status !== "active") {
     return NextResponse.json({ error: "Seule une routine active peut être exécutée : faites un essai à blanc, puis activez-la." }, { status: 409 });
   }
+
+  const refused = await adminRuleRefusal(routine, "run");
+  if (refused) return NextResponse.json(refused.body, { status: refused.status });
 
   const now = new Date();
   const ran = await runLocked(routine.id, {

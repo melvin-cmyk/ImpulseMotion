@@ -115,30 +115,52 @@ describe("routines — catching up", () => {
 describe("routines — definition hash", () => {
   const definition = { version: 1, steps: [{ id: "a", type: "rows.limit", count: 3 }, { id: "b", type: "rows.sort", by: "x", dir: "asc" }] } as RoutineDefinition;
   const schedule: Schedule = { kind: "weekly", time: "09:00", weekdays: [1, 3] };
-  const base = hashDefinition({ definition, schedule, maxItemsPerRun: 20 });
+  /** The accounts and the timezone of the routine: part of what is hashed. */
+  const where = { metaAccountId: "act_564381881705822", googleCustomerId: "476-889-3847", timezone: "Europe/Paris" };
+  const base = hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where });
 
   it("does not depend on the order of the keys", () => {
     const shuffled = { steps: [{ count: 3, type: "rows.limit", id: "a" }, { dir: "asc", by: "x", id: "b", type: "rows.sort" }], version: 1 } as RoutineDefinition;
-    expect(hashDefinition({ maxItemsPerRun: 20, schedule: { weekdays: [1, 3], time: "09:00", kind: "weekly" }, definition: shuffled })).toBe(base);
-    expect(hashDefinition({ definition: JSON.parse(JSON.stringify(definition)), schedule, maxItemsPerRun: 20 })).toBe(base);
+    expect(hashDefinition({ timezone: "Europe/Paris", maxItemsPerRun: 20, googleCustomerId: "476-889-3847", schedule: { weekdays: [1, 3], time: "09:00", kind: "weekly" }, definition: shuffled, metaAccountId: "act_564381881705822" })).toBe(base);
+    expect(hashDefinition({ definition: JSON.parse(JSON.stringify(definition)), schedule, maxItemsPerRun: 20, ...where })).toBe(base);
     expect(base).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("ignores absent values", () => {
     const withUndefined = { version: 1, steps: [{ id: "a", type: "rows.limit", count: 3, label: undefined }, definition.steps[1]] } as RoutineDefinition;
-    expect(hashDefinition({ definition: withUndefined, schedule: { ...schedule, dayOfMonth: undefined }, maxItemsPerRun: 20 })).toBe(base);
+    expect(hashDefinition({ definition: withUndefined, schedule: { ...schedule, dayOfMonth: undefined }, maxItemsPerRun: 20, ...where })).toBe(base);
   });
 
   it("changes with the definition, the order of the steps, the schedule and the ceiling", () => {
     const hashes = new Set([
       base,
-      hashDefinition({ definition: { version: 1, steps: [...definition.steps].reverse() }, schedule, maxItemsPerRun: 20 }),
-      hashDefinition({ definition: { version: 1, steps: [{ id: "a", type: "rows.limit", count: 4 }, definition.steps[1]] }, schedule, maxItemsPerRun: 20 }),
-      hashDefinition({ definition, schedule: { ...schedule, time: "09:15" }, maxItemsPerRun: 20 }),
-      hashDefinition({ definition, schedule: { ...schedule, weekdays: [3, 1] }, maxItemsPerRun: 20 }),
-      hashDefinition({ definition, schedule, maxItemsPerRun: 21 }),
+      hashDefinition({ definition: { version: 1, steps: [...definition.steps].reverse() }, schedule, maxItemsPerRun: 20, ...where }),
+      hashDefinition({ definition: { version: 1, steps: [{ id: "a", type: "rows.limit", count: 4 }, definition.steps[1]] }, schedule, maxItemsPerRun: 20, ...where }),
+      hashDefinition({ definition, schedule: { ...schedule, time: "09:15" }, maxItemsPerRun: 20, ...where }),
+      hashDefinition({ definition, schedule: { ...schedule, weekdays: [3, 1] }, maxItemsPerRun: 20, ...where }),
+      hashDefinition({ definition, schedule, maxItemsPerRun: 21, ...where }),
     ]);
     expect(hashes.size).toBe(6);
+  });
+
+  // Defect 7 of the review: what changes WHERE a run writes, or what it dates, was not hashed.
+  it("changes with the Meta account, the Google account and the timezone of the routine", () => {
+    const hashes = new Set([
+      base,
+      hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where, metaAccountId: "act_999000111222333" }),
+      hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where, metaAccountId: null }),
+      hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where, googleCustomerId: "1112223334" }),
+      hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where, googleCustomerId: null }),
+      hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where, timezone: "America/New_York" }),
+      // An id that is not one never hashes like a valid one, nor like no account.
+      hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where, metaAccountId: "act_123" }),
+    ]);
+    expect(hashes.size).toBe(7);
+  });
+
+  it("reads an account by its digits: the same account written two ways is the same routine", () => {
+    expect(hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where, metaAccountId: "564381881705822" })).toBe(base);
+    expect(hashDefinition({ definition, schedule, maxItemsPerRun: 20, ...where, googleCustomerId: "4768893847" })).toBe(base);
   });
 
   it("writes JSON with sorted keys", () => {

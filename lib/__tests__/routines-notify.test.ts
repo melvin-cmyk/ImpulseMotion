@@ -122,7 +122,22 @@ describe("notify — text", () => {
   });
 
   it("does not let a cell ring a channel", () => {
-    expect(defuseSlack("Alerte <!channel> <!here> <@U123ABC> <!subteam^S1> et <https://x.fr|lien>")).toBe("Alerte &lt;!channel> &lt;!here> &lt;@U123ABC> &lt;!subteam^S1> et <https://x.fr|lien>");
+    expect(defuseSlack("Alerte <!channel> <!here> <@U123ABC> <!subteam^S1> et <#C0123ABCD>")).toBe("Alerte &lt;!channel> &lt;!here> &lt;@U123ABC> &lt;!subteam^S1> et &lt;#C0123ABCD>");
+  });
+
+  // The test used to say that « <https://x.fr|lien> » went through as it was: defect 9 of the review.
+  it("writes out a link hidden under a text: the address is read, it is no longer clicked under other words", () => {
+    expect(defuseSlack("Bravo <https://evil.example/login|Valider le budget> !")).toBe("Bravo Valider le budget (https://evil.example/login) !");
+    expect(defuseSlack("<https://x.fr|lien> et <HTTPS://y.fr/a?b=1|autre>")).toBe("lien (https://x.fr) et autre (HTTPS://y.fr/a?b=1)");
+    expect(defuseSlack("<mailto:a@b.fr|écrire> <https://x.fr> <https://x.fr|>")).toBe("écrire (mailto:a@b.fr) https://x.fr https://x.fr");
+    // A label that holds a mention, a sequence left open: nothing of Slack's syntax is left to read.
+    for (const hostile of ["<https://evil.example|<!channel>>", "<https://evil.example|clic", "<javascript:alert(1)|clic>", "<slack://open|ici>", "<#C0123ABCD|général>"]) {
+      expect(defuseSlack(hostile), hostile).not.toMatch(/<(?:[!@#]|[a-z][a-z0-9+.-]*:)/i);
+    }
+    // Defusing twice changes nothing more, and a plain « < » stays.
+    const once = defuseSlack("a < b, <https://x.fr|lien>, 3 <4");
+    expect(once).toBe("a < b, lien (https://x.fr), 3 <4");
+    expect(defuseSlack(once)).toBe(once);
   });
 });
 

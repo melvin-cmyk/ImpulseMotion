@@ -7,8 +7,8 @@
  */
 
 import { Pill } from "@/components/ui/surface";
-import type { StepResult } from "@/lib/routines/types";
-import { STEP_FAMILY, TARGET_LABEL, durationLabel } from "@/components/routines/routine-model";
+import { STEP_WRITES, type StepResult } from "@/lib/routines/types";
+import { STEP_FAMILY, TARGET_LABEL, durationLabel, runCounters } from "@/components/routines/routine-model";
 
 const STEP_STATUS: Record<StepResult["status"], { label: string; tone: "emerald" | "default" | "red" }> = {
   ok: { label: "OK", tone: "emerald" },
@@ -49,9 +49,19 @@ export function RunSteps({ steps, dryRun }: { steps: StepResult[]; dryRun: boole
               </span>
             </div>
 
+            {STEP_WRITES[s.type] !== "none" && s.status !== "skipped" && (
+              <p className="text-[11px] text-gray-400 mt-1.5 tabular-nums">
+                {runCounters({ counts: s.counts, trigger: dryRun ? "dry_run" : "manual", steps: [s] }).map((c) => c.text).join(" · ")}
+              </p>
+            )}
+            {s.timedOut && <p className="text-xs text-amber-300 mt-1">Arrêtée faute de temps : ce qui reste est traité à l&apos;exécution suivante.</p>}
             {s.error && (
               <p className="text-xs text-red-300 mt-1.5 break-words">
-                {s.error.class === "infra" ? "Panne technique (ne compte pas comme un échec de la routine) : " : "Erreur : "}{s.error.message}
+                {s.error.class === "infra"
+                  ? "Panne technique (ne compte pas comme un échec de la routine) : "
+                  : s.error.scope === "items"
+                    ? "Lignes en échec (chacune est retentée, 3 tentatives au plus ; la routine ne s'arrête pas pour cela) : "
+                    : "Erreur : "}{s.error.message}
               </p>
             )}
             {s.warnings.map((w, k) => <p key={k} className="text-xs text-amber-300 mt-1 break-words">{w}</p>)}

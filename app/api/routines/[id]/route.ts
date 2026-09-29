@@ -4,7 +4,9 @@
  * GET    → the routine ({ routine })
  * PATCH  → { name? } and/or { action: "pause" | "resume" | "archive" }
  *          pause   : active → paused, leaves the schedule
- *          resume  : paused → active, if the dry run still covers the definition
+ *          resume  : paused → active, if the dry run still covers the routine
+ *                    (definition, schedule, accounts, timezone). A routine
+ *                    that creates ads is resumed by who may activate it.
  *          archive : any status → archived
  * DELETE → archives (nothing is ever deleted: the history is the audit trail)
  *
@@ -14,9 +16,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
+import { adminRuleRefusal } from "@/lib/routines/admin-rule";
+import { hashDefinition } from "@/lib/routines/hash";
 import { computeNextRunAt } from "@/lib/routines/schedule";
 import { actorOf, getRoutine, logEvent, renameRoutine, routineForSession, routineView, setStatus, type Actor, type RoutineRecord } from "@/lib/routines/store";
-import { parseStoredSchedule, validateName } from "@/lib/routines/validate";
+import { parseStoredDefinition, parseStoredSchedule, validateName } from "@/lib/routines/validate";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const NOT_FOUND = () => NextResponse.json({ error: "not found" }, { status: 404 });
@@ -56,6 +60,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (body.name === undefined && action === undefined) return NextResponse.json({ error: "rien à modifier" }, { status: 400 });
   if (routine.status === "archived") return conflict("Cette routine est archivée.");
 
+  // Asked before anything is changed: a refused resume does not rename the routine on its way.
+  if (action === "resume") {
+    const refused = await adminRuleRefusal(routine, "resume");
+    if (refused) return NextResponse.json(refused.body, { status: refused.status });
+  }
+
   if (body.name !== undefined) {
     const name = validateName(body.name);
     if (!name.ok) return NextResponse.json({ error: name.errors[0] }, { status: 400 });
@@ -71,6 +81,13 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     if (!routine.dryRunHash || routine.dryRunHash !== routine.definitionHash) return conflict("La définition a changé depuis le dernier essai à blanc : refaites un essai, puis activez la routine.");
     const schedule = parseStoredSchedule(routine.scheduleJson);
     if (!schedule.ok) return conflict(schedule.errors[0]);
+    const definition = parseStoredDefinition(routine.definitionJson);
+    if (!definition.ok) return conflict("La définition enregistrée est refusée : appliquez-la de nouveau.");
+    const hash = hashDefinition({
+      definition: definition.value, schedule: schedule.value, maxItemsPerRun: routine.maxItemsPerRun,
+      metaAccountId: routine.metaAccountId, googleCustomerId: routine.googleCustomerId, timezone: routine.timezone,
+    });
+    if (hash !== routine.definitionHash) return conflict("La définition, les comptes ou le fuseau ont changé depuis le dernier essai à blanc : appliquez la définition de nouveau, refaites un essai, puis activez la routine.");
     const nextRunAt = computeNextRunAt(schedule.value, routine.timezone, new Date());
     if (!(await setStatus(routine.id, ["paused"], "active", { nextRunAt, consecutiveFailures: 0 }))) return conflict("La routine a changé d'état entre-temps.");
     await logEvent(routine.id, "resumed", actor, { definitionHash: routine.definitionHash });

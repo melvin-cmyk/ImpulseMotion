@@ -10,13 +10,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireRealAdmin, requireStaff } from "@/lib/auth-helpers";
+import { requireStaff } from "@/lib/auth-helpers";
+import { adminRuleRefusal } from "@/lib/routines/admin-rule";
 import { hashDefinition } from "@/lib/routines/hash";
 import { computeNextRunAt } from "@/lib/routines/schedule";
-import { writesPlatform } from "@/lib/routines/steps";
 import { actorOf, getRoutine, logEvent, routineForSession, routineView, setStatus } from "@/lib/routines/store";
 import { parseStoredDefinition, parseStoredSchedule } from "@/lib/routines/validate";
-import { platformWriteNeedsAdmin } from "@/lib/routines/types";
 
 const conflict = (error: string, extra: Record<string, unknown> = {}) => NextResponse.json({ error, ...extra }, { status: 409 });
 
@@ -37,17 +36,17 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   if (!definition.ok) return conflict("La définition enregistrée est refusée.", { errors: definition.errors });
   const schedule = parseStoredSchedule(routine.scheduleJson);
   if (!schedule.ok) return conflict("Le planning enregistré est refusé.", { errors: schedule.errors });
-  const hash = hashDefinition({ definition: definition.value, schedule: schedule.value, maxItemsPerRun: routine.maxItemsPerRun });
-  if (hash !== routine.definitionHash) return conflict("La définition enregistrée ne correspond plus à son empreinte : appliquez-la de nouveau.");
+  // The accounts and the timezone are part of the fingerprint: changed since the dry run, it no longer covers the routine.
+  const hash = hashDefinition({
+    definition: definition.value, schedule: schedule.value, maxItemsPerRun: routine.maxItemsPerRun,
+    metaAccountId: routine.metaAccountId, googleCustomerId: routine.googleCustomerId, timezone: routine.timezone,
+  });
+  if (hash !== routine.definitionHash) return conflict("La définition, les comptes ou le fuseau enregistrés ne correspondent plus à l'empreinte de la routine : appliquez-la de nouveau, puis refaites un essai à blanc.", { code: "hash_mismatch" });
   if (!routine.dryRunHash) return conflict("Un essai à blanc réussi est demandé avant l'activation.", { code: "dry_run_required" });
   if (routine.dryRunHash !== hash) return conflict("La routine a changé depuis le dernier essai à blanc : refaites un essai avant de l'activer.", { code: "dry_run_outdated" });
 
-  if (writesPlatform(definition.value.steps) && platformWriteNeedsAdmin()) {
-    const admin = await requireRealAdmin();
-    if ("error" in admin) {
-      return NextResponse.json({ error: "Cette routine crée des publicités : seul un administrateur peut l'activer.", code: "admin_required" }, { status: 403 });
-    }
-  }
+  const refused = await adminRuleRefusal(routine, "activate");
+  if (refused) return NextResponse.json(refused.body, { status: refused.status });
 
   const now = new Date();
   const nextRunAt = computeNextRunAt(schedule.value, routine.timezone, now);

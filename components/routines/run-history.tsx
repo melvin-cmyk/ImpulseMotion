@@ -10,7 +10,9 @@ import { useCallback, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, History, Loader2 } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import { RunSteps } from "@/components/routines/run-steps";
-import { RUN_STATUS, RUN_TRIGGER, dateTimeLabel, durationLabel, toRunView, type RunView } from "@/components/routines/routine-model";
+import { RUN_STATUS, RUN_TRIGGER, dateTimeLabel, durationLabel, runCounters, toRunView, type RunCounter, type RunView } from "@/components/routines/routine-model";
+
+const COUNTER_TONE: Record<RunCounter["tone"], string | undefined> = { done: "text-emerald-300", plain: undefined, bad: "text-red-300", wait: "text-amber-300" };
 
 const PAGE_SIZE = 20;
 
@@ -86,16 +88,9 @@ export function RunHistory({ routineId, timezone, refreshKey }: { routineId: str
                   <Pill tone={st.tone}>{st.label}</Pill>
                   <span className="text-xs text-gray-500">{RUN_TRIGGER[run.trigger] ?? run.trigger}</span>
                   <span className="text-xs text-gray-400 ml-auto tabular-nums flex flex-wrap gap-x-3">
-                    {dry ? (
-                      <span>{run.totals.planned} prévu{run.totals.planned > 1 ? "s" : ""}</span>
-                    ) : (
-                      <>
-                        {/* Every write counts: ads, Sheet rows and messages alike (the detail is under each step). */}
-                        <span className="text-emerald-300">{run.totals.created} écriture{run.totals.created > 1 ? "s" : ""} faite{run.totals.created > 1 ? "s" : ""}</span>
-                        <span>{run.totals.skipped} ignoré{run.totals.skipped > 1 ? "s" : ""}</span>
-                        <span className={run.totals.failed ? "text-red-300" : undefined}>{run.totals.failed} échoué{run.totals.failed > 1 ? "s" : ""}</span>
-                      </>
-                    )}
+                    {/* One counter per nature of write, the same for a dry run and a live run. */}
+                    {runCounters(run).map((c) => <span key={c.key + c.text} className={COUNTER_TONE[c.tone]}>{c.text}</span>)}
+                    {run.timedOut && <span className="text-amber-300">temps écoulé</span>}
                     {run.durationMs > 0 && <span className="text-gray-600">{durationLabel(run.durationMs)}</span>}
                   </span>
                 </button>

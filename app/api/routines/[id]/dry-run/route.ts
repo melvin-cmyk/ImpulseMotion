@@ -5,6 +5,10 @@
  *        item is reserved, and what would have been written comes back in
  *        `planned`. A successful dry run is remembered with the hash of the
  *        definition it ran (dryRunHash): activation asks for it.
+ *
+ *        A dry run that found nothing to create, for a routine that creates
+ *        ads, still opens the activation (a routine of « new rows » has an
+ *        empty Sheet on some days), and says so loudly: `warning`.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -36,12 +40,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   });
   // The hash is the one of the definition that ran: changed meanwhile, it will not match at activation.
   if (result.status === "success") {
-    await recordDryRun(routine.id, result.definitionHash, now, actorOf(guard.session), `${result.totals.planned} écriture(s) prévue(s)`);
+    const seen = `${result.totals.planned} écriture(s) prévue(s)`;
+    await recordDryRun(routine.id, result.definitionHash, now, actorOf(guard.session), [seen, ...result.warnings].join(" — "));
   }
 
   const fresh = await getRoutine(routine.id);
   return NextResponse.json({
     ok: result.status === "success",
+    warning: result.warnings[0] ?? null,
     result: compactResult(result, PREVIEW_ROWS),
     routine: routineView(fresh ?? routine),
   });

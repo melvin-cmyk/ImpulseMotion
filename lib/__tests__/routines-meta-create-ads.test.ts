@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MetaCreateAdsStep, Row, RowSet, StepContext } from "@/lib/routines/types";
+import { itemKeyOf, type ItemClaim, type MetaCreateAdsStep, type Row, type RowSet, type StepContext } from "@/lib/routines/types";
 
 // Meta is a fetch mock, the Sheet client (lot B) is a module mock: nothing real is called.
 
@@ -53,7 +53,7 @@ const happy: Reply = (c) => {
 const step = (patch: Partial<MetaCreateAdsStep> = {}): MetaCreateAdsStep => ({
   id: "creer", type: "meta.create_ads", campaignId: CAMPAIGN, adsetId: ADSET, pageId: PAGE, keyColumn: "id",
   mapping: {
-    adName: "{{run.date}} - {{row.nom}}", primaryText: "{{row.texte}}", headline: "{{row.titre}}",
+    adName: "{{row.nom}}", primaryText: "{{row.texte}}", headline: "{{row.titre}}",
     linkUrl: "{{row.lien}}", callToAction: "LEARN_MORE", mediaType: "image", mediaUrl: "{{row.image}}",
   },
   ...patch,
@@ -72,12 +72,21 @@ async function load() {
   return { handler: metaCreateAdsHandler, mintWriteGuard };
 }
 
-type Claim = Awaited<ReturnType<StepContext["claimItem"]>>;
+type Claim = ItemClaim | ItemClaim["state"];
+/** Key of a row in the database: the step, the ad set, the value of the key column. */
+const K = (rowKey: string, adset = ADSET) => itemKeyOf("creer", adset, rowKey);
+const rowKeyOf = (key: string) => key.split(":").slice(2).join(":");
 
-async function context(mode: "live" | "dry_run", rows: Row[] | null, opts: { claims?: Record<string, Claim>; maxItemsPerRun?: number; deadlineAt?: number; metaAccountId?: string | null } = {}) {
+/** `claims` is keyed by the value of the key column; the answers are those of the engine (ItemClaim). */
+async function context(mode: "live" | "dry_run", rows: Row[] | null, opts: { claims?: Record<string, Claim>; maxItemsPerRun?: number; deadlineAt?: number; metaAccountId?: string | null; signal?: AbortSignal } = {}) {
   const { handler, mintWriteGuard } = await load();
-  const claimItem = vi.fn(async (_stepId: string, key: string, _label: string): Promise<Claim> => opts.claims?.[key] ?? "claimed");
+  const answer = (key: string): ItemClaim => {
+    const given = opts.claims?.[rowKeyOf(key)] ?? "claimed";
+    return typeof given === "string" ? { state: given, ...(given === "claimed" ? { attempts: 1 } : {}) } : given;
+  };
+  const claimItem = vi.fn(async (_stepId: string, key: string, _label: string): Promise<ItemClaim> => answer(key));
   const settleItem = vi.fn(async (_stepId: string, _key: string, _r: { status: "created" | "failed"; externalId?: string; error?: string }) => {});
+  const confirmItem = vi.fn(async (_stepId: string, _key: string, _externalId: string) => {});
   const ctx: StepContext = {
     mode,
     routine: { id: "r1", name: "Créas", metaAccountId: opts.metaAccountId === undefined ? `act_${ACCOUNT}` : opts.metaAccountId, googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: opts.maxItemsPerRun ?? 20 },
@@ -85,9 +94,10 @@ async function context(mode: "live" | "dry_run", rows: Row[] | null, opts: { cla
     input: rows ? rowSet(rows) : null,
     outputs: {},
     write: mode === "live" ? mintWriteGuard("live", "run1") : null,
-    claimItem, settleItem,
+    ...(opts.signal ? { signal: opts.signal } : {}),
+    claimItem, settleItem, confirmItem,
   };
-  return { handler, ctx, claimItem, settleItem };
+  return { handler, ctx, claimItem, settleItem, confirmItem };
 }
 
 function expectNoToken(value: unknown) {
@@ -260,14 +270,14 @@ describe("meta.create_ads — dry run", () => {
     expect(posts()).toHaveLength(0);
     expect(calls.every((c) => c.method === "GET")).toBe(true);
     // Asked, never settled: in a dry run the engine answers from the database and reserves nothing.
-    expect(claimItem.mock.calls.map((c) => c[1])).toEqual(["A1", "A2", "A3"]);
+    expect(claimItem.mock.calls.map((c) => c[1])).toEqual([K("A1"), K("A2"), K("A3")]);
     expect(settleItem).not.toHaveBeenCalled();
     expect(out.written).toEqual([]);
     expect(out.planned.map((p) => p.itemKey)).toEqual(["A1", "A2", "A3"]);
     expect(out.planned[0]).toEqual({
-      target: "meta", itemKey: "A1", summary: "Créer en pause la publicité « 2026-09-29 - Visuel A1 »",
+      target: "meta", itemKey: "A1", summary: "Créer en pause la publicité « Visuel A1 »",
       preview: {
-        cle: "A1", nom: "2026-09-29 - Visuel A1", texte: "Texte A1", titre: "Titre A1", description: null,
+        cle: "A1", nom: "Visuel A1", texte: "Texte A1", titre: "Titre A1", description: null,
         lien: "https://www.example.org/p/A1", bouton: "LEARN_MORE", media: "https://cdn.example.org/A1.jpg", type_media: "image",
         statut: "PAUSED", compte: `act_${ACCOUNT}`, campagne: CAMPAIGN, ensemble: ADSET, page: PAGE,
       },
@@ -286,11 +296,12 @@ describe("meta.create_ads — dry run", () => {
   });
 
   it("says when an ad of the same name is already there", async () => {
-    existingAds = [{ id: "9000777", name: "2026-09-29 - Visuel A1", status: "ACTIVE" }];
+    existingAds = [{ id: "9000777", name: "Visuel A1", status: "PAUSED" }];
     const { handler, ctx } = await context("dry_run", [row("A1"), row("A2")]);
     const out = await handler.run(step(), ctx);
     expect(out.planned.map((p) => p.itemKey)).toEqual(["A2"]);
-    expect(out.warnings.join(" ")).toMatch(/existe déjà \(9000777\)/);
+    expect(out.warnings.join(" ")).toMatch(/existe déjà \(9000777\), en pause/);
+    expect(out.counts).toMatchObject({ adsCreated: 1, adsAttached: 1 });
   });
 
   it("refuses the ad set of another account or campaign before planning anything", async () => {
@@ -308,8 +319,8 @@ describe("meta.create_ads — live run", () => {
   it("creates one paused ad per row, reserved before and settled after", async () => {
     const { handler, ctx, claimItem, settleItem } = await context("live", [row("A1"), row("A2"), row("A3")]);
     const order: string[] = [];
-    claimItem.mockImplementation(async (_s, key) => { order.push(`claim ${key} after ${posts().length} POST`); return "claimed"; });
-    settleItem.mockImplementation(async (_s, key) => { order.push(`settle ${key} after ${posts().length} POST`); });
+    claimItem.mockImplementation(async (_s, key) => { order.push(`claim ${rowKeyOf(key)} after ${posts().length} POST`); return { state: "claimed", attempts: 1 }; });
+    settleItem.mockImplementation(async (_s, key) => { order.push(`settle ${rowKeyOf(key)} after ${posts().length} POST`); });
     const out = await handler.run(step(), ctx);
     expect(out.status).toBe("ok");
     expect(out.planned).toEqual([]);
@@ -326,7 +337,8 @@ describe("meta.create_ads — live run", () => {
     }
     for (const c of posts()) expect(c.path.startsWith(`/act_${ACCOUNT}/`)).toBe(true);
     expect(settleItem.mock.calls.map((c) => c[2])).toEqual(out.written.map((w) => ({ status: "created", externalId: w.externalId })));
-    expect(claimItem.mock.calls[0]).toEqual(["creer", "A1", "2026-09-29 - Visuel A1"]);
+    expect(claimItem.mock.calls[0]).toEqual(["creer", K("A1"), "Visuel A1"]);
+    expect(out.counts).toEqual({ adsCreated: 3, adsAttached: 0, sheetRows: 0, messages: 0, skipped: 0, failed: 0, deferred: 0 });
     expectNoToken(out);
     expectNoToken(settleItem.mock.calls);
   });
@@ -413,8 +425,10 @@ describe("meta.create_ads — live run", () => {
     const pause = posts().filter((c) => c.path === `/${adId}`);
     expect(pause).toHaveLength(1);
     expect(pause[0].body?.getAll("status")).toEqual(["PAUSED"]);
-    expect(settleItem).toHaveBeenCalledWith("creer", "A1", { status: "failed", externalId: adId, error: expect.stringMatching(/non confirmée en pause/) });
-    expect(out.output.rows?.rows[0]).toMatchObject({ meta_statut: "échec", meta_ad_id: adId });
+    expect(settleItem).toHaveBeenCalledWith("creer", K("A1"), { status: "failed", externalId: adId, error: expect.stringMatching(/non confirmée en pause/) });
+    // The ad exists: the row is to be checked, it is not a creation that failed and may be tried again.
+    expect(out.output.rows?.rows[0]).toMatchObject({ meta_statut: `à vérifier : la publicité ${adId} a été créée mais n'est pas confirmée en pause`, meta_ad_id: adId });
+    expect(out.error?.scope).toBe("items");
   });
 
   it("a refusal by Meta fails the item and goes on with the next row", async () => {
@@ -425,7 +439,10 @@ describe("meta.create_ads — live run", () => {
     expect(out.status).toBe("failed");
     expect(out.error).toMatchObject({ class: "functional" });
     expect(out.written.map((w) => w.itemKey)).toEqual(["A2"]);
-    expect(settleItem.mock.calls.map((c) => [c[1], c[2].status])).toEqual([["A1", "failed"], ["A2", "created"]]);
+    expect(settleItem.mock.calls.map((c) => [c[1], c[2].status])).toEqual([[K("A1"), "failed"], [K("A2"), "created"]]);
+    // One row failed, the step did its work: this failure is the row's, it does not count towards the automatic stop.
+    expect(out.error?.scope).toBe("items");
+    expect(out.counts).toMatchObject({ adsCreated: 1, failed: 1 });
     expectNoToken(out);
     expectNoToken(settleItem.mock.calls);
   });
@@ -438,18 +455,20 @@ describe("meta.create_ads — live run", () => {
     expect(out).toMatchObject({ status: "failed", error: { class: "infra" } });
     expect(posts()).toHaveLength(1);
     expect(claimItem).toHaveBeenCalledTimes(1);
-    expect(settleItem).toHaveBeenCalledWith("creer", "A1", expect.objectContaining({ status: "failed" }));
+    expect(settleItem).toHaveBeenCalledWith("creer", K("A1"), expect.objectContaining({ status: "failed" }));
+    expect(out.error?.scope).toBe("step");
   });
 
   it("attaches an ad of the same name instead of creating it again", async () => {
-    existingAds = [{ id: "9000777", name: "2026-09-29 - Visuel A1", status: "PAUSED" }];
+    existingAds = [{ id: "9000777", name: "Visuel A1", status: "PAUSED" }];
     const { handler, ctx, settleItem } = await context("live", [row("A1")]);
     const out = await handler.run(step(), ctx);
     expect(posts()).toHaveLength(0);
-    expect(settleItem).toHaveBeenCalledWith("creer", "A1", { status: "created", externalId: "9000777" });
+    expect(settleItem).toHaveBeenCalledWith("creer", K("A1"), { status: "created", externalId: "9000777" });
     expect(out.status).toBe("ok");
-    expect(out.written).toEqual([expect.objectContaining({ itemKey: "A1", externalId: "9000777" })]);
+    expect(out.written).toEqual([expect.objectContaining({ itemKey: "A1", externalId: "9000777", attached: true })]);
     expect(out.warnings.join(" ")).toMatch(/existait déjà/);
+    expect(out.counts).toMatchObject({ adsCreated: 0, adsAttached: 1 });
   });
 
   it("does not create when it cannot check the names of the ad set", async () => {
@@ -459,7 +478,7 @@ describe("meta.create_ads — live run", () => {
     expect(posts()).toHaveLength(0);
     expect(out).toMatchObject({ status: "failed", error: { class: "infra" } });
     expect(settleItem).toHaveBeenCalledTimes(1);
-    expect(settleItem).toHaveBeenCalledWith("creer", "A1", expect.objectContaining({ status: "failed" }));
+    expect(settleItem).toHaveBeenCalledWith("creer", K("A1"), expect.objectContaining({ status: "failed" }));
   });
 });
 
@@ -469,7 +488,7 @@ describe("meta.create_ads — rows refused", () => {
     const { handler, ctx, claimItem } = await context("live", rows);
     const out = await handler.run(step(), ctx);
     expect(out.status).toBe("ok");
-    expect(claimItem.mock.calls.map((c) => c[1])).toEqual(["A1", "A3"]);
+    expect(claimItem.mock.calls.map((c) => c[1])).toEqual([K("A1"), K("A3")]);
     expect(adPosts()).toHaveLength(2);
     expect(out.output.rows?.rows.map((r) => r.meta_statut)).toEqual(["créée", "refusée", "refusée", "refusée", "refusée", "créée", "refusée", "refusée"]);
     const text = out.warnings.join("\n");
@@ -486,7 +505,7 @@ describe("meta.create_ads — rows refused", () => {
   ])("refuses a row whose %s is %s", async (column, value) => {
     const { handler, ctx, claimItem } = await context("live", [row("A1", { [column]: value }), row("A2")]);
     const out = await handler.run(step(), ctx);
-    expect(claimItem.mock.calls.map((c) => c[1])).toEqual(["A2"]);
+    expect(claimItem.mock.calls.map((c) => c[1])).toEqual([K("A2")]);
     expect(adPosts()).toHaveLength(1);
     expect(out.output.rows?.rows.map((r) => r.meta_statut)).toEqual(["refusée", "créée"]);
     expect(out.warnings.join(" ")).toMatch(/Ligne « A1 » refusée/);
@@ -525,6 +544,9 @@ describe("meta.create_ads — ceiling and deadline", () => {
     expect(out.status).toBe("ok");
     expect(out.warnings.join(" ")).toMatch(/Plafond de 3 publicités/);
     expect(out.output.rows?.rows.map((r) => [r.id, r.meta_statut])).toEqual([["K1", "créée"], ["K2", "créée"], ["K3", "créée"]]);
+    // The four rows left are counted, and the ceiling is not a lack of time.
+    expect(out.counts).toMatchObject({ adsCreated: 3, deferred: 4 });
+    expect(out.timedOut).toBeUndefined();
   });
 
   it("does not count the rows already done, and never goes over the cap of 50", async () => {
@@ -552,6 +574,9 @@ describe("meta.create_ads — ceiling and deadline", () => {
     expect(posts()).toHaveLength(0);
     expect(out.status).toBe("ok");
     expect(out.warnings.join(" ")).toMatch(/Temps de l'exécution presque écoulé/);
+    // The outcome says it: nothing was done for lack of time, three rows wait.
+    expect(out.timedOut).toBe(true);
+    expect(out.counts).toMatchObject({ adsCreated: 0, deferred: 3 });
   });
 });
 
@@ -593,7 +618,7 @@ describe("meta.create_ads — status written back", () => {
     expect(out.status).toBe("ok");
     expect(out.error).toBeUndefined();
     expect(out.written).toHaveLength(1);
-    expect(settleItem).toHaveBeenCalledWith("creer", "A1", expect.objectContaining({ status: "created" }));
+    expect(settleItem).toHaveBeenCalledWith("creer", K("A1"), expect.objectContaining({ status: "created" }));
     expect(out.warnings.join(" ")).toMatch(/Retour dans le Sheet/);
   });
 });

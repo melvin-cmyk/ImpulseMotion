@@ -278,7 +278,9 @@ describe("sheet.write", () => {
     const out = await sheetWriteHandler.run(append, context(rowset([{ id: "c3", nom: "+promo", budget: 10 }, { id: "c4", nom: "Noël", budget: 20 }]), live()));
     expect(out).toMatchObject({ status: "ok", rowsIn: 2, rowsOut: 2 });
     expect(out.written).toHaveLength(2);
-    expect(out.planned).toHaveLength(2);
+    // What would be written is the business of a dry run; a live run says what it did, counted the same way.
+    expect(out.planned).toEqual([]);
+    expect(out.counts).toEqual({ sheetRows: 2 });
     expect(googleWrites).toHaveLength(1);
     expect(grid.slice(3)).toEqual([["c3", "'+promo", "", 10], ["c4", "Noël", "", 20]]);
   });

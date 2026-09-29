@@ -64,9 +64,9 @@ import * as runRoute from "@/app/api/routines/[id]/run/route";
 import * as runsRoute from "@/app/api/routines/[id]/runs/route";
 import * as assistantRoute from "@/app/api/routines/[id]/assistant/route";
 import * as cronRoute from "@/app/api/cron/routines/route";
-import { plannedWrites, toRoutineView, toRunView } from "@/components/routines/routine-model";
+import { plannedWrites, runCounters, toRoutineView, toRunView } from "@/components/routines/routine-model";
 import { validateProposal } from "@/lib/routines/validate";
-import type { Cell, PreflightIssue, StepResult } from "@/lib/routines/types";
+import type { Cell, PreflightIssue, StepResult, WriteCounts } from "@/lib/routines/types";
 import { handleSheetsRequest } from "../../server/sheets-direct.mjs";
 import { db, resetDb } from "./routines-engine-fakes";
 import { LIVE_PROPOSALS } from "./routines-live-proposals";
@@ -287,12 +287,18 @@ const req = (body?: unknown, url = "http://x/api/routines", headers: Record<stri
 
 interface RunBody {
   ok: boolean;
-  result: { runId: string; status: string; totals: { planned: number; created: number; skipped: number; failed: number }; steps: StepResult[]; error: string | null; deferred: number; autoDisabled: boolean };
+  warning?: string | null;
+  result: {
+    runId: string; status: string; totals: { planned: number; created: number; skipped: number; failed: number }; counts: WriteCounts;
+    steps: StepResult[]; error: string | null; deferred: number; autoDisabled: boolean; timedOut: boolean;
+  };
   routine: Record<string, unknown>;
 }
 const step = (body: RunBody, id: string) => body.result.steps.find((s) => s.stepId === id)!;
 const routineRow = (id: string) => db.routine.rows.find((r) => r.id === id)!;
 const items = (id: string) => db.routineItem.rows.filter((r) => r.routineId === id);
+/** Key of a row in RoutineItem: the step, the ad set it writes in, the value of the key column. */
+const K = (rowKey: string, adset = ADSET) => `creer:${adset}:${rowKey}`;
 
 async function draft(name: string, accounts: { meta?: boolean; google?: boolean } = { meta: true }): Promise<string> {
   const res = await CREATE(req({
@@ -525,7 +531,9 @@ describe("exemple 1 — les nouvelles lignes du Sheet deviennent des publicités
     expect(message[0]).toMatchObject({ target: "slack", preview: { channel: "#c_lpev" } });
     expect(String(message[0].preview.text)).toContain(`Créas du ${TODAY}`);
     expect(String(message[0].preview.text)).toContain("prévue");
-    expect(body.result.totals).toEqual({ planned: 5, created: 0, skipped: 0, failed: 0 });
+    // By nature of write: 3 ads, the status of 3 rows of the Sheet, 1 message. The total adds them up.
+    expect(body.result.counts).toEqual({ adsCreated: 3, adsAttached: 0, sheetRows: 3, messages: 1, skipped: 0, failed: 0, deferred: 0 });
+    expect(body.result.totals).toEqual({ planned: 7, created: 0, skipped: 0, failed: 0 });
     expect(routineRow(id).dryRunHash).toBe(routineRow(id).definitionHash);
   });
 
@@ -558,7 +566,7 @@ describe("exemple 1 — les nouvelles lignes du Sheet deviennent des publicités
     for (const c of since(from)) expect(c.url).not.toContain(TOKEN);
 
     expect(items(id).map((i) => [i.itemKey, i.status, i.externalId])).toEqual([
-      ["crea-1", "created", "920000000001"], ["crea-2", "created", "920000000002"], ["crea-3", "created", "920000000003"],
+      [K("crea-1"), "created", "920000000001"], [K("crea-2"), "created", "920000000002"], [K("crea-3"), "created", "920000000003"],
     ]);
   });
 
@@ -580,8 +588,10 @@ describe("exemple 1 — les nouvelles lignes du Sheet deviennent des publicités
 
     expect(step(body, "creer").written).toHaveLength(3);
     expect(step(body, "prevenir").written).toHaveLength(1);
-    // 3 ads and 1 message were written; nothing skipped, nothing failed.
-    expect(body.result.totals).toMatchObject({ created: 4, skipped: 0, failed: 0 });
+    // 3 ads, the status of 3 rows of the Sheet and 1 message were written; nothing skipped, nothing failed.
+    expect(body.result.counts).toEqual({ adsCreated: 3, adsAttached: 0, sheetRows: 3, messages: 1, skipped: 0, failed: 0, deferred: 0 });
+    expect(body.result.totals).toMatchObject({ planned: 0, created: 7, skipped: 0, failed: 0 });
+    expect(body.result.steps.every((s) => s.planned.length === 0)).toBe(true);
     expect(routineRow(id)).toMatchObject({ lastRunStatus: "success", consecutiveFailures: 0, status: "active" });
   });
 
@@ -701,7 +711,7 @@ describe("exemple 1 — quand Meta ne répond pas ou refuse", () => {
     const first = await run(id);
 
     expect(graphPosts("/ads").filter((c) => new URLSearchParams(c.body).get("name") === "Pub 2")).toHaveLength(1);
-    expect(items(id).map((i) => [i.itemKey, i.status])).toEqual([["crea-1", "created"], ["crea-2", "uncertain"]]);
+    expect(items(id).map((i) => [i.itemKey, i.status])).toEqual([[K("crea-1"), "created"], [K("crea-2"), "uncertain"]]);
     expect(first.result.status).toBe("partial");
     expect(step(first, "creer").error).toMatchObject({ class: "infra" });
     expect(step(first, "creer").error?.message).not.toContain(TOKEN);
@@ -715,7 +725,7 @@ describe("exemple 1 — quand Meta ne répond pas ou refuse", () => {
     const second = await run(id);
     expect(graphPosts("/ads").filter((c) => new URLSearchParams(c.body).get("name") === "Pub 2")).toHaveLength(1);
     expect(step(second, "creer").written.map((w) => w.itemKey)).toEqual(["crea-3"]);
-    expect(items(id).find((i) => i.itemKey === "crea-2")).toMatchObject({ status: "uncertain" });
+    expect(items(id).find((i) => i.itemKey === K("crea-2"))).toMatchObject({ status: "uncertain" });
 
     // Even with the status cell emptied by hand, the database refuses to create it again.
     const grid = world.sheets.get(`${DOC}/Créas`)!;
@@ -724,7 +734,8 @@ describe("exemple 1 — quand Meta ne répond pas ou refuse", () => {
     expect(graphPosts("/ads").filter((c) => new URLSearchParams(c.body).get("name") === "Pub 2")).toHaveLength(1);
     expect(step(third, "creer").warnings.join(" ")).toMatch(/crea-2.*à vérifier dans le gestionnaire de publicités/);
     expect(sheetRows(CREAS)[1].statut).toBe("à vérifier");
-    expect(third.result.totals).toMatchObject({ created: 0, skipped: 1 });
+    // No ad was created; the only write is the status of the row, put back in the Sheet.
+    expect(third.result.counts).toMatchObject({ adsCreated: 0, adsAttached: 0, sheetRows: 1, skipped: 1 });
     expect(world.slack).toHaveLength(1);
     expect(world.meta.ads.filter((a) => a.name === "Pub 2")).toHaveLength(1);
   });
@@ -736,17 +747,22 @@ describe("exemple 1 — quand Meta ne répond pas ou refuse", () => {
 
     expect(world.meta.ads.map((a) => a.name)).toEqual(["Pub 1", "Pub 3"]);
     expect(first.result.status).toBe("partial");
-    expect(first.result.totals).toMatchObject({ created: 2, failed: 1 });
-    expect(first.result.error).toMatch(/1 publicité\(s\) en échec sur 3 tentée\(s\)/);
+    expect(first.result.counts).toMatchObject({ adsCreated: 2, sheetRows: 3, messages: 0, failed: 1 });
+    expect(first.result.totals).toMatchObject({ created: 5, failed: 1 });
+    expect(first.result.error).toMatch(/1 publicité\(s\) en échec ou à vérifier sur 3 tentée\(s\)/);
+    // The failure is the row's: the run is partial and does not count towards the automatic stop.
+    expect(step(first, "creer").error).toMatchObject({ class: "functional", scope: "items" });
+    expect(routineRow(id)).toMatchObject({ status: "active", consecutiveFailures: 0 });
     expect(step(first, "creer").warnings.join(" ")).toMatch(/crea-2.*refusée par Meta.*Invalid parameter/);
     expect(sheetRows(CREAS).map((r) => r.statut)).toEqual(["créée (en pause)", "échec", "créée (en pause)"]);
     expect(String(sheetRows(CREAS)[1].erreur)).toMatch(/refusée par Meta/);
-    expect(items(id).find((i) => i.itemKey === "crea-2")).toMatchObject({ status: "failed", attempts: 1 });
+    expect(items(id).find((i) => i.itemKey === K("crea-2"))).toMatchObject({ status: "failed", attempts: 1 });
+    // Partial run: no message in the client's channel, the detail is in the Sheet and in the history.
     expect(world.slack).toEqual([]);
 
     const history = await (await RUNS(new NextRequest(`http://x/api/routines/${id}/runs`), at(id))).json();
     const last = (history.runs as unknown[]).map((r) => toRunView(r)!).find((r) => r.trigger === "manual")!;
-    expect(last).toMatchObject({ status: "partial", trigger: "manual", totals: { created: 2, failed: 1 } });
+    expect(last).toMatchObject({ status: "partial", trigger: "manual", totals: { created: 5, failed: 1 }, counts: { adsCreated: 2, failed: 1 } });
     expect(last.error).toMatch(/en échec/);
 
     // With the status written in the Sheet, the row is left alone until someone empties the cell.
@@ -756,22 +772,35 @@ describe("exemple 1 — quand Meta ne répond pas ou refuse", () => {
     expect(routineRow(id)).toMatchObject({ status: "active", consecutiveFailures: 0 });
   });
 
-  it("refus de Meta, sans filtre : la ligne est retentée, trois tentatives en tout, et la troisième arrête la routine", async () => {
+  // Was « … et la troisième arrête la routine ». Decision of the lead developer: a row refused by Meta is tried
+  // three times, then given up, and never switches the routine off by itself.
+  it("refus de Meta, sans filtre : la ligne est retentée, trois tentatives en tout, puis abandonnée ; la routine reste active", async () => {
     const id = await live("Créas", creasProposal({ filter: false, writeBack: false }));
     world.meta.adFailure.set("Pub 2", "refuse");
     const attempts = () => graphPosts("/ads").filter((c) => new URLSearchParams(c.body).get("name") === "Pub 2").length;
 
-    await run(id);
+    const first = await run(id);
     expect(attempts()).toBe(1);
-    expect(routineRow(id)).toMatchObject({ status: "active", consecutiveFailures: 1 });
-    await run(id);
+    expect(first.result.status).toBe("partial");
+    expect(routineRow(id)).toMatchObject({ status: "active", consecutiveFailures: 0 });
+    // Alone in its run, the row still does not count: nothing was written, the run failed, the routine goes on.
+    const second = await run(id);
     expect(attempts()).toBe(2);
+    expect(second.result).toMatchObject({ status: "failed", autoDisabled: false, counts: { adsCreated: 0, failed: 1, skipped: 2 } });
     const third = await run(id);
     expect(attempts()).toBe(3);
-    expect(items(id).find((i) => i.itemKey === "crea-2")).toMatchObject({ status: "failed", attempts: 3 });
-    expect(third.result.autoDisabled).toBe(true);
-    expect(routineRow(id)).toMatchObject({ status: "error", consecutiveFailures: 3, nextRunAt: null });
+    expect(items(id).find((i) => i.itemKey === K("crea-2"))).toMatchObject({ status: "failed", attempts: 3 });
+    expect(third.result.autoDisabled).toBe(false);
+    expect(step(third, "creer").output.rows?.rows.map((r) => [r.id, r.meta_statut])).toEqual([["crea-2", "abandonnée après 3 tentatives"]]);
+    expect(routineRow(id)).toMatchObject({ status: "active", consecutiveFailures: 0 });
+
+    // Fourth run: nothing is sent for the row any more, and it is not said « déjà traitée ».
+    const fourth = await run(id);
+    expect(attempts()).toBe(3);
+    expect(fourth.result.status).toBe("success");
+    expect(step(fourth, "creer").warnings.join(" ")).toMatch(/crea-2 » abandonnée après 3 tentatives : .*refusée par Meta/);
     expect(world.meta.ads.map((a) => a.name)).toEqual(["Pub 1", "Pub 3"]);
+    expect(world.slack).toEqual([]);
   });
 });
 
@@ -1106,7 +1135,8 @@ describe("réponses des routes, lues par l'interface (components/routines/routin
     const dry = await (await DRY_RUN(req(), at(id))).json();
     // The panel reads the answer of the route as it is (dry-run-panel.tsx).
     const dryView = toRunView({ trigger: "dry_run", startedAt: Date.now(), ...(dry.result ?? dry.run ?? {}) })!;
-    expect(dryView).toMatchObject({ trigger: "dry_run", status: "success", totals: { planned: 5, created: 0, skipped: 0, failed: 0 }, error: null, timedOut: false });
+    expect(dryView).toMatchObject({ trigger: "dry_run", status: "success", totals: { planned: 7, created: 0, skipped: 0, failed: 0 }, error: null, timedOut: false });
+    expect(dryView.counts).toEqual({ adsCreated: 3, adsAttached: 0, sheetRows: 3, messages: 1, skipped: 0, failed: 0, deferred: 0 });
     expect(dryView.definitionHash).toBe(toRoutineView(dry.routine)!.definitionHash);
     expect(toRoutineView(dry.routine)!.dryRunValid).toBe(true);
     expect(dryView.steps.map((s) => [s.stepId, s.type, s.status])).toEqual([
@@ -1120,7 +1150,7 @@ describe("réponses des routes, lues par l'interface (components/routines/routin
     await activate(id);
     const ran = await (await RUN(req(), at(id))).json();
     // The page reads `result.status` and `result.totals` (app/routines/[id]/page.tsx).
-    expect(ran).toMatchObject({ ok: true, result: { status: "success", totals: { created: 4, skipped: 0, failed: 0 } } });
+    expect(ran).toMatchObject({ ok: true, result: { status: "success", totals: { created: 7, skipped: 0, failed: 0 } } });
     expect(toRoutineView(ran.routine)).toMatchObject({ status: "active", lastRunStatus: "success", lastRunAt: NOW.toISOString(), running: false });
 
     const history = await (await RUNS(new NextRequest(`http://x/api/routines/${id}/runs?page=1&pageSize=20`), at(id))).json();
@@ -1128,11 +1158,15 @@ describe("réponses des routes, lues par l'interface (components/routines/routin
     const views = (history.runs as unknown[]).map((r) => toRunView(r)!);
     expect(views.map((v) => v.trigger).sort()).toEqual(["dry_run", "manual"]);
     const manual = views.find((v) => v.trigger === "manual")!;
-    expect(manual).toMatchObject({ status: "success", startedAt: NOW.toISOString(), totals: { created: 4, skipped: 0, failed: 0 } });
+    expect(manual).toMatchObject({ status: "success", startedAt: NOW.toISOString(), totals: { created: 7, skipped: 0, failed: 0 } });
+    // The same counters as the dry run, by nature of write: the history shows them as they are.
+    expect(manual.counts).toEqual(dryView.counts);
+    expect(runCounters(manual).map((c) => c.text)).toEqual(["3 publicités créées", "3 lignes écrites dans un Sheet", "1 message envoyé"]);
+    expect(runCounters(dryView).map((c) => c.text)).toEqual(["3 publicités à créer", "3 lignes de Sheet à écrire", "1 message à envoyer"]);
     expect(manual.steps.find((s) => s.stepId === "creer")!.written).toEqual([
-      { summary: "Publicité « Pub 1 » créée en pause", itemKey: "crea-1", externalId: "920000000001" },
-      { summary: "Publicité « Pub 2 » créée en pause", itemKey: "crea-2", externalId: "920000000002" },
-      { summary: "Publicité « Pub 3 » créée en pause", itemKey: "crea-3", externalId: "920000000003" },
+      { summary: "Publicité « Pub 1 » créée en pause", itemKey: "crea-1", externalId: "920000000001", target: "meta" },
+      { summary: "Publicité « Pub 2 » créée en pause", itemKey: "crea-2", externalId: "920000000002", target: "meta" },
+      { summary: "Publicité « Pub 3 » créée en pause", itemKey: "crea-3", externalId: "920000000003", target: "meta" },
     ]);
   });
 

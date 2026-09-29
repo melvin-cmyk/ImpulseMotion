@@ -186,6 +186,6 @@ export const SHEET = { spreadsheetId: "sheet-1", tab: "Créas" };
 export const readStep = { id: "lire", type: "sheet.read", sheet: SHEET, requiredColumns: ["id", "nom", "statut"] } as const;
 export const slackStep = { id: "prevenir", type: "slack.message", channel: "#client", text: "Bilan du {{run.date}}" } as const;
 export const createAdsStep = {
-  id: "creer", type: "meta.create_ads", campaignId: "111", adsetId: "222", pageId: "333", keyColumn: "id",
+  id: "creer", type: "meta.create_ads", campaignId: "120210000000000001", adsetId: "120210000000000002", pageId: "104000000000001", keyColumn: "id",
   mapping: { adName: "{{row.nom}}", primaryText: "{{row.texte}}", linkUrl: "{{row.lien}}", mediaType: "image", mediaUrl: "{{row.image}}" },
 } as const;

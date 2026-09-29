@@ -30,6 +30,7 @@
 
 import { getMetaSystemToken, getMetaTokens, isMetaWriteUncertain, metaGraphGetOnce, metaGraphPost } from "@/lib/meta-api";
 import { isMetaApiError } from "@/lib/meta-errors";
+import { metaAccountDigits } from "@/lib/routines/accounts";
 import { assertWriteGuard } from "@/lib/routines/write-guard-check";
 import type { WriteGuard } from "@/lib/routines/types";
 
@@ -92,7 +93,12 @@ export function isMetaId(value: unknown): value is string {
   return typeof value === "string" && ID_RE.test(value);
 }
 
-const bareAccount = (accountId: string) => accountId.trim().replace(/^act_/, "");
+/**
+ * Digits of the ad account, by the rule shared with the creation of the
+ * routine (lib/routines/accounts.ts); empty when the id is not one, which
+ * every caller below refuses.
+ */
+const bareAccount = (accountId: string) => metaAccountDigits(accountId) ?? "";
 
 /** Buttons accepted on a link ad (subset of AdCreativeLinkDataCallToAction.type). */
 export const CALL_TO_ACTIONS = [
@@ -176,7 +182,7 @@ export interface PausedAdResult {
 /** Null when the input can be sent, the reason otherwise. No network. */
 export function pausedAdInputError(input: PausedAdInput): string | null {
   if (!input || typeof input !== "object") return "publicité invalide";
-  if (!isMetaId(bareAccount(String(input.accountId ?? "")))) return "compte publicitaire invalide";
+  if (!bareAccount(String(input.accountId ?? ""))) return "compte publicitaire invalide";
   if (!isMetaId(input.campaignId)) return "identifiant de campagne invalide";
   if (!isMetaId(input.adsetId)) return "identifiant d'ensemble de publicités invalide";
   if (!isMetaId(input.pageId)) return "identifiant de page invalide";
@@ -214,7 +220,7 @@ export interface AdsetCheck {
  */
 export async function verifyAdsetInAccount(accountId: string, campaignId: string, adsetId: string): Promise<AdsetCheck> {
   const account = bareAccount(String(accountId ?? ""));
-  if (!isMetaId(account)) throw new MetaWriteError("refused", "Compte publicitaire invalide");
+  if (!account) throw new MetaWriteError("refused", "Compte publicitaire invalide");
   if (!isMetaId(campaignId)) throw new MetaWriteError("refused", "Identifiant de campagne invalide");
   if (!isMetaId(adsetId)) throw new MetaWriteError("refused", "Identifiant d'ensemble de publicités invalide");
 
@@ -239,7 +245,7 @@ export interface CampaignCheck { campaignId: string; name: string; accountId: st
 /** The campaign exists and belongs to the account. Throws `refused` otherwise. */
 export async function verifyCampaignInAccount(accountId: string, campaignId: string): Promise<CampaignCheck> {
   const account = bareAccount(String(accountId ?? ""));
-  if (!isMetaId(account)) throw new MetaWriteError("refused", "Compte publicitaire invalide");
+  if (!account) throw new MetaWriteError("refused", "Compte publicitaire invalide");
   if (!isMetaId(campaignId)) throw new MetaWriteError("refused", "Identifiant de campagne invalide");
   let data: { id?: string; name?: string; account_id?: string; status?: string };
   try {
@@ -295,6 +301,51 @@ export async function findAdByName(adsetId: string, name: string): Promise<Exist
   throw new MetaWriteError("infra", `Trop de publicités portent un nom proche de « ${wanted} » dans l'ensemble ${adsetId}`);
 }
 
+/**
+ * One ad, read by its id: what the routine does with an item whose ad is
+ * known (RoutineItem.externalId) instead of looking for a name. Null when
+ * Meta says the ad does not exist (deleted). Throws `infra` when Meta could
+ * not be reached: not knowing is not "no such ad".
+ */
+export async function readAdById(adId: string): Promise<(ExistingAd & { adsetId: string }) | null> {
+  if (!isMetaId(adId)) throw new MetaWriteError("refused", "Identifiant de publicité invalide");
+  let data: { id?: string; name?: string; status?: string; effective_status?: string; adset_id?: string };
+  try {
+    data = await metaGraphGetOnce(`/${adId}`, getMetaSystemToken(), { fields: "id,name,status,effective_status,adset_id" });
+  } catch (err) {
+    const e = fromReadError(err, `Publicité ${adId} illisible`);
+    // Meta answers « does not exist » with an invalid-request error: the ad is gone, or out of reach of the token.
+    if (e.kind === "refused") return null;
+    throw e;
+  }
+  if (String(data?.id ?? "") !== adId) return null;
+  return {
+    id: adId, name: String(data.name ?? ""), status: data.status ?? "UNKNOWN",
+    effectiveStatus: data.effective_status ?? "UNKNOWN", adsetId: String(data.adset_id ?? ""),
+  };
+}
+
+export interface PromotablePage { id: string; name: string }
+
+/**
+ * Pages the ad account can promote, for the form that creates a routine. Read
+ * only. `complete` is false when Meta holds more than one page of them.
+ */
+export async function listPromotablePages(accountId: string): Promise<{ pages: PromotablePage[]; complete: boolean }> {
+  const account = bareAccount(String(accountId ?? ""));
+  if (!account) throw new MetaWriteError("refused", "Compte publicitaire invalide");
+  let data: { data?: Array<{ id?: string; name?: string }>; paging?: { next?: string } };
+  try {
+    data = await metaGraphGetOnce(`/act_${account}/promote_pages`, getMetaSystemToken(), { fields: "id,name", limit: "200" });
+  } catch (err) {
+    throw fromReadError(err, "Pages du compte publicitaire illisibles");
+  }
+  const pages = (Array.isArray(data?.data) ? data.data : [])
+    .filter((p) => isMetaId(p?.id))
+    .map((p) => ({ id: String(p.id), name: String(p.name ?? p.id).slice(0, 120) }));
+  return { pages, complete: !data?.paging?.next };
+}
+
 export interface IdentityCheck {
   /** true = readable with the token; false = Meta refused; null = could not be checked. */
   pageReadable: boolean | null;
@@ -318,7 +369,7 @@ export interface IdentityCheck {
 export async function checkAdIdentity(accountId: string, pageId: string, instagramUserId?: string): Promise<IdentityCheck> {
   const out: IdentityCheck = { pageReadable: null, pagePromotable: null, instagramKnown: null, notes: [] };
   const account = bareAccount(String(accountId ?? ""));
-  if (!isMetaId(account) || !isMetaId(pageId) || (instagramUserId !== undefined && !isMetaId(instagramUserId))) {
+  if (!account || !isMetaId(pageId) || (instagramUserId !== undefined && !isMetaId(instagramUserId))) {
     out.pageReadable = false;
     out.notes.push("Identifiant de compte, de page ou de compte Instagram invalide");
     return out;

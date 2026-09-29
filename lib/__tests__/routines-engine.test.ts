@@ -12,13 +12,19 @@ vi.mock("@/lib/routines/steps/ai-summary", async () => ({ aiSummaryHandler: (awa
 
 import { classifyError, compactSteps, runLocked, runRoutine } from "@/lib/routines/engine";
 import { hashDefinition } from "@/lib/routines/hash";
-import { acquireRunLock, claimItem, getRoutine, peekItem, releaseRunLock, settleItem, wasDeferred, type RoutineRecord } from "@/lib/routines/store";
-import { isWriteGuard } from "@/lib/routines/write-guard-check";
-import type { Row, RoutineDefinition, Schedule, StepContext, StepRunOutcome } from "@/lib/routines/types";
+import { acquireRunLock, claimItem, getRoutine, peekItem, releaseRunLock, settleItem, type RoutineRecord } from "@/lib/routines/store";
+import { assertWriteGuard, isWriteGuard } from "@/lib/routines/write-guard-check";
+import { itemKeyOf, type ClaimState, type MetaCreateAdsStep, type Row, type RoutineDefinition, type Schedule, type StepContext, type StepRunOutcome } from "@/lib/routines/types";
 import { behaviours, createAdsStep, db, okOutcome, readStep, resetDb, resetSteps, seen, slackStep, type Behaviour } from "./routines-engine-fakes";
 
 const NOW = new Date("2026-09-29T08:00:00Z");
 const DAILY: Schedule = { kind: "daily", time: "09:00" };
+const ACCOUNT = "act_564381881705822";
+const ADSET = createAdsStep.adsetId;
+/** Key of a row in RoutineItem, as the real step writes it: step, ad set, value of the key column. */
+const keyOf = (rowId: string | number) => itemKeyOf("creer", ADSET, rowId);
+const hashOf = (definition: RoutineDefinition, schedule: Schedule, maxItemsPerRun: number, extra: { metaAccountId?: string | null; googleCustomerId?: string | null; timezone?: string } = {}) =>
+  hashDefinition({ definition, schedule, maxItemsPerRun, metaAccountId: ACCOUNT, googleCustomerId: null, timezone: "Europe/Paris", ...extra });
 
 async function seed(steps: unknown[], extra: Record<string, unknown> = {}): Promise<RoutineRecord> {
   const definition = { version: 1, steps } as RoutineDefinition;
@@ -29,9 +35,9 @@ async function seed(steps: unknown[], extra: Record<string, unknown> = {}): Prom
   await db.user.create({ data: { id: "u1", role: "consultant" } }).catch(() => {});
   const row = await db.routine.create({
     data: {
-      name: "Créas de la semaine", status: "active", createdById: "u1", activatedById: "u1", metaAccountId: "act_123",
+      name: "Créas de la semaine", status: "active", createdById: "u1", activatedById: "u1", metaAccountId: ACCOUNT,
       definitionJson: JSON.stringify(definition), scheduleJson: JSON.stringify(schedule), maxItemsPerRun,
-      definitionHash: hashDefinition({ definition, schedule, maxItemsPerRun }),
+      definitionHash: hashOf(definition, schedule, maxItemsPerRun),
       nextRunAt: new Date("2026-09-29T07:00:00Z"), ...columns,
     },
   });
@@ -45,25 +51,37 @@ const reads = (n: number): Behaviour => () => okOutcome({ rowsOut: n, output: { 
 /** External writes really made, as a platform would count them. */
 let platformCalls: string[] = [];
 
-/** What a well-behaved writing step does: reserve, write with the guard, settle. */
+/**
+ * Stand-in for meta.create_ads, behaving as the real step does
+ * (lib/routines/steps/meta-create-ads.ts): it asks ctx.claimItem for every
+ * row, in a dry run too (the engine then answers from the database and
+ * reserves nothing), under the key the real step uses (step, ad set, value of
+ * the key column); what it plans and writes is named by the value of the key
+ * column; it fills `planned` in a dry run only; it counts what it does.
+ */
 const createsAds: Behaviour = async (step, ctx) => {
   const out = okOutcome({ rowsIn: ctx.input?.rows.length ?? 0 });
+  const counts = { adsCreated: 0, skipped: 0, failed: 0, deferred: 0 };
   for (const row of ctx.input?.rows ?? []) {
-    const key = `creer:${row.id}`;
+    const rowKey = String(row.id);
+    const key = itemKeyOf(step.id, (step as MetaCreateAdsStep).adsetId, rowKey);
     const claim = await ctx.claimItem(step.id, key, String(row.nom));
-    if (claim !== "claimed") continue;
-    if (!ctx.write) { out.planned.push({ target: "meta", summary: `Créer ${row.nom}`, itemKey: key, preview: { nom: row.nom } }); continue; }
+    if (claim.state === "deferred") { counts.deferred++; continue; }
+    if (claim.state !== "claimed") { counts.skipped++; continue; }
+    counts.adsCreated++;
+    if (!ctx.write) { out.planned.push({ target: "meta", summary: `Créer ${row.nom}`, itemKey: rowKey, preview: { nom: row.nom } }); continue; }
     if (!isWriteGuard(ctx.write)) throw new Error("forged guard");
-    platformCalls.push(key);
+    platformCalls.push(rowKey);
     await ctx.settleItem(step.id, key, { status: "created", externalId: `ad_${row.id}` });
-    out.written.push({ itemKey: key, externalId: `ad_${row.id}`, summary: `Créée : ${row.nom}` });
+    out.written.push({ itemKey: rowKey, externalId: `ad_${row.id}`, target: "meta", summary: `Créée : ${row.nom}` });
   }
-  return out;
+  return { ...out, counts };
 };
+/** Stand-in for slack.message: one message, planned in a dry run, written in a live run. */
 const posts: Behaviour = (_step, ctx) => {
-  if (!ctx.write) return okOutcome({ planned: [{ target: "slack", summary: "Message dans #client", preview: {} }] });
+  if (!ctx.write) return okOutcome({ planned: [{ target: "slack", summary: "Message dans #client", preview: {} }], counts: { messages: 1 } });
   platformCalls.push("slack");
-  return okOutcome({ written: [{ summary: "Message envoyé" }] });
+  return okOutcome({ written: [{ summary: "Message envoyé", target: "slack" }], counts: { messages: 1 } });
 };
 const fails = (cls: "functional" | "infra", message: string): Behaviour => () => ({
   status: "failed", rowsIn: 0, rowsOut: 0, output: {}, planned: [], written: [], warnings: [], error: { class: cls, message },
@@ -97,7 +115,8 @@ describe("routines — dry run", () => {
     expect(platformCalls).toEqual([]);
     expect(db.routineItem.rows).toEqual([]);
     expect(db.routineItem.writes).toEqual([]);
-    expect(result.steps[1].planned.map((p) => p.itemKey)).toEqual(["creer:crea-1", "creer:crea-2", "creer:crea-3"]);
+    expect(result.steps[1].planned.map((p) => p.itemKey)).toEqual(["crea-1", "crea-2", "crea-3"]);
+    expect(result.counts).toEqual({ adsCreated: 3, adsAttached: 0, sheetRows: 0, messages: 1, skipped: 0, failed: 0, deferred: 0 });
     expect(result.steps.every((s) => s.written.length === 0)).toBe(true);
     // The routine itself is untouched: a dry run is not a run of the schedule.
     expect(JSON.stringify(db.routine.rows[0])).toBe(before);
@@ -113,16 +132,33 @@ describe("routines — dry run", () => {
     expect(await reload(routine.id)).toMatchObject({ status: "active", consecutiveFailures: 0, lastRunAt: null });
   });
 
-  it("shows what is already created or unknown without reserving anything", async () => {
+  // What the real step does with these answers is tested on the real step (routines-hardening.test.ts).
+  it("answers a reservation from the database, and reserves nothing", async () => {
     const routine = await seed([readStep, createAdsStep]);
-    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: "creer:crea-1", status: "created" } });
-    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: "creer:crea-2", status: "pending" } });
+    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: keyOf("crea-1"), status: "created", externalId: "ad_1" } });
+    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: keyOf("crea-2"), status: "pending" } });
     db.routineItem.writes.length = 0;
+    const answers: Array<[string, ClaimState, string | undefined]> = [];
+    behaviours["meta.create_ads"] = async (step, ctx) => {
+      for (const row of ctx.input!.rows) {
+        const claim = await ctx.claimItem(step.id, keyOf(String(row.id)), "x");
+        answers.push([String(row.id), claim.state, claim.externalId]);
+      }
+      return okOutcome();
+    };
     const result = await dry(routine);
-    expect(result.steps[1].planned.map((p) => p.itemKey)).toEqual(["creer:crea-3"]);
-    expect(result.totals).toMatchObject({ planned: 1, skipped: 2 });
+    expect(answers).toEqual([["crea-1", "already_done", "ad_1"], ["crea-2", "uncertain", undefined], ["crea-3", "claimed", undefined]]);
+    expect(result.totals).toMatchObject({ planned: 0, skipped: 2 });
     expect(db.routineItem.writes).toEqual([]);
     expect(db.routineItem.rows.map((r) => r.status)).toEqual(["created", "pending"]);
+  });
+
+  it("does not take a key of another ad set, or of another form, for one already done", async () => {
+    const routine = await seed([readStep, createAdsStep]);
+    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: itemKeyOf("creer", "120210000000000777", "crea-1"), status: "created" } });
+    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: "crea-2", status: "created" } });
+    const result = await dry(routine);
+    expect(result.steps[1].planned.map((p) => p.itemKey)).toEqual(["crea-1", "crea-2", "crea-3"]);
   });
 
   it("fails a step that claims to have written", async () => {
@@ -143,14 +179,26 @@ describe("routines — dry run", () => {
 describe("routines — live run", () => {
   it("hands the same minted guard to every step and records what was written", async () => {
     const routine = await seed([readStep, createAdsStep, slackStep]);
+    const valid: boolean[] = [];
+    for (const type of ["sheet.read", "meta.create_ads", "slack.message"] as const) {
+      const inner = behaviours[type]!;
+      behaviours[type] = (step, ctx) => { valid.push(isWriteGuard(ctx.write) && ctx.signal?.aborted === false); return inner(step, ctx); };
+    }
     const result = await live(routine);
     expect(result).toMatchObject({ status: "success", totals: { planned: 0, created: 4, skipped: 0, failed: 0 }, deferred: 0 });
-    expect(seen.every((s) => isWriteGuard(s.ctx.write))).toBe(true);
+    expect(result.counts).toEqual({ adsCreated: 3, adsAttached: 0, sheetRows: 0, messages: 1, skipped: 0, failed: 0, deferred: 0 });
+    // A live run says what it did; what it would do is the business of a dry run.
+    expect(result.steps.every((s) => s.planned.length === 0)).toBe(true);
+    // Valid while the steps ran (createsAds checks it, `valid` below too), revoked once the run has ended.
+    expect(valid).toEqual([true, true, true]);
+    expect(seen.every((s) => s.ctx.write !== null && !isWriteGuard(s.ctx.write))).toBe(true);
+    expect(() => assertWriteGuard(seen[0].ctx.write)).toThrow(/révoquée/);
+    expect(seen.every((s) => s.ctx.signal?.aborted === true)).toBe(true);
     expect(new Set(seen.map((s) => s.ctx.write)).size).toBe(1);
     expect(seen[0].ctx.write?.runId).toBe(result.runId);
-    expect(platformCalls).toEqual(["creer:crea-1", "creer:crea-2", "creer:crea-3", "slack"]);
+    expect(platformCalls).toEqual(["crea-1", "crea-2", "crea-3", "slack"]);
     expect(db.routineItem.rows.map((r) => [r.itemKey, r.status, r.externalId, r.runId])).toEqual([
-      ["creer:crea-1", "created", "ad_crea-1", result.runId], ["creer:crea-2", "created", "ad_crea-2", result.runId], ["creer:crea-3", "created", "ad_crea-3", result.runId],
+      [keyOf("crea-1"), "created", "ad_crea-1", result.runId], [keyOf("crea-2"), "created", "ad_crea-2", result.runId], [keyOf("crea-3"), "created", "ad_crea-3", result.runId],
     ]);
     expect(await reload(routine.id)).toMatchObject({ lastRunStatus: "success", consecutiveFailures: 0 });
     expect((await reload(routine.id)).lastRunAt?.toISOString()).toBe(NOW.toISOString());
@@ -171,7 +219,7 @@ describe("routines — live run", () => {
     expect(ctxOf("prevenir").outputs.resume.text).toBe("Semaine calme.");
     expect(Object.keys(ctxOf("prevenir").outputs)).toEqual(["lire", "deux", "resume"]);
     expect(ctxOf("tout").input?.rows).toHaveLength(3);
-    expect(ctxOf("tout").routine).toEqual({ id: expect.any(String), name: "Créas de la semaine", metaAccountId: "act_123", googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20, clientName: "—", dashboardId: null });
+    expect(ctxOf("tout").routine).toEqual({ id: expect.any(String), name: "Créas de la semaine", metaAccountId: "act_564381881705822", googleCustomerId: null, timezone: "Europe/Paris", maxItemsPerRun: 20, clientName: "—", dashboardId: null });
   });
 
   it("creates nothing twice: a second run finds every key done", async () => {
@@ -191,7 +239,7 @@ describe("routines — ceiling of items per run", () => {
 
     const first = await live(routine);
     expect(first).toMatchObject({ status: "success", deferred: 7, totals: { created: 5, skipped: 0 } });
-    expect(platformCalls).toEqual(["creer:crea-1", "creer:crea-2", "creer:crea-3", "creer:crea-4", "creer:crea-5"]);
+    expect(platformCalls).toEqual(["crea-1", "crea-2", "crea-3", "crea-4", "crea-5"]);
     expect(db.routineItem.rows).toHaveLength(5);
     expect(first.steps[1].warnings.join(" ")).toMatch(/7 élément\(s\) reporté\(s\).*plafond de 5/);
 
@@ -204,18 +252,24 @@ describe("routines — ceiling of items per run", () => {
     expect(new Set(platformCalls).size).toBe(12);
   });
 
-  it("tells a step which keys were put off", async () => {
-    behaviours["sheet.read"] = reads(3);
-    const asked: boolean[] = [];
+  it("says « deferred », not « already done », of an item put off; and what is done stays done past the ceiling", async () => {
+    behaviours["sheet.read"] = reads(4);
+    const routine = await seed([readStep, createAdsStep], { maxItemsPerRun: 2 });
+    await db.routineItem.create({ data: { routineId: routine.id, stepId: "creer", itemKey: keyOf("crea-4"), status: "created" } });
+    const asked: ClaimState[] = [];
     behaviours["meta.create_ads"] = async (step, ctx) => {
       for (const row of ctx.input!.rows) {
-        const claim = await ctx.claimItem(step.id, `k:${row.id}`, "x");
-        asked.push(claim === "already_done" && wasDeferred(ctx.runId, `k:${row.id}`));
+        const claim = await ctx.claimItem(step.id, keyOf(String(row.id)), "x");
+        asked.push(claim.state);
+        if (claim.state === "claimed") await ctx.settleItem(step.id, keyOf(String(row.id)), { status: "created", externalId: "ad" });
       }
       return okOutcome();
     };
-    await live(await seed([readStep, createAdsStep], { maxItemsPerRun: 2 }));
-    expect(asked).toEqual([false, false, true]);
+    const result = await live(routine);
+    expect(asked).toEqual(["claimed", "claimed", "deferred", "already_done"]);
+    expect(result).toMatchObject({ deferred: 1, totals: { skipped: 1 } });
+    // Nothing was reserved for the row that waits.
+    expect(db.routineItem.rows.map((r) => r.itemKey).sort()).toEqual([keyOf("crea-1"), keyOf("crea-2"), keyOf("crea-4")].sort());
   });
 
   it("applies to the dry run too", async () => {
@@ -267,7 +321,8 @@ describe("routines — failures", () => {
     // Something was sent, something failed.
     expect(result.status).toBe("partial");
     expect(result.error).toBe("Onglet introuvable");
-    expect((await reload(result.steps.length ? db.routine.rows[0].id as string : "")).consecutiveFailures).toBe(1);
+    // Decision of the lead developer: a partial run (something was written) does not count towards the automatic stop.
+    expect((await reload(db.routine.rows[0].id as string)).consecutiveFailures).toBe(0);
   });
 
   it("skips a message whose quoted text failed", async () => {
@@ -347,7 +402,7 @@ describe("routines — failures", () => {
 
   it("refuses a definition that was changed outside the application", async () => {
     const routine = await seed([readStep, createAdsStep]);
-    db.routine.rows[0].definitionJson = JSON.stringify({ version: 1, steps: [readStep, { ...createAdsStep, adsetId: "999" }] });
+    db.routine.rows[0].definitionJson = JSON.stringify({ version: 1, steps: [readStep, { ...createAdsStep, adsetId: "120210000000000999" }] });
     const result = await live(await reload(routine.id));
     expect(result).toMatchObject({ status: "failed", steps: [] });
     expect(result.error).toMatch(/empreinte/);
@@ -356,7 +411,7 @@ describe("routines — failures", () => {
     // Same when what is stored no longer passes validation, even with a matching hash.
     const forged = { version: 1, steps: [readStep, { ...createAdsStep, status: "ACTIVE" }] } as unknown as RoutineDefinition;
     db.routine.rows[0].definitionJson = JSON.stringify(forged);
-    db.routine.rows[0].definitionHash = hashDefinition({ definition: forged, schedule: DAILY, maxItemsPerRun: 20 });
+    db.routine.rows[0].definitionHash = hashOf(forged, DAILY, 20);
     const second = await live(await reload(routine.id));
     expect(second.status).toBe("failed");
     expect(second.error).toMatch(/Définition refusée/);
@@ -399,7 +454,7 @@ describe("routines — time budget", () => {
     behaviours["meta.create_ads"] = async (step, ctx) => {
       const out = okOutcome();
       for (const row of ctx.input!.rows) {
-        if ((await ctx.claimItem(step.id, `k:${row.id}`, "x")) !== "claimed") continue;
+        if ((await ctx.claimItem(step.id, `k:${row.id}`, "x")).state !== "claimed") continue;
         t += 100_000; // each creation is slow
         await ctx.settleItem(step.id, `k:${row.id}`, { status: "created", externalId: "ad" });
         out.written.push({ itemKey: `k:${row.id}`, summary: "créée" });
@@ -418,37 +473,40 @@ describe("routines — items", () => {
 
   it("lets one of several concurrent claims through", async () => {
     const results = await Promise.all(Array.from({ length: 8 }, (_, i) => claimItem(args("k1", `run${i}`))));
-    expect(results.filter((r) => r === "claimed")).toHaveLength(1);
-    expect(results.filter((r) => r === "uncertain")).toHaveLength(7);
+    expect(results.filter((r) => r.state === "claimed")).toHaveLength(1);
+    expect(results.filter((r) => r.state === "uncertain")).toHaveLength(7);
     expect(db.routineItem.rows).toHaveLength(1);
   });
 
   it("never creates again what is created, nor what is unknown", async () => {
-    expect(await claimItem(args("k1"))).toBe("claimed");
+    expect(await claimItem(args("k1"))).toEqual({ state: "claimed", attempts: 1 });
     expect(await settleItem({ routineId: "r1", itemKey: "k1", status: "created", externalId: "ad_1" })).toBe(true);
-    expect(await claimItem(args("k1", "run2"))).toBe("already_done");
+    expect(await claimItem(args("k1", "run2"))).toMatchObject({ state: "already_done", externalId: "ad_1" });
     // Settled once: a late answer does not rewrite it.
     expect(await settleItem({ routineId: "r1", itemKey: "k1", status: "failed", error: "trop tard" })).toBe(false);
     expect(db.routineItem.rows[0]).toMatchObject({ status: "created", externalId: "ad_1", runId: "run1" });
 
     // Reserved, never settled (creation timed out): unknown, for good.
-    expect(await claimItem(args("k2"))).toBe("claimed");
-    expect(await claimItem(args("k2", "run2"))).toBe("uncertain");
-    expect(await claimItem(args("k2", "run3"))).toBe("uncertain");
+    expect((await claimItem(args("k2"))).state).toBe("claimed");
+    expect((await claimItem(args("k2", "run2"))).state).toBe("uncertain");
+    expect((await claimItem(args("k2", "run3"))).state).toBe("uncertain");
     expect(db.routineItem.rows[1]).toMatchObject({ status: "uncertain", attempts: 1 });
-    expect(await peekItem("r1", "k2")).toBe("uncertain");
-    expect(await peekItem("r1", "k1")).toBe("already_done");
-    expect(await peekItem("r1", "jamais-vue")).toBe("claimed");
+    expect((await peekItem("r1", "k2")).state).toBe("uncertain");
+    expect((await peekItem("r1", "k1")).state).toBe("already_done");
+    expect((await peekItem("r1", "jamais-vue")).state).toBe("claimed");
     await expect(claimItem(args(""))).rejects.toThrow();
   });
 
   it("tries a failed item again, three attempts in all", async () => {
     for (const attempt of [1, 2, 3]) {
-      expect(await claimItem(args("k1", `run${attempt}`)), `attempt ${attempt}`).toBe("claimed");
+      // The answer says which attempt this is: the step knows when it is the last one.
+      expect(await claimItem(args("k1", `run${attempt}`)), `attempt ${attempt}`).toEqual({ state: "claimed", attempts: attempt });
       expect(db.routineItem.rows[0]).toMatchObject({ status: "pending", attempts: attempt, runId: `run${attempt}` });
       await settleItem({ routineId: "r1", itemKey: "k1", status: "failed", error: "Image refusée" });
     }
-    expect(await claimItem(args("k1", "run4"))).toBe("already_done");
+    // Given up, and said so with its last error: never « already done ».
+    expect(await claimItem(args("k1", "run4"))).toEqual({ state: "abandoned", error: "Image refusée", attempts: 3 });
+    expect(await peekItem("r1", "k1")).toEqual({ state: "abandoned", error: "Image refusée", attempts: 3 });
     expect(db.routineItem.rows[0]).toMatchObject({ status: "failed", attempts: 3, error: "Image refusée" });
   });
 
@@ -508,7 +566,7 @@ describe("routines — run lock", () => {
     const outcomes = await Promise.all([1, 2, 3].map(() => runLocked(routine.id, { trigger: "schedule", now: NOW })));
     expect(outcomes.map((o) => o.outcome).sort()).toEqual(["busy", "busy", "ran"]);
     expect(db.routineRun.rows).toHaveLength(1);
-    expect(platformCalls).toEqual(["creer:crea-1", "creer:crea-2", "creer:crea-3", "slack"]);
+    expect(platformCalls).toEqual(["crea-1", "crea-2", "crea-3", "slack"]);
     expect(await reload(routine.id)).toMatchObject({ lockedUntil: null, lastRunStatus: "success" });
     // Next occurrence after now: 09:00 in Paris the same day.
     expect((await reload(routine.id)).nextRunAt?.toISOString()).toBe("2026-09-30T07:00:00.000Z");
@@ -542,15 +600,18 @@ describe("routines — run lock", () => {
     expect(seen.map((s) => s.stepId)).toEqual(["lire", "prevenir"]);
   });
 
-  it("gives the lock back when the run crashes, and keeps the routine due", async () => {
+  // Was « keeps the routine due »: a routine left due after a crash was started again every 15 minutes,
+  // with whatever it had already sent (defect 2 of the review). The schedule now moves on with the lock.
+  it("gives the lock back when the run crashes, and does not start it again at the next firing", async () => {
     const routine = await seed([readStep]);
     const create = db.routineRun.create;
     db.routineRun.create = async () => { throw new Error("connection lost"); };
     await expect(runLocked(routine.id, { trigger: "schedule", now: NOW })).rejects.toThrow("connection lost");
     db.routineRun.create = create;
     expect(await reload(routine.id)).toMatchObject({ lockedUntil: null, status: "active" });
-    expect((await reload(routine.id)).nextRunAt?.toISOString()).toBe("2026-09-29T07:00:00.000Z");
-    expect((await runLocked(routine.id, { trigger: "schedule", now: NOW })).outcome).toBe("ran");
+    expect((await reload(routine.id)).nextRunAt?.toISOString()).toBe("2026-09-30T07:00:00.000Z");
+    expect((await runLocked(routine.id, { trigger: "schedule", now: new Date(NOW.getTime() + 900_000) })).outcome).toBe("busy");
+    expect(seen).toEqual([]);
   });
 
   it("leaves a routine that was switched off without a next run", async () => {
