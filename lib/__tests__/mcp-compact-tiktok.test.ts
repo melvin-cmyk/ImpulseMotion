@@ -50,8 +50,23 @@ describe("compactText — TikTok", () => {
   it("says when the page is not the last one, and which one it is", () => {
     const { text } = compactText(envelope([1, 2, 3].map(campaignRow), { page: 1, page_size: 1000, total_number: 2400, total_page: 3 }), ctx("get_ad_performance"));
     expect(text.split("\n")[0]).toContain("page partielle");
+    expect(text).toContain("has_more=true");
     expect(text).toContain("page=1");
     expect(text).toContain("total_page=3");
+  });
+
+  it("says it of the last page too: one page among several is not the period", () => {
+    const { text } = compactText(envelope([1, 2, 3].map(campaignRow), { page: 3, page_size: 1000, total_number: 2003, total_page: 3 }), ctx("get_ad_performance"));
+    expect(text.split("\n")[0]).toContain("page partielle");
+    expect(text).toContain("page=3");
+    expect(text).toContain("total_page=3");
+    expect(text).not.toContain("has_more");
+    // A long last page is never summed up as the totals of the period.
+    const list = [];
+    for (let c = 1; c <= 20; c++) for (let d = 1; d <= 30; d++) list.push({ dimensions: { campaign_id: `18000000000000000${String(c).padStart(2, "0")}`, stat_time_day: `2026-09-${String(d).padStart(2, "0")} 00:00:00` }, metrics: { campaign_name: `Campagne ${c}`, spend: "10.00", impressions: "1000", clicks: "20" } });
+    const long = compactText(envelope(list, { page: 2, page_size: 1000, total_number: 1600, total_page: 2 }), ctx("get_report_integrated"));
+    expect(long.stats.mode).not.toBe("summary");
+    expect(long.text.split("\n")[0]).toContain("page partielle");
   });
 
   it("says nothing about pages on a complete answer", () => {
@@ -114,6 +129,52 @@ describe("compactText — TikTok", () => {
     const { text } = compactText(envelope([]), ctx("get_campaign_performance"));
     expect(text.length).toBeGreaterThan(0);
     expect(text).not.toContain("request_id");
+  });
+
+  it("shows nothing else of an advertiser, whatever the shape the answer comes in", () => {
+    const card = {
+      advertiser_id: "7111111111111111111", name: "Client Démo", currency: "EUR", timezone: "Europe/Paris", status: "STATUS_ENABLE",
+      balance: 1234.56, email: "contact@demo.test", cellphone_number: "+33600000000", address: "1 rue du Test", contacter: "Jean Test", license_no: "L-1",
+    };
+    const ok = { code: 0, message: "OK", request_id: "r", data: { list: [card] } };
+    const shapes: unknown[] = [
+      ok, [ok], { response: ok }, [{ json: ok }], [ok, ok],
+      { code: "0", message: "OK", data: { list: [card] } }, // no request id, code as a text
+      { code: 0, message: "OK", request_id: "r", data: card }, // no list
+      { code: 0, message: "OK", request_id: "r", data: { list: [card, { ...card, advertiser_id: "7222222222222222222" }] } },
+      JSON.stringify(ok), // JSON inside a JSON string
+      { result: { content: [{ type: "text", text: JSON.stringify(ok) }] } },
+    ];
+    for (const shape of shapes) {
+      const { text } = compactText(JSON.stringify(shape, null, 2), ctx("get_advertiser_info"));
+      for (const kept of ["7111111111111111111", "Client Démo", "EUR", "Europe/Paris"]) expect(text, JSON.stringify(shape).slice(0, 60)).toContain(kept);
+      for (const gone of ["1234.56", "balance", "contact@demo.test", "+33600000000", "1 rue du Test", "Jean Test", "L-1"]) expect(text, JSON.stringify(shape).slice(0, 60)).not.toContain(gone);
+    }
+  });
+
+  it("gives back nothing of an answer about an advertiser that it cannot read", () => {
+    const secret = "solde 1234.56 — contact@demo.test — +33600000000";
+    for (const raw of [`Voici la fiche : ${secret}`, JSON.stringify({ code: 0, message: "OK", request_id: "r", data: { balance: 1234.56, email: "contact@demo.test", note: secret } }), JSON.stringify([secret]), "", "null"]) {
+      const { text } = compactText(raw, ctx("get_advertiser_info"));
+      expect(text).toContain("illisible");
+      for (const gone of ["1234.56", "contact@demo.test", "+33600000000"]) expect(text).not.toContain(gone);
+    }
+    // TikTok's own refusal is still said.
+    const refused = compactText(JSON.stringify({ code: 40001, message: "The advertiser 7 doesn't exist.", request_id: "r", data: {} }), ctx("get_advertiser_info")).text;
+    expect(refused).toContain("40001");
+    expect(refused).toContain("doesn't exist");
+  });
+
+  it("keeps its reading of TikTok for the TikTok server", () => {
+    // The same shape from another server is that server's business: nothing of it is dropped or renamed.
+    const google = JSON.stringify({ code: 429, message: "Quota exceeded", request_id: "abc", details: "retry in 30 s" });
+    const out = compactText(google, { server: "mcp-google-ads", tool: "Custom_GAQL_Query" }).text;
+    expect(out).not.toContain("erreur_tiktok");
+    expect(out).toContain("retry in 30 s");
+    const meta = JSON.stringify({ code: 0, message: "OK", request_id: "abc", account: "act_1", currency: "EUR", data: { list: [{ a: 1 }] } });
+    const kept = compactText(meta, { server: "meta-ads-impulse", tool: "Account_Overview1" }).text;
+    expect(kept).toContain("act_1");
+    expect(kept).toContain("EUR");
   });
 
   it("does not take another server's object for a TikTok answer", () => {

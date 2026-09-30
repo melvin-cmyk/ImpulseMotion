@@ -120,8 +120,16 @@ describe("relay — TikTok Ads dans une conversation", () => {
     expect(call.config!.mcpServers[TIKTOK].env!.SCOPED_TOOLS.split(",").sort()).toEqual(tools);
   });
 
+  it("ne donne pas plus d'outils à l'assistant d'un client qui ne lit que TikTok", async () => {
+    // Without the e-commerce warehouse nor GA4 the bot route sends no dataScope: only `provider` says it is a client bot.
+    const call = await chat({ allowedServers: [TIKTOK], accountScope: { tiktok: ["7111111111111111111"] }, provider: "bedrock" });
+    expect(tiktokTools(call)).toHaveLength(9);
+    expect(call.config!.mcpServers[TIKTOK].env!.SCOPED_TOOLS.split(",")).not.toContain("search_ad_videos");
+  });
+
   it("retire le serveur quand l'appelant n'a aucun compte TikTok", async () => {
-    for (const accountScope of [{ meta: ["111"] }, { tiktok: [] }, { tiktok: ["", "  "] }, undefined]) {
+    // « * » is the word of the administrator scope: listed as an id, it is no account at all.
+    for (const accountScope of [{ meta: ["111"] }, { tiktok: [] }, { tiktok: ["", "  "] }, { tiktok: ["*"] }, { tiktok: [" * "] }, undefined]) {
       const call = await chat({ allowedServers: [TIKTOK], ...(accountScope ? { accountScope } : {}) });
       expect(call.config?.mcpServers?.[TIKTOK]).toBeUndefined();
       expect(tiktokTools(call)).toEqual([]);
@@ -151,15 +159,18 @@ describe("relay — TikTok Ads en appel direct", () => {
     return { status: res.status, json: (await res.json()) as { error?: string } };
   };
 
-  it.each(["list_advertisers", "get_campaigns", "search_ad_videos", "create_campaign"])("ferme %s", async (tool) => {
+  it.each(["list_advertisers", "get_campaigns", "get_report_integrated", "search_ad_videos", "create_campaign"])("ferme %s", async (tool) => {
     const out = await post(`${TIKTOK}.${tool}`);
     expect(out.status).toBe(403);
     expect(out.json.error).toMatch(/^tool not allowed/);
   });
 
-  it.each(["get_advertiser_info", "get_report_integrated"])("ouvre %s (la lecture dont l'application a besoin)", async (tool) => {
-    // No mcporter in this relay's PATH: the call is let through, then fails to run.
-    const out = await post(`${TIKTOK}.${tool}`);
-    expect(out.status).not.toBe(403);
+  it("ouvre get_advertiser_info, la seule lecture dont l'application a besoin", async () => {
+    // No mcporter in this relay's PATH: the call is let through, then fails to run — and the relay stays up.
+    for (let i = 0; i < 2; i++) {
+      const out = await post(`${TIKTOK}.get_advertiser_info`);
+      expect(out.status).toBeGreaterThanOrEqual(500);
+      expect(out.json.error).not.toMatch(/^tool not allowed/);
+    }
   });
 });

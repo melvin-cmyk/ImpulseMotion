@@ -12,6 +12,7 @@ type Profile = { keys: RegExp; norm: (v: string) => string };
 
 let collectAccountIds: (v: unknown, keys: RegExp) => string[];
 let outOfScope: (args: unknown, p: Profile, allowed: Set<string>) => string[];
+let UNREADABLE: string;
 
 beforeAll(async () => {
   // Importing the module must not open stdio or dial the upstream server.
@@ -19,7 +20,7 @@ beforeAll(async () => {
   process.env.SCOPED_SERVER_NAME = "meta-ads-impulse";
   process.env.SCOPED_UPSTREAM_URL = "https://example.invalid/mcp/x/sse";
   process.env.SCOPED_ACCOUNTS = "111";
-  ({ collectAccountIds, outOfScope } = await import("../../server/mcp-scoped-ads.mjs"));
+  ({ collectAccountIds, outOfScope, UNREADABLE } = await import("../../server/mcp-scoped-ads.mjs"));
 });
 
 const meta: Profile = { keys: /account/i, norm: (v) => String(v).trim().replace(/^act_/i, "") };
@@ -39,7 +40,14 @@ describe("collectAccountIds", () => {
 
   it("finds ids nested in objects and arrays", () => {
     const args = { filters: [{ accounts: [{ accountId: "act_1" }] }, { account_id: 2 }] };
-    expect(collectAccountIds(args, meta.keys).sort()).toEqual(["2", "act_1"]);
+    expect([...new Set(collectAccountIds(args, meta.keys))].sort()).toEqual(["2", "act_1"]);
+  });
+
+  it("takes for an id every value held under an account key, however it is wrapped", () => {
+    // An object under an account key was walked for account KEYS only: its values went upstream unread.
+    expect(collectAccountIds({ account_id: { v: "act_999" } }, meta.keys)).toEqual(["act_999"]);
+    expect(collectAccountIds({ accounts: ["act_111", ["act_999"]] }, meta.keys).sort()).toEqual(["act_111", "act_999"]);
+    expect(collectAccountIds({ account_ids: '["act_111","act_999"]' }, meta.keys).sort()).toEqual(["act_111", "act_999"]);
   });
 
   it("ignores unrelated parameters and malformed JSON", () => {
@@ -48,10 +56,13 @@ describe("collectAccountIds", () => {
     expect(collectAccountIds(null, meta.keys)).toEqual([]);
   });
 
-  it("stops recursing on deeply nested input", () => {
+  it("does not let through what is too deep to be read", () => {
     let deep: Record<string, unknown> = { account_id: "act_999" };
     for (let i = 0; i < 12; i++) deep = { nested: deep };
-    expect(collectAccountIds(deep, meta.keys)).toEqual([]);
+    // Unread is not « no account »: the call is refused.
+    expect(collectAccountIds(deep, meta.keys)).toEqual([UNREADABLE]);
+    expect(outOfScope(deep, meta, allowedMeta)).toEqual([UNREADABLE]);
+    expect(outOfScope({ account_id: [[[[["act_999"]]]]] }, meta, allowedMeta)).toEqual([UNREADABLE]);
   });
 });
 
@@ -96,68 +107,150 @@ describe("outOfScope", () => {
   });
 });
 
-describe("TikTok Ads — advertiser ids", () => {
-  type Full = Profile & { requireId?: boolean; deny: Set<string>; denyPattern?: RegExp; prepare?: (n: string, a: unknown, o?: { legacy?: boolean }) => unknown };
-  let tiktok: Full;
-  let namesAnAccount: (args: unknown, p: Profile) => boolean;
-  const allowed = new Set(["7111111111111111111"]);
+describe("the gate of a TikTok conversation", () => {
+  type Decision = { refusal: string } | { args: { input: string } };
+  type Gate = { isDenied: (name: string) => boolean; listed: (tools: Array<{ name: string; description?: string }>) => Array<{ name: string; description?: string }>; check: (name: string, given: unknown, opts?: { legacy?: boolean }) => Decision };
+  let createGate: (profile: unknown, scope: { accounts: string; tools?: string }) => Gate;
+  let tiktok: unknown;
+  const ID = "7111111111111111111";
+  const OTHER = "7999999999999999999";
+  const CLIENT_TOOLS = "get_advertiser_info,get_campaigns,get_adgroups,get_ads,get_campaign_performance,get_adgroup_performance,get_ad_performance,get_breakdown_report,get_report_integrated";
   const input = (o: unknown) => ({ input: JSON.stringify(o) });
+  const gate = (accounts = ID, tools = CLIENT_TOOLS) => createGate(tiktok, { accounts, tools });
+  /** What goes upstream, or the refusal. */
+  const sent = (d: Decision) => ("args" in d ? (JSON.parse(d.args.input) as Record<string, string>) : null);
+  const refused = (d: Decision) => ("refusal" in d ? d.refusal : null);
 
   beforeAll(async () => {
     const mod = await import("../../server/mcp-scoped-ads.mjs");
-    tiktok = mod.PROFILES["mcp-tiktok-ads"] as Full;
-    namesAnAccount = mod.namesAnAccount;
+    createGate = mod.createGate as never;
+    tiktok = mod.PROFILES["mcp-tiktok-ads"];
   });
 
-  it("lets the assigned advertiser through, in the serialised form n8n expects", () => {
-    expect(outOfScope(input({ advertiser_id: "7111111111111111111" }), tiktok, allowed)).toEqual([]);
-  });
-
-  it("refuses another advertiser", () => {
-    expect(outOfScope(input({ advertiser_id: "7999999999999999999" }), tiktok, allowed)).toEqual(["7999999999999999999"]);
-  });
-
-  it("reads advertiser_ids, a JSON array carried as a string", () => {
-    // Taken whole, the string `["7999…"]` was one unknown "id": refused for the
-    // wrong reason, and let through by any profile that ignores what is not an id.
-    expect(outOfScope(input({ advertiser_ids: '["7111111111111111111"]' }), tiktok, allowed)).toEqual([]);
-    expect(outOfScope(input({ advertiser_ids: '["7111111111111111111","7999999999999999999"]' }), tiktok, allowed)).toEqual(["7999999999999999999"]);
-    expect(outOfScope(input({ advertiser_ids: ["7111111111111111111", ["7999999999999999999"]] }), tiktok, allowed)).toEqual(["7999999999999999999"]);
-  });
-
-  it("refuses an id that is not written as the allowed one, rather than ignoring it", () => {
-    for (const odd of ["7999999999999999999.0", "+7999999999999999999", "07111111111111111111", "7111111111111111111,7999999999999999999", '["7999999999999999999"']) {
-      expect(outOfScope(input({ advertiser_id: odd }), tiktok, allowed)).toEqual([odd]);
-    }
-  });
-
-  it("tolerates spaces around the allowed id", () => {
-    expect(outOfScope(input({ advertiser_id: " 7111111111111111111 " }), tiktok, allowed)).toEqual([]);
-  });
-
-  it("asks every call to name an advertiser", () => {
-    expect(tiktok.requireId).toBe(true);
-    expect(namesAnAccount(input({ advertiser_id: "7111111111111111111" }), tiktok)).toBe(true);
-    expect(namesAnAccount(input({ advertiser_ids: '["7111111111111111111"]' }), tiktok)).toBe(true);
-    for (const none of [{}, input({}), input({ advertiser_id: "" }), input({ advertiser_id: "  " }), input({ advertiser_ids: "[]" }), input({ advertiser_ids: { x: "7999999999999999999" } }), { input: "{not json" }, null]) {
-      expect(namesAnAccount(none, tiktok)).toBe(false);
-    }
-  });
-
-  it("closes the tool that lists every advertiser, and anything that writes", () => {
-    expect(tiktok.deny.has("list_advertisers")).toBe(true);
-    for (const name of ["create_campaign", "update_adgroup", "delete_ad", "upload_video", "Enable_campaign"]) expect(tiktok.denyPattern?.test(name)).toBe(true);
-    for (const name of ["get_campaigns", "get_report_integrated", "search_ad_videos", "list_custom_audiences"]) expect(tiktok.denyPattern?.test(name)).toBe(false);
-  });
-
-  it("checks what is really sent: the arguments completed by the server still carry the id", () => {
-    const sent = tiktok.prepare!("get_advertiser_info", input({ advertiser_id: "7999999999999999999" }));
-    expect(outOfScope(sent, tiktok, allowed)).toEqual(["7999999999999999999"]);
-    const report = tiktok.prepare!("get_campaign_performance", input({ advertiser_id: "7999999999999999999", start_date: "2026-09-01", end_date: "2026-09-07" }));
-    expect(outOfScope(report, tiktok, allowed)).toEqual(["7999999999999999999"]);
+  it("sends the allowed advertiser, as the object it read and completed", () => {
+    expect(sent(gate().check("get_campaigns", input({ advertiser_id: ID })))).toEqual({ advertiser_id: ID });
+    const report = sent(gate().check("get_campaign_performance", input({ advertiser_id: ID, start_date: "2026-09-01", end_date: "2026-09-07" })));
+    expect(report).toMatchObject({ advertiser_id: ID, report_type: "BASIC", data_level: "AUCTION_CAMPAIGN", page: "1" });
+    expect(sent(gate().check("get_advertiser_info", input({ advertiser_id: ID })))).toEqual({ advertiser_ids: `["${ID}"]` });
     // "advertiser_id" as a DIMENSION is a value, not an account.
-    const daily = tiktok.prepare!("get_report_integrated", input({ advertiser_id: "7111111111111111111", data_level: "AUCTION_ADVERTISER", dimensions: ["advertiser_id", "stat_time_day"], metrics: ["spend"], start_date: "2026-09-01", end_date: "2026-09-07" }));
-    expect(outOfScope(daily, tiktok, allowed)).toEqual([]);
+    expect(sent(gate().check("get_report_integrated", input({ advertiser_id: ID, data_level: "AUCTION_ADVERTISER", dimensions: ["advertiser_id", "stat_time_day"], metrics: ["spend"], start_date: "2026-09-01", end_date: "2026-09-07" })))).toMatchObject({ advertiser_id: ID });
+  });
+
+  it("refuses another advertiser, wherever the call puts it", () => {
+    for (const [name, args] of [
+      ["get_campaigns", input({ advertiser_id: OTHER })],
+      ["get_campaign_performance", input({ advertiser_id: OTHER, start_date: "2026-09-01", end_date: "2026-09-07" })],
+      ["get_advertiser_info", input({ advertiser_id: OTHER })],
+      ["get_advertiser_info", input({ advertiser_ids: `["${OTHER}"]` })],
+      ["get_advertiser_info", input({ advertiser_ids: [ID, OTHER] })],
+      ["get_campaigns", { advertiser_id: OTHER }],
+      ["get_campaigns", { input: { advertiser_id: OTHER } }],
+      // The allowed account at the first level, another one further down.
+      ["get_adgroups", input({ advertiser_id: ID, filtering: { advertiser_id: OTHER } })],
+      ["get_adgroups", input({ advertiser_id: ID, filtering: `{"advertiser_ids":["${OTHER}"]}` })],
+    ] as Array<[string, unknown]>) {
+      expect(refused(gate().check(name, args)), `${name} ${JSON.stringify(args)}`).toContain("n'est pas dans ton périmètre");
+    }
+  });
+
+  it("is not fooled by a neighbour of `input` that names the allowed account", () => {
+    // n8n reads `input`, and reads more than JSON: what cannot be read here is never left to it.
+    const fenced = "```json\n{\"advertiser_id\":\"" + OTHER + "\"}\n```";
+    for (const args of [
+      { input: fenced, advertiser_id: ID },
+      { input: `{advertiser_id:'${OTHER}',start_date:'2026-09-01',end_date:'2026-09-07'}`, advertiser_id: ID },
+      { input: OTHER, advertiser_id: ID },
+      { input: JSON.stringify({ advertiser_name: ID }) },
+      { advertiser_id: [[[[[OTHER]]]]], adv_advertiser: ID },
+      { advertiser_id: { v: OTHER }, my_advertiser: ID },
+    ]) {
+      expect(refused(gate().check("get_campaigns", args)), JSON.stringify(args)).toBeTruthy();
+    }
+    // A readable `input` wins over its neighbours, which are not sent.
+    const d = gate().check("get_campaigns", { input: JSON.stringify({ advertiser_id: ID }), advertiser_id: OTHER, note: "x" });
+    expect(sent(d)).toEqual({ advertiser_id: ID });
+  });
+
+  it("refuses a call that names no account — for an administrator too", () => {
+    for (const g of [gate(), gate("*")]) {
+      for (const args of [{}, input({}), undefined, null, input({ advertiser_id: "" }), input({ advertiser_id: 7111111111111111111 })]) {
+        expect(refused(g.check("get_campaigns", args)), JSON.stringify(args)).toContain("Appel refusé");
+      }
+    }
+    // An administrator reads any account that is named.
+    expect(sent(gate("*").check("get_campaigns", input({ advertiser_id: OTHER })))).toEqual({ advertiser_id: OTHER });
+  });
+
+  it("tolerates spaces around the allowed id, and sends it without them", () => {
+    expect(sent(gate().check("get_campaigns", input({ advertiser_id: ` ${ID} ` })))).toEqual({ advertiser_id: ID });
+  });
+
+  it("closes what lists every advertiser, what writes, and what is not on its list", () => {
+    const g = gate();
+    expect(refused(g.check("list_advertisers", input({ app_id: "x", secret: "y" })))).toContain("énumération");
+    for (const name of ["create_campaign", "update_adgroup", "delete_ad", "upload_video", "Enable_campaign"]) expect(refused(g.check(name, input({ advertiser_id: ID })))).toContain("créent ou modifient");
+    // Open to the team, not to the assistant of a client; and a tool added upstream tomorrow.
+    for (const name of ["search_ad_videos", "search_ad_images", "list_custom_audiences", "get_pixels"]) {
+      expect(refused(g.check(name, input({ advertiser_id: ID }))), name).toContain("pas ouvert dans cette conversation");
+    }
+    const staff = gate(ID, `${CLIENT_TOOLS},list_custom_audiences,search_ad_videos,search_ad_images`);
+    expect(sent(staff.check("search_ad_videos", input({ advertiser_id: ID })))).toEqual({ advertiser_id: ID });
+    expect(refused(staff.check("get_pixels", input({ advertiser_id: ID })))).toContain("pas ouvert");
+    // Even a list that names it cannot open the listing of every advertiser.
+    expect(refused(gate(ID, "list_advertisers,get_campaigns").check("list_advertisers", {}))).toContain("énumération");
+  });
+
+  it("shows a conversation its open tools only, with what the model must really give", () => {
+    const upstream = ["list_advertisers", "get_campaigns", "get_campaign_performance", "search_ad_videos", "create_campaign", "get_pixels"].map((name) => ({
+      name, description: `What ${name} does.\nTool expects valid stringified JSON object with 9 properties.\nreport_type: (description: , type: string, required: true)`,
+    }));
+    const shown = gate().listed(upstream);
+    expect(shown.map((t) => t.name)).toEqual(["get_campaigns", "get_campaign_performance"]);
+    expect(shown[1].description).toContain("start_date, end_date (required");
+    expect(shown[1].description).not.toContain("report_type: (description: ,");
+  });
+
+  it("takes `*` for every account only when it is the whole scope", () => {
+    expect(refused(gate(`${ID},*`).check("get_campaigns", input({ advertiser_id: OTHER })))).toContain("n'est pas dans ton périmètre");
+  });
+});
+
+describe("the gate of the other servers", () => {
+  type Decision = { refusal: string } | { args: unknown };
+  let createGate: (profile: unknown, scope: { accounts: string; tools?: string }) => { check: (name: string, given: unknown, opts?: { legacy?: boolean }) => Decision };
+  let profiles: Record<string, unknown>;
+  beforeAll(async () => {
+    const mod = await import("../../server/mcp-scoped-ads.mjs");
+    createGate = mod.createGate as never;
+    profiles = mod.PROFILES as never;
+  });
+
+  it("sends a call as it came when its account is allowed", () => {
+    const g = createGate(profiles["meta-ads-impulse"], { accounts: "111,222" });
+    const args = { input: '{"ad_account_id":"act_111","date_preset":"last_7d"}' };
+    expect(g.check("Campaign_Performance1", args)).toEqual({ args });
+    expect("refusal" in g.check("Campaign_Performance1", { input: '{"ad_account_id":"act_999"}' })).toBe(true);
+    expect("refusal" in g.check("List_Ad_Accounts1", {})).toBe(true);
+  });
+
+  it("refuses an `input` it cannot read, which n8n would still act on", () => {
+    // Already true before TikTok: object notation went upstream unchecked.
+    const g = createGate(profiles["meta-ads-impulse"], { accounts: "111" });
+    for (const loose of ["{ad_account_id: 'act_999'}", "```json\n{\"ad_account_id\":\"act_999\"}\n```", "act_999", '["act_999"]', 12]) {
+      const d = g.check("Campaign_Performance1", { input: loose });
+      expect("refusal" in d && d.refusal, String(loose)).toContain("JSON strict");
+    }
+    // A tool that takes its parameters one by one is not concerned, nor is an empty input.
+    expect("args" in g.check("Campaign_Performance1", { input: "texte libre", ad_account_id: "act_111" }, { legacy: false })).toBe(true);
+    expect("args" in g.check("Account_Overview1", { input: "" })).toBe(true);
+  });
+
+  it("leaves an administrator's calls untouched", () => {
+    const g = createGate(profiles["mcp-google-ads"], { accounts: "*" });
+    const args = { input: "{customer_id: '999'}" };
+    expect(g.check("Campaign_Performance", args)).toEqual({ args });
+    // …but never what writes.
+    expect("refusal" in g.check("Create_Conversion_Action", args)).toBe(true);
   });
 });
 

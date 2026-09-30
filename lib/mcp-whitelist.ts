@@ -8,18 +8,10 @@
  * (voir CLIENT_DATA_SERVER et server/relay.mjs, dont la whitelist est
  * distincte). L'ajouter ici ferait apparaître un choix sans objet dans l'admin.
  */
-/**
- * TikTok Ads, par le serveur MCP n8n en lecture seule. Un seul jeton lit tous
- * les annonceurs de l'agence : le relay ne le sert que derrière son proxy de
- * périmètre (server/mcp-scoped-ads.mjs), sur les comptes de l'appelant.
- */
-export const TIKTOK_SERVER = "mcp-tiktok-ads" as const;
-
 export const MCP_SERVER_WHITELIST = [
   "meta-ads-impulse",
   "mcp-google-ads",
   "mcp-google-analytics",
-  TIKTOK_SERVER,
 ] as const;
 
 export type McpServer = (typeof MCP_SERVER_WHITELIST)[number];
@@ -75,8 +67,19 @@ export const GWS_SERVER = "gws" as const;
  */
 export const NOTION_SERVER = "notion" as const;
 
+/**
+ * TikTok Ads, par le serveur MCP n8n en lecture seule. Un seul jeton lit tous
+ * les annonceurs de l'agence : le relay ne le sert que derrière son proxy de
+ * périmètre (server/mcp-scoped-ads.mjs), sur les comptes de l'appelant.
+ * Hors de MCP_SERVER_WHITELIST : il n'est pas attribuable à un utilisateur
+ * (un identifiant TikTok saisi sur une fiche utilisateur n'est vérifié par
+ * personne) ; un client y accède par son assistant, sur les comptes rattachés
+ * à son dashboard (lib/tiktok-accounts.ts).
+ */
+export const TIKTOK_SERVER = "mcp-tiktok-ads" as const;
+
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
-export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER, NOTION_SERVER] as const;
+export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, TIKTOK_SERVER, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER, NOTION_SERVER] as const;
 
 /** Serveur MCP stdio des données e-commerce (server/mcp-client-data.mjs), scoped par le relay. */
 export const CLIENT_DATA_SERVER = "client-data" as const;

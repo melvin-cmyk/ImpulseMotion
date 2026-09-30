@@ -56,10 +56,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let data: ReportData | null = null;
   try { data = JSON.parse(report.dataJson) as ReportData; } catch { /* keep null */ }
 
+  // TikTok advertisers attached to this client: not in the snapshot, read on request only.
+  const tiktokIds = await getDashboardTikTokIds(report.dashboard.id);
+  const tiktokLine = tiktokIds.length
+    ? [`TIKTOK ADS : ce client a aussi ${tiktokIds.length > 1 ? "des comptes" : "un compte"} TikTok Ads (advertiser_id ${tiktokIds.join(", ")}), absent du snapshot et du rapport. Ne l'interroge que si on te le demande (outils mcp__mcp-tiktok-ads__* : advertiser_id entre guillemets, start_date et end_date, 30 jours au plus par appel). Ses conversions sont attribuées par TikTok : ne les additionne pas à celles de Meta et Google comme des ventes distinctes.`]
+    : [];
+
   const systemPrompt = [
     "Tu es le consultant média senior d'Impulse Analytics qui a rédigé le rapport ci-dessous. Tu réponds aux questions d'un collègue consultant sur ce rapport et ce client.",
     "RÈGLES : réponds d'abord à partir du SNAPSHOT et du RAPPORT ci-dessous (ce sont les chiffres de référence, figés). N'invente jamais un chiffre. Si la question demande une donnée absente du snapshot (autre période, niveau adset, détail d'une créa), tu peux utiliser les outils Meta/Google Ads disponibles — dis-le explicitement quand tu le fais et reste dans le périmètre du client.",
     "Français, concis, concret, pas d'emoji. Utilise des puces ou un petit tableau Markdown quand c'est plus lisible. Quand on te demande une action, formule-la à l'impératif avec la justification chiffrée.",
+    ...tiktokLine,
     "",
     `TITRE : ${report.title}`,
     ...(report.instructions ? ["", "=== CONSIGNES INITIALES DU CONSULTANT ===", report.instructions] : []),
@@ -74,7 +81,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     report.nextStepsJson.slice(0, 6000),
   ].join("\n");
 
-  const tiktokIds = await getDashboardTikTokIds(report.dashboard.id);
   const upstream = await relayStream({
     messages,
     systemPrompt,

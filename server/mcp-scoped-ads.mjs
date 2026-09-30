@@ -32,7 +32,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { compactToolResult } from "./mcp-compact.mjs";
 import { followDailyPages } from "./mcp-meta-paging.mjs";
-import { prepareTikTokArgs, describeTikTokTool } from "./mcp-tiktok-args.mjs";
+import { accountsOfTikTokCall, describeTikTokTool, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
 
 const SERVER_NAME = process.env.SCOPED_SERVER_NAME || "";
 const UPSTREAM_URL = process.env.SCOPED_UPSTREAM_URL || "";
@@ -51,10 +51,12 @@ const die = (msg) => {
  *              sans prendre de paramètre de compte. Rien à valider dessus :
  *              on les coupe. Le modèle reçoit déjà ses comptes autorisés dans
  *              le system prompt, il n'a pas besoin de les découvrir.
- *  - `requireId` : un appel sans aucun identifiant de compte est refusé (au
- *              lieu d'être laissé à l'amont).
- *  - `prepare` / `describe` : arguments complétés avant l'envoi, et description
- *              de l'outil corrigée en conséquence (server/mcp-tiktok-args.mjs).
+ *  - `prepare` / `accountsOf` / `describe` (server/mcp-tiktok-args.mjs) :
+ *              l'appel est relu en JSON strict et complété, seul l'objet relu
+ *              part en amont, et le compte est lu là où le serveur le lit —
+ *              un appel qui n'en nomme pas est refusé, même pour un
+ *              administrateur ; la description de l'outil est corrigée.
+ *  - `closedTools` : le proxy ne démarre pas sans sa liste d'outils (SCOPED_TOOLS).
  */
 export const PROFILES = {
   "meta-ads-impulse": {
@@ -93,9 +95,10 @@ export const PROFILES = {
     // Le serveur n8n est en lecture seule aujourd'hui ; un outil d'écriture
     // ajouté plus tard resterait fermé.
     denyPattern: /^(create|update|delete|remove|upload|modify|set|enable|disable)_/i,
-    requireId: true,
     prepare: prepareTikTokArgs,
+    accountsOf: accountsOfTikTokCall,
     describe: describeTikTokTool,
+    closedTools: true,
   },
 };
 
@@ -103,18 +106,8 @@ const profile = PROFILES[SERVER_NAME];
 if (!profile) die(`SCOPED_SERVER_NAME inconnu ou manquant: "${SERVER_NAME}"`);
 if (!/^https:\/\//.test(UPSTREAM_URL)) die("SCOPED_UPSTREAM_URL manquante ou non https");
 
-// "*" = périmètre illimité (admins, Business Manager entier) : le proxy ne
-// filtre alors aucun compte mais compacte toujours les réponses.
-const UNRESTRICTED = RAW_ACCOUNTS.trim() === "*";
-const allowed = new Set(
-  UNRESTRICTED ? [] : RAW_ACCOUNTS.split(",").map((s) => profile.norm(s)).filter(Boolean),
-);
-if (!UNRESTRICTED && allowed.size === 0) die(`périmètre vide pour ${SERVER_NAME}`);
-
-// Liste fermée d'outils, posée par le relay (bot client : moins d'outils que
-// l'équipe). Absente = tous les outils de l'amont, moins `deny` et les écritures.
-const ONLY_TOOLS = (process.env.SCOPED_TOOLS || "").split(",").map((s) => s.trim()).filter(Boolean);
-const onlyTools = ONLY_TOOLS.length ? new Set(ONLY_TOOLS) : null;
+if (RAW_ACCOUNTS.trim() !== "*" && !RAW_ACCOUNTS.split(",").some((s) => profile.norm(s))) die(`périmètre vide pour ${SERVER_NAME}`);
+if (profile.closedTools && !(process.env.SCOPED_TOOLS || "").trim()) die(`liste d'outils (SCOPED_TOOLS) manquante pour ${SERVER_NAME}`);
 
 // ── Extraction des identifiants ──────────────────────────────────────────────
 
@@ -126,7 +119,9 @@ const onlyTools = ONLY_TOOLS.length ? new Set(ONLY_TOOLS) : null;
  */
 export function collectAccountIds(value, keys, depth = 0) {
   const found = [];
-  if (depth > 6 || value == null) return found;
+  if (value == null) return found;
+  // Trop profond pour être relu : refusé, jamais transmis sans contrôle.
+  if (depth > 6) return typeof value === "object" || typeof value === "string" ? [UNREADABLE] : found;
 
   if (typeof value === "string") {
     const t = value.trim();
@@ -157,17 +152,21 @@ export function collectAccountIds(value, keys, depth = 0) {
   return found;
 }
 
+/** Stands for a value too deep to be read: it is in no scope, so the call is refused. */
+export const UNREADABLE = "[valeur illisible]";
+
 /**
- * The scalar values held directly by v (v itself, or the items of an array).
- * A string that is a serialised JSON array (`"[\"123\"]"`, the form TikTok's
- * advertiser_ids takes) is read as that array: taken whole, it was neither a
- * known id nor — once normalised to nothing — a refused one.
+ * Every scalar held under an account-ish key: v itself, the items of an array,
+ * the leaves of an object. A string that is a serialised JSON array
+ * (`"[\"123\"]"`, the form TikTok's advertiser_ids takes) is read as that
+ * array: taken whole, it was neither a known id nor — once normalised to
+ * nothing — a refused one.
  */
 function scalars(v, depth = 0) {
   if (typeof v === "number") return [String(v)];
   if (typeof v === "string") {
     const t = v.trim();
-    if (t.startsWith("[") && depth < 4) {
+    if (t.startsWith("[")) {
       try {
         const parsed = JSON.parse(t);
         if (Array.isArray(parsed)) return scalars(parsed, depth + 1);
@@ -175,8 +174,9 @@ function scalars(v, depth = 0) {
     }
     return [v];
   }
-  if (Array.isArray(v) && depth < 4) return v.flatMap((x) => (typeof x === "string" || typeof x === "number" || Array.isArray(x) ? scalars(x, depth + 1) : []));
-  return [];
+  if (v === null || typeof v !== "object") return [];
+  if (depth >= 4) return [UNREADABLE];
+  return Object.values(v).flatMap((x) => scalars(x, depth + 1));
 }
 
 /** Identifiants demandés qui ne sont pas dans le périmètre. */
@@ -193,10 +193,80 @@ export function outOfScope(args, { keys, norm }, allowedSet) {
   return bad;
 }
 
-/** True when the call names at least one account (whatever its scope). */
-export function namesAnAccount(args, { keys, norm }) {
-  return collectAccountIds(args, keys).some((id) => norm(id));
+/**
+ * `input` of an old-generation n8n tool must be a strict JSON object. n8n reads
+ * more than JSON (object notation, a fenced block, a bare value for a tool of
+ * one parameter): what this proxy cannot read, n8n would still act on.
+ * Returns the refusal, or null.
+ */
+export function unreadableInput(args) {
+  if (!args || typeof args !== "object" || Array.isArray(args) || args.input === undefined || args.input === null) return null;
+  let value = args.input;
+  if (typeof value === "string") {
+    if (!value.trim()) return null;
+    try { value = JSON.parse(value); } catch { value = null; }
+  }
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? null
+    : "Appel refusé : `input` doit être un objet JSON strict (guillemets doubles, sans bloc de code ni commentaire).";
 }
+
+/**
+ * What the proxy decides, apart from the network: which tools are open, and
+ * for a call either the refusal or the arguments to send upstream.
+ * @param {{ label: string, keys: RegExp, norm: (v: unknown) => string, deny: Set<string>, denyPattern?: RegExp, prepare?: Function, accountsOf?: Function }} p
+ * @param {{ accounts: string, tools?: string }} scope  accounts: ids separated by commas, or "*" (no account filter)
+ */
+export function createGate(p, { accounts, tools = "" }) {
+  // "*" = périmètre illimité (admins, Business Manager entier) : aucun compte
+  // n'est filtré, tout le reste s'applique.
+  const unrestricted = accounts.trim() === "*";
+  const allowed = new Set(unrestricted ? [] : accounts.split(",").map((s) => p.norm(s)).filter(Boolean));
+  // Liste fermée d'outils, posée par le relay (bot client : moins d'outils que
+  // l'équipe). Absente = tous les outils de l'amont, moins `deny` et les écritures.
+  const only = tools.split(",").map((s) => s.trim()).filter(Boolean);
+  const onlyTools = only.length ? new Set(only) : null;
+
+  const isWrite = (name) => (p.denyPattern ? p.denyPattern.test(name) : false);
+  const isClosed = (name) => (onlyTools ? !onlyTools.has(name) : false);
+  const isDenied = (name) => p.deny.has(name) || isWrite(name) || isClosed(name);
+  const outside = (ids) => `Accès refusé : le compte ${p.label} ${ids.join(", ")} n'est pas dans ton périmètre. Tu ne peux interroger que : ${[...allowed].join(", ")}.`;
+
+  /** @returns {{ refusal: string } | { args: unknown }} */
+  function check(name, given, { legacy = true } = {}) {
+    if (isWrite(name)) return { refusal: `Outil "${name}" indisponible : les outils qui créent ou modifient ${p.label} ne sont pas ouverts dans cette conversation.` };
+    if (p.deny.has(name)) {
+      return { refusal: `Outil "${name}" indisponible : l'énumération des comptes ${p.label} n'est pas autorisée. Les comptes sur lesquels tu peux travailler te sont donnés dans tes instructions.` };
+    }
+    if (isClosed(name)) return { refusal: `Outil "${name}" indisponible : il n'est pas ouvert dans cette conversation.` };
+
+    let args = given;
+    if (p.prepare) {
+      // Le contrôle porte sur ce qui part réellement en amont : l'objet relu, et lui seul.
+      const prepared = p.prepare(name, given, { legacy });
+      if (prepared.error) return { refusal: prepared.error };
+      args = prepared.args;
+      const named = p.accountsOf(name, prepared.object);
+      if (named.error) return { refusal: unrestricted ? named.error : `${named.error} Tu ne peux interroger que : ${[...allowed].join(", ")}.` };
+      const bad = unrestricted ? [] : named.ids.filter((id) => !allowed.has(p.norm(id)));
+      if (bad.length) return { refusal: outside(bad) };
+    } else if (legacy && !unrestricted) {
+      const unreadable = unreadableInput(given);
+      if (unreadable) return { refusal: unreadable };
+    }
+
+    const bad = unrestricted ? [] : outOfScope(args, p, allowed);
+    if (bad.length) return { refusal: outside(bad) };
+    return { args };
+  }
+
+  /** The tools a conversation sees: the open ones, their description corrected where the profile knows better. */
+  const listed = (tools) => tools.filter((t) => !isDenied(t.name)).map((t) => (p.describe ? { ...t, description: p.describe(t.name, t.description) } : t));
+
+  return { unrestricted, allowed, isDenied, listed, check };
+}
+
+const gate = createGate(profile, { accounts: RAW_ACCOUNTS, tools: process.env.SCOPED_TOOLS || "" });
 
 // ── Amont (SSE) ──────────────────────────────────────────────────────────────
 
@@ -235,53 +305,19 @@ async function takesSerialisedInput(name) {
 }
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  const tools = await readUpstreamTools();
-  return {
-    tools: tools
-      .filter((t) => !isDenied(t.name))
-      .map((t) => (profile.describe ? { ...t, description: profile.describe(t.name, t.description) } : t)),
-  };
+  return { tools: gate.listed(await readUpstreamTools()) };
 });
 
 const refusal = (text) => ({ isError: true, content: [{ type: "text", text }] });
-const isWrite = (name) => (profile.denyPattern ? profile.denyPattern.test(name) : false);
-const isClosed = (name) => (onlyTools ? !onlyTools.has(name) : false);
-const isDenied = (name) => profile.deny.has(name) || isWrite(name) || isClosed(name);
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: given } = request.params;
-
-  if (isWrite(name)) {
-    return refusal(`Outil "${name}" indisponible : les outils qui créent ou modifient ${profile.label} ne sont pas ouverts dans cette conversation.`);
+  const decided = gate.check(name, given, { legacy: await takesSerialisedInput(name) });
+  if ("refusal" in decided) {
+    console.error(`[mcp-scoped-ads] refus ${SERVER_NAME}.${name} : ${decided.refusal.slice(0, 160)}`);
+    return refusal(decided.refusal);
   }
-  if (profile.deny.has(name)) {
-    return refusal(
-      `Outil "${name}" indisponible : l'énumération des comptes ${profile.label} n'est pas autorisée. ` +
-        `Les comptes sur lesquels tu peux travailler te sont donnés dans tes instructions.`,
-    );
-  }
-  if (isClosed(name)) {
-    return refusal(`Outil "${name}" indisponible : il n'est pas ouvert dans cette conversation.`);
-  }
-
-  // Le contrôle porte sur ce qui part réellement en amont.
-  const args = profile.prepare ? profile.prepare(name, given, { legacy: await takesSerialisedInput(name) }) : given;
-
-  if (!UNRESTRICTED && profile.requireId && !namesAnAccount(args, profile)) {
-    return refusal(
-      `Appel refusé : "${name}" doit nommer le compte ${profile.label} interrogé. ` +
-        `Tu ne peux interroger que : ${[...allowed].join(", ")}.`,
-    );
-  }
-
-  const bad = UNRESTRICTED ? [] : outOfScope(args, profile, allowed);
-  if (bad.length > 0) {
-    console.error(`[mcp-scoped-ads] refus ${SERVER_NAME}.${name} hors périmètre: ${bad.join(", ")}`);
-    return refusal(
-      `Accès refusé : le compte ${profile.label} ${bad.join(", ")} n'est pas dans ton périmètre. ` +
-        `Tu ne peux interroger que : ${[...allowed].join(", ")}.`,
-    );
-  }
+  const args = decided.args;
 
   let raw = await upstream.callTool({ name, arguments: args ?? {} });
   // Meta coupe une série quotidienne à 25 lignes par page : on va chercher la
@@ -308,7 +344,7 @@ if (process.env.SCOPED_ADS_NO_LISTEN !== "1") {
     die(`connexion amont impossible: ${err?.message ?? err}`);
   }
   await server.connect(new StdioServerTransport());
-  console.error(`[mcp-scoped-ads] ${SERVER_NAME} — périmètre: ${[...allowed].join(", ")}`);
+  console.error(`[mcp-scoped-ads] ${SERVER_NAME} — périmètre: ${gate.unrestricted ? "*" : [...gate.allowed].join(", ")}`);
 
   const shutdown = async () => {
     try { await upstream.close(); } catch { /* déjà fermé */ }

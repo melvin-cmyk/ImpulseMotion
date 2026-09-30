@@ -23,7 +23,7 @@ type DashboardRow = {
   _count?: { widgets: number };
 };
 
-const MCP_SERVERS = ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics", "mcp-tiktok-ads"];
+const MCP_SERVERS = ["meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics"];
 const PLATFORMS = [
   { value: "meta", label: "Meta Ads" },
   { value: "google", label: "Google Ads" },

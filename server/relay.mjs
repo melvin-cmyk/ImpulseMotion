@@ -475,9 +475,9 @@ const DIRECT_TOOL_ALLOWLIST = {
   ],
   "mcp-google-analytics": SERVER_TOOL_ALLOWLIST["mcp-google-analytics"],
   "mcp-google-sheet": SERVER_TOOL_ALLOWLIST["mcp-google-sheet"],
-  // No scope proxy here: the application checks the advertiser id itself, and
-  // only ever sends one it read from its own database or an admin typed.
-  [TIKTOK_SERVER]: ["get_advertiser_info", "get_report_integrated"],
+  // No scope proxy here: the application sends the one advertiser id a staff
+  // member typed, to read its name before attaching it (lib/tiktok-accounts.ts).
+  [TIKTOK_SERVER]: ["get_advertiser_info"],
 };
 
 /** "<server>.<tool>" → null when /api/tool may call it, the reason otherwise. */
@@ -681,7 +681,8 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
     }
     // Admins keep business-manager-wide access, but still through the proxy:
     // it is also where tool outputs get compacted before reaching the model.
-    const ids = unrestricted ? ["*"] : (pick(effectiveScope) || []).filter((v) => typeof v === "string" && v.trim());
+    // "*" is the word of the unrestricted scope only: never an id a caller can list.
+    const ids = unrestricted ? ["*"] : (pick(effectiveScope) || []).filter((v) => typeof v === "string" && v.trim() && v.trim() !== "*");
     if (ids.length === 0) {
       console.error(`[chat] ${name} retiré — aucun compte autorisé pour cet appelant`);
       continue;

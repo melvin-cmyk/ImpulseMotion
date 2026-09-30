@@ -62,6 +62,8 @@ const META_CONVERSION_ACTION = /^(purchase|lead|add_to_cart|initiate_checkout|co
 const MICROS = /Micros$|^(averageCpc|costPerConversion|averageCpm|costPerAllConversions|averageCost)$/;
 const ID_KEY = /(^|[._])id$|resourceName|cursor|(^|\.)name$/i;
 
+const TIKTOK = "mcp-tiktok-ads";
+
 /** Réglages par outil : plafond et tri. Absent = 100 lignes, tri dépense. */
 const TOOL_OPTS = {
   "meta-ads-impulse": {
@@ -80,7 +82,7 @@ const TOOL_OPTS = {
     run_realtime_report: { cap: 300, fieldDrop: false },
     get_metadata: { cap: 1000, fieldDrop: false },
   },
-  "mcp-tiktok-ads": {
+  [TIKTOK]: {
     get_report_integrated: { cap: 400, order: "date" },
     get_breakdown_report: { cap: 300 },
     get_campaigns: { cap: 60 },
@@ -268,7 +270,7 @@ const isTikTok = (o) => !!o && typeof o === "object" && !Array.isArray(o) && typ
  * jour arrive en « AAAA-MM-JJ 00:00:00 ». Une page qui n'est pas la dernière
  * est annoncée (has_more), avec le numéro de page à demander.
  */
-function tiktokRows(o, tool) {
+function tiktokRows(o) {
   if (!isTikTok(o)) return null;
   if (o.code !== 0) return { rows: null, env: null, value: { erreur_tiktok: o.code, message: o.message } };
   const data = o.data && typeof o.data === "object" ? o.data : {};
@@ -285,19 +287,56 @@ function tiktokRows(o, tool) {
       if (v === "-") continue;
       x[k] = /^stat_time_day$/.test(k) && typeof v === "string" ? v.slice(0, 10) : v;
     }
-    if (tool === "get_advertiser_info") return Object.fromEntries(TIKTOK_ADVERTISER_FIELDS.filter((k) => k in x).map((k) => [k, x[k]]));
     return x;
   });
 
+  // Une page parmi plusieurs — la dernière comprise — n'est pas la période : dite, et jamais résumée en totaux.
   const env = {};
   const p = data.page_info;
-  if (p && typeof p === "object" && Number(p.total_page) > Number(p.page)) {
-    env.has_more = true;
+  const paged = !!p && typeof p === "object" && Number(p.total_page) > 1;
+  if (paged) {
+    if (Number(p.total_page) > Number(p.page)) env.has_more = true;
     env.page = p.page;
     env.total_page = p.total_page;
     if (p.total_number !== undefined) env.total_number = p.total_number;
   }
-  return { rows, env };
+  return { rows, env, partial: paged };
+}
+
+/** Every object that carries an `advertiser_id`, wherever it sits: wrapped, listed, or JSON inside a string. */
+function advertiserCards(v, depth = 0, out = []) {
+  if (depth > 8 || v === null || v === undefined) return out;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (t.startsWith("{") || t.startsWith("[")) {
+      try { advertiserCards(JSON.parse(t), depth + 1, out); } catch { /* texte ordinaire */ }
+    }
+    return out;
+  }
+  if (Array.isArray(v)) { for (const x of v) advertiserCards(x, depth + 1, out); return out; }
+  if (typeof v !== "object") return out;
+  if ("advertiser_id" in v) {
+    out.push(Object.fromEntries(TIKTOK_ADVERTISER_FIELDS.filter((k) => k in v && typeof v[k] !== "object").map((k) => [k, v[k]])));
+    return out;
+  }
+  for (const x of Object.values(v)) advertiserCards(x, depth + 1, out);
+  return out;
+}
+
+/**
+ * La fiche d'un compte TikTok, quelle que soit la forme de la réponse : seuls
+ * les champs de la liste passent. Une réponse où aucun compte n'est reconnu
+ * n'est jamais rendue telle quelle — elle pourrait porter le solde ou les
+ * coordonnées du contact.
+ */
+function tiktokAdvertiserText(text) {
+  let o = null;
+  try { o = JSON.parse(text); } catch { /* rien de lisible */ }
+  const cards = advertiserCards(o);
+  if (cards.length) return JSON.stringify(cards.length === 1 ? cards[0] : cards);
+  if (Array.isArray(o) && o.length === 1) o = o[0];
+  if (isTikTok(o) && o.code !== 0) return JSON.stringify({ erreur_tiktok: o.code, message: String(o.message).slice(0, 300) });
+  return JSON.stringify({ erreur: "fiche du compte illisible : réponse de TikTok non reconnue" });
 }
 
 /** Localise le tableau de lignes principal et l'enveloppe qui l'entoure. */
@@ -570,6 +609,10 @@ function summarize(rows, dateKey, name, cap, exclude = []) {
  */
 export function compactText(text, { server = "", tool = "", cap: capOverride } = {}) {
   const stats = { raw: text.length };
+  if (server === TIKTOK && tool === "get_advertiser_info") {
+    const out = tiktokAdvertiserText(text);
+    return { text: out, stats: { ...stats, out: out.length, mode: "object", truncated: null } };
+  }
   let j;
   try { j = JSON.parse(text); } catch {
     const out = text.length > MAX_PROSE_CHARS ? `${text.slice(0, MAX_PROSE_CHARS)}\n…[tronqué : ${text.length} caractères au total]` : text;
@@ -582,7 +625,7 @@ export function compactText(text, { server = "", tool = "", cap: capOverride } =
   if (capOverride) tuning.cap = capOverride;
 
   const unwrapped = Array.isArray(j) && j.length === 1 && j[0] && typeof j[0] === "object" && !Array.isArray(j[0]) ? j[0] : j;
-  const located = ga4Rows(unwrapped) || tiktokRows(unwrapped, tool) || findRows(j);
+  const located = ga4Rows(unwrapped) || (server === TIKTOK ? tiktokRows(unwrapped) : null) || findRows(j);
   const env = {};
   for (const [k, v] of Object.entries(located.env || {})) {
     if (ENVELOPE_DROP.has(k) || isEmpty(v)) continue;
@@ -636,7 +679,7 @@ export function compactText(text, { server = "", tool = "", cap: capOverride } =
   const dateKey = ["date", "date_start", "segments.date", "day", "stat_time_day"].find((k) => rows.some((r) => k in r));
   const spendKey = ["spend", "cost", "metrics.cost", "sessions", "impressions", "metrics.impressions", "contacts"].find((k) => rows.some((r) => k in r));
   // Page partielle : dite en première ligne, et jamais résumée (les sommes seraient prises pour des totaux).
-  const partial = env.has_more === true;
+  const partial = env.has_more === true || located.partial === true;
   const commonNumbers = Object.keys(common).filter((k) => typeof common[k] === "number");
 
   /** Rendu complet, avec ou sans fusion des doublons et abréviations. */
