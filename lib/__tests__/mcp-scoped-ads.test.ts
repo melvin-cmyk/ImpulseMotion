@@ -131,6 +131,8 @@ describe("the gate of a TikTok conversation", () => {
   let tiktok: unknown;
   const ID = "7111111111111111111";
   const OTHER = "7999999999999999999";
+  /** What the server adds to a list: the first page, at the size it shows whole. */
+  const PAGE = { page: "1", page_size: "100" };
   const CLIENT_TOOLS = "get_advertiser_info,get_campaigns,get_adgroups,get_ads,get_campaign_performance,get_adgroup_performance,get_ad_performance,get_breakdown_report,get_report_integrated";
   const input = (o: unknown) => ({ input: JSON.stringify(o) });
   const gate = (accounts = ID, tools = CLIENT_TOOLS) => createGate(tiktok, { accounts, tools });
@@ -145,7 +147,7 @@ describe("the gate of a TikTok conversation", () => {
   });
 
   it("sends the allowed advertiser, as the object it read and completed", () => {
-    expect(sent(gate().check("get_campaigns", input({ advertiser_id: ID })))).toEqual({ advertiser_id: ID });
+    expect(sent(gate().check("get_campaigns", input({ advertiser_id: ID })))).toEqual({ advertiser_id: ID, ...PAGE });
     const report = sent(gate().check("get_campaign_performance", input({ advertiser_id: ID, start_date: "2026-09-01", end_date: "2026-09-07" })));
     expect(report).toMatchObject({ advertiser_id: ID, report_type: "BASIC", data_level: "AUCTION_CAMPAIGN", page: "1" });
     expect(sent(gate().check("get_advertiser_info", input({ advertiser_id: ID })))).toEqual({ advertiser_ids: `["${ID}"]` });
@@ -185,7 +187,7 @@ describe("the gate of a TikTok conversation", () => {
     }
     // A readable `input` wins over its neighbours, which are not sent.
     const d = gate().check("get_campaigns", { input: JSON.stringify({ advertiser_id: ID }), advertiser_id: OTHER, note: "x" });
-    expect(sent(d)).toEqual({ advertiser_id: ID });
+    expect(sent(d)).toEqual({ advertiser_id: ID, ...PAGE });
   });
 
   it("refuses a call that names no account — for an administrator too", () => {
@@ -195,11 +197,11 @@ describe("the gate of a TikTok conversation", () => {
       }
     }
     // An administrator reads any account that is named.
-    expect(sent(gate("*").check("get_campaigns", input({ advertiser_id: OTHER })))).toEqual({ advertiser_id: OTHER });
+    expect(sent(gate("*").check("get_campaigns", input({ advertiser_id: OTHER })))).toEqual({ advertiser_id: OTHER, ...PAGE });
   });
 
   it("tolerates spaces around the allowed id, and sends it without them", () => {
-    expect(sent(gate().check("get_campaigns", input({ advertiser_id: ` ${ID} ` })))).toEqual({ advertiser_id: ID });
+    expect(sent(gate().check("get_campaigns", input({ advertiser_id: ` ${ID} ` })))).toEqual({ advertiser_id: ID, ...PAGE });
   });
 
   it("closes what lists every advertiser, what writes, and what is not on its list", () => {
@@ -211,7 +213,7 @@ describe("the gate of a TikTok conversation", () => {
       expect(refused(g.check(name, input({ advertiser_id: ID }))), name).toContain("pas ouvert dans cette conversation");
     }
     const staff = gate(ID, `${CLIENT_TOOLS},list_custom_audiences,search_ad_videos,search_ad_images`);
-    expect(sent(staff.check("search_ad_videos", input({ advertiser_id: ID })))).toEqual({ advertiser_id: ID });
+    expect(sent(staff.check("search_ad_videos", input({ advertiser_id: ID })))).toEqual({ advertiser_id: ID, page: "1", page_size: "40" });
     expect(refused(staff.check("get_pixels", input({ advertiser_id: ID })))).toContain("pas ouvert");
     // Even a list that names it cannot open the listing of every advertiser.
     expect(refused(gate(ID, "list_advertisers,get_campaigns").check("list_advertisers", {}))).toContain("énumération");
@@ -239,7 +241,7 @@ describe("the gate of a TikTok conversation", () => {
 
   it("sends the parameters the tool declares, and nothing else the model wrote", () => {
     const d = gate().check("get_campaigns", input({ advertiser_id: ID, advertiser_name: "Client Démo", note: "x", secret: "y" }));
-    expect(sent(d)).toEqual({ advertiser_id: ID });
+    expect(sent(d)).toEqual({ advertiser_id: ID, ...PAGE });
     const report = gate().check("get_report_integrated", input({ advertiser_id: ID, data_level: "AUCTION_CAMPAIGN", dimensions: ["campaign_id"], metrics: ["spend"], start_date: "2026-09-01", end_date: "2026-09-07", filtering: { campaign_ids: ["1"] }, extra: "&advertiser_id=" + OTHER }));
     expect(Object.keys(sent(report)!).sort()).toEqual(["advertiser_id", "data_level", "dimensions", "end_date", "metrics", "page", "page_size", "report_type", "start_date"]);
   });

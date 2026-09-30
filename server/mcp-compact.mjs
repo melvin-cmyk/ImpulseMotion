@@ -85,9 +85,10 @@ const TOOL_OPTS = {
   [TIKTOK]: {
     get_report_integrated: { cap: 400, order: "date" },
     get_breakdown_report: { cap: 300 },
-    get_campaigns: { cap: 60 },
-    get_adgroups: { cap: 60 },
-    get_ads: { cap: 60 },
+    // Une page de liste (taille fixée par server/mcp-tiktok-args.mjs) est rendue en entier.
+    get_campaigns: { cap: 100 },
+    get_adgroups: { cap: 100 },
+    get_ads: { cap: 100 },
     search_ad_videos: { cap: 40 },
     search_ad_images: { cap: 40 },
     list_custom_audiences: { cap: 40 },

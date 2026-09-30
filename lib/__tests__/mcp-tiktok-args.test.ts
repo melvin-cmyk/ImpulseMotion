@@ -22,6 +22,8 @@ const sent = (name: string, args: unknown) => JSON.parse(prepared(name, args).ar
 const input = (o: unknown) => ({ input: JSON.stringify(o) });
 const ID = "7111111111111111111";
 const OTHER = "7999999999999999999";
+/** What the server adds to a list: the first page, at the size it shows whole. */
+const PAGE = { page: "1", page_size: "100" };
 const ask = { advertiser_id: ID, start_date: "2026-09-01", end_date: "2026-09-20" };
 
 describe("prepareTikTokArgs — reports", () => {
@@ -85,26 +87,33 @@ describe("prepareTikTokArgs — the other tools", () => {
   });
 
   it("gives an empty filter when none is asked", () => {
-    expect(sent("get_adgroups", input({ advertiser_id: ID }))).toEqual({ advertiser_id: ID, filtering: "{}" });
+    expect(sent("get_adgroups", input({ advertiser_id: ID }))).toEqual({ advertiser_id: ID, filtering: "{}", ...PAGE });
     expect(sent("get_ads", input({ advertiser_id: ID, filtering: { adgroup_ids: ["1"] } })).filtering).toBe('{"adgroup_ids":["1"]}');
     expect(sent("get_ads", input({ advertiser_id: ID, filtering: '{"adgroup_ids":["1"]}' })).filtering).toBe('{"adgroup_ids":["1"]}');
   });
 
-  it("changes nothing in a tool it has nothing to add to, but the spaces around the id", () => {
-    expect(sent("get_campaigns", input({ advertiser_id: ID }))).toEqual({ advertiser_id: ID });
-    expect(sent("search_ad_videos", input({ advertiser_id: ` ${ID}\n` }))).toEqual({ advertiser_id: ID });
+  it("asks for whole pages of a list: without a size TikTok returns ten objects and does not say so", () => {
+    expect(sent("get_campaigns", input({ advertiser_id: ID }))).toEqual({ advertiser_id: ID, page: "1", page_size: "100" });
+    expect(sent("get_ads", input({ advertiser_id: ID, page: 3 }))).toMatchObject({ page: "3", page_size: "100" });
+    // The size is the server's: what a page holds is what the answer shows whole.
+    expect(sent("get_campaigns", input({ advertiser_id: ID, page_size: "1000" })).page_size).toBe("100");
+    for (const name of ["list_custom_audiences", "search_ad_videos", "search_ad_images"]) {
+      expect(sent(name, input({ advertiser_id: ` ${ID}\n`, page: "deux" })), name).toEqual({ advertiser_id: ID, page: "1", page_size: "40" });
+    }
+    // The sheet of an account is not a list.
+    expect(sent("get_advertiser_info", input({ advertiser_id: ID }))).toEqual({ advertiser_ids: `["${ID}"]` });
   });
 });
 
 describe("prepareTikTokArgs — only what was read is sent", () => {
   it("wraps arguments given without `input`, and reads an `input` given as an object", () => {
-    expect(sent("get_campaigns", { advertiser_id: ID })).toEqual({ advertiser_id: ID });
-    expect(sent("get_campaigns", { input: { advertiser_id: ID } })).toEqual({ advertiser_id: ID });
+    expect(sent("get_campaigns", { advertiser_id: ID })).toEqual({ advertiser_id: ID, ...PAGE });
+    expect(sent("get_campaigns", { input: { advertiser_id: ID } })).toEqual({ advertiser_id: ID, ...PAGE });
     expect(sent("get_campaign_performance", ask).data_level).toBe("AUCTION_CAMPAIGN");
   });
 
   it("sends plain arguments to a tool that no longer takes `input`", () => {
-    expect(prepared("get_campaigns", input({ advertiser_id: ID }), { legacy: false }).args).toEqual({ advertiser_id: ID });
+    expect(prepared("get_campaigns", input({ advertiser_id: ID }), { legacy: false }).args).toEqual({ advertiser_id: ID, ...PAGE });
     expect(prepared("get_campaign_performance", ask, { legacy: false }).args).toMatchObject({ ...ask, data_level: "AUCTION_CAMPAIGN", page: "1" });
   });
 
@@ -128,13 +137,13 @@ describe("prepareTikTokArgs — only what was read is sent", () => {
 
   it("never sends a neighbour of `input`: only `input` counts when it is given", () => {
     const out = prepared("get_campaigns", { input: JSON.stringify({ advertiser_id: OTHER }), advertiser_id: ID, extra: "x" });
-    expect(out.object).toEqual({ advertiser_id: OTHER });
+    expect(out.object).toEqual({ advertiser_id: OTHER, ...PAGE });
     expect(Object.keys(out.args)).toEqual(["input"]);
     expect(out.args.input).not.toContain(ID);
   });
 
   it("an empty call is an empty object, for the account check to refuse", () => {
-    for (const none of [undefined, null, {}, { input: null }]) expect(prepared("get_campaigns", none).object).toEqual({});
+    for (const none of [undefined, null, {}, { input: null }]) expect(prepared("get_campaigns", none).object).toEqual(PAGE);
   });
 });
 

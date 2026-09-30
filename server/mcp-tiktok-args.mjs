@@ -59,6 +59,13 @@ const BASIC_DIMENSIONS = new Set(["advertiser_id", "campaign_id", "adgroup_id", 
 /** Outils dont `filtering` est exigé par n8n alors qu'il est facultatif pour TikTok. */
 const FILTERED = new Set(["get_adgroups", "get_ads"]);
 
+/**
+ * Listes paginées : objets par page. Sans `page_size`, TikTok n'en rend que 10,
+ * sans le dire. La taille est celle que la compaction affiche en entier
+ * (server/mcp-compact.mjs) : une page demandée est une page lue.
+ */
+const LISTS = { get_campaigns: 100, get_adgroups: 100, get_ads: 100, list_custom_audiences: 40, search_ad_videos: 40, search_ad_images: 40 };
+
 const PAGE_SIZE = 1000;
 const DATA_LEVELS = new Set(["AUCTION_ADVERTISER", "AUCTION_CAMPAIGN", "AUCTION_ADGROUP", "AUCTION_AD"]);
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -84,6 +91,12 @@ function fieldList(v) {
   if (!Array.isArray(list) || !list.length) return "invalid";
   const names = list.map((x) => (typeof x === "string" ? x.trim() : ""));
   return names.every((x) => FIELD.test(x)) ? names : "invalid";
+}
+
+/** La page demandée, en texte ; la première pour toute autre valeur. */
+function pageOf(given) {
+  const page = Number(given.page);
+  return Number.isInteger(page) && page >= 1 && page <= 9999 ? String(page) : "1";
 }
 
 /** Un rapport : les paramètres que le flux déclare, et eux seuls. */
@@ -115,8 +128,7 @@ function reportArgs(name, given) {
   out.metrics = JSON.stringify(metrics);
   out.report_type = dimensions.some((d) => !BASIC_DIMENSIONS.has(d)) ? "AUDIENCE" : "BASIC";
 
-  const page = Number(given.page);
-  out.page = Number.isInteger(page) && page >= 1 && page <= 9999 ? String(page) : "1";
+  out.page = pageOf(given);
   const size = Number(given.page_size);
   out.page_size = Number.isInteger(size) && size >= 1 && size <= PAGE_SIZE ? String(size) : String(PAGE_SIZE);
   return out;
@@ -152,6 +164,13 @@ function filteredArgs(given) {
   return { advertiser_id: given.advertiser_id, filtering: JSON.stringify(filtering) };
 }
 
+/** Une liste : le compte, son filtre s'il y en a un, et la page. */
+function listArgs(name, given) {
+  const out = FILTERED.has(name) ? filteredArgs(given) : { advertiser_id: given.advertiser_id };
+  if ("error" in out) return out;
+  return { ...out, page: pageOf(given), page_size: String(LISTS[name]) };
+}
+
 const UNREADABLE = "Appel refusé : les arguments doivent être un objet JSON strict (guillemets doubles, sans bloc de code ni commentaire) dans `input`.";
 
 /**
@@ -183,7 +202,7 @@ export function prepareTikTokArgs(name, args, { legacy = true } = {}) {
 
   const object = REPORTS[name] ? reportArgs(name, given)
     : name === "get_advertiser_info" ? advertiserInfoArgs(given)
-    : FILTERED.has(name) ? filteredArgs(given)
+    : LISTS[name] ? listArgs(name, given)
     : { advertiser_id: given.advertiser_id };
   if ("error" in object) return { error: object.error };
   if (typeof object.advertiser_id === "string") object.advertiser_id = object.advertiser_id.trim();
@@ -217,6 +236,7 @@ export function accountsOfTikTokCall(name, object) {
 const SHAPE = "Tool expects valid stringified JSON object";
 const DATES = "start_date, end_date (required, YYYY-MM-DD, in the account timezone, 30 days at most)";
 const PAGING = `page (optional, 1 by default; ${PAGE_SIZE} rows per page, read page_info.total_page in the answer)`;
+const LIST_PAGING = (name) => `page (optional, 1 by default; ${LISTS[name]} per page — the answer says when there are more pages)`;
 const SERVER_SIDE = "Everything else (report_type, page_size…) is set by the server: do not send it.";
 const ACCOUNT = "advertiser_id (required: the digits of the TikTok advertiser ID, as a string in double quotes)";
 
@@ -230,13 +250,13 @@ const PARAMS = {
     `dimensions (required: JSON array), metrics (required: JSON array), ${DATES}, ${PAGING}. ${SERVER_SIDE} ` +
     `Daily series of the account: data_level AUCTION_ADVERTISER, dimensions ["advertiser_id","stat_time_day"]; ` +
     `by campaign and by day: AUCTION_CAMPAIGN, ["campaign_id","stat_time_day"] with campaign_name among the metrics.`,
-  get_adgroups: `${ACCOUNT}, filtering (optional: JSON object, e.g. {"campaign_ids":["CAMPAIGN_ID"]}).`,
-  get_ads: `${ACCOUNT}, filtering (optional: JSON object, e.g. {"adgroup_ids":["ADGROUP_ID"]}).`,
+  get_adgroups: `${ACCOUNT}, filtering (optional: JSON object, e.g. {"campaign_ids":["CAMPAIGN_ID"]}), ${LIST_PAGING("get_adgroups")}.`,
+  get_ads: `${ACCOUNT}, filtering (optional: JSON object, e.g. {"adgroup_ids":["ADGROUP_ID"]}), ${LIST_PAGING("get_ads")}.`,
   get_advertiser_info: `${ACCOUNT}.`,
-  get_campaigns: `${ACCOUNT}.`,
-  list_custom_audiences: `${ACCOUNT}.`,
-  search_ad_videos: `${ACCOUNT}.`,
-  search_ad_images: `${ACCOUNT}.`,
+  get_campaigns: `${ACCOUNT}, ${LIST_PAGING("get_campaigns")}.`,
+  list_custom_audiences: `${ACCOUNT}, ${LIST_PAGING("list_custom_audiences")}.`,
+  search_ad_videos: `${ACCOUNT}, ${LIST_PAGING("search_ad_videos")}.`,
+  search_ad_images: `${ACCOUNT}, ${LIST_PAGING("search_ad_images")}.`,
 };
 
 /**
