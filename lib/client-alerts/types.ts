@@ -349,7 +349,7 @@ export interface RunSummary {
   dryRun: boolean;
   /** Events held back on purpose: daily cap, per-run cap, flood guard, no Slack identity, webhook not configured. Tried again at the next pass. */
   held: number;
-  /** Events whose private message could not be delivered. Tried again at the next pass. */
+  /** Events whose private message was not delivered for sure: refused (tried again at the next pass) or of unknown fate (closed, never sent again). */
   failed: number;
   errors: string[];
 }

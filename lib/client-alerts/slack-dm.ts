@@ -53,6 +53,13 @@ export class SlackAddressError extends Error {
 
 const SERVICE = "le service d'envoi vers Slack";
 /** Slack's codes a consultant may meet, in words; anything else is « Slack a refusé l'envoi ». */
+/** Failures of `fetch` that happen before a connection exists: the request never left. */
+const NEVER_CONNECTED = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "UND_ERR_CONNECT_TIMEOUT"]);
+/** The secure connection could not be set up: nothing was sent over it. */
+const NO_TLS = /^(ERR_TLS_|CERT_|DEPTH_ZERO_|UNABLE_TO_|SELF_SIGNED_)/;
+/** The form of Slack's own error codes (channel_not_found, missing_scope…). */
+const SLACK_CODE = /^[a-z][a-z0-9_]*$/;
+
 const SLACK_WORDS: Record<string, string> = {
   users_not_found: "Slack ne connaît pas ce compte",
   user_not_found: "Slack ne connaît pas ce compte",
@@ -108,7 +115,11 @@ async function call(body: Record<string, unknown>, timeoutMs: number): Promise<R
     });
   } catch (err) {
     const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-    throw new SlackDmError(timedOut ? `${SERVICE} ne répond pas` : `${SERVICE} est injoignable`, timedOut ? "n8n ne répond pas" : "n8n injoignable", timedOut);
+    // Never connected (refused, no such host, no route): nothing left. Anything else — no answer in
+    // time, a connection cut once the request was on its way — says nothing of what the service did.
+    const code = String(((err as { cause?: { code?: unknown } } | null)?.cause?.code) ?? "");
+    const neverLeft = !timedOut && (NEVER_CONNECTED.has(code) || NO_TLS.test(code));
+    throw new SlackDmError(timedOut ? `${SERVICE} ne répond pas` : `${SERVICE} est injoignable`, timedOut ? "n8n ne répond pas" : `n8n injoignable${code ? ` (${code})` : ""}`, !neverLeft);
   }
   const text = await res.text().catch(() => "");
   let json: Record<string, unknown> = {};
@@ -119,9 +130,12 @@ async function call(body: Record<string, unknown>, timeoutMs: number): Promise<R
     const slack = typeof json.error === "string" && json.error ? json.error : null;
     const needed = typeof json.needed === "string" && json.needed ? ` (${json.needed})` : "";
     const words = slack ? SLACK_WORDS[slack] ?? "Slack a refusé l'envoi" : `${SERVICE} a répondu par une erreur`;
-    // Slack's own refusal, or a refusal of the service (secret, flow not published): nothing was posted.
-    // A 5xx of the service without a word from Slack says nothing of what it did before failing.
-    throw new SlackDmError(words, `${slack ?? `n8n ${res.status}`}${needed}`.slice(0, 200), !slack && res.status >= 500);
+    // Nothing was posted when the service refused the request (4xx: secret, shape, flow not published),
+    // when it could not be reached behind its own front door (502, 503), or when Slack itself said no
+    // (one of its codes: a lower-case word). Anything else — a failure inside the service, a network
+    // error between it and Slack reported as a sentence — says nothing of what happened before it.
+    const refused = (res.status >= 400 && res.status < 500) || res.status === 502 || res.status === 503 || (!!slack && SLACK_CODE.test(slack));
+    throw new SlackDmError(words, `${slack ?? `n8n ${res.status}`}${needed}`.slice(0, 200), !refused);
   }
   // An empty or foreign 200 is not a success: a message reported as sent must have been sent.
   if (json.ok !== true) throw new SlackDmError(`${SERVICE} a donné une réponse inattendue`, "réponse n8n inattendue", true);

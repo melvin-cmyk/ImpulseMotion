@@ -53,11 +53,13 @@ export interface AlertRow {
   armed: boolean;
   lastCheckedAt: Date | null;
   lastTriggeredAt: Date | null;
+  /** Last time the rule was validated (activation, change, back from a pause). */
+  backtestAt: Date | null;
 }
 
 const ROW = {
   id: true, createdById: true, createdByEmail: true, alertClientId: true, clientName: true, label: true,
-  definitionJson: true, definitionHash: true, armed: true, lastCheckedAt: true, lastTriggeredAt: true,
+  definitionJson: true, definitionHash: true, armed: true, lastCheckedAt: true, lastTriggeredAt: true, backtestAt: true,
 } as const;
 
 /** Active alerts, longest without a check first (never checked at the top): a pass cut by its budget resumes with the others. */
@@ -119,14 +121,17 @@ export async function recordCheck(alert: Pick<AlertRow, "id" | "definitionHash" 
   const found = { lastCheckedAt: check.at, lastValue: ev.value, lastNote: ev.status === "skipped" ? ev.reason ?? "Non jugée" : null };
   const same = { id: alert.id, status: "active", definitionHash: alert.definitionHash };
   const event = check.event;
+  // The state the pass evaluated from: a message delivered by another pass since then moved it.
+  const from = { armed: alert.armed, lastTriggeredAt: alert.lastTriggeredAt };
   if (!event) {
-    await prisma.clientAlert.updateMany({ where: same, data: { ...found, armed: check.armed } });
+    // `armed` is only written over the state it was computed from; the check itself is always recorded.
+    const moved = await prisma.clientAlert.updateMany({ where: { ...same, ...from }, data: { ...found, armed: check.armed } });
+    if (!moved.count) await prisma.clientAlert.updateMany({ where: same, data: found });
     return null;
   }
   return prisma.$transaction(async (tx) => {
     const taken = await tx.clientAlert.updateMany({
-      // The state the pass evaluated from: a message delivered by another pass since then moved it.
-      where: { ...same, lastCheckedAt: alert.lastCheckedAt, armed: alert.armed, lastTriggeredAt: alert.lastTriggeredAt },
+      where: { ...same, lastCheckedAt: alert.lastCheckedAt, ...from },
       // A real message disarms when it is delivered (markNotified), not before. A dry run mirrors it at once.
       data: event.dryRun ? { ...found, armed: false, lastTriggeredAt: check.at } : found,
     });
@@ -134,8 +139,9 @@ export async function recordCheck(alert: Pick<AlertRow, "id" | "definitionHash" 
     const data = { kind: event.kind, triggeredAt: check.at, value: ev.value, threshold: event.threshold, detailJson: JSON.stringify(ev), message: event.message };
     if (event.reuse && !event.dryRun) {
       // Still undelivered: the same event, with today's figures. Its last reason goes: it is pending again.
+      // No longer pending: another pass delivered it meanwhile. Nothing is added for the same fact.
       const kept = await tx.clientAlertEvent.updateMany({ where: { id: event.reuse, alertId: alert.id, notifiedAt: null, dryRun: false }, data: { ...data, notifyError: null } });
-      if (kept.count) return event.reuse;
+      return kept.count ? event.reuse : null;
     }
     const row = await tx.clientAlertEvent.create({ data: { alertId: alert.id, ...data, dryRun: event.dryRun }, select: { id: true } });
     return row.id;
@@ -170,7 +176,12 @@ export async function rearmAfterDryRun(alert: Pick<AlertRow, "id" | "definitionH
   const delivered = await prisma.clientAlertEvent.findFirst({
     where: { alertId: alert.id, notifiedAt: { not: null } }, orderBy: [{ notifiedAt: "desc" }], select: { notifiedAt: true },
   });
-  const lastTriggeredAt = delivered?.notifiedAt ?? null;
+  // A message of unknown fate counts as said: it may be in Slack.
+  const unknown = await prisma.clientAlertEvent.findFirst({
+    where: { alertId: alert.id, notifiedAt: null, notifyError: DELIVERY_UNKNOWN }, orderBy: [{ triggeredAt: "desc" }], select: { triggeredAt: true, batchId: true },
+  });
+  const said = [delivered?.notifiedAt ?? null, unknown ? claimedAt(unknown.batchId) ?? unknown.triggeredAt : null].filter((d): d is Date => !!d);
+  const lastTriggeredAt = said.length ? new Date(Math.max(...said.map((d) => d.getTime()))) : null;
   // Armed or not: a dry run that went back to normal re-armed the alert but
   // left its date, and the silence of a message nobody received kept it mute.
   const { count } = await prisma.clientAlert.updateMany({
@@ -220,10 +231,13 @@ export async function releaseEvents(eventIds: string[], batchId: string): Promis
  * rule was replaced since the pass read it keeps the fresh state of its new rule.
  */
 export async function markNotified(eventIds: string[], alerts: Array<Pick<AlertRow, "id" | "definitionHash">>, batchId: string, at: Date): Promise<void> {
-  await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null, batchId }, data: { notifiedAt: at, notifyError: null } });
-  for (const a of alerts) {
-    await prisma.clientAlert.updateMany({ where: { id: a.id, definitionHash: a.definitionHash }, data: { armed: false, lastTriggeredAt: at, consecutiveFailures: 0 } });
-  }
+  // One transaction: an event dated while its alert stayed armed would be said again at the next pass.
+  await prisma.$transaction(async (tx) => {
+    await tx.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null, batchId }, data: { notifiedAt: at, notifyError: null } });
+    for (const a of alerts) {
+      await tx.clientAlert.updateMany({ where: { id: a.id, definitionHash: a.definitionHash }, data: { armed: false, lastTriggeredAt: at, consecutiveFailures: 0 } });
+    }
+  });
 }
 
 /**
@@ -234,10 +248,12 @@ export async function markNotified(eventIds: string[], alerts: Array<Pick<AlertR
  */
 export async function closeUnknown(eventIds: string[], alerts: Array<Pick<AlertRow, "id" | "definitionHash">>, at: Date): Promise<void> {
   if (!eventIds.length) return;
-  await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null }, data: { notifyError: DELIVERY_UNKNOWN } });
-  for (const a of alerts) {
-    await prisma.clientAlert.updateMany({ where: { id: a.id, definitionHash: a.definitionHash }, data: { armed: false, lastTriggeredAt: at, consecutiveFailures: 0 } });
-  }
+  await prisma.$transaction(async (tx) => {
+    await tx.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null }, data: { notifyError: DELIVERY_UNKNOWN } });
+    for (const a of alerts) {
+      await tx.clientAlert.updateMany({ where: { id: a.id, definitionHash: a.definitionHash }, data: { armed: false, lastTriggeredAt: at, consecutiveFailures: 0 } });
+    }
+  });
 }
 
 /**
@@ -263,12 +279,13 @@ export async function recordDeliveryFailure(eventIds: string[], alertIds: string
   return stopped;
 }
 
-/** Private messages this consultant already received today (Paris day): one batch = one message. */
+/** Private messages this consultant already received today (Paris day), those of unknown fate included: one batch = one message. */
 export async function dmBatchesToday(userId: string, now: Date): Promise<number> {
-  const rows = await prisma.clientAlertEvent.findMany({
-    where: { notifiedAt: { gte: new Date(now.getTime() - 36 * 3_600_000) }, alert: { createdById: userId } },
-    select: { id: true, batchId: true, notifiedAt: true },
-  });
+  const since = new Date(now.getTime() - 36 * 3_600_000);
+  const select = { id: true, batchId: true, notifiedAt: true, triggeredAt: true } as const;
+  const delivered = await prisma.clientAlertEvent.findMany({ where: { notifiedAt: { gte: since }, alert: { createdById: userId } }, select });
+  const unknown = await prisma.clientAlertEvent.findMany({ where: { notifiedAt: null, notifyError: DELIVERY_UNKNOWN, triggeredAt: { gte: since }, alert: { createdById: userId } }, select });
   const today = todayIn(PARIS, now);
-  return new Set(rows.filter((r) => r.notifiedAt && todayIn(PARIS, r.notifiedAt) === today).map((r) => r.batchId ?? r.id)).size;
+  const said = [...delivered.map((r) => ({ ...r, at: r.notifiedAt })), ...unknown.map((r) => ({ ...r, at: claimedAt(r.batchId) ?? r.triggeredAt }))];
+  return new Set(said.filter((r) => r.at && todayIn(PARIS, r.at) === today).map((r) => r.batchId ?? r.id)).size;
 }

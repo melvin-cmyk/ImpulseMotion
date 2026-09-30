@@ -96,6 +96,8 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
               {alert.events.map((e) => {
                 const st = eventStateOf(e, def.cooldownHours);
                 const waiting = st.label === "envoi en attente";
+                // « envoi incertain » is an amber state: its reason is not an error either.
+                const soft = waiting || st.tone === "amber";
                 return (
                   <li key={e.id} className="space-y-0.5">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -104,7 +106,7 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
                       <Pill tone={st.tone} className="text-[10px]">{st.label}</Pill>
                     </div>
                     <p className="text-gray-400 whitespace-pre-wrap break-words line-clamp-4">{e.message}</p>
-                    {e.notifyError && <p className={`${waiting ? "text-amber-300" : "text-red-400"} break-words`}>{e.notifyError}{waiting ? " — nouvel essai au prochain passage si la situation dure." : ""}</p>}
+                    {e.notifyError && <p className={`${soft ? "text-amber-300" : "text-red-400"} break-words`}>{e.notifyError}{waiting ? " — nouvel essai au prochain passage si la situation dure." : ""}</p>}
                   </li>
                 );
               })}

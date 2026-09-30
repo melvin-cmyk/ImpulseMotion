@@ -182,9 +182,10 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
     if (!event.batchId) continue;
     const since = claimedAt(event.batchId) ?? event.triggeredAt;
     if (now.getTime() - since.getTime() < CLAIM_GRACE_MS) { busy.add(row.id); continue; }
-    await closeUnknown([event.id], [row], since);
-    row.armed = false;
-    row.lastTriggeredAt = since;
+    // A rule validated since (changed, or back from a pause) has its own fresh state: only the event is closed.
+    const validatedSince = !!row.backtestAt && row.backtestAt.getTime() > since.getTime();
+    await closeUnknown([event.id], validatedSince ? [] : [row], since);
+    if (!validatedSince) { row.armed = false; row.lastTriggeredAt = since; }
     undelivered.delete(row.id);
     summary.errors.push(`${row.clientName} — ${row.label || row.id} : un message privé a été lancé sans que son issue soit connue ; il n'est pas renvoyé.`);
   }
@@ -295,14 +296,29 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
   const pageUrl = process.env.NEXTAUTH_URL ? `${process.env.NEXTAUTH_URL.replace(/\/$/, "")}/admin/alerts/assistant` : null;
   const sendUntil = startedAt + SEND_DEADLINE_MS;
   let late = 0;
+  /** Messages that left, or may have left: what the ceiling of the pass counts. */
+  let attempted = 0;
 
   for (const [userId, all] of byUser) {
     const who = all[0].who;
     // The function is about to be cut: a message started now could be sent and never recorded.
     if (Date.now() >= sendUntil) { late += all.length; continue; }
     try {
-      if (summary.sent >= MAX_DM_PER_RUN) { await hold(all, HELD.run); continue; }
+      if (attempted >= MAX_DM_PER_RUN) { await hold(all, HELD.run); continue; }
       if ((await dmBatchesToday(userId, now)) >= MAX_DM_PER_USER_PER_DAY) { await hold(all, HELD.daily); continue; }
+      // Who to write to, before anything is claimed: a search that fails sent nothing, whatever its own fate.
+      let slackUserId: string | null;
+      try {
+        const identity = await resolveSlackIdentity(userId);
+        slackUserId = identity.status === "found" ? identity.slackUserId : null;
+      } catch (e) {
+        summary.failed += all.length;
+        summary.errors.push(`Message privé à ${who} non remis : ${causeText(e)} — nouvel essai au prochain passage.`);
+        const stopped = await recordDeliveryFailure(all.map((p) => p.eventId), all.map((p) => p.alertId), failureWords(e));
+        if (stopped.length) summary.errors.push(`${stopped.length} alerte${plural(stopped.length)} de ${who} arrêtée${plural(stopped.length)} après plusieurs échecs d'envoi.`);
+        continue;
+      }
+      if (!slackUserId) { await hold(all, HELD.identity); continue; }
       // The claim is the idempotence: what another pass delivered, or is sending, is not said twice.
       const batchId = newBatchId(now);
       const held = new Set(await claimEvents(all.map((p) => p.eventId), batchId));
@@ -310,15 +326,10 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
       if (!events.length) continue;
       const eventIds = events.map((p) => p.eventId);
       const alertsOf = events.map((p) => ({ id: p.alertId, definitionHash: p.definitionHash }));
+      attempted++;
       try {
-        const identity = await resolveSlackIdentity(userId);
-        if (identity.status !== "found" || !identity.slackUserId) {
-          await releaseEvents(eventIds, batchId);
-          await hold(events, HELD.identity);
-          continue;
-        }
         const lines = events.slice(0, MAX_LINES_PER_DM).map((p) => p.line);
-        await sendSlackDm(identity.slackUserId, buildDmText(lines, events.length - lines.length, pageUrl));
+        await sendSlackDm(slackUserId, buildDmText(lines, events.length - lines.length, pageUrl));
       } catch (e) {
         summary.failed += events.length;
         if (e instanceof SlackDmError && e.uncertain) {
@@ -328,6 +339,7 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
           continue;
         }
         // Nothing left: nothing was disarmed, the events are free again and tried at the next pass.
+        attempted--;
         summary.errors.push(`Message privé à ${who} non remis : ${causeText(e)} — nouvel essai au prochain passage.`);
         await releaseEvents(eventIds, batchId);
         const stopped = await recordDeliveryFailure(eventIds, events.map((p) => p.alertId), failureWords(e));

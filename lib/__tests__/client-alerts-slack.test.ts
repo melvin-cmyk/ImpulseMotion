@@ -266,24 +266,41 @@ describe("slack-dm — private message", () => {
 
   it("says whether the message may have left: only then is it never tried again", async () => {
     const fate = async () => (await sendSlackDm(MELVIN, "Bonjour").then(() => null, (e: unknown) => e as SlackDmError))!.uncertain;
-    // Refused by Slack, by the service, or never reached: nothing was posted.
-    answer = { status: 200, json: { ok: false, error: "channel_not_found" } };
-    expect(await fate()).toBe(false);
-    answer = { status: 502, json: { ok: false, error: "missing_scope", needed: "im:write" } };
-    expect(await fate()).toBe(false);
-    answer = { status: 401, json: { ok: false, error: "unauthorized" } };
-    expect(await fate()).toBe(false);
-    answer = { status: 404, text: "not found" };
-    expect(await fate()).toBe(false);
-    answer = "down";
-    expect(await fate()).toBe(false);
-    // No answer in time, an answer that says nothing, a failure of the service itself: it may be in Slack.
-    vi.stubGlobal("fetch", vi.fn(async () => { throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }); }));
+    const failing = (code?: string, name = "TypeError") => vi.stubGlobal("fetch", vi.fn(async () => {
+      throw Object.assign(new Error("fetch failed"), { name, ...(code ? { cause: { code } } : {}) });
+    }));
+    const answering = (status: number, body: unknown) => vi.stubGlobal("fetch", vi.fn(async () => new Response(typeof body === "string" ? body : JSON.stringify(body), { status })));
+
+    // Nothing was posted: Slack said no with one of its codes, the service refused the request,
+    // could not be reached behind its front door, or the connection never existed.
+    for (const [status, body] of [
+      [200, { ok: false, error: "channel_not_found" }], [200, { ok: false, error: "ratelimited" }], [502, { ok: false, error: "missing_scope", needed: "im:write" }],
+      [401, { ok: false, error: "unauthorized" }], [400, { ok: false, error: "unknown version" }], [404, "not found"],
+      [502, "<html>Bad gateway</html>"], [503, "Service Unavailable"],
+    ] as Array<[number, unknown]>) {
+      answering(status, body);
+      expect(await fate(), `${status} ${JSON.stringify(body)}`).toBe(false);
+    }
+    for (const code of ["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "UND_ERR_CONNECT_TIMEOUT", "CERT_HAS_EXPIRED"]) {
+      failing(code);
+      expect(await fate(), code).toBe(false);
+    }
+
+    // It may be in Slack: no answer in time, a connection cut once the request was on its way, a
+    // failure inside the service, a network error between it and Slack, an answer that says nothing.
+    failing(undefined, "TimeoutError");
     expect(await fate()).toBe(true);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 502 })));
-    expect(await fate()).toBe(true);
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ message: "Workflow was started" })));
-    expect(await fate()).toBe(true);
+    for (const code of ["ECONNRESET", "UND_ERR_SOCKET", "EPIPE", undefined]) {
+      failing(code);
+      expect(await fate(), String(code)).toBe(true);
+    }
+    for (const [status, body] of [
+      [500, "Internal Server Error"], [500, { message: "Error in workflow" }], [504, "Gateway Timeout"], [504, { error: "Gateway Timeout" }],
+      [200, { ok: false, error: "socket hang up" }], [200, { ok: false, error: "ETIMEDOUT" }], [200, { message: "Workflow was started" }], [200, ""],
+    ] as Array<[number, unknown]>) {
+      answering(status, body);
+      expect(await fate(), `${status} ${JSON.stringify(body)}`).toBe(true);
+    }
   });
 });
 
