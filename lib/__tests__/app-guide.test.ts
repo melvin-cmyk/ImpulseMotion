@@ -14,7 +14,7 @@ describe("the guide knows the application", () => {
   });
 
   it("names every page of the staff menu", () => {
-    for (const path of ["/cockpit", "/portfolio", "/reports", "/creatives", "/ai", "/d", "/bot", "/admin", "/admin/bots", "/admin/alerts", "/admin/auto-alerts", "/admin/usage", "/settings", "/me/alerts", "/me/budgets"]) {
+    for (const path of ["/cockpit", "/portfolio", "/reports", "/creatives", "/ai", "/d", "/bot", "/admin", "/admin/bots", "/admin/alerts/assistant", "/admin/alerts", "/admin/auto-alerts", "/admin/usage", "/settings", "/me/alerts", "/me/budgets"]) {
       expect(APP_MAP).toContain(`(${path})`);
     }
   });
