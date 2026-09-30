@@ -17,6 +17,7 @@ import { resolveBinding } from "@/lib/dashboard-widgets";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
 import { SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { teeRelayStream, type RelayEffort, type RelayModel } from "@/lib/relay-chat";
 import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay-attachments";
@@ -136,6 +137,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!messages) return NextResponse.json({ error: "messages invalid" }, { status: 400 });
 
   const binding = await resolveBinding(dashboard.userId, dashboard);
+  // TikTok advertisers attached to this client (none → the relay drops the server).
+  const tiktokIds = await getDashboardTikTokIds(dashboard.id);
   // The dashboard as it is now. It travels in `turnContext` when the relay
   // takes it, in the system prompt otherwise (a relay not restarted yet).
   const state = buildCopilotTurnContext({ ...dashboard, widgets: dashboard.widgets, pages: dashboard.pages });
@@ -176,6 +179,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     accountScope: {
       meta: binding.metaAccountId ? [binding.metaAccountId] : [],
       google: binding.googleCustomerId ? [binding.googleCustomerId] : [],
+      tiktok: tiktokIds,
     },
   });
 

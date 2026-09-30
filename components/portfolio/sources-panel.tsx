@@ -17,8 +17,8 @@ type TestResult =
   | { ok: true; portalId: string; hubDomain: string | null; scopesOk: boolean; missingScopes: string[] }
   | { ok: false; error: string };
 
-const KIND_LABEL: Record<DashboardSourceRef["kind"], string> = { meta: "Meta Ads", google: "Google Ads", hubspot: "HubSpot" };
-const KIND_TONE: Record<DashboardSourceRef["kind"], "blue" | "emerald" | "amber"> = { meta: "blue", google: "emerald", hubspot: "amber" };
+const KIND_LABEL: Record<DashboardSourceRef["kind"], string> = { meta: "Meta Ads", google: "Google Ads", hubspot: "HubSpot", tiktok: "TikTok Ads" };
+const KIND_TONE: Record<DashboardSourceRef["kind"], "blue" | "emerald" | "amber" | "violet"> = { meta: "blue", google: "emerald", hubspot: "amber", tiktok: "violet" };
 const STATUS: Record<DashboardSourceRef["status"], { label: string; tone: "emerald" | "red" | "default" }> = {
   active: { label: "Active", tone: "emerald" },
   error: { label: "Erreur", tone: "red" },

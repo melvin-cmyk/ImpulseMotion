@@ -14,6 +14,8 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { relayStream, teeRelayStream, type RelayMessage } from "@/lib/relay-chat";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
+import { TIKTOK_SERVER } from "@/lib/mcp-whitelist";
+import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { renderDataForPrompt } from "@/lib/report-generate";
 import type { ReportData } from "@/lib/report-data";
 
@@ -72,16 +74,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     report.nextStepsJson.slice(0, 6000),
   ].join("\n");
 
+  const tiktokIds = await getDashboardTikTokIds(report.dashboard.id);
   const upstream = await relayStream({
     messages,
     systemPrompt,
     sessionKey: `report:${report.id}:${guard.session.userId}`,
     model: STAFF_CHAT_PROFILE.model,
     effort: STAFF_CHAT_PROFILE.effort,
-    allowedServers: ["meta-ads-impulse", "mcp-google-ads"],
+    // TikTok only when an advertiser is attached to this client: without an
+    // id in the scope the relay drops the server.
+    allowedServers: ["meta-ads-impulse", "mcp-google-ads", TIKTOK_SERVER],
     accountScope: {
       meta: report.dashboard.metaAccountId ? [report.dashboard.metaAccountId] : [],
       google: report.dashboard.googleCustomerId ? [report.dashboard.googleCustomerId] : [],
+      tiktok: tiktokIds,
     },
   });
   if (upstream.status !== 200 || !upstream.body) return upstream;

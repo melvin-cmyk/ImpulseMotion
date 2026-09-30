@@ -4,12 +4,14 @@
  *    googleCustomerId) and synthesised as read-only refs (legacy: true, id: null).
  *  - hubspot (and later shopify / csv…): rows in DashboardSource, secret encrypted
  *    with lib/secrets.ts. The encrypted secret is NEVER part of a DashboardSourceRef.
+ *  - tiktok: rows in DashboardSource too (externalId = advertiser id), no secret —
+ *    written by lib/tiktok-accounts.ts once TikTok has confirmed the account.
  */
 
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret } from "@/lib/secrets";
 
-export type SourceKind = "meta" | "google" | "hubspot";
+export type SourceKind = "meta" | "google" | "hubspot" | "tiktok";
 export type SourceStatus = "active" | "error" | "disabled";
 
 export interface DashboardSourceRef {
