@@ -131,9 +131,13 @@ export function AlertsAssistant() {
         title="Alertes"
         subtitle="Choisissez un client et dites, en une phrase, de quoi vous voulez être prévenu. L'IA propose l'alerte sur ses comptes Meta et Google Ads réunis ; vous validez, puis vous recevez un message privé dans Slack quand elle se déclenche."
         action={
-          <button type="button" onClick={newAlert} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold shrink-0 ml-4">
-            <Plus className="w-4 h-4" /> Nouvelle alerte
-          </button>
+          <div className="flex items-center gap-4 shrink-0 ml-4">
+            {/* The rules set by hand still run: they keep a way in. */}
+            <Link href="/admin/alerts" className="text-xs text-gray-400 hover:text-white underline whitespace-nowrap">Règles manuelles</Link>
+            <button type="button" onClick={newAlert} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold">
+              <Plus className="w-4 h-4" /> Nouvelle alerte
+            </button>
+          </div>
         }
       />
 

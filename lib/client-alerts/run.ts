@@ -190,8 +190,9 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
       if (problem) { await sendToReview(row.id, problem, now); return; }
     }
     let state = { armed: row.armed, lastMessageAt: row.lastTriggeredAt };
-    // Sending is on: what a dry run disarmed was never said to anybody.
-    if (!dryRun && !row.armed) {
+    // Sending is on: what a dry run recorded was never said to anybody — neither
+    // its disarming nor the silence that follows a message count.
+    if (!dryRun && (!row.armed || row.lastTriggeredAt)) {
       const back = await rearmAfterDryRun(row);
       if (back) state = { armed: true, lastMessageAt: back.lastTriggeredAt };
     }

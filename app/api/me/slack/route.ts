@@ -4,18 +4,23 @@
  * GET                                   → { configured, identity } as stored, no call to Slack
  * POST { action: "check", email? }      → looks the address up in Slack again; `email` (null = the login address) replaces it first
  *                                         (409 when it is the login address of another user); the identity carries the member's name
- * POST { action: "test" }               → one private message to the caller, and to nobody else
+ * POST { action: "test" }               → one private message to the caller, and to nobody else. While sending is
+ *                                         switched off (CLIENT_ALERTS_SEND), only a real administrator may send it:
+ *                                         "nothing goes to Slack yet" must be true for everyone else, and the
+ *                                         administrator needs one real message to check the delivery before opening.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { ADDRESS_TAKEN, SlackAddressError, SlackDmError, cleanEmail, dmConfigured, resolveSlackIdentity, sendSlackDm, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
+import { sendingEnabled } from "@/lib/client-alerts/types";
 
 export const maxDuration = 60;
 
 const TEST_TEXT = "Test ImpulseMotion : vos alertes arriveront ici, en message privé.";
 const NOT_CONFIGURED = "Les messages privés Slack ne sont pas encore configurés.";
+const TEST_MODE = "Mode d'essai : rien n'est encore envoyé dans Slack. Le message de test sera disponible à la mise en service des alertes.";
 
 /** The consultant reads the words of slack-dm.ts; the technical cause (Slack's code, HTTP status) goes to the logs. */
 const failure = (what: string, err: SlackDmError) => {
@@ -66,6 +71,8 @@ export async function POST(req: NextRequest) {
       throw err;
     }
   }
+
+  if (!sendingEnabled() && guard.session.baseRole !== "admin") return NextResponse.json({ error: TEST_MODE }, { status: 409 });
 
   // The recipient is the session's own identity: nothing in the request can name someone else.
   try {

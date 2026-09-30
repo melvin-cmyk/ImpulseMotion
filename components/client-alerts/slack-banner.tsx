@@ -8,13 +8,15 @@
  *
  * Once the person is found the banner does not disappear: one discreet line
  * stays — « Slack : <adresse> · Modifier · M'envoyer un test » — so that the
- * address can be read, changed and tried at any time.
+ * address can be read, changed and tried at any time. In test mode the test
+ * message is offered to a real administrator only (same rule as the route).
  *
  * The identity is looked up and stored by POST /api/me/slack; the test message
  * goes to the caller and to nobody else.
  */
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { CheckCircle2, FlaskConical, Loader2, MessageSquareWarning } from "lucide-react";
 import type { SlackIdentity } from "@/lib/client-alerts/types";
 import { slackFoundLine } from "@/components/client-alerts/alert-model";
@@ -48,6 +50,8 @@ export function SlackBanner({ slack, sending, onIdentity }: {
   const [editing, setEditing] = useState(false);
 
   const askIdentity = configured && (!found || editing);
+  const realAdmin = useSession().data?.baseRole === "admin";
+  const canTest = sending || realAdmin;
 
   async function check() {
     setBusy("check"); setError(null); setMessage(null);
@@ -103,10 +107,14 @@ export function SlackBanner({ slack, sending, onIdentity }: {
           <span>Slack : <span className="text-gray-200 break-all">{identity?.email ?? "adresse de votre compte"}</span></span>
           <span aria-hidden>·</span>
           <button type="button" className={linkCls} disabled={busy !== null} onClick={() => { setEditing(true); setError(null); setMessage(null); }}>Modifier</button>
-          <span aria-hidden>·</span>
-          <button type="button" className={linkCls} disabled={busy !== null} onClick={() => void test()}>
-            {busy === "test" ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" />Envoi…</span> : "M'envoyer un test"}
-          </button>
+          {canTest && (
+            <>
+              <span aria-hidden>·</span>
+              <button type="button" className={linkCls} disabled={busy !== null} onClick={() => void test()}>
+                {busy === "test" ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" />Envoi…</span> : "M'envoyer un test"}
+              </button>
+            </>
+          )}
         </p>
       )}
       {askIdentity && (

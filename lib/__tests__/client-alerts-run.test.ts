@@ -1191,6 +1191,25 @@ describe("sending", () => {
       expect(await runClientAlerts({ now: later })).toMatchObject({ sent: 1 });
     });
 
+    it("does not keep the silence of a dry run that went back to normal before sending was switched on", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      await dry();
+      // Still in test mode, the situation is normal again: the alert is re-armed, the date of the dry run stays.
+      delete process.env.CLIENT_ALERTS_SEND;
+      lastDay.delete("act_a");
+      await runClientAlerts({ now: REAL });
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: NOW });
+      // Sending is on and the condition is true again the next morning, well inside the three days
+      // of a message nobody received: it is said.
+      sendingOn();
+      high("a");
+      const next = at("2026-09-30T06:10:00Z");
+      expect(await runClientAlerts({ now: next })).toMatchObject({ dryRun: false, triggered: 1, sent: 1 });
+      expect(h.send).toHaveBeenCalledTimes(1);
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: next });
+    });
+
     it("leaves alone an alert that a real message disarmed", async () => {
       seed("a"); seed("calm1"); seed("calm2");
       high("a");

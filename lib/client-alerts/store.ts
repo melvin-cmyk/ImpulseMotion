@@ -150,11 +150,10 @@ export async function pendingEvents(alertIds: string[], since: Date): Promise<Ma
 }
 
 /**
- * Sending has just been switched on (or a pass was run dry by hand): an alert
- * that a dry run disarmed said nothing to anybody. When the latest event of a
- * disarmed alert is a dry-run one, the alert goes back to where its last
- * DELIVERED message left it — armed, in the silence of that message if there
- * was one. Returns the state to evaluate from, or null when nothing changes.
+ * Sending has just been switched on (or a pass was run dry by hand): what a
+ * dry run recorded was said to nobody. When the latest event of an alert is a
+ * dry-run one, the alert goes back to where its last DELIVERED message left it
+ * — armed, in the silence of that message if there was one. Returns the state to evaluate from, or null when nothing changes.
  * The dry-run events themselves are never sent.
  */
 export async function rearmAfterDryRun(alert: Pick<AlertRow, "id" | "definitionHash">): Promise<{ lastTriggeredAt: Date | null } | null> {
@@ -164,8 +163,10 @@ export async function rearmAfterDryRun(alert: Pick<AlertRow, "id" | "definitionH
     where: { alertId: alert.id, notifiedAt: { not: null } }, orderBy: [{ notifiedAt: "desc" }], select: { notifiedAt: true },
   });
   const lastTriggeredAt = delivered?.notifiedAt ?? null;
+  // Armed or not: a dry run that went back to normal re-armed the alert but
+  // left its date, and the silence of a message nobody received kept it mute.
   const { count } = await prisma.clientAlert.updateMany({
-    where: { id: alert.id, status: "active", definitionHash: alert.definitionHash, armed: false },
+    where: { id: alert.id, status: "active", definitionHash: alert.definitionHash },
     data: { armed: true, lastTriggeredAt },
   });
   return count ? { lastTriggeredAt } : null;

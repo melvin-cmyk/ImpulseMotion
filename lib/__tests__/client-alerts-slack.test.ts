@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 
 type Row = { email: string | null; slackEmail: string | null; slackUserId: string | null; slackCheckedAt: Date | null };
 
-let session: { userId: string; role: string } | null = null;
+let session: { userId: string; role: string; baseRole?: string } | null = null;
 const users = new Map<string, Row>();
 const writes: Array<{ id: string; data: Partial<Row> }> = [];
 
@@ -84,6 +84,8 @@ beforeEach(() => {
   vi.stubEnv("N8N_ALERT_WEBHOOK_URL", LEGACY);
   vi.stubEnv("N8N_DM_WEBHOOK_URL", "");
   vi.stubEnv("N8N_ALERT_WEBHOOK_SECRET", "secret-alertes");
+  // Sending is open in these tests; the test-mode rule has its own cases.
+  vi.stubEnv("CLIENT_ALERTS_SEND", "1");
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     sent.push({ url: String(url), headers: init.headers as Record<string, string>, body });
@@ -521,6 +523,32 @@ describe("/api/me/slack", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
     expect(sent.map((s) => s.body)).toEqual([{ version: 1, kind: "dm", slackUserId: MELVIN, text: "Test ImpulseMotion : vos alertes arriveront ici, en message privé." }]);
+  });
+
+  it("test sends nothing while sending is switched off — « rien n'est encore envoyé dans Slack » is true", async () => {
+    users.set("u1", row({ slackUserId: MELVIN, slackCheckedAt: hoursAgo(1) }));
+    for (const off of ["", "0", "off"]) {
+      vi.stubEnv("CLIENT_ALERTS_SEND", off);
+      const res = await post({ action: "test" });
+      expect(res.status).toBe(409);
+      expect((await res.json()).error).toContain("Mode d'essai");
+    }
+    expect(sent).toEqual([]);
+    // The address can still be looked up: that writes nothing in Slack.
+    expect((await post({ action: "check" })).status).toBe(200);
+    expect(messages()).toEqual([]);
+  });
+
+  it("in test mode a real administrator can still send the one message that proves the delivery", async () => {
+    vi.stubEnv("CLIENT_ALERTS_SEND", "");
+    users.set("u1", row({ slackUserId: MELVIN, slackCheckedAt: hoursAgo(1) }));
+    // A consultant holds the applied role "admin": only the role stored in base counts.
+    session = { userId: "u1", role: "admin", baseRole: "consultant" };
+    expect((await post({ action: "test" })).status).toBe(409);
+    expect(sent).toEqual([]);
+    session = { userId: "u1", role: "admin", baseRole: "admin" };
+    expect((await post({ action: "test" })).status).toBe(200);
+    expect(messages().map((m) => m.body.slackUserId)).toEqual([MELVIN]);
   });
 
   it("test cannot target someone else, whatever the request says", async () => {
