@@ -10,7 +10,7 @@
 
 import {
   BACKTEST_DAYS, compareShiftDays, conversionLagDays, cpaSpendFloor, readDefinition, STOP_LOOKBACK_DAYS,
-  BACK_TO_NORMAL, COOLDOWN_MIN_HOURS,
+  BACK_TO_NORMAL, COOLDOWN_MIN_HOURS, DELIVERY_UNKNOWN,
   type AlertAccountRef, type AlertDefinition, type AlertMetric, type AlertPlatform, type Backtest, type ClientAlertStatus, type SlackIdentity,
 } from "@/lib/client-alerts/types";
 import { slackToPlain } from "@/lib/client-alerts/message";
@@ -538,6 +538,8 @@ export function eventStateOf(
   if (e.notifiedAt) return { label: "envoyé dans Slack", tone: "emerald" };
   if (e.dryRun) return { label: "mode d'essai", tone: "amber" };
   if (e.notifyError === BACK_TO_NORMAL) return { label: "non envoyé", tone: "default" };
+  // Maybe delivered, never sent again: neither « envoyé » nor « en attente ».
+  if (e.notifyError === DELIVERY_UNKNOWN) return { label: "envoi incertain", tone: "amber" };
   const hours = Math.max(typeof cooldownHours === "number" && Number.isFinite(cooldownHours) ? cooldownHours : 72, COOLDOWN_MIN_HOURS);
   const age = now.getTime() - new Date(e.triggeredAt).getTime();
   return Number.isFinite(age) && age < hours * 3_600_000 ? { label: "envoi en attente", tone: "amber" } : { label: "non envoyé", tone: "red" };

@@ -9,7 +9,7 @@ import {
   type AlertRelayInput, type AlertValidator,
 } from "@/lib/client-alerts/compose-prompt";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
-import { BACK_TO_NORMAL, readDefinition, type AlertAccountRef, type AlertDefinition, type Backtest } from "@/lib/client-alerts/types";
+import { BACK_TO_NORMAL, DELIVERY_UNKNOWN, readDefinition, type AlertAccountRef, type AlertDefinition, type Backtest } from "@/lib/client-alerts/types";
 import {
   SHOW_DORMANT, alertAccess, cardNotes, cardStateOf, datesLabel, dayLabel, eventStateOf, exampleRequests, formatValue, guardsLine, hindsightLine, lastValueLine,
   latestValidKey, ownerLine, pickOnEnter, replayLine, replayOf, ruleSentence, settingsLine, slackFoundLine, statsLine, summarizeBacktest, toAlertView,
@@ -754,6 +754,8 @@ describe("alertes client — petites choses de la page", () => {
     const event = (over: Partial<Parameters<typeof eventStateOf>[0]>) => ({ triggeredAt: "2026-09-30T06:10:00.000Z", dryRun: false, notifiedAt: null, notifyError: null, ...over });
     expect(eventStateOf(event({ notifiedAt: "2026-09-30T06:10:05.000Z" }), 72, now)).toEqual({ label: "envoyé dans Slack", tone: "emerald" });
     expect(eventStateOf(event({ dryRun: true }), 72, now)).toEqual({ label: "mode d'essai", tone: "amber" });
+    // Maybe delivered, never sent again: neither sent nor waiting.
+    expect(eventStateOf(event({ notifyError: DELIVERY_UNKNOWN }), 72, now)).toEqual({ label: "envoi incertain", tone: "amber" });
     // Held or failed this morning: the next pass tries again.
     expect(eventStateOf(event({ notifyError: "plafond de 5 messages privés par jour atteint : non envoyé" }), 72, now)).toEqual({ label: "envoi en attente", tone: "amber" });
     expect(eventStateOf(event({}), 72, now)).toEqual({ label: "envoi en attente", tone: "amber" });

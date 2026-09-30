@@ -28,10 +28,17 @@ const EMAIL_RE = /^[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9][a-z0-9.-]{0,251}\.[a-z]{
  */
 export class SlackDmError extends Error {
   readonly detail: string;
-  constructor(message: string, detail: string = message) {
+  /**
+   * The request left and nobody knows what became of it (no answer in time, an answer that says
+   * nothing, a failure of the delivery service itself): the message may be in Slack. Anything
+   * else — refused by Slack, refused by the service, service unreachable — was not delivered.
+   */
+  readonly uncertain: boolean;
+  constructor(message: string, detail: string = message, uncertain = false) {
     super(message);
     this.name = "SlackDmError";
     this.detail = detail;
+    this.uncertain = uncertain;
   }
 }
 
@@ -101,7 +108,7 @@ async function call(body: Record<string, unknown>, timeoutMs: number): Promise<R
     });
   } catch (err) {
     const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-    throw new SlackDmError(timedOut ? `${SERVICE} ne répond pas` : `${SERVICE} est injoignable`, timedOut ? "n8n ne répond pas" : "n8n injoignable");
+    throw new SlackDmError(timedOut ? `${SERVICE} ne répond pas` : `${SERVICE} est injoignable`, timedOut ? "n8n ne répond pas" : "n8n injoignable", timedOut);
   }
   const text = await res.text().catch(() => "");
   let json: Record<string, unknown> = {};
@@ -112,10 +119,12 @@ async function call(body: Record<string, unknown>, timeoutMs: number): Promise<R
     const slack = typeof json.error === "string" && json.error ? json.error : null;
     const needed = typeof json.needed === "string" && json.needed ? ` (${json.needed})` : "";
     const words = slack ? SLACK_WORDS[slack] ?? "Slack a refusé l'envoi" : `${SERVICE} a répondu par une erreur`;
-    throw new SlackDmError(words, `${slack ?? `n8n ${res.status}`}${needed}`.slice(0, 200));
+    // Slack's own refusal, or a refusal of the service (secret, flow not published): nothing was posted.
+    // A 5xx of the service without a word from Slack says nothing of what it did before failing.
+    throw new SlackDmError(words, `${slack ?? `n8n ${res.status}`}${needed}`.slice(0, 200), !slack && res.status >= 500);
   }
   // An empty or foreign 200 is not a success: a message reported as sent must have been sent.
-  if (json.ok !== true) throw new SlackDmError(`${SERVICE} a donné une réponse inattendue`, "réponse n8n inattendue");
+  if (json.ok !== true) throw new SlackDmError(`${SERVICE} a donné une réponse inattendue`, "réponse n8n inattendue", true);
   return json;
 }
 

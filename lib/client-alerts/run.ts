@@ -16,9 +16,16 @@
  * with the reason, and nothing is sent late. An alert that has such an event
  * is due at EVERY pass, whatever its own frequency, until then.
  *
+ * The one exception is a message nobody knows the fate of. An event is claimed
+ * before its message leaves; when the delivery service answers too late or not
+ * clearly, or when the pass dies between the send and its record, the message
+ * may be in Slack: the event is closed as such and its alert starts its
+ * silence as if it had been delivered. It is never sent a second time.
+ *
  * What the pass guarantees, so that Slack is never filled:
  *   - a message only when `advance` says so (silence, re-arming, reminders);
- *   - never more than one undelivered event per alert;
+ *   - never more than one undelivered event per alert, and one pass at most
+ *     sending it: an alert whose event another pass is sending is left alone;
  *   - a dry run (asked for, or CLIENT_ALERTS_SEND not on) records its events
  *     and advances the state as a real pass that delivered would, and sends
  *     nothing; at the first real pass, an alert a dry run had disarmed is
@@ -33,7 +40,6 @@
  * One alert that fails does not stop the others.
  */
 
-import { randomUUID } from "node:crypto";
 import { todayIn } from "@/lib/date-ranges";
 import { readClientSeries } from "@/lib/client-alerts/series";
 import { evaluate, PLATFORM_LABEL, sameAccount } from "@/lib/client-alerts/evaluate";
@@ -41,12 +47,12 @@ import { advance, checkedOn, cooldownMs } from "@/lib/client-alerts/backtest";
 import { buildAlertLine, buildDmText } from "@/lib/client-alerts/message";
 import { dmConfigured, resolveSlackIdentity, sendSlackDm, SlackDmError } from "@/lib/client-alerts/slack-dm";
 import {
-  alertClientState, creatorRoles, dmBatchesToday, holdEvents, listActiveAlerts, markNotified, pauseAlerts, pendingEvents, rearmAfterDryRun,
-  recordCheck, recordDeliveryFailure, sendToReview, unsentEvents,
+  alertClientState, claimEvents, claimedAt, closeUnknown, creatorRoles, dmBatchesToday, holdEvents, listActiveAlerts, markNotified, newBatchId, pauseAlerts,
+  pendingEvents, rearmAfterDryRun, recordCheck, recordDeliveryFailure, releaseEvents, sendToReview,
   type AlertClientState, type AlertRow, type PendingEvent,
 } from "@/lib/client-alerts/store";
 import {
-  ALERT_DEFAULTS, BACK_TO_NORMAL, CHECK_SLOTS_UTC, COOLDOWN_MAX_HOURS, MAX_DM_PER_RUN, MAX_DM_PER_USER_PER_DAY, readDefinition, sendingEnabled,
+  ALERT_DEFAULTS, BACK_TO_NORMAL, CHECK_SLOTS_UTC, COOLDOWN_MAX_HOURS, DELIVERY_UNKNOWN, MAX_DM_PER_RUN, MAX_DM_PER_USER_PER_DAY, readDefinition, sendingEnabled,
   type AlertAccountRef, type AlertChecks, type AlertDefinition, type ClientSeries, type RunSummary,
 } from "@/lib/client-alerts/types";
 
@@ -63,6 +69,11 @@ export const SEND_DEADLINE_MS = 270_000;
  * alerts of one client that breaks are one problem, to be said.
  */
 export const FLOOD = { minClients: 5, share: 0.5 } as const;
+/**
+ * A claim younger than this belongs to a pass that may still be sending (a function lives 300 s):
+ * its alert is left alone. Older, the pass is gone without saying what became of the message.
+ */
+export const CLAIM_GRACE_MS = 10 * 60_000;
 /** Alerts written out in one private message; the others are one line « N autres alertes ». */
 export const MAX_LINES_PER_DM = 6;
 
@@ -160,6 +171,24 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
   const undelivered = dryRun
     ? new Map<string, PendingEvent>()
     : await pendingEvents(live.map(({ row }) => row.id), new Date(now.getTime() - COOLDOWN_MAX_HOURS * 3_600_000));
+
+  // Events claimed for a message and never resolved. A young claim is another pass at work: its
+  // alert is not touched. An old one is a message of unknown fate: closed, its alert in silence.
+  const busy = new Set<string>();
+  for (const { row } of live) {
+    const event = undelivered.get(row.id);
+    if (!event) continue;
+    if (event.notifyError === DELIVERY_UNKNOWN) { undelivered.delete(row.id); continue; }
+    if (!event.batchId) continue;
+    const since = claimedAt(event.batchId) ?? event.triggeredAt;
+    if (now.getTime() - since.getTime() < CLAIM_GRACE_MS) { busy.add(row.id); continue; }
+    await closeUnknown([event.id], [row], since);
+    row.armed = false;
+    row.lastTriggeredAt = since;
+    undelivered.delete(row.id);
+    summary.errors.push(`${row.clientName} — ${row.label || row.id} : un message privé a été lancé sans que son issue soit connue ; il n'est pas renvoyé.`);
+  }
+
   const reusable = (row: AlertRow, def: AlertDefinition): PendingEvent | null => {
     const event = undelivered.get(row.id);
     return event && now.getTime() - event.triggeredAt.getTime() < cooldownMs(def) ? event : null;
@@ -167,7 +196,7 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
   /** Still to deliver: not closed by a return to normal. */
   const open = (event: PendingEvent | null) => !!event && event.notifyError !== HELD.normal;
 
-  const due = live.filter(({ row, def }) => isDue(def, row.lastCheckedAt, slot, now, open(reusable(row, def))));
+  const due = live.filter(({ row, def }) => !busy.has(row.id) && isDue(def, row.lastCheckedAt, slot, now, open(reusable(row, def))));
 
   // One read per account and per pass, shared by the alerts that look at it.
   const reads = new Map<string, Promise<ClientSeries>>();
@@ -200,7 +229,8 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
     const step = advance(state, evaluation.status, now, def);
     const line = step.message ? buildAlertLine({ clientName: row.clientName, def, evaluation, kind: step.message }) : null;
     const waiting = reusable(row, def);
-    const eventId = await recordCheck(row, {
+    // The state evaluated from is the condition of the write: see recordCheck.
+    const eventId = await recordCheck({ ...row, armed: state.armed, lastTriggeredAt: state.lastMessageAt }, {
       at: now, evaluation, armed: step.state.armed,
       event: step.message && line !== null ? { kind: step.message, threshold: def.threshold ?? null, message: line, dryRun, reuse: waiting?.id ?? null } : null,
     });
@@ -273,27 +303,45 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
     try {
       if (summary.sent >= MAX_DM_PER_RUN) { await hold(all, HELD.run); continue; }
       if ((await dmBatchesToday(userId, now)) >= MAX_DM_PER_USER_PER_DAY) { await hold(all, HELD.daily); continue; }
-      // notifiedAt is the idempotence: what another pass delivered meanwhile is not said twice.
-      const left = new Set(await unsentEvents(all.map((p) => p.eventId)));
-      const events = all.filter((p) => left.has(p.eventId));
+      // The claim is the idempotence: what another pass delivered, or is sending, is not said twice.
+      const batchId = newBatchId(now);
+      const held = new Set(await claimEvents(all.map((p) => p.eventId), batchId));
+      const events = all.filter((p) => held.has(p.eventId));
       if (!events.length) continue;
       const eventIds = events.map((p) => p.eventId);
+      const alertsOf = events.map((p) => ({ id: p.alertId, definitionHash: p.definitionHash }));
       try {
         const identity = await resolveSlackIdentity(userId);
-        if (identity.status !== "found" || !identity.slackUserId) { await hold(events, HELD.identity); continue; }
+        if (identity.status !== "found" || !identity.slackUserId) {
+          await releaseEvents(eventIds, batchId);
+          await hold(events, HELD.identity);
+          continue;
+        }
         const lines = events.slice(0, MAX_LINES_PER_DM).map((p) => p.line);
         await sendSlackDm(identity.slackUserId, buildDmText(lines, events.length - lines.length, pageUrl));
       } catch (e) {
-        // Nothing was disarmed: the events stay pending and are tried again at the next pass.
         summary.failed += events.length;
+        if (e instanceof SlackDmError && e.uncertain) {
+          // The message may be in Slack: it is not sent again, and its alerts start their silence.
+          summary.errors.push(`Message privé à ${who} : issue inconnue (${causeText(e)}) — il est peut-être arrivé, il n'est pas renvoyé.`);
+          await closeUnknown(eventIds, alertsOf, now);
+          continue;
+        }
+        // Nothing left: nothing was disarmed, the events are free again and tried at the next pass.
         summary.errors.push(`Message privé à ${who} non remis : ${causeText(e)} — nouvel essai au prochain passage.`);
+        await releaseEvents(eventIds, batchId);
         const stopped = await recordDeliveryFailure(eventIds, events.map((p) => p.alertId), failureWords(e));
         if (stopped.length) summary.errors.push(`${stopped.length} alerte${plural(stopped.length)} de ${who} arrêtée${plural(stopped.length)} après plusieurs échecs d'envoi.`);
         continue;
       }
       summary.sent++;
-      // The message is out: this, and only this, disarms its alerts.
-      await markNotified(eventIds, events.map((p) => ({ id: p.alertId, definitionHash: p.definitionHash })), randomUUID(), now);
+      // The message is out: this, and only this, disarms its alerts. Should the write fail, the
+      // events keep their claim: the next pass closes them as « delivery unknown », and does not send again.
+      try {
+        await markNotified(eventIds, alertsOf, batchId, now);
+      } catch (e) {
+        summary.errors.push(`Message privé à ${who} envoyé, mais son enregistrement a échoué (${errText(e)}) : il ne sera pas renvoyé.`);
+      }
     } catch (e) {
       summary.errors.push(`Envoi à ${who} : ${errText(e)}`);
     }

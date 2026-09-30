@@ -319,6 +319,12 @@ export const MAX_DELIVERY_FAILURES = 3;
  * It closes the event: kept on the page, never sent late, and no longer what makes its alert due.
  */
 export const BACK_TO_NORMAL = "situation revenue à la normale avant l'envoi : non envoyé";
+/**
+ * What an event says when nobody knows whether its private message arrived (the delivery service
+ * answered too late, or the pass died between the send and its record). It closes the event, and its
+ * alert starts its silence as if the message had been delivered: it may have been, so it is never sent again.
+ */
+export const DELIVERY_UNKNOWN = "envoi à l'issue incertaine : le message est peut-être arrivé dans Slack, il n'est pas renvoyé";
 
 export type ClientAlertStatus = "draft" | "active" | "paused" | "review" | "error";
 

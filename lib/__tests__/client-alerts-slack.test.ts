@@ -263,6 +263,28 @@ describe("slack-dm — private message", () => {
     answer = { status: 200, json: { message: "Workflow was started" } };
     await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toThrow(/inattendue/);
   });
+
+  it("says whether the message may have left: only then is it never tried again", async () => {
+    const fate = async () => (await sendSlackDm(MELVIN, "Bonjour").then(() => null, (e: unknown) => e as SlackDmError))!.uncertain;
+    // Refused by Slack, by the service, or never reached: nothing was posted.
+    answer = { status: 200, json: { ok: false, error: "channel_not_found" } };
+    expect(await fate()).toBe(false);
+    answer = { status: 502, json: { ok: false, error: "missing_scope", needed: "im:write" } };
+    expect(await fate()).toBe(false);
+    answer = { status: 401, json: { ok: false, error: "unauthorized" } };
+    expect(await fate()).toBe(false);
+    answer = { status: 404, text: "not found" };
+    expect(await fate()).toBe(false);
+    answer = "down";
+    expect(await fate()).toBe(false);
+    // No answer in time, an answer that says nothing, a failure of the service itself: it may be in Slack.
+    vi.stubGlobal("fetch", vi.fn(async () => { throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }); }));
+    expect(await fate()).toBe(true);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 502 })));
+    expect(await fate()).toBe(true);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ message: "Workflow was started" })));
+    expect(await fate()).toBe(true);
+  });
 });
 
 describe("slack-dm — identity", () => {

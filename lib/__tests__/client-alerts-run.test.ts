@@ -98,7 +98,8 @@ const h = vi.hoisted(() => {
   /** As lib/client-alerts/slack-dm.ts: words for the consultant, the technical cause apart. */
   class SlackDmError extends Error {
     readonly detail: string;
-    constructor(message: string, detail: string = message) { super(message); this.name = "SlackDmError"; this.detail = detail; }
+    readonly uncertain: boolean;
+    constructor(message: string, detail: string = message, uncertain = false) { super(message); this.name = "SlackDmError"; this.detail = detail; this.uncertain = uncertain; }
   }
   return {
     alerts, events, clients, users, db, SlackDmError,
@@ -117,12 +118,12 @@ vi.mock("@/lib/client-alerts/message", () => ({ buildAlertLine: h.line, buildDmT
 vi.mock("@/lib/client-alerts/slack-dm", () => ({ dmConfigured: h.configured, resolveSlackIdentity: h.identity, sendSlackDm: h.send, SlackDmError: h.SlackDmError }));
 
 import {
-  clientProblem, CREATOR_GONE, CREATOR_NOT_STAFF, FLOOD, HELD, isDue, MAX_LINES_PER_DM, RUN_BUDGET_MS, runClientAlerts, SEND_DEADLINE_MS, slotOf,
+  CLAIM_GRACE_MS, clientProblem, CREATOR_GONE, CREATOR_NOT_STAFF, FLOOD, HELD, isDue, MAX_LINES_PER_DM, RUN_BUDGET_MS, runClientAlerts, SEND_DEADLINE_MS, slotOf,
 } from "@/lib/client-alerts/run";
-import { holdEvents, markNotified } from "@/lib/client-alerts/store";
+import { claimEvents, claimedAt, holdEvents, markNotified, newBatchId } from "@/lib/client-alerts/store";
 import * as route from "@/app/api/cron/client-alerts/route";
 import {
-  MAX_DELIVERY_FAILURES, MAX_DM_PER_RUN, MAX_DM_PER_USER_PER_DAY,
+  DELIVERY_UNKNOWN, MAX_DELIVERY_FAILURES, MAX_DM_PER_RUN, MAX_DM_PER_USER_PER_DAY,
   type AccountSeries, type AlertAccountRef, type AlertDefinition, type ClientSeries, type Evaluation, type SeriesPoint,
 } from "@/lib/client-alerts/types";
 
@@ -1290,6 +1291,7 @@ describe("sending", () => {
       expect(h.events.find((e) => e.id === "done")).toMatchObject({ notifiedAt: first, batchId: "other-pass", notifyError: null });
       expect(h.events.find((e) => e.id === "todo")).toMatchObject({ notifyError: "anomalie générale : non envoyé" });
       // …and neither does a delivery: the message of the other pass keeps its instant and its batch.
+      expect(await claimEvents(["done", "todo"], "this-pass")).toEqual(["todo"]);
       await markNotified(["done", "todo"], [{ id: "x", definitionHash: "hx" }], "this-pass", NOW);
       expect(h.events.find((e) => e.id === "done")).toMatchObject({ notifiedAt: first, batchId: "other-pass" });
       expect(h.events.find((e) => e.id === "todo")).toMatchObject({ notifiedAt: NOW, batchId: "this-pass", notifyError: null });
@@ -1298,6 +1300,144 @@ describe("sending", () => {
       Object.assign(h.alerts.find((a) => a.id === "x")!, { definitionHash: "nouvelle", armed: true, lastTriggeredAt: null });
       await markNotified(["todo"], [{ id: "x", definitionHash: "hx" }], "again", NOW);
       expect(h.alerts.find((a) => a.id === "x")).toMatchObject({ armed: true, lastTriggeredAt: null });
+    });
+
+    it("an event belongs to one message: a second claim gets nothing, and only its batch can date it", async () => {
+      h.events.push({ id: "e", alertId: "x", notifiedAt: null, batchId: null, notifyError: null, dryRun: false });
+      const first = newBatchId(NOW);
+      expect(claimedAt(first)).toEqual(NOW);
+      expect(await claimEvents(["e"], first)).toEqual(["e"]);
+      expect(await claimEvents(["e"], newBatchId(NOW))).toEqual([]);
+      await markNotified(["e"], [], "another-batch", NOW);
+      expect(h.events.find((e) => e.id === "e")).toMatchObject({ notifiedAt: null, batchId: first });
+      expect(claimedAt("other-pass")).toBeNull();
+      expect(claimedAt(null)).toBeNull();
+    });
+
+    /** A promise the test opens by hand: holds a send, or a read, where it is. */
+    const gate = () => { let open!: () => void; const p = new Promise<void>((r) => { open = r; }); return { p, open }; };
+
+    it("a pass that starts while another one is sending leaves its alert alone", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      const g = gate();
+      h.send.mockImplementationOnce(async () => { await g.p; });
+      const first = runClientAlerts({ now: NOW });
+      await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+      // A second firing of the cron, or a pass run by hand, forty seconds later.
+      const second = await runClientAlerts({ now: at("2026-09-29T06:10:40Z") });
+      expect(second).toMatchObject({ triggered: 0, sent: 0 });
+      g.open();
+      expect(await first).toMatchObject({ sent: 1 });
+      expect(h.send).toHaveBeenCalledTimes(1);
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: NOW, notifyError: null });
+    });
+
+    it("a pass that read the alert before another one delivered records no second event", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      const sending = gate(); const reading = gate();
+      h.send.mockImplementationOnce(async () => { await sending.p; });
+      const first = runClientAlerts({ now: NOW, only: ["a"] });
+      await vi.waitFor(() => expect(h.send).toHaveBeenCalledTimes(1));
+      // The first pass is sending; its claim is then forgotten to let the second one in, slow to read the platforms.
+      const claim = eventsOf("a")[0].batchId;
+      eventsOf("a")[0].batchId = null;
+      const read = h.read.getMockImplementation()!;
+      h.read.mockImplementationOnce(async (...args: unknown[]) => { await reading.p; return (read as (...a: unknown[]) => unknown)(...args); });
+      const second = runClientAlerts({ now: at("2026-09-29T06:11:00Z"), only: ["a"] });
+      await vi.waitFor(() => expect(h.read).toHaveBeenCalledTimes(2));
+      eventsOf("a")[0].batchId = claim;
+      sending.open();
+      expect(await first).toMatchObject({ sent: 1 });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
+      // The second pass evaluated from « armed, never said »: that is no longer the state, it writes nothing.
+      reading.open();
+      expect(await second).toMatchObject({ triggered: 0, sent: 0 });
+      expect(h.send).toHaveBeenCalledTimes(1);
+      expect(eventsOf("a")).toHaveLength(1);
+    });
+
+    it("a message whose fate is unknown is never sent again: the alert starts its silence, the page says it", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      // The delivery service answered too late: the message may be in Slack.
+      h.send.mockRejectedValue(new h.SlackDmError("le service d'envoi vers Slack ne répond pas", "n8n ne répond pas", true));
+      const summary = await runClientAlerts({ now: NOW });
+      expect(summary).toMatchObject({ triggered: 1, sent: 0, failed: 1 });
+      expect(summary.errors.join(" ")).toContain("issue inconnue");
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: DELIVERY_UNKNOWN });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW, status: "active", consecutiveFailures: 0 });
+      // The condition stays true all day and the next: one attempt, not three, and the alert is not stopped.
+      for (const iso of ["2026-09-29T09:10:00Z", "2026-09-29T12:10:00Z", "2026-09-29T15:10:00Z", "2026-09-30T06:10:00Z"]) await runClientAlerts({ now: at(iso) });
+      expect(h.send).toHaveBeenCalledTimes(1);
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(alert("a")).toMatchObject({ status: "active" });
+      // Once its silence is over, it speaks again like any alert with a reminder-less rule that went back to normal.
+      lastDay.delete("act_a");
+      await runClientAlerts({ now: at("2026-10-03T06:10:00Z") });
+      high("a");
+      h.send.mockResolvedValue(undefined);
+      expect(await runClientAlerts({ now: at("2026-10-04T06:10:00Z") })).toMatchObject({ sent: 1 });
+    });
+
+    it("a refusal is not an unknown fate: the event is free again and tried at the next pass", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      h.send.mockRejectedValueOnce(new h.SlackDmError("Slack a refusé l'envoi", "channel_not_found"));
+      expect(await runClientAlerts({ now: NOW })).toMatchObject({ sent: 0, failed: 1 });
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, batchId: null, notifyError: "Slack a refusé l'envoi" });
+      expect(alert("a")).toMatchObject({ armed: true, consecutiveFailures: 1 });
+      expect(await runClientAlerts({ now: at("2026-09-29T09:10:00Z") })).toMatchObject({ sent: 1 });
+      expect(eventsOf("a")).toHaveLength(1);
+    });
+
+    it("a message sent but never recorded is not sent again at the next pass", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      const real = h.db.clientAlertEvent.updateMany;
+      let broke = 0;
+      h.db.clientAlertEvent.updateMany = async (args: { where?: Record<string, unknown>; data: Record<string, unknown> }) => {
+        if (args.data.notifiedAt && broke++ === 0) throw new Error("Can't reach database server");
+        return real(args);
+      };
+      try {
+        const first = await runClientAlerts({ now: NOW });
+        expect(first).toMatchObject({ sent: 1 });
+        expect(first.errors.join(" ")).toContain("il ne sera pas renvoyé");
+        // Sent, not dated: the claim is all that is left of it.
+        expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null });
+        expect(claimedAt(eventsOf("a")[0].batchId as string)).toEqual(NOW);
+        const second = await runClientAlerts({ now: at("2026-09-29T09:10:00Z") });
+        expect(second).toMatchObject({ sent: 0, triggered: 0 });
+        expect(h.send).toHaveBeenCalledTimes(1);
+        expect(eventsOf("a")).toHaveLength(1);
+        expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: DELIVERY_UNKNOWN });
+        // The silence runs from the moment the message left.
+        expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
+      } finally {
+        h.db.clientAlertEvent.updateMany = real;
+      }
+    });
+
+    it("waits for a claim to be old before calling its fate unknown", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      // A pass claimed the event at 06:10 and was never heard of again.
+      h.events.push({ id: "lost", alertId: "a", kind: "trigger", triggeredAt: NOW, message: "parti ?", dryRun: false, notifiedAt: null, notifyError: null, batchId: newBatchId(NOW) });
+      Object.assign(alert("a"), { lastCheckedAt: NOW });
+      const soon = new Date(NOW.getTime() + CLAIM_GRACE_MS - 1000);
+      expect(await runClientAlerts({ now: soon, slot: null })).toMatchObject({ checked: 2, triggered: 0, sent: 0 });
+      expect(h.events.find((e) => e.id === "lost")).toMatchObject({ notifyError: null });
+      expect(alert("a")).toMatchObject({ armed: true });
+      const later = new Date(NOW.getTime() + CLAIM_GRACE_MS);
+      const summary = await runClientAlerts({ now: later, slot: null });
+      expect(summary).toMatchObject({ checked: 3, triggered: 0, sent: 0 });
+      expect(summary.errors.join(" ")).toContain("il n'est pas renvoyé");
+      expect(h.events.find((e) => e.id === "lost")).toMatchObject({ notifyError: DELIVERY_UNKNOWN, notifiedAt: null });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
+      expect(h.send).not.toHaveBeenCalled();
     });
   });
 });

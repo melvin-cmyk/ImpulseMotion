@@ -150,6 +150,19 @@ describe("evaluate — drop_pct and rise_pct", () => {
   const dropped = () => series(account(META, (back) => ({ spend: back < 3 ? 60 : 100 })));
   const d = (over: Partial<AlertDefinition>) => def({ accounts: [META], windowDays: 3, condition: "drop_pct", threshold: 40, ...over });
 
+  it("a value that cannot be computed is not a fall of 100 %", () => {
+    // CPA: conversions every day before, none over the last three days. There is no CPA to compare —
+    // read as zero, it would be « −100 % » and a false drop.
+    const dry = series(account(META, (back) => ({ spend: 100, conversions: back >= 1 && back <= 3 ? 0 : 2, clicks: 10, impressions: 1000 })));
+    const ev = evaluate(d({ metric: "cpa", condition: "drop_pct", threshold: 50 }), dry);
+    expect(ev.status).toBe("skipped");
+    expect(ev.value).toBeNull();
+    expect(ev.parts.every((p) => p.triggered !== true)).toBe(true);
+    // The other way round: no conversion on the reference gives nothing to compare with either.
+    const before = series(account(META, (back) => ({ spend: 100, conversions: back >= 4 && back <= 6 ? 0 : 2, clicks: 10, impressions: 1000 })));
+    expect(evaluate(d({ metric: "cpa", condition: "rise_pct", threshold: 50 }), before).status).toBe("skipped");
+  });
+
   it("measures the change against the days just before the window", () => {
     const ev = evaluate(d({}), dropped());
     expect(ev.value).toBe(180);

@@ -22,6 +22,12 @@
  *   - the write that records a message is also conditional on the
  *     lastCheckedAt the pass read: two passes at the same instant see the same
  *     alert, one of them takes the message, the other records nothing;
+ *   - that write is conditional too on the state the pass evaluated from
+ *     (armed, lastTriggeredAt): a pass that listed the alert before another
+ *     one delivered its message records nothing after it;
+ *   - an event is CLAIMED (claimEvents) before its message leaves: one pass
+ *     sends it, and an event whose claim was never resolved is closed as
+ *     « delivery unknown », never sent a second time;
  *   - markNotified and the holds only touch events that are not notified yet:
  *     notifiedAt is the idempotence of the delivery.
  */
@@ -29,7 +35,8 @@
 import { prisma } from "@/lib/prisma";
 import { todayIn } from "@/lib/date-ranges";
 import { parseAccounts, type AlertAccount } from "@/lib/auto-alerts/clients";
-import { MAX_DELIVERY_FAILURES, type Evaluation } from "@/lib/client-alerts/types";
+import { randomUUID } from "node:crypto";
+import { DELIVERY_UNKNOWN, MAX_DELIVERY_FAILURES, type Evaluation } from "@/lib/client-alerts/types";
 
 const PARIS = "Europe/Paris";
 
@@ -107,7 +114,7 @@ export interface CheckRecord {
  * is to be sent; null when there is none, when the rule was replaced since the
  * pass read it, or when another pass took the message first.
  */
-export async function recordCheck(alert: Pick<AlertRow, "id" | "definitionHash" | "lastCheckedAt">, check: CheckRecord): Promise<string | null> {
+export async function recordCheck(alert: Pick<AlertRow, "id" | "definitionHash" | "lastCheckedAt" | "armed" | "lastTriggeredAt">, check: CheckRecord): Promise<string | null> {
   const ev = check.evaluation;
   const found = { lastCheckedAt: check.at, lastValue: ev.value, lastNote: ev.status === "skipped" ? ev.reason ?? "Non jugée" : null };
   const same = { id: alert.id, status: "active", definitionHash: alert.definitionHash };
@@ -118,7 +125,8 @@ export async function recordCheck(alert: Pick<AlertRow, "id" | "definitionHash" 
   }
   return prisma.$transaction(async (tx) => {
     const taken = await tx.clientAlert.updateMany({
-      where: { ...same, lastCheckedAt: alert.lastCheckedAt },
+      // The state the pass evaluated from: a message delivered by another pass since then moved it.
+      where: { ...same, lastCheckedAt: alert.lastCheckedAt, armed: alert.armed, lastTriggeredAt: alert.lastTriggeredAt },
       // A real message disarms when it is delivered (markNotified), not before. A dry run mirrors it at once.
       data: event.dryRun ? { ...found, armed: false, lastTriggeredAt: check.at } : found,
     });
@@ -134,7 +142,7 @@ export async function recordCheck(alert: Pick<AlertRow, "id" | "definitionHash" 
   });
 }
 
-export interface PendingEvent { id: string; alertId: string; triggeredAt: Date; notifyError: string | null }
+export interface PendingEvent { id: string; alertId: string; triggeredAt: Date; notifyError: string | null; batchId: string | null }
 
 /** The latest undelivered real event of each of these alerts, triggered since `since`. One query per pass. */
 export async function pendingEvents(alertIds: string[], since: Date): Promise<Map<string, PendingEvent>> {
@@ -143,7 +151,7 @@ export async function pendingEvents(alertIds: string[], since: Date): Promise<Ma
   const rows = await prisma.clientAlertEvent.findMany({
     where: { alertId: { in: alertIds }, notifiedAt: null, dryRun: false, triggeredAt: { gte: since } },
     orderBy: [{ triggeredAt: "desc" }],
-    select: { id: true, alertId: true, triggeredAt: true, notifyError: true },
+    select: { id: true, alertId: true, triggeredAt: true, notifyError: true, batchId: true },
   });
   for (const r of rows) if (!out.has(r.alertId)) out.set(r.alertId, r);
   return out;
@@ -178,22 +186,55 @@ export async function holdEvents(eventIds: string[], reason: string): Promise<vo
   await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null }, data: { notifyError: reason.slice(0, 300) } });
 }
 
-/** Among these events, those still to deliver. */
-export async function unsentEvents(eventIds: string[]): Promise<string[]> {
-  if (!eventIds.length) return [];
-  const rows = await prisma.clientAlertEvent.findMany({ where: { id: { in: eventIds }, notifiedAt: null }, select: { id: true } });
-  const left = new Set(rows.map((r) => r.id));
-  return eventIds.filter((id) => left.has(id));
+/** The batch of one private message: the moment its events were claimed, then a random part. */
+export const newBatchId = (at: Date): string => `${at.getTime()}-${randomUUID()}`;
+/** When a batch was claimed; null for an id that does not say. */
+export function claimedAt(batchId: string | null): Date | null {
+  const m = /^(\d{12,})-/.exec(batchId ?? "");
+  return m ? new Date(Number(m[1])) : null;
 }
 
 /**
- * One private message went out. Its events share a batch; their alerts are
- * disarmed and start their silence NOW — this is the only place that does it
- * for a real message. An alert whose rule was replaced since the pass read it
- * keeps the fresh state of its new rule.
+ * Takes these events for one private message, before it leaves: an event
+ * belongs to one batch at most, so two passes never send the same one.
+ * Returns the events this batch holds.
+ */
+export async function claimEvents(eventIds: string[], batchId: string): Promise<string[]> {
+  if (!eventIds.length) return [];
+  await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null, batchId: null }, data: { batchId } });
+  const rows = await prisma.clientAlertEvent.findMany({ where: { id: { in: eventIds }, notifiedAt: null, batchId }, select: { id: true } });
+  const held = new Set(rows.map((r) => r.id));
+  return eventIds.filter((id) => held.has(id));
+}
+
+/** Nothing left for Slack after all (no address, a refusal): the events are free for the next pass. */
+export async function releaseEvents(eventIds: string[], batchId: string): Promise<void> {
+  if (!eventIds.length) return;
+  await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null, batchId }, data: { batchId: null } });
+}
+
+/**
+ * One private message went out. Its events, claimed under this batch, get
+ * their date; their alerts are disarmed and start their silence NOW — with
+ * closeUnknown, the only places that do it for a real message. An alert whose
+ * rule was replaced since the pass read it keeps the fresh state of its new rule.
  */
 export async function markNotified(eventIds: string[], alerts: Array<Pick<AlertRow, "id" | "definitionHash">>, batchId: string, at: Date): Promise<void> {
-  await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null }, data: { notifiedAt: at, batchId, notifyError: null } });
+  await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null, batchId }, data: { notifiedAt: at, notifyError: null } });
+  for (const a of alerts) {
+    await prisma.clientAlert.updateMany({ where: { id: a.id, definitionHash: a.definitionHash }, data: { armed: false, lastTriggeredAt: at, consecutiveFailures: 0 } });
+  }
+}
+
+/**
+ * Nobody knows whether the message of these events arrived. They keep their
+ * claim and are closed with DELIVERY_UNKNOWN; their alerts are disarmed and
+ * start their silence at `at`, as after a delivered message: saying it twice
+ * is worse than saying it late, and the page shows what happened.
+ */
+export async function closeUnknown(eventIds: string[], alerts: Array<Pick<AlertRow, "id" | "definitionHash">>, at: Date): Promise<void> {
+  if (!eventIds.length) return;
+  await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null }, data: { notifyError: DELIVERY_UNKNOWN } });
   for (const a of alerts) {
     await prisma.clientAlert.updateMany({ where: { id: a.id, definitionHash: a.definitionHash }, data: { armed: false, lastTriggeredAt: at, consecutiveFailures: 0 } });
   }
