@@ -84,7 +84,9 @@ export const PROFILES = {
   },
   "mcp-tiktok-ads": {
     label: "TikTok Ads",
-    keys: /advertiser/i,
+    // Le compte est lu par `accountsOf` ; ces clés sont ce que le second contrôle
+    // cherche plus bas dans l'appel (un `advertiser_id` glissé dans `filtering`).
+    keys: /^advertiser_ids?$/i,
     // Un identifiant TikTok est une suite de chiffres. Toute autre forme est
     // gardée telle quelle : elle n'est jamais dans le périmètre, donc refusée,
     // plutôt qu'ignorée puis interprétée autrement par TikTok.
@@ -107,7 +109,6 @@ if (!profile) die(`SCOPED_SERVER_NAME inconnu ou manquant: "${SERVER_NAME}"`);
 if (!/^https:\/\//.test(UPSTREAM_URL)) die("SCOPED_UPSTREAM_URL manquante ou non https");
 
 if (RAW_ACCOUNTS.trim() !== "*" && !RAW_ACCOUNTS.split(",").some((s) => profile.norm(s))) die(`périmètre vide pour ${SERVER_NAME}`);
-if (profile.closedTools && !(process.env.SCOPED_TOOLS || "").trim()) die(`liste d'outils (SCOPED_TOOLS) manquante pour ${SERVER_NAME}`);
 
 // ── Extraction des identifiants ──────────────────────────────────────────────
 
@@ -120,8 +121,9 @@ if (profile.closedTools && !(process.env.SCOPED_TOOLS || "").trim()) die(`liste 
 export function collectAccountIds(value, keys, depth = 0) {
   const found = [];
   if (value == null) return found;
-  // Trop profond pour être relu : refusé, jamais transmis sans contrôle.
-  if (depth > 6) return typeof value === "object" || typeof value === "string" ? [UNREADABLE] : found;
+  // Trop profond pour être relu : refusé, jamais transmis sans contrôle. La limite
+  // est loin de tout appel réel (un filtre GA4 imbriqué dans `input` en prend une dizaine).
+  if (depth > MAX_DEPTH) return typeof value === "object" || typeof value === "string" ? [UNREADABLE] : found;
 
   if (typeof value === "string") {
     const t = value.trim();
@@ -154,6 +156,7 @@ export function collectAccountIds(value, keys, depth = 0) {
 
 /** Stands for a value too deep to be read: it is in no scope, so the call is refused. */
 export const UNREADABLE = "[valeur illisible]";
+const MAX_DEPTH = 40;
 
 /**
  * Every scalar held under an account-ish key: v itself, the items of an array,
@@ -175,7 +178,7 @@ function scalars(v, depth = 0) {
     return [v];
   }
   if (v === null || typeof v !== "object") return [];
-  if (depth >= 4) return [UNREADABLE];
+  if (depth >= MAX_DEPTH) return [UNREADABLE];
   return Object.values(v).flatMap((x) => scalars(x, depth + 1));
 }
 
@@ -225,12 +228,15 @@ export function createGate(p, { accounts, tools = "" }) {
   // Liste fermée d'outils, posée par le relay (bot client : moins d'outils que
   // l'équipe). Absente = tous les outils de l'amont, moins `deny` et les écritures.
   const only = tools.split(",").map((s) => s.trim()).filter(Boolean);
+  if (p.closedTools && !only.length) throw new Error("liste d'outils (SCOPED_TOOLS) manquante");
   const onlyTools = only.length ? new Set(only) : null;
 
   const isWrite = (name) => (p.denyPattern ? p.denyPattern.test(name) : false);
   const isClosed = (name) => (onlyTools ? !onlyTools.has(name) : false);
   const isDenied = (name) => p.deny.has(name) || isWrite(name) || isClosed(name);
-  const outside = (ids) => `Accès refusé : le compte ${p.label} ${ids.join(", ")} n'est pas dans ton périmètre. Tu ne peux interroger que : ${[...allowed].join(", ")}.`;
+  const outside = (ids) => (ids.includes(UNREADABLE)
+    ? "Appel refusé : arguments trop imbriqués pour être relus. Simplifie l'appel."
+    : `Accès refusé : le compte ${p.label} ${ids.join(", ")} n'est pas dans ton périmètre. Tu ne peux interroger que : ${[...allowed].join(", ")}.`);
 
   /** @returns {{ refusal: string } | { args: unknown }} */
   function check(name, given, { legacy = true } = {}) {
@@ -266,7 +272,9 @@ export function createGate(p, { accounts, tools = "" }) {
   return { unrestricted, allowed, isDenied, listed, check };
 }
 
-const gate = createGate(profile, { accounts: RAW_ACCOUNTS, tools: process.env.SCOPED_TOOLS || "" });
+let gate;
+try { gate = createGate(profile, { accounts: RAW_ACCOUNTS, tools: process.env.SCOPED_TOOLS || "" }); }
+catch (err) { die(`${err.message} pour ${SERVER_NAME}`); }
 
 // ── Amont (SSE) ──────────────────────────────────────────────────────────────
 

@@ -5,7 +5,7 @@
  * the documented shape { dimensions, metrics }, every value a string.
  */
 import { describe, expect, it } from "vitest";
-import { compactText } from "../../server/mcp-compact.mjs";
+import { compactText, compactToolResult } from "../../server/mcp-compact.mjs";
 
 const ctx = (tool: string) => ({ server: "mcp-tiktok-ads", tool });
 const envelope = (list: unknown[], page_info: Record<string, number> = { page: 1, page_size: 1000, total_number: list.length, total_page: 1 }) =>
@@ -163,6 +163,37 @@ describe("compactText — TikTok", () => {
     const refused = compactText(JSON.stringify({ code: 40001, message: "The advertiser 7 doesn't exist.", request_id: "r", data: {} }), ctx("get_advertiser_info")).text;
     expect(refused).toContain("40001");
     expect(refused).toContain("doesn't exist");
+  });
+
+  it("rebuilds the result of an advertiser from its filtered text, whatever else it carries", () => {
+    const card = { advertiser_id: "7111111111111111111", name: "Client Démo", currency: "EUR", balance: 1234.56, email: "contact@demo.test", cellphone_number: "+33600000000" };
+    const ok = JSON.stringify({ code: 0, message: "OK", request_id: "r", data: { list: [card] } });
+    const leaks = (out: unknown) => ["1234.56", "contact@demo.test", "+33600000000", "balance"].filter((x) => JSON.stringify(out).includes(x));
+    const results: unknown[] = [
+      { content: [{ type: "text", text: ok }], structuredContent: { data: { list: [card] } } },
+      { content: [{ type: "text", text: ok }, { type: "resource", resource: { uri: "x", text: ok } }] },
+      { content: [{ type: "text", text: ok }], isError: true },
+      { content: [], structuredContent: { code: 0, message: "OK", request_id: "r", data: { list: [card] } } },
+      { content: [{ type: "resource", resource: { uri: "x", text: ok } }] },
+      null,
+    ];
+    for (const raw of results) {
+      const { result } = compactToolResult(raw, ctx("get_advertiser_info"));
+      expect(leaks(result), JSON.stringify(raw).slice(0, 80)).toEqual([]);
+      expect(Object.keys(result).sort().filter((k) => k !== "isError")).toEqual(["content"]);
+      expect(result.content.every((c: { type: string }) => c.type === "text")).toBe(true);
+    }
+    // What can be read is still given, an error stays an error.
+    expect(JSON.stringify(compactToolResult(results[0], ctx("get_advertiser_info")).result)).toContain("Client Démo");
+    expect(JSON.stringify(compactToolResult(results[3], ctx("get_advertiser_info")).result)).toContain("Client Démo");
+    expect(compactToolResult(results[2], ctx("get_advertiser_info")).result.isError).toBe(true);
+    expect(JSON.stringify(compactToolResult(results[4], ctx("get_advertiser_info")).result)).toContain("illisible");
+    // A permitted field that is not a plain value is not shown.
+    const odd = JSON.stringify({ code: 0, message: "OK", request_id: "r", data: { list: [{ advertiser_id: "7111111111111111111", name: { email: "contact@demo.test" } }] } });
+    expect(compactText(odd, ctx("get_advertiser_info")).text).not.toContain("contact@demo.test");
+    // The other tools of the server keep their results as they were built.
+    const other = compactToolResult({ content: [{ type: "text", text: ok }], isError: true }, ctx("get_campaigns"));
+    expect(other.result.isError).toBe(true);
   });
 
   it("keeps its reading of TikTok for the TikTok server", () => {

@@ -57,8 +57,9 @@ describe("prepareTikTokArgs — reports", () => {
     const out = sent("get_breakdown_report", input({ ...ask, dimensions: ["campaign_id", "age"], metrics: ["balance"] }));
     expect(out.data_level).toBe("AUCTION_CAMPAIGN");
     expect(JSON.parse(out.metrics)).not.toContain("balance");
-    // Without a breakdown there is nothing to send: TikTok says what is missing.
-    expect("dimensions" in sent("get_breakdown_report", input(ask))).toBe(false);
+    // Without a breakdown there is nothing to ask TikTok: said at once, in words the model can act on.
+    const none = prepareTikTokArgs("get_breakdown_report", input(ask));
+    expect("error" in none && none.error).toContain("dimensions est un tableau JSON");
   });
 
   it("asks TikTok for the kind of report the dimensions belong to", () => {

@@ -52,8 +52,17 @@ describe("parseAdvertiserInfo", () => {
     expect(parseAdvertiserInfo(ok({ advertiser_id: "7222222222222222222", name: "Autre client" }), ID).ok).toBe(false);
   });
 
-  it("does not compare an id that arrived as a number (its last digits are lost)", () => {
+  it("compares an id that arrived as a number within what a number can hold", () => {
+    // Its last digits are lost on the way: the same account is still the same account…
     expect(parseAdvertiserInfo(ok({ advertiser_id: 7111111111111111000, name: "Client" }), ID).ok).toBe(true);
+    expect(parseAdvertiserInfo(ok({ advertiser_id: Number("7111111111111119999"), name: "Client" }), "7111111111111119999").ok).toBe(true);
+    // …and another one is not.
+    expect(parseAdvertiserInfo(ok({ advertiser_id: 7111111111222222222, name: "Autre" }), ID).ok).toBe(false);
+  });
+
+  it("refuses an answer that does not say which account it is about", () => {
+    expect(parseAdvertiserInfo(ok({ name: "Client", currency: "EUR" }), ID).ok).toBe(false);
+    expect(parseAdvertiserInfo(ok({ advertiser_id: null, name: "Client" }), ID).ok).toBe(false);
   });
 
   it("refuses an empty or unreadable answer", () => {
@@ -109,5 +118,15 @@ describe("what is stored on a dashboard", () => {
     expect(arg.create).toMatchObject({ dashboardId: "d1", kind: "tiktok", externalId: ID, label: "Client", status: "active" });
     expect(JSON.parse(arg.create.config)).toEqual({ currency: "EUR", timezone: "Europe/Paris" });
     expect("secretEnc" in arg.create).toBe(false);
+  });
+});
+
+describe("who may be given TikTok", () => {
+  it("is open to the team, and cannot be assigned to a user", async () => {
+    const { MCP_SERVER_WHITELIST, STAFF_MCP_SERVERS, TIKTOK_SERVER } = await import("@/lib/mcp-whitelist");
+    // An advertiser id typed on a user sheet is checked by nobody: a client reads TikTok through the
+    // assistant of its dashboard, on the accounts attached to it, and nowhere else.
+    expect(MCP_SERVER_WHITELIST as readonly string[]).not.toContain(TIKTOK_SERVER);
+    expect(STAFF_MCP_SERVERS as readonly string[]).toContain(TIKTOK_SERVER);
   });
 });

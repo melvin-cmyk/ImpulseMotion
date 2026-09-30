@@ -596,6 +596,21 @@ function summarize(rows, dateKey, name, cap, exclude = []) {
 }
 
 /**
+ * Le résultat de la fiche d'un compte, reconstruit : un bloc texte par bloc
+ * texte de l'amont, filtré. Tout ce qui pourrait porter la fiche entière par
+ * un autre chemin (contenu structuré, bloc d'un autre type, résultat en erreur
+ * rendu tel quel) n'est pas transmis.
+ */
+function tiktokAdvertiserResult(result) {
+  const texts = (Array.isArray(result?.content) ? result.content : []).filter((c) => c && c.type === "text" && typeof c.text === "string").map((c) => c.text);
+  const structured = result?.structuredContent !== undefined && result?.structuredContent !== null ? [JSON.stringify(result.structuredContent)] : [];
+  const sources = texts.length ? texts : structured;
+  const content = (sources.length ? sources : [""]).map((text) => ({ type: "text", text: tiktokAdvertiserText(text) }));
+  const raw = sources.reduce((n, text) => n + text.length, 0);
+  return { result: { content, ...(result?.isError ? { isError: true } : {}) }, stats: { raw, out: content.reduce((n, c) => n + c.text.length, 0) } };
+}
+
+/**
  * @typedef {{ server?: string, tool?: string, cap?: number }} CompactContext
  * @typedef {{ raw: number, out: number, mode: string, minified?: number, truncated?: { shown: number, total: number, kept: string } | null, summary?: { rows: number, groups: number, days: number } | null }} CompactStats
  */
@@ -784,6 +799,7 @@ function finish(out, minified, stats, mode, truncated = null) {
  * @returns {{ result: any, stats: { raw: number, out: number } | null }}
  */
 export function compactToolResult(result, ctx) {
+  if (ctx?.server === TIKTOK && ctx?.tool === "get_advertiser_info") return tiktokAdvertiserResult(result);
   if (!result || result.isError || !Array.isArray(result.content)) return { result, stats: null };
   /** @type {{ raw: number, out: number } | null} */
   let stats = null;

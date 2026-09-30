@@ -49,10 +49,10 @@ export function parseAdvertiserInfo(result: unknown, id: string): AdvertiserChec
   const row = Array.isArray(list) ? list.find((r) => r && typeof r === "object") as Record<string, unknown> | undefined : undefined;
   if (!row) return { ok: false, error: "TikTok ne renvoie aucun compte pour cet identifiant." };
   // The answer must be about the account asked for. A 19-digit id read as a
-  // number has lost its last digits: its first fifteen are compared.
+  // number has lost its last digits: it is compared within what a number can hold.
   const answered = row.advertiser_id;
   const same = typeof answered === "string" ? answered === id
-    : typeof answered === "number" ? String(answered).slice(0, 15) === id.slice(0, 15) && String(answered).length === id.length
+    : typeof answered === "number" ? Math.abs(answered - Number(id)) <= 2048
     : false;
   if (!same) return { ok: false, error: "TikTok a répondu pour un autre compte que celui demandé." };
   const name = text(row.name);

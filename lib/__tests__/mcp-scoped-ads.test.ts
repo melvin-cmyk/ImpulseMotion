@@ -56,13 +56,30 @@ describe("collectAccountIds", () => {
     expect(collectAccountIds(null, meta.keys)).toEqual([]);
   });
 
-  it("does not let through what is too deep to be read", () => {
+  it("reads as deep as a real call goes, and does not let through what is deeper", () => {
     let deep: Record<string, unknown> = { account_id: "act_999" };
     for (let i = 0; i < 12; i++) deep = { nested: deep };
+    expect(collectAccountIds(deep, meta.keys)).toEqual(["act_999"]);
+    expect(outOfScope({ account_id: [[[[["act_999"]]]]] }, meta, allowedMeta)).toEqual(["act_999"]);
+    for (let i = 0; i < 60; i++) deep = { nested: deep };
     // Unread is not « no account »: the call is refused.
     expect(collectAccountIds(deep, meta.keys)).toEqual([UNREADABLE]);
     expect(outOfScope(deep, meta, allowedMeta)).toEqual([UNREADABLE]);
-    expect(outOfScope({ account_id: [[[[["act_999"]]]]] }, meta, allowedMeta)).toEqual([UNREADABLE]);
+    let nested: unknown = "act_999";
+    for (let i = 0; i < 60; i++) nested = [nested];
+    expect(outOfScope({ account_id: nested }, meta, allowedMeta)).toEqual([UNREADABLE]);
+  });
+
+  it("lets through the nested arguments of a real call that names its own account", () => {
+    // GA4 and Meta calls as the dashboards' assistants make them: the filters nest, inside `input`, inside a JSON string.
+    const ga4: Profile = { keys: /propert/i, norm: (v) => String(v).trim().replace(/^properties\//i, "") };
+    const filter = { and_group: { expressions: [{ filter: { field_name: "country", in_list_filter: { values: ["FR", "BE"] } } }, { not_expression: { filter: { field_name: "deviceCategory", string_filter: { value: "tablet" } } } }] } };
+    const report = { property_id: "123456789", dimensions: ["date"], metrics: ["sessions"], dimension_filter: filter, order_bys: [{ dimension: { dimension_name: "date" }, desc: true }] };
+    expect(outOfScope(report, ga4, new Set(["123456789"]))).toEqual([]);
+    expect(outOfScope({ input: JSON.stringify({ ...report, dimension_filter: JSON.stringify(filter) }) }, ga4, new Set(["123456789"]))).toEqual([]);
+    expect(outOfScope({ input: JSON.stringify({ ...report, property_id: "999" }) }, ga4, new Set(["123456789"]))).toEqual(["999"]);
+    const metaCall = { input: JSON.stringify({ ad_account_id: "act_111", filtering: JSON.stringify([{ field: "campaign.id", operator: "IN", value: ["1", "2"] }]), time_range: { since: "2026-09-01", until: "2026-09-07" } }) };
+    expect(outOfScope(metaCall, meta, allowedMeta)).toEqual([]);
   });
 });
 
@@ -212,6 +229,32 @@ describe("the gate of a TikTok conversation", () => {
 
   it("takes `*` for every account only when it is the whole scope", () => {
     expect(refused(gate(`${ID},*`).check("get_campaigns", input({ advertiser_id: OTHER })))).toContain("n'est pas dans ton périmètre");
+  });
+
+  it("does not exist without its list of tools", () => {
+    // Without a list every tool of the upstream server would be open, tomorrow's included.
+    for (const tools of ["", " ", ",", " , ,"]) expect(() => createGate(tiktok, { accounts: ID, tools }), JSON.stringify(tools)).toThrow(/liste d'outils/);
+    expect(() => createGate(tiktok, { accounts: ID })).toThrow(/liste d'outils/);
+  });
+
+  it("sends the parameters the tool declares, and nothing else the model wrote", () => {
+    const d = gate().check("get_campaigns", input({ advertiser_id: ID, advertiser_name: "Client Démo", note: "x", secret: "y" }));
+    expect(sent(d)).toEqual({ advertiser_id: ID });
+    const report = gate().check("get_report_integrated", input({ advertiser_id: ID, data_level: "AUCTION_CAMPAIGN", dimensions: ["campaign_id"], metrics: ["spend"], start_date: "2026-09-01", end_date: "2026-09-07", filtering: { campaign_ids: ["1"] }, extra: "&advertiser_id=" + OTHER }));
+    expect(Object.keys(sent(report)!).sort()).toEqual(["advertiser_id", "data_level", "dimensions", "end_date", "metrics", "page", "page_size", "report_type", "start_date"]);
+  });
+
+  it("refuses a parameter that is not what its name says", () => {
+    const base = { advertiser_id: ID, data_level: "AUCTION_CAMPAIGN", dimensions: ["campaign_id"], metrics: ["spend"], start_date: "2026-09-01", end_date: "2026-09-07" };
+    for (const over of [
+      { start_date: `2026-09-01&advertiser_id=${OTHER}` }, { end_date: "hier" }, { end_date: 20260907 }, { data_level: `AUCTION_AD&advertiser_id=${OTHER}` },
+      { dimensions: `campaign_id&advertiser_id=${OTHER}` }, { dimensions: [`campaign_id"],"advertiser_id":"${OTHER}`] }, { metrics: ["spend; drop"] }, { metrics: "[spend" }, { dimensions: [] },
+    ]) {
+      expect(refused(gate().check("get_report_integrated", input({ ...base, ...over }))), JSON.stringify(over)).toContain("Appel refusé");
+    }
+    for (const filtering of ["{campaign_ids:['1']}", "texte", 12, ["x"]]) {
+      expect(refused(gate().check("get_adgroups", input({ advertiser_id: ID, filtering }))), JSON.stringify(filtering)).toContain("filtering est un objet JSON");
+    }
   });
 });
 

@@ -60,42 +60,60 @@ const BASIC_DIMENSIONS = new Set(["advertiser_id", "campaign_id", "adgroup_id", 
 const FILTERED = new Set(["get_adgroups", "get_ads"]);
 
 const PAGE_SIZE = 1000;
+const DATA_LEVELS = new Set(["AUCTION_ADVERTISER", "AUCTION_CAMPAIGN", "AUCTION_ADGROUP", "AUCTION_AD"]);
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+/** Nom d'une dimension ou d'une métrique TikTok. */
+const FIELD = /^[a-z0-9_]+$/;
 
 const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+const refuse = (what) => ({ error: `Appel refusé : ${what}.` });
 
-/** Une liste (tableau, tableau JSON en chaîne, ou « a,b ») → tableau JSON en chaîne ; null si vide. */
-function jsonList(v) {
+/** Une liste de noms (tableau, tableau JSON en chaîne, ou « a,b ») → tableau ; null si absente, "invalid" si ce ne sont pas des noms. */
+function fieldList(v) {
   let list = null;
   if (Array.isArray(v)) list = v;
   else if (typeof v === "string" && v.trim()) {
     const t = v.trim();
     if (t.startsWith("[")) {
-      try { const p = JSON.parse(t); if (Array.isArray(p)) list = p; } catch { /* rendu tel quel plus bas */ }
-      if (!list) return t;
+      try { list = JSON.parse(t); } catch { return "invalid"; }
     } else {
-      list = t.split(",").map((s) => s.trim()).filter(Boolean);
+      list = t.split(",").map((x) => x.trim()).filter(Boolean);
     }
-  }
-  if (!list) return null;
-  const items = list.filter((x) => typeof x === "string" || typeof x === "number").map((x) => String(x).trim()).filter(Boolean);
-  return items.length ? JSON.stringify(items) : null;
+  } else if (v !== undefined && v !== null && v !== "") return "invalid";
+  if (list === null) return null;
+  if (!Array.isArray(list) || !list.length) return "invalid";
+  const names = list.map((x) => (typeof x === "string" ? x.trim() : ""));
+  return names.every((x) => FIELD.test(x)) ? names : "invalid";
 }
 
+/** Un rapport : les paramètres que le flux déclare, et eux seuls. */
 function reportArgs(name, given) {
   const fixed = REPORTS[name];
-  const out = { ...given };
-  if (fixed.data_level) out.data_level = fixed.data_level;
-  else if (typeof out.data_level === "string") out.data_level = out.data_level.trim().toUpperCase();
+  const out = { advertiser_id: given.advertiser_id };
 
-  for (const key of ["dimensions", "metrics"]) {
-    const value = fixed[key] ? JSON.stringify(fixed[key]) : jsonList(given[key]);
-    if (value) out[key] = value;
-    else delete out[key];
+  for (const key of ["start_date", "end_date"]) {
+    const day = typeof given[key] === "string" ? given[key].trim() : "";
+    if (!DAY.test(day)) return refuse("start_date et end_date s'écrivent AAAA-MM-JJ");
+    out[key] = day;
   }
 
-  let dimensions = [];
-  try { dimensions = JSON.parse(out.dimensions ?? "[]"); } catch { /* laissé à TikTok */ }
-  out.report_type = Array.isArray(dimensions) && dimensions.some((d) => !BASIC_DIMENSIONS.has(d)) ? "AUDIENCE" : "BASIC";
+  const level = fixed.data_level ?? (typeof given.data_level === "string" ? given.data_level.trim().toUpperCase() : "");
+  if (!DATA_LEVELS.has(level)) return refuse(`data_level est l'un de ${[...DATA_LEVELS].join(", ")}`);
+  out.data_level = level;
+
+  let dimensions = fixed.dimensions;
+  if (!dimensions) {
+    dimensions = fieldList(given.dimensions);
+    if (!dimensions || dimensions === "invalid") return refuse('dimensions est un tableau JSON de noms de dimensions, par exemple ["campaign_id","age"]');
+  }
+  let metrics = fixed.metrics;
+  if (!metrics) {
+    metrics = fieldList(given.metrics);
+    if (!metrics || metrics === "invalid") return refuse('metrics est un tableau JSON de noms de métriques, par exemple ["spend","impressions","clicks"]');
+  }
+  out.dimensions = JSON.stringify(dimensions);
+  out.metrics = JSON.stringify(metrics);
+  out.report_type = dimensions.some((d) => !BASIC_DIMENSIONS.has(d)) ? "AUDIENCE" : "BASIC";
 
   const page = Number(given.page);
   out.page = Number.isInteger(page) && page >= 1 && page <= 9999 ? String(page) : "1";
@@ -117,32 +135,33 @@ function idList(v) {
 }
 
 function advertiserInfoArgs(given) {
-  const out = { ...given };
   // Le modèle donne volontiers `advertiser_id`, comme aux autres outils.
-  const ids = out.advertiser_ids !== undefined ? idList(out.advertiser_ids) : idList(out.advertiser_id);
-  if (ids) {
-    delete out.advertiser_id;
-    out.advertiser_ids = JSON.stringify(ids);
-  }
-  return out;
+  const asked = given.advertiser_ids !== undefined ? given.advertiser_ids : given.advertiser_id;
+  const ids = idList(asked);
+  // Une forme illisible est gardée telle quelle : le contrôle du compte la refuse, elle ne part pas.
+  return { advertiser_ids: ids ? JSON.stringify(ids) : asked };
 }
 
 function filteredArgs(given) {
-  const out = { ...given };
-  if (isObject(out.filtering)) out.filtering = JSON.stringify(out.filtering);
-  else if (typeof out.filtering !== "string" || !out.filtering.trim()) out.filtering = "{}";
-  return out;
+  let filtering = given.filtering;
+  if (typeof filtering === "string" && filtering.trim()) {
+    try { filtering = JSON.parse(filtering); } catch { filtering = "invalid"; }
+  }
+  if (filtering === undefined || filtering === null || filtering === "") filtering = {};
+  if (!isObject(filtering)) return refuse('filtering est un objet JSON, par exemple {"campaign_ids":["CAMPAIGN_ID"]}');
+  return { advertiser_id: given.advertiser_id, filtering: JSON.stringify(filtering) };
 }
 
-const ADVERTISER_ID = /^\d{5,25}$/;
 const UNREADABLE = "Appel refusé : les arguments doivent être un objet JSON strict (guillemets doubles, sans bloc de code ni commentaire) dans `input`.";
 
 /**
  * L'appel tel qu'il part en amont. Les outils n8n d'ancienne génération
  * attendent `{ input: "<objet JSON en chaîne>" }` : quand `input` est donné,
  * lui seul compte (n8n ignore le reste) ; sinon les arguments eux-mêmes.
+ * L'objet envoyé ne porte que les paramètres que l'outil déclare, relus un à
+ * un : rien de ce que le modèle écrit ne part sans avoir été reconnu.
  * Rend `{ object, args }` — l'objet relu et complété, et la forme à envoyer
- * (`legacy`) — ou `{ error }` quand l'entrée n'est pas un objet JSON strict.
+ * (`legacy`) — ou `{ error }`.
  * @param {string} name
  * @param {unknown} args
  * @param {{ legacy?: boolean }} [opts]
@@ -157,20 +176,21 @@ export function prepareTikTokArgs(name, args, { legacy = true } = {}) {
     }
     if (!isObject(given)) return { error: UNREADABLE };
   } else if (isObject(args)) {
-    const { input: _absent, ...rest } = args;
-    given = rest;
+    given = args;
   } else if (args !== undefined && args !== null) {
     return { error: UNREADABLE };
   }
 
-  const complete = REPORTS[name] ? (o) => reportArgs(name, o)
-    : name === "get_advertiser_info" ? advertiserInfoArgs
-    : FILTERED.has(name) ? filteredArgs
-    : (o) => ({ ...o });
-  const object = complete(given);
+  const object = REPORTS[name] ? reportArgs(name, given)
+    : name === "get_advertiser_info" ? advertiserInfoArgs(given)
+    : FILTERED.has(name) ? filteredArgs(given)
+    : { advertiser_id: given.advertiser_id };
+  if ("error" in object) return { error: object.error };
   if (typeof object.advertiser_id === "string") object.advertiser_id = object.advertiser_id.trim();
   return { object, args: legacy ? { input: JSON.stringify(object) } : object };
 }
+
+const ADVERTISER_ID = /^\d{5,25}$/;
 
 /**
  * Les comptes qu'un appel nomme, lus là où TikTok les lit : `advertiser_id`
