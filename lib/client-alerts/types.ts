@@ -150,7 +150,10 @@ export interface AccountSeries {
 export interface ClientSeries {
   /** ISO instant of the read. */
   readAt: string;
-  /** Last full day (YYYY-MM-DD), Europe/Paris. */
+  /**
+   * Last full day (YYYY-MM-DD), Europe/Paris. An account further west may not have finished it yet:
+   * the default day of a check is lastFullDay() of evaluate.ts, at most one day earlier.
+   */
   until: string;
   accounts: AccountSeries[];
 }
@@ -217,7 +220,7 @@ export const NOISY_MESSAGES = 8;
 
 /** UTC hours of the cron in vercel.json — one entry per hour, the plan refuses several hours in one entry. */
 export const CHECK_SLOTS_UTC = [6, 9, 12, 15] as const;
-/** Private messages per consultant and per day; the surplus is one line « N autres alertes ». */
+/** Private messages per consultant and per day; what exceeds stays in the page, unsent. */
 export const MAX_DM_PER_USER_PER_DAY = 5;
 /** Private messages per run, all consultants together. */
 export const MAX_DM_PER_RUN = 10;

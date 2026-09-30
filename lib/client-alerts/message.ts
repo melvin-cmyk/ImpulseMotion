@@ -1,12 +1,191 @@
-/** STUB (lot 0) — replaced by lot B. The signatures are the contract: keep them. */
-import type { AlertDefinition, Evaluation } from "@/lib/client-alerts/types";
+/**
+ * Client alerts — the private Slack message, built from the evaluation, without AI.
+ *
+ * One alert is three short lines a consultant reads without opening anything:
+ *
+ *   *LPEV* — CPA au-dessus de 60 € sur 3 jours
+ *   CPA : *72,40 €* (seuil 60 €) · Meta 81,20 € · Google 54,10 €
+ *   Dépense 4 320 € · 60 conversions · du 27 au 29 sept.
+ *
+ * No header, no emoji: a private message from the application is already the signal.
+ */
+
+import type { AlertDefinition, AlertMetric, AlertPlatform, Evaluation, EvaluationPart } from "@/lib/client-alerts/types";
+
+// ── Numbers, the French way (same conventions as lib/auto-alerts/detect.ts) ──
+
+const num = (n: number, min: number, max: number) =>
+  (n + 0).toLocaleString("fr-FR", { minimumFractionDigits: min, maximumFractionDigits: max }).replace(/^-/, "−");
+
+/** 72,40 € · 60 € · 4 320 €: cents only where they matter. */
+function euros(n: number): string {
+  const whole = Math.abs(n) >= 1000 || Math.abs(n - Math.round(n)) < 0.005;
+  return `${whole ? num(Math.round(n), 0, 0) : num(n, 2, 2)} €`;
+}
+const count = (n: number) => num(n, 0, 1);
+const ratio = (n: number) => `×${num(n, 0, 2)}`;
+const percent = (n: number) => `${num(n, 2, 2)} %`;
+const change = (pct: number) => (Math.round(pct) === 0 ? "stable" : `${pct < 0 ? "−" : "+"}${num(Math.abs(pct), 0, 0)} %`);
+const conversionsWords = (n: number) => `${count(n)} conversion${n >= 2 ? "s" : ""}`;
+
+const METRIC: Record<AlertMetric, { label: string; format: (n: number) => string }> = {
+  spend: { label: "Dépense", format: euros },
+  conversions: { label: "Conversions", format: count },
+  cpa: { label: "CPA", format: euros },
+  roas: { label: "ROAS", format: ratio },
+  revenue: { label: "Revenu", format: euros },
+  ctr: { label: "CTR", format: percent },
+};
+const PLATFORM: Record<AlertPlatform, string> = { meta: "Meta", google: "Google" };
+
+// ── Dates ────────────────────────────────────────────────────────────────────
+
+const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+
+function parseDay(date: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const t = Date.parse(`${date}T00:00:00Z`);
+  return Number.isNaN(t) ? null : new Date(t);
+}
+const dayOf = (d: Date) => (d.getUTCDate() === 1 ? "1er" : String(d.getUTCDate()));
+const dayMonth = (d: Date) => `${dayOf(d)} ${MONTHS[d.getUTCMonth()]}`;
+const days = (n: number) => `${n} jour${n > 1 ? "s" : ""}`;
+
+/** The window of `n` days ending `asOf`: its first and last day, null when `asOf` is not a date. */
+function windowOf(asOf: string, n: number): { from: Date; to: Date } | null {
+  const to = parseDay(asOf);
+  return to ? { from: new Date(to.getTime() - (n - 1) * 86_400_000), to } : null;
+}
+
+function periodWords(asOf: string, n: number): string {
+  const w = windowOf(asOf, n);
+  if (!w) return `sur ${days(n)}`;
+  if (n <= 1) return `le ${dayMonth(w.to)}`;
+  const sameMonth = w.from.getUTCMonth() === w.to.getUTCMonth() && w.from.getUTCFullYear() === w.to.getUTCFullYear();
+  return `du ${sameMonth ? dayOf(w.from) : dayMonth(w.from)} au ${dayMonth(w.to)}`;
+}
+
+function sinceWords(asOf: string, n: number): string {
+  const w = windowOf(asOf, n);
+  if (!w) return `depuis ${days(n)}`;
+  return `depuis le ${dayMonth(w.from)}${n > 1 ? ` (${days(n)})` : ""}`;
+}
+
+function compareWords(def: AlertDefinition): string {
+  const one = def.windowDays <= 1;
+  if (def.compare === "same_weekdays") return one ? "par rapport au même jour de la semaine précédente" : "par rapport aux mêmes jours de la semaine précédente";
+  return one ? "par rapport au jour précédent" : `par rapport aux ${def.windowDays} jours précédents`;
+}
+
+// ── Slack mrkdwn ─────────────────────────────────────────────────────────────
+
+/** Names come from accounts and from a conversation: one line, and nothing Slack reads as a link or a mention. */
+export function escapeSlack(text: string): string {
+  return String(text ?? "").replace(/\s+/g, " ").trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ── One alert ────────────────────────────────────────────────────────────────
+
+/** The part that decides: `combined`, or the first platform that triggered when each is judged on its own. */
+function decidingPart(def: AlertDefinition, evaluation: Evaluation): EvaluationPart | null {
+  const platforms = evaluation.parts.filter((p) => p.scope !== "combined");
+  if (def.aggregation === "each") return platforms.find((p) => p.triggered) ?? platforms[0] ?? null;
+  return evaluation.parts.find((p) => p.scope === "combined") ?? null;
+}
+
+/** Computed from the two values when they are there, so that the sign never depends on a convention. */
+function changeOf(p: Pick<EvaluationPart, "value" | "baseline" | "changePct">): number | null {
+  if (p.value !== null && p.baseline !== null && p.baseline > 0) return ((p.value - p.baseline) / p.baseline) * 100;
+  return p.changePct;
+}
+
+const platformName = (p: EvaluationPart) => (p.scope === "combined" ? "" : PLATFORM[p.scope]);
+
+function metricLine(def: AlertDefinition, evaluation: Evaluation, main: EvaluationPart | null): string {
+  const metric = METRIC[def.metric];
+  const each = def.aggregation === "each";
+  const moving = def.condition === "drop_pct" || def.condition === "rise_pct";
+  const on = main && each ? platformName(main) : "";
+  const head = main ?? { value: evaluation.value, baseline: evaluation.baseline, changePct: evaluation.changePct };
+  const bits: string[] = [];
+
+  if (def.condition === "stopped") {
+    const since = sinceWords(evaluation.asOf, def.windowDays);
+    if (def.metric === "conversions") {
+      const spending = main !== null && main.spend > 0 ? " alors que la dépense continue" : "";
+      bits.push(`*Plus aucune conversion${on ? ` sur ${on}` : ""}* ${since}${spending}`);
+      if (head.baseline !== null && head.baseline > 0) bits.push(`${conversionsWords(head.baseline)} sur les jours précédents`);
+    } else {
+      bits.push(`*${metric.label}${on ? ` ${on}` : ""} à l'arrêt* ${since}`);
+      if (head.baseline !== null && head.baseline > 0) bits.push(`${metric.format(head.baseline)} sur les jours précédents`);
+    }
+  } else {
+    const value = head.value === null ? "non calculable" : metric.format(head.value);
+    const subject = `${metric.label}${on ? ` sur ${on}` : ""} : *${value}*`;
+    if (moving) {
+      bits.push(subject);
+      const pct = changeOf(head);
+      if (pct !== null) bits.push(`${change(pct)} ${compareWords(def)}${head.baseline !== null ? ` (${metric.format(head.baseline)})` : ""}`);
+    } else {
+      bits.push(`${subject}${def.threshold !== null ? ` (seuil ${metric.format(def.threshold)})` : ""}`);
+    }
+  }
+
+  // Per-platform detail: the other platform when each is judged on its own, both under a combined figure.
+  const platforms = evaluation.parts.filter((p) => p.scope !== "combined");
+  const detail = each ? platforms.filter((p) => p !== main) : platforms.length > 1 && def.condition !== "stopped" ? platforms : [];
+  for (const p of detail) {
+    if (p.value === null) continue;
+    const pct = moving ? changeOf(p) : null;
+    const also = each && p.triggered ? " aussi :" : "";
+    const value = def.metric === "conversions" ? conversionsWords(p.value) : metric.format(p.value);
+    bits.push(`${platformName(p)}${also} ${value}${pct !== null ? ` (${change(pct)})` : ""}`);
+  }
+  return bits.join(" · ");
+}
+
+/** Spend, conversions and the period — without repeating what the line above already says. */
+function contextLine(def: AlertDefinition, evaluation: Evaluation, main: EvaluationPart | null): string {
+  const stoppedSpend = def.condition === "stopped" && def.metric !== "conversions";
+  if (stoppedSpend) return "";
+  const bits: string[] = [];
+  if (main) {
+    if (def.metric !== "spend") bits.push(`Dépense ${euros(main.spend)}`);
+    if (def.metric !== "conversions") bits.push(conversionsWords(main.conversions));
+  }
+  bits.push(periodWords(evaluation.asOf, def.windowDays));
+  const line = bits.join(" · ");
+  const on = main && def.aggregation === "each" ? platformName(main) : "";
+  return on ? `${on} : ${line.charAt(0).toLowerCase()}${line.slice(1)}` : line;
+}
 
 /** One alert, as it reads in the private message (Slack mrkdwn, a few lines, per-platform detail). Pure. */
-export function buildAlertLine(_input: { clientName: string; def: AlertDefinition; evaluation: Evaluation; kind: "trigger" | "reminder" }): string {
-  throw new Error("not implemented");
+export function buildAlertLine(input: { clientName: string; def: AlertDefinition; evaluation: Evaluation; kind: "trigger" | "reminder" }): string {
+  const { def, evaluation } = input;
+  const main = decidingPart(def, evaluation);
+  const name = escapeSlack(input.clientName).replace(/\*/g, "") || "Client";
+  const label = escapeSlack(def.label) || METRIC[def.metric].label;
+  const title = `${input.kind === "reminder" ? "Rappel — " : ""}*${name}* — ${label}`;
+  return [title, metricLine(def, evaluation, main), contextLine(def, evaluation, main)].filter(Boolean).join("\n");
+}
+
+/** A page of the application, written as a Slack link; null when the address could break the syntax. */
+function linkLine(pageUrl: string | null): string | null {
+  const url = (pageUrl ?? "").trim();
+  return /^https?:\/\/[^\s<>|]+$/.test(url) ? `<${url}|Voir et régler mes alertes>` : null;
 }
 
 /** The private message of one consultant for one pass: its alerts, then « N autres alertes » when capped. Pure. */
-export function buildDmText(_lines: string[], _extra: number, _pageUrl: string | null): string {
-  throw new Error("not implemented");
+export function buildDmText(lines: string[], extra: number, pageUrl: string | null): string {
+  const blocks = lines.map((l) => l.trim()).filter(Boolean);
+  const more = Number.isFinite(extra) && extra >= 1 ? Math.floor(extra) : 0;
+  const many = more > 1 ? "s" : "";
+  const foot: string[] = [];
+  if (more) foot.push(`${blocks.length ? "+ " : ""}${more} ${blocks.length ? `autre${many} ` : ""}alerte${many} déclenchée${many}, à voir dans l'application`);
+  const link = linkLine(pageUrl);
+  if (link) foot.push(link);
+  if (!foot.length) return blocks.join("\n\n");
+  // One alert keeps its link right under it; several are set apart from the closing lines.
+  const glue = blocks.length === 1 && !more ? "\n" : "\n\n";
+  return [blocks.join("\n\n"), foot.join("\n")].filter(Boolean).join(glue);
 }
