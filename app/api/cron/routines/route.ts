@@ -1,5 +1,9 @@
 /**
- * Cron of the routines — every 15 minutes (vercel.json).
+ * Cron of the routines — every hour (vercel.json): one entry per hour, since
+ * the project's Vercel plan refuses an expression that fires more than once a
+ * day and then creates no deployment at all. The plan fires each entry
+ * somewhere within its hour, so a routine starts up to about an hour after
+ * its time.
  *
  * Takes the routines that are due, one by one, each under its lock: two
  * firings at the same instant run a routine once. Budget of 270 s under the
@@ -11,7 +15,7 @@
  * budget would do nothing, be recorded as done and move the schedule a day on.
  *
  * A routine that is started moves its schedule on at once (runLocked): a run
- * that crashes or is killed is not started again 15 minutes later. It is
+ * that crashes or is killed is not started again at the next firing. It is
  * closed as interrupted here, at the next firing. Two exceptions put a
  * routine back on the list of what is due: a run that could not even be
  * recorded, and a run that stopped for lack of time with rows left (three

@@ -3,7 +3,7 @@
  *
  * The schedule is structured (daily, weekly, monthly, manual) and read in the
  * routine's timezone, Europe/Paris unless said otherwise. nextRunAt is stored
- * in UTC; the cron fires every 15 minutes and takes what is due.
+ * in UTC; the cron fires every hour and takes what is due.
  *
  * Daylight saving time:
  *   - an hour that does not exist (02:30 on the night clocks go forward) runs

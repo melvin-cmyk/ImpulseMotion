@@ -55,7 +55,7 @@ export const DEFAULT_MAX_ITEMS_PER_RUN = 20;
 export const MAX_ITEMS_PER_RUN_CAP = 50;
 /** Recipients of an email.send step, at most. */
 export const MAX_EMAIL_RECIPIENTS = 5;
-/** The cron fires every 15 minutes: schedule times are multiples of it. */
+/** Schedule times are multiples of it. The cron itself fires every hour (see vercel.json). */
 export const SCHEDULE_STEP_MINUTES = 15;
 export const DEFAULT_TIMEZONE = "Europe/Paris";
 /** A late run still starts once within this delay; beyond it is recorded as missed. */

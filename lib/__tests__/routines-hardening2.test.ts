@@ -546,7 +546,9 @@ describe("N4 — panne de base juste après la prise du verrou", () => {
     expect(stuck.lockedUntil).not.toBeNull();
     expect(db.routineRun.rows).toEqual([]);
 
-    // The lock has expired (it was taken at 07:00:30 on the day of the test).
+    // An hour later: the lock has expired and the next occurrence is not due yet
+    // (the cron reads the clock, so it is set rather than left to the day the test runs).
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(NOW.getTime() + 60 * 60_000) });
     const body = await (await cron.GET(cronRequest())).json();
     expect(body).toMatchObject({ traced: 1, ran: 0 });
     expect(db.routineRun.rows).toHaveLength(1);

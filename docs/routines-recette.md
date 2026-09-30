@@ -202,8 +202,8 @@ Pour toute cette partie : la campagne et l'ensemble de test restent **en pause**
 
 #### 16. Le planning déclenche une exécution, et une seule
 
-- **À faire** : réglez la routine sur une heure proche (par pas de 15 minutes), ajoutez une ligne, activez. Attendez l'heure, puis le quart d'heure suivant. Laissez tourner jusqu'au lendemain.
-- **On doit voir** : une exécution « Planifiée » dans l'historique à l'heure dite, une publicité en pause, un message Slack. Rien de plus au quart d'heure suivant. « Prochaine exécution » indique le lendemain. Le lendemain, sans nouvelle ligne : une exécution, aucune création, aucun message.
+- **À faire** : réglez la routine sur une heure proche, ajoutez une ligne, activez. Attendez l'heure, puis l'heure suivante. Laissez tourner jusqu'au lendemain.
+- **On doit voir** : une exécution « Planifiée » dans l'historique, dans l'heure qui suit l'heure dite (le planificateur de Vercel passe une fois par heure, à une minute variable), une publicité en pause, un message Slack. Rien de plus au passage suivant. « Prochaine exécution » indique le lendemain. Le lendemain, sans nouvelle ligne : une exécution, aucune création, aucun message.
 - **Sinon** : deux exécutions ou deux messages pour le même créneau : routine en pause, signalez-le. Aucune exécution : vérifiez `CRON_SECRET` et les tâches planifiées sur Vercel.
 
 ### Ce que la recette à la main ne peut pas provoquer
