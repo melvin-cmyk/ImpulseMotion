@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { platformCounts, type ClientOption } from "@/components/client-alerts/alert-model";
+import { SHOW_DORMANT, platformCounts, type ClientOption } from "@/components/client-alerts/alert-model";
 
 const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -72,7 +72,7 @@ export function ClientPicker({ clients, busyId, error, focusKey, onPick }: {
         {dormantTotal > 0 && (
           <label className="flex items-center gap-1.5 text-xs text-gray-400">
             <input type="checkbox" className="accent-violet-500" checked={showDormant} onChange={(e) => setShowDormant(e.target.checked)} />
-            {dormantTotal > 1 ? `Afficher les ${dormantTotal} clients sans dépense` : "Afficher le client sans dépense"}
+            {SHOW_DORMANT}
           </label>
         )}
       </div>

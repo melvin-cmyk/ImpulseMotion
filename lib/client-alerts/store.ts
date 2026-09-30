@@ -9,6 +9,9 @@
  *     same state, one of them records the event, the other records nothing;
  *   - markNotified only touches events that are not notified yet: notifiedAt
  *     is the idempotence of the delivery.
+ *
+ * And one undoes a write: recordDeliveryFailure puts an alert back as it was
+ * before a trigger whose message could not be delivered.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -117,23 +120,35 @@ export async function markNotified(eventIds: string[], alertIds: string[], batch
   await prisma.clientAlert.updateMany({ where: { id: { in: alertIds } }, data: { consecutiveFailures: 0 } });
 }
 
+/** The state of an alert as the pass read it, before the trigger whose message failed. */
+export interface FailedTrigger { alertId: string; armed: boolean; lastTriggeredAt: Date | null }
+
 /**
- * A private message could not be delivered. Its events keep the error and are
- * not sent again; at MAX_DELIVERY_FAILURES in a row an alert is switched to
- * `error`. Returns the alerts switched off.
+ * A private message could not be delivered. Its events keep the error (they
+ * stay on the page and are never sent later), and each alert goes back to the
+ * state it had before this trigger: the next pass finds it as if nothing had
+ * been said — which is the case — and tries again while the condition is
+ * true. Without it, one minute of n8n down would leave the alert disarmed and
+ * silent for its whole cooldown, and nobody told.
+ *
+ * The state is only put back while it is still the one this pass wrote
+ * (`lastTriggeredAt` = `at`): what a person changed meanwhile is left alone.
+ * At MAX_DELIVERY_FAILURES in a row an alert is switched to `error`.
+ * Returns the alerts switched off.
  */
-export async function recordDeliveryFailure(eventIds: string[], alertIds: string[], error: string): Promise<string[]> {
+export async function recordDeliveryFailure(eventIds: string[], triggers: FailedTrigger[], at: Date, error: string): Promise<string[]> {
   const text = error.replace(/\s+/g, " ").slice(0, 300);
   await prisma.clientAlertEvent.updateMany({ where: { id: { in: eventIds }, notifiedAt: null }, data: { notifyError: text } });
   const stopped: string[] = [];
-  for (const id of alertIds) {
-    const row = await prisma.clientAlert.update({ where: { id }, data: { consecutiveFailures: { increment: 1 } }, select: { consecutiveFailures: true } });
+  for (const t of triggers) {
+    await prisma.clientAlert.updateMany({ where: { id: t.alertId, lastTriggeredAt: at }, data: { armed: t.armed, lastTriggeredAt: t.lastTriggeredAt } });
+    const row = await prisma.clientAlert.update({ where: { id: t.alertId }, data: { consecutiveFailures: { increment: 1 } }, select: { consecutiveFailures: true } });
     if (row.consecutiveFailures < MAX_DELIVERY_FAILURES) continue;
     const { count } = await prisma.clientAlert.updateMany({
-      where: { id, status: "active" },
-      data: { status: "error", lastNote: `Message privé Slack non remis ${MAX_DELIVERY_FAILURES} fois de suite (${text}) : alerte arrêtée, à réactiver une fois l'envoi rétabli.` },
+      where: { id: t.alertId, status: "active" },
+      data: { status: "error", lastNote: `Message privé Slack non remis ${MAX_DELIVERY_FAILURES} fois de suite (${text}) : alerte arrêtée. Reprenez-la une fois l'envoi rétabli.` },
     });
-    if (count) stopped.push(id);
+    if (count) stopped.push(t.alertId);
   }
   return stopped;
 }

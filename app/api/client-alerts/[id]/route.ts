@@ -7,7 +7,10 @@
  *          pause  : active → paused (the creator or a real admin)
  *          resume : paused or error → active, by the creator only, and only if
  *                   the replay still covers the definition (backtestHash =
- *                   definitionHash). Resuming re-arms the alert.
+ *                   definitionHash). Resuming re-arms the alert; the silence
+ *                   of its last message continues. Refused from `review`
+ *                   (the way out is a new validation in the conversation)
+ *                   and when the client is gone (only deleting is left).
  * DELETE → deletes the alert and its triggers (the creator or a real admin)
  *
  * The definition itself changes in one place only: the conversation, then
@@ -18,6 +21,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { definitionHash } from "@/lib/client-alerts/evaluate";
+import { clientGoneText, goneClients } from "@/lib/client-alerts/accounts";
 import { readDefinition } from "@/lib/client-alerts/types";
 import { ALERT_NOT_FOUND, OWNER_ONLY, alertAccess, toAlertView } from "@/components/client-alerts/alert-model";
 
@@ -38,12 +42,17 @@ async function load(id: string, session: Session) {
   return alert && access ? { alert, access } : null;
 }
 
+/** The client the alert was made from no longer exists, or has no readable account left. */
+async function isGone(alert: { alertClientId: string | null }): Promise<boolean> {
+  return !!alert.alertClientId && (await goneClients([alert.alertClientId])).has(alert.alertClientId);
+}
+
 export async function GET(_req: NextRequest, { params }: Ctx) {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
   const found = await load((await params).id, guard.session);
   if (!found) return NOT_FOUND();
-  return NextResponse.json({ alert: toAlertView(found.alert, guard.session.userId) }, { headers: NO_STORE });
+  return NextResponse.json({ alert: toAlertView(found.alert, guard.session.userId, { clientGone: await isGone(found.alert) }) }, { headers: NO_STORE });
 }
 
 export async function PATCH(req: NextRequest, { params }: Ctx) {
@@ -56,7 +65,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const body = await req.json().catch(() => null);
   const action = body && typeof body === "object" ? body.action : undefined;
   if (action !== "pause" && action !== "resume") {
-    return NextResponse.json({ error: "Action inconnue : mettre en pause (pause) ou reprendre (resume)." }, { status: 400 });
+    return NextResponse.json({ error: "Action inconnue." }, { status: 400 });
   }
 
   if (action === "pause") {
@@ -66,7 +75,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   } else {
     if (access !== "owner") return NextResponse.json({ error: OWNER_ONLY }, { status: 403 });
     if (alert.status === "review") return conflict("Cette alerte est à revoir : ouvrez sa conversation et validez-la de nouveau.");
-    if (alert.status !== "paused" && alert.status !== "error") return conflict("Seule une alerte en pause peut être reprise.");
+    if (alert.status !== "paused" && alert.status !== "error") return conflict("Seule une alerte en pause ou en erreur peut être reprise.");
+    // It would go to « À revoir » at the next pass, with nothing left to review.
+    if (await isGone(alert)) return conflict(clientGoneText(alert.clientName));
     const definition = readDefinition(alert.definitionJson);
     if (!definition) return conflict("Cette alerte n'a pas encore de règle validée : ouvrez sa conversation pour la terminer.");
     // The replay vouches for one definition, the one stored: anything else goes through a validation again.
@@ -83,7 +94,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 
   const fresh = await prisma.clientAlert.findUnique({ where: { id: alert.id }, include: withEvents });
-  return NextResponse.json({ ok: true, alert: toAlertView(fresh ?? alert, guard.session.userId) });
+  return NextResponse.json({ ok: true, alert: toAlertView(fresh ?? alert, guard.session.userId, { clientGone: await isGone(alert) }) });
 }
 
 export async function DELETE(_req: NextRequest, { params }: Ctx) {

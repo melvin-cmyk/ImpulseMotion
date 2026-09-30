@@ -70,14 +70,16 @@ describe("evaluate — value of each metric over the window", () => {
 });
 
 describe("evaluate — values that cannot be computed are skipped, never triggered", () => {
-  it("CPA without any conversion", () => {
+  it("CPA « below » without any conversion, and CPA « above » while too little was spent to conclude", () => {
     const s = series(account(META, () => ({ spend: 500, conversions: 0 })));
-    for (const condition of ["above", "below"] as const) {
-      const ev = evaluate(def({ accounts: [META], metric: "cpa", condition, threshold: 60, windowDays: 3 }), s);
-      expect(ev.status).toBe("skipped");
-      expect(ev.value).toBeNull();
-      expect(ev.reason).toMatch(/CPA incalculable/);
-    }
+    const below = evaluate(def({ accounts: [META], metric: "cpa", condition: "below", threshold: 60, windowDays: 3 }), s);
+    expect(below).toMatchObject({ status: "skipped", value: null });
+    expect(below.reason).toMatch(/CPA incalculable/);
+    // 19 € a day without a conversion: 57 € in 3 days, not yet the price of one conversion at 60 €.
+    const little = series(account(META, () => ({ spend: 19, conversions: 0 })));
+    const above = evaluate(def({ accounts: [META], metric: "cpa", condition: "above", threshold: 60, windowDays: 3 }), little);
+    expect(above).toMatchObject({ status: "skipped", value: null });
+    expect(above.reason).toBe("Aucune conversion sur 3 jours pour 57 € dépensés : rien à juger avant 60 €");
   });
 
   it("ROAS without spend", () => {
@@ -300,11 +302,12 @@ describe("evaluate — guards", () => {
   });
 
   it("skips under the minimum of conversions, judges at it", () => {
+    // « Below » keeps its guard whatever was spent: 3 conversions for 300 € in 3 days, 4 asked for.
     const s = series(account(META, () => ({ spend: 100, conversions: 1 })));
-    const d = (minConversions: number) => def({ accounts: [META], metric: "cpa", threshold: 60, windowDays: 3, guards: { minConversions } });
+    const d = (minConversions: number) => def({ accounts: [META], metric: "cpa", condition: "below", threshold: 150, windowDays: 3, guards: { minConversions } });
     const under = evaluate(d(4), s);
     expect(under.status).toBe("skipped");
-    expect(under.reason).toMatch(/Trop peu de conversions/);
+    expect(under.reason).toBe("Trop peu de conversions pour juger : 3 sur 3 jours, il en faut 4");
     expect(evaluate(d(3), s).status).toBe("triggered");
   });
 
@@ -440,7 +443,76 @@ describe("evaluate — combined and each", () => {
   });
 });
 
+describe("evaluate — a CPA « above » that spends without converting enough", () => {
+  const cpa = (over: Partial<AlertDefinition> = {}) => def({ accounts: [META], metric: "cpa", condition: "above", threshold: 60, windowDays: 3, guards: { minConversions: 5 }, ...over });
+
+  it("triggers without any conversion once the spend reaches threshold × the conversions the guard asks for — the value is null", () => {
+    // 900 € in 3 days, 0 conversion: the very case « CPA > 60 € » is created for.
+    const ev = evaluate(cpa(), series(account(META, () => ({ spend: 300, conversions: 0 }))));
+    expect(ev).toMatchObject({ status: "triggered", value: null });
+    expect(ev.parts[0]).toMatchObject({ scope: "combined", triggered: true, value: null, spend: 900, conversions: 0 });
+  });
+
+  it("triggers under the guard with the CPA as value: even with the conversions it waits for, the threshold is passed", () => {
+    // 2 conversions for 900 €: 450 € each; 5 conversions would still be 180 €.
+    const ev = evaluate(cpa(), series(account(META, (back) => ({ spend: 300, conversions: back === 0 ? 2 : 0 }))));
+    expect(ev).toMatchObject({ status: "triggered", value: 450 });
+  });
+
+  it("starts exactly at threshold × max(minConversions, 1)", () => {
+    const spent = (perDay: number) => series(account(META, () => ({ spend: perDay, conversions: 0 })));
+    // Guard of 5: 300 € (60 × 5) over the 3 days.
+    expect(evaluate(cpa(), spent(100)).status).toBe("triggered");
+    const under = evaluate(cpa(), spent(99.99));
+    expect(under.status).toBe("skipped");
+    expect(under.reason).toMatch(/^Trop peu de conversions pour juger : 0 sur 3 jours, il en faut 5 — ou 300 € dépensés$/);
+    // No guard, or a guard of 0: one conversion at the threshold, 60 €.
+    for (const guards of [{}, { minConversions: 0 }]) {
+      expect(evaluate(cpa({ guards }), spent(20)).status, JSON.stringify(guards)).toBe("triggered");
+      expect(evaluate(cpa({ guards }), spent(19.99)).status, JSON.stringify(guards)).toBe("skipped");
+    }
+  });
+
+  it("still waits for the spend guard, and leaves « below » and the variations to their guards", () => {
+    const s = series(account(META, () => ({ spend: 300, conversions: 0 })));
+    expect(evaluate(cpa({ guards: { minConversions: 5, minSpend: 1000 } }), s)).toMatchObject({ status: "skipped", reason: expect.stringMatching(/Trop peu de dépense/) });
+    expect(evaluate(cpa({ condition: "below" }), s).status).toBe("skipped");
+    expect(evaluate(cpa({ condition: "rise_pct", threshold: 50 }), s).status).toBe("skipped");
+  });
+
+  it("judges each platform on its own spend when each is asked for", () => {
+    const s = series(account(META, () => ({ spend: 200, conversions: 0 })), account(GOOGLE, () => ({ spend: 30, conversions: 1 })));
+    const ev = evaluate(cpa({ accounts: [META, GOOGLE], aggregation: "each", guards: { minConversions: 3 } }), s);
+    // Meta: 600 € without a conversion, 180 € are enough. Google: 3 conversions at 30 €.
+    expect(ev).toMatchObject({ status: "triggered", value: null });
+    expect(ev.parts).toMatchObject([{ scope: "meta", triggered: true, value: null, spend: 600 }, { scope: "google", triggered: false, value: 30 }]);
+  });
+
+  it("is what the replay counts too: same code, and the days without a value stay out of the spread", async () => {
+    const { backtest } = await import("@/lib/client-alerts/backtest");
+    // Converting at 50 € until 3 days ago, then nothing converts any more while the spend goes on.
+    const s = series(account(META, (back) => ({ spend: 300, conversions: back < 3 ? 0 : 6 })));
+    const replay = backtest(cpa(), s, { now: new Date("2026-09-30T06:10:00Z") });
+    // Window ending the 27th: 900 € for 12 conversions = 75 € → the message of the morning of the 28th.
+    // Then 150 € (6 conversions), then no conversion at all for 900 €: true three days in a row, said once.
+    expect(replay.messages).toEqual([{ date: "2026-09-28", value: 75, changePct: null }]);
+    expect(replay.current).toBeNull();
+    expect(replay.daysTrue).toBe(3);
+    expect(replay.skippedDays).toBe(0);
+    expect([replay.min, replay.median, replay.max]).toEqual([50, 50, 150]);
+  });
+});
+
 describe("definitionHash", () => {
+  it("does not change when an account is renamed at the platform, learns its currency, or is written another way", () => {
+    const h = definitionHash(def());
+    expect(definitionHash(def({ accounts: [{ ...META, name: "Meta France (nouveau nom)" }, { ...GOOGLE, currency: null }] }))).toBe(h);
+    expect(definitionHash(def({ accounts: [{ ...META, accountId: "100" }, { ...GOOGLE, accountId: "5-5-5" }] }))).toBe(h);
+    // Another account is another rule.
+    expect(definitionHash(def({ accounts: [META_2, GOOGLE] }))).not.toBe(h);
+    expect(definitionHash(def({ accounts: [{ ...META, platform: "google" }, GOOGLE] }))).not.toBe(h);
+  });
+
   it("is a sha256 that ignores the label and the explanation", () => {
     const h = definitionHash(def());
     expect(h).toMatch(/^[0-9a-f]{64}$/);

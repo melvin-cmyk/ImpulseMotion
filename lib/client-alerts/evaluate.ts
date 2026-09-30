@@ -17,8 +17,10 @@
 
 import { createHash } from "node:crypto";
 import { addDays } from "@/lib/date-ranges";
-import type {
-  AccountSeries, AlertAccountRef, AlertDefinition, AlertMetric, AlertPlatform, ClientSeries, Evaluation, EvaluationPart, EvaluationScope,
+import {
+  compareShiftDays, cpaSpendFloor,
+  type AccountSeries, type AlertAccountRef, type AlertDefinition, type AlertMetric, type AlertPlatform, type ClientSeries, type Evaluation,
+  type EvaluationPart, type EvaluationScope,
 } from "@/lib/client-alerts/types";
 
 export const PLATFORM_LABEL: Record<AlertPlatform, string> = { meta: "Meta Ads", google: "Google Ads" };
@@ -94,7 +96,7 @@ function uncomputable(metric: AlertMetric, t: Totals, where: string): string {
     if (t.revenue === null) return "ROAS incalculable : aucun compte ne suit la valeur des conversions";
     return t.tracksAll ? `ROAS incalculable : aucune dépense ${where}` : "ROAS incalculable : un compte qui dépense ne suit pas la valeur des conversions";
   }
-  if (metric === "revenue") return "Chiffre d'affaires inconnu : aucun compte ne suit la valeur des conversions";
+  if (metric === "revenue") return "Revenu inconnu : aucun compte ne suit la valeur des conversions";
   if (metric === "ctr") return `CTR incalculable : aucune impression ${where}`;
   return `Valeur incalculable ${where}`;
 }
@@ -102,7 +104,12 @@ function uncomputable(metric: AlertMetric, t: Totals, where: string): string {
 function guardReason(def: AlertDefinition, t: Totals, where: string): string | null {
   const { minSpend, minConversions } = def.guards ?? {};
   if (typeof minSpend === "number" && t.spend < minSpend) return `Trop peu de dépense pour juger : ${fr(t.spend)} € ${where}, il en faut ${fr(minSpend)} €`;
-  if (typeof minConversions === "number" && t.conversions < minConversions) return `Trop peu de conversions pour juger : ${fr(t.conversions)} ${where}, il en faut ${fr(minConversions)}`;
+  if (typeof minConversions === "number" && t.conversions < minConversions) {
+    const floor = cpaSpendFloor(def);
+    // A CPA « above » has a second way to be judged: the spend alone (see cpaSpendFloor).
+    const or = floor !== null ? ` — ou ${fr(floor)} € dépensés` : "";
+    return `Trop peu de conversions pour juger : ${fr(t.conversions)} ${where}, il en faut ${fr(minConversions)}${or}`;
+  }
   return null;
 }
 
@@ -170,14 +177,26 @@ function judge(def: AlertDefinition, scope: EvaluationScope, accounts: AccountSe
   if (def.condition === "above" || def.condition === "below") {
     if (!enough(from)) return tooShort(n);
     const guard = guardReason(def, window, where);
+    // Too few conversions (or none, `value` is then null) but enough spent: the CPA is over whatever comes next.
+    const floor = cpaSpendFloor(def);
+    const { minSpend, minConversions } = def.guards ?? {};
+    const fewConversions = window.conversions <= 0 || (typeof minConversions === "number" && window.conversions < minConversions);
+    if (floor !== null && fewConversions && window.spend >= floor && !(typeof minSpend === "number" && window.spend < minSpend)) {
+      part.triggered = true;
+      return settle();
+    }
     if (guard) return skip(guard);
-    if (part.value === null) return skip(uncomputable(def.metric, window, where));
+    if (part.value === null) {
+      return skip(floor !== null
+        ? `Aucune conversion ${where} pour ${fr(window.spend)} € dépensés : rien à juger avant ${fr(floor)} €`
+        : uncomputable(def.metric, window, where));
+    }
     part.triggered = def.condition === "above" ? part.value > def.threshold : part.value < def.threshold;
     return settle();
   }
 
   // drop_pct / rise_pct: the same metric over the window it is compared with.
-  const shift = def.compare === "same_weekdays" ? Math.ceil(n / 7) * 7 : n;
+  const shift = compareShiftDays(def);
   if (!enough(addDays(from, -shift))) return tooShort(n + shift);
   const reference = totalsOver(accounts, addDays(from, -shift), addDays(asOf, -shift));
   part.baseline = metricOf(def.metric, reference);
@@ -258,11 +277,16 @@ function canonical(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
-/** Stable hash of what changes the evaluation or the delivery (not the label, not the explanation). */
+/**
+ * Stable hash of what changes the evaluation or the delivery: not the label,
+ * not the explanation, and of the accounts only which they are (platform and
+ * id, whatever the writing) — an account renamed at the platform, or whose
+ * currency was learnt since, is the same rule: it must stay « en service » on
+ * its card, resumable, and its silence must not start again.
+ */
 export function definitionHash(def: AlertDefinition): string {
   const { label: _label, explanation: _explanation, ...rest } = def;
   void _label; void _explanation;
-  const key = (a: AlertAccountRef) => `${a.platform}:${a.accountId}`;
-  const accounts = [...(def.accounts ?? [])].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+  const accounts = [...new Set((def.accounts ?? []).map((a) => `${a.platform}:${normId(a.accountId)}`))].sort();
   return createHash("sha256").update(canonical({ ...rest, accounts })).digest("hex");
 }

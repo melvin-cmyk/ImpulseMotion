@@ -1,17 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY as B } from "@/lib/ai-tool-guidance";
 import { CLIENT_ALERT_COMPOSE_PROFILE } from "@/lib/ai-profiles";
 import {
   ALERT_CHAT_MAX_MESSAGES, ALERT_CONTEXT_MAX_CHARS,
   alertFieldCatalogue, alertSessionKey, buildAlertComposePrompt, buildAlertRelayBody, buildAlertTurnContext,
-  checkAlertProposal, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks, type AlertRelayInput, type AlertValidator,
+  checkAlertProposal, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks, stripProposalNotes, withProposalNotes,
+  type AlertRelayInput, type AlertValidator,
 } from "@/lib/client-alerts/compose-prompt";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
 import type { AlertAccountRef, AlertDefinition } from "@/lib/client-alerts/types";
 import {
-  alertAccess, cardNotes, datesLabel, dayLabel, exampleRequests, formatValue, guardsLine, replayLine, ruleSentence, settingsLine,
-  summarizeBacktest, toAlertView, type AlertRow,
+  SHOW_DORMANT, alertAccess, cardNotes, datesLabel, dayLabel, exampleRequests, formatValue, guardsLine, lastValueLine, ownerLine, replayLine, ruleSentence,
+  settingsLine, statsLine, summarizeBacktest, toAlertView, type AlertRow,
 } from "@/components/client-alerts/alert-model";
 
 const META: AlertAccountRef = { platform: "meta", accountId: "1234567890", name: "LPEV Meta", currency: "EUR" };
@@ -71,8 +72,12 @@ describe("alertes client — prompt de l'IA", () => {
   it("fixe la conduite : bref, une seule question au plus, un seuil tiré des chiffres", () => {
     for (const rule of [
       "comme un collègue",
-      "Propose TOUT DE SUITE",
-      "UNE question courte que si la demande est vraiment ambiguë",
+      "Propose TOUT DE SUITE dès que la demande dit QUOI surveiller",
+      "ne pose pas de question pour cela",
+      // Asked for real: « quand ça va mal » got an alert chosen by the AI instead of a question.
+      "Si la demande ne dit PAS quoi surveiller (« quand ça va mal »",
+      "pose UNE seule question courte, SANS bloc, qui lui donne deux ou trois pistes concrètes tirées de ses chiffres",
+      "Jamais plusieurs questions",
       "LIS LES CHIFFRES",
       "je propose 60 €",
       "presque tout le temps",
@@ -87,6 +92,11 @@ describe("alertes client — prompt de l'IA", () => {
     expect(fixed).toContain("ne remonte aucune valeur de conversion");
   });
 
+  it("ne laisse pas l'IA juger chaque plateforme seule de sa propre initiative", () => {
+    // Asked for real: « plus aucune conversion » came back once with each platform judged alone, under a sentence that said « réunis ».
+    expect(fixed).toContain('Ne choisis "each" que dans ces deux cas : sans demande du consultant, garde l\'ensemble');
+  });
+
   it("rappelle les réglages par défaut du dirigeant et qu'ils se changent sur demande", () => {
     expect(fixed).toContain("2 vérifications par jour, week-ends compris ; 3 jours de silence après un message ; pas de rappel");
     expect(fixed).toContain("ils se changent sur simple demande");
@@ -99,6 +109,38 @@ describe("alertes client — prompt de l'IA", () => {
     expect(fixed).toContain("N'affirme JAMAIS que l'alerte est créée, enregistrée ou en service");
     expect(fixed).toContain("« Valider »");
     expect(fixed).toContain("AUCUN outil");
+  });
+
+  it("dit que le CPA « au-dessus » se déclenche aussi sur la dépense seule, avec le calcul", () => {
+    // Without it the AI lowers the guard to cover « we spend without converting », or promises the alert stays silent.
+    expect(fixed).toContain('Exception voulue, cpa + "above"');
+    expect(fixed).toContain("dès que la dépense de la période atteint seuil × minimum (60 € × 5 = 300 €)");
+    expect(fixed).toContain("Sous 5 conversions, ne se déclenche que si 300 € ont déjà été dépensés.");
+  });
+
+  it("lie le rythme du rappel au silence : « tous les jours » s'écrit avec 24 heures", () => {
+    // Asked for real: « un rappel tous les jours » came back with remind true and the 72 hours of the default.
+    expect(fixed).toContain('« un rappel tous les jours » s\'écrit "remind": true ET "cooldownHours": 24');
+    expect(fixed).toContain("c'est aussi l'intervalle entre deux rappels");
+  });
+
+  it("donne les mots à employer : « je propose », jamais « je mets en place »", () => {
+    // Asked for real: « Je mets en place une alerte qui… » for an alert nobody had validated yet.
+    expect(fixed).toContain("Écris « je propose », jamais « je mets en place », « je crée » ni « c'est fait ».");
+  });
+
+  it("garde les mots du bloc hors des phrases lues par le consultant", () => {
+    // Asked for real: « Je propose une alerte "stopped" sur les conversions ».
+    expect(fixed).toContain("Les mots du bloc restent dans le bloc");
+    expect(fixed).toContain("dis « plus aucune conversion », « une baisse de 50 % », « Meta et Google Ads réunis »");
+  });
+
+  it("dit quoi répondre à qui veut prévenir quelqu'un d'autre", () => {
+    expect(fixed).toContain("cette personne peut créer la même alerte de son côté");
+  });
+
+  it("dit ce que « plus rien » veut dire pour les conversions : la dépense continue", () => {
+    expect(fixed).toContain('"conversions" (zéro conversion alors que la dépense continue)');
   });
 
   it("exige un seul bloc alert, et son exemple passe la validation", () => {
@@ -163,6 +205,21 @@ describe("alertes client — corps envoyé au relay", () => {
     expect(context).toContain('"accounts":[{"platform":"meta","accountId":"1234567890"},{"platform":"google","accountId":"9876543210"}]');
     expect(context).toContain("État de cette alerte : en service");
     expect(buildAlertTurnContext(input({ alert: { id: "a", status: "paused" }, current: definition }))).toContain("en pause");
+  });
+
+  it("pour une alerte à revoir, ne redonne à l'IA que les comptes que le client a encore", () => {
+    // The Google account left the client, another one took its place: the context lists today's accounts.
+    const NEW: AlertAccountRef = { platform: "google", accountId: "5550001111", name: "LPEV Search 2026", currency: "EUR" };
+    const context = buildAlertTurnContext(input({ alert: { id: "a", status: "review" }, accounts: [{ ...META, accountId: "act_1234567890" }, NEW], current: definition }));
+    expect(context).toContain("- google 5550001111 — LPEV Search 2026 (EUR)");
+    expect(context).toContain('"accounts":[{"platform":"meta","accountId":"1234567890"}]');
+    expect(context).not.toContain("9876543210");
+    expect(context).toContain("État de cette alerte : à revoir");
+    expect(context).toContain("Propose-la de nouveau sur les comptes listés ci-dessus");
+    // None of its accounts is left: the field is left out — the block's way to say « all the accounts ».
+    const none = buildAlertTurnContext(input({ alert: { id: "a", status: "review" }, accounts: [NEW], current: definition }));
+    expect(none).toContain('"metric":"cpa"');
+    expect(none).not.toContain('"accounts"');
   });
 
   it("dit que les chiffres manquent plutôt que de laisser l'IA les inventer", () => {
@@ -294,9 +351,9 @@ describe("alertes client — vérification d'une proposition", () => {
   });
 
   it("rend invalid avec les raisons du refus", () => {
-    const refuse: AlertValidator = () => ({ ok: false, errors: ["Mesure inconnue : « cpm »."] });
-    expect(checkAlertProposal(block(JSON.stringify(raw)), refuse)).toEqual({ kind: "invalid", errors: ["Mesure inconnue : « cpm »."] });
-    expect(checkAlertProposal(block(JSON.stringify(raw)), () => ({ ok: false, errors: [] }))).toEqual({ kind: "invalid", errors: ["Proposition refusée."] });
+    const refuse: AlertValidator = () => ({ ok: false, errors: ["Mesure inconnue : « cpm »."], hints: ['"metric" : "spend" | "cpa"'] });
+    expect(checkAlertProposal(block(JSON.stringify(raw)), refuse)).toEqual({ kind: "invalid", errors: ["Mesure inconnue : « cpm »."], hints: ['"metric" : "spend" | "cpa"'] });
+    expect(checkAlertProposal(block(JSON.stringify(raw)), () => ({ ok: false, errors: [], hints: [] }))).toEqual({ kind: "invalid", errors: ["Proposition refusée."], hints: [] });
   });
 
   it("rend invalid pour un bloc illisible, sans appeler la validation", () => {
@@ -307,8 +364,12 @@ describe("alertes client — vérification d'une proposition", () => {
   });
 
   it("rend invalid quand la validation échoue elle-même", () => {
-    const check = checkAlertProposal(block(JSON.stringify(raw)), () => { throw new Error("boom"); });
-    expect(check).toEqual({ kind: "invalid", errors: ["La proposition n'a pas pu être vérifiée (boom)."] });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const check = checkAlertProposal(block(JSON.stringify(raw)), () => { throw new Error("boom at validate.ts:42"); });
+    // The text of the exception is for the logs, never for the card.
+    expect(check).toEqual({ kind: "invalid", errors: ["La proposition n'a pas pu être vérifiée : redemandez-la."], hints: [] });
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
   });
 
   it("valide pour de bon avec la vraie validation", () => {
@@ -317,7 +378,8 @@ describe("alertes client — vérification d'une proposition", () => {
     expect(good.kind).toBe("valid");
     if (good.kind === "valid") expect(good.proposal.accounts).toEqual(ACCOUNTS);
     const bad = checkAlertProposal(block(JSON.stringify({ ...raw, accounts: [{ platform: "meta", accountId: "999" }] })), real);
-    expect(bad).toEqual({ kind: "invalid", errors: ["Le compte Meta 999 ne fait pas partie des comptes de ce client."] });
+    expect(bad).toMatchObject({ kind: "invalid", errors: ["Le compte Meta 999 ne fait pas partie des comptes de ce client."] });
+    if (bad.kind === "invalid") expect(bad.hints.join(" ")).toContain('"accounts"');
   });
 
   it("nomme les propositions par la place de leur message, et renvoie les refus à l'IA", () => {
@@ -327,6 +389,33 @@ describe("alertes client — vérification d'une proposition", () => {
     expect(invalidProposalNote(["a", "b"])).toContain("a | b");
     expect(invalidProposalNote(["a"])).toContain("un seul bloc ```alert");
     expect(ALERT_CHAT_MAX_MESSAGES).toBe(40);
+  });
+
+  it("ne montre jamais au consultant la note destinée à l'IA, même quand elle contient des crochets", () => {
+    // The fields to write hold brackets of their own: [{"platform":…}].
+    const refused = validateAlertProposal({ ...raw, accounts: [{ platform: "meta", accountId: "999" }] }, { accounts: ACCOUNTS });
+    expect(refused.ok).toBe(false);
+    if (refused.ok) return;
+    expect(refused.hints.join(" ")).toMatch(/\[\{.*\}\]/);
+    const sent = withProposalNotes([invalidProposalNote(refused.errors, refused.hints), "la proposition « CPA » a été validée"], "Plutôt sur Meta seulement\n\net [entre crochets]");
+    expect(sent.startsWith("[Résultat des propositions précédentes : ta dernière proposition a été REJETÉE")).toBe(true);
+    expect(sent).toContain('"accountId"');
+    // What the consultant reads back in the conversation: their own words, whole.
+    expect(stripProposalNotes(sent)).toBe("Plutôt sur Meta seulement\n\net [entre crochets]");
+    // Without a note, the message is what was typed — even when it starts with a bracket.
+    expect(withProposalNotes([], "Bonjour")).toBe("Bonjour");
+    expect(withProposalNotes(["", "  "], "Bonjour")).toBe("Bonjour");
+    expect(stripProposalNotes("[une remarque] Bonjour")).toBe("[une remarque] Bonjour");
+  });
+
+  it("donne à l'IA seule les champs à corriger, après les phrases lues par le consultant", () => {
+    const sentence = "Le ROAS de Meta et Google Ads additionnés ne peut pas être calculé : Google Ads ne remonte aucune valeur de conversion. Jugez chaque plateforme séparément, ou surveillez le coût par conversion.";
+    const hint = '"aggregation" : "each" en gardant "metric":"roas", ou bien "metric" : "cpa"';
+    const note = invalidProposalNote([sentence], [hint, hint, " "]);
+    expect(note).toContain(sentence);
+    expect(note.endsWith(`— à écrire dans le bloc (ne le dis pas au consultant en ces termes) : ${hint}`)).toBe(true);
+    // Without a hint, the note is what it was.
+    expect(invalidProposalNote([sentence])).not.toContain("à écrire dans le bloc");
   });
 });
 
@@ -345,6 +434,11 @@ describe("alertes client — ce que lit le consultant", () => {
       .toBe("Vous êtes prévenu quand la dépense de Meta ou de Google Ads, chaque plateforme jugée seule, tombe à zéro sur le dernier jour complet, alors qu'il y en avait les jours d'avant.");
     expect(ruleSentence(def({ metric: "ctr", condition: "below", threshold: 1.2, windowDays: 14 }))).toContain("passe sous 1,2 % sur les 14 derniers jours");
     expect(ruleSentence(def({ metric: "spend", condition: "drop_pct", threshold: 30, windowDays: 1 }))).toContain("par rapport à la veille");
+    // « The same weekdays » of a window longer than a week are further back than « the week before »: said as the engine compares.
+    const weekdays = (windowDays: AlertDefinition["windowDays"]) => ruleSentence(def({ metric: "spend", condition: "drop_pct", threshold: 30, windowDays, compare: "same_weekdays" }));
+    expect(weekdays(7)).toContain("sur les 7 derniers jours, par rapport aux mêmes jours de la semaine précédente.");
+    expect(weekdays(14)).toContain("sur les 14 derniers jours, par rapport aux mêmes jours de la semaine, 2 semaines plus tôt.");
+    expect(weekdays(30)).toContain("sur les 30 derniers jours, par rapport aux mêmes jours de la semaine, 5 semaines plus tôt.");
   });
 
   it("dit les réglages en mots", () => {
@@ -352,10 +446,39 @@ describe("alertes client — ce que lit le consultant", () => {
     expect(settingsLine(def({ checks: "1x", cooldownHours: 24, remind: true, weekdaysOnly: true })))
       .toBe("1 vérification par jour · silence de 1 jour après un message · rappel tant que la situation dure · du lundi au vendredi");
     expect(settingsLine(def({ checks: "4x", cooldownHours: 36 }))).toContain("4 vérifications par jour · silence de 36 heures");
-    expect(guardsLine(definition)).toBe("Jugée seulement à partir de 5 conversions sur la période.");
-    expect(guardsLine(def({ guards: { minSpend: 200, minConversions: 1 } }))).toBe("Jugée seulement à partir de 1 conversion et 200 € de dépense sur la période.");
-    expect(guardsLine(def({ guards: {} }))).toBeNull();
-    expect(guardsLine(def({ guards: { minConversions: 0 } }))).toBeNull();
+    // A CPA « above » says its second way in: the spend from which it triggers whatever the conversions.
+    expect(guardsLine(definition)).toBe("Jugée seulement à partir de 5 conversions sur la période. Avec moins de conversions, elle se déclenche quand même dès 300 € dépensés.");
+    expect(guardsLine(def({ guards: { minSpend: 200, minConversions: 1 } })))
+      .toBe("Jugée seulement à partir de 1 conversion et 200 € de dépense sur la période. Avec moins de conversions, elle se déclenche quand même dès 60 € dépensés.");
+    expect(guardsLine(def({ guards: {} }))).toBe("Sans aucune conversion, se déclenche dès 60 € dépensés sur la période.");
+    expect(guardsLine(def({ guards: { minConversions: 0 } }))).toBe("Sans aucune conversion, se déclenche dès 60 € dépensés sur la période.");
+    // « Below », and every other measure, keep the plain guard.
+    expect(guardsLine(def({ condition: "below" }))).toBe("Jugée seulement à partir de 5 conversions sur la période.");
+    expect(guardsLine(def({ condition: "below", guards: {} }))).toBeNull();
+    expect(guardsLine(def({ metric: "spend", guards: { minSpend: 200 } }))).toBe("Jugée seulement à partir de 200 € de dépense sur la période.");
+    expect(guardsLine(def({ metric: "roas", guards: {} }))).toBeNull();
+  });
+
+  it("dit l'étendue du rejeu sans tiret quand une valeur n'existe pas", () => {
+    expect(statsLine("cpa", { current: 48, min: 31, median: 45.5, max: 72 })).toBe("Valeur actuelle : 48 € · minimum 31 € · médiane 45,50 € · maximum 72 €");
+    // A CPA alert that triggers on the spend alone: nothing converted these days.
+    expect(statsLine("cpa", { current: null, min: 50, median: 50, max: 150 })).toBe("Valeur actuelle : aucune conversion · minimum 50 € · médiane 50 € · maximum 150 €");
+    expect(statsLine("cpa", { current: null, min: null, median: null, max: null })).toBe("Valeur actuelle : aucune conversion — aucun jour des 30 derniers n'a de valeur à comparer.");
+    expect(statsLine("roas", { current: null, min: null, median: null, max: null })).toBe("Valeur actuelle : non calculable — aucun jour des 30 derniers n'a de valeur à comparer.");
+    expect(statsLine("spend", { current: 0, min: 0, median: 0, max: 0 })).toBe("Valeur actuelle : 0 € · minimum 0 € · médiane 0 € · maximum 0 €");
+    for (const line of [statsLine("cpa", { current: null, min: null, median: null, max: null }), statsLine("cpa", { current: null, min: 50, median: 50, max: 150 })]) {
+      expect(line).not.toMatch(/—\s*(·|$)|null|NaN/);
+    }
+  });
+
+  it("dit la dernière valeur d'une alerte, même quand il n'y en a pas", () => {
+    const checked = { definition, lastCheckedAt: "2026-09-29T06:10:00.000Z", lastNote: null };
+    expect(lastValueLine({ ...checked, lastValue: 48.5 })).toBe("48,50 € · le 29 sept.");
+    // Triggered on the spend alone: no CPA, and no note.
+    expect(lastValueLine({ ...checked, lastValue: null })).toBe("aucune conversion · le 29 sept.");
+    // Not judged: the note under it says why.
+    expect(lastValueLine({ ...checked, lastValue: null, lastNote: "Compte Meta Ads « LPEV Meta » illisible" })).toBe("non calculable · le 29 sept.");
+    expect(lastValueLine({ definition, lastCheckedAt: null, lastValue: null, lastNote: null })).toBe("Pas encore vérifiée");
   });
 
   it("raconte le rejeu sur 30 jours", () => {
@@ -380,22 +503,22 @@ describe("alertes client — ce que lit le consultant", () => {
     expect(formatValue("revenue", null)).toBe("—");
   });
 
-  it("ne dit qu'une fois ce que la validation et le rejeu remarquent tous les deux", () => {
-    const twice = "Une même vente peut être comptée à la fois par Meta et par Google Ads : additionnées, les deux plateformes peuvent la compter deux fois.";
+  it("met bout à bout les remarques de la validation et celles du rejeu, sans rien trier : chacune a un seul auteur", () => {
     const guard = "Pour éviter les fausses alertes, le CPA n'est jugé qu'à partir de 5 conversions sur la période.";
-    const unreadMine = "Le compte Google Ads « LPEV Search » n'a pas pu être lu pour le moment : tant qu'il reste illisible, l'alerte n'est pas vérifiée.";
-    const fxMine = "Les comptes sont dans plusieurs devises (EUR, USD) : tout est converti en euros au taux du jour, le seuil est en euros.";
     const replay = [
-      "Compte Google Ads « LPEV Search » illisible (rate limit) : ce qui en dépend n'a pas pu être rejoué.",
+      "Compte Google Ads « LPEV Search » illisible (lecture Google Ads impossible pour le moment) : ce qui en dépend n'a pas pu être rejoué.",
       "Meta et Google sont additionnés : la même vente peut être comptée par Meta et par Google, le total peut dépasser les ventes réelles.",
       "Compte « LPEV US » en USD : montants convertis en euros au taux du jour (1 USD = 0,9 €), jours passés compris.",
-      "Compte « LPEV UK » en GBP : montants convertis en euros au taux du jour (1 GBP = 1,15 €), jours passés compris.",
-      "Week-ends non vérifiés : 22 jours rejoués sur 30.",
     ];
-    expect(cardNotes([guard, unreadMine, fxMine, twice], replay)).toEqual([guard, unreadMine, twice, replay[2], replay[3], replay[4]]);
-    // Nothing is dropped when the replay says nothing of it, and another account keeps its own line.
-    expect(cardNotes([fxMine, twice], [])).toEqual([fxMine, twice]);
-    expect(cardNotes([unreadMine], ["Compte Meta Ads « LPEV Meta » illisible : ce qui en dépend n'a pas pu être rejoué."])).toHaveLength(2);
+    expect(cardNotes([guard], replay)).toEqual([guard, ...replay]);
+    expect(cardNotes([], [])).toEqual([]);
+    // No guessing from keywords any more: a sentence is never dropped because another one looks like it.
+    const lookalike = "Une même vente peut être comptée deux fois.";
+    expect(cardNotes([lookalike], replay)).toEqual([lookalike, ...replay]);
+  });
+
+  it("dit la même chose à la bascule des clients sans dépense, quel que soit leur nombre", () => {
+    expect(SHOW_DORMANT).toBe("Afficher les clients sans dépense");
   });
 
   it("propose des exemples que le moteur sait tenir, selon les plateformes du client", () => {
@@ -435,6 +558,7 @@ describe("alertes client — à qui est l'alerte, et ce qui en sort", () => {
       lastCheckedAt: "2026-09-30T06:00:00.000Z", lastTriggeredAt: null, lastValue: 48, lastNote: null, mine: true, createdByEmail: null, empty: false,
       backtest: { days: 30, messages: 1, dates: ["2026-09-04"], current: 48, min: 31, median: 45, max: 72, skippedDays: 2, notes: ["n"] },
       events: [{ id: "e1", kind: "trigger", triggeredAt: "2026-09-04T06:00:00.000Z", value: 72, message: "CPA à 72 €", dryRun: true, notifiedAt: null, notifyError: null }],
+      clientGone: false,
     });
     expect(JSON.stringify(view)).not.toContain("secret de la conversation");
     expect(view).not.toHaveProperty("chatJson");
@@ -442,6 +566,28 @@ describe("alertes client — à qui est l'alerte, et ce qui en sort", () => {
 
   it("donne l'adresse de qui l'a créée seulement pour l'alerte d'un autre", () => {
     expect(toAlertView(row, "u2")).toMatchObject({ mine: false, createdByEmail: "lea@impulse-analytics.com" });
+  });
+
+  it("dit à un vrai admin, sur chaque ligne de « Toutes les alertes », à qui est l'alerte", () => {
+    // Everyone's alerts: the admin's own say so too, or nothing would tell them from the others at a glance.
+    expect(ownerLine(toAlertView(row, "u1"), true)).toBe("Créée par vous");
+    expect(ownerLine(toAlertView(row, "u2"), true)).toBe("Créée par lea@impulse-analytics.com");
+    // An alert whose creator left no address still says it is someone else's.
+    expect(ownerLine(toAlertView({ ...row, createdByEmail: null }, "u2"), true)).toBe("Créée par un autre membre de l'équipe");
+    expect(ownerLine(toAlertView({ ...row, createdByEmail: "  " }, "u2"), true)).toBe("Créée par un autre membre de l'équipe");
+    // « Mes alertes »: nothing to say.
+    expect(ownerLine(toAlertView(row, "u1"), false)).toBeNull();
+  });
+
+  it("rend le message d'un déclenchement en texte lisible, pas en mise en forme Slack", () => {
+    const stored = "*Saveurs &amp; Vie* — CPA &gt; 60 €\nCPA : *72,40 €* (seuil 60 €) · Meta 81,20 €\nDépense 4 320 € · 60 conversions · du 27 au 29 sept.\n<https://app.test/admin/alerts/assistant|Voir et régler mes alertes>";
+    const view = toAlertView({ ...row, events: [{ ...row.events![0], message: stored }] }, "u1");
+    expect(view.events[0].message).toBe("Saveurs & Vie — CPA > 60 €\nCPA : 72,40 € (seuil 60 €) · Meta 81,20 €\nDépense 4 320 € · 60 conversions · du 27 au 29 sept.");
+  });
+
+  it("dit quand le client de l'alerte n'existe plus", () => {
+    expect(toAlertView(row, "u1", { clientGone: true }).clientGone).toBe(true);
+    expect(toAlertView(row, "u1").clientGone).toBe(false);
   });
 
   it("reconnaît un brouillon sans un mot, et lit sans casser des colonnes abîmées", () => {

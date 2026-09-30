@@ -10,6 +10,8 @@ const META: AlertAccountRef = { platform: "meta", accountId: "act_100", name: "M
 const GOOGLE: AlertAccountRef = { platform: "google", accountId: "555", name: "Google FR", currency: "EUR" };
 
 const dateOf = (back: number) => new Date(Date.parse(`${UNTIL}T00:00:00Z`) - back * 86_400_000).toISOString().slice(0, 10);
+/** A message is dated the morning it would have been received: the day after the last full day it was judged on. */
+const received = (back: number) => dateOf(back - 1);
 
 function account(ref: AlertAccountRef, at: (back: number) => Partial<SeriesPoint>, extra: Partial<AccountSeries> = {}): AccountSeries {
   const days: SeriesPoint[] = [];
@@ -109,25 +111,32 @@ describe("backtest", () => {
     expect(b.skippedDays).toBe(0);
     // 25 days ago: message. 24 to 22: still true, silence. 10 days ago: back to normal in between, message.
     // 8 days ago: re-armed the day before, but 48 h after the last message: silence.
-    expect(b.messages.map((m) => m.date)).toEqual([dateOf(25), dateOf(10)]);
-    expect(b.messages[0]).toEqual({ date: dateOf(25), value: 200, changePct: null });
+    expect(b.messages.map((m) => m.date)).toEqual([received(25), received(10)]);
+    expect(b.messages[0]).toEqual({ date: received(25), value: 200, changePct: null });
+  });
+
+  it("dates a message the morning it would have been received, not the last day of its figures", () => {
+    // The last full day (yesterday) is high: the message is this morning's.
+    const last = series(account(META, (back) => ({ spend: back === 0 ? 200 : 100 })));
+    expect(backtest(def(), last, { now: NOW }).messages.map((m) => m.date)).toEqual(["2026-09-30"]);
+    expect(received(0)).toBe("2026-09-30");
   });
 
   it("sends the message once the silence is over when the condition is still true", () => {
     // True again 8, 7 and 6 days ago: the check of day 7 is 72 h after the message of day 10.
     const s = series(account(META, (back) => ({ spend: HIGH.has(back) || back === 7 || back === 6 ? 200 : 100 })));
-    expect(backtest(def(), s, { now: NOW }).messages.map((m) => m.date)).toEqual([dateOf(25), dateOf(10), dateOf(7)]);
+    expect(backtest(def(), s, { now: NOW }).messages.map((m) => m.date)).toEqual([received(25), received(10), received(7)]);
   });
 
   it("adds the reminders when asked to", () => {
     // 22 days ago is 72 h after the first message, the condition is still true: reminder.
     const b = backtest(def({ remind: true }), spikes(), { now: NOW });
-    expect(b.messages.map((m) => m.date)).toEqual([dateOf(25), dateOf(22), dateOf(10)]);
+    expect(b.messages.map((m) => m.date)).toEqual([received(25), received(22), received(10)]);
   });
 
   it("follows the cooldown of the definition", () => {
     const b = backtest(def({ cooldownHours: 24 }), spikes(), { now: NOW });
-    expect(b.messages.map((m) => m.date)).toEqual([dateOf(25), dateOf(10), dateOf(8)]);
+    expect(b.messages.map((m) => m.date)).toEqual([received(25), received(10), received(8)]);
   });
 
   it("does not check on weekends: a full day is judged the morning after", () => {
@@ -135,15 +144,16 @@ describe("backtest", () => {
     const friday = series(account(META, (back) => ({ spend: back === 4 || back === 3 ? 200 : 100 })));
     expect(dateOf(4)).toBe("2026-09-25");
     const open = backtest(def(), friday, { now: NOW });
-    expect(open.messages.map((m) => m.date)).toEqual(["2026-09-25"]);
+    // Received on the Saturday, when week-ends are checked.
+    expect(open.messages.map((m) => m.date)).toEqual(["2026-09-26"]);
     expect(open.daysTrue).toBe(2);
     const weekdays = backtest(def({ weekdaysOnly: true }), friday, { now: NOW });
     expect(weekdays.messages).toEqual([]);
     expect(weekdays.daysTrue).toBe(0);
     expect(weekdays.notes.join(" ")).toMatch(/Week-ends non vérifiés/);
-    // Sunday the 27th is judged on Monday: it is checked.
+    // Sunday the 27th is judged on Monday: it is checked, and the message is Monday's — never dated a Sunday.
     const sunday = series(account(META, (back) => ({ spend: back === 2 ? 200 : 100 })));
-    expect(backtest(def({ weekdaysOnly: true }), sunday, { now: NOW }).messages.map((m) => m.date)).toEqual(["2026-09-27"]);
+    expect(backtest(def({ weekdaysOnly: true }), sunday, { now: NOW }).messages.map((m) => m.date)).toEqual(["2026-09-28"]);
   });
 
   it("gives the value today and its spread over the judged days", () => {
@@ -173,16 +183,16 @@ describe("backtest", () => {
     const s = series(account(META, (back) => ({ spend: back === 11 ? 0 : back <= 12 ? 200 : 100 })));
     const b = backtest(def({ guards: { minSpend: 50 } }), s, { now: NOW });
     expect(b.skippedDays).toBe(1);
-    expect(b.messages.map((m) => m.date)).toEqual([dateOf(12)]);
+    expect(b.messages.map((m) => m.date)).toEqual([received(12)]);
     // The same day judged and false would have re-armed: a second message once the silence is over.
     const rearmed = backtest(def(), s, { now: NOW });
-    expect(rearmed.messages.map((m) => m.date)).toEqual([dateOf(12), dateOf(9)]);
+    expect(rearmed.messages.map((m) => m.date)).toEqual([received(12), received(9)]);
   });
 
   it("carries the change of a drop in its messages", () => {
     const s = series(account(META, (back) => ({ spend: back === 5 ? 40 : 100 })));
     const b = backtest(def({ condition: "drop_pct", threshold: 50 }), s, { now: NOW });
-    expect(b.messages).toEqual([{ date: dateOf(5), value: 40, changePct: -60 }]);
+    expect(b.messages).toEqual([{ date: received(5), value: 40, changePct: -60 }]);
   });
 
   it("is signed with the hash of the definition it replayed and the time of the replay", () => {
@@ -207,12 +217,12 @@ describe("backtest", () => {
     });
 
     it("names the accounts that could not be read, and skips every day", () => {
-      const s = series(account(META, () => ({ spend: 500 })), { account: GOOGLE, currency: "EUR", eurRate: 1, days: [], today: null, error: "lecture impossible — relay 502" });
+      const s = series(account(META, () => ({ spend: 500 })), { account: GOOGLE, currency: "EUR", eurRate: 1, days: [], today: null, error: "lecture Google Ads impossible pour le moment" });
       const b = backtest(def({ accounts: [META, GOOGLE] }), s, { now: NOW });
       expect(b.skippedDays).toBe(BACKTEST_DAYS);
       expect(b.messages).toEqual([]);
       expect(b.current).toBeNull();
-      expect(b.notes.join(" ")).toMatch(/Google FR.*illisible.*relay 502/);
+      expect(b.notes.join(" ")).toMatch(/Google FR.*illisible \(lecture Google Ads impossible pour le moment\)/);
       expect(b.notes.join(" ")).toMatch(/Aucun jour n'a pu être jugé/);
     });
 

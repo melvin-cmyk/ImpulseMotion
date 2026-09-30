@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildAlertLine, buildDmText, escapeSlack } from "@/lib/client-alerts/message";
+import { buildAlertLine, buildDmText, escapeSlack, slackToPlain } from "@/lib/client-alerts/message";
 import type { AlertDefinition, Evaluation, EvaluationPart } from "@/lib/client-alerts/types";
 
 /** Thousands separator of fr-FR (narrow no-break space). */
@@ -120,6 +120,9 @@ describe("buildAlertLine — variations", () => {
     const day = def({ label: "CTR en hausse", metric: "ctr", condition: "rise_pct", threshold: 20, windowDays: 1 });
     expect(line(day, e).slice(1)).toEqual(["CTR : *1,85 %* · +55 % par rapport au jour précédent (1,20 %)", "Dépense 300 € · 1 conversion · le 29 sept."]);
     expect(line({ ...day, compare: "same_weekdays" }, e)[1]).toContain("par rapport au même jour de la semaine précédente");
+    // A window longer than a week is compared further back than « the week before ».
+    expect(line({ ...day, windowDays: 14, compare: "same_weekdays" }, e)[1]).toContain("par rapport aux mêmes jours de la semaine, 2 semaines plus tôt");
+    expect(line({ ...day, windowDays: 30, compare: "same_weekdays" }, e)[1]).toContain("par rapport aux mêmes jours de la semaine, 5 semaines plus tôt");
   });
 
   it("reads the variation from the evaluation when there is no baseline to compute it from", () => {
@@ -182,8 +185,44 @@ describe("buildAlertLine — figures, dates and names", () => {
     expect(line(ctr, evaluation([part("combined", 0.8, { triggered: true })]))[1]).toBe("CTR : *0,80 %* (seuil 1,00 %)");
   });
 
-  it("says so when the deciding value cannot be computed", () => {
-    expect(line(def(), evaluation([part("combined", null, { spend: 800, conversions: 0, triggered: true })])).slice(1)).toEqual(["CPA : *non calculable* (seuil 60 €)", "Dépense 800 € · 0 conversion · du 27 au 29 sept."]);
+  it("reads naturally when a CPA alert triggers on the spend alone: there is no CPA to write", () => {
+    // Nothing converted: the spend says it all, once.
+    expect(line(def(), evaluation([part("combined", null, { spend: 900, conversions: 0, triggered: true })]))).toEqual([
+      "*LPEV* — CPA au-dessus de 60 € sur 3 jours",
+      "*Aucune conversion pour 900 € dépensés* (seuil : CPA de 60 €)",
+      "Du 27 au 29 sept.",
+    ]);
+    // Both platforms spent: each one's share follows.
+    const both = evaluation([
+      part("combined", null, { spend: 900, conversions: 0, triggered: true }),
+      part("meta", null, { spend: 600.5, conversions: 0 }),
+      part("google", null, { spend: 299.5, conversions: 0 }),
+    ]);
+    expect(line(def(), both)[1]).toBe("*Aucune conversion pour 900 € dépensés* (seuil : CPA de 60 €) · Meta 600,50 € · Google 299,50 €");
+    expect(line(def(), both).join("\n")).not.toMatch(/non calculable|null|NaN|—\s*€/);
+  });
+
+  it("names the platform that spent without converting, under a combined CPA and when each is judged on its own", () => {
+    // Too few conversions for the guard, but a CPA exists: it is written, and the platform without any is named.
+    const few = evaluation([
+      part("combined", 450, { spend: 900, conversions: 2, triggered: true }),
+      part("meta", 300, { spend: 600, conversions: 2 }),
+      part("google", null, { spend: 300, conversions: 0 }),
+    ]);
+    expect(line(def(), few).slice(1)).toEqual([
+      "CPA : *450 €* (seuil 60 €) · Meta 300 € · Google : aucune conversion pour 300 €",
+      "Dépense 900 € · 2 conversions · du 27 au 29 sept.",
+    ]);
+    const each = evaluation([part("meta", null, { spend: 600, conversions: 0, triggered: true }), part("google", 30, { spend: 90, conversions: 3 })]);
+    expect(line(def({ aggregation: "each" }), each).slice(1)).toEqual([
+      "*Aucune conversion sur Meta pour 600 € dépensés* (seuil : CPA de 60 €) · Google 30 €",
+      "Du 27 au 29 sept.",
+    ]);
+  });
+
+  it("still says « non calculable » for another measure without a value", () => {
+    const roas = def({ label: "ROAS sous 2", metric: "roas", condition: "below", threshold: 2 });
+    expect(line(roas, evaluation([part("combined", null, { spend: 800, conversions: 4, triggered: true })]))[1]).toBe("ROAS : *non calculable* (seuil ×2)");
   });
 
   it("writes the period in short French dates", () => {
@@ -212,7 +251,7 @@ describe("buildAlertLine — figures, dates and names", () => {
   });
 
   it("still writes something readable from an evaluation without parts", () => {
-    expect(line(def(), evaluation([], { value: 72.4 }))).toEqual(["*LPEV* — CPA au-dessus de 60 € sur 3 jours", "CPA : *72,40 €* (seuil 60 €)", "du 27 au 29 sept."]);
+    expect(line(def(), evaluation([], { value: 72.4 }))).toEqual(["*LPEV* — CPA au-dessus de 60 € sur 3 jours", "CPA : *72,40 €* (seuil 60 €)", "Du 27 au 29 sept."]);
   });
 });
 
@@ -251,5 +290,33 @@ describe("buildDmText", () => {
     const text = buildDmText(Array.from({ length: 5 }, () => two), 7, URL);
     expect(text.length).toBeLessThan(1500);
     expect(text.split("\n\n")).toHaveLength(6);
+  });
+});
+
+describe("slackToPlain — a stored message as the page shows it", () => {
+  it("removes the bold markers, decodes the entities and keeps the lines", () => {
+    const stored = buildAlertLine({ clientName: "Saveurs & Vie <Paris>", def: def(), evaluation: CPA, kind: "reminder" });
+    expect(stored).toContain("*Saveurs &amp; Vie &lt;Paris&gt;*");
+    expect(slackToPlain(stored)).toBe([
+      "Rappel — Saveurs & Vie <Paris> — CPA au-dessus de 60 € sur 3 jours",
+      "CPA : 72,40 € (seuil 60 €) · Meta 81,20 € · Google 54,10 €",
+      `Dépense 4${S}320 € · 60 conversions · du 27 au 29 sept.`,
+    ].join("\n"));
+  });
+
+  it("drops the link line of a whole private message, and keeps the words of a link inside a line", () => {
+    const one = buildAlertLine({ clientName: "LPEV", def: def(), evaluation: CPA, kind: "trigger" });
+    const dm = buildDmText([one], 0, "https://app.test/admin/alerts/assistant");
+    expect(dm).toContain("<https://app.test/admin/alerts/assistant|Voir et régler mes alertes>");
+    expect(slackToPlain(dm)).toBe(slackToPlain(one));
+    expect(slackToPlain("Voir <https://x.test/a|la page> du client")).toBe("Voir la page du client");
+  });
+
+  it("leaves alone what is not Slack's: a lone star, an ampersand, an empty text", () => {
+    expect(slackToPlain("Note 4* & co")).toBe("Note 4* & co");
+    expect(slackToPlain("ROAS : *×1,84* (seuil ×2,5)")).toBe("ROAS : ×1,84 (seuil ×2,5)");
+    expect(slackToPlain("")).toBe("");
+    // A name that held an entity as text is read back as it was typed.
+    expect(slackToPlain(escapeSlack("R&amp;D"))).toBe("R&amp;D");
   });
 });

@@ -9,9 +9,10 @@
  */
 
 import {
-  BACKTEST_DAYS, readDefinition,
+  BACKTEST_DAYS, compareShiftDays, cpaSpendFloor, readDefinition,
   type AlertAccountRef, type AlertDefinition, type AlertMetric, type AlertPlatform, type Backtest, type ClientAlertStatus,
 } from "@/lib/client-alerts/types";
+import { slackToPlain } from "@/lib/client-alerts/message";
 
 // ── Who may touch an alert ───────────────────────────────────────────────
 
@@ -38,14 +39,19 @@ export const ALERT_NOT_FOUND = "Alerte introuvable.";
 /** Validation of one proposal of the conversation, as the assistant route answers it. */
 export type ProposalCheck =
   | { ok: true; proposal: AlertDefinition; warnings: string[]; backtest: Backtest; noisy: boolean }
-  /** `retry`: not judged (figures unreadable right now) — not the proposal's fault, to be checked again. */
-  | { ok: false; errors: string[]; retry?: boolean };
+  /**
+   * `errors`: what the consultant reads on the card. `hints`: the fields and values to write, for the
+   * AI's next turn only — never shown. `retry`: not judged (figures unreadable right now) — not the
+   * proposal's fault, to be checked again.
+   */
+  | { ok: false; errors: string[]; hints?: string[]; retry?: boolean };
 
 export interface AlertEventView {
   id: string;
   triggeredAt: string;
   kind: string;
   value: number | null;
+  /** Plain text: the stored message is Slack mrkdwn, the page is not Slack. */
   message: string;
   dryRun: boolean;
   notifiedAt: string | null;
@@ -82,6 +88,11 @@ export interface AlertView {
   lastTriggeredAt: string | null;
   lastValue: number | null;
   lastNote: string | null;
+  /**
+   * The client the alert was made from no longer exists (or has no readable account left):
+   * nothing can be checked nor proposed any more, only deleting is offered.
+   */
+  clientGone: boolean;
   /** Whether the viewer created it; the creator's e-mail is given for the alerts of others. */
   mine: boolean;
   createdByEmail: string | null;
@@ -162,8 +173,11 @@ export interface AlertRow {
   }>;
 }
 
-/** A stored alert as the API answers it. The conversation itself never leaves through here. */
-export function toAlertView(row: AlertRow, viewerId: string): AlertView {
+/**
+ * A stored alert as the API answers it. The conversation itself never leaves through here.
+ * `clientGone` is what the route found of the alert's client today (goneClients of lib/client-alerts/accounts.ts).
+ */
+export function toAlertView(row: AlertRow, viewerId: string, opts: { clientGone?: boolean } = {}): AlertView {
   const mine = row.createdById === viewerId;
   const definition = readDefinition(row.definitionJson);
   const chat = (row.chatJson ?? "").trim();
@@ -182,12 +196,13 @@ export function toAlertView(row: AlertRow, viewerId: string): AlertView {
     lastTriggeredAt: iso(row.lastTriggeredAt),
     lastValue: row.lastValue,
     lastNote: row.lastNote,
+    clientGone: opts.clientGone === true,
     mine,
     createdByEmail: mine ? null : row.createdByEmail,
     empty: !definition && (chat === "" || chat === "{}"),
     createdAt: iso(row.createdAt) ?? "",
     events: (row.events ?? []).map((e) => ({
-      id: e.id, triggeredAt: iso(e.triggeredAt) ?? "", kind: e.kind, value: e.value, message: e.message,
+      id: e.id, triggeredAt: iso(e.triggeredAt) ?? "", kind: e.kind, value: e.value, message: slackToPlain(e.message),
       dryRun: e.dryRun, notifiedAt: iso(e.notifiedAt), notifyError: e.notifyError,
     })),
   };
@@ -252,7 +267,11 @@ function scopeWords(def: AlertDefinition): string {
 const windowWords = (days: number) => (days === 1 ? "sur le dernier jour complet" : `sur les ${days} derniers jours`);
 
 function compareWords(def: AlertDefinition): string {
-  if (def.compare === "same_weekdays") return "par rapport aux mêmes jours de la semaine précédente";
+  if (def.compare === "same_weekdays") {
+    // The engine goes back by whole weeks, enough to clear the window: two for 14 days, five for 30.
+    const weeks = compareShiftDays(def) / 7;
+    return weeks > 1 ? `par rapport aux mêmes jours de la semaine, ${weeks} semaines plus tôt` : "par rapport aux mêmes jours de la semaine précédente";
+  }
   return def.windowDays === 1 ? "par rapport à la veille" : `par rapport aux ${def.windowDays} jours précédents`;
 }
 
@@ -277,32 +296,14 @@ const silenceWords = (hours: number) => {
 };
 
 /**
- * The remarks of a card: what the validation warns about, then what the replay
- * noted. Both may speak of the same thing (a sale counted twice, an account
- * that could not be read, a currency converted): it is said once — the
- * replay's word on currencies is kept, it gives the rate.
+ * The remarks of a card, each with one owner: the validation speaks of the
+ * definition (the default CPA guard, a drop that can never trigger…), the
+ * replay of the data (a sale counted by both platforms, an account that could
+ * not be read, amounts converted to euros). Neither repeats the other, so
+ * nothing is filtered here.
  */
 export function cardNotes(warnings: string[], replayNotes: string[]): string[] {
-  const subject = (text: string): string | null => {
-    if (/même vente/i.test(text)) return "double";
-    if (/convertis? en euros/i.test(text)) return "fx";
-    const account = /«\s*([^»]+?)\s*»/.exec(text)?.[1];
-    if (account && /illisible|pas pu être lu/i.test(text)) return `unread:${account}`;
-    return null;
-  };
-  const replaySubjects = new Set(replayNotes.map(subject));
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const [text, fromReplay] of [...warnings.map((w) => [w, false] as const), ...replayNotes.map((n) => [n, true] as const)]) {
-    const s = subject(text);
-    if (s === "fx" && !fromReplay && replaySubjects.has("fx")) continue;
-    // Several accounts in a foreign currency each keep their line.
-    const key = s === "fx" ? `fx:${text}` : s ?? text;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(text);
-  }
-  return out;
+  return [...warnings, ...replayNotes];
 }
 
 /** On screen, a figure and its unit stay on the same line. */
@@ -324,8 +325,52 @@ export function guardsLine(def: AlertDefinition): string | null {
   const parts: string[] = [];
   if (def.guards.minConversions) parts.push(`${plain(nf(1).format(def.guards.minConversions))} conversion${def.guards.minConversions > 1 ? "s" : ""}`);
   if (def.guards.minSpend) parts.push(`${formatValue("spend", def.guards.minSpend)} de dépense`);
-  return parts.length ? `Jugée seulement à partir de ${parts.join(" et ")} sur la période.` : null;
+  // A CPA « above » also triggers on the spend alone (cpaSpendFloor): without it, the guard would read as a blind spot.
+  const floor = cpaSpendFloor(def);
+  const spent = floor === null ? null : formatValue("spend", floor);
+  if (!parts.length) return spent ? `Sans aucune conversion, se déclenche dès ${spent} dépensés sur la période.` : null;
+  const few = def.guards.minConversions && spent ? ` Avec moins de conversions, elle se déclenche quand même dès ${spent} dépensés.` : "";
+  return `Jugée seulement à partir de ${parts.join(" et ")} sur la période.${few}`;
 }
+
+/** A value that does not exist, in words: a CPA without any conversion is not « — ». */
+const noValue = (metric: AlertMetric) => (metric === "cpa" ? "aucune conversion" : "non calculable");
+
+/**
+ * The spread of the replay, as the card says it. The days without a value (a
+ * CPA with no conversion, a ROAS with no spend) are left out of the minimum,
+ * the median and the maximum; when no day has one, the line says so instead
+ * of four dashes.
+ */
+export function statsLine(metric: AlertMetric, replay: Pick<Backtest, "current" | "min" | "median" | "max">): string {
+  const has = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v);
+  const current = has(replay.current) ? formatValue(metric, replay.current) : noValue(metric);
+  if (!has(replay.min) || !has(replay.median) || !has(replay.max)) {
+    return has(replay.current) ? `Valeur actuelle : ${current}.` : `Valeur actuelle : ${current} — aucun jour des 30 derniers n'a de valeur à comparer.`;
+  }
+  return `Valeur actuelle : ${current} · minimum ${formatValue(metric, replay.min)} · médiane ${formatValue(metric, replay.median)} · maximum ${formatValue(metric, replay.max)}`;
+}
+
+/** « 48,50 € · le 29 sept. » — what the last check found, in the list. */
+export function lastValueLine(alert: Pick<AlertView, "definition" | "lastCheckedAt" | "lastValue" | "lastNote">): string {
+  if (!alert.lastCheckedAt) return "Pas encore vérifiée";
+  const metric = alert.definition?.metric ?? "spend";
+  // Without a value: a check that could not judge says why in its note; a CPA alert that was judged spent without converting.
+  const value = alert.lastValue === null ? (alert.lastNote ? "non calculable" : noValue(metric)) : formatValue(metric, alert.lastValue);
+  return `${value} · le ${dayLabel(alert.lastCheckedAt)}`;
+}
+
+/** Whose alert it is, for a real admin reading everyone's: said on every line, the admin's own included. */
+export function ownerLine(alert: Pick<AlertView, "mine" | "createdByEmail">, everyone: boolean): string | null {
+  if (alert.mine) return everyone ? "Créée par vous" : null;
+  return `Créée par ${alert.createdByEmail?.trim() || "un autre membre de l'équipe"}`;
+}
+
+/** The toggle of the client picker for the clients that spend nothing: the same words whatever their number. */
+export const SHOW_DORMANT = "Afficher les clients sans dépense";
+
+/** What the list and the conversation say of an alert whose client is gone. */
+export const CLIENT_GONE = "Ce client n'existe plus dans l'application : l'alerte ne peut plus être vérifiée ni modifiée. Vous pouvez seulement la supprimer.";
 
 const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 const MAX_DATES = 10;
@@ -360,7 +405,7 @@ export function datesLabel(dates: string[]): string {
   return `les ${words.slice(0, -1).join(", ")} et ${words[words.length - 1]}`;
 }
 
-/** « Sur les 30 derniers jours : 3 messages — les 4, 12 et 21 sept. » */
+/** « Sur les 30 derniers jours : 3 messages — les 4, 12 et 21 sept. » — the days the messages would have been received. */
 export function replayLine(replay: { days: number; messages: number; dates: string[] }): string {
   if (replay.messages === 0) return `Ne se serait jamais déclenchée sur ${replay.days} jours`;
   const when = datesLabel(replay.dates);

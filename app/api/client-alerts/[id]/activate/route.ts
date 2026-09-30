@@ -4,10 +4,18 @@
  * POST { proposal, confirmNoisy? } → { ok, alert, backtest, notice? }
  *
  * Nothing sent is trusted. `proposal` is what the card showed, and it is
- * treated like the AI's own text: validated again against the alert's frozen
- * accounts (names and currencies come from them), the series are read again
- * and the replay over the last 30 days is run again with the code the cron
- * runs. Only what comes out of that is stored.
+ * treated like the AI's own text: validated again against the accounts the
+ * client has TODAY and the person may read (lib/client-alerts/accounts.ts —
+ * names and currencies come from them), the series are read again and the
+ * replay over the last 30 days is run again with the code the cron runs. Only
+ * what comes out of that is stored, with those accounts as the alert's new
+ * frozen list: it is how an alert sent to `review` comes back in service on
+ * accounts that exist.
+ *
+ * A rule that changed starts fresh: when the hash of the definition differs
+ * from the one stored, the alert is re-armed and its last trigger forgotten
+ * (the silence that followed a message of the OLD rule says nothing of the new
+ * one). The same rule validated again keeps its silence.
  *
  * An alert that would have sent more than NOISY_MESSAGES messages in 30 days
  * is stored only with `confirmNoisy: true` — otherwise 409 { needsConfirm,
@@ -26,6 +34,7 @@ import { backtest } from "@/lib/client-alerts/backtest";
 import { definitionHash } from "@/lib/client-alerts/evaluate";
 import { dmConfigured, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
+import { unreadAccounts, unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
 import { NOISY_MESSAGES, sendingEnabled, type Backtest, type ClientSeries } from "@/lib/client-alerts/types";
 import { ALERT_NOT_FOUND, OWNER_ONLY, alertAccess, readAccounts, toAlertView } from "@/components/client-alerts/alert-model";
 
@@ -73,7 +82,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Aucune proposition à valider." }, { status: 400 });
   }
 
-  const accounts = readAccounts(alert.accountsJson);
+  const usable = await usableAccounts(alert, readAccounts(alert.accountsJson), session);
+  if (usable.state !== "ok") return NextResponse.json({ error: usable.reason }, { status: 409 });
+  const accounts = usable.accounts;
   let series: ClientSeries;
   try {
     series = await readClientSeries(accounts);
@@ -83,8 +94,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   const checked = validateAlertProposal(body.proposal, { accounts, series });
-  if (!checked.ok) return NextResponse.json({ error: "Cette proposition ne peut pas être validée.", errors: checked.errors }, { status: 422 });
+  if (!checked.ok) return NextResponse.json({ error: "Cette proposition ne peut pas être validée.", errors: checked.errors, hints: checked.hints }, { status: 422 });
   const definition = checked.value;
+
+  // A replay over an account that could not be read judges nothing: it cannot vouch for the alert.
+  const unread = unreadAccounts(definition.accounts, series);
+  if (unread.length) return NextResponse.json({ error: `${unreadText(unread)} L'alerte n'a pas été enregistrée.` }, { status: 503 });
 
   let replay: Backtest;
   let hash: string;
@@ -107,17 +122,27 @@ export async function POST(req: NextRequest, { params }: Params) {
     }, { status: 409 });
   }
 
+  // A changed rule starts fresh; the same rule (validated again, or back from a pause) keeps the silence of its last message.
+  const changed = hash !== alert.definitionHash;
+  const state = changed
+    ? { armed: true, lastTriggeredAt: null, lastCheckedAt: null, lastValue: null }
+    // Back in service is what « Reprendre » does: re-armed. Validated again while in service: nothing moves.
+    : alert.status === "active" ? {} : { armed: true };
+
   const saved = await prisma.clientAlert.update({
     where: { id: alert.id },
     data: {
       definitionJson: JSON.stringify(definition),
       definitionHash: hash,
       label: definition.label,
+      // The accounts the proposal was validated against: the alert's frozen list from now on.
+      accountsJson: JSON.stringify(accounts),
+      ...(usable.clientName ? { clientName: usable.clientName } : {}),
       backtestJson: JSON.stringify(replay),
       backtestHash: replay.hash,
       backtestAt: new Date(),
       status: "active",
-      armed: true,
+      ...state,
       consecutiveFailures: 0,
       lastNote: null,
     },

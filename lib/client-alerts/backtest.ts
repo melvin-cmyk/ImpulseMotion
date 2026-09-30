@@ -95,11 +95,16 @@ export function backtest(def: AlertDefinition, series: ClientSeries, opts: { now
     if (ev.status === "skipped") {
       skippedDays++;
       if (ev.reason) reasons.set(ev.reason, (reasons.get(ev.reason) ?? 0) + 1);
-    } else if (ev.value !== null) values.push(ev.value);
+    } else if (ev.value !== null) {
+      // A day judged without a value (a CPA that triggers on the spend alone, nothing converted) has no place in the spread.
+      values.push(ev.value);
+    }
     if (ev.status === "triggered") daysTrue++;
     const step = advance(state, ev.status, new Date(`${checkDay}T${hour}:00:00Z`), def);
     state = step.state;
-    if (step.message) messages.push({ date: ev.asOf, value: ev.value, changePct: ev.changePct });
+    // Dated as the consultant would have lived it: the morning of the check, not the last day of the figures
+    // (an alert checked on weekdays only never shows a message on a Sunday).
+    if (step.message) messages.push({ date: checkDay, value: ev.value, changePct: ev.changePct });
   }
 
   values.sort((a, b) => a - b);

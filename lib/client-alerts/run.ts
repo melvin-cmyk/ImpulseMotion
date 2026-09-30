@@ -18,6 +18,14 @@
  *   - an event that was not sent is never sent later: it stays on the page
  *     with the reason. An alert from yesterday is noise.
  *
+ * Held on purpose and failed are two things. An event held on purpose (the
+ * ceilings, the general anomaly, a person Slack does not know, sending not
+ * plugged, a dry run) leaves the state advanced: the alert said what it had to
+ * say, on the page. A delivery that FAILED (n8n or Slack down, the Slack
+ * identity that could not be looked up) puts the alert back as it was before
+ * the trigger: the next pass tries again with a new event if the condition
+ * is still true, and MAX_DELIVERY_FAILURES failures in a row end in `error`.
+ *
  * An alert whose accounts left its client goes to `review` instead of being
  * evaluated. One alert that fails does not stop the others.
  */
@@ -28,7 +36,7 @@ import { readClientSeries } from "@/lib/client-alerts/series";
 import { evaluate, PLATFORM_LABEL, sameAccount } from "@/lib/client-alerts/evaluate";
 import { advance, checkedOn } from "@/lib/client-alerts/backtest";
 import { buildAlertLine, buildDmText } from "@/lib/client-alerts/message";
-import { dmConfigured, resolveSlackIdentity, sendSlackDm } from "@/lib/client-alerts/slack-dm";
+import { dmConfigured, resolveSlackIdentity, sendSlackDm, SlackDmError } from "@/lib/client-alerts/slack-dm";
 import {
   alertClientState, dmBatchesToday, holdEvents, listActiveAlerts, markNotified, recordCheck, recordDeliveryFailure, sendToReview, unsentEvents,
   type AlertClientState, type AlertRow,
@@ -61,6 +69,10 @@ export const HELD = {
 
 const SLOTS_OF: Record<AlertChecks, number[]> = { "1x": [0], "2x": [0, 2], "4x": [0, 1, 2, 3] };
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").slice(0, 200);
+/** For the cron's answer: the technical cause when slack-dm.ts gives one. */
+const causeText = (e: unknown) => (e instanceof SlackDmError ? e.detail : errText(e));
+/** For the page: the words of slack-dm.ts, never the raw text of another error (a database message, a stack). */
+const failureWords = (e: unknown) => (e instanceof SlackDmError ? e.message : "l'envoi a échoué avant d'atteindre Slack");
 
 /** Slot of a firing: the index of its UTC hour among CHECK_SLOTS_UTC; null at any other hour. */
 export function slotOf(now: Date): number | null {
@@ -95,7 +107,11 @@ export function clientProblem(accounts: AlertAccountRef[], clientName: string, c
     : `Le compte ${names} ne fait plus partie du client « ${client.name} » : alerte à revoir.`;
 }
 
-interface Pending { order: number; eventId: string; alertId: string; userId: string; who: string; line: string }
+interface Pending {
+  order: number; eventId: string; alertId: string; userId: string; who: string; line: string;
+  /** The state the trigger was taken from: what a failed delivery puts back. */
+  before: { armed: boolean; lastTriggeredAt: Date | null };
+}
 
 /** One pass of the cron: checks the active alerts that are due, records the triggers, sends the private messages. */
 export async function runClientAlerts(opts: { now?: Date; slot?: number | null; dryRun?: boolean; only?: string[] } = {}): Promise<RunSummary> {
@@ -103,7 +119,7 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
   const deadlineAt = Date.now() + RUN_BUDGET_MS;
   const slot = opts.slot === undefined ? slotOf(now) : opts.slot;
   const dryRun = opts.dryRun === true || !sendingEnabled();
-  const summary: RunSummary = { slot, checked: 0, triggered: 0, skipped: 0, sent: 0, dryRun, held: 0, errors: [] };
+  const summary: RunSummary = { slot, checked: 0, triggered: 0, skipped: 0, sent: 0, dryRun, held: 0, failed: 0, errors: [] };
 
   const due = (await listActiveAlerts(opts.only)).flatMap((row) => {
     const def = readDefinition(row.definitionJson);
@@ -140,7 +156,10 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
     if (evaluation.status === "skipped") summary.skipped++;
     if (eventId && line !== null) {
       summary.triggered++;
-      pending.push({ order, eventId, alertId: row.id, userId: row.createdById, who: row.createdByEmail ?? row.createdById, line });
+      pending.push({
+        order, eventId, alertId: row.id, userId: row.createdById, who: row.createdByEmail ?? row.createdById, line,
+        before: { armed: row.armed, lastTriggeredAt: row.lastTriggeredAt },
+      });
     }
   };
 
@@ -204,8 +223,11 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
         const lines = events.slice(0, MAX_LINES_PER_DM).map((p) => p.line);
         await sendSlackDm(identity.slackUserId, buildDmText(lines, events.length - lines.length, pageUrl));
       } catch (e) {
-        summary.errors.push(`Message privé à ${who} non remis : ${errText(e)}`);
-        const stopped = await recordDeliveryFailure(eventIds, alertIds, errText(e));
+        // Not said, so not swallowed: the alerts go back as they were and are tried again at the next pass.
+        summary.failed += events.length;
+        summary.errors.push(`Message privé à ${who} non remis : ${causeText(e)} — nouvel essai au prochain passage.`);
+        const triggers = events.map((p) => ({ alertId: p.alertId, ...p.before }));
+        const stopped = await recordDeliveryFailure(eventIds, triggers, now, failureWords(e));
         if (stopped.length) summary.errors.push(`${stopped.length} alerte${stopped.length > 1 ? "s" : ""} de ${who} arrêtée${stopped.length > 1 ? "s" : ""} après plusieurs échecs d'envoi.`);
         continue;
       }

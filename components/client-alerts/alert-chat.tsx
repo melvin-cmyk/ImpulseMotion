@@ -21,12 +21,12 @@ import { AiActivity } from "@/components/ai/activity";
 import { Pill } from "@/components/ui/surface";
 import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 import {
-  ALERT_CHAT_MAX_MESSAGES, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks,
+  ALERT_CHAT_MAX_MESSAGES, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks, stripProposalNotes, withProposalNotes,
 } from "@/lib/client-alerts/compose-prompt";
 import type { AlertDefinition, Backtest } from "@/lib/client-alerts/types";
 import { ProposalCard, type CardState } from "@/components/client-alerts/proposal-card";
 import { PlatformBadges } from "@/components/client-alerts/client-picker";
-import { ALERT_STATUS, dayLabel, exampleRequests, type AlertView, type ProposalCheck } from "@/components/client-alerts/alert-model";
+import { ALERT_STATUS, CLIENT_GONE, dayLabel, exampleRequests, type AlertView, type ProposalCheck } from "@/components/client-alerts/alert-model";
 
 interface ChatMessage { role: "user" | "assistant"; content: string }
 
@@ -35,20 +35,18 @@ interface Outcome { applying?: boolean; errors?: string[]; confirm?: number; not
 
 type Figures = { ok: true; until: string; unreadable: string[] } | { ok: false } | null;
 
-const NOTES_RE = /^\[Résultat des propositions précédentes[^\]]*\]\n\n/;
-
 function readChecks(raw: unknown): Record<string, ProposalCheck> {
   const out: Record<string, ProposalCheck> = {};
   if (!raw || typeof raw !== "object") return out;
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const v = value as { ok?: unknown; proposal?: unknown; warnings?: unknown; backtest?: unknown; noisy?: unknown; errors?: unknown; retry?: unknown } | null;
+    const v = value as { ok?: unknown; proposal?: unknown; warnings?: unknown; backtest?: unknown; noisy?: unknown; errors?: unknown; hints?: unknown; retry?: unknown } | null;
     if (!v || typeof v !== "object") continue;
     const strings = (list: unknown) => (Array.isArray(list) ? list.filter((s): s is string => typeof s === "string") : []);
     const replay = v.backtest as Partial<Backtest> | null | undefined;
     if (v.ok === true && v.proposal && typeof v.proposal === "object" && replay && typeof replay === "object" && Array.isArray(replay.messages)) {
       out[key] = { ok: true, proposal: v.proposal as AlertDefinition, warnings: strings(v.warnings), backtest: { ...(replay as Backtest), notes: strings(replay.notes) }, noisy: v.noisy === true };
     } else if (v.ok === false) {
-      out[key] = { ok: false, errors: strings(v.errors), ...(v.retry === true ? { retry: true } : {}) };
+      out[key] = { ok: false, errors: strings(v.errors), hints: strings(v.hints), ...(v.retry === true ? { retry: true } : {}) };
     }
   }
   return out;
@@ -95,6 +93,8 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
   const [checks, setChecks] = useState<Record<string, ProposalCheck>>({});
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [figures, setFigures] = useState<Figures>(null);
+  // Why nothing can be proposed any more (the client is gone, or out of reach), as the server says it.
+  const [blocked, setBlocked] = useState<string | null>(alert.clientGone ? CLIENT_GONE : null);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -125,6 +125,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       .then((j) => {
         if (cancelled) return;
         setFigures(readFigures(j.figures));
+        if (typeof j.blocked === "string" && j.blocked) setBlocked(j.blocked);
         // Never clobber a conversation already in flight.
         if (busyRef.current) return;
         const msgs: ChatMessage[] = Array.isArray(j.messages) ? j.messages : [];
@@ -142,7 +143,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, streamText, checks, outcomes]);
 
-  const ready = (loaded || !!fresh) && !loadError;
+  const ready = (loaded || !!fresh) && !loadError && !blocked;
 
   // The box is disabled while the AI answers: it takes the focus back as soon as it can be typed in.
   useEffect(() => { if (!busy && ready) inputRef.current?.focus(); }, [busy, ready]);
@@ -166,6 +167,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       setChecks(next);
       setStatuses(readStatuses(j.proposals));
       setFigures(readFigures(j.figures));
+      setBlocked(typeof j.blocked === "string" && j.blocked ? j.blocked : null);
       return next;
     } catch {
       return null;
@@ -198,7 +200,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
 
     const notes = pendingNotesRef.current;
     pendingNotesRef.current = [];
-    const content = notes.length ? `[Résultat des propositions précédentes : ${notes.join(" ; ")}]\n\n${text}` : text;
+    const content = withProposalNotes(notes, text);
     const next: ChatMessage[] = [...messages, { role: "user", content }];
     setMessages(next);
     setStreamText("");
@@ -259,7 +261,8 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       const local = extractAlertProposal(acc);
       const verdict = (await save(capped.msgs, capped.sts))?.[key];
       // A rejected proposal goes back to the AI; one that merely could not be checked does not.
-      if (verdict && !verdict.ok && !verdict.retry) pendingNotesRef.current.push(invalidProposalNote(verdict.errors));
+      // The AI gets the sentences of the card AND the fields to write; the consultant only ever reads the sentences.
+      if (verdict && !verdict.ok && !verdict.retry) pendingNotesRef.current.push(invalidProposalNote(verdict.errors, verdict.hints));
       else if (!verdict && local.kind === "malformed") pendingNotesRef.current.push(invalidProposalNote(local.errors));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -298,8 +301,9 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       }
       if (!res.ok || !body.alert) {
         const errors: string[] = Array.isArray(body.errors) && body.errors.length ? body.errors : [String(body.error ?? `Erreur ${res.status}`)];
+        const hints: string[] = Array.isArray(body.hints) ? body.hints.filter((h: unknown): h is string => typeof h === "string") : [];
         setOutcomes((o) => ({ ...o, [key]: { errors } }));
-        if (res.status === 422) pendingNotesRef.current.push(`${label} a été REFUSÉE par le serveur au moment de la valider, rien n'est enregistré : ${errors.slice(0, 8).join(" | ")}`);
+        if (res.status === 422) pendingNotesRef.current.push(`${label} a été REFUSÉE par le serveur au moment de la valider, rien n'est enregistré : ${errors.slice(0, 8).join(" | ")}${hints.length ? ` — à écrire dans le bloc : ${hints.slice(0, 8).join(" ; ")}` : ""}`);
         return;
       }
       setOutcomes((o) => ({ ...o, [key]: { notice: typeof body.notice === "string" ? body.notice : null } }));
@@ -321,7 +325,8 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
 
     let state: CardState;
     let errors: string[] | undefined;
-    if (local.kind === "malformed") { state = "invalid"; errors = local.errors; }
+    if (blocked) { state = "closed"; errors = [blocked]; }
+    else if (local.kind === "malformed") { state = "invalid"; errors = local.errors; }
     else if (!check) state = verifying ? "checking" : "unverified";
     else if (!check.ok) { state = check.retry ? (verifying ? "checking" : "unverified") : "invalid"; errors = check.errors; }
     else if (outcome.applying) state = "applying";
@@ -335,7 +340,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       else if (!isTheAlert && statuses[key] === "applied") state = "replaced";
       else state = "pending";
     }
-    const valid = check?.ok ? check : null;
+    const valid = check?.ok && !blocked ? check : null;
 
     return (
       <ProposalCard
@@ -365,7 +370,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
     if (m.role === "user") {
       return (
         <div key={i} className="ml-6 sm:ml-16 bg-violet-950/50 border border-violet-900/40 rounded-xl px-3 py-2 text-sm text-gray-200 whitespace-pre-wrap break-words">
-          {m.content.replace(NOTES_RE, "")}
+          {stripProposalNotes(m.content)}
         </div>
       );
     }
@@ -426,6 +431,15 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
               ))}
             </div>
             <p className="text-gray-500">Un exemple se place dans la zone de saisie : ajustez-le, puis Entrée.</p>
+          </div>
+        )}
+        {blocked && (
+          <div role="alert" className="text-xs text-amber-300 bg-amber-950/30 border border-amber-900/40 rounded-lg px-3 py-2">{blocked}</div>
+        )}
+        {!blocked && alert.status === "review" && (
+          <div className="text-xs text-amber-300 bg-amber-950/30 border border-amber-900/40 rounded-lg px-3 py-2">
+            Cette alerte n&apos;est plus vérifiée. {alert.lastNote ? `${alert.lastNote} ` : ""}
+            L&apos;IA travaille maintenant sur les comptes actuels du client : validez de nouveau une proposition ci-dessous, ou redemandez l&apos;alerte, pour la remettre en service.
           </div>
         )}
         {figures?.ok === false && (

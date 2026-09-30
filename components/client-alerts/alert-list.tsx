@@ -14,7 +14,8 @@ import { ChevronDown, ChevronRight, Loader2, MessageSquare, Pause, Play, Trash2 
 import { Pill } from "@/components/ui/surface";
 import { PlatformBadges } from "@/components/client-alerts/client-picker";
 import {
-  ALERT_STATUS, dayLabel, formatValue, guardsLine, replayLine, ruleSentence, settingsLine, unbreakable, type AlertEventView, type AlertView,
+  ALERT_STATUS, CLIENT_GONE, dayLabel, guardsLine, lastValueLine, ownerLine, replayLine, ruleSentence, settingsLine, unbreakable,
+  type AlertEventView, type AlertView,
 } from "@/components/client-alerts/alert-model";
 
 export type AlertAction = "pause" | "resume" | "delete";
@@ -31,9 +32,11 @@ function eventState(e: AlertEventView): { label: string; tone: "emerald" | "ambe
   return { label: "en attente d'envoi", tone: "default" };
 }
 
-function AlertItem({ alert, open, busy, error, onOpen, onAction }: {
+function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
   alert: AlertView;
   open: boolean;
+  /** The list shows everyone's alerts (a real admin): each line says whose it is. */
+  everyone: boolean;
   /** Action in progress on this alert. */
   busy: AlertAction | null;
   error: string | null;
@@ -44,8 +47,11 @@ function AlertItem({ alert, open, busy, error, onOpen, onAction }: {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const status = ALERT_STATUS[alert.status];
   const def = alert.definition;
-  const canResume = alert.mine && (alert.status === "paused" || alert.status === "error");
-  const canPause = alert.status === "active";
+  // A client that is gone leaves one thing to do: delete.
+  const canResume = !alert.clientGone && alert.mine && (alert.status === "paused" || alert.status === "error");
+  const canPause = !alert.clientGone && alert.status === "active";
+  const canOpen = !alert.clientGone && alert.mine;
+  const owner = ownerLine(alert, everyone);
   const title = alert.label || (alert.empty ? "Brouillon sans demande" : "Brouillon en cours");
 
   return (
@@ -59,15 +65,13 @@ function AlertItem({ alert, open, busy, error, onOpen, onAction }: {
         <span title={status.help} className="shrink-0"><Pill tone={status.tone}>{status.label}</Pill></span>
       </div>
 
-      {!alert.mine && alert.createdByEmail && <p className="text-[11px] text-gray-500 truncate">Créée par {alert.createdByEmail}</p>}
+      {owner && <p className="text-[11px] text-gray-500 truncate">{owner}</p>}
 
       {def && (
         <dl className="grid grid-cols-2 gap-2 text-[11px]">
           <div>
             <dt className="text-gray-600">Dernière valeur</dt>
-            <dd className="text-gray-300 tabular-nums">
-              {alert.lastCheckedAt ? `${formatValue(def.metric, alert.lastValue)} · le ${dayLabel(alert.lastCheckedAt)}` : "Pas encore vérifiée"}
-            </dd>
+            <dd className="text-gray-300 tabular-nums">{unbreakable(lastValueLine(alert))}</dd>
           </div>
           <div>
             <dt className="text-gray-600">Dernier déclenchement</dt>
@@ -76,7 +80,14 @@ function AlertItem({ alert, open, busy, error, onOpen, onAction }: {
         </dl>
       )}
 
-      {alert.lastNote && <p className="text-[11px] text-amber-300 break-words">{alert.lastNote}</p>}
+      {alert.clientGone
+        ? <p className="text-[11px] text-amber-300 break-words">{CLIENT_GONE}</p>
+        : alert.lastNote && <p className="text-[11px] text-amber-300 break-words">{alert.lastNote}</p>}
+      {!alert.clientGone && alert.status === "review" && alert.mine && (
+        <p className="text-[11px] text-gray-400 break-words">
+          Ouvrez la conversation : l&apos;IA repart des comptes actuels du client. Validez de nouveau la proposition, ou redemandez-la, pour remettre l&apos;alerte en service.
+        </p>
+      )}
 
       {details && def && (
         <div className="text-xs text-gray-400 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2 space-y-1.5">
@@ -119,9 +130,9 @@ function AlertItem({ alert, open, busy, error, onOpen, onAction }: {
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-1.5">
-          {alert.mine && (
+          {canOpen && (
             <button type="button" className={open ? openBtn : actionBtn} onClick={onOpen} title="Ouvrir la conversation pour terminer ou modifier l'alerte en le demandant">
-              <MessageSquare className="w-3 h-3" />{def ? "Modifier" : "Continuer"}
+              <MessageSquare className="w-3 h-3" />{alert.status === "review" ? "Revoir" : def ? "Modifier" : "Continuer"}
             </button>
           )}
           {canPause && (
@@ -156,9 +167,11 @@ function AlertItem({ alert, open, busy, error, onOpen, onAction }: {
   );
 }
 
-export function AlertList({ alerts, openId, busy, errors, onOpen, onAction }: {
+export function AlertList({ alerts, openId, everyone, busy, errors, onOpen, onAction }: {
   alerts: AlertView[];
   openId: string | null;
+  /** Everyone's alerts are listed (a real admin): each line says whose it is. */
+  everyone?: boolean;
   /** alert id → action in progress. */
   busy: Record<string, AlertAction | undefined>;
   /** alert id → why the last action failed. */
@@ -173,6 +186,7 @@ export function AlertList({ alerts, openId, busy, errors, onOpen, onAction }: {
           key={a.id}
           alert={a}
           open={openId === a.id}
+          everyone={everyone === true}
           busy={busy[a.id] ?? null}
           error={errors[a.id] ?? null}
           onOpen={() => onOpen(a)}

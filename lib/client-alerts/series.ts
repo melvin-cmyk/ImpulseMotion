@@ -14,7 +14,9 @@
  * An account that cannot be read comes back with `error` and no day, and
  * whatever depends on it is skipped (evaluate.ts). A failed read is never
  * cached: `cached` stores nothing when its fetcher throws, so the reader
- * throws and the failure is turned into `error` outside of it.
+ * throws and the failure is turned into `error` outside of it. `error` is a
+ * fixed French phrase per kind of failure (readError): the raw text of a
+ * platform goes to the logs only, never to the page nor to the AI.
  */
 
 import { getMetaSystemToken, getAccountDailyInsights, purchasesFor, computeRevenue } from "@/lib/meta-api";
@@ -24,7 +26,7 @@ import { relayDirectTool } from "@/lib/relay-tool";
 import { extractRows } from "@/lib/dashboard-widgets";
 import { addDays, todayIn } from "@/lib/date-ranges";
 import { cached } from "@/lib/kpi-cache";
-import { loadFx } from "@/lib/cockpit/fx";
+import { FX_FALLBACK, loadFx } from "@/lib/cockpit/fx";
 import { hourIn } from "@/lib/auto-alerts/meta";
 import { toDayPoint } from "@/lib/auto-alerts/google";
 import { metricOf, PLATFORM_LABEL, totalsOver, tracksValue, type Totals } from "@/lib/client-alerts/evaluate";
@@ -42,25 +44,47 @@ const cents = (n: number) => Math.round(n * 100) / 100;
 
 function within<T>(p: Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const clock = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`pas de réponse en ${READ_TIMEOUT_MS / 1000} s`)), READ_TIMEOUT_MS); });
+  const clock = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ReadTimeoutError()), READ_TIMEOUT_MS); });
   return Promise.race([p, clock]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
-/** Short, in French: it is shown on the card of the alert. */
-function readError(e: unknown): string {
-  if (e instanceof MetaApiError) {
-    if (e.kind === "permission") return "accès au compte refusé par Meta";
-    if (e.kind === "auth") return "jeton Meta refusé";
-    if (e.kind === "rate_limit") return "limite d'appels Meta atteinte";
+/** A currency the rates do not cover: said as such, it is ours to fix, not the platform's. */
+class NoRateError extends Error {
+  constructor(readonly currency: string) {
+    super(`devise ${currency} sans taux de change`);
+    this.name = "NoRateError";
   }
-  const text = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim();
-  return `lecture impossible — ${text.slice(0, 140) || "erreur inconnue"}`;
+}
+/** The read did not answer in READ_TIMEOUT_MS. */
+class ReadTimeoutError extends Error {
+  constructor() {
+    super(`pas de réponse en ${READ_TIMEOUT_MS / 1000} s`);
+    this.name = "ReadTimeoutError";
+  }
+}
+
+/**
+ * Why an account could not be read, as one fixed French phrase per kind of
+ * failure: it is shown on the card and on the page, and kept in the series.
+ * The raw text of a platform (an API message, a stack) never goes further
+ * than the logs — neither to a consultant nor to the AI.
+ */
+export function readError(e: unknown, platform: AlertPlatform): string {
+  const where = PLATFORM_LABEL[platform];
+  if (e instanceof MetaApiError) {
+    if (e.kind === "permission") return `accès au compte refusé par ${where}`;
+    if (e.kind === "auth") return `connexion à ${where} refusée`;
+    if (e.kind === "rate_limit") return `limite d'appels ${where} atteinte`;
+  }
+  if (e instanceof NoRateError) return `devise ${e.currency.slice(0, 8)} sans taux de change`;
+  if (e instanceof ReadTimeoutError) return `${where} n'a pas répondu à temps`;
+  return `lecture ${where} impossible pour le moment`;
 }
 
 /** Euro value of one unit. No rate = no series: an amount in an unknown currency must not be read as euros. */
 function eurRateOf(currency: string, rates: Record<string, number>): number {
   const rate = rates[currency];
-  if (!(rate > 0)) throw new Error(`devise ${currency} sans taux de change`);
+  if (!(rate > 0)) throw new NoRateError(currency);
   return rate;
 }
 
@@ -130,9 +154,9 @@ async function readGoogle(account: AlertAccountRef, now: Date, rates: Record<str
 }
 
 async function readAccount(account: AlertAccountRef, now: Date, rates: Record<string, number>, fresh: boolean): Promise<AccountSeries> {
-  // The day is part of the key: a series read before midnight is not served after it.
-  const key = `client-alerts:series:${account.platform}:${account.accountId}:${todayIn(PARIS, now)}`;
   try {
+    // The day is part of the key: a series read before midnight is not served after it.
+    const key = `client-alerts:series:${account.platform}:${account.accountId}:${todayIn(PARIS, now)}`;
     const read = await cached(
       key,
       () => within(account.platform === "meta" ? readMeta(account, now, rates) : readGoogle(account, now, rates)),
@@ -141,18 +165,25 @@ async function readAccount(account: AlertAccountRef, now: Date, rates: Record<st
     // The name and the currency shown are those the caller knows today, not those of the cached read.
     return { ...read, account };
   } catch (e) {
+    // The cause is for the logs; the series only carries a fixed phrase (readError).
+    console.error(`[client-alerts] ${account.platform} ${account.accountId} unreadable`, e);
     const currency = account.currency ?? "EUR";
-    return { account, currency, eurRate: rates[currency] ?? 1, days: [], today: null, error: readError(e) };
+    return { account, currency, eurRate: rates[currency] ?? 1, days: [], today: null, error: readError(e, account.platform) };
   }
 }
 
 /**
  * SERIES_DAYS full days and the day in progress for every account, in euros.
- * An account that cannot be read comes back with `error` and no day: it never throws.
+ * It never throws: an account that cannot be read comes back with `error` and
+ * no day, and rates that cannot be loaded fall back to the fixed table, as
+ * lib/cockpit/fx.ts does itself when the ECB is unreachable.
  */
 export async function readClientSeries(accounts: AlertAccountRef[], opts: { now?: Date; fresh?: boolean } = {}): Promise<ClientSeries> {
   const now = opts.now ?? new Date();
-  const rates = (await loadFx()).rates;
+  const rates = await loadFx().then((fx) => fx.rates, (e): Record<string, number> => {
+    console.error("[client-alerts] exchange rates unreadable, fixed table used", e);
+    return { ...FX_FALLBACK };
+  });
   const out = new Array<AccountSeries>(accounts.length);
   let next = 0;
   const workers = Array.from({ length: Math.min(CONCURRENCY, accounts.length) }, async () => {
@@ -179,15 +210,19 @@ const dayCells = (t: Totals) => `${short(t.spend)} ${short(t.conversions)} ${sho
 
 function windowLine(t: Totals): string {
   const ctr = metricOf("ctr", t);
-  return `dépense ${short(t.spend)}, conv. ${short(t.conversions)}, CA ${short(t.revenue)}, CPA ${short(metricOf("cpa", t))}, ROAS ${short(metricOf("roas", t))}, CTR ${ctr === null ? "—" : `${short(ctr)} %`}`;
+  return `dépense ${short(t.spend)}, conv. ${short(t.conversions)}, revenu ${short(t.revenue)}, CPA ${short(metricOf("cpa", t))}, ROAS ${short(metricOf("roas", t))}, CTR ${ctr === null ? "—" : `${short(ctr)} %`}`;
 }
+
+/** What the AI reads of an account that could not be read, whatever the reason. */
+const UNREADABLE = "compte illisible";
 
 /** Compact text of the last `days` days (per platform and combined, euros) — what the AI reads. */
 export function summarizeSeries(series: ClientSeries, days = 60): string {
   const lines: string[] = ["Comptes :"];
   for (const a of series.accounts) {
+    // Whatever `error` holds stays here: the model reads one fixed phrase, never the text of a failure.
     const state = a.error
-      ? `illisible (${a.error})`
+      ? UNREADABLE
       : `${a.currency}${a.currency !== "EUR" ? " converti en euros" : ""} · ${tracksValue(a) ? "valeur suivie" : "valeur non suivie"}`;
     lines.push(`- ${PLATFORM_LABEL[a.account.platform]} · ${a.account.name} · ${state}`);
   }
@@ -204,7 +239,7 @@ export function summarizeSeries(series: ClientSeries, days = 60): string {
   const oldest = readable.reduce((min, a) => (a.days[0].date < min ? a.days[0].date : min), until);
   const since = [addDays(until, -(Math.max(1, days) - 1)), oldest].sort()[1];
   lines.push(`Jours complets du ${since} au ${until}, montants en euros, « — » = non suivi.`);
-  lines.push(`jour | ${groups.map((g) => `${g.label} dépense conv. CA`).join(" | ")}`);
+  lines.push(`jour | ${groups.map((g) => `${g.label} dépense conv. revenu`).join(" | ")}`);
   for (let date = since; date <= until; date = addDays(date, 1)) {
     lines.push(`${date.slice(5)} | ${groups.map((g) => dayCells(totalsOver(g.accounts, date, date))).join(" | ")}`);
   }

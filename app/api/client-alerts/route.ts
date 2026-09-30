@@ -1,7 +1,7 @@
 /**
  * Client alerts — staff only. An alert belongs to the person who created it.
  *
- * GET  → { alerts, clients, slack: { configured, identity }, sending, viewer }
+ * GET  → { alerts, clients, clientsError?, slack: { configured, identity }, sending, viewer }
  *        alerts  : mine, newest first, each with its last 5 triggers
  *                  (?all=1 for a real admin: everyone's, with the creator's e-mail)
  *        clients : the clients the session may see, to pick from
@@ -18,14 +18,13 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { getAccountScope, googleInScope, metaInScope } from "@/lib/scope";
 import { loadAlertClients, parseAccounts } from "@/lib/auto-alerts/clients";
 import { dmConfigured, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
+import { goneClients } from "@/lib/client-alerts/accounts";
 import { sendingEnabled, type SlackIdentity } from "@/lib/client-alerts/types";
 import { toAlertView, type ClientOption } from "@/components/client-alerts/alert-model";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const LIST_MAX = 300;
 const EVENTS_IN_LIST = 5;
-
-const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").slice(0, 160);
 
 export async function GET(req: NextRequest) {
   const guard = await requireStaff();
@@ -45,8 +44,9 @@ export async function GET(req: NextRequest) {
     }),
     // The alerts already created stay readable when the list of clients cannot be built.
     loadAlertClients(scope)
-      .then((clients) => ({ clients, error: null as string | null }))
-      .catch((e) => ({ clients: [], error: errText(e) })),
+      .then((clients) => ({ clients, failed: false }))
+      // The cause is for the logs: the page only says the list could not be read.
+      .catch((e) => { console.error("[client-alerts] clients unreadable", e); return { clients: [], failed: true }; }),
     prisma.user.findUnique({
       where: { id: session.userId },
       select: { email: true, slackEmail: true, slackUserId: true, slackCheckedAt: true },
@@ -59,10 +59,12 @@ export async function GET(req: NextRequest) {
   try { configured = dmConfigured(); } catch { configured = false; }
 
   const options: ClientOption[] = listed.clients.map((c) => ({ id: c.id, name: c.name, accounts: c.accounts, dormant: c.dormant }));
+  // An alert whose client is gone says so in the list, and only offers to be deleted.
+  const gone = await goneClients(rows.map((r) => r.alertClientId));
   return NextResponse.json({
-    alerts: rows.map((r) => toAlertView(r, session.userId)),
+    alerts: rows.map((r) => toAlertView(r, session.userId, { clientGone: !!r.alertClientId && gone.has(r.alertClientId) })),
     clients: options,
-    ...(listed.error ? { clientsError: listed.error } : {}),
+    ...(listed.failed ? { clientsError: true } : {}),
     slack: { configured, identity },
     sending: sendingEnabled(),
     viewer: { userId: session.userId, realAdmin },

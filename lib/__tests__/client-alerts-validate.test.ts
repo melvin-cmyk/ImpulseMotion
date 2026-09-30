@@ -22,6 +22,14 @@ function refused(input: unknown, context = ctx()): string[] {
   expect(result.errors.length).toBeGreaterThan(0);
   return result.errors;
 }
+/** What goes to the AI alone with its next message: the fields and the values to write. */
+function hints(input: unknown, context = ctx()): string[] {
+  const result = validateAlertProposal(input, context);
+  if (result.ok) throw new Error("acceptée alors qu'elle devait être refusée");
+  return result.hints;
+}
+/** Words of the block: a consultant never reads them. */
+const JARGON = /\b(label|metric|condition|threshold|windowDays|aggregation|compare|accounts|accountId|guards|minSpend|minConversions|checks|weekdaysOnly|cooldownHours|remind|each|combined|cpa|roas|ctr|spend|revenue|stopped|drop_pct|rise_pct|previous_window|same_weekdays|null|true|false|undefined|NaN)\b|[{}\[\]"]/;
 
 const day = (revenue: number | null): SeriesPoint => ({ date: "2026-09-01", spend: 100, conversions: 4, revenue, clicks: 50, impressions: 4000 });
 const read = (account: AlertAccountRef, revenue: number | null, currency = "EUR"): AccountSeries =>
@@ -221,8 +229,13 @@ describe("alertes client — validation : garde-fou du CPA", () => {
     const { value, warnings } = ok(base);
     expect(CPA_MIN_CONVERSIONS).toBe(5);
     expect(value.guards).toEqual({ minConversions: 5 });
-    expect(warnings).toHaveLength(2); // the guard, and the sale counted by both platforms
-    expect(warnings[0]).toContain("5 conversions");
+    // The guard only — and, for « above », the spend from which it triggers all the same (60 € × 5).
+    expect(warnings).toEqual([
+      "Pour éviter les fausses alertes, le CPA n'est jugé qu'à partir de 5 conversions sur la période — ou dès 300 € dépensés, car le seuil serait alors dépassé même avec 5 conversions. Ce minimum se change sur simple demande.",
+    ]);
+    expect(ok({ ...base, condition: "below" }).warnings).toEqual([
+      "Pour éviter les fausses alertes, le CPA n'est jugé qu'à partir de 5 conversions sur la période. Ce minimum se change sur simple demande.",
+    ]);
   });
 
   it("respecte le minimum demandé, même nul, sans avertir", () => {
@@ -249,7 +262,9 @@ describe("alertes client — validation : ce que disent les chiffres", () => {
       const errors = refused({ ...roas, metric }, ctx({ series: none }));
       expect(errors).toHaveLength(1);
       expect(errors[0]).toContain("Aucun compte de cette alerte ne remonte de valeur de conversion");
-      expect(errors[0]).toContain("coût par conversion (CPA)");
+      expect(errors[0]).toContain("Surveillez plutôt le coût par conversion ou le nombre de conversions.");
+      expect(errors[0]).not.toMatch(JARGON);
+      expect(hints({ ...roas, metric }, ctx({ series: none }))).toEqual([`"metric" : "cpa" ou "conversions" à la place de "${metric}"`]);
     }
     // Same alert on the CPA: nothing to refuse.
     expect(validateAlertProposal(base, ctx({ series: none })).ok).toBe(true);
@@ -265,9 +280,10 @@ describe("alertes client — validation : ce que disent les chiffres", () => {
     const metaOnly = series(read(META, 500), read(META_2, null), read(GOOGLE, null));
     const errors = refused(roas, ctx({ series: metaOnly }));
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain("Google Ads ne remonte aucune valeur de conversion");
-    expect(errors[0]).toContain("Jugez chaque plateforme séparément");
-    expect(errors[0]).toContain("coût par conversion (CPA)");
+    // The consultant reads plain French; the names of the fields go to the AI alone.
+    expect(errors[0]).toBe("Le ROAS de Meta et Google Ads additionnés ne peut pas être calculé : Google Ads ne remonte aucune valeur de conversion. Jugez chaque plateforme séparément, ou surveillez le coût par conversion.");
+    expect(errors[0]).not.toMatch(JARGON);
+    expect(hints(roas, ctx({ series: metaOnly }))).toEqual([`"aggregation" : "each" en gardant "metric":"roas", ou bien "metric" : "cpa"`]);
   });
 
   it("accepte ce même ROAS plateforme par plateforme, en disant laquelle compte", () => {
@@ -285,44 +301,87 @@ describe("alertes client — validation : ce que disent les chiffres", () => {
 
   it("accepte un ROAS additionné quand les deux plateformes remontent une valeur", () => {
     const both = series(read(META, 500), read(META_2, null), read(GOOGLE, 300));
-    const { warnings } = ok(roas, ctx({ series: both }));
-    expect(warnings).toEqual(["Une même vente peut être comptée à la fois par Meta et par Google Ads : additionnées, les deux plateformes peuvent la compter deux fois."]);
+    expect(ok(roas, ctx({ series: both })).warnings).toEqual([]);
   });
 
-  it("prévient quand un compte de l'alerte n'a pas pu être lu, sans conclure à sa place", () => {
-    const partial = series(read(META, 500), unread(META_2), read(GOOGLE, 300));
-    const { warnings } = ok(roas, ctx({ series: partial }));
-    expect(warnings.filter((w) => w.includes("n'a pas pu être lu"))).toEqual([expect.stringContaining("« LPEV Traffic »")]);
+  it("ne conclut pas à la place d'un compte qui n'a pas pu être lu", () => {
     // A platform whose only account is unreadable is not said to track nothing.
     const blind = series(read(META, 500), read(META_2, 100), unread(GOOGLE));
     expect(validateAlertProposal(roas, ctx({ series: blind })).ok).toBe(true);
   });
+});
 
-  it("prévient aussi pour un compte absent des chiffres lus", () => {
-    const { warnings } = ok({ ...base, guards: { minConversions: 5 } }, ctx({ series: series(read(META, 1), read(GOOGLE, 1)) }));
-    expect(warnings.filter((w) => w.includes("n'a pas pu être lu"))).toHaveLength(1);
+describe("alertes client — validation : une phrase, un seul propriétaire", () => {
+  // The three remarks about the DATA belong to backtest().notes: the validation no longer says them.
+  const data = /même vente|compt[ée]e? (à la fois|deux fois)|n'a pas pu être lu|illisible|devise|converti/i;
+
+  it("ne dit plus rien de la vente comptée par les deux plateformes", () => {
+    for (const metric of ["conversions", "cpa", "revenue", "roas"]) {
+      const { warnings } = ok({ ...base, metric, guards: { minConversions: 5 } });
+      expect(warnings.join(" "), metric).not.toMatch(data);
+    }
   });
 
-  it("prévient quand les comptes sont dans plusieurs devises", () => {
+  it("ne dit plus rien d'un compte illisible ou absent des chiffres lus", () => {
+    const partial = series(read(META, 500), unread(META_2), read(GOOGLE, 300));
+    expect(ok({ ...base, guards: { minConversions: 5 } }, ctx({ series: partial })).warnings).toEqual([]);
+    expect(ok({ ...base, guards: { minConversions: 5 } }, ctx({ series: series(read(META, 1), read(GOOGLE, 1)) })).warnings).toEqual([]);
+  });
+
+  it("ne dit plus rien des devises converties en euros", () => {
     const mixed = series(read(META, 1), read(META_2, 1, "USD"), read(GOOGLE, 1));
-    const { warnings } = ok({ ...base, metric: "spend", threshold: 500 }, ctx({ series: mixed }));
-    expect(warnings).toEqual(["Les comptes sont dans plusieurs devises (EUR, USD) : tout est converti en euros au taux du jour, le seuil est en euros."]);
+    expect(ok({ ...base, metric: "spend", threshold: 500 }, ctx({ series: mixed })).warnings).toEqual([]);
+    expect(ok({ ...base, metric: "spend" }, ctx({ accounts: [{ ...META, currency: "USD" }] })).warnings).toEqual([]);
   });
 
-  it("prévient quand l'unique devise n'est pas l'euro, et se tait en euros", () => {
-    const usd = [{ ...META, currency: "USD" }];
-    expect(ok({ ...base, metric: "spend" }, ctx({ accounts: usd })).warnings).toEqual([expect.stringContaining("en USD")]);
-    expect(ok({ ...base, metric: "spend" }, ctx({ accounts: [META] })).warnings).toEqual([]);
+  it("garde ce qui tient à la définition elle-même", () => {
+    // The default CPA guard, a drop that can never trigger, a platform left out of a revenue.
+    expect(ok(base).warnings).toHaveLength(1);
+    expect(ok({ ...base, metric: "spend", condition: "drop_pct", threshold: 150 }).warnings).toEqual([expect.stringContaining("ne se déclencherait jamais")]);
+    const metaOnly = series(read(META, 500), read(META_2, 200), read(GOOGLE, null));
+    expect(ok({ label: "Revenu bas", metric: "revenue", condition: "below", threshold: 1000, windowDays: 7 }, ctx({ series: metaOnly })).warnings)
+      .toEqual(["Google Ads ne remonte aucune valeur de conversion : le revenu ne tient compte que de Meta."]);
   });
+});
 
-  it("prévient du double comptage seulement quand conversions ou revenu sont additionnés entre Meta et Google", () => {
-    const counted = (input: Record<string, unknown>, accounts = CLIENT) =>
-      ok({ ...base, guards: { minConversions: 5 }, ...input }, ctx({ accounts })).warnings.some((w) => w.includes("comptée à la fois"));
-    for (const metric of ["conversions", "cpa", "revenue", "roas"]) expect(counted({ metric }), metric).toBe(true);
-    expect(counted({ metric: "spend" })).toBe(false);
-    expect(counted({ metric: "ctr" })).toBe(false);
-    expect(counted({ metric: "conversions", aggregation: "each" })).toBe(false);
-    expect(counted({ metric: "conversions" }, [META, META_2])).toBe(false);
-    expect(counted({ metric: "conversions", accounts: [{ platform: "google", accountId: "9876543210" }] })).toBe(false);
+describe("alertes client — validation : des mots pour le consultant, des champs pour l'IA", () => {
+  const broken: Array<[string, Record<string, unknown>, RegExp]> = [
+    ["mesure", { ...base, metric: "cpm" }, /"metric" : "spend" \| "conversions" \| "cpa"/],
+    ["condition", { ...base, condition: "over" }, /"condition" : "above" \| "below"/],
+    ["période", { ...base, windowDays: 2 }, /"windowDays" : 1 \| 3 \| 7 \| 14 \| 30/],
+    ["seuil absent", { ...base, threshold: null }, /"threshold" : un nombre > 0/],
+    ["seuil de taux de clic", { ...base, metric: "ctr", threshold: 250 }, /"threshold" : un pourcentage entre 0 et 100/],
+    ["baisse", { ...base, metric: "spend", condition: "drop_pct", threshold: 0.5 }, /"threshold" : entre 1 et 1000 avec "drop_pct"/],
+    ["arrêt", { ...base, condition: "stopped" }, /"condition":"stopped" demande "metric" : "spend" \| "conversions"/],
+    ["regroupement", { ...base, aggregation: "both" }, /"aggregation" : "combined" \| "each"/],
+    ["comparaison", { ...base, compare: "last_year" }, /"compare" : "previous_window" \| "same_weekdays"/],
+    ["rythme", { ...base, checks: "8x" }, /"checks" : "1x" \| "2x" \| "4x"/],
+    ["silence", { ...base, cooldownHours: 2 }, /"cooldownHours" : un entier entre 12 et 336/],
+    ["jours ouvrés", { ...base, weekdaysOnly: "oui" }, /"weekdaysOnly" : true \| false/],
+    ["rappel", { ...base, remind: 1 }, /"remind" : true \| false/],
+    ["volumes", { ...base, guards: { minConversions: -1, minSpend: "beaucoup" } }, /"guards\.minConversions" : un nombre ≥ 0/],
+    ["compte", { ...base, accounts: [{ platform: "meta", accountId: "999" }] }, /"accounts" : à omettre pour couvrir tous les comptes/],
+    ["titre", { ...base, label: "" }, /"label" : obligatoire/],
+  ];
+
+  for (const [name, input, hint] of broken) {
+    it(`${name} : la phrase du consultant ne contient aucun nom de champ, la note de l'IA les donne`, () => {
+      const result = validateAlertProposal(input, ctx());
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      // What was received is quoted as the AI wrote it (« cpm »), and nothing else of the block.
+      for (const sentence of result.errors) expect(sentence.replace(/« [^»]* »/g, "« … »"), sentence).not.toMatch(JARGON);
+      expect(result.hints.join(" ; ")).toMatch(hint);
+      // One hint per reason, in the same order.
+      expect(result.hints).toHaveLength(result.errors.length);
+    });
+  }
+
+  it("dit ce qui a été reçu comme une personne le dirait", () => {
+    expect(refused({ ...base, threshold: null })[0]).toBe("Il manque le seuil : un nombre supérieur à 0 est attendu (reçu : rien).");
+    expect(refused({ ...base, threshold: true })[0]).toContain("(reçu : oui)");
+    expect(refused({ ...base, threshold: { a: 1 } })[0]).toContain("(reçu : une valeur illisible)");
+    expect(refused({ ...base, threshold: -12.5 })[0]).toContain("(reçu : -12,5)");
+    expect(refused({ ...base, metric: null })[0]).toContain("Mesure inconnue : rien.");
   });
 });

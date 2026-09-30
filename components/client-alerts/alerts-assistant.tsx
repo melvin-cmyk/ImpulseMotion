@@ -21,7 +21,8 @@ import type { AlertView, ClientOption } from "@/components/client-alerts/alert-m
 interface Payload {
   alerts: AlertView[];
   clients: ClientOption[];
-  clientsError?: string;
+  /** The list of clients could not be built; the cause stays in the server's logs. */
+  clientsError?: boolean;
   slack: SlackState;
   sending: boolean;
   viewer: { userId: string; realAdmin: boolean };
@@ -177,6 +178,7 @@ export function AlertsAssistant() {
                   <AlertList
                     alerts={data.alerts}
                     openId={opened?.id ?? null}
+                    everyone={showAll}
                     busy={busy}
                     errors={errors}
                     onOpen={(a) => setOpen({ id: a.id, fresh: false })}
@@ -204,7 +206,7 @@ export function AlertsAssistant() {
                 <ClientPicker
                   clients={data.clients}
                   busyId={creating}
-                  error={createError ?? (data.clientsError ? `La liste des clients n'a pas pu être lue (${data.clientsError}). Rechargez la page dans un instant.` : null)}
+                  error={createError ?? (data.clientsError ? "La liste des clients n'a pas pu être lue. Rechargez la page dans un instant." : null)}
                   focusKey={focusKey}
                   onPick={(c) => void pick(c)}
                 />

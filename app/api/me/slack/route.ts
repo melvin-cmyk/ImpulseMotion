@@ -14,10 +14,13 @@ import { SlackDmError, cleanEmail, dmConfigured, resolveSlackIdentity, sendSlack
 export const maxDuration = 60;
 
 const TEST_TEXT = "Test ImpulseMotion : vos alertes arriveront ici, en message privé.";
-const NOT_CONFIGURED = "Les messages privés Slack ne sont pas encore configurés (webhook n8n absent).";
+const NOT_CONFIGURED = "Les messages privés Slack ne sont pas encore configurés.";
 
-const failure = (what: string, err: SlackDmError) =>
-  NextResponse.json({ error: `${what} (${err.message}). Réessayez dans quelques minutes.` }, { status: 502 });
+/** The consultant reads the words of slack-dm.ts; the technical cause (Slack's code, HTTP status) goes to the logs. */
+const failure = (what: string, err: SlackDmError) => {
+  console.error("[client-alerts] slack", err.detail);
+  return NextResponse.json({ error: `${what} : ${err.message}. Réessayez dans quelques minutes.` }, { status: 502 });
+};
 
 export async function GET() {
   const guard = await requireStaff();

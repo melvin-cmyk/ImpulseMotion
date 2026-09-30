@@ -7,10 +7,14 @@
  *   CPA : *72,40 €* (seuil 60 €) · Meta 81,20 € · Google 54,10 €
  *   Dépense 4 320 € · 60 conversions · du 27 au 29 sept.
  *
+ * A value that does not exist is never written as a figure: a CPA alert that
+ * triggers on the spend alone reads « Aucune conversion pour 900 € dépensés
+ * (seuil : CPA de 60 €) ».
+ *
  * No header, no emoji: a private message from the application is already the signal.
  */
 
-import type { AlertDefinition, AlertMetric, AlertPlatform, Evaluation, EvaluationPart } from "@/lib/client-alerts/types";
+import { compareShiftDays, type AlertDefinition, type AlertMetric, type AlertPlatform, type Evaluation, type EvaluationPart } from "@/lib/client-alerts/types";
 
 // ── Numbers, the French way (same conventions as lib/auto-alerts/detect.ts) ──
 
@@ -73,7 +77,12 @@ function sinceWords(asOf: string, n: number): string {
 
 function compareWords(def: AlertDefinition): string {
   const one = def.windowDays <= 1;
-  if (def.compare === "same_weekdays") return one ? "par rapport au même jour de la semaine précédente" : "par rapport aux mêmes jours de la semaine précédente";
+  if (def.compare === "same_weekdays") {
+    // Whole weeks back, enough to clear the window (compareShiftDays): two for 14 days, five for 30.
+    const weeks = compareShiftDays(def) / 7;
+    if (weeks > 1) return `par rapport aux mêmes jours de la semaine, ${weeks} semaines plus tôt`;
+    return one ? "par rapport au même jour de la semaine précédente" : "par rapport aux mêmes jours de la semaine précédente";
+  }
   return one ? "par rapport au jour précédent" : `par rapport aux ${def.windowDays} jours précédents`;
 }
 
@@ -82,6 +91,24 @@ function compareWords(def: AlertDefinition): string {
 /** Names come from accounts and from a conversation: one line, and nothing Slack reads as a link or a mention. */
 export function escapeSlack(text: string): string {
   return String(text ?? "").replace(/\s+/g, " ").trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * A stored message (Slack mrkdwn, as buildAlertLine writes it) as plain text
+ * for the page: bold markers removed, entities decoded, link lines dropped.
+ */
+export function slackToPlain(text: string): string {
+  return String(text ?? "")
+    .split("\n")
+    // A line that is only a Slack link (« Voir et régler mes alertes ») says nothing on the page it points to.
+    .filter((line) => !/^\s*<[^<>\s|]+(\|[^<>]*)?>\s*$/.test(line))
+    // A link inside a line keeps its words.
+    .map((line) => line.replace(/<[^<>\s|]+\|([^<>]*)>/g, "$1").replace(/<([^<>\s|]+)>/g, "$1"))
+    // Bold: a pair of stars around words, as Slack reads it — never a lone star.
+    .map((line) => line.replace(/\*([^*\n]+)\*/g, "$1"))
+    .map((line) => line.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"))
+    .join("\n")
+    .trim();
 }
 
 // ── One alert ────────────────────────────────────────────────────────────────
@@ -119,6 +146,10 @@ function metricLine(def: AlertDefinition, evaluation: Evaluation, main: Evaluati
       bits.push(`*${metric.label}${on ? ` ${on}` : ""} à l'arrêt* ${since}`);
       if (head.baseline !== null && head.baseline > 0) bits.push(`${metric.format(head.baseline)} sur les jours précédents`);
     }
+  } else if (head.value === null && def.metric === "cpa" && !moving) {
+    // A CPA « above » triggers on the spend alone when nothing converted: there is no CPA to write.
+    const spent = main ? ` pour ${euros(main.spend)} dépensés` : "";
+    bits.push(`*Aucune conversion${on ? ` sur ${on}` : ""}${spent}*${def.threshold !== null ? ` (seuil : CPA de ${metric.format(def.threshold)})` : ""}`);
   } else {
     const value = head.value === null ? "non calculable" : metric.format(head.value);
     const subject = `${metric.label}${on ? ` sur ${on}` : ""} : *${value}*`;
@@ -135,7 +166,14 @@ function metricLine(def: AlertDefinition, evaluation: Evaluation, main: Evaluati
   const platforms = evaluation.parts.filter((p) => p.scope !== "combined");
   const detail = each ? platforms.filter((p) => p !== main) : platforms.length > 1 && def.condition !== "stopped" ? platforms : [];
   for (const p of detail) {
-    if (p.value === null) continue;
+    if (p.value === null) {
+      // A platform that spent without converting has no CPA, and is the one to look at.
+      // Under « aucune conversion pour 900 € dépensés », only its share of the spend is left to say.
+      if (def.metric === "cpa" && !moving && p.spend > 0) {
+        bits.push(head.value === null ? `${platformName(p)} ${euros(p.spend)}` : `${platformName(p)} : aucune conversion pour ${euros(p.spend)}`);
+      }
+      continue;
+    }
     const pct = moving ? changeOf(p) : null;
     const also = each && p.triggered ? " aussi :" : "";
     const value = def.metric === "conversions" ? conversionsWords(p.value) : metric.format(p.value);
@@ -149,14 +187,18 @@ function contextLine(def: AlertDefinition, evaluation: Evaluation, main: Evaluat
   const stoppedSpend = def.condition === "stopped" && def.metric !== "conversions";
   if (stoppedSpend) return "";
   const bits: string[] = [];
-  if (main) {
+  // « Aucune conversion pour 900 € dépensés » has said both already.
+  const said = def.metric === "cpa" && main !== null && main.value === null && def.condition !== "drop_pct" && def.condition !== "rise_pct";
+  if (main && !said) {
     if (def.metric !== "spend") bits.push(`Dépense ${euros(main.spend)}`);
     if (def.metric !== "conversions") bits.push(conversionsWords(main.conversions));
   }
   bits.push(periodWords(evaluation.asOf, def.windowDays));
   const line = bits.join(" · ");
-  const on = main && def.aggregation === "each" ? platformName(main) : "";
-  return on ? `${on} : ${line.charAt(0).toLowerCase()}${line.slice(1)}` : line;
+  const on = main && def.aggregation === "each" && !said ? platformName(main) : "";
+  if (on) return `${on} : ${line.charAt(0).toLowerCase()}${line.slice(1)}`;
+  // Alone on its line, the period starts it: « Du 27 au 29 sept. ».
+  return `${line.charAt(0).toUpperCase()}${line.slice(1)}`;
 }
 
 /** One alert, as it reads in the private message (Slack mrkdwn, a few lines, per-platform detail). Pure. */

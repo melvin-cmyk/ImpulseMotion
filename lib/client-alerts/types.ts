@@ -17,10 +17,17 @@
  *   backtest.ts      backtest
  *   run.ts           runClientAlerts
  *   store.ts         database reads and writes of ClientAlert / ClientAlertEvent
- *   slack-dm.ts      dmConfigured, lookupSlackUser, sendSlackDm, slackIdentityOf, resolveSlackIdentity
- *   message.ts       buildAlertLine, buildDmText
+ *   slack-dm.ts      dmConfigured, lookupSlackUser, sendSlackDm, slackIdentityOf, resolveSlackIdentity, SlackDmError
+ *   message.ts       buildAlertLine, buildDmText, slackToPlain (a stored message as the page shows it)
  *   validate.ts      validateAlertProposal
+ *   accounts.ts      usableAccounts (the accounts a proposal may use today), goneClients, unreadAccounts
  *   compose-prompt.ts  prompt, relay body, extraction of the ```alert block
+ *
+ * Units, once for every file: money in euros; `ctr`, `changePct` and the thresholds of drop_pct /
+ * rise_pct are percentages (1.2 = 1,2 %, 50 = half), never ratios; `roas` is a ratio (2.5).
+ * Days are YYYY-MM-DD: `ClientSeries.until` is the last full day in Paris, `Evaluation.asOf` the last
+ * day of the window judged (the day in progress for a live stop), `BacktestTrigger.date` the morning
+ * the message would have been received.
  */
 
 export type AlertPlatform = "meta" | "google";
@@ -86,7 +93,11 @@ export interface AlertDefinition {
   windowDays: AlertWindow;
   /** Read only by drop_pct and rise_pct. */
   compare: AlertCompare;
-  /** Below these over the window, the check is skipped (too little data to judge). */
+  /**
+   * Below these over the window, the check is skipped (too little data to judge).
+   * One exception, cpaSpendFloor below: a CPA « above » with too few conversions (or none)
+   * triggers all the same once the spend reaches threshold × max(minConversions, 1).
+   */
   guards: { minSpend?: number; minConversions?: number };
   checks: AlertChecks;
   weekdaysOnly: boolean;
@@ -114,6 +125,33 @@ export function readDefinition(json: string | null | undefined): AlertDefinition
   } catch {
     return null;
   }
+}
+
+/**
+ * CPA « above » only: the spend from which the alert triggers whatever the
+ * conversions — threshold × the conversions the guard asks for (one at least).
+ * With fewer conversions than the guard (or none at all) and that much spent,
+ * the CPA would be over the threshold even with the conversions the guard
+ * waits for: 900 € spent without a sale is the very case « CPA > 60 € » is
+ * created for, and it must not be skipped for lack of conversions.
+ * null for anything else (« below » keeps its guard).
+ */
+export function cpaSpendFloor(def: Pick<AlertDefinition, "metric" | "condition" | "threshold" | "guards">): number | null {
+  if (def.metric !== "cpa" || def.condition !== "above") return null;
+  if (typeof def.threshold !== "number" || !Number.isFinite(def.threshold) || def.threshold <= 0) return null;
+  const min = def.guards?.minConversions;
+  return def.threshold * Math.max(typeof min === "number" && Number.isFinite(min) ? min : 0, 1);
+}
+
+/**
+ * Days between the window and the one a variation is compared with.
+ * previous_window: the N days just before. same_weekdays: back by whole
+ * weeks, as many as it takes to clear the window — 7 days for a window of 1,
+ * 3 or 7 days, 14 for 14, 35 for 30. One place for the figure, so that the
+ * words on the card and in the message say what the engine compares.
+ */
+export function compareShiftDays(def: Pick<AlertDefinition, "windowDays" | "compare">): number {
+  return def.compare === "same_weekdays" ? Math.ceil(def.windowDays / 7) * 7 : def.windowDays;
 }
 
 // ── Series ───────────────────────────────────────────────────────────────────
@@ -181,7 +219,10 @@ export interface Evaluation {
   reason?: string;
   /** Last day of the window (YYYY-MM-DD). */
   asOf: string;
-  /** The part that decides: `combined`, or the platform that triggered (first one) when aggregation is `each`. */
+  /**
+   * The part that decides: `combined`, or the platform that triggered (first one) when aggregation is `each`.
+   * null even when `triggered` for a CPA « above » that spent without any conversion: there is no CPA to give.
+   */
   value: number | null;
   baseline: number | null;
   changePct: number | null;
@@ -191,6 +232,10 @@ export interface Evaluation {
 
 // ── Backtest ─────────────────────────────────────────────────────────────────
 
+/**
+ * `date` = the day the message would have been received (YYYY-MM-DD): the morning after the last
+ * day of the window, as the cron does. `value` may be null (CPA « above » without any conversion).
+ */
 export interface BacktestTrigger { date: string; value: number | null; changePct: number | null }
 
 export interface Backtest {
@@ -201,7 +246,7 @@ export interface Backtest {
   messages: BacktestTrigger[];
   /** Days not judged (guards, unreadable data). */
   skippedDays: number;
-  /** Value today, and its spread over the replayed days. */
+  /** Value today, and its spread over the replayed days that have one (a day without a value is left out, never counted as 0). */
   current: number | null;
   min: number | null;
   median: number | null;
@@ -231,15 +276,26 @@ export type ClientAlertStatus = "draft" | "active" | "paused" | "review" | "erro
 
 export interface RunSummary {
   slot: number | null;
+  /** Alerts evaluated at this pass (those sent to `review` are not). */
   checked: number;
+  /**
+   * EVENTS recorded at this pass — a trigger or a reminder worth a message — not the alerts whose
+   * condition is true: an alert that stays true in its silence is checked, not triggered.
+   */
   triggered: number;
+  /** Alerts evaluated that could not be judged. */
   skipped: number;
-  /** Private messages really sent. */
+  /**
+   * Private messages really sent: one per consultant, whatever the number of events it carries —
+   * so `triggered` is not `sent` + `held`.
+   */
   sent: number;
   /** Events recorded without sending (CLIENT_ALERTS_SEND off, or explicit dry run). */
   dryRun: boolean;
-  /** Events held back: daily cap, flood guard, no Slack identity. */
+  /** Events held back on purpose: daily cap, per-run cap, flood guard, no Slack identity, webhook not configured. */
   held: number;
+  /** Events whose private message could not be delivered: their alerts are tried again at the next pass. */
+  failed: number;
   errors: string[];
 }
 

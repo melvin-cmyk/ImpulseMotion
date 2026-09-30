@@ -21,13 +21,38 @@ export const UNKNOWN_RECHECK_MS = 24 * 3_600_000;
 const MEMBER_RE = /^[UW][A-Z0-9]{8,20}$/;
 const EMAIL_RE = /^[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9][a-z0-9.-]{0,251}\.[a-z]{2,}$/;
 
-/** n8n or Slack failed (as opposed to a refused input): nothing is known about the person. */
+/**
+ * n8n or Slack failed (as opposed to a refused input): nothing is known about the person.
+ * `message` is what a consultant reads (the page, the card of a trigger that was not delivered);
+ * `detail` is the technical cause — Slack's own code, the HTTP status — for the logs and the cron's answer only.
+ */
 export class SlackDmError extends Error {
-  constructor(message: string) {
+  readonly detail: string;
+  constructor(message: string, detail: string = message) {
     super(message);
     this.name = "SlackDmError";
+    this.detail = detail;
   }
 }
+
+const SERVICE = "le service d'envoi vers Slack";
+/** Slack's codes a consultant may meet, in words; anything else is « Slack a refusé l'envoi ». */
+const SLACK_WORDS: Record<string, string> = {
+  users_not_found: "Slack ne connaît pas ce compte",
+  user_not_found: "Slack ne connaît pas ce compte",
+  channel_not_found: "Slack ne trouve pas la conversation privée avec ce compte",
+  account_inactive: "ce compte Slack est désactivé",
+  user_disabled: "ce compte Slack est désactivé",
+  cannot_dm_bot: "ce compte Slack est un robot : il ne reçoit pas de message privé",
+  missing_scope: "l'application Slack n'a pas encore le droit d'envoyer des messages privés",
+  not_authed: "la connexion de l'application à Slack est à refaire",
+  invalid_auth: "la connexion de l'application à Slack est à refaire",
+  token_revoked: "la connexion de l'application à Slack est à refaire",
+  token_expired: "la connexion de l'application à Slack est à refaire",
+  ratelimited: "Slack limite les envois pour le moment",
+  rate_limited: "Slack limite les envois pour le moment",
+  unauthorized: `${SERVICE} a refusé la demande`,
+};
 
 /** A Slack member id — never a channel (C… / G…) nor a conversation (D…). */
 export function isSlackMemberId(input: unknown): input is string {
@@ -56,7 +81,7 @@ export function dmConfigured(): boolean {
 
 async function call(body: Record<string, unknown>, timeoutMs: number): Promise<Record<string, unknown>> {
   const cfg = dmWebhook();
-  if (!cfg) throw new SlackDmError("webhook n8n des messages privés non configuré");
+  if (!cfg) throw new SlackDmError("l'envoi des messages privés Slack n'est pas encore branché", "webhook n8n des messages privés non configuré");
   let res: Response;
   try {
     res = await fetch(cfg.url, {
@@ -67,7 +92,7 @@ async function call(body: Record<string, unknown>, timeoutMs: number): Promise<R
     });
   } catch (err) {
     const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
-    throw new SlackDmError(timedOut ? "n8n ne répond pas" : "n8n injoignable");
+    throw new SlackDmError(timedOut ? `${SERVICE} ne répond pas` : `${SERVICE} est injoignable`, timedOut ? "n8n ne répond pas" : "n8n injoignable");
   }
   const text = await res.text().catch(() => "");
   let json: Record<string, unknown> = {};
@@ -75,12 +100,13 @@ async function call(body: Record<string, unknown>, timeoutMs: number): Promise<R
   if (!json || typeof json !== "object" || Array.isArray(json)) json = {};
   if (!res.ok || json.ok === false) {
     // Slack's own code (users_not_found, missing_scope, channel_not_found…), and the scope it asks for.
-    const code = typeof json.error === "string" && json.error ? json.error : `n8n ${res.status}`;
+    const slack = typeof json.error === "string" && json.error ? json.error : null;
     const needed = typeof json.needed === "string" && json.needed ? ` (${json.needed})` : "";
-    throw new SlackDmError(`${code}${needed}`.slice(0, 200));
+    const words = slack ? SLACK_WORDS[slack] ?? "Slack a refusé l'envoi" : `${SERVICE} a répondu par une erreur`;
+    throw new SlackDmError(words, `${slack ?? `n8n ${res.status}`}${needed}`.slice(0, 200));
   }
   // An empty or foreign 200 is not a success: a message reported as sent must have been sent.
-  if (json.ok !== true) throw new SlackDmError("réponse n8n inattendue");
+  if (json.ok !== true) throw new SlackDmError(`${SERVICE} a donné une réponse inattendue`, "réponse n8n inattendue");
   return json;
 }
 
@@ -92,7 +118,7 @@ export async function lookupSlackUser(email: string): Promise<{ id: string; name
   if (res.user === null) return null;
   const user = (res.user && typeof res.user === "object" ? res.user : {}) as Record<string, unknown>;
   // Anything else than a member id is a failure, never « nobody »: the person would be marked unknown for a day.
-  if (!isSlackMemberId(user.id)) throw new SlackDmError("réponse n8n inattendue");
+  if (!isSlackMemberId(user.id)) throw new SlackDmError(`${SERVICE} a donné une réponse inattendue`, "réponse n8n inattendue");
   const name = typeof user.name === "string" ? user.name.trim().slice(0, 120) : "";
   return { id: user.id, name: name || null };
 }

@@ -26,6 +26,9 @@ let nextId = 1;
 let clock = Date.UTC(2026, 8, 1);
 let relayDown = false;
 let seriesDown = false;
+let clientsDown = false;
+/** Account ids the platforms cannot read: the series carries their `error`, as the real read does. */
+const unreadable = new Set<string>();
 let backtestMessages = 2;
 let backtestHashOverride: string | null = null;
 let slackConfigured = true;
@@ -86,7 +89,10 @@ vi.mock("@/lib/prisma", () => ({
         return { count: hit.length };
       },
     },
-    alertClient: { findUnique: async ({ where }: { where: { id: string } }) => clients.find((c) => c.id === where.id) ?? null },
+    alertClient: {
+      findUnique: async ({ where }: { where: { id: string } }) => clients.find((c) => c.id === where.id) ?? null,
+      findMany: async ({ where }: { where: { id: { in: string[] } } }) => clients.filter((c) => where.id.in.includes(c.id)),
+    },
     user: { findUnique: async ({ where }: { where: { id: string } }) => users.find((u) => u.id === where.id) ?? null },
     userAdAccount: { findMany: async ({ where }: { where: { userId: string } }) => grants.filter((g) => g.userId === where.userId) },
   },
@@ -98,11 +104,13 @@ vi.mock("@/lib/auto-alerts/clients", async (original) => {
   const real = await original<typeof import("@/lib/auto-alerts/clients")>();
   return {
     ...real,
-    loadAlertClients: async (scope: Parameters<typeof real.clientInScope>[0]) =>
-      clients
+    loadAlertClients: async (scope: Parameters<typeof real.clientInScope>[0]) => {
+      if (clientsDown) throw new Error("Invalid `prisma.alertClient.findMany()` invocation: Can't reach database server at ep-twilight");
+      return clients
         .filter((c) => !c.gone)
         .map((c) => ({ id: c.id, key: `k:${c.id}`, name: c.name, accounts: real.parseAccounts(c.accountsJson as string), dashboardId: null, slackChannel: "#canal-du-client", slackChannelId: "C123", autoAlerts: true, autoAlertConfig: "{}", dormant: !!c.dormant, lastScanAt: null }))
-        .filter((c) => real.clientInScope(scope, c.accounts)),
+        .filter((c) => real.clientInScope(scope, c.accounts));
+    },
   };
 });
 vi.mock("@/lib/client-alerts/series", () => ({
@@ -111,10 +119,12 @@ vi.mock("@/lib/client-alerts/series", () => ({
     if (seriesDown) throw new Error("Meta rate limit");
     return {
       readAt: "2026-09-30T06:00:00.000Z", until: "2026-09-29",
-      accounts: accounts.map((account) => ({
-        account, currency: "EUR", eurRate: 1, today: null,
-        days: [{ date: "2026-09-29", spend: 100, conversions: 4, revenue: 300, clicks: 40, impressions: 4000 }],
-      })),
+      accounts: accounts.map((account) => (unreadable.has(account.accountId)
+        ? { account, currency: "EUR", eurRate: 1, today: null, days: [], error: "lecture Google Ads impossible pour le moment" }
+        : {
+          account, currency: "EUR", eurRate: 1, today: null,
+          days: [{ date: "2026-09-29", spend: 100, conversions: 4, revenue: 300, clicks: 40, impressions: 4000 }],
+        })),
     };
   },
   summarizeSeries: (series: ClientSeries) => `RÉSUMÉ DES CHIFFRES (${series.accounts.map((a) => a.account.accountId).join("+")})`,
@@ -214,7 +224,8 @@ beforeEach(() => {
   alerts.length = 0; events.length = 0; clients.length = 0; users.length = 0; grants.length = 0;
   writes.length = 0; relayCalls.length = 0; usageRows.length = 0; seriesReads.length = 0;
   nextId = 1;
-  relayDown = false; seriesDown = false; backtestMessages = 2; backtestHashOverride = null; slackConfigured = true;
+  relayDown = false; seriesDown = false; clientsDown = false; backtestMessages = 2; backtestHashOverride = null; slackConfigured = true;
+  unreadable.clear();
   session = LEA;
   clients.push(
     { id: "c-lpev", name: "LPEV", accountsJson: JSON.stringify([META, GOOGLE]), gone: false, dormant: false },
@@ -334,6 +345,31 @@ describe("alertes client API — liste", () => {
     expect(mine.events[0]).toEqual({ id: "e7", triggeredAt: "2026-09-07T00:00:00.000Z", kind: "trigger", value: 66, message: "CPA à 66 €", dryRun: true, notifiedAt: null, notifyError: null });
     expect(json.alerts[0]).toMatchObject({ status: "draft", definition: null, backtest: null, empty: true, events: [] });
     expect(JSON.stringify(json)).not.toContain("chatJson");
+  });
+
+  it("rend le message d'un déclenchement en texte lisible : ni étoiles ni entités de Slack", async () => {
+    const id = await active(LEA);
+    events.push({
+      id: "e-slack", alertId: id, kind: "trigger", triggeredAt: new Date("2026-09-29T06:10:00Z"), value: null, threshold: 60, detailJson: "{}", dryRun: false,
+      message: "*Saveurs &amp; Vie* — CPA au-dessus de 60 €\n*Aucune conversion pour 900 € dépensés* (seuil : CPA de 60 €)\nDu 27 au 29 sept.",
+      notifiedAt: new Date("2026-09-29T06:10:05Z"), notifyError: null, batchId: "b1",
+    });
+    const listed = (await (await LIST(get())).json()).alerts[0].events[0];
+    expect(listed.message).toBe("Saveurs & Vie — CPA au-dessus de 60 €\nAucune conversion pour 900 € dépensés (seuil : CPA de 60 €)\nDu 27 au 29 sept.");
+    const one = (await (await GET(get(), at(id))).json()).alert.events[0];
+    expect(one.message).toBe(listed.message);
+  });
+
+  it("garde les alertes lisibles quand la liste des clients ne peut pas être construite, sans montrer l'erreur brute", async () => {
+    const id = await active(LEA);
+    clientsDown = true;
+    const res = await LIST(get());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.alerts.map((a: { id: string }) => a.id)).toEqual([id]);
+    expect(json.clients).toEqual([]);
+    expect(json.clientsError).toBe(true);
+    expect(JSON.stringify(json)).not.toMatch(/prisma|database|ep-twilight/);
   });
 
   it("ignore ?all=1 pour un consultant, et le suit pour un vrai admin", async () => {
@@ -525,7 +561,10 @@ describe("alertes client API — une alerte", () => {
   it("refuse une action inconnue, et ne modifie rien d'autre que l'état", async () => {
     const id = await active();
     for (const body of [{ action: "archive" }, { action: "activate" }, {}, { label: "Renommée", status: "paused" }]) {
-      expect((await PATCH(req(body), at(id))).status).toBe(400);
+      const res = await PATCH(req(body), at(id));
+      expect(res.status).toBe(400);
+      // No name of an action of the API on screen.
+      expect((await res.json()).error).toBe("Action inconnue.");
     }
     expect(row(id)).toMatchObject({ status: "active", label: "CPA au-dessus de 60 €" });
     writes.length = 0;
@@ -625,7 +664,9 @@ describe("alertes client API — conversation : appel du relay", () => {
   it("refuse des messages mal formés avant de lire quoi que ce soit", async () => {
     const id = await draft();
     for (const bad of [undefined, [], [{ role: "system", content: "x" }], [{ role: "user", content: 3 }]]) {
-      expect((await CHAT_POST(req({ messages: bad }), at(id))).status).toBe(400);
+      const res = await CHAT_POST(req({ messages: bad }), at(id));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe("La conversation n'a pas pu être lue : rechargez la page, puis réessayez.");
     }
     expect(relayCalls).toEqual([]);
     expect(seriesReads).toEqual([]);
@@ -687,12 +728,15 @@ describe("alertes client API — conversation : propositions", () => {
     const id = await draft();
     const foreign = { ...raw, accounts: [{ platform: "meta", accountId: "999000111" }] };
     const json = await (await CHAT_PUT(req({ messages: thread(foreign), proposals: { m1: "applied" } }), at(id))).json();
-    expect(json.checks).toEqual({ m1: { ok: false, errors: ["Le compte Meta 999000111 ne fait pas partie des comptes de ce client."] } });
+    // The sentence is for the consultant; the fields to write go to the AI alone, with its next message.
+    expect(json.checks.m1.errors).toEqual(["Le compte Meta 999000111 ne fait pas partie des comptes de ce client."]);
+    expect(json.checks.m1).toMatchObject({ ok: false, hints: [expect.stringContaining('"accounts"')] });
+    expect(json.checks.m1.retry).toBeUndefined();
     expect(json.proposals).toEqual({ m1: "invalid" });
     expect(JSON.parse(row(id).chatJson as string).proposals).toEqual({ m1: "invalid" });
   });
 
-  it("valide contre les comptes figés sur l'alerte, pas contre ceux du client aujourd'hui", async () => {
+  it("valide contre les comptes du client que la personne peut lire, et eux seuls", async () => {
     session = SCOPED;
     const id = await draft(SCOPED);
     // The alert of this person holds the Meta account only: Google is not theirs to watch.
@@ -833,8 +877,10 @@ describe("alertes client API — mise en service", () => {
     expect(stored.backtestHash).toBe(stored.definitionHash);
     // The replay stored is the one the server ran, not the one sent.
     expect(JSON.parse(stored.backtestJson as string).messages).toHaveLength(2);
+    // What a validation writes: the rule, its replay, the accounts it was validated against, and a fresh state.
     expect(Object.keys(writes[writes.length - 1].data!).sort()).toEqual([
-      "armed", "backtestAt", "backtestHash", "backtestJson", "consecutiveFailures", "definitionHash", "definitionJson", "label", "lastNote", "status",
+      "accountsJson", "armed", "backtestAt", "backtestHash", "backtestJson", "clientName", "consecutiveFailures", "definitionHash", "definitionJson",
+      "label", "lastCheckedAt", "lastNote", "lastTriggeredAt", "lastValue", "status",
     ]);
   });
 
@@ -894,10 +940,12 @@ describe("alertes client API — mise en service", () => {
   it("remplace l'alerte en service par la nouvelle règle", async () => {
     const id = await active();
     const firstHash = row(id).definitionHash;
-    Object.assign(row(id), { armed: false });
+    // The old rule said something yesterday: disarmed, in its silence.
+    Object.assign(row(id), { armed: false, lastTriggeredAt: new Date("2026-09-29T06:10:00Z"), lastCheckedAt: new Date("2026-09-30T06:10:00Z"), lastValue: 72 });
     const res = await ACTIVATE(req({ proposal: { ...raw, label: "CPA au-dessus de 70 €", threshold: 70 } }), at(id));
     expect(res.status).toBe(200);
-    expect(row(id)).toMatchObject({ status: "active", label: "CPA au-dessus de 70 €", armed: true });
+    // A changed rule starts fresh: armed, and the silence of the OLD rule forgotten.
+    expect(row(id)).toMatchObject({ status: "active", label: "CPA au-dessus de 70 €", armed: true, lastTriggeredAt: null, lastCheckedAt: null, lastValue: null });
     expect(row(id).definitionHash).not.toBe(firstHash);
     expect(row(id).backtestHash).toBe(row(id).definitionHash);
     expect(alerts).toHaveLength(1);
@@ -927,5 +975,202 @@ describe("alertes client API — mise en service", () => {
     slackConfigured = false;
     json = await (await ACTIVATE(req({ proposal: { ...raw, metric: "spend" } }), at(id))).json();
     expect(json.notice).toContain("pas encore branché");
+  });
+
+  it("garde le silence en cours quand la même règle est validée de nouveau", async () => {
+    const id = await active();
+    const said = new Date("2026-09-29T06:10:00Z");
+    const state = { armed: false, lastTriggeredAt: said, lastCheckedAt: new Date("2026-09-30T06:10:00Z"), lastValue: 72 };
+    Object.assign(row(id), state);
+    const hash = row(id).definitionHash;
+
+    // Same rule, another title: the title is not part of the rule. Nothing of the state moves.
+    expect((await ACTIVATE(req({ proposal: { ...raw, label: "Le même CPA, renommé" } }), at(id))).status).toBe(200);
+    expect(row(id).definitionHash).toBe(hash);
+    expect(row(id)).toMatchObject({ status: "active", label: "Le même CPA, renommé", ...state });
+
+    // Back from a pause through a new validation: re-armed as « Reprendre » does, the silence goes on.
+    row(id).status = "paused";
+    expect((await ACTIVATE(req({ proposal: raw }), at(id))).status).toBe(200);
+    expect(row(id)).toMatchObject({ status: "active", armed: true, lastTriggeredAt: said, lastValue: 72 });
+  });
+
+  it("n'enregistre rien tant qu'un compte de la règle n'a pas pu être lu : un rejeu qui n'a rien jugé ne garantit rien", async () => {
+    const id = await draft();
+    unreadable.add(GOOGLE.accountId);
+    writes.length = 0;
+    const res = await ACTIVATE(req({ proposal: raw }), at(id));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe(
+      "Le compte Google Ads « LPEV Search » n'a pas pu être lu pour le moment : la proposition ne peut pas être vérifiée sur les 30 derniers jours. Réessayez dans quelques minutes, ou demandez une alerte qui ne porte pas sur ce compte. L'alerte n'a pas été enregistrée.",
+    );
+    expect(writes).toEqual([]);
+    // The same alert on the account that was read goes through.
+    expect((await ACTIVATE(req({ proposal: { ...raw, accounts: [{ platform: "meta", accountId: META.accountId }] } }), at(id))).status).toBe(200);
+  });
+});
+
+describe("alertes client API — conversation : chiffres qui manquent pour un compte", () => {
+  it("fait attendre la proposition qui porte sur un compte illisible, au lieu de la dire rejouée", async () => {
+    const id = await draft();
+    await CHAT_PUT(req({ messages: thread(), proposals: { m1: "applied" } }), at(id));
+    unreadable.add(GOOGLE.accountId);
+    const json = await (await CHAT_PUT(req({ messages: thread(), proposals: { m1: "applied" } }), at(id))).json();
+    expect(json.checks.m1).toEqual({
+      ok: false, retry: true,
+      errors: ["Le compte Google Ads « LPEV Search » n'a pas pu être lu pour le moment : la proposition ne peut pas être vérifiée sur les 30 derniers jours. Réessayez dans quelques minutes, ou demandez une alerte qui ne porte pas sur ce compte."],
+    });
+    // Not judged is not wrong: its status is kept, and the page names the account.
+    expect(json.proposals).toEqual({ m1: "applied" });
+    expect(json.figures).toEqual({ ok: true, until: "2026-09-29", accounts: 2, unreadable: ["LPEV Search"] });
+    // A proposal on the account that was read is replayed as usual.
+    const metaOnly = { ...raw, accounts: [{ platform: "meta", accountId: META.accountId }] };
+    expect((await (await CHAT_PUT(req({ messages: thread(metaOnly) }), at(id))).json()).checks.m1.ok).toBe(true);
+  });
+
+  it("dit à l'IA et à la page qu'il n'y a pas de chiffres quand aucun compte n'a pu être lu", async () => {
+    const id = await draft();
+    unreadable.add(META.accountId); unreadable.add(GOOGLE.accountId);
+    const json = await (await CHAT_GET(get(), at(id))).json();
+    expect(json.figures).toEqual({ ok: false });
+    await CHAT_POST(req({ messages: [{ role: "user", content: "Bonjour" }] }), at(id));
+    expect(relayCalls[0].turnContext).toContain("ILLISIBLES pour le moment");
+    expect(relayCalls[0].turnContext).not.toContain("RÉSUMÉ DES CHIFFRES");
+  });
+});
+
+describe("alertes client API — une alerte « à revoir » a une sortie", () => {
+  const NEW: AlertAccountRef = { platform: "google", accountId: "5550001111", name: "LPEV Search 2026", currency: "EUR" };
+  const lpev = () => clients.find((c) => c.id === "c-lpev")!;
+  const said = new Date("2026-09-20T06:10:00Z");
+
+  /** An alert in service, then the Google account of the client is replaced and the cron sends the alert to review. */
+  async function inReview(): Promise<string> {
+    const id = await active();
+    await CHAT_PUT(req({ messages: thread(), proposals: { m1: "applied" } }), at(id));
+    lpev().accountsJson = JSON.stringify([META, NEW]);
+    Object.assign(row(id), {
+      status: "review", armed: false, lastTriggeredAt: said,
+      lastNote: "Le compte Google Ads « LPEV Search » ne fait plus partie du client « LPEV » : alerte à revoir.",
+    });
+    seriesReads.length = 0; writes.length = 0;
+    return id;
+  }
+
+  it("la conversation travaille sur les comptes actuels du client, pas sur ceux figés sur l'alerte", async () => {
+    const id = await inReview();
+    // The proposal of the conversation covers « all the accounts »: it is checked, and replayed, on today's.
+    const json = await (await CHAT_GET(get(), at(id))).json();
+    expect(json.checks.m1).toMatchObject({ ok: true, proposal: { accounts: [META, NEW] } });
+    expect(json.blocked).toBeUndefined();
+    expect(seriesReads).toEqual([[META, NEW]]);
+
+    // The AI is given today's accounts, and told the alert is to be proposed again on them.
+    await CHAT_POST(req({ messages: [{ role: "user", content: "Remets-la en service" }] }), at(id));
+    const context = relayCalls[0].turnContext!;
+    expect(context).toContain("- google 5550001111 — LPEV Search 2026 (EUR)");
+    expect(context).not.toContain("9876543210");
+    expect(context).toContain("État de cette alerte : à revoir");
+    expect(context).toContain("RÉSUMÉ DES CHIFFRES (1234567890+5550001111)");
+
+    // A proposal that names the account that left is refused, with the sentence of the card.
+    const old = { ...raw, accounts: [{ platform: "google", accountId: GOOGLE.accountId }] };
+    const refused = await (await CHAT_PUT(req({ messages: thread(old) }), at(id))).json();
+    expect(refused.checks.m1).toMatchObject({ ok: false, errors: ["Le compte Google Ads 9876543210 ne fait pas partie des comptes de ce client."] });
+  });
+
+  it("valider de nouveau remet l'alerte en service sur les comptes qui existent, et les enregistre", async () => {
+    const id = await inReview();
+    // « Reprendre » stays closed: the way out is a validation.
+    const resume = await PATCH(req({ action: "resume" }), at(id));
+    expect(resume.status).toBe(409);
+    expect((await resume.json()).error).toBe("Cette alerte est à revoir : ouvrez sa conversation et validez-la de nouveau.");
+    expect(row(id).status).toBe("review");
+
+    const res = await ACTIVATE(req({ proposal: raw }), at(id));
+    expect(res.status).toBe(200);
+    const stored = row(id);
+    expect(JSON.parse(stored.accountsJson as string)).toEqual([META, NEW]);
+    expect(JSON.parse(stored.definitionJson as string).accounts).toEqual([META, NEW]);
+    // Other accounts, another rule: it starts fresh, and what put it in review is forgotten.
+    expect(stored).toMatchObject({ status: "active", armed: true, lastTriggeredAt: null, lastNote: null, consecutiveFailures: 0 });
+    expect(stored.backtestHash).toBe(stored.definitionHash);
+    const json = await res.json();
+    expect(json.alert).toMatchObject({ status: "active", accounts: [META, NEW], clientGone: false });
+  });
+
+  it("suit aussi le nom du client d'aujourd'hui", async () => {
+    const id = await inReview();
+    lpev().name = "LPEV Groupe";
+    await ACTIVATE(req({ proposal: raw }), at(id));
+    expect(row(id).clientName).toBe("LPEV Groupe");
+  });
+
+  it("le dit clairement quand le client lui-même n'existe plus : seule la suppression reste", async () => {
+    for (const vanish of [() => clients.splice(clients.indexOf(lpev()), 1), () => { lpev().gone = true; }]) {
+      const id = await inReview();
+      vanish();
+      const GONE = "Le client « LPEV » n'existe plus dans l'application : cette alerte ne peut plus être vérifiée ni modifiée. Vous pouvez seulement la supprimer.";
+      const before = JSON.stringify(row(id));
+
+      // In the list, and on the alert itself.
+      const listed = (await (await LIST(get())).json()).alerts.find((a: { id: string }) => a.id === id);
+      expect(listed).toMatchObject({ status: "review", clientGone: true });
+      expect((await (await GET(get(), at(id))).json()).alert.clientGone).toBe(true);
+
+      // The conversation is readable, nothing in it can be validated, and the reason is the one to show.
+      const chat = await (await CHAT_GET(get(), at(id))).json();
+      expect(chat.messages).toEqual(thread());
+      expect(chat.blocked).toBe(GONE);
+      expect(chat.checks.m1).toEqual({ ok: false, retry: true, errors: [GONE] });
+      expect(chat.proposals).toEqual({ m1: "applied" });
+      expect(chat.figures).toBeUndefined();
+
+      // Neither the AI nor a validation nor « Reprendre ».
+      const ask = await CHAT_POST(req({ messages: [{ role: "user", content: "Remets-la en service" }] }), at(id));
+      expect(ask.status).toBe(409);
+      expect((await ask.json()).error).toBe(GONE);
+      const validate = await ACTIVATE(req({ proposal: raw }), at(id));
+      expect(validate.status).toBe(409);
+      expect((await validate.json()).error).toBe(GONE);
+      row(id).status = "paused";
+      const resume = await PATCH(req({ action: "resume" }), at(id));
+      expect(resume.status).toBe(409);
+      expect((await resume.json()).error).toBe(GONE);
+      row(id).status = "review";
+      expect(JSON.stringify(row(id))).toBe(before);
+      expect(relayCalls).toEqual([]);
+      expect(seriesReads).toEqual([]);
+
+      // Deleting is what is left.
+      expect((await DELETE(get(), at(id))).status).toBe(200);
+      expect(alerts.find((a) => a.id === id)).toBeUndefined();
+      // Put the client back for the second way of vanishing.
+      if (!clients.some((c) => c.id === "c-lpev")) clients.unshift({ id: "c-lpev", name: "LPEV", accountsJson: JSON.stringify([META, GOOGLE]), gone: false, dormant: false });
+      else Object.assign(lpev(), { gone: false, accountsJson: JSON.stringify([META, GOOGLE]) });
+    }
+  });
+
+  it("ne propose rien à qui n'a plus accès à aucun compte du client", async () => {
+    session = SCOPED;
+    const id = await draft(SCOPED);
+    grants.length = 0;
+    const NO_ACCESS = "Vous n'avez plus accès aux comptes de ce client : cette alerte ne peut pas être modifiée.";
+    expect((await (await CHAT_GET(get(), at(id))).json()).blocked).toBe(NO_ACCESS);
+    const res = await ACTIVATE(req({ proposal: raw }), at(id));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(NO_ACCESS);
+    expect(row(id).status).toBe("draft");
+    expect(seriesReads).toEqual([]);
+  });
+
+  it("garde ses comptes d'origine à une alerte qui ne vient d'aucun client", async () => {
+    const id = await draft();
+    row(id).alertClientId = null;
+    lpev().accountsJson = JSON.stringify([NEW]);
+    seriesReads.length = 0;
+    expect((await ACTIVATE(req({ proposal: raw }), at(id))).status).toBe(200);
+    expect(seriesReads).toEqual([[META, GOOGLE]]);
+    expect((await (await LIST(get())).json()).alerts[0].clientGone).toBe(false);
   });
 });

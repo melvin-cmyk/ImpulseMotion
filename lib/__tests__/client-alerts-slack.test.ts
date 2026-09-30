@@ -39,7 +39,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 import {
-  MAX_DM_CHARS, capDmText, cleanEmail, dmConfigured, dmWebhook, isSlackMemberId, lookupSlackUser, resolveSlackIdentity, sendSlackDm, slackIdentityOf,
+  MAX_DM_CHARS, SlackDmError, capDmText, cleanEmail, dmConfigured, dmWebhook, isSlackMemberId, lookupSlackUser, resolveSlackIdentity, sendSlackDm, slackIdentityOf,
 } from "@/lib/client-alerts/slack-dm";
 import { GET as READ, POST } from "@/app/api/me/slack/route";
 
@@ -54,6 +54,9 @@ let sent: Sent[] = [];
 let answer: { status: number; json?: unknown; text?: string } | "slack" | "down" = "slack";
 /** Slack's directory, read by the stand-in when it answers as the workflow does. */
 const directory = new Map<string, { id: string; name: string }>();
+
+/** console.error of the route: where the technical cause of a Slack failure goes. */
+let logged: ReturnType<typeof vi.spyOn>;
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000);
 const row = (over: Partial<Row> = {}): Row => ({ email: "melvin@impulse-analytics.com", slackEmail: null, slackUserId: null, slackCheckedAt: null, ...over });
@@ -71,6 +74,7 @@ beforeEach(() => {
   directory.set("claire@impulse-analytics.com", { id: CLAIRE, name: "Claire" });
   session = { userId: "u1", role: "consultant" };
   answer = "slack";
+  logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
   vi.stubEnv("N8N_ALERT_WEBHOOK_URL", LEGACY);
   vi.stubEnv("N8N_DM_WEBHOOK_URL", "");
   vi.stubEnv("N8N_ALERT_WEBHOOK_SECRET", "secret-alertes");
@@ -82,7 +86,7 @@ beforeEach(() => {
     return new Response(answer.text ?? JSON.stringify(answer.json), { status: answer.status });
   }));
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe("slack-dm — webhook", () => {
   it("derives the address from the webhook of the consultant alerts", () => {
@@ -111,8 +115,8 @@ describe("slack-dm — webhook", () => {
 
   it("calls nothing when it is not configured", async () => {
     vi.stubEnv("N8N_ALERT_WEBHOOK_URL", "");
-    await expect(lookupSlackUser("melvin@impulse-analytics.com")).rejects.toThrow(/non configuré/);
-    await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toThrow(/non configuré/);
+    await expect(lookupSlackUser("melvin@impulse-analytics.com")).rejects.toThrow("l'envoi des messages privés Slack n'est pas encore branché");
+    await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toMatchObject({ detail: expect.stringMatching(/non configuré/) });
     expect(sent).toEqual([]);
   });
 });
@@ -136,15 +140,33 @@ describe("slack-dm — lookup", () => {
     expect(await lookupSlackUser("melvin@impulse-analytics.com")).toEqual({ id: "W0123456789", name: null });
   });
 
-  it("throws on a failure, with Slack's code and the scope it asks for", async () => {
+  it("throws on a failure: words for the consultant, Slack's code and the scope it asks for as the detail", async () => {
+    const failure = async () => lookupSlackUser("melvin@impulse-analytics.com").then(() => null, (e: unknown) => e as SlackDmError);
     answer = { status: 200, json: { ok: false, error: "missing_scope", needed: "users:read.email" } };
-    await expect(lookupSlackUser("melvin@impulse-analytics.com")).rejects.toThrow("missing_scope (users:read.email)");
+    expect(await failure()).toMatchObject({ name: "SlackDmError", message: "l'application Slack n'a pas encore le droit d'envoyer des messages privés", detail: "missing_scope (users:read.email)" });
     answer = { status: 401, json: { ok: false, error: "unauthorized" } };
-    await expect(lookupSlackUser("melvin@impulse-analytics.com")).rejects.toThrow("unauthorized");
+    expect(await failure()).toMatchObject({ message: "le service d'envoi vers Slack a refusé la demande", detail: "unauthorized" });
     answer = { status: 500, text: "Internal Server Error" };
-    await expect(lookupSlackUser("melvin@impulse-analytics.com")).rejects.toThrow("n8n 500");
+    expect(await failure()).toMatchObject({ message: "le service d'envoi vers Slack a répondu par une erreur", detail: "n8n 500" });
     answer = "down";
-    await expect(lookupSlackUser("melvin@impulse-analytics.com")).rejects.toThrow("n8n injoignable");
+    expect(await failure()).toMatchObject({ message: "le service d'envoi vers Slack est injoignable", detail: "n8n injoignable" });
+    // A code nobody listed is still said in words.
+    answer = { status: 200, json: { ok: false, error: "some_new_slack_code" } };
+    expect(await failure()).toMatchObject({ message: "Slack a refusé l'envoi", detail: "some_new_slack_code" });
+  });
+
+  it("never puts a technical word in what a consultant reads", async () => {
+    const answers = [
+      { status: 200, json: { ok: false, error: "missing_scope", needed: "im:write" } }, { status: 200, json: { ok: false, error: "channel_not_found" } },
+      { status: 200, json: { ok: false, error: "ratelimited" } }, { status: 200, json: { ok: false, error: "account_inactive" } },
+      { status: 401, json: { ok: false, error: "unauthorized" } }, { status: 502, text: "Bad Gateway" }, { status: 200, text: "" }, "down",
+    ] as const;
+    for (const a of answers) {
+      answer = a;
+      const err = await sendSlackDm(MELVIN, "Bonjour").then(() => null, (e: unknown) => e as SlackDmError);
+      expect(err, JSON.stringify(a)).toBeInstanceOf(SlackDmError);
+      expect(err!.message, JSON.stringify(a)).not.toMatch(/n8n|webhook|scope|[a-z]+_[a-z_]+|\b\d{3}\b|json|http/i);
+    }
   });
 
   it("never reads an odd answer as « nobody »", async () => {
@@ -220,11 +242,11 @@ describe("slack-dm — private message", () => {
 
   it("throws with Slack's code when the message is refused", async () => {
     answer = { status: 200, json: { ok: false, error: "channel_not_found", needed: null } };
-    await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toThrow("channel_not_found");
+    await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toMatchObject({ message: "Slack ne trouve pas la conversation privée avec ce compte", detail: "channel_not_found" });
     answer = { status: 400, json: { ok: false, error: "slackUserId must be a member id" } };
-    await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toThrow("slackUserId must be a member id");
+    await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toMatchObject({ message: "Slack a refusé l'envoi", detail: "slackUserId must be a member id" });
     answer = "down";
-    await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toThrow("n8n injoignable");
+    await expect(sendSlackDm(MELVIN, "Bonjour")).rejects.toMatchObject({ detail: "n8n injoignable" });
   });
 
   it("does not call sent what n8n did not confirm", async () => {
@@ -352,11 +374,11 @@ describe("slack-dm — resolveSlackIdentity", () => {
     const checked = hoursAgo(30);
     users.set("u2", row({ slackUserId: MELVIN, slackCheckedAt: checked }));
     answer = "down";
-    await expect(resolveSlackIdentity("u2", { force: true })).rejects.toThrow("n8n injoignable");
+    await expect(resolveSlackIdentity("u2", { force: true })).rejects.toMatchObject({ detail: "n8n injoignable" });
     expect(users.get("u2")).toEqual(row({ slackUserId: MELVIN, slackCheckedAt: checked }));
 
     // A new address whose lookup fails is « never checked », not « unknown ».
-    await expect(resolveSlackIdentity("u2", { force: true, email: "claire@impulse-analytics.com" })).rejects.toThrow("n8n injoignable");
+    await expect(resolveSlackIdentity("u2", { force: true, email: "claire@impulse-analytics.com" })).rejects.toMatchObject({ detail: "n8n injoignable" });
     expect(slackIdentityOf(users.get("u2")!)).toEqual({ email: "claire@impulse-analytics.com", slackUserId: null, checkedAt: null, status: "unchecked" });
   });
 
@@ -430,7 +452,9 @@ describe("/api/me/slack", () => {
     answer = { status: 200, json: { ok: false, error: "missing_scope", needed: "users:read.email" } };
     const res = await post({ action: "check" });
     expect(res.status).toBe(502);
-    expect((await res.json()).error).toBe("Slack n'a pas pu être interrogé (missing_scope (users:read.email)). Réessayez dans quelques minutes.");
+    // The consultant reads words; Slack's code and the scope go to the logs.
+    expect((await res.json()).error).toBe("Slack n'a pas pu être interrogé : l'application Slack n'a pas encore le droit d'envoyer des messages privés. Réessayez dans quelques minutes.");
+    expect(logged).toHaveBeenCalledWith("[client-alerts] slack", "missing_scope (users:read.email)");
     expect(users.get("u1")!.slackUserId).toBe(MELVIN);
   });
 
@@ -471,7 +495,7 @@ describe("/api/me/slack", () => {
     answer = { status: 200, json: { ok: false, error: "channel_not_found" } };
     const res = await post({ action: "test" });
     expect(res.status).toBe(502);
-    expect((await res.json()).error).toBe("Le message de test n'a pas pu être envoyé (channel_not_found). Réessayez dans quelques minutes.");
+    expect((await res.json()).error).toBe("Le message de test n'a pas pu être envoyé : Slack ne trouve pas la conversation privée avec ce compte. Réessayez dans quelques minutes.");
   });
 
   it("refuses an unknown action, and says when the webhook is not set", async () => {
@@ -485,7 +509,7 @@ describe("/api/me/slack", () => {
     for (const action of ["check", "test"]) {
       const res = await post({ action });
       expect(res.status).toBe(503);
-      expect((await res.json()).error).toMatch(/ne sont pas encore configurés/);
+      expect((await res.json()).error).toBe("Les messages privés Slack ne sont pas encore configurés.");
     }
     expect(sent).toEqual([]);
   });

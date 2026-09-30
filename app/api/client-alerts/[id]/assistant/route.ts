@@ -3,7 +3,7 @@
  * only the person who created the alert: nobody else reads or writes its
  * conversation, not even an admin.
  *
- * GET  → the saved conversation ({ messages, proposals, checks, figures })
+ * GET  → the saved conversation ({ messages, proposals, checks, figures, blocked? })
  * PUT  → saves the conversation ({ messages, proposals }) and answers with the
  *        validation of every proposal it holds ({ checks })
  * POST → { messages } → SSE stream from the relay, with the prompt of
@@ -16,9 +16,16 @@
  * to POST /api/client-alerts/[id]/activate, which validates and replays
  * again. The only field of ClientAlert written here is chatJson.
  *
- * The series are read once per request. When they cannot be read the
- * conversation goes on: the AI is told it has no figures, and the proposals
- * wait (`retry`) instead of being shown as wrong.
+ * The accounts are the client's CURRENT ones the person may read
+ * (lib/client-alerts/accounts.ts), not those frozen on the alert: it is what
+ * lets an alert sent to `review` be proposed again on accounts that exist.
+ * When the client itself is gone, nothing can be proposed (`blocked`).
+ *
+ * The series are read once per request and never throw: an account that
+ * cannot be read carries its `error`. When no account is readable the
+ * conversation goes on — the AI is told it has no figures — and a proposal
+ * that covers an unreadable account waits (`retry`) instead of being shown
+ * as wrong, or as replayed when nothing was.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -30,6 +37,7 @@ import { recordAiUsage } from "@/lib/ai-usage";
 import { readClientSeries, summarizeSeries } from "@/lib/client-alerts/series";
 import { backtest } from "@/lib/client-alerts/backtest";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
+import { unreadAccounts, unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
 import { NOISY_MESSAGES, readDefinition, type AlertAccountRef, type ClientSeries } from "@/lib/client-alerts/types";
 import {
   ALERT_CHAT_MAX_MESSAGES, ALERT_CHAT_MAX_MESSAGE_CHARS,
@@ -60,6 +68,8 @@ async function readFigures(accounts: AlertAccountRef[]): Promise<Figures> {
     console.error("[client-alerts] series unreadable", e);
     return { series: null, summary: null };
   }
+  // No account readable: there is nothing for the AI to read — it is told so, rather than handed a table of dashes.
+  if (!series.accounts.some((a) => !a.error && a.days.length > 0)) return { series, summary: null };
   try {
     return { series, summary: summarizeSeries(series) };
   } catch (e) {
@@ -70,17 +80,20 @@ async function readFigures(accounts: AlertAccountRef[]): Promise<Figures> {
 
 /** What the page says of the figures: read until which day, and which accounts are missing. */
 function figuresView(accounts: AlertAccountRef[], series: ClientSeries | null) {
-  if (!series) return { ok: false as const };
+  if (!series || !series.accounts.some((a) => !a.error && a.days.length > 0)) return { ok: false as const };
   const unreadable = series.accounts.filter((a) => a.error).map((a) => a.account.name);
   return { ok: true as const, until: series.until, accounts: accounts.length, unreadable };
 }
 
 /**
  * One entry per assistant message that carries (or tried to carry) a proposal:
- * validated against the alert's frozen accounts, then replayed with the code
- * the cron runs.
+ * validated against the accounts the client has today, then replayed with the
+ * code the cron runs. `blocked` (the client is gone, or out of the person's
+ * reach): nothing is judged, every proposal waits with that reason.
  */
-function checksOf(messages: Array<{ role: string; content: string }>, accounts: AlertAccountRef[], series: ClientSeries | null): Record<string, ProposalCheck> {
+function checksOf(
+  messages: Array<{ role: string; content: string }>, accounts: AlertAccountRef[], series: ClientSeries | null, blocked: string | null = null,
+): Record<string, ProposalCheck> {
   const out: Record<string, ProposalCheck> = {};
   for (const [i, m] of messages.entries()) {
     if (m.role !== "assistant") continue;
@@ -88,9 +101,17 @@ function checksOf(messages: Array<{ role: string; content: string }>, accounts: 
     if (extracted.kind === "none") continue;
     const key = proposalKey(i);
     if (extracted.kind === "malformed") { out[key] = { ok: false, errors: extracted.errors }; continue; }
+    // Not the proposal's fault: what was known of it is kept (`retry`).
+    if (blocked) { out[key] = { ok: false, errors: [blocked], retry: true }; continue; }
     if (!series) { out[key] = { ok: false, errors: [FIGURES_UNREADABLE], retry: true }; continue; }
     const check = checkAlertProposal(m.content, (input) => validateAlertProposal(input, { accounts, series }));
-    if (check.kind !== "valid") { out[key] = { ok: false, errors: check.kind === "invalid" ? check.errors : ["Proposition illisible."] }; continue; }
+    if (check.kind !== "valid") {
+      out[key] = check.kind === "invalid" ? { ok: false, errors: check.errors, hints: check.hints } : { ok: false, errors: ["Proposition illisible."] };
+      continue;
+    }
+    // A replay over an account that could not be read judges nothing: it must not read as « never triggered ».
+    const unread = unreadAccounts(check.proposal.accounts, series);
+    if (unread.length) { out[key] = { ok: false, errors: [unreadText(unread)], retry: true }; continue; }
     try {
       const replay = backtest(check.proposal, series);
       out[key] = { ok: true, proposal: check.proposal, warnings: check.warnings, backtest: replay, noisy: replay.messages.length > NOISY_MESSAGES };
@@ -134,13 +155,17 @@ function readChat(chatJson: string | null | undefined): { messages: ThreadMessag
   return { messages: [], proposals: {} };
 }
 
-/** The alert, or the answer to give instead: unknown (or not visible to this person), or not theirs to talk to. */
+/**
+ * The alert, or the answer to give instead: unknown (or not visible to this person), or not theirs to talk to.
+ * `accounts` = what a proposal may use today; `blocked` = why nothing can be proposed any more, when it is so.
+ */
 async function loadOwnAlert(id: string, session: Session) {
   const alert = await prisma.clientAlert.findUnique({ where: { id } });
   const access = alert ? alertAccess(session, alert) : null;
   if (!alert || !access) return { error: NextResponse.json({ error: ALERT_NOT_FOUND }, { status: 404 }) } as const;
   if (access !== "owner") return { error: NextResponse.json({ error: OWNER_ONLY }, { status: 403 }) } as const;
-  return { alert, accounts: readAccounts(alert.accountsJson) } as const;
+  const usable = await usableAccounts(alert, readAccounts(alert.accountsJson), session);
+  return { alert, accounts: usable.accounts, blocked: usable.state === "ok" ? null : usable.reason } as const;
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -153,10 +178,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const chat = readChat(loaded.alert.chatJson);
   // Read even for an empty conversation: the figures are then ready when the first message is sent.
   const { series } = await readFigures(loaded.accounts);
-  const checks = checksOf(chat.messages, loaded.accounts, series);
+  const checks = checksOf(chat.messages, loaded.accounts, series, loaded.blocked);
   return NextResponse.json({
     messages: chat.messages, proposals: sanitizeStatuses(chat.proposals, checks), checks,
-    figures: figuresView(loaded.accounts, series),
+    // Nothing to read for an alert whose client is gone: the page says why instead.
+    ...(loaded.blocked ? { blocked: loaded.blocked } : { figures: figuresView(loaded.accounts, series) }),
   });
 }
 
@@ -170,10 +196,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
   const body = await req.json().catch(() => ({}));
   const messages = sanitizeMessages(body?.messages) ?? [];
   const { series } = await readFigures(loaded.accounts);
-  const checks = checksOf(messages, loaded.accounts, series);
+  const checks = checksOf(messages, loaded.accounts, series, loaded.blocked);
   const proposals = sanitizeStatuses(body?.proposals, checks);
   await prisma.clientAlert.update({ where: { id }, data: { chatJson: JSON.stringify({ messages, proposals }) } });
-  return NextResponse.json({ ok: true, proposals, checks, figures: figuresView(loaded.accounts, series) });
+  return NextResponse.json({
+    ok: true, proposals, checks,
+    ...(loaded.blocked ? { blocked: loaded.blocked } : { figures: figuresView(loaded.accounts, series) }),
+  });
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
@@ -183,10 +212,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   const loaded = await loadOwnAlert(id, guard.session);
   if ("error" in loaded) return loaded.error;
   const { alert, accounts } = loaded;
+  // No account left to talk about: the AI is not asked for an alert nobody could validate.
+  if (loaded.blocked) return NextResponse.json({ error: loaded.blocked }, { status: 409 });
 
   const body = await req.json().catch(() => ({}));
   const messages = sanitizeMessages(body?.messages);
-  if (!messages) return NextResponse.json({ error: "messages invalid" }, { status: 400 });
+  if (!messages) return NextResponse.json({ error: "La conversation n'a pas pu être lue : rechargez la page, puis réessayez." }, { status: 400 });
 
   const { summary } = await readFigures(accounts);
 

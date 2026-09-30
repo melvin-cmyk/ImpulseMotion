@@ -15,7 +15,7 @@
 import { AlertTriangle, BellRing, CheckCircle2, History, Loader2, XCircle } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import type { AlertDefinition, Backtest } from "@/lib/client-alerts/types";
-import { PLATFORM_LABEL, cardNotes, formatValue, guardsLine, replayLine, replayOf, ruleSentence, settingsLine, unbreakable } from "@/components/client-alerts/alert-model";
+import { PLATFORM_LABEL, cardNotes, guardsLine, replayLine, replayOf, ruleSentence, settingsLine, statsLine, unbreakable } from "@/components/client-alerts/alert-model";
 
 /**
  * checking    the server is validating and replaying the proposal
@@ -28,8 +28,9 @@ import { PLATFORM_LABEL, cardNotes, formatValue, guardsLine, replayLine, replayO
  * inService   it is the alert in service
  * paused      it is the alert, which is paused
  * replaced    it was validated, then another proposal took its place
+ * closed      nothing can be validated any more (the client is gone): the reason, no button
  */
-export type CardState = "checking" | "unverified" | "invalid" | "pending" | "confirming" | "applying" | "failed" | "inService" | "paused" | "replaced";
+export type CardState = "checking" | "unverified" | "invalid" | "pending" | "confirming" | "applying" | "failed" | "inService" | "paused" | "replaced" | "closed";
 
 const primaryBtn = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors";
 const quietBtn = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors";
@@ -56,7 +57,7 @@ export function ProposalCard({
   onCancel: () => void;
   onRecheck: () => void;
 }) {
-  const bad = state === "invalid" || state === "failed" || state === "unverified";
+  const bad = state === "invalid" || state === "failed" || state === "unverified" || state === "closed";
   const live = state === "inService";
   const replay = backtest ? replayOf(backtest) : null;
   const guards = proposal ? guardsLine(proposal) : null;
@@ -98,12 +99,7 @@ export function ProposalCard({
                 <History className="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" />
                 <span className="break-words">{replayLine(replay)}</span>
               </div>
-              <div className="text-gray-400 sm:pl-5">
-                Valeur actuelle : <span className="text-gray-200 tabular-nums">{formatValue(proposal.metric, backtest.current)}</span>
-                {" · "}minimum {formatValue(proposal.metric, backtest.min)}
-                {" · "}médiane {formatValue(proposal.metric, backtest.median)}
-                {" · "}maximum {formatValue(proposal.metric, backtest.max)}
-              </div>
+              <div className="text-gray-400 sm:pl-5 tabular-nums">{unbreakable(statsLine(proposal.metric, backtest))}</div>
               {backtest.skippedDays > 0 && (
                 <div className="text-gray-500 sm:pl-5">
                   {backtest.skippedDays} jour{backtest.skippedDays > 1 ? "s" : ""} non jugé{backtest.skippedDays > 1 ? "s" : ""} (trop peu de données ou chiffres illisibles).
@@ -134,7 +130,10 @@ export function ProposalCard({
         <div className="px-4 py-3">
           <div className="text-xs text-amber-300 bg-amber-950/30 border border-amber-900/50 rounded-lg px-3 py-2">
             <div className="font-semibold mb-1">
-              {state === "invalid" ? "Cette proposition ne peut pas être validée." : state === "unverified" ? "Cette proposition n'a pas pu être vérifiée." : "L'alerte n'a pas été enregistrée."}
+              {state === "invalid" ? "Cette proposition ne peut pas être validée."
+                : state === "unverified" ? "Cette proposition n'a pas pu être vérifiée."
+                : state === "closed" ? "Cette proposition ne peut plus être validée."
+                : "L'alerte n'a pas été enregistrée."}
             </div>
             <ul className="list-disc pl-4 space-y-0.5">
               {errors.map((e, i) => <li key={i} className="break-words">{e}</li>)}
@@ -185,6 +184,9 @@ export function ProposalCard({
         {state === "replaced" && <div className="text-xs text-gray-500">Validée, puis remplacée par une proposition plus récente.</div>}
         {state === "invalid" && (
           <div className="flex items-center gap-2 text-xs text-amber-400"><XCircle className="w-3.5 h-3.5 shrink-0" />Aucune validation possible tant que la proposition n&apos;est pas corrigée.</div>
+        )}
+        {state === "closed" && (
+          <div className="flex items-center gap-2 text-xs text-amber-400"><XCircle className="w-3.5 h-3.5 shrink-0" />Plus aucune validation possible pour cette alerte.</div>
         )}
       </div>
     </div>

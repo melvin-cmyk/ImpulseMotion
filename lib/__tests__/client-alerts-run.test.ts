@@ -88,8 +88,13 @@ const h = vi.hoisted(() => {
     alertClient: table(clients),
     async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> { return fn(db); },
   };
+  /** As lib/client-alerts/slack-dm.ts: words for the consultant, the technical cause apart. */
+  class SlackDmError extends Error {
+    readonly detail: string;
+    constructor(message: string, detail: string = message) { super(message); this.name = "SlackDmError"; this.detail = detail; }
+  }
   return {
-    alerts, events, clients, db,
+    alerts, events, clients, db, SlackDmError,
     read: vi.fn(),
     line: vi.fn(),
     text: vi.fn(),
@@ -102,7 +107,7 @@ const h = vi.hoisted(() => {
 vi.mock("@/lib/prisma", () => ({ prisma: h.db }));
 vi.mock("@/lib/client-alerts/series", () => ({ readClientSeries: h.read }));
 vi.mock("@/lib/client-alerts/message", () => ({ buildAlertLine: h.line, buildDmText: h.text }));
-vi.mock("@/lib/client-alerts/slack-dm", () => ({ dmConfigured: h.configured, resolveSlackIdentity: h.identity, sendSlackDm: h.send }));
+vi.mock("@/lib/client-alerts/slack-dm", () => ({ dmConfigured: h.configured, resolveSlackIdentity: h.identity, sendSlackDm: h.send, SlackDmError: h.SlackDmError }));
 
 import { clientProblem, FLOOD, HELD, isDue, MAX_LINES_PER_DM, runClientAlerts, slotOf } from "@/lib/client-alerts/run";
 import * as route from "@/app/api/cron/client-alerts/route";
@@ -757,18 +762,83 @@ describe("sending", () => {
   });
 
   describe("a delivery that fails", () => {
+    const DOWN = () => new h.SlackDmError("le service d'envoi vers Slack ne répond pas", "n8n ne répond pas");
+
     it("notes the error on the events and counts one failure per alert", async () => {
       seed("a"); seed("b"); seed("calm1"); seed("calm2"); seed("calm3");
       high("a", "b");
-      h.send.mockRejectedValue(new Error("n8n 502"));
+      h.send.mockRejectedValue(DOWN());
       const summary = await runClientAlerts({ now: NOW });
-      expect(summary).toMatchObject({ triggered: 2, sent: 0 });
-      expect(summary.errors.join(" ")).toMatch(/lea@impulse\.test.*n8n 502/);
+      expect(summary).toMatchObject({ triggered: 2, sent: 0, failed: 2, held: 0 });
+      // The cron's answer carries the technical cause; the page, the words a consultant reads.
+      expect(summary.errors.join(" ")).toMatch(/lea@impulse\.test.*n8n ne répond pas/);
       for (const id of ["a", "b"]) {
-        expect(eventsOf(id)[0]).toMatchObject({ notifyError: "n8n 502", notifiedAt: null, batchId: null });
+        expect(eventsOf(id)[0]).toMatchObject({ notifyError: "le service d'envoi vers Slack ne répond pas", notifiedAt: null, batchId: null });
         expect(alert(id)).toMatchObject({ consecutiveFailures: 1, status: "active" });
       }
       expect(alert("calm1").consecutiveFailures).toBe(0);
+    });
+
+    it("puts the alert back as it was before the trigger: the failure does not swallow it", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      h.send.mockRejectedValueOnce(DOWN());
+      await runClientAlerts({ now: NOW });
+      // Nothing was said: not disarmed, no silence started. The event stays, with why.
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null, lastCheckedAt: NOW, consecutiveFailures: 1, status: "active" });
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: "le service d'envoi vers Slack ne répond pas" });
+
+      // n8n is back at the next pass, the condition is still true: the consultant is told, three hours late instead of never.
+      const next = at("2026-09-29T09:10:00Z");
+      const summary = await runClientAlerts({ now: next });
+      expect(summary).toMatchObject({ triggered: 1, sent: 1, failed: 0 });
+      expect(h.send).toHaveBeenCalledTimes(2);
+      expect(eventsOf("a")).toHaveLength(2);
+      // The event that failed is never sent later; the new one is the message.
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: "le service d'envoi vers Slack ne répond pas" });
+      expect(eventsOf("a")[1]).toMatchObject({ notifiedAt: next, notifyError: null });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: next, consecutiveFailures: 0 });
+      // And from there, the silence: no third message.
+      await runClientAlerts({ now: at("2026-09-29T12:10:00Z") });
+      expect(h.send).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not try again when the situation is back to normal meanwhile", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      h.send.mockRejectedValueOnce(DOWN());
+      await runClientAlerts({ now: NOW });
+      lastDay.clear();
+      await runClientAlerts({ now: at("2026-09-29T09:10:00Z") });
+      expect(h.send).toHaveBeenCalledTimes(1);
+      expect(eventsOf("a")).toHaveLength(1);
+    });
+
+    it("puts a reminder back too: the silence of the last message delivered goes on", async () => {
+      // Said four days ago, still true, reminders asked for.
+      const said = at("2026-09-25T06:10:00Z");
+      seed("a", { armed: false, lastTriggeredAt: said }, { remind: true }); seed("calm1"); seed("calm2");
+      high("a");
+      h.send.mockRejectedValueOnce(DOWN());
+      await runClientAlerts({ now: NOW });
+      expect(eventsOf("a")[0]).toMatchObject({ kind: "reminder", notifiedAt: null });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: said });
+      await runClientAlerts({ now: at("2026-09-29T09:10:00Z") });
+      expect(eventsOf("a")[1]).toMatchObject({ kind: "reminder", notifiedAt: at("2026-09-29T09:10:00Z") });
+    });
+
+    it("leaves alone a state a person changed since the trigger", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      // While the message is on its way, the consultant validates a new rule: fresh state, another instant.
+      const mine = at("2026-09-29T06:10:30Z");
+      h.send.mockImplementationOnce(async () => {
+        Object.assign(alert("a"), { armed: false, lastTriggeredAt: mine });
+        throw DOWN();
+      });
+      await runClientAlerts({ now: NOW });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: mine, consecutiveFailures: 1 });
     });
 
     it(`switches the alert to error at ${MAX_DELIVERY_FAILURES} failures in a row`, async () => {
@@ -776,11 +846,11 @@ describe("sending", () => {
       seed("third", { consecutiveFailures: MAX_DELIVERY_FAILURES - 1 });
       for (let i = 0; i < 3; i++) seed(`calm${i}`);
       high("second", "third");
-      h.send.mockRejectedValue(new Error("n8n 502"));
+      h.send.mockRejectedValue(DOWN());
       await runClientAlerts({ now: NOW });
       expect(alert("second")).toMatchObject({ consecutiveFailures: MAX_DELIVERY_FAILURES - 1, status: "active", lastNote: null });
       expect(alert("third")).toMatchObject({ consecutiveFailures: MAX_DELIVERY_FAILURES, status: "error" });
-      expect(alert("third").lastNote).toMatch(/non remis 3 fois de suite/);
+      expect(alert("third").lastNote).toBe("Message privé Slack non remis 3 fois de suite (le service d'envoi vers Slack ne répond pas) : alerte arrêtée. Reprenez-la une fois l'envoi rétabli.");
       // An alert in error is no longer checked.
       const later = at("2026-10-03T06:10:00Z");
       await runClientAlerts({ now: later });
@@ -788,23 +858,77 @@ describe("sending", () => {
       expect(alert("second").lastCheckedAt).toEqual(later);
     });
 
-    it("treats a lookup of the Slack identity that fails as a failed delivery", async () => {
+    it(`ends in error after ${MAX_DELIVERY_FAILURES} passes that fail in a row, one event each`, async () => {
       seed("a"); seed("calm1"); seed("calm2");
       high("a");
-      h.identity.mockRejectedValue(new Error("Slack injoignable"));
+      h.send.mockRejectedValue(DOWN());
+      const passes = ["2026-09-29T06:10:00Z", "2026-09-29T09:10:00Z", "2026-09-29T12:10:00Z", "2026-09-29T15:10:00Z"];
+      for (const iso of passes) await runClientAlerts({ now: at(iso) });
+      expect(h.send).toHaveBeenCalledTimes(MAX_DELIVERY_FAILURES);
+      expect(eventsOf("a")).toHaveLength(MAX_DELIVERY_FAILURES);
+      expect(alert("a")).toMatchObject({ status: "error", consecutiveFailures: MAX_DELIVERY_FAILURES, armed: true, lastTriggeredAt: null });
+    });
+
+    it("treats a lookup of the Slack identity that fails as a failed delivery, and never shows the raw error", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      h.identity.mockRejectedValue(new Error("Invalid `prisma.user.findUnique()` invocation: connection terminated"));
       const summary = await runClientAlerts({ now: NOW });
-      expect(summary.sent).toBe(0);
-      expect(h.events[0].notifyError).toBe("Slack injoignable");
-      expect(alert("a").consecutiveFailures).toBe(1);
+      expect(summary).toMatchObject({ sent: 0, failed: 1 });
+      expect(h.events[0].notifyError).toBe("l'envoi a échoué avant d'atteindre Slack");
+      expect(summary.errors.join(" ")).toMatch(/prisma\.user\.findUnique/);
+      expect(alert("a")).toMatchObject({ consecutiveFailures: 1, armed: true, lastTriggeredAt: null });
     });
 
     it("does not stop the messages of the other consultants", async () => {
       seed("a"); seed("b", { createdById: "u2" }); seed("calm1"); seed("calm2"); seed("calm3");
       high("a", "b");
-      h.send.mockRejectedValueOnce(new Error("n8n 502"));
+      h.send.mockRejectedValueOnce(DOWN());
       const summary = await runClientAlerts({ now: NOW });
       expect(summary.sent).toBe(1);
       expect(eventsOf("b")[0].notifiedAt).toEqual(NOW);
+    });
+  });
+
+  describe("held on purpose: the state stays advanced, nothing is tried again", () => {
+    const LATER = ["2026-09-29T09:10:00Z", "2026-09-29T12:10:00Z", "2026-09-30T06:10:00Z"];
+
+    it("a person Slack does not know", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      h.identity.mockResolvedValue({ email: "u1@impulse.test", slackUserId: null, checkedAt: NOW.toISOString(), status: "unknown" });
+      const summary = await runClientAlerts({ now: NOW });
+      expect(summary).toMatchObject({ held: 1, failed: 0, sent: 0 });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW, consecutiveFailures: 0 });
+      for (const iso of LATER) await runClientAlerts({ now: at(iso) });
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0].notifyError).toBe(HELD.identity);
+    });
+
+    it("the webhook not configured, and a dry run", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      h.configured.mockReturnValue(false);
+      expect(await runClientAlerts({ now: NOW })).toMatchObject({ held: 1, failed: 0 });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
+      seed("dry"); high("dry");
+      delete process.env.CLIENT_ALERTS_SEND;
+      await runClientAlerts({ now: at(LATER[0]) });
+      expect(alert("dry")).toMatchObject({ armed: false, lastTriggeredAt: at(LATER[0]), consecutiveFailures: 0 });
+      for (const iso of LATER.slice(1)) await runClientAlerts({ now: at(iso) });
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("dry")).toHaveLength(1);
+    });
+
+    it("the flood guard and the ceilings", async () => {
+      // Five alerts out of five trigger at once: an outage, nothing is sent — and nothing is sent later either.
+      for (let i = 0; i < FLOOD.minAlerts; i++) { seed(`f${i}`); high(`f${i}`); }
+      const summary = await runClientAlerts({ now: NOW });
+      expect(summary).toMatchObject({ held: FLOOD.minAlerts, failed: 0, sent: 0 });
+      for (let i = 0; i < FLOOD.minAlerts; i++) expect(alert(`f${i}`)).toMatchObject({ armed: false, lastTriggeredAt: NOW, consecutiveFailures: 0 });
+      for (const iso of LATER) await runClientAlerts({ now: at(iso) });
+      expect(h.send).not.toHaveBeenCalled();
+      expect(h.events).toHaveLength(FLOOD.minAlerts);
     });
   });
 
@@ -828,17 +952,18 @@ describe("sending", () => {
       expect(h.events).toHaveLength(1);
     });
 
-    it("does not retry at a later pass what was not sent", async () => {
+    it("never sends later the EVENT whose delivery failed — the alert tries again with a new one", async () => {
       seed("a"); seed("calm1"); seed("calm2");
       high("a");
-      h.send.mockRejectedValueOnce(new Error("n8n 502"));
+      h.send.mockRejectedValueOnce(new h.SlackDmError("le service d'envoi vers Slack ne répond pas", "n8n ne répond pas"));
       await runClientAlerts({ now: NOW });
       expect(h.events[0].notifiedAt).toBeNull();
-      // Slack is back, the condition is still true: a stale alert is noise.
-      for (const iso of ["2026-09-29T09:10:00Z", "2026-09-30T06:10:00Z", "2026-10-03T06:10:00Z"]) await runClientAlerts({ now: at(iso) });
-      expect(h.send).toHaveBeenCalledTimes(1);
-      expect(h.events).toHaveLength(1);
+      // Slack is back, the condition is still true: one message, for the event of that pass, and then the silence.
+      for (const iso of ["2026-09-29T09:10:00Z", "2026-09-30T06:10:00Z", "2026-10-01T06:10:00Z"]) await runClientAlerts({ now: at(iso) });
+      expect(h.send).toHaveBeenCalledTimes(2);
+      expect(h.events).toHaveLength(2);
       expect(h.events[0].notifiedAt).toBeNull();
+      expect(h.events[1].notifiedAt).toEqual(at("2026-09-29T09:10:00Z"));
     });
 
     it("does not send an event that was delivered meanwhile", async () => {
@@ -884,7 +1009,7 @@ describe("cron route", () => {
   it("runs the alerts of the slot of the hour and returns the summary", async () => {
     const res = await call();
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ slot: 1, checked: 1, triggered: 1, skipped: 0, sent: 0, dryRun: true, held: 0, errors: [] });
+    expect(await res.json()).toEqual({ slot: 1, checked: 1, triggered: 1, skipped: 0, sent: 0, dryRun: true, held: 0, failed: 0, errors: [] });
     expect(alert("four").lastCheckedAt).toEqual(at("2026-09-29T09:10:00Z"));
     expect(alert("once").lastCheckedAt).toEqual(at("2026-09-29T06:10:00Z"));
   });
