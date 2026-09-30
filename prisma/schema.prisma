@@ -8,13 +8,13 @@ datasource db {
 }
 
 model User {
-  id                   String              @id @default(cuid())
+  id                   String                @id @default(cuid())
   name                 String?
-  email                String?             @unique
+  email                String?               @unique
   emailVerified        DateTime?
   image                String?
   passwordHash         String?
-  role                 String              @default("client")
+  role                 String                @default("client")
   accounts             Account[]
   sessions             Session[]
   adAccounts           UserAdAccount[]
@@ -27,8 +27,13 @@ model User {
   botAccesses          ClientBotAccess[]
   botConversations     BotConversation[]
   consoleConversations ConsoleConversation[]
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  /// Slack member the private alerts are sent to (lib/client-alerts/slack-dm.ts):
+  /// found by e-mail through n8n, `slackEmail` when it differs from `email`.
+  slackUserId          String?
+  slackEmail           String?
+  slackCheckedAt       DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 model UserAdAccount {
@@ -264,7 +269,7 @@ model AlertClient {
 /// A problem found by the automatic scan, followed over time so the Slack
 /// channel only hears about changes (new, worse, reminder, resolved).
 model AutoIncident {
-  id             String    @id @default(cuid())
+  id             String       @id @default(cuid())
   /// null only on rows of the first version, until they are attached to their client.
   clientId       String?
   /// Legacy: the dashboard the first version hung incidents on.
@@ -276,17 +281,17 @@ model AutoIncident {
   platform       String
   kind           String
   severity       String // critical | warning
-  status         String    @default("open") // open | resolved
+  status         String       @default("open") // open | resolved
   title          String
-  detail         String    @db.Text
+  detail         String       @db.Text
   entityLevel    String?
   entityId       String?
   entityName     String?
   /// Consecutive runs without seeing it; closed at 2.
-  missCount      Int       @default(0)
-  remindCount    Int       @default(0)
-  firstSeenAt    DateTime  @default(now())
-  lastSeenAt     DateTime  @default(now())
+  missCount      Int          @default(0)
+  remindCount    Int          @default(0)
+  firstSeenAt    DateTime     @default(now())
+  lastSeenAt     DateTime     @default(now())
   resolvedAt     DateTime?
   /// First delivery to Slack; null = never delivered.
   notifiedAt     DateTime?
@@ -355,18 +360,18 @@ model DashboardPage {
 }
 
 model DashboardWidget {
-  id          String    @id @default(cuid())
+  id          String         @id @default(cuid())
   dashboardId String
   /// null = first page of the dashboard.
   pageId      String?
   type        String
   title       String?
-  position    Int       @default(0)
-  width       String    @default("half")
-  config      String    @default("{}") @db.Text
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  position    Int            @default(0)
+  width       String         @default("half")
+  config      String         @default("{}") @db.Text
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  dashboard   Dashboard      @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
   page        DashboardPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
 
   @@index([dashboardId, position])
@@ -698,4 +703,70 @@ model RoutineEvent {
   routine        Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
 
   @@index([routineId, createdAt])
+}
+
+/// Alert a consultant set up by talking to an AI (lib/client-alerts): one
+/// client, its Meta and Google Ads accounts together, a rule the code
+/// evaluates (the AI never judges), delivered as a private Slack message to
+/// the person who created it. createdById has no relation to User, like
+/// Routine: the history outlives the account.
+model ClientAlert {
+  id                  String             @id @default(cuid())
+  createdById         String
+  createdByEmail      String?
+  /// AlertClient the accounts came from. Plain id: the alert keeps its own copy of the accounts.
+  alertClientId       String?
+  clientName          String             @default("—")
+  label               String             @default("")
+  /// Accounts frozen when the alert was validated: [{"platform","accountId","name","currency"}]
+  accountsJson        String             @default("[]") @db.Text
+  /// AlertDefinition (lib/client-alerts/types.ts); "{}" while the alert is a draft.
+  definitionJson      String             @default("{}") @db.Text
+  definitionHash      String             @default("")
+  /// draft | active | paused | review | error
+  status              String             @default("draft")
+  /// Replay of the definition over the last 30 days; backtestHash must equal definitionHash to activate.
+  backtestJson        String             @default("{}") @db.Text
+  backtestHash        String?
+  backtestAt          DateTime?
+  /// {"messages":[…],"proposals":{…}}
+  chatJson            String             @default("{}") @db.Text
+  /// false after a trigger, until a check finds the condition false again.
+  armed               Boolean            @default(true)
+  lastCheckedAt       DateTime?
+  lastTriggeredAt     DateTime?
+  lastValue           Float?
+  /// Why the last check was skipped or failed, when it was.
+  lastNote            String?            @db.Text
+  consecutiveFailures Int                @default(0)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  events              ClientAlertEvent[]
+
+  @@index([status])
+  @@index([createdById, updatedAt])
+}
+
+/// One trigger of a ClientAlert. notifiedAt is the idempotence of the delivery.
+model ClientAlertEvent {
+  id          String      @id @default(cuid())
+  alertId     String
+  /// trigger | reminder
+  kind        String      @default("trigger")
+  triggeredAt DateTime    @default(now())
+  value       Float?
+  threshold   Float?
+  /// Evaluation at the moment of the trigger (per platform, baseline, window).
+  detailJson  String      @default("{}") @db.Text
+  message     String      @db.Text
+  /// Recorded while sending is off (CLIENT_ALERTS_SEND): nothing went to Slack.
+  dryRun      Boolean     @default(false)
+  notifiedAt  DateTime?
+  notifyError String?
+  /// Events delivered in one private message share a batch.
+  batchId     String?
+  alert       ClientAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@index([alertId, triggeredAt])
+  @@index([notifiedAt])
 }

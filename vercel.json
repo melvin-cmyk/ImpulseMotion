@@ -26,6 +26,15 @@
     },
     "app/api/routines/[id]/run/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/client-alerts/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/client-alerts/[id]/assistant/route.ts": {
+      "maxDuration": 300
+    },
+    "app/api/client-alerts/[id]/activate/route.ts": {
+      "maxDuration": 120
     }
   },
   "crons": [
@@ -68,6 +77,22 @@
     {
       "path": "/api/cron/auto-alerts",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/client-alerts",
+      "schedule": "10 6 * * *"
+    },
+    {
+      "path": "/api/cron/client-alerts",
+      "schedule": "10 9 * * *"
+    },
+    {
+      "path": "/api/cron/client-alerts",
+      "schedule": "10 12 * * *"
+    },
+    {
+      "path": "/api/cron/client-alerts",
+      "schedule": "10 15 * * *"
     },
     {
       "path": "/api/cron/routines",

@@ -114,7 +114,7 @@ const NAV_SECTIONS: NavSection[] = [
         realAdminOnly: true,
       },
       {
-        href: "/admin/alerts",
+        href: "/admin/alerts/assistant",
         icon: BellRing,
         label: "Alertes",
         match: (p) => p.startsWith("/admin/alerts"),

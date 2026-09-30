@@ -43,6 +43,7 @@ const FEATURE_LABEL: Record<string, string> = {
   guide: "Guide de l'application",
   routine_compose: "Routines (création avec l'IA)",
   routine_ai_step: "Routines (synthèse IA à l'exécution)",
+  client_alert_compose: "Alertes (création avec l'IA)",
 };
 type ProfileUsage = Totals & {
   key: string;

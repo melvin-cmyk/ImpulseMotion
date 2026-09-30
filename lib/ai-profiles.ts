@@ -14,6 +14,9 @@
  * - ROUTINE_COMPOSE: the conversation that writes a routine with a
  *   consultant (lib/routines). It reads real accounts and Sheets, then has to
  *   produce a plan that validates: Opus at MEDIUM effort, 20 turns.
+ * - CLIENT_ALERT_COMPOSE: the conversation that turns a consultant's request
+ *   into an alert (lib/client-alerts). No tool: the figures are given with the
+ *   message and the result is checked by code. Sonnet at MEDIUM effort.
  * - One-shot writers (report body, creative analysis, action plans) keep the
  *   relay default (no profile): everything they need is inline in the prompt.
  *
@@ -49,3 +52,6 @@ export const HQ_CONTEXT_PROFILE: AiProfile = fromEnv("AI_HQ_MODEL", "AI_HQ_EFFOR
 
 /** Routine composer: conversation that ends on a validated plan of steps (app/api/routines/[id]/assistant). */
 export const ROUTINE_COMPOSE_PROFILE: AiProfile = fromEnv("AI_ROUTINE_MODEL", "AI_ROUTINE_EFFORT", { model: "opus", effort: "medium", maxTurns: 20 });
+
+/** Alert composer: no tool, the series are in the message (app/api/client-alerts/[id]/assistant). */
+export const CLIENT_ALERT_COMPOSE_PROFILE: AiProfile = fromEnv("AI_ALERT_MODEL", "AI_ALERT_EFFORT", { model: "sonnet", effort: "medium", maxTurns: 2 });
