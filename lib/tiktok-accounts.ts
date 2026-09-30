@@ -67,7 +67,9 @@ export async function checkAdvertiser(id: string): Promise<AdvertiserCheck> {
   try {
     result = await relayDirectTool(`${TIKTOK_SERVER}.get_advertiser_info`, { advertiser_ids: JSON.stringify([id]) }, 20000);
   } catch (e) {
-    return { ok: false, error: `TikTok n'a pas pu être interrogé (${e instanceof Error ? e.message : String(e)}).` };
+    // The cause is for the logs; the message is read by a consultant.
+    console.error("[tiktok] get_advertiser_info:", e instanceof Error ? e.message : String(e));
+    return { ok: false, error: "TikTok n'a pas pu être interrogé pour le moment. Réessayez dans un instant ; si cela persiste, prévenez un administrateur." };
   }
   return parseAdvertiserInfo(result, id);
 }

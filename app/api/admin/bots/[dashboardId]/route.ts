@@ -8,6 +8,7 @@ import {
   sanitizeBotSources,
   suggestClientKey,
 } from "@/lib/admin-bots";
+import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 
 type Ctx = { params: Promise<{ dashboardId: string }> };
 
@@ -59,7 +60,7 @@ function serializeBot(bot: BotRow) {
   };
 }
 
-/** Dashboard + bot complet (sans le hash du token) + accès. */
+/** Dashboard (avec le nombre de comptes TikTok rattachés) + bot complet (sans le hash du token) + accès. */
 export async function GET(_req: Request, { params }: Ctx) {
   const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
@@ -73,7 +74,7 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const { bot, user, ...d } = dashboard;
   return NextResponse.json({
-    dashboard: { ...d, ownerEmail: user.email },
+    dashboard: { ...d, ownerEmail: user.email, tiktokAccounts: (await getDashboardTikTokIds(dashboardId)).length },
     ...(bot ? serializeBot(bot) : { bot: null, accesses: [], ingestConfigured: false }),
     suggestedClientKey: bot ? bot.clientKey : await suggestClientKey(dashboard.name),
   });

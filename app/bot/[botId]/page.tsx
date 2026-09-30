@@ -5,6 +5,7 @@ import { loadBotFor } from "@/lib/bot-access";
 import { parseSources } from "@/lib/bot-types";
 import { suggestionsForSources } from "@/lib/bot-prompt";
 import { isStaff } from "@/lib/auth-helpers";
+import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { BotChat } from "@/components/bot/bot-chat";
 
 /**
@@ -28,6 +29,8 @@ export default async function BotPage({ params }: { params: Promise<{ botId: str
   }
   const { bot } = loaded;
   const sources = parseSources(bot.sourcesJson);
+  // Same rule as the chat route: TikTok with no advertiser attached is not shown.
+  if (sources.tiktok && !(await getDashboardTikTokIds(bot.dashboard.id)).length) delete sources.tiktok;
   const staff = isStaff(session);
   // Staff banner only: a client can never reach a disabled bot (404 above).
   const accessCount = staff && bot.enabled

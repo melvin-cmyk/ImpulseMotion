@@ -2,19 +2,25 @@
 
 /**
  * « Sources de données » card of the client sheet (staff): legacy Meta / Google
- * links (read-only, edited on the dashboard itself) + stored sources (HubSpot)
- * with status / last sync / error, an add-HubSpot form (test then save) and a
- * remove button. Talks to /api/dashboards/[id]/sources*.
+ * links (read-only, edited on the dashboard itself) + stored sources (HubSpot,
+ * TikTok Ads) with status / last sync / error, an add-HubSpot form (test then
+ * save), an add-TikTok form (the account is looked up at TikTok and its name
+ * shown before it can be attached) and a remove button.
+ * Talks to /api/dashboards/[id]/sources*.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Database, Loader2, Plus, Trash2, XCircle } from "lucide-react";
 import { Pill, Section } from "@/components/ui/surface";
 import type { DashboardSourceRef } from "@/lib/sources";
+import type { TikTokAdvertiser } from "@/lib/tiktok-accounts";
 
 type Toast = { message: string; tone: "error" | "ok" };
 type TestResult =
   | { ok: true; portalId: string; hubDomain: string | null; scopesOk: boolean; missingScopes: string[] }
+  | { ok: false; error: string };
+type TikTokCheck =
+  | { ok: true; advertiser: TikTokAdvertiser; alreadyOn: string[] }
   | { ok: false; error: string };
 
 const KIND_LABEL: Record<DashboardSourceRef["kind"], string> = { meta: "Meta Ads", google: "Google Ads", hubspot: "HubSpot", tiktok: "TikTok Ads" };
@@ -30,6 +36,11 @@ const fmtDateTime = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day
 const btn = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-gray-900 border-gray-800 text-gray-300 hover:text-white hover:border-gray-700 transition-colors disabled:opacity-50 disabled:pointer-events-none";
 const btnPrimary = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50 disabled:pointer-events-none";
 const field = "w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500 disabled:opacity-60";
+
+/** Currency and timezone of a stored TikTok account, as kept at the time it was attached. */
+function tiktokDetails(config: Record<string, unknown>): string {
+  return [config.currency, config.timezone].filter((v): v is string => typeof v === "string" && v !== "").join(" · ");
+}
 
 async function readError(res: Response): Promise<string> {
   const body = await res.json().catch(() => ({}));
@@ -47,6 +58,11 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [showTikTok, setShowTikTok] = useState(false);
+  const [advertiserId, setAdvertiserId] = useState("");
+  const [tiktokCheck, setTikTokCheck] = useState<TikTokCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [attaching, setAttaching] = useState(false);
 
   const notify = useCallback((t: Toast) => { if (onToast) onToast(t); else if (t.tone === "error") setError(t.message); }, [onToast]);
 
@@ -113,10 +129,54 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
     }
   }
 
+  function resetTikTok() { setShowTikTok(false); setAdvertiserId(""); setTikTokCheck(null); }
+
+  async function checkTikTok() {
+    const id = advertiserId.trim();
+    if (!id) { notify({ message: "Saisissez l'identifiant du compte TikTok Ads", tone: "error" }); return; }
+    setChecking(true);
+    setTikTokCheck(null);
+    try {
+      const res = await fetch(`/api/dashboards/${dashboardId}/sources`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "tiktok", advertiserId: id }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const json = await res.json() as { check: { advertiser: TikTokAdvertiser; alreadyOn: string[] } };
+      setTikTokCheck({ ok: true, ...json.check });
+    } catch (e) {
+      setTikTokCheck({ ok: false, error: e instanceof Error ? e.message : "Erreur" });
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  async function attachTikTok() {
+    if (!tiktokCheck?.ok) return;
+    setAttaching(true);
+    try {
+      // The id sent is the one of the account shown, not what the field holds now.
+      const res = await fetch(`/api/dashboards/${dashboardId}/sources`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "tiktok", advertiserId: tiktokCheck.advertiser.id, confirm: true }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const json = await res.json() as { source: DashboardSourceRef };
+      notify({ message: `Compte TikTok Ads « ${json.source.label ?? json.source.externalId} » rattaché à ce client`, tone: "ok" });
+      resetTikTok();
+      await load();
+    } catch (e) {
+      notify({ message: `Impossible de rattacher le compte TikTok Ads : ${e instanceof Error ? e.message : "erreur"}`, tone: "error" });
+    } finally {
+      setAttaching(false);
+    }
+  }
+
   async function remove(s: DashboardSourceRef) {
     if (!s.id) return;
     const name = `${KIND_LABEL[s.kind]} ${s.label ? `« ${s.label} » ` : ""}(${s.externalId})`;
-    if (!window.confirm(`Supprimer la source ${name} ?\nLe token sera effacé ; les widgets CRM de ce client n'auront plus de données.`)) return;
+    const consequence = s.kind === "tiktok"
+      ? "L'IA de ce client ne lira plus ce compte."
+      : "Le token sera effacé ; les widgets CRM de ce client n'auront plus de données.";
+    if (!window.confirm(`Supprimer la source ${name} ?\n${consequence}`)) return;
     setRemoving(s.id);
     try {
       const res = await fetch(`/api/dashboards/${dashboardId}/sources/${s.id}`, { method: "DELETE" });
@@ -132,15 +192,21 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
 
   const hasHubspot = !!sources?.some((s) => s.kind === "hubspot");
   const canAdd = secretsConfigured && !showForm;
+  const tiktokAlreadyHere = tiktokCheck?.ok && !!sources?.some((s) => s.kind === "tiktok" && s.externalId === tiktokCheck.advertiser.id);
 
   return (
     <Section
       title="Sources de données"
       icon={<Database className="w-4 h-4 text-violet-400" />}
       action={sources && (
-        <button type="button" className={btn} disabled={!canAdd} onClick={() => setShowForm(true)} title={secretsConfigured ? undefined : "SOURCE_SECRETS_KEY non configurée"}>
-          <Plus className="w-3.5 h-3.5" /> {hasHubspot ? "Remplacer le token HubSpot" : "Ajouter HubSpot"}
-        </button>
+        <div className="flex items-center justify-end gap-2 flex-wrap">
+          <button type="button" className={btn} disabled={showTikTok} onClick={() => setShowTikTok(true)}>
+            <Plus className="w-3.5 h-3.5" /> Ajouter TikTok Ads
+          </button>
+          <button type="button" className={btn} disabled={!canAdd} onClick={() => setShowForm(true)} title={secretsConfigured ? undefined : "SOURCE_SECRETS_KEY non configurée"}>
+            <Plus className="w-3.5 h-3.5" /> {hasHubspot ? "Remplacer le token HubSpot" : "Ajouter HubSpot"}
+          </button>
+        </div>
       )}
     >
       {!secretsConfigured && (
@@ -158,6 +224,7 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
         <div className="divide-y divide-gray-800">
           {sources.map((s) => {
             const st = STATUS[s.status];
+            const details = s.kind === "tiktok" ? tiktokDetails(s.config) : "";
             return (
               <div key={s.id ?? `${s.kind}:${s.externalId}`} className="px-4 py-2.5 flex items-center gap-3">
                 <Pill tone={KIND_TONE[s.kind]} className="shrink-0 w-24 text-center">{KIND_LABEL[s.kind]}</Pill>
@@ -166,7 +233,12 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
                     {s.label ? <>{s.label} <span className="text-gray-500">· {s.externalId}</span></> : s.externalId}
                   </div>
                   <div className="text-[11px] text-gray-500 truncate">
-                    {s.legacy ? "Lié sur le dashboard (lecture seule ici)" : (
+                    {s.legacy ? "Lié sur le dashboard (lecture seule ici)" : s.kind === "tiktok" ? (
+                      <>
+                        Lu par l&apos;IA de ce client{details ? ` · ${details}` : ""}
+                        {s.lastError && <span className="text-red-400"> · {s.lastError}</span>}
+                      </>
+                    ) : (
                       <>
                         {s.hasSecret ? "Token chiffré" : "Aucun token"}
                         {s.lastSyncAt ? ` · dernière synchro ${fmtDateTime(s.lastSyncAt)}` : " · jamais synchronisée"}
@@ -214,6 +286,42 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
               {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Enregistrer
             </button>
             <button type="button" className="text-xs text-gray-500 hover:text-white" onClick={resetForm} disabled={saving}>Annuler</button>
+          </div>
+        </form>
+      )}
+
+      {showTikTok && (
+        <form className="border-t border-gray-800 px-4 py-3 space-y-2" onSubmit={(e) => { e.preventDefault(); void checkTikTok(); }}>
+          <div className="text-xs text-gray-400">
+            <strong className="text-gray-300">Identifiant du compte TikTok Ads</strong> du client : il se lit dans TikTok Ads Manager, en haut à droite sous le nom du compte, ou dans l&apos;adresse de la page après <code className="text-gray-300">aadvid=</code>. Le compte est d&apos;abord retrouvé chez TikTok : vérifiez que son nom est bien celui de ce client avant de le rattacher.
+          </div>
+          <input type="text" inputMode="numeric" autoComplete="off" spellCheck={false} placeholder="7123456789012345678" aria-label="Identifiant du compte TikTok Ads" value={advertiserId} onChange={(e) => { setAdvertiserId(e.target.value); setTikTokCheck(null); }} disabled={checking || attaching} className={`${field} font-mono sm:max-w-xs`} />
+          {tiktokCheck && (
+            <div className={`text-xs flex items-start gap-1.5 ${tiktokCheck.ok ? "text-emerald-300" : "text-red-400"}`}>
+              {tiktokCheck.ok ? <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" /> : <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
+              <span>
+                {tiktokCheck.ok
+                  ? <>Compte « {tiktokCheck.advertiser.name} »{tiktokCheck.advertiser.currency ? ` · ${tiktokCheck.advertiser.currency}` : ""}{tiktokCheck.advertiser.timezone ? ` · ${tiktokCheck.advertiser.timezone}` : ""}</>
+                  : tiktokCheck.error}
+              </span>
+            </div>
+          )}
+          {tiktokCheck?.ok && tiktokCheck.alreadyOn.length > 0 && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">
+              Ce compte est déjà rattaché à {tiktokCheck.alreadyOn.length > 1 ? "d'autres clients" : "un autre client"} : {tiktokCheck.alreadyOn.map((n) => `« ${n} »`).join(", ")}. Ne le rattachez ici que s&apos;il appartient aussi à ce client.
+            </div>
+          )}
+          {tiktokAlreadyHere && (
+            <div className="text-xs text-gray-400">Ce compte est déjà rattaché à ce client : son nom sera simplement mis à jour.</div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="submit" className={btn} disabled={checking || attaching || !advertiserId.trim()}>
+              {checking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Vérifier
+            </button>
+            <button type="button" className={btnPrimary} onClick={() => void attachTikTok()} disabled={attaching || checking || !tiktokCheck?.ok}>
+              {attaching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Rattacher ce compte
+            </button>
+            <button type="button" className="text-xs text-gray-500 hover:text-white" onClick={resetTikTok} disabled={attaching}>Annuler</button>
           </div>
         </form>
       )}

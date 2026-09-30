@@ -7,6 +7,10 @@ let session: { userId: string; role: string; baseRole: string } | null = null;
 const alertClients: Array<{ id: string; name: string; dormant: boolean; gone: boolean; accountsJson: string }> = [];
 const boards: Board[] = [];
 const created: Array<{ userId: string; name?: string; metaAccountId?: string | null; googleCustomerId?: string | null }> = [];
+type BotRow = Record<string, unknown> & { id: string; dashboardId: string; clientKey: string; sourcesJson: string };
+const bots = new Map<string, BotRow>();
+/** TikTok advertisers attached to each dashboard (DashboardSource of kind "tiktok"). */
+const tiktokIds: Record<string, string[]> = {};
 
 vi.mock("@/lib/auth-helpers", () => ({
   requireRealAdmin: async () => {
@@ -22,9 +26,25 @@ vi.mock("@/lib/prisma", () => ({
     },
     dashboard: {
       findMany: async () => boards.map((b) => ({ ...b, user: { email: `${b.userId}@agence.fr` }, bot: null })),
+      findUnique: async ({ where }: { where: { id: string } }) => {
+        const b = boards.find((x) => x.id === where.id);
+        return b ? { id: b.id, name: b.name, metaAccountId: b.metaAccountId, googleCustomerId: b.googleCustomerId, user: { email: `${b.userId}@agence.fr` }, bot: bots.get(b.id) ?? null } : null;
+      },
+    },
+    clientBot: {
+      findUnique: async ({ where }: { where: { clientKey: string } }) => [...bots.values()].find((b) => b.clientKey === where.clientKey) ?? null,
+      upsert: async ({ where, update, create }: { where: { dashboardId: string }; update: Record<string, unknown>; create: Record<string, unknown> }) => {
+        const before = bots.get(where.dashboardId);
+        const row = (before
+          ? { ...before, ...update }
+          : { id: `bot-${where.dashboardId}`, ingestTokenHash: null, lastIngestAt: null, lastIngestRows: null, createdAt: new Date(), updatedAt: new Date(), accesses: [], ...create }) as BotRow;
+        bots.set(where.dashboardId, row);
+        return row;
+      },
     },
   },
 }));
+vi.mock("@/lib/tiktok-accounts", () => ({ getDashboardTikTokIds: async (dashboardId: string) => tiktokIds[dashboardId] ?? [] }));
 vi.mock("@/lib/cockpit/fetch", () => ({ listMetaAccounts: vi.fn(), listGoogleAccounts: vi.fn() }));
 vi.mock("@/lib/cockpit/build", () => ({ syncAccounts: vi.fn() }));
 vi.mock("@/lib/dashboard-widgets", () => ({
@@ -37,10 +57,14 @@ vi.mock("@/lib/dashboard-widgets", () => ({
 }));
 
 import { GET as LIST, POST } from "@/app/api/admin/bots/route";
+import { GET as READ, PUT as SAVE } from "@/app/api/admin/bots/[dashboardId]/route";
 
 const accounts = (...list: Array<["meta" | "google", string]>) => JSON.stringify(list.map(([platform, accountId]) => ({ platform, accountId, name: `Compte ${platform}`, currency: "EUR" })));
 const GET = async () => (await LIST())!;
 const post = async (body: unknown) => (await POST(new Request("http://x/api/admin/bots", { method: "POST", body: JSON.stringify(body) })))!;
+const ctx = (dashboardId: string) => ({ params: Promise.resolve({ dashboardId }) });
+const read = async (dashboardId: string) => (await READ(new Request(`http://x/api/admin/bots/${dashboardId}`), ctx(dashboardId)))!;
+const save = async (dashboardId: string, body: unknown) => (await SAVE(new Request(`http://x/api/admin/bots/${dashboardId}`, { method: "PUT", body: JSON.stringify(body) }), ctx(dashboardId)))!;
 
 describe("/api/admin/bots", () => {
   beforeEach(() => {
@@ -105,5 +129,45 @@ describe("/api/admin/bots", () => {
     expect(await (await post({ clientId: "c1", metaAccountId: "111111", googleCustomerId: "2222222222" })).json()).toEqual({ dashboardId: "new1", created: false });
     expect(created).toHaveLength(1);
     expect(boards).toHaveLength(1);
+  });
+});
+
+describe("/api/admin/bots/[dashboardId] — the TikTok source of a bot", () => {
+  beforeEach(() => {
+    session = { userId: "admin1", role: "admin", baseRole: "admin" };
+    boards.length = 0;
+    bots.clear();
+    for (const k of Object.keys(tiktokIds)) delete tiktokIds[k];
+    boards.push(
+      { id: "d1", userId: "admin1", name: "Dufour", metaAccountId: "111111", googleCustomerId: null, createdAt: new Date("2026-01-01") },
+      { id: "d2", userId: "admin1", name: "LuxTrust", metaAccountId: null, googleCustomerId: "3333333333", createdAt: new Date("2026-01-02") },
+    );
+  });
+
+  it("is closed to anyone but a real admin", async () => {
+    session = { userId: "u", role: "consultant", baseRole: "consultant" };
+    expect((await read("d1")).status).toBe(403);
+    expect((await save("d1", { sources: { tiktok: true } })).status).toBe(403);
+    expect(bots.size).toBe(0);
+  });
+
+  it("says how many TikTok accounts are attached to the dashboard, and to this one only", async () => {
+    tiktokIds.d1 = ["7000000000000000001", "7000000000000000002"];
+    expect((await (await read("d1")).json()).dashboard).toMatchObject({ id: "d1", tiktokAccounts: 2 });
+    expect((await (await read("d2")).json()).dashboard).toMatchObject({ id: "d2", tiktokAccounts: 0 });
+    expect((await read("nope")).status).toBe(404);
+  });
+
+  it("stores the TikTok source with the others and gives it back", async () => {
+    tiktokIds.d1 = ["7000000000000000001"];
+    const saved = await save("d1", { name: "Assistant Dufour", sources: { meta: true, tiktok: true, advertiserId: "999", tiktokIds: ["999"] } });
+    expect(saved.status).toBe(200);
+    expect((await saved.json()).bot.sources).toEqual({ meta: true, tiktok: true });
+    expect(JSON.parse(bots.get("d1")!.sourcesJson)).toEqual({ meta: true, tiktok: true });
+    expect((await (await read("d1")).json()).bot.sources).toEqual({ meta: true, tiktok: true });
+
+    const unticked = await save("d1", { sources: { meta: true, tiktok: false } });
+    expect((await unticked.json()).bot.sources).toEqual({ meta: true, tiktok: false });
+    expect((await save("d1", { sources: { meta: true, tiktok: "yes" } }).then((r) => r.json())).bot.sources).toEqual({ meta: true });
   });
 });

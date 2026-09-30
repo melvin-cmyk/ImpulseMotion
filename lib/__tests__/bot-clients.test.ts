@@ -47,6 +47,18 @@ describe("every client of the agency, with or without a dashboard", () => {
     expect(countBotClients(list)).toMatchObject({ clients: 1, withDashboard: 1, withBot: 1, withoutBot: 0 });
   });
 
+  it("gives the TikTok source of a bot as it was stored, and nothing when it was not ticked", () => {
+    const list = buildBotClients({
+      clients: [client("c1", "LPEV", [["meta", "111111"]]), client("c2", "Dufour", [["meta", "222222"]])],
+      dashboards: [
+        board("d1", "LPEV", "111111", null, { bot: bot("b1", { sourcesJson: JSON.stringify({ meta: true, tiktok: true }) }) }),
+        board("d2", "Dufour", "222222", null, { bot: bot("b2", { sourcesJson: JSON.stringify({ meta: true, tiktok: "oui" }) }) }),
+      ],
+    });
+    const sources = Object.fromEntries(list.clients.map((c) => [c.name, c.dashboards[0].bot?.sources]));
+    expect(sources).toEqual({ LPEV: { meta: true, tiktok: true }, Dufour: { meta: true } });
+  });
+
   it("keeps every account of a client that has several on a platform", () => {
     const list = buildBotClients({
       clients: [client("c1", "Cotton Bird", [["meta", "111111", "Cotton Bird España"], ["meta", "222222", "Cotton Bird Nederland"], ["google", "3333333333"]])],

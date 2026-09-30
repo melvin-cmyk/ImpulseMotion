@@ -11,7 +11,9 @@
  *   MÉTHODE → DATE DU JOUR → CONTEXTE CLIENT → SOURCES DISPONIBLES
  *
  * The relay appends its own "RESTRICTIONS DE PÉRIMÈTRE" block (account ids,
- * GA4 property) after this prompt — we never put ids in here ourselves.
+ * GA4 property) after this prompt — we never put ids in here ourselves, with
+ * one exception: the TikTok advertiser ids, because every TikTok call has to
+ * name one. They are the ones attached to the dashboard, given by the route.
  */
 
 import { parseSources, type BotSources } from "@/lib/bot-types";
@@ -44,6 +46,8 @@ export interface BuildBotPromptInput {
   bot: BotPromptBot;
   dashboard: BotPromptDashboard;
   coverage?: BotDataCoverage | null;
+  /** TikTok advertisers attached to the dashboard (lib/tiktok-accounts.ts). None → TikTok is not offered, even when ticked. */
+  tiktokAdvertiserIds?: string[] | null;
   /** Injected for tests; defaults to now. */
   now?: Date;
 }
@@ -183,7 +187,7 @@ function coverageLines(coverage: BotDataCoverage | null | undefined): string[] {
   return lines;
 }
 
-function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | undefined): string {
+function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | undefined, tiktokIds: string[]): string {
   const lines: string[] = ["SOURCES DISPONIBLES"];
   let n = 0;
 
@@ -199,6 +203,20 @@ function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | un
     lines.push(
       `${n}. Google Ads — outils mcp__mcp-google-ads__*.`,
       "  Dépense (cost_micros ÷ 1 000 000), clics, conversions et valeur attribuées par Google, au niveau campagne, groupe d'annonces, mots-clés. Attribution Google.",
+    );
+  }
+  if (tiktokIds.length) {
+    n++;
+    lines.push(
+      `${n}. TikTok Ads — outils mcp__mcp-tiktok-ads__*.`,
+      "  Dépense, impressions, clics, vues vidéo et conversions attribuées par TikTok, au niveau campagne, groupe d'annonces et annonce. Attribution TikTok.",
+      tiktokIds.length === 1
+        ? `  Chaque appel nomme advertiser_id : ${tiktokIds[0]}, le seul compte autorisé. Ne l'écris jamais dans une réponse.`
+        : `  Chaque appel nomme advertiser_id, l'un des comptes autorisés : ${tiktokIds.join(", ")}. Un appel par compte ; désigne chaque compte par son nom (get_advertiser_info), jamais par cet identifiant, et n'additionne pas deux comptes de devises différentes.`,
+      "  Périodes : start_date et end_date, 30 jours au plus par appel ; au-delà, plusieurs appels. Dates dans le fuseau du compte, montants dans sa devise (get_advertiser_info les donne) : n'écris « € » que si c'est bien la devise du compte.",
+      "  « conversion » est l'événement d'optimisation de la campagne, « complete_payment » les achats. La valeur des achats n'est pas lue, seulement le ROAS (complete_payment_roas) : valeur ≈ ROAS × dépense, à présenter comme une estimation.",
+      "  L'attribution de TikTok n'est pas celle de Meta ni de Google : une même vente peut être comptée par chacun, n'additionne pas leurs conversions comme des ventes distinctes.",
+      "  Réponse annoncée « page partielle » : demande la page suivante (page).",
     );
   }
   if (sources.ga4PropertyId) {
@@ -222,7 +240,9 @@ function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | un
       "Aucune source de données n'est branchée pour l'instant. Tu ne peux pas fournir de chiffres : explique-le au client avec bienveillance, réponds aux questions générales (vocabulaire, méthode, lecture d'un indicateur) et propose de contacter l'équipe Impulse Analytics pour activer les données.",
     );
   } else {
-    lines.push("N'utilise que ces sources. Si une question porte sur une source absente de cette liste (par exemple TikTok, e-mailing, CRM), dis que tu n'y as pas accès ici.");
+    // The examples must stay true whatever is ticked: TikTok is one only while the bot does not read it.
+    const absent = [...(tiktokIds.length ? [] : ["TikTok"]), "e-mailing", "CRM"].join(", ");
+    lines.push(`N'utilise que ces sources. Si une question porte sur une source absente de cette liste (par exemple ${absent}), dis que tu n'y as pas accès ici.`);
   }
   return lines.join("\n");
 }
@@ -232,6 +252,8 @@ function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | un
 export function buildBotSystemPrompt(input: BuildBotPromptInput): string {
   const now = input.now ?? new Date();
   const sources = input.bot.sources ?? parseSources(input.bot.sourcesJson);
+  // Ticked AND attached: a source with no advertiser behind it is not announced.
+  const tiktokIds = sources.tiktok ? (input.tiktokAdvertiserIds ?? []).filter(Boolean) : [];
   const botName = input.bot.name.trim() || "Assistant";
   const dashboardName = input.dashboard.name.trim() || "votre marque";
 
@@ -242,7 +264,7 @@ export function buildBotSystemPrompt(input: BuildBotPromptInput): string {
     dataRulesBlock(),
     methodBlock(),
     contextBlock(input.bot.businessContext ?? ""),
-    sourcesBlock(sources, input.coverage),
+    sourcesBlock(sources, input.coverage, tiktokIds),
     // Last on purpose: the date changes daily and the coverage on every
     // ingest — keeping them at the tail leaves the rest as a stable prefix
     // for the provider's prompt cache.
@@ -259,6 +281,7 @@ export function suggestionsForSources(sources: BotSources): string[] {
   }
   if (sources.meta) out.push("Comment se portent mes campagnes Meta sur les 7 derniers jours ?");
   if (sources.google) out.push("Quel est le coût par conversion de mes campagnes Google Ads ce mois-ci ?");
+  if (sources.tiktok) out.push("Quelles campagnes TikTok ont le mieux fonctionné sur les 7 derniers jours ?");
   if (sources.ga4PropertyId) out.push("Quelles sont mes principales sources de trafic sur les 30 derniers jours ?");
   if (sources.data) out.push("Quelle part de mes commandes vient de nouveaux clients ?");
   if (sources.meta && sources.google) out.push("Compare la dépense et les conversions Meta et Google Ads cette semaine.");

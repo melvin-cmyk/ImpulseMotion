@@ -78,9 +78,13 @@ describe("checkAdvertiser", () => {
 
   it("turns a relay failure into a message, not an exception", async () => {
     relayDirectTool.mockRejectedValue(new Error("Relay unreachable"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const out = await checkAdvertiser(ID);
     expect(out.ok).toBe(false);
-    expect(!out.ok && out.error).toContain("Relay unreachable");
+    // The cause goes to the logs, not to the consultant's screen.
+    expect(!out.ok && out.error).not.toContain("Relay");
+    expect(String(logged.mock.calls[0])).toContain("Relay unreachable");
+    logged.mockRestore();
   });
 });
 

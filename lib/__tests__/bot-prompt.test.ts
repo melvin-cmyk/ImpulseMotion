@@ -90,6 +90,7 @@ describe("buildBotSystemPrompt — sources conditionnelles", () => {
     expect(p).not.toContain("mcp__meta-ads-impulse");
     expect(p).not.toContain("mcp__mcp-google-ads");
     expect(p).not.toContain("mcp__mcp-google-analytics");
+    expect(p).not.toContain("mcp__mcp-tiktok-ads");
     expect(p).not.toContain("data_sales_summary");
   });
 
@@ -137,6 +138,49 @@ describe("buildBotSystemPrompt — sources conditionnelles", () => {
     expect(p).toContain("aucune commande n'a encore été importée");
   });
 
+  it("tiktok : bloc numéroté avec l'identifiant à utiliser et les règles de lecture", () => {
+    const p = build(JSON.stringify({ meta: true, tiktok: true }), { tiktokAdvertiserIds: ["7000000000000000001"] });
+    expect(p).toContain("2. TikTok Ads — outils mcp__mcp-tiktok-ads__*");
+    expect(p).toContain("advertiser_id : 7000000000000000001, le seul compte autorisé");
+    expect(p).toContain("30 jours au plus par appel");
+    expect(p).toContain("Dates dans le fuseau du compte, montants dans sa devise");
+    expect(p).toContain("« conversion » est l'événement d'optimisation de la campagne, « complete_payment » les achats");
+    expect(p).toContain("La valeur des achats n'est pas lue, seulement le ROAS");
+    expect(p).toContain("n'additionne pas leurs conversions comme des ventes distinctes");
+    // Rien de ce qui ne concerne que l'équipe.
+    expect(p).not.toMatch(/list_custom_audiences|search_ad_videos|list_advertisers|run_python/);
+  });
+
+  it("tiktok avec plusieurs comptes : tous les identifiants, un appel par compte", () => {
+    const p = build(JSON.stringify({ tiktok: true }), { tiktokAdvertiserIds: ["7001", "7002"] });
+    expect(p).toContain("1. TikTok Ads");
+    expect(p).toContain("l'un des comptes autorisés : 7001, 7002");
+    expect(p).toContain("Un appel par compte");
+  });
+
+  it("l'exemple de source absente reste vrai : TikTok n'y figure que si le bot ne le lit pas", () => {
+    expect(build(JSON.stringify({ meta: true }))).toContain("(par exemple TikTok, e-mailing, CRM)");
+    const p = build(JSON.stringify({ meta: true, tiktok: true }), { tiktokAdvertiserIds: ["7001"] });
+    expect(p).toContain("(par exemple e-mailing, CRM)");
+    expect(p).not.toContain("par exemple TikTok");
+  });
+
+  it("tiktok coché sans compte rattaché : rien n'est promis", () => {
+    for (const ids of [undefined, null, []]) {
+      const p = build(JSON.stringify({ meta: true, tiktok: true }), { tiktokAdvertiserIds: ids });
+      expect(p).not.toContain("mcp__mcp-tiktok-ads");
+      expect(p).toContain("(par exemple TikTok, e-mailing, CRM)");
+    }
+    expect(build(JSON.stringify({ tiktok: true }))).toContain("Aucune source de données n'est branchée");
+  });
+
+  it("tiktok non coché : jamais annoncé, même si le dashboard a un compte", () => {
+    const p = build(JSON.stringify({ meta: true }), { tiktokAdvertiserIds: ["7001"] });
+    expect(p).not.toContain("mcp__mcp-tiktok-ads");
+    expect(p).not.toContain("7001");
+    expect(p).toContain("(par exemple TikTok, e-mailing, CRM)");
+  });
+
   it("accepte des sources déjà parsées", () => {
     const p = buildBotSystemPrompt({ bot: { name: "A", businessContext: "", sources: { meta: true, data: true } }, dashboard, now: NOW });
     expect(p).toContain("mcp__meta-ads-impulse");
@@ -150,10 +194,19 @@ describe("bot-types helpers", () => {
     expect(parseSources(null)).toEqual({});
     expect(parseSources("[1]")).toEqual({});
     expect(parseSources(JSON.stringify({ meta: "yes", google: true, ga4PropertyId: " properties/42 ", data: false }))).toEqual({ google: true, ga4PropertyId: "42" });
+    expect(parseSources(JSON.stringify({ tiktok: true }))).toEqual({ tiktok: true });
+    expect(parseSources(JSON.stringify({ meta: true, tiktok: "true" }))).toEqual({ meta: true });
+    expect(parseSources(JSON.stringify({ meta: true, tiktok: false }))).toEqual({ meta: true });
   });
 
   it("serializeSources ne garde que les clés actives", () => {
     expect(JSON.parse(serializeSources({ meta: false, google: true, ga4PropertyId: "", data: true }))).toEqual({ google: true, data: true });
+    expect(JSON.parse(serializeSources({ meta: true, tiktok: false }))).toEqual({ meta: true });
+  });
+
+  it("tiktok fait l'aller-retour par sourcesJson", () => {
+    const sources = { meta: true, google: true, tiktok: true, ga4PropertyId: "42", data: true };
+    expect(parseSources(serializeSources(sources))).toEqual(sources);
   });
 
   it("serversForSources mappe vers les serveurs MCP du relay", () => {
@@ -162,6 +215,10 @@ describe("bot-types helpers", () => {
       "meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics", "client-data",
     ]);
     expect(serversForSources({ data: true })).toEqual(["client-data"]);
+    expect(serversForSources({ tiktok: true })).toEqual(["mcp-tiktok-ads"]);
+    expect(serversForSources({ meta: true, google: true, tiktok: true, ga4PropertyId: "1", data: true })).toEqual([
+      "meta-ads-impulse", "mcp-google-ads", "mcp-tiktok-ads", "mcp-google-analytics", "client-data",
+    ]);
   });
 
   it("parseMessages ignore les entrées malformées", () => {
@@ -183,6 +240,12 @@ describe("suggestionsForSources", () => {
     expect(suggestionsForSources({})).toHaveLength(4);
     expect(suggestionsForSources({ meta: true })).toHaveLength(4);
     expect(suggestionsForSources({ meta: true, google: true, ga4PropertyId: "1", data: true })).toHaveLength(4);
+  });
+
+  it("propose une question TikTok quand TikTok est branché, et seulement alors", () => {
+    expect(suggestionsForSources({ tiktok: true }).filter((q) => q.includes("TikTok"))).toHaveLength(1);
+    expect(suggestionsForSources({ meta: true, tiktok: true })).toHaveLength(4);
+    expect(suggestionsForSources({ meta: true, google: true }).some((q) => q.includes("TikTok"))).toBe(false);
   });
 
   it("met le CA en premier quand les données e-commerce sont branchées", () => {

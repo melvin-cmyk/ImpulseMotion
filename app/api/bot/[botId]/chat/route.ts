@@ -7,7 +7,8 @@
  *   2. builds the system prompt (business context + enabled sources + data
  *      coverage) and calls the relay with MCP servers derived from the sources,
  *      account / data scopes derived from the dashboard (server-side scoping:
- *      the model never picks an account or a client_key);
+ *      the model never picks an account or a client_key; the TikTok
+ *      advertisers are the ones attached to the dashboard);
  *   3. TEES the relay's SSE body: bytes go to the browser untouched while the
  *      `delta` events are accumulated; on `done` (or stream end with text) the
  *      user + assistant messages are appended to messagesJson and the title is
@@ -24,6 +25,7 @@ import { requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
 import { parseMessages, parseSources, serializeMessages, serversForSources, type BotMessage } from "@/lib/bot-types";
 import { buildBotSystemPrompt, type BotDataCoverage } from "@/lib/bot-prompt";
+import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { relayStream, teeRelayStream, type RelayChatBody, type RelayMessage } from "@/lib/relay-chat";
 
 export const maxDuration = 120;
@@ -98,16 +100,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   if (!conversation) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const sources = parseSources(bot.sourcesJson);
+  // TikTok: read only when the admin ticked it, on the advertisers attached to
+  // this dashboard. None attached → the source is dropped for this turn (no
+  // server asked, nothing promised in the prompt).
+  const tiktokIds = sources.tiktok ? await getDashboardTikTokIds(bot.dashboard.id) : [];
+  if (!tiktokIds.length) delete sources.tiktok;
   const history = parseMessages(conversation.messagesJson);
   const userMessage: BotMessage = { role: "user", content: message, at: new Date().toISOString() };
   const thread = [...history, userMessage];
 
   const coverage = sources.data ? await loadCoverage(bot.clientKey) : null;
-  const systemPrompt = buildBotSystemPrompt({ bot, dashboard: bot.dashboard, coverage });
+  const systemPrompt = buildBotSystemPrompt({ bot: { ...bot, sources }, dashboard: bot.dashboard, coverage, tiktokAdvertiserIds: tiktokIds });
 
   const accountScope: NonNullable<RelayChatBody["accountScope"]> = {};
   if (sources.meta && bot.dashboard.metaAccountId) accountScope.meta = [bot.dashboard.metaAccountId];
   if (sources.google && bot.dashboard.googleCustomerId) accountScope.google = [bot.dashboard.googleCustomerId];
+  if (tiktokIds.length) accountScope.tiktok = tiktokIds;
 
   const relayBody: RelayChatBody = {
     sessionKey: `bot:${conversation.id}`,

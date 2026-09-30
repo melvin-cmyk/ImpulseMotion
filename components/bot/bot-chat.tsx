@@ -23,6 +23,7 @@ const SOURCE_LABELS: Array<[keyof BotSources, string]> = [
   ["data", "Commandes e-commerce"],
   ["meta", "Meta Ads"],
   ["google", "Google Ads"],
+  ["tiktok", "TikTok Ads"],
   ["ga4PropertyId", "Google Analytics"],
 ];
 
@@ -31,6 +32,7 @@ function friendlyTool(name: string | undefined): string {
   if (n.startsWith("mcp__client-data__") || n.startsWith("data_")) return "Consultation des commandes…";
   if (n.startsWith("mcp__meta-ads")) return "Consultation de Meta Ads…";
   if (n.startsWith("mcp__mcp-google-ads")) return "Consultation de Google Ads…";
+  if (n.startsWith("mcp__mcp-tiktok-ads")) return "Consultation de TikTok Ads…";
   if (n.startsWith("mcp__mcp-google-analytics")) return "Consultation de Google Analytics…";
   return "Consultation des données…";
 }

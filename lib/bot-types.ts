@@ -11,6 +11,8 @@ export interface BotSources {
   meta?: boolean;
   /** Google Ads (dashboard.googleCustomerId) → MCP server "mcp-google-ads" */
   google?: boolean;
+  /** TikTok Ads (advertisers attached to the dashboard, lib/tiktok-accounts.ts) → MCP server "mcp-tiktok-ads" */
+  tiktok?: boolean;
   /** GA4 property id (digits) → MCP server "mcp-google-analytics" */
   ga4PropertyId?: string;
   /** E-commerce warehouse (client_data schema) → MCP server "client-data" */
@@ -34,6 +36,7 @@ export function parseSources(json: string | null | undefined): BotSources {
   const out: BotSources = {};
   if (o.meta === true) out.meta = true;
   if (o.google === true) out.google = true;
+  if (o.tiktok === true) out.tiktok = true;
   if (o.data === true) out.data = true;
   if (typeof o.ga4PropertyId === "string") {
     const id = o.ga4PropertyId.trim().replace(/^properties\//, "");
@@ -47,6 +50,7 @@ export function serializeSources(sources: BotSources | null | undefined): string
   const out: BotSources = {};
   if (sources?.meta) out.meta = true;
   if (sources?.google) out.google = true;
+  if (sources?.tiktok) out.tiktok = true;
   if (sources?.data) out.data = true;
   const ga4 = sources?.ga4PropertyId?.trim().replace(/^properties\//, "");
   if (ga4) out.ga4PropertyId = ga4;
@@ -78,6 +82,7 @@ export function serversForSources(sources: BotSources): string[] {
   const servers: string[] = [];
   if (sources.meta) servers.push("meta-ads-impulse");
   if (sources.google) servers.push("mcp-google-ads");
+  if (sources.tiktok) servers.push("mcp-tiktok-ads");
   if (sources.ga4PropertyId) servers.push("mcp-google-analytics");
   if (sources.data) servers.push("client-data");
   return servers;

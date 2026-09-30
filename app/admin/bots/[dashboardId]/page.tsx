@@ -4,12 +4,14 @@ import { useEffect, useState, useCallback, use } from "react";
 import Link from "next/link";
 import { Card, Pill } from "@/components/ui/surface";
 
-type BotSources = { meta?: boolean; google?: boolean; ga4PropertyId?: string; data?: boolean };
+type BotSources = { meta?: boolean; google?: boolean; tiktok?: boolean; ga4PropertyId?: string; data?: boolean };
 type Dashboard = {
   id: string;
   name: string;
   metaAccountId: string | null;
   googleCustomerId: string | null;
+  /** Comptes TikTok Ads rattachés au client (ses sources). */
+  tiktokAccounts: number;
   ownerEmail: string | null;
 };
 type Bot = {
@@ -67,7 +69,8 @@ function formToState(bot: Bot | null, dashboard: Dashboard, suggestedClientKey: 
       name: bot.name,
       clientKey: bot.clientKey,
       businessContext: bot.businessContext,
-      sources: { ...bot.sources },
+      // Sans compte TikTok rattaché, le bot ne lit rien de TikTok : la case s'affiche décochée.
+      sources: { ...bot.sources, tiktok: Boolean(bot.sources.tiktok) && dashboard.tiktokAccounts > 0 },
     };
   }
   return {
@@ -330,6 +333,17 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                   disabled={!dashboard.googleCustomerId}
                 />
                 <SourceToggle
+                  checked={Boolean(sources.tiktok)}
+                  onChange={(v) => setForm({ ...form, sources: { ...sources, tiktok: v } })}
+                  label="TikTok Ads"
+                  hint={
+                    dashboard.tiktokAccounts
+                      ? dashboard.tiktokAccounts > 1 ? `${dashboard.tiktokAccounts} comptes rattachés` : "1 compte rattaché"
+                      : "Rattachez d'abord un compte TikTok Ads à ce client, dans ses sources"
+                  }
+                  disabled={!dashboard.tiktokAccounts}
+                />
+                <SourceToggle
                   checked={Boolean(sources.data)}
                   onChange={(v) => setForm({ ...form, sources: { ...sources, data: v } })}
                   label="Données e-commerce"
@@ -549,7 +563,7 @@ function SourceToggle({
       />
       <span className="min-w-0">
         <span className="block text-sm text-white">{label}</span>
-        {hint && <span className="block text-[11px] text-gray-500 truncate">{hint}</span>}
+        {hint && <span className="block text-[11px] text-gray-500">{hint}</span>}
       </span>
     </label>
   );
