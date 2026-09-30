@@ -5,14 +5,15 @@ import { CLIENT_ALERT_COMPOSE_PROFILE } from "@/lib/ai-profiles";
 import {
   ALERT_CHAT_MAX_MESSAGES, ALERT_CONTEXT_MAX_CHARS,
   alertFieldCatalogue, alertSessionKey, buildAlertComposePrompt, buildAlertRelayBody, buildAlertTurnContext,
-  checkAlertProposal, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks, stripProposalNotes, withProposalNotes,
+  checkAlertProposal, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks, stripImages, stripProposalNotes, withProposalNotes,
   type AlertRelayInput, type AlertValidator,
 } from "@/lib/client-alerts/compose-prompt";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
-import type { AlertAccountRef, AlertDefinition } from "@/lib/client-alerts/types";
+import { BACK_TO_NORMAL, readDefinition, type AlertAccountRef, type AlertDefinition, type Backtest } from "@/lib/client-alerts/types";
 import {
-  SHOW_DORMANT, alertAccess, cardNotes, datesLabel, dayLabel, exampleRequests, formatValue, guardsLine, lastValueLine, ownerLine, replayLine, ruleSentence,
-  settingsLine, statsLine, summarizeBacktest, toAlertView, type AlertRow,
+  SHOW_DORMANT, alertAccess, cardNotes, cardStateOf, datesLabel, dayLabel, eventStateOf, exampleRequests, formatValue, guardsLine, hindsightLine, lastValueLine,
+  latestValidKey, ownerLine, pickOnEnter, replayLine, replayOf, ruleSentence, settingsLine, slackFoundLine, statsLine, summarizeBacktest, toAlertView,
+  type AlertRow, type ProposalCheck,
 } from "@/components/client-alerts/alert-model";
 
 const META: AlertAccountRef = { platform: "meta", accountId: "1234567890", name: "LPEV Meta", currency: "EUR" };
@@ -88,13 +89,51 @@ describe("alertes client — prompt de l'IA", () => {
 
   it("couvre Meta et Google ensemble par défaut, et dit quand juger chaque plateforme seule", () => {
     expect(fixed).toContain('par défaut l\'alerte additionne les comptes Meta et Google Ads du client ("combined")');
-    expect(fixed).toContain('Choisis "each"');
-    expect(fixed).toContain("ne remonte aucune valeur de conversion");
+    expect(fixed).toContain('Choisis "each" seulement quand le consultant veut que chaque plateforme soit jugée seule');
   });
 
   it("ne laisse pas l'IA juger chaque plateforme seule de sa propre initiative", () => {
     // Asked for real: « plus aucune conversion » came back once with each platform judged alone, under a sentence that said « réunis ».
-    expect(fixed).toContain('Ne choisis "each" que dans ces deux cas : sans demande du consultant, garde l\'ensemble');
+    expect(fixed).toContain("sans demande de sa part, garde l'ensemble");
+    expect(fixed).toContain('ne dis jamais « réunis » dans ta phrase en écrivant "each" dans le bloc');
+    // The engine: one platform that cannot be judged leaves the alert not judged.
+    expect(fixed).toContain("l'alerte n'est jugée que si CHAQUE plateforme peut l'être");
+  });
+
+  it("dit quoi faire d'un compte qui dépense sans remonter de valeur : limiter les comptes, pas juger chaque plateforme", () => {
+    expect(fixed).toContain("VALEUR DES CONVERSIONS");
+    expect(fixed).toContain('limite l\'alerte aux comptes qui en remontent une (champ "accounts")');
+    expect(fixed).toContain('"each" ne règle pas ce cas');
+    expect(fixed).toContain("Si aucun compte n'en remonte, ne propose ni ROAS ni revenu");
+  });
+
+  it("dit que ce qui dépend des conversions est jugé avec un jour de recul, et le fait dire dans l'explication", () => {
+    expect(fixed).toContain("AVANT-HIER pour tout ce qui dépend des conversions (conversions, cpa, roas, revenue)");
+    expect(fixed).toContain("jugées avec un jour de recul, le temps que les conversions remontent");
+    expect(fixed).toContain("Pour une mesure qui dépend des conversions, dis-y aussi, en mots simples, qu'elle est jugée avec un jour de recul");
+    // The example shows it.
+    expect(fixed).toContain("jugé avec un jour de recul, le temps que les conversions remontent. Sous 5 conversions");
+  });
+
+  it("dit ce que « jours ouvrés seulement » veut dire : ni vérification ni chiffres le week-end", () => {
+    expect(fixed).toContain("true = jours ouvrés seulement : les samedis et dimanches ne comptent pas");
+    expect(fixed).toContain("une période de 3 jours devient 3 jours ouvrés");
+    expect(fixed).toContain("le lundi juge le vendredi");
+  });
+
+  it("dit que la comparaison avec les mêmes jours de la semaine s'arrête à 7 jours", () => {
+    expect(fixed).toContain('REFUSÉ au-delà de 7 jours — pour 14 ou 30 jours, écris "previous_window"');
+  });
+
+  it("dit que l'alerte juge des journées complètes, et quoi répondre à « aujourd'hui »", () => {
+    expect(fixed).toContain("Elle juge des journées COMPLÈTES, jamais la journée en cours");
+    expect(fixed).toContain("un arrêt en cours de journée est déjà surveillé par les alertes automatiques de l'agence, dans le canal Slack du client");
+    expect(fixed).toContain("propose la version sur jour complet");
+    expect(fixed).toContain("(des jours complets, jamais la journée en cours)");
+  });
+
+  it("dit où se lisent les volumes minimum d'une variation : sur la période de comparaison", () => {
+    expect(fixed).toContain("sur la période de COMPARAISON pour drop_pct / rise_pct (une dépense qui s'effondre doit déclencher, pas être écartée)");
   });
 
   it("rappelle les réglages par défaut du dirigeant et qu'ils se changent sur demande", () => {
@@ -431,7 +470,16 @@ describe("alertes client — ce que lit le consultant", () => {
     expect(ruleSentence(def({ metric: "conversions", condition: "rise_pct", threshold: 100, windowDays: 1, compare: "same_weekdays", accounts: [META] })))
       .toBe("Vous êtes prévenu quand le nombre de conversions de Meta augmente d'au moins 100 % sur le dernier jour complet, par rapport aux mêmes jours de la semaine précédente.");
     expect(ruleSentence(def({ metric: "spend", condition: "stopped", threshold: null, windowDays: 1, aggregation: "each" })))
-      .toBe("Vous êtes prévenu quand la dépense de Meta ou de Google Ads, chaque plateforme jugée seule, tombe à zéro sur le dernier jour complet, alors qu'il y en avait les jours d'avant.");
+      .toBe("Vous êtes prévenu quand la dépense de Meta ou de Google Ads, chaque plateforme jugée seule, tombe à zéro sur le dernier jour complet, alors qu'il y en avait sur les 7 jours d'avant.");
+    // A stop of the conversions is « spending without converting »: the card says the spend goes on.
+    expect(ruleSentence(def({ metric: "conversions", condition: "stopped", threshold: null, windowDays: 3 })))
+      .toBe("Vous êtes prévenu quand le nombre de conversions de Meta et Google Ads réunis tombe à zéro sur les 3 derniers jours alors que la dépense continue, et qu'il y en avait sur les 7 jours d'avant.");
+    // Working days only: the days of the sentence are working days.
+    expect(ruleSentence(def({ metric: "spend", condition: "above", threshold: 500, windowDays: 3, weekdaysOnly: true })))
+      .toBe("Vous êtes prévenu quand la dépense de Meta et Google Ads réunis dépasse 500 € sur les 3 derniers jours ouvrés.");
+    expect(ruleSentence(def({ metric: "spend", condition: "drop_pct", threshold: 30, windowDays: 1, weekdaysOnly: true })))
+      .toBe("Vous êtes prévenu quand la dépense de Meta et Google Ads réunis baisse d'au moins 30 % sur le dernier jour ouvré complet, par rapport au jour ouvré précédent.");
+    expect(ruleSentence(def({ metric: "spend", condition: "stopped", threshold: null, windowDays: 1, weekdaysOnly: true }))).toContain("sur les 7 jours ouvrés d'avant");
     expect(ruleSentence(def({ metric: "ctr", condition: "below", threshold: 1.2, windowDays: 14 }))).toContain("passe sous 1,2 % sur les 14 derniers jours");
     expect(ruleSentence(def({ metric: "spend", condition: "drop_pct", threshold: 30, windowDays: 1 }))).toContain("par rapport à la veille");
     // « The same weekdays » of a window longer than a week are further back than « the week before »: said as the engine compares.
@@ -444,7 +492,7 @@ describe("alertes client — ce que lit le consultant", () => {
   it("dit les réglages en mots", () => {
     expect(settingsLine(definition)).toBe("2 vérifications par jour · silence de 3 jours après un message · pas de rappel · week-ends compris");
     expect(settingsLine(def({ checks: "1x", cooldownHours: 24, remind: true, weekdaysOnly: true })))
-      .toBe("1 vérification par jour · silence de 1 jour après un message · rappel tant que la situation dure · du lundi au vendredi");
+      .toBe("1 vérification par jour · silence de 1 jour après un message · rappel tant que la situation dure · jours ouvrés seulement : les samedis et dimanches ne comptent pas");
     expect(settingsLine(def({ checks: "4x", cooldownHours: 36 }))).toContain("4 vérifications par jour · silence de 36 heures");
     // A CPA « above » says its second way in: the spend from which it triggers whatever the conversions.
     expect(guardsLine(definition)).toBe("Jugée seulement à partir de 5 conversions sur la période. Avec moins de conversions, elle se déclenche quand même dès 300 € dépensés.");
@@ -457,6 +505,25 @@ describe("alertes client — ce que lit le consultant", () => {
     expect(guardsLine(def({ condition: "below", guards: {} }))).toBeNull();
     expect(guardsLine(def({ metric: "spend", guards: { minSpend: 200 } }))).toBe("Jugée seulement à partir de 200 € de dépense sur la période.");
     expect(guardsLine(def({ metric: "roas", guards: {} }))).toBeNull();
+  });
+
+  it("dit sur quelle période se lisent les volumes minimum : la période, la comparaison, ou les 7 jours d'avant", () => {
+    const spend = (over: Partial<AlertDefinition>) => def({ metric: "spend", guards: { minSpend: 200 }, ...over });
+    expect(guardsLine(spend({ condition: "above" }))).toBe("Jugée seulement à partir de 200 € de dépense sur la période.");
+    expect(guardsLine(spend({ condition: "drop_pct", threshold: 50 }))).toBe("Jugée seulement à partir de 200 € de dépense sur la période de comparaison.");
+    expect(guardsLine(spend({ condition: "rise_pct", threshold: 50 }))).toBe("Jugée seulement à partir de 200 € de dépense sur la période de comparaison.");
+    // A stop is an empty window by definition: its volumes are those of the days before.
+    expect(guardsLine(spend({ condition: "stopped", threshold: null }))).toBe("Jugée seulement à partir de 200 € de dépense sur les 7 jours d'avant.");
+    expect(guardsLine(def({ metric: "conversions", condition: "stopped", threshold: null, guards: { minConversions: 10 }, weekdaysOnly: true })))
+      .toBe("Jugée seulement à partir de 10 conversions sur les 7 jours ouvrés d'avant.");
+  });
+
+  it("dit sur la carte que ce qui dépend des conversions est jugé avec un jour de recul", () => {
+    for (const metric of ["conversions", "cpa", "roas", "revenue"] as const) {
+      expect(hindsightLine({ metric }), metric).toBe("Jugée avec un jour de recul, le temps que les conversions remontent : la journée d'hier n'est pas encore comptée.");
+    }
+    expect(hindsightLine({ metric: "spend" })).toBeNull();
+    expect(hindsightLine({ metric: "ctr" })).toBeNull();
   });
 
   it("dit l'étendue du rejeu sans tiret quand une valeur n'existe pas", () => {
@@ -485,6 +552,14 @@ describe("alertes client — ce que lit le consultant", () => {
     expect(replayLine({ days: 30, messages: 3, dates: ["2026-09-04", "2026-09-12", "2026-09-21"] })).toBe("Sur les 30 derniers jours : 3 messages — les 4, 12 et 21 sept.");
     expect(replayLine({ days: 30, messages: 1, dates: ["2026-09-04"] })).toBe("Sur les 30 derniers jours : 1 message — le 4 sept.");
     expect(replayLine({ days: 30, messages: 0, dates: [] })).toBe("Ne se serait jamais déclenchée sur 30 jours");
+    // A replay that judged nothing measured nothing: it never reads « jamais déclenchée ».
+    expect(replayLine({ days: 30, messages: 0, dates: [], judgedDays: 0 })).toBe("Aucun jour n'a pu être jugé sur 30 jours");
+    expect(replayLine({ days: 30, messages: 0, dates: [], judgedDays: 12 })).toBe("Ne se serait jamais déclenchée sur 30 jours");
+    const nothing = { days: 30, daysTrue: 0, messages: [], skippedDays: 22, checkedDays: 22, current: null, min: null, median: null, max: null, notes: [], hash: "h", ranAt: "2026-09-30T06:00:00.000Z" };
+    expect(replayLine(replayOf(nothing))).toBe("Aucun jour n'a pu être jugé sur 30 jours");
+    expect(replayLine(summarizeBacktest(JSON.stringify(nothing))!)).toBe("Aucun jour n'a pu être jugé sur 30 jours");
+    // A replay stored before the count of checked days existed is read as 30 days checked.
+    expect(summarizeBacktest(JSON.stringify({ ...nothing, checkedDays: undefined, skippedDays: 2 }))!.judgedDays).toBe(28);
     expect(datesLabel(["2026-08-28", "2026-09-04", "2026-09-12"])).toBe("les 28 août, 4 et 12 sept.");
     expect(datesLabel(Array.from({ length: 12 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`))).toBe("les 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 sept. et 2 autres jours");
     expect(dayLabel("2026-09-04")).toBe("4 sept.");
@@ -597,5 +672,109 @@ describe("alertes client — à qui est l'alerte, et ce qui en sort", () => {
     const broken = toAlertView({ ...row, status: "bizarre", accountsJson: "pas du json", definitionJson: "[", backtestJson: "null" }, "u1");
     expect(broken).toMatchObject({ status: "review", accounts: [], definition: null, backtest: null });
     expect(summarizeBacktest("{}")).toBeNull();
+  });
+});
+
+describe("alertes client — les cartes d'une conversation", () => {
+  const replay = (hash: string): Backtest => ({ days: 30, daysTrue: 0, messages: [], skippedDays: 0, current: 48, min: 31, median: 45, max: 72, notes: [], hash, ranAt: "2026-09-30T06:00:00.000Z" });
+  const valid = (hash: string): ProposalCheck => ({ ok: true, proposal: definition, warnings: [], backtest: replay(hash), noisy: false });
+  const draft = { definitionHash: "", status: "draft" as const };
+  const state = (over: Partial<Parameters<typeof cardStateOf>[0]>) =>
+    cardStateOf({ key: "m1", malformed: false, check: valid("h1"), verifying: false, outcome: {}, stored: undefined, alert: draft, latestValid: "m1", blocked: false, ...over });
+
+  it("trouve la dernière proposition valide de la conversation", () => {
+    expect(latestValidKey({})).toBeNull();
+    expect(latestValidKey({ m1: valid("a"), m3: valid("b"), m5: { ok: false, errors: ["x"] } })).toBe("m3");
+    expect(latestValidKey({ m11: valid("a"), m9: valid("b"), m2: valid("c") })).toBe("m11");
+    expect(latestValidKey({ m1: { ok: false, errors: ["x"], retry: true } })).toBeNull();
+  });
+
+  it("ne laisse valider que la DERNIÈRE proposition valide : les plus anciennes disent qu'elles sont remplacées", () => {
+    // Three proposals in the conversation, none validated: only the last one carries the button.
+    expect(state({ key: "m5", latestValid: "m5" })).toBe("pending");
+    expect(state({ key: "m1", latestValid: "m5" })).toBe("superseded");
+    expect(state({ key: "m3", latestValid: "m5" })).toBe("superseded");
+    // Even with an answer of the server in flight on an old card: no way to validate it.
+    expect(state({ key: "m1", latestValid: "m5", outcome: { errors: ["x"] } })).toBe("superseded");
+    expect(state({ key: "m1", latestValid: "m5", outcome: { confirm: 12 } })).toBe("superseded");
+    // A more recent proposal that was REFUSED does not take the place: the last valid one keeps the button.
+    expect(state({ key: "m3", latestValid: "m3" })).toBe("pending");
+  });
+
+  it("garde à l'ancienne proposition son état quand elle est l'alerte en service, ou l'a été", () => {
+    const active = { definitionHash: "h1", status: "active" as const };
+    // The alert in service stays « en service » on its card, however many proposals followed.
+    expect(state({ key: "m1", latestValid: "m5", alert: active })).toBe("inService");
+    expect(state({ key: "m1", latestValid: "m5", alert: { ...active, status: "paused" } })).toBe("paused");
+    // The new one, above it, is the one that can replace it.
+    expect(state({ key: "m5", latestValid: "m5", check: valid("h2"), alert: active })).toBe("pending");
+    // Validated once, then another rule was validated: « validée, puis remplacée ».
+    expect(state({ key: "m1", latestValid: "m5", stored: "applied", alert: { definitionHash: "h2", status: "active" } })).toBe("replaced");
+    expect(state({ key: "m5", latestValid: "m5", stored: "applied", check: valid("h9"), alert: { definitionHash: "h2", status: "active" } })).toBe("replaced");
+  });
+
+  it("dit le reste comme avant : vérification, refus, attente, confirmation, échec, client parti", () => {
+    expect(state({ check: undefined, verifying: true })).toBe("checking");
+    expect(state({ check: undefined })).toBe("unverified");
+    expect(state({ check: { ok: false, errors: ["x"] } })).toBe("invalid");
+    expect(state({ check: { ok: false, errors: ["x"], retry: true } })).toBe("unverified");
+    expect(state({ check: { ok: false, errors: ["x"], retry: true }, verifying: true })).toBe("checking");
+    expect(state({ malformed: true, check: undefined })).toBe("invalid");
+    expect(state({ outcome: { applying: true } })).toBe("applying");
+    expect(state({ outcome: { confirm: 12 } })).toBe("confirming");
+    expect(state({ outcome: { errors: ["x"] } })).toBe("failed");
+    expect(state({ blocked: true })).toBe("closed");
+    // To be reviewed, or in error: the same rule can be validated again.
+    expect(state({ alert: { definitionHash: "h1", status: "review" } })).toBe("pending");
+    expect(state({ alert: { definitionHash: "h1", status: "error" } })).toBe("pending");
+  });
+});
+
+describe("alertes client — petites choses de la page", () => {
+  it("Entrée dans une recherche vide ne choisit aucun client", () => {
+    const clients = [{ id: "c1" }, { id: "c2" }];
+    expect(pickOnEnter("", clients)).toBeNull();
+    expect(pickOnEnter("   ", clients)).toBeNull();
+    expect(pickOnEnter("lp", clients)).toEqual({ id: "c1" });
+    expect(pickOnEnter("introuvable", [])).toBeNull();
+  });
+
+  it("ne rend aucune image dans la réponse de l'IA : la légende reste, l'adresse part", () => {
+    expect(stripImages("Voici ![le CPA](https://evil.test/pixel.png?u=lea) sur 3 jours.")).toBe("Voici le CPA sur 3 jours.");
+    expect(stripImages('![](https://x.test/a.png "titre")')).toBe("");
+    expect(stripImages("![courbe][ref] et <img src=\"https://x.test/b.gif\" onerror=\"x()\"> fin")).toBe("courbe et  fin");
+    expect(stripImages("![a](sandbox:out/x.png) ![b](https://x.test/(1).png)")).toBe("a b");
+    // A link is not an image, and the text is left as it is.
+    expect(stripImages("Voir [la page](https://app.test) ! [pas une image](x)")).toBe("Voir [la page](https://app.test) ! [pas une image](x)");
+    expect(stripImages("Je propose 60 €.")).toBe("Je propose 60 €.");
+  });
+
+  it("dit où en est un déclenchement : envoyé, en attente d'envoi, ou non envoyé", () => {
+    const now = new Date("2026-09-30T08:00:00Z");
+    const event = (over: Partial<Parameters<typeof eventStateOf>[0]>) => ({ triggeredAt: "2026-09-30T06:10:00.000Z", dryRun: false, notifiedAt: null, notifyError: null, ...over });
+    expect(eventStateOf(event({ notifiedAt: "2026-09-30T06:10:05.000Z" }), 72, now)).toEqual({ label: "envoyé dans Slack", tone: "emerald" });
+    expect(eventStateOf(event({ dryRun: true }), 72, now)).toEqual({ label: "mode d'essai", tone: "amber" });
+    // Held or failed this morning: the next pass tries again.
+    expect(eventStateOf(event({ notifyError: "plafond de 5 messages privés par jour atteint : non envoyé" }), 72, now)).toEqual({ label: "envoi en attente", tone: "amber" });
+    expect(eventStateOf(event({}), 72, now)).toEqual({ label: "envoi en attente", tone: "amber" });
+    // Back to normal before it could leave, or older than the silence of its alert: it will not be sent.
+    expect(eventStateOf(event({ notifyError: BACK_TO_NORMAL }), 72, now)).toEqual({ label: "non envoyé", tone: "default" });
+    expect(eventStateOf(event({ triggeredAt: "2026-09-26T06:10:00.000Z", notifyError: "adresse Slack introuvable" }), 72, now)).toEqual({ label: "non envoyé", tone: "red" });
+    expect(eventStateOf(event({ triggeredAt: "2026-09-29T06:10:00.000Z" }), 24, now)).toEqual({ label: "non envoyé", tone: "red" });
+  });
+
+  it("dit le nom que Slack a trouvé après une vérification", () => {
+    expect(slackFoundLine({ name: "Léa M.", email: "lea@impulse-analytics.com" })).toBe("Compte Slack trouvé : Léa M.");
+    expect(slackFoundLine({ name: "Léa Martin", email: "lea@impulse-analytics.com" })).toBe("Compte Slack trouvé : Léa Martin.");
+    expect(slackFoundLine({ name: null, email: "lea@impulse-analytics.com" })).toBe("Compte Slack trouvé : lea@impulse-analytics.com.");
+    expect(slackFoundLine({ name: "  ", email: null })).toBe("Compte Slack trouvé.");
+  });
+
+  it("ne lit comme une règle que la version qu'il connaît", () => {
+    expect(readDefinition(JSON.stringify(definition))).toEqual(definition);
+    expect(readDefinition(JSON.stringify({ ...definition, version: 2 }))).toBeNull();
+    expect(readDefinition(JSON.stringify({ ...definition, version: "1" }))).toBeNull();
+    expect(readDefinition(JSON.stringify({ ...definition, version: undefined }))).toBeNull();
+    expect(readDefinition("{}")).toBeNull();
   });
 });

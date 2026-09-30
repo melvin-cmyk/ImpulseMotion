@@ -27,6 +27,12 @@ vi.mock("@/lib/prisma", () => ({
         const u = users.get(where.id);
         return u ? { ...u } : null;
       },
+      // Another user whose LOGIN address is this one (what the address rule asks).
+      findFirst: async ({ where }: { where: { email: { equals: string; mode?: string }; NOT: { id: string } } }) => {
+        const wanted = where.email.equals.toLowerCase();
+        const hit = [...users.entries()].find(([id, u]) => id !== where.NOT.id && (u.email ?? "").toLowerCase() === wanted);
+        return hit ? { id: hit[0] } : null;
+      },
       update: async ({ where, data }: { where: { id: string }; data: Partial<Row> }) => {
         const u = users.get(where.id);
         if (!u) throw new Error("no such user");
@@ -39,7 +45,7 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 import {
-  MAX_DM_CHARS, SlackDmError, capDmText, cleanEmail, dmConfigured, dmWebhook, isSlackMemberId, lookupSlackUser, resolveSlackIdentity, sendSlackDm, slackIdentityOf,
+  ADDRESS_TAKEN, MAX_DM_CHARS, SlackAddressError, SlackDmError, capDmText, cleanEmail, dmConfigured, dmWebhook, isSlackMemberId, lookupSlackUser, resolveSlackIdentity, sendSlackDm, slackIdentityOf,
 } from "@/lib/client-alerts/slack-dm";
 import { GET as READ, POST } from "@/app/api/me/slack/route";
 
@@ -335,6 +341,38 @@ describe("slack-dm — resolveSlackIdentity", () => {
     expect(lookups().map((s) => s.body.email)).toEqual(["claire@impulse-analytics.com"]);
   });
 
+  it("refuses the login address of another person of the application, and stores nothing", async () => {
+    users.set("u1", row({ slackUserId: MELVIN, slackCheckedAt: hoursAgo(1) }));
+    users.set("u2", row({ email: "Claire@impulse-analytics.com" }));
+    // Without this, the alerts of u1 would land in Claire's private messages.
+    await expect(resolveSlackIdentity("u1", { email: "claire@impulse-analytics.com" })).rejects.toBeInstanceOf(SlackAddressError);
+    await expect(resolveSlackIdentity("u1", { email: " CLAIRE@Impulse-Analytics.com " })).rejects.toThrow("Cette adresse est celle d'un autre compte ImpulseMotion.");
+    expect(ADDRESS_TAKEN).toBe("Cette adresse est celle d'un autre compte ImpulseMotion.");
+    expect(writes).toEqual([]);
+    expect(sent).toEqual([]);
+    expect(users.get("u1")).toEqual(row({ slackUserId: MELVIN, slackCheckedAt: users.get("u1")!.slackCheckedAt }));
+    // An address that is nobody's login — a personal Slack address — is still accepted.
+    directory.set("melvin.perso@exemple.fr", { id: "U03PERSO777", name: "Melvin" });
+    expect(await resolveSlackIdentity("u1", { email: "melvin.perso@exemple.fr" })).toMatchObject({ status: "found", slackUserId: "U03PERSO777" });
+    // Another person's SLACK address that is not their login is not the rule's business.
+    users.set("u3", row({ email: "sam@impulse-analytics.com", slackEmail: "sam.perso@exemple.fr" }));
+    directory.set("sam.perso@exemple.fr", { id: "U04SAMPERSO", name: "Sam" });
+    expect((await resolveSlackIdentity("u1", { email: "sam.perso@exemple.fr" })).status).toBe("found");
+  });
+
+  it("gives the name Slack answered right after a lookup, without storing it", async () => {
+    users.set("u1", row());
+    const looked = await resolveSlackIdentity("u1");
+    expect(looked).toMatchObject({ status: "found", slackUserId: MELVIN, name: "Melvin" });
+    expect(writes[0].data).toEqual({ slackUserId: MELVIN, slackCheckedAt: expect.any(Date) });
+    // Read from what is stored: no name — nothing of it was kept.
+    expect(await resolveSlackIdentity("u1")).not.toHaveProperty("name");
+    expect(slackIdentityOf(users.get("u1")!)).not.toHaveProperty("name");
+    // Nobody found: no name.
+    users.set("u2", row({ email: "absente@impulse-analytics.com" }));
+    expect(await resolveSlackIdentity("u2")).toMatchObject({ status: "unknown", name: null });
+  });
+
   it("goes back to the login address with null or an empty string", async () => {
     for (const email of [null, "", "  ", "melvin@impulse-analytics.com"]) {
       sent = [];
@@ -434,6 +472,25 @@ describe("/api/me/slack", () => {
     expect((await (await post({ action: "check", email: null })).json()).identity).toMatchObject({ status: "found", email: "melvin@impulse-analytics.com", slackUserId: MELVIN });
     expect(users.get("u1")!.slackEmail).toBeNull();
     expect((await (await post({ action: "check", email: "absente@impulse-analytics.com" })).json()).identity).toMatchObject({ status: "unknown", slackUserId: null });
+  });
+
+  it("check refuses the login address of another user, before asking Slack anything", async () => {
+    users.set("u1", row({ slackUserId: MELVIN, slackCheckedAt: hoursAgo(1) }));
+    users.set("u2", row({ email: "claire@impulse-analytics.com" }));
+    const res = await post({ action: "check", email: "Claire@Impulse-Analytics.com" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("Cette adresse est celle d'un autre compte ImpulseMotion.");
+    expect(sent).toEqual([]);
+    expect(writes).toEqual([]);
+    expect(users.get("u1")).toMatchObject({ slackEmail: null, slackUserId: MELVIN });
+    // One's own login address is of course fine.
+    expect((await post({ action: "check", email: "melvin@impulse-analytics.com" })).status).toBe(200);
+  });
+
+  it("check answers with the name of the member Slack found", async () => {
+    users.set("u1", row());
+    const json = await (await post({ action: "check" })).json();
+    expect(json.identity).toMatchObject({ status: "found", email: "melvin@impulse-analytics.com", name: "Melvin" });
   });
 
   it("check refuses an address that is not one", async () => {

@@ -30,11 +30,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { readClientSeries } from "@/lib/client-alerts/series";
-import { backtest } from "@/lib/client-alerts/backtest";
+import { backtest, replayVerdict } from "@/lib/client-alerts/backtest";
 import { definitionHash } from "@/lib/client-alerts/evaluate";
 import { dmConfigured, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
-import { unreadAccounts, unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
+import { unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
 import { NOISY_MESSAGES, sendingEnabled, type Backtest, type ClientSeries } from "@/lib/client-alerts/types";
 import { ALERT_NOT_FOUND, OWNER_ONLY, alertAccess, readAccounts, toAlertView } from "@/components/client-alerts/alert-model";
 
@@ -97,9 +97,6 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!checked.ok) return NextResponse.json({ error: "Cette proposition ne peut pas être validée.", errors: checked.errors, hints: checked.hints }, { status: 422 });
   const definition = checked.value;
 
-  // A replay over an account that could not be read judges nothing: it cannot vouch for the alert.
-  const unread = unreadAccounts(definition.accounts, series);
-  if (unread.length) return NextResponse.json({ error: `${unreadText(unread)} L'alerte n'a pas été enregistrée.` }, { status: 503 });
 
   let replay: Backtest;
   let hash: string;
@@ -109,6 +106,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   } catch (e) {
     console.error("[client-alerts] backtest failed", e);
     return NextResponse.json({ error: "La vérification sur les 30 derniers jours a échoué : l'alerte n'a pas été enregistrée. Réessayez dans quelques minutes." }, { status: 500 });
+  }
+  // A replay that judged (almost) nothing vouches for nothing: wait for the account, or refuse the rule.
+  const verdict = replayVerdict(definition, series, replay);
+  if (verdict.kind === "wait") return NextResponse.json({ error: `${unreadText(verdict.unread)} L'alerte n'a pas été enregistrée.` }, { status: 503 });
+  if (verdict.kind === "refused") {
+    return NextResponse.json({ error: "Cette proposition ne peut pas être validée.", errors: [verdict.error], hints: [verdict.hint] }, { status: 422 });
   }
   // The cron only runs an alert whose replay vouches for its definition.
   if (!hash || replay.hash !== hash) {

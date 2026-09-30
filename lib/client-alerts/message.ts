@@ -14,7 +14,7 @@
  * No header, no emoji: a private message from the application is already the signal.
  */
 
-import { compareShiftDays, type AlertDefinition, type AlertMetric, type AlertPlatform, type Evaluation, type EvaluationPart } from "@/lib/client-alerts/types";
+import { compareShiftDays, conversionLagDays, STOP_LOOKBACK_DAYS, type AlertDefinition, type AlertMetric, type AlertPlatform, type Evaluation, type EvaluationPart } from "@/lib/client-alerts/types";
 
 // ── Numbers, the French way (same conventions as lib/auto-alerts/detect.ts) ──
 
@@ -53,27 +53,40 @@ function parseDay(date: string): Date | null {
 }
 const dayOf = (d: Date) => (d.getUTCDate() === 1 ? "1er" : String(d.getUTCDate()));
 const dayMonth = (d: Date) => `${dayOf(d)} ${MONTHS[d.getUTCMonth()]}`;
-const days = (n: number) => `${n} jour${n > 1 ? "s" : ""}`;
+/** « 3 jours », « 3 jours ouvrés » for an alert that leaves Saturdays and Sundays out. */
+const days = (n: number, def?: Pick<AlertDefinition, "weekdaysOnly">) => `${n} jour${n > 1 ? "s" : ""}${def?.weekdaysOnly === true ? ` ouvré${n > 1 ? "s" : ""}` : ""}`;
 
-/** The window of `n` days ending `asOf`: its first and last day, null when `asOf` is not a date. */
-function windowOf(asOf: string, n: number): { from: Date; to: Date } | null {
-  const to = parseDay(asOf);
-  return to ? { from: new Date(to.getTime() - (n - 1) * 86_400_000), to } : null;
+/**
+ * The window that was judged: its real first and last day, as the evaluation
+ * reports them (one day of hindsight for the conversions, working days only…).
+ * An evaluation without `from` is read as `n` days in a row ending `asOf`;
+ * null when `asOf` is not a date.
+ */
+function windowOf(evaluation: Pick<Evaluation, "asOf" | "from">, n: number): { from: Date; to: Date } | null {
+  const to = parseDay(evaluation.asOf);
+  if (!to) return null;
+  const from = evaluation.from ? parseDay(evaluation.from) : null;
+  return { from: from && from <= to ? from : new Date(to.getTime() - (n - 1) * 86_400_000), to };
 }
 
-function periodWords(asOf: string, n: number): string {
-  const w = windowOf(asOf, n);
-  if (!w) return `sur ${days(n)}`;
-  if (n <= 1) return `le ${dayMonth(w.to)}`;
+function periodWords(def: AlertDefinition, evaluation: Evaluation): string {
+  const n = def.windowDays;
+  const w = windowOf(evaluation, n);
+  if (!w) return `sur ${days(n, def)}`;
+  if (w.from.getTime() === w.to.getTime()) return `le ${dayMonth(w.to)}`;
   const sameMonth = w.from.getUTCMonth() === w.to.getUTCMonth() && w.from.getUTCFullYear() === w.to.getUTCFullYear();
   return `du ${sameMonth ? dayOf(w.from) : dayMonth(w.from)} au ${dayMonth(w.to)}`;
 }
 
-function sinceWords(asOf: string, n: number): string {
-  const w = windowOf(asOf, n);
-  if (!w) return `depuis ${days(n)}`;
-  return `depuis le ${dayMonth(w.from)}${n > 1 ? ` (${days(n)})` : ""}`;
+function sinceWords(def: AlertDefinition, evaluation: Evaluation): string {
+  const n = def.windowDays;
+  const w = windowOf(evaluation, n);
+  if (!w) return `depuis ${days(n, def)}`;
+  return `depuis le ${dayMonth(w.from)}${n > 1 ? ` (${days(n, def)})` : ""}`;
 }
+
+/** Why the period stops before yesterday, for what depends on conversions — said with the period, in a few words. */
+const hindsight = (def: AlertDefinition) => (conversionLagDays(def.metric) > 0 ? " (un jour de recul, le temps que les conversions remontent)" : "");
 
 function compareWords(def: AlertDefinition): string {
   const one = def.windowDays <= 1;
@@ -83,7 +96,8 @@ function compareWords(def: AlertDefinition): string {
     if (weeks > 1) return `par rapport aux mêmes jours de la semaine, ${weeks} semaines plus tôt`;
     return one ? "par rapport au même jour de la semaine précédente" : "par rapport aux mêmes jours de la semaine précédente";
   }
-  return one ? "par rapport au jour précédent" : `par rapport aux ${def.windowDays} jours précédents`;
+  const worked = def.weekdaysOnly === true;
+  return one ? `par rapport au jour${worked ? " ouvré" : ""} précédent` : `par rapport aux ${def.windowDays} jours${worked ? " ouvrés" : ""} précédents`;
 }
 
 // ── Slack mrkdwn ─────────────────────────────────────────────────────────────
@@ -137,14 +151,15 @@ function metricLine(def: AlertDefinition, evaluation: Evaluation, main: Evaluati
   const bits: string[] = [];
 
   if (def.condition === "stopped") {
-    const since = sinceWords(evaluation.asOf, def.windowDays);
+    const since = sinceWords(def, evaluation);
+    const before = `sur les ${days(STOP_LOOKBACK_DAYS, def)} précédents`;
     if (def.metric === "conversions") {
       const spending = main !== null && main.spend > 0 ? " alors que la dépense continue" : "";
       bits.push(`*Plus aucune conversion${on ? ` sur ${on}` : ""}* ${since}${spending}`);
-      if (head.baseline !== null && head.baseline > 0) bits.push(`${conversionsWords(head.baseline)} sur les jours précédents`);
+      if (head.baseline !== null && head.baseline > 0) bits.push(`${conversionsWords(head.baseline)} ${before}`);
     } else {
       bits.push(`*${metric.label}${on ? ` ${on}` : ""} à l'arrêt* ${since}`);
-      if (head.baseline !== null && head.baseline > 0) bits.push(`${metric.format(head.baseline)} sur les jours précédents`);
+      if (head.baseline !== null && head.baseline > 0) bits.push(`${metric.format(head.baseline)} ${before}`);
     }
   } else if (head.value === null && def.metric === "cpa" && !moving) {
     // A CPA « above » triggers on the spend alone when nothing converted: there is no CPA to write.
@@ -193,7 +208,7 @@ function contextLine(def: AlertDefinition, evaluation: Evaluation, main: Evaluat
     if (def.metric !== "spend") bits.push(`Dépense ${euros(main.spend)}`);
     if (def.metric !== "conversions") bits.push(conversionsWords(main.conversions));
   }
-  bits.push(periodWords(evaluation.asOf, def.windowDays));
+  bits.push(`${periodWords(def, evaluation)}${hindsight(def)}`);
   const line = bits.join(" · ");
   const on = main && def.aggregation === "each" && !said ? platformName(main) : "";
   if (on) return `${on} : ${line.charAt(0).toLowerCase()}${line.slice(1)}`;

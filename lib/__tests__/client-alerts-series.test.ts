@@ -87,7 +87,7 @@ describe("readClientSeries — Meta", () => {
     expect(a.account).toEqual(META);
     expect(a.days).toHaveLength(SERIES_DAYS);
     expect(a.days[a.days.length - 1].date).toBe("2026-09-28");
-    expect(a.days[0].date).toBe("2026-06-26");
+    expect(a.days[0].date).toBe("2026-05-27");
     // Every date follows the one before by exactly one day.
     for (let i = 1; i < a.days.length; i++) expect(Date.parse(a.days[i].date) - Date.parse(a.days[i - 1].date)).toBe(86_400_000);
     expect(day(a, "2026-09-27")).toEqual({ date: "2026-09-27", spend: 120, conversions: 3, revenue: 450, clicks: 40, impressions: 2000 });
@@ -95,7 +95,7 @@ describe("readClientSeries — Meta", () => {
     // A day Meta has no row for is a day at zero.
     expect(day(a, "2026-09-26")).toEqual({ date: "2026-09-26", spend: 0, conversions: 0, revenue: 0, clicks: 0, impressions: 0 });
     expect(a.today).toEqual({ spend: 33, conversions: 2, hour: 12 });
-    expect(h.insights).toHaveBeenCalledWith("token", "act_100", { since: "2026-06-26", until: "2026-09-29" });
+    expect(h.insights).toHaveBeenCalledWith("token", "act_100", { since: "2026-05-27", until: "2026-09-29" });
   });
 
   it("follows the days and the hour of the account timezone", async () => {
@@ -114,7 +114,7 @@ describe("readClientSeries — Meta", () => {
     expect(b.days).toHaveLength(SERIES_DAYS);
     expect(b.days[b.days.length - 1]).toMatchObject({ date: "2026-09-27", spend: 55 });
     expect(b.today).toEqual({ spend: 70, conversions: 0, hour: 22 });
-    expect(h.insights).toHaveBeenLastCalledWith("token", "act_100", { since: "2026-06-25", until: "2026-09-28" });
+    expect(h.insights).toHaveBeenLastCalledWith("token", "act_100", { since: "2026-05-26", until: "2026-09-28" });
   });
 
   it("counts the conversions of the event set on the account", async () => {
@@ -157,7 +157,7 @@ describe("readClientSeries — Google", () => {
       expect(sent.gaql_query).toContain(field);
     }
     // One day wider on each side: the timezone of the account is only known from its answer.
-    expect(sent.gaql_query).toContain("BETWEEN '2026-06-25' AND '2026-09-30'");
+    expect(sent.gaql_query).toContain("BETWEEN '2026-05-26' AND '2026-09-30'");
 
     expect(a.days).toHaveLength(SERIES_DAYS);
     expect(a.days[a.days.length - 1].date).toBe("2026-09-28");
@@ -297,6 +297,27 @@ describe("readClientSeries — cache", () => {
     expect(h.insights).toHaveBeenCalledTimes(1);
     expect(day(again.accounts[0], "2026-09-28").spend).toBe(80);
     expect(again.accounts[0].account.name).toBe("Meta France");
+  });
+
+  it("never serves after midnight a series read before it: the day is part of the key", async () => {
+    // 23:55 in Paris on the 29th: the last full day is the 28th.
+    h.insights.mockResolvedValue([metaRow("2026-09-28", 80), metaRow("2026-09-29", 40)]);
+    const evening = await readClientSeries([META], { now: new Date("2026-09-29T21:55:00Z") });
+    expect(evening.until).toBe("2026-09-28");
+    // Ten minutes later it is the 30th: the 29th is now a full day, and must be read — not the cache of the evening.
+    h.insights.mockResolvedValue([metaRow("2026-09-28", 80), metaRow("2026-09-29", 120)]);
+    const night = await readClientSeries([META], { now: new Date("2026-09-29T22:05:00Z") });
+    expect(h.insights).toHaveBeenCalledTimes(2);
+    expect(night.until).toBe("2026-09-29");
+    expect(night.accounts[0].days.at(-1)).toMatchObject({ date: "2026-09-29", spend: 120 });
+    expect([...h.kpiCache.rows.keys()].filter((k) => k.includes("client-alerts:series:meta:act_100")).sort()).toEqual([
+      expect.stringMatching(/:2026-09-29$/), expect.stringMatching(/:2026-09-30$/),
+    ]);
+  });
+
+  it("reads enough days for the longest window of working days, its comparison and the 30 days replayed", () => {
+    // 30 working days are 42 calendar days, twice (the comparison), plus the 30 days replayed and the day of hindsight.
+    expect(SERIES_DAYS).toBeGreaterThanOrEqual(42 + 42 + 30 + 1 + 2);
   });
 
   it("stores for about ten minutes", async () => {

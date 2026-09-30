@@ -34,6 +34,9 @@ const JARGON = /\b(label|metric|condition|threshold|windowDays|aggregation|compa
 const day = (revenue: number | null): SeriesPoint => ({ date: "2026-09-01", spend: 100, conversions: 4, revenue, clicks: 50, impressions: 4000 });
 const read = (account: AlertAccountRef, revenue: number | null, currency = "EUR"): AccountSeries =>
   ({ account, currency, eurRate: currency === "EUR" ? 1 : 0.9, days: [day(revenue), day(revenue)], today: null });
+/** Read, but nothing spent: a dormant account. */
+const dormant = (account: AlertAccountRef): AccountSeries =>
+  ({ account, currency: "EUR", eurRate: 1, days: [{ ...day(null), spend: 0, conversions: 0 }, { ...day(null), spend: 0, conversions: 0 }], today: null });
 const unread = (account: AlertAccountRef): AccountSeries => ({ account, currency: "EUR", eurRate: 1, days: [], today: null, error: "rate limit" });
 const series = (...accounts: AccountSeries[]): ClientSeries => ({ readAt: "2026-09-30T06:00:00.000Z", until: "2026-09-29", accounts });
 
@@ -203,7 +206,7 @@ describe("alertes client — validation : la règle", () => {
   });
 
   it("n'accepte que oui ou non pour les jours ouvrés et le rappel", () => {
-    expect(refused({ ...base, weekdaysOnly: "oui" })[0]).toContain("Du lundi au vendredi seulement");
+    expect(refused({ ...base, weekdaysOnly: "oui" })[0]).toBe("« Jours ouvrés seulement » se règle par oui ou non.");
     expect(refused({ ...base, remind: 1 })[0]).toContain("Le rappel tant que la situation dure");
   });
 
@@ -221,6 +224,30 @@ describe("alertes client — validation : la règle", () => {
     for (const e of errors) expect(e).toMatch(/^[A-ZÀ-Ý«]/);
     // No field name of the contract on screen.
     expect(errors.join(" ")).not.toMatch(/\b(label|metric|windowDays|threshold|accounts|accountId)\b/);
+  });
+});
+
+describe("alertes client — validation : comparaison avec les mêmes jours de la semaine", () => {
+  const drop = { label: "Dépense en baisse", metric: "spend", condition: "drop_pct", threshold: 40, compare: "same_weekdays" };
+
+  it("l'accepte jusqu'à 7 jours, la refuse au-delà en disant quoi demander", () => {
+    for (const windowDays of [1, 3, 7]) expect(ok({ ...drop, windowDays }).value.compare, String(windowDays)).toBe("same_weekdays");
+    for (const windowDays of [14, 30]) {
+      const result = validateAlertProposal({ ...drop, windowDays }, ctx());
+      expect(result.ok, String(windowDays)).toBe(false);
+      if (result.ok) continue;
+      expect(result.errors).toEqual([`La comparaison avec les mêmes jours de la semaine précédente ne vaut que pour une période de 7 jours au plus : sur ${windowDays} jours, comparez avec les ${windowDays} jours d'avant.`]);
+      expect(result.errors[0]).not.toMatch(JARGON);
+      expect(result.hints).toEqual(['"compare" : "previous_window" dès que "windowDays" dépasse 7']);
+    }
+    expect(ok({ ...drop, windowDays: 30, compare: "previous_window" }).value.compare).toBe("previous_window");
+    expect(ok({ ...drop, condition: "rise_pct", windowDays: 7 }).value.compare).toBe("same_weekdays");
+    expect(validateAlertProposal({ ...drop, condition: "rise_pct", windowDays: 14 }, ctx()).ok).toBe(false);
+  });
+
+  it("ne refuse pas une alerte à seuil pour une comparaison qu'elle ne lit pas", () => {
+    // « compare » is read by the variations only: written next to a threshold, it changes nothing.
+    expect(ok({ ...base, windowDays: 30, compare: "same_weekdays" }, ctx({ accounts: [META] })).value.windowDays).toBe(30);
   });
 });
 
@@ -276,32 +303,44 @@ describe("alertes client — validation : ce que disent les chiffres", () => {
     expect(ok({ ...roas, accounts: [{ platform: "google", accountId: "9876543210" }] }, ctx({ series: googleOnly })).warnings).toEqual([]);
   });
 
-  it("refuse un ROAS additionné quand une plateforme ne remonte aucune valeur, et propose each ou le CPA", () => {
+  it("refuse un ROAS dès qu'un compte qui dépense ne remonte aucune valeur — comme le moteur, compte par compte", () => {
+    // Meta « LPEV Meta » tracks a value; the second Meta account and Google spend without one.
     const metaOnly = series(read(META, 500), read(META_2, null), read(GOOGLE, null));
     const errors = refused(roas, ctx({ series: metaOnly }));
-    expect(errors).toHaveLength(1);
-    // The consultant reads plain French; the names of the fields go to the AI alone.
-    expect(errors[0]).toBe("Le ROAS de Meta et Google Ads additionnés ne peut pas être calculé : Google Ads ne remonte aucune valeur de conversion. Jugez chaque plateforme séparément, ou surveillez le coût par conversion.");
-    expect(errors[0]).not.toMatch(JARGON);
-    expect(hints(roas, ctx({ series: metaOnly }))).toEqual([`"aggregation" : "each" en gardant "metric":"roas", ou bien "metric" : "cpa"`]);
+    expect(errors).toEqual([
+      "Le ROAS ne peut pas être calculé avec les comptes Meta « LPEV Traffic », Google Ads « LPEV Search » : ils dépensent sans remonter de valeur de conversion. Limitez l'alerte aux comptes qui en remontent une, ou surveillez le coût par conversion.",
+    ]);
+    // The consultant reads plain French; the fields and the account to keep go to the AI alone.
+    expect(errors[0].replace(/« [^»]* »/g, "« … »")).not.toMatch(JARGON);
+    expect(hints(roas, ctx({ series: metaOnly }))).toEqual([`"accounts" : [{"platform":"meta","accountId":"1234567890"}] (les seuls comptes qui remontent une valeur), ou bien "metric" : "cpa"`]);
+    // One account is enough, inside a platform that otherwise tracks a value: the engine would never compute this ROAS.
+    const oneBlind = series(read(META, 500), read(META_2, null), read(GOOGLE, 300));
+    expect(refused(roas, ctx({ series: oneBlind }))[0]).toBe(
+      "Le ROAS ne peut pas être calculé avec le compte Meta « LPEV Traffic » : il dépense sans remonter de valeur de conversion. Limitez l'alerte aux comptes qui en remontent une, ou surveillez le coût par conversion.",
+    );
   });
 
-  it("accepte ce même ROAS plateforme par plateforme, en disant laquelle compte", () => {
-    const metaOnly = series(read(META, 500), read(META_2, null), read(GOOGLE, null));
-    const { value, warnings } = ok({ ...roas, aggregation: "each" }, ctx({ series: metaOnly }));
-    expect(value.aggregation).toBe("each");
-    expect(warnings).toEqual(["Google Ads ne remonte aucune valeur de conversion : le ROAS ne tient compte que de Meta."]);
+  it("ne sauve pas ce ROAS en jugeant chaque plateforme seule : une plateforme jamais jugée laisse l'alerte non jugée", () => {
+    const metaOnly = series(read(META, 500), dormant(META_2), read(GOOGLE, null));
+    expect(refused({ ...roas, aggregation: "each" }, ctx({ series: metaOnly }))[0]).toContain("Le ROAS ne peut pas être calculé avec le compte Google Ads « LPEV Search »");
+    // Limited to the accounts that track a value, it goes through.
+    expect(ok({ ...roas, accounts: [{ platform: "meta", accountId: "1234567890" }] }, ctx({ series: metaOnly })).warnings).toEqual([]);
   });
 
-  it("accepte un revenu additionné partiel, en le disant", () => {
-    const metaOnly = series(read(META, 500), read(META_2, 200), read(GOOGLE, null));
-    const { warnings } = ok({ ...roas, metric: "revenue", condition: "below", threshold: 1000 }, ctx({ series: metaOnly }));
-    expect(warnings.some((w) => w.includes("le revenu ne tient compte que de Meta"))).toBe(true);
-  });
-
-  it("accepte un ROAS additionné quand les deux plateformes remontent une valeur", () => {
-    const both = series(read(META, 500), read(META_2, null), read(GOOGLE, 300));
+  it("ne tient pas compte d'un compte sans valeur qui ne dépense rien", () => {
+    // A dormant account shows no value by nature: it takes nothing away from the ROAS of the others.
+    const both = series(read(META, 500), dormant(META_2), read(GOOGLE, 300));
     expect(ok(roas, ctx({ series: both })).warnings).toEqual([]);
+    expect(ok({ ...roas, aggregation: "each" }, ctx({ series: both })).warnings).toEqual([]);
+  });
+
+  it("accepte un revenu partiel en nommant le compte laissé de côté, et le refuse par plateforme quand l'une n'a aucune valeur", () => {
+    const metaOnly = series(read(META, 500), read(META_2, 200), read(GOOGLE, null));
+    const revenue = { ...roas, metric: "revenue", condition: "below", threshold: 1000 };
+    expect(ok(revenue, ctx({ series: metaOnly })).warnings).toEqual(["Le compte Google Ads « LPEV Search » ne remonte aucune valeur de conversion : le revenu ne tient compte que des autres comptes."]);
+    const each = refused({ ...revenue, aggregation: "each" }, ctx({ series: metaOnly }));
+    expect(each).toEqual(["Google Ads ne remonte aucune valeur de conversion : son revenu ne peut pas être jugé séparément. Limitez l'alerte aux comptes qui en remontent une, ou surveillez le nombre de conversions."]);
+    expect(hints({ ...revenue, aggregation: "each" }, ctx({ series: metaOnly }))[0]).toContain('"accounts" : [{"platform":"meta","accountId":"1234567890"},{"platform":"meta","accountId":"555000111"}]');
   });
 
   it("ne conclut pas à la place d'un compte qui n'a pas pu être lu", () => {
@@ -340,7 +379,7 @@ describe("alertes client — validation : une phrase, un seul propriétaire", ()
     expect(ok({ ...base, metric: "spend", condition: "drop_pct", threshold: 150 }).warnings).toEqual([expect.stringContaining("ne se déclencherait jamais")]);
     const metaOnly = series(read(META, 500), read(META_2, 200), read(GOOGLE, null));
     expect(ok({ label: "Revenu bas", metric: "revenue", condition: "below", threshold: 1000, windowDays: 7 }, ctx({ series: metaOnly })).warnings)
-      .toEqual(["Google Ads ne remonte aucune valeur de conversion : le revenu ne tient compte que de Meta."]);
+      .toEqual(["Le compte Google Ads « LPEV Search » ne remonte aucune valeur de conversion : le revenu ne tient compte que des autres comptes."]);
   });
 });
 

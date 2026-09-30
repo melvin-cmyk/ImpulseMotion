@@ -8,7 +8,7 @@
  * same system prompt, same profile, no server, the real figures of the client
  * read by readClientSeries and written by summarizeSeries); the reply is
  * checked as the route checks it (checkAlertProposal + validateAlertProposal,
- * then backtest over the last 30 days). Nothing is activated and nothing is
+ * then backtest over the last 30 days and replayVerdict). Nothing is activated and nothing is
  * saved anywhere but the transcript, kept in a local file so that the next
  * turn can answer what the AI asked.
  *
@@ -136,9 +136,8 @@ describe.skipIf(!LIVE)("alertes client — l'IA de création, en vrai (CLIENT_AL
     const { sanitizeThread, toRelayMessages } = await import("@/lib/relay-attachments");
     const { relayStream } = await import("@/lib/relay-chat");
     const { readClientSeries, summarizeSeries } = await import("@/lib/client-alerts/series");
-    const { backtest } = await import("@/lib/client-alerts/backtest");
+    const { backtest, replayVerdict } = await import("@/lib/client-alerts/backtest");
     const { validateAlertProposal } = await import("@/lib/client-alerts/validate");
-    const { unreadAccounts } = await import("@/lib/client-alerts/accounts");
     const {
       ALERT_CHAT_MAX_MESSAGES, ALERT_CHAT_MAX_MESSAGE_CHARS, buildAlertRelayBody, checkAlertProposal, stripAlertBlocks, withProposalNotes,
     } = await import("@/lib/client-alerts/compose-prompt");
@@ -196,14 +195,18 @@ describe.skipIf(!LIVE)("alertes client — l'IA de création, en vrai (CLIENT_AL
 
     const check = checkAlertProposal(read.assistant, (input) => validateAlertProposal(input, { accounts, series }));
     let replay: Turn["replay"] = null;
-    if (check.kind === "valid" && unreadAccounts(check.proposal.accounts, series).length === 0) {
+    let verdict = "";
+    if (check.kind === "valid") {
       const b = backtest(check.proposal, series);
+      // As the route: a replay that judged (almost) nothing is not a measure — the proposal waits, or is refused.
+      const v = replayVerdict(check.proposal, series, b);
+      verdict = v.kind === "ok" ? "" : v.kind === "wait" ? "rejeu en attente : compte illisible" : `rejeu refusé : ${v.error}`;
       replay = { messages: b.messages.map((m) => m.date), daysTrue: b.daysTrue, skippedDays: b.skippedDays, current: b.current, min: b.min, median: b.median, max: b.max, notes: b.notes };
     }
     const turn: Turn = {
       user: content, ...read, durationMs,
       proposal: check.kind,
-      validationErrors: check.kind === "invalid" ? check.errors : [],
+      validationErrors: check.kind === "invalid" ? check.errors : verdict ? [verdict] : [],
       hints: check.kind === "invalid" ? check.hints : [],
       warnings: check.kind === "valid" ? check.warnings : [],
       definition: check.kind === "valid" ? check.proposal : null,

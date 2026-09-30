@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import { buildAlertLine, buildDmText, escapeSlack, slackToPlain } from "@/lib/client-alerts/message";
 import type { AlertDefinition, Evaluation, EvaluationPart } from "@/lib/client-alerts/types";
 
+/** Said with the period for what depends on conversions: why it stops before yesterday. */
+const H = " (un jour de recul, le temps que les conversions remontent)";
 /** Thousands separator of fr-FR (narrow no-break space). */
 const S = " ";
 
@@ -34,7 +36,7 @@ describe("buildAlertLine — thresholds", () => {
     expect(buildAlertLine({ clientName: "LPEV", def: def(), evaluation: CPA, kind: "trigger" })).toBe([
       "*LPEV* — CPA au-dessus de 60 € sur 3 jours",
       "CPA : *72,40 €* (seuil 60 €) · Meta 81,20 € · Google 54,10 €",
-      `Dépense 4${S}320 € · 60 conversions · du 27 au 29 sept.`,
+      `Dépense 4${S}320 € · 60 conversions · du 27 au 29 sept.${H}`,
     ].join("\n"));
   });
 
@@ -50,7 +52,7 @@ describe("buildAlertLine — thresholds", () => {
     expect(line(d, e)).toEqual([
       "*LPEV* — ROAS sous 2,5 sur 7 jours",
       "ROAS : *×1,84* (seuil ×2,5) · Meta ×3,2 · Google ×0,93",
-      `Dépense 12${S}500 € · 210 conversions · du 23 au 29 sept.`,
+      `Dépense 12${S}500 € · 210 conversions · du 23 au 29 sept.${H}`,
     ]);
   });
 
@@ -63,7 +65,7 @@ describe("buildAlertLine — thresholds", () => {
     ]);
     const conversions = def({ label: "Moins de 20 conversions sur 7 jours", metric: "conversions", condition: "below", threshold: 20, windowDays: 7 });
     const few = evaluation([part("combined", 12.5, { spend: 980, conversions: 12.5, triggered: true }), part("meta", 12.5, { spend: 980, conversions: 12.5 })]);
-    expect(line(conversions, few).slice(1)).toEqual(["Conversions : *12,5* (seuil 20)", "Dépense 980 € · du 23 au 29 sept."]);
+    expect(line(conversions, few).slice(1)).toEqual(["Conversions : *12,5* (seuil 20)", `Dépense 980 € · du 23 au 29 sept.${H}`]);
     const split = evaluation([part("combined", 12.5, { spend: 980, conversions: 12.5, triggered: true }), part("meta", 11.5, { spend: 700, conversions: 11.5 }), part("google", 1, { spend: 280, conversions: 1 })]);
     expect(line(conversions, split)[1]).toBe("Conversions : *12,5* (seuil 20) · Meta 11,5 conversions · Google 1 conversion");
   });
@@ -86,7 +88,7 @@ describe("buildAlertLine — thresholds", () => {
     expect(line(d, e)).toEqual([
       "*LPEV* — CPA au-dessus de 60 € sur une plateforme",
       "CPA sur Google : *81,20 €* (seuil 60 €) · Meta 54,10 €",
-      `Google : dépense 3${S}004 € · 37 conversions · du 27 au 29 sept.`,
+      `Google : dépense 3${S}004 € · 37 conversions · du 27 au 29 sept.${H}`,
     ]);
     // Both over the threshold: the first decides, the other is said too.
     const both = evaluation([part("meta", 90, { spend: 900, conversions: 10, triggered: true }), part("google", 81.2, { spend: 3004.4, conversions: 37, triggered: true })]);
@@ -136,8 +138,8 @@ describe("buildAlertLine — stops", () => {
   it("writes a spend at a stop, in two lines", () => {
     const d = def({ label: "Dépense à l'arrêt", metric: "spend", condition: "stopped", threshold: null });
     const e = evaluation([part("combined", 0, { baseline: 2870, triggered: true }), part("meta", 0), part("google", 0)]);
-    expect(line(d, e)).toEqual(["*LPEV* — Dépense à l'arrêt", `*Dépense à l'arrêt* depuis le 27 sept. (3 jours) · 2${S}870 € sur les jours précédents`]);
-    expect(line({ ...d, windowDays: 1 }, e)[1]).toBe(`*Dépense à l'arrêt* depuis le 29 sept. · 2${S}870 € sur les jours précédents`);
+    expect(line(d, e)).toEqual(["*LPEV* — Dépense à l'arrêt", `*Dépense à l'arrêt* depuis le 27 sept. (3 jours) · 2${S}870 € sur les 7 jours précédents`]);
+    expect(line({ ...d, windowDays: 1 }, e)[1]).toBe(`*Dépense à l'arrêt* depuis le 29 sept. · 2${S}870 € sur les 7 jours précédents`);
   });
 
   it("writes conversions at a stop while the spend goes on", () => {
@@ -145,19 +147,19 @@ describe("buildAlertLine — stops", () => {
     const e = evaluation([part("combined", 0, { baseline: 42, spend: 1450, triggered: true }), part("meta", 0, { spend: 1000 }), part("google", 0, { spend: 450 })], { asOf: "2026-10-02" });
     expect(line(d, e)).toEqual([
       "*LPEV* — Plus de conversions sur 3 jours",
-      "*Plus aucune conversion* depuis le 30 sept. (3 jours) alors que la dépense continue · 42 conversions sur les jours précédents",
-      `Dépense 1${S}450 € · du 30 sept. au 2 oct.`,
+      "*Plus aucune conversion* depuis le 30 sept. (3 jours) alors que la dépense continue · 42 conversions sur les 7 jours précédents",
+      `Dépense 1${S}450 € · du 30 sept. au 2 oct.${H}`,
     ]);
   });
 
   it("names the platform that stopped when each is judged on its own", () => {
     const d = def({ label: "Dépense à l'arrêt sur une plateforme", metric: "spend", condition: "stopped", threshold: null, aggregation: "each" });
     const e = evaluation([part("meta", 1230, { spend: 1230, conversions: 11 }), part("google", 0, { baseline: 900, triggered: true })], { value: 0, baseline: 900 });
-    expect(line(d, e)).toEqual(["*LPEV* — Dépense à l'arrêt sur une plateforme", `*Dépense Google à l'arrêt* depuis le 27 sept. (3 jours) · 900 € sur les jours précédents · Meta 1${S}230 €`]);
+    expect(line(d, e)).toEqual(["*LPEV* — Dépense à l'arrêt sur une plateforme", `*Dépense Google à l'arrêt* depuis le 27 sept. (3 jours) · 900 € sur les 7 jours précédents · Meta 1${S}230 €`]);
     const conv = evaluation([part("meta", 0, { baseline: 18, spend: 640, triggered: true }), part("google", 9, { spend: 300, conversions: 9 })]);
     expect(line({ ...d, metric: "conversions" }, conv).slice(1)).toEqual([
-      "*Plus aucune conversion sur Meta* depuis le 27 sept. (3 jours) alors que la dépense continue · 18 conversions sur les jours précédents · Google 9 conversions",
-      "Meta : dépense 640 € · du 27 au 29 sept.",
+      "*Plus aucune conversion sur Meta* depuis le 27 sept. (3 jours) alors que la dépense continue · 18 conversions sur les 7 jours précédents · Google 9 conversions",
+      `Meta : dépense 640 € · du 27 au 29 sept.${H}`,
     ]);
   });
 });
@@ -171,7 +173,7 @@ describe("buildAlertLine — figures, dates and names", () => {
     expect(cpa(60.004, 59.5)[1]).toBe("CPA : *60 €* (seuil 59,50 €)");
     expect(cpa(1234.56, 999.99)[1]).toBe(`CPA : *1${S}235 €* (seuil 999,99 €)`);
     expect(cpa(0.456, 0.3)[1]).toBe("CPA : *0,46 €* (seuil 0,30 €)");
-    expect(cpa(72.4, 60, 1234567.8, 1)[2]).toBe(`Dépense 1${S}234${S}568 € · 1 conversion · du 27 au 29 sept.`);
+    expect(cpa(72.4, 60, 1234567.8, 1)[2]).toBe(`Dépense 1${S}234${S}568 € · 1 conversion · du 27 au 29 sept.${H}`);
   });
 
   it("writes counts, ratios and rates the French way", () => {
@@ -190,7 +192,7 @@ describe("buildAlertLine — figures, dates and names", () => {
     expect(line(def(), evaluation([part("combined", null, { spend: 900, conversions: 0, triggered: true })]))).toEqual([
       "*LPEV* — CPA au-dessus de 60 € sur 3 jours",
       "*Aucune conversion pour 900 € dépensés* (seuil : CPA de 60 €)",
-      "Du 27 au 29 sept.",
+      `Du 27 au 29 sept.${H}`,
     ]);
     // Both platforms spent: each one's share follows.
     const both = evaluation([
@@ -211,12 +213,12 @@ describe("buildAlertLine — figures, dates and names", () => {
     ]);
     expect(line(def(), few).slice(1)).toEqual([
       "CPA : *450 €* (seuil 60 €) · Meta 300 € · Google : aucune conversion pour 300 €",
-      "Dépense 900 € · 2 conversions · du 27 au 29 sept.",
+      `Dépense 900 € · 2 conversions · du 27 au 29 sept.${H}`,
     ]);
     const each = evaluation([part("meta", null, { spend: 600, conversions: 0, triggered: true }), part("google", 30, { spend: 90, conversions: 3 })]);
     expect(line(def({ aggregation: "each" }), each).slice(1)).toEqual([
       "*Aucune conversion sur Meta pour 600 € dépensés* (seuil : CPA de 60 €) · Google 30 €",
-      "Du 27 au 29 sept.",
+      `Du 27 au 29 sept.${H}`,
     ]);
   });
 
@@ -226,7 +228,7 @@ describe("buildAlertLine — figures, dates and names", () => {
   });
 
   it("writes the period in short French dates", () => {
-    const at = (asOf: string, windowDays: AlertDefinition["windowDays"]) => line(def({ windowDays }), evaluation([part("combined", 72.4, { triggered: true })], { asOf })).at(-1)!.split(" · ").at(-1);
+    const at = (asOf: string, windowDays: AlertDefinition["windowDays"]) => line(def({ windowDays, metric: "spend" }), evaluation([part("combined", 72.4, { triggered: true })], { asOf })).at(-1)!.split(" · ").at(-1);
     expect(at("2026-09-29", 1)).toBe("le 29 sept.");
     expect(at("2026-09-29", 3)).toBe("du 27 au 29 sept.");
     expect(at("2026-09-03", 3)).toBe("du 1er au 3 sept.");
@@ -235,6 +237,26 @@ describe("buildAlertLine — figures, dates and names", () => {
     expect(at("2027-01-05", 14)).toBe("du 23 déc. au 5 janv.");
     expect(at("2026-03-01", 30)).toBe("du 31 janv. au 1er mars");
     expect(at("pas une date", 7)).toBe("sur 7 jours");
+  });
+
+  it("writes the window that was really judged: one day of hindsight for the conversions, working days only", () => {
+    // Checked on Tuesday 29: a CPA over 3 days is judged on the 26th to the 28th, and the message says why it stops there.
+    const cpa = evaluation([part("combined", 72.4, { spend: 4320, conversions: 60, triggered: true })], { from: "2026-09-26", asOf: "2026-09-28" });
+    expect(line(def(), cpa)[2]).toBe(`Dépense 4${S}320 € · 60 conversions · du 26 au 28 sept. (un jour de recul, le temps que les conversions remontent)`);
+    // The spend is judged up to yesterday: nothing to explain.
+    const spend = def({ label: "Dépense haute", metric: "spend", threshold: 1000 });
+    expect(line(spend, evaluation([part("combined", 1500, { spend: 1500, conversions: 9, triggered: true })], { from: "2026-09-27", asOf: "2026-09-29" }))[2]).toBe("9 conversions · du 27 au 29 sept.");
+    // Working days only: three working days checked on Monday 28 run from Wednesday to Friday — not Friday to Sunday.
+    const worked = { ...spend, weekdaysOnly: true };
+    const monday = evaluation([part("combined", 1500, { spend: 1500, conversions: 9, baseline: 3000, changePct: -50, triggered: true })], { from: "2026-09-23", asOf: "2026-09-25" });
+    expect(line(worked, monday)[2]).toBe("9 conversions · du 23 au 25 sept.");
+    expect(line({ ...worked, condition: "drop_pct", threshold: 40 }, monday)[1]).toBe(`Dépense : *1${S}500 €* · −50 % par rapport aux 3 jours ouvrés précédents (3${S}000 €)`);
+    expect(line({ ...worked, condition: "drop_pct", threshold: 40, windowDays: 1 }, monday)[1]).toContain("par rapport au jour ouvré précédent");
+    // A stop over three working days that span a week-end: since Thursday, « 3 jours ouvrés ».
+    const stop = evaluation([part("combined", 0, { baseline: 2870, triggered: true })], { from: "2026-09-24", asOf: "2026-09-28" });
+    expect(line({ ...worked, condition: "stopped", threshold: null }, stop)[1]).toBe(`*Dépense à l'arrêt* depuis le 24 sept. (3 jours ouvrés) · 2${S}870 € sur les 7 jours ouvrés précédents`);
+    // An evaluation stored before `from` existed is still read: n days in a row.
+    expect(line(spend, evaluation([part("combined", 1500, { conversions: 9, triggered: true })], { asOf: "2026-09-29" }))[2]).toBe("9 conversions · du 27 au 29 sept.");
   });
 
   it("escapes what Slack would read as a link or a mention, in the client and in the label", () => {
@@ -251,7 +273,7 @@ describe("buildAlertLine — figures, dates and names", () => {
   });
 
   it("still writes something readable from an evaluation without parts", () => {
-    expect(line(def(), evaluation([], { value: 72.4 }))).toEqual(["*LPEV* — CPA au-dessus de 60 € sur 3 jours", "CPA : *72,40 €* (seuil 60 €)", "Du 27 au 29 sept."]);
+    expect(line(def(), evaluation([], { value: 72.4 }))).toEqual(["*LPEV* — CPA au-dessus de 60 € sur 3 jours", "CPA : *72,40 €* (seuil 60 €)", `Du 27 au 29 sept.${H}`]);
   });
 });
 
@@ -300,7 +322,7 @@ describe("slackToPlain — a stored message as the page shows it", () => {
     expect(slackToPlain(stored)).toBe([
       "Rappel — Saveurs & Vie <Paris> — CPA au-dessus de 60 € sur 3 jours",
       "CPA : 72,40 € (seuil 60 €) · Meta 81,20 € · Google 54,10 €",
-      `Dépense 4${S}320 € · 60 conversions · du 27 au 29 sept.`,
+      `Dépense 4${S}320 € · 60 conversions · du 27 au 29 sept.${H}`,
     ].join("\n"));
   });
 

@@ -12,6 +12,7 @@ const h = vi.hoisted(() => {
   const alerts: Rec[] = [];
   const events: Rec[] = [];
   const clients: Rec[] = [];
+  const users: Rec[] = [];
   const same = (a: unknown, b: unknown) => (a instanceof Date && b instanceof Date ? a.getTime() === b.getTime() : a === b);
 
   function matches(row: Rec, where: Rec | undefined): boolean {
@@ -26,6 +27,7 @@ const h = vi.hoisted(() => {
       const c = cond as Rec;
       if ("in" in c) return (c.in as unknown[]).some((v) => same(v, value));
       if ("gte" in c) return value instanceof Date && value.getTime() >= (c.gte as Date).getTime();
+      if ("not" in c) return !same(value, c.not);
       throw new Error(`fake prisma: filter not supported on ${key}`);
     });
   }
@@ -64,6 +66,10 @@ const h = vi.hoisted(() => {
         const row = rows.find((r) => matches(r, where));
         return row ? pick(row, select) : null;
       },
+      async findFirst({ where, orderBy, select }: { where?: Rec; orderBy?: Parameters<typeof sorted>[1]; select?: Rec } = {}) {
+        const row = sorted(rows.filter((r) => matches(r, where)), orderBy)[0];
+        return row ? pick(row, select) : null;
+      },
       async updateMany({ where, data }: { where?: Rec; data: Rec }) {
         const hit = rows.filter((r) => matches(r, where));
         hit.forEach((r) => patch(r, data));
@@ -86,6 +92,7 @@ const h = vi.hoisted(() => {
     clientAlert: table(alerts),
     clientAlertEvent: table(events),
     alertClient: table(clients),
+    user: table(users),
     async $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> { return fn(db); },
   };
   /** As lib/client-alerts/slack-dm.ts: words for the consultant, the technical cause apart. */
@@ -94,7 +101,7 @@ const h = vi.hoisted(() => {
     constructor(message: string, detail: string = message) { super(message); this.name = "SlackDmError"; this.detail = detail; }
   }
   return {
-    alerts, events, clients, db, SlackDmError,
+    alerts, events, clients, users, db, SlackDmError,
     read: vi.fn(),
     line: vi.fn(),
     text: vi.fn(),
@@ -109,7 +116,10 @@ vi.mock("@/lib/client-alerts/series", () => ({ readClientSeries: h.read }));
 vi.mock("@/lib/client-alerts/message", () => ({ buildAlertLine: h.line, buildDmText: h.text }));
 vi.mock("@/lib/client-alerts/slack-dm", () => ({ dmConfigured: h.configured, resolveSlackIdentity: h.identity, sendSlackDm: h.send, SlackDmError: h.SlackDmError }));
 
-import { clientProblem, FLOOD, HELD, isDue, MAX_LINES_PER_DM, runClientAlerts, slotOf } from "@/lib/client-alerts/run";
+import {
+  clientProblem, CREATOR_GONE, CREATOR_NOT_STAFF, FLOOD, HELD, isDue, MAX_LINES_PER_DM, RUN_BUDGET_MS, runClientAlerts, SEND_DEADLINE_MS, slotOf,
+} from "@/lib/client-alerts/run";
+import { holdEvents, markNotified } from "@/lib/client-alerts/store";
 import * as route from "@/app/api/cron/client-alerts/route";
 import {
   MAX_DELIVERY_FAILURES, MAX_DM_PER_RUN, MAX_DM_PER_USER_PER_DAY,
@@ -151,7 +161,7 @@ function seed(id: string, over: Record<string, unknown> = {}, def: Partial<Alert
   const d = definition({ accounts: [account(`act_${id}`)], ...def });
   const row = {
     id, createdById: "u1", createdByEmail: "lea@impulse.test", alertClientId: null, clientName: `Client ${id}`, label: `Alerte ${id}`,
-    accountsJson: JSON.stringify(d.accounts), definitionJson: JSON.stringify(d), status: "active", armed: true,
+    accountsJson: JSON.stringify(d.accounts), definitionJson: JSON.stringify(d), definitionHash: `hash-${id}`, status: "active", armed: true,
     lastCheckedAt: null, lastTriggeredAt: null, lastValue: null, lastNote: null, consecutiveFailures: 0,
     createdAt: new Date(Date.UTC(2026, 8, 1, 0, 0, n++)), ...over,
   };
@@ -168,7 +178,9 @@ const ENV_KEYS = ["CLIENT_ALERTS_SEND", "NEXTAUTH_URL", "CRON_SECRET", "CLIENT_A
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
-  h.alerts.length = 0; h.events.length = 0; h.clients.length = 0;
+  h.alerts.length = 0; h.events.length = 0; h.clients.length = 0; h.users.length = 0;
+  // The people who create alerts in these tests are staff, unless a test says otherwise.
+  for (let i = 1; i <= 12; i++) h.users.push({ id: `u${i}`, role: i === 1 ? "admin" : "consultant" });
   lastDay.clear(); unreadable.clear(); today.clear();
   for (const k of ENV_KEYS) { savedEnv[k] = process.env[k]; delete process.env[k]; }
   h.read.mockReset().mockImplementation(async (accounts: AlertAccountRef[], opts: { now?: Date }): Promise<ClientSeries> => ({
@@ -299,9 +311,10 @@ describe("what is due", () => {
     let clock = NOW.getTime();
     vi.spyOn(Date, "now").mockImplementation(() => clock);
     for (const id of ["a", "b", "c", "d", "e", "f"]) seed(id);
-    // Every read of the platforms takes 200 s: the budget of 270 s is gone after the second.
+    // Every read of the platforms takes 150 s: the 200 s given to the evaluations are gone after the second.
+    expect(RUN_BUDGET_MS).toBe(200_000);
     const read = h.read.getMockImplementation()!;
-    h.read.mockImplementation(async (...args: unknown[]) => { clock += 200_000; return read(...args); });
+    h.read.mockImplementation(async (...args: unknown[]) => { clock += 150_000; return read(...args); });
     const summary = await runClientAlerts({ now: NOW });
     expect(summary.checked).toBe(2);
     expect(h.alerts.filter((a) => a.lastCheckedAt !== null).map((a) => a.id)).toEqual(["a", "b"]);
@@ -449,13 +462,17 @@ describe("evaluation and state", () => {
     expect(h.events).toEqual([]);
   });
 
-  it("reads the day in progress: a stop of spend this afternoon triggers today", async () => {
+  it("never judges the day in progress: a day still at zero this afternoon is not this alert's to say", async () => {
     seed("a", {}, { condition: "stopped", threshold: null });
     today.set("act_a", { spend: 0, conversions: 0, hour: 14.2 });
-    const now = at("2026-09-29T12:10:00Z");
-    await runClientAlerts({ now });
+    await runClientAlerts({ now: at("2026-09-29T12:10:00Z") });
+    expect(h.events).toEqual([]);
+    expect(alert("a")).toMatchObject({ armed: true, lastValue: 100 });
+    // Yesterday at zero is a stop: judged on the full day, dated as such.
+    lastDay.set("act_a", 0);
+    await runClientAlerts({ now: at("2026-09-29T15:10:00Z") });
     expect(h.events).toHaveLength(1);
-    expect((JSON.parse(h.events[0].detailJson as string) as Evaluation).asOf).toBe("2026-09-29");
+    expect((JSON.parse(h.events[0].detailJson as string) as Evaluation).asOf).toBe(UNTIL);
     expect(h.events[0].threshold).toBeNull();
   });
 
@@ -488,9 +505,9 @@ describe("evaluation and state", () => {
     seed("a");
     high("a");
     const read = h.read.getMockImplementation()!;
-    // While this pass reads the platforms, another one triggers and disarms the alert.
+    // While this pass reads the platforms, another one checks the alert: it is the one that takes the message.
     h.read.mockImplementation(async (...args: unknown[]) => {
-      Object.assign(alert("a"), { armed: false, lastTriggeredAt: at("2026-09-29T06:09:59Z") });
+      Object.assign(alert("a"), { lastCheckedAt: at("2026-09-29T06:09:59Z") });
       return read(...args);
     });
     sendingOn();
@@ -498,7 +515,33 @@ describe("evaluation and state", () => {
     expect(h.events).toEqual([]);
     expect(summary.triggered).toBe(0);
     expect(h.send).not.toHaveBeenCalled();
-    expect(alert("a").lastTriggeredAt).toEqual(at("2026-09-29T06:09:59Z"));
+    expect(alert("a").lastCheckedAt).toEqual(at("2026-09-29T06:09:59Z"));
+  });
+
+  it("does not write the state of the old rule over a rule replaced during the pass", async () => {
+    // Two alerts: one goes back to normal (no message), one triggers. Both are re-validated while the platforms are read.
+    seed("calm", { armed: false, lastTriggeredAt: at("2026-09-20T06:10:00Z") }); seed("hot");
+    high("hot");
+    const read = h.read.getMockImplementation()!;
+    h.read.mockImplementation(async (...args: unknown[]) => {
+      for (const id of ["calm", "hot"]) Object.assign(alert(id), { definitionHash: `nouvelle-${id}`, armed: true, lastTriggeredAt: null, lastValue: null, lastCheckedAt: null });
+      return read(...args);
+    });
+    sendingOn();
+    const summary = await runClientAlerts({ now: NOW });
+    // Neither the check without a message nor the one with a message touched the new rule.
+    for (const id of ["calm", "hot"]) expect(alert(id)).toMatchObject({ definitionHash: `nouvelle-${id}`, armed: true, lastTriggeredAt: null, lastValue: null, lastCheckedAt: null });
+    expect(h.events).toEqual([]);
+    expect(summary.triggered).toBe(0);
+    expect(h.send).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing on an alert paused during the pass", async () => {
+    seed("a");
+    const read = h.read.getMockImplementation()!;
+    h.read.mockImplementation(async (...args: unknown[]) => { Object.assign(alert("a"), { status: "paused" }); return read(...args); });
+    await runClientAlerts({ now: NOW });
+    expect(alert("a")).toMatchObject({ status: "paused", lastCheckedAt: null, lastValue: null });
   });
 });
 
@@ -613,6 +656,8 @@ describe("sending", () => {
   });
 
   describe("general anomaly", () => {
+    let warned: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => { warned = vi.spyOn(console, "warn").mockImplementation(() => undefined); });
     const pass = async (triggering: number, total: number) => {
       const ids = Array.from({ length: total }, (_, i) => `a${i}`);
       ids.forEach((id) => seed(id));
@@ -629,12 +674,52 @@ describe("sending", () => {
       for (const e of h.events) expect(e).toMatchObject({ notifyError: "anomalie générale : non envoyé", notifiedAt: null, batchId: null });
       expect(HELD.flood).toBe("anomalie générale : non envoyé");
       expect(summary.errors.join(" ")).toMatch(/Anomalie générale/);
-      // The state advanced all the same: no avalanche at the next pass either.
-      expect(h.alerts.filter((a) => a.armed === false)).toHaveLength(5);
-      h.send.mockClear();
+      expect(warned).toHaveBeenCalledTimes(1);
+      expect(String(warned.mock.calls[0][0])).toMatch(/^\[client-alerts\] Anomalie générale suspectée : 5 clients déclenchés sur 10 vérifiés/);
+      // Nothing was said, so nothing is disarmed — and no avalanche either: the same 5 events wait.
+      expect(h.alerts.filter((a) => a.armed === false)).toHaveLength(0);
       const next = await runClientAlerts({ now: at("2026-09-29T09:10:00Z") });
-      expect(next.triggered).toBe(0);
+      expect(next).toMatchObject({ triggered: 5, held: 5, sent: 0 });
+      expect(h.events).toHaveLength(5);
       expect(h.send).not.toHaveBeenCalled();
+      // The platforms are back: three alerts are normal again, two still true. One message, for those two.
+      lastDay.delete("act_a2"); lastDay.delete("act_a3"); lastDay.delete("act_a4");
+      const later = await runClientAlerts({ now: at("2026-09-29T12:10:00Z") });
+      expect(later).toMatchObject({ triggered: 2, held: 0, sent: 1 });
+      expect(h.events).toHaveLength(5);
+      expect(h.events.filter((e) => e.notifiedAt !== null).map((e) => e.alertId).sort()).toEqual(["a0", "a1"]);
+      for (const id of ["a2", "a3", "a4"]) expect(eventsOf(id)[0]).toMatchObject({ notifiedAt: null, notifyError: HELD.normal });
+    });
+
+    it("counts clients, not alerts: five alerts of one client that breaks are one problem, and it is said", async () => {
+      // One client with five alerts, all true; four other clients, calm.
+      for (let i = 0; i < 5; i++) seed(`same${i}`, { clientName: "Maison Durand" });
+      for (let i = 0; i < 4; i++) seed(`calm${i}`);
+      high("same0", "same1", "same2", "same3", "same4");
+      const summary = await runClientAlerts({ now: NOW });
+      expect(summary).toMatchObject({ checked: 9, triggered: 5, held: 0, sent: 1 });
+      expect(warned).not.toHaveBeenCalled();
+      // The same five alerts spread over five clients among nine: an outage.
+      h.alerts.length = 0; h.events.length = 0; h.send.mockClear();
+      for (let i = 0; i < 5; i++) seed(`other${i}`);
+      for (let i = 0; i < 4; i++) seed(`quiet${i}`);
+      high("other0", "other1", "other2", "other3", "other4");
+      expect(await runClientAlerts({ now: NOW })).toMatchObject({ triggered: 5, held: 5, sent: 0 });
+    });
+
+    it("needs half of the CLIENTS checked, whatever the number of alerts each has", async () => {
+      // 5 clients trigger; 6 calm clients, one of them with ten alerts: 5 of 11 clients, under half.
+      for (let i = 0; i < 5; i++) seed(`hot${i}`);
+      for (let i = 0; i < 5; i++) seed(`calm${i}`);
+      for (let i = 0; i < 10; i++) seed(`big${i}`, { clientName: "Gros client" });
+      high("hot0", "hot1", "hot2", "hot3", "hot4");
+      expect(await runClientAlerts({ now: NOW })).toMatchObject({ checked: 20, triggered: 5, held: 0, sent: 1 });
+      // Without the sixth calm client: 5 of 10 clients, held — although the alerts that triggered are 5 of 20.
+      h.alerts.length = 0; h.events.length = 0; h.send.mockClear();
+      for (let i = 0; i < 5; i++) seed(`hot${i}`);
+      for (let i = 0; i < 4; i++) seed(`calm${i}`);
+      for (let i = 0; i < 10; i++) seed(`big${i}`, { clientName: "Gros client" });
+      expect(await runClientAlerts({ now: NOW })).toMatchObject({ checked: 19, triggered: 5, held: 5, sent: 0 });
     });
 
     it("sends when they are under half of the alerts checked", async () => {
@@ -644,7 +729,7 @@ describe("sending", () => {
     });
 
     it("sends under 5 alerts, even when they are all of them", async () => {
-      const summary = await pass(FLOOD.minAlerts - 1, FLOOD.minAlerts - 1);
+      const summary = await pass(FLOOD.minClients - 1, FLOOD.minClients - 1);
       expect(summary).toMatchObject({ triggered: 4, sent: 1, held: 0 });
     });
 
@@ -761,8 +846,9 @@ describe("sending", () => {
     expect(alert("a").consecutiveFailures).toBe(0);
   });
 
-  describe("a delivery that fails", () => {
+  describe("a message that does not leave: the alert is disarmed by a delivered message only", () => {
     const DOWN = () => new h.SlackDmError("le service d'envoi vers Slack ne répond pas", "n8n ne répond pas");
+    const WORDS = "le service d'envoi vers Slack ne répond pas";
 
     it("notes the error on the events and counts one failure per alert", async () => {
       seed("a"); seed("b"); seed("calm1"); seed("calm2"); seed("calm3");
@@ -773,39 +859,60 @@ describe("sending", () => {
       // The cron's answer carries the technical cause; the page, the words a consultant reads.
       expect(summary.errors.join(" ")).toMatch(/lea@impulse\.test.*n8n ne répond pas/);
       for (const id of ["a", "b"]) {
-        expect(eventsOf(id)[0]).toMatchObject({ notifyError: "le service d'envoi vers Slack ne répond pas", notifiedAt: null, batchId: null });
-        expect(alert(id)).toMatchObject({ consecutiveFailures: 1, status: "active" });
+        expect(eventsOf(id)[0]).toMatchObject({ notifyError: WORDS, notifiedAt: null, batchId: null });
+        expect(alert(id)).toMatchObject({ consecutiveFailures: 1, status: "active", armed: true, lastTriggeredAt: null });
       }
       expect(alert("calm1").consecutiveFailures).toBe(0);
     });
 
-    it("puts the alert back as it was before the trigger: the failure does not swallow it", async () => {
+    it("leaves the alert as it was, and tries the SAME event again at the next pass", async () => {
       seed("a"); seed("calm1"); seed("calm2");
       high("a");
       h.send.mockRejectedValueOnce(DOWN());
       await runClientAlerts({ now: NOW });
-      // Nothing was said: not disarmed, no silence started. The event stays, with why.
+      // Nothing was said: not disarmed, no silence started. The event waits, with why.
       expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null, lastCheckedAt: NOW, consecutiveFailures: 1, status: "active" });
       expect(eventsOf("a")).toHaveLength(1);
-      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: "le service d'envoi vers Slack ne répond pas" });
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: WORDS, triggeredAt: NOW });
 
       // n8n is back at the next pass, the condition is still true: the consultant is told, three hours late instead of never.
       const next = at("2026-09-29T09:10:00Z");
       const summary = await runClientAlerts({ now: next });
       expect(summary).toMatchObject({ triggered: 1, sent: 1, failed: 0 });
       expect(h.send).toHaveBeenCalledTimes(2);
-      expect(eventsOf("a")).toHaveLength(2);
-      // The event that failed is never sent later; the new one is the message.
-      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: "le service d'envoi vers Slack ne répond pas" });
-      expect(eventsOf("a")[1]).toMatchObject({ notifiedAt: next, notifyError: null });
+      // One event, not two: the page does not fill up. It carries the figures of the pass that delivered it.
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: next, notifyError: null, triggeredAt: next });
+      // Delivered: now, and only now, the alert is disarmed and its silence starts.
       expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: next, consecutiveFailures: 0 });
-      // And from there, the silence: no third message.
       await runClientAlerts({ now: at("2026-09-29T12:10:00Z") });
       expect(h.send).toHaveBeenCalledTimes(2);
     });
 
-    it("does not try again when the situation is back to normal meanwhile", async () => {
-      seed("a"); seed("calm1"); seed("calm2");
+    it("makes the alert due at EVERY pass while its message waits, whatever its own frequency", async () => {
+      // Both checked once a day, at the first slot.
+      seed("a", {}, { checks: "1x" }); seed("calm", {}, { checks: "1x" }); seed("other");
+      high("a");
+      h.send.mockRejectedValueOnce(DOWN());
+      await runClientAlerts({ now: NOW });
+      const next = at("2026-09-29T09:10:00Z");
+      const summary = await runClientAlerts({ now: next });
+      // 09:10 is not a slot of a « 1x » alert: the one with a message to deliver is taken all the same, the calm one is not.
+      expect(summary).toMatchObject({ sent: 1 });
+      expect(alert("a").lastCheckedAt).toEqual(next);
+      expect(alert("calm").lastCheckedAt).toEqual(NOW);
+      // Delivered: back to its own frequency.
+      await runClientAlerts({ now: at("2026-09-29T12:10:00Z") });
+      expect(alert("a").lastCheckedAt).toEqual(next);
+      // The rule itself: a pending message makes due at any slot, but never on a week-end for working days only.
+      const tuesday = at("2026-09-29T09:10:00Z");
+      expect(isDue({ checks: "1x", weekdaysOnly: false }, NOW, 1, tuesday)).toBe(false);
+      expect(isDue({ checks: "1x", weekdaysOnly: false }, NOW, 1, tuesday, true)).toBe(true);
+      expect(isDue({ checks: "1x", weekdaysOnly: true }, null, 0, at("2026-09-26T06:10:00Z"), true)).toBe(false);
+    });
+
+    it("says why, and sends nothing late, when the situation is back to normal before the message could leave", async () => {
+      seed("a", {}, { checks: "1x" }); seed("calm1"); seed("calm2");
       high("a");
       h.send.mockRejectedValueOnce(DOWN());
       await runClientAlerts({ now: NOW });
@@ -813,9 +920,22 @@ describe("sending", () => {
       await runClientAlerts({ now: at("2026-09-29T09:10:00Z") });
       expect(h.send).toHaveBeenCalledTimes(1);
       expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: "situation revenue à la normale avant l'envoi : non envoyé" });
+      expect(HELD.normal).toBe("situation revenue à la normale avant l'envoi : non envoyé");
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null });
+      // Closed: it no longer makes the alert due at every pass.
+      await runClientAlerts({ now: at("2026-09-29T12:10:00Z") });
+      expect(alert("a").lastCheckedAt).toEqual(at("2026-09-29T09:10:00Z"));
+      // True again the next morning: a message, on the same event — still one undelivered event at most for this alert.
+      high("a");
+      const morning = at("2026-09-30T06:10:00Z");
+      await runClientAlerts({ now: morning });
+      expect(h.send).toHaveBeenCalledTimes(2);
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: morning, notifyError: null });
     });
 
-    it("puts a reminder back too: the silence of the last message delivered goes on", async () => {
+    it("retries a reminder the same way: the silence of the last message delivered goes on until it is out", async () => {
       // Said four days ago, still true, reminders asked for.
       const said = at("2026-09-25T06:10:00Z");
       seed("a", { armed: false, lastTriggeredAt: said }, { remind: true }); seed("calm1"); seed("calm2");
@@ -824,21 +944,11 @@ describe("sending", () => {
       await runClientAlerts({ now: NOW });
       expect(eventsOf("a")[0]).toMatchObject({ kind: "reminder", notifiedAt: null });
       expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: said });
-      await runClientAlerts({ now: at("2026-09-29T09:10:00Z") });
-      expect(eventsOf("a")[1]).toMatchObject({ kind: "reminder", notifiedAt: at("2026-09-29T09:10:00Z") });
-    });
-
-    it("leaves alone a state a person changed since the trigger", async () => {
-      seed("a"); seed("calm1"); seed("calm2");
-      high("a");
-      // While the message is on its way, the consultant validates a new rule: fresh state, another instant.
-      const mine = at("2026-09-29T06:10:30Z");
-      h.send.mockImplementationOnce(async () => {
-        Object.assign(alert("a"), { armed: false, lastTriggeredAt: mine });
-        throw DOWN();
-      });
-      await runClientAlerts({ now: NOW });
-      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: mine, consecutiveFailures: 1 });
+      const next = at("2026-09-29T09:10:00Z");
+      await runClientAlerts({ now: next });
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ kind: "reminder", notifiedAt: next });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: next });
     });
 
     it(`switches the alert to error at ${MAX_DELIVERY_FAILURES} failures in a row`, async () => {
@@ -858,15 +968,24 @@ describe("sending", () => {
       expect(alert("second").lastCheckedAt).toEqual(later);
     });
 
-    it(`ends in error after ${MAX_DELIVERY_FAILURES} passes that fail in a row, one event each`, async () => {
+    it(`counts one failure per pass, and ends in error after ${MAX_DELIVERY_FAILURES} passes that fail in a row — with one event`, async () => {
       seed("a"); seed("calm1"); seed("calm2");
       high("a");
       h.send.mockRejectedValue(DOWN());
-      const passes = ["2026-09-29T06:10:00Z", "2026-09-29T09:10:00Z", "2026-09-29T12:10:00Z", "2026-09-29T15:10:00Z"];
-      for (const iso of passes) await runClientAlerts({ now: at(iso) });
+      for (const iso of ["2026-09-29T06:10:00Z", "2026-09-29T09:10:00Z"]) await runClientAlerts({ now: at(iso) });
+      expect(alert("a")).toMatchObject({ status: "active", consecutiveFailures: 2 });
+      for (const iso of ["2026-09-29T12:10:00Z", "2026-09-29T15:10:00Z"]) await runClientAlerts({ now: at(iso) });
       expect(h.send).toHaveBeenCalledTimes(MAX_DELIVERY_FAILURES);
-      expect(eventsOf("a")).toHaveLength(MAX_DELIVERY_FAILURES);
+      expect(eventsOf("a")).toHaveLength(1);
       expect(alert("a")).toMatchObject({ status: "error", consecutiveFailures: MAX_DELIVERY_FAILURES, armed: true, lastTriggeredAt: null });
+    });
+
+    it("counts only real failures of the send: a hold is not one", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      h.configured.mockReturnValue(false);
+      for (const iso of ["2026-09-29T06:10:00Z", "2026-09-29T09:10:00Z", "2026-09-29T12:10:00Z", "2026-09-29T15:10:00Z"]) await runClientAlerts({ now: at(iso) });
+      expect(alert("a")).toMatchObject({ status: "active", consecutiveFailures: 0 });
     });
 
     it("treats a lookup of the Slack identity that fails as a failed delivery, and never shows the raw error", async () => {
@@ -887,48 +1006,222 @@ describe("sending", () => {
       const summary = await runClientAlerts({ now: NOW });
       expect(summary.sent).toBe(1);
       expect(eventsOf("b")[0].notifiedAt).toEqual(NOW);
+      expect(alert("b")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null });
+    });
+
+    it("loses nothing when the pass is killed between the evaluation and the send", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      // The function dies right after the evaluations.
+      h.configured.mockImplementationOnce(() => { throw new Error("function killed"); });
+      await expect(runClientAlerts({ now: NOW })).rejects.toThrow("function killed");
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: null, notifyError: null });
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null, consecutiveFailures: 0 });
+      const next = at("2026-09-29T09:10:00Z");
+      expect(await runClientAlerts({ now: next })).toMatchObject({ sent: 1 });
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0].notifiedAt).toEqual(next);
+    });
+
+    it("loses nothing when the database fails between the evaluation and the send", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      // The count of today's messages cannot be read: nothing is sent, nothing is disarmed.
+      const find = h.db.clientAlertEvent.findMany;
+      const failing = vi.spyOn(h.db.clientAlertEvent, "findMany").mockImplementation(async (args) => {
+        if (args?.where && "alert" in args.where) throw new Error("Can't reach database server");
+        return find(args);
+      });
+      const summary = await runClientAlerts({ now: NOW });
+      expect(summary).toMatchObject({ triggered: 1, sent: 0 });
+      expect(summary.errors.join(" ")).toMatch(/Envoi à lea@impulse\.test/);
+      expect(h.send).not.toHaveBeenCalled();
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null });
+      failing.mockRestore();
+      expect(await runClientAlerts({ now: at("2026-09-29T09:10:00Z") })).toMatchObject({ sent: 1 });
+      expect(eventsOf("a")).toHaveLength(1);
+    });
+
+    it("stops sending when the time of the pass is up, and leaves the rest for the next pass", async () => {
+      let clock = NOW.getTime();
+      vi.spyOn(Date, "now").mockImplementation(() => clock);
+      seed("a"); seed("b", { createdById: "u2" }); seed("calm1"); seed("calm2"); seed("calm3");
+      high("a", "b");
+      // The first message takes the pass to its limit.
+      h.send.mockImplementationOnce(async () => { clock += SEND_DEADLINE_MS; });
+      const summary = await runClientAlerts({ now: NOW });
+      expect(SEND_DEADLINE_MS).toBe(270_000);
+      expect(summary).toMatchObject({ triggered: 2, sent: 1, held: 0, failed: 0 });
+      expect(summary.errors.join(" ")).toMatch(/1 message non envoyé, repris au passage suivant/);
+      expect(h.send).toHaveBeenCalledTimes(1);
+      // Not held, not failed: simply still to send.
+      expect(eventsOf("b")[0]).toMatchObject({ notifiedAt: null, notifyError: null });
+      expect(alert("b")).toMatchObject({ armed: true, consecutiveFailures: 0 });
+      clock = at("2026-09-29T09:10:00Z").getTime();
+      expect(await runClientAlerts({ now: at("2026-09-29T09:10:00Z") })).toMatchObject({ triggered: 1, sent: 1 });
+      expect(eventsOf("b")[0].notifiedAt).toEqual(at("2026-09-29T09:10:00Z"));
     });
   });
 
-  describe("held on purpose: the state stays advanced, nothing is tried again", () => {
-    const LATER = ["2026-09-29T09:10:00Z", "2026-09-29T12:10:00Z", "2026-09-30T06:10:00Z"];
+  describe("held on purpose: tried again at the next pass while the situation lasts", () => {
+    const NEXT = at("2026-09-29T09:10:00Z");
 
-    it("a person Slack does not know", async () => {
+    it("a person Slack does not know gets the message once Slack knows them", async () => {
       seed("a"); seed("calm1"); seed("calm2");
       high("a");
-      h.identity.mockResolvedValue({ email: "u1@impulse.test", slackUserId: null, checkedAt: NOW.toISOString(), status: "unknown" });
+      h.identity.mockResolvedValueOnce({ email: "u1@impulse.test", slackUserId: null, checkedAt: NOW.toISOString(), status: "unknown" });
       const summary = await runClientAlerts({ now: NOW });
       expect(summary).toMatchObject({ held: 1, failed: 0, sent: 0 });
-      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW, consecutiveFailures: 0 });
-      for (const iso of LATER) await runClientAlerts({ now: at(iso) });
-      expect(eventsOf("a")).toHaveLength(1);
       expect(eventsOf("a")[0].notifyError).toBe(HELD.identity);
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null, consecutiveFailures: 0 });
+      // The consultant gave their Slack address meanwhile.
+      expect(await runClientAlerts({ now: NEXT })).toMatchObject({ held: 0, sent: 1 });
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ notifiedAt: NEXT, notifyError: null });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NEXT });
     });
 
-    it("the webhook not configured, and a dry run", async () => {
+    it("the webhook not configured", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      h.configured.mockReturnValueOnce(false);
+      expect(await runClientAlerts({ now: NOW })).toMatchObject({ held: 1, failed: 0 });
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null });
+      expect(await runClientAlerts({ now: NEXT })).toMatchObject({ sent: 1 });
+      expect(eventsOf("a")).toHaveLength(1);
+    });
+
+    it("the ceiling of the day: what it held leaves the next morning if the situation lasts, on the same event", async () => {
+      seed("old", { status: "paused" });
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      for (let i = 0; i < MAX_DM_PER_USER_PER_DAY; i++) h.events.push({ id: `old-${i}`, alertId: "old", kind: "trigger", notifiedAt: at("2026-09-29T04:00:00Z"), notifyError: null, batchId: `batch-${i}`, dryRun: false });
+      for (const iso of ["2026-09-29T06:10:00Z", "2026-09-29T09:10:00Z", "2026-09-29T15:10:00Z"]) {
+        expect(await runClientAlerts({ now: at(iso) })).toMatchObject({ held: 1, sent: 0 });
+      }
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0].notifyError).toBe(HELD.daily);
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: null });
+      const morning = at("2026-09-30T06:10:00Z");
+      expect(await runClientAlerts({ now: morning })).toMatchObject({ held: 0, sent: 1 });
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0].notifiedAt).toEqual(morning);
+    });
+
+    it("keeps one undelivered event per alert, however many passes hold it", async () => {
       seed("a"); seed("calm1"); seed("calm2");
       high("a");
       h.configured.mockReturnValue(false);
-      expect(await runClientAlerts({ now: NOW })).toMatchObject({ held: 1, failed: 0 });
-      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
-      seed("dry"); high("dry");
-      delete process.env.CLIENT_ALERTS_SEND;
-      await runClientAlerts({ now: at(LATER[0]) });
-      expect(alert("dry")).toMatchObject({ armed: false, lastTriggeredAt: at(LATER[0]), consecutiveFailures: 0 });
-      for (const iso of LATER.slice(1)) await runClientAlerts({ now: at(iso) });
+      const passes = ["2026-09-29T06:10:00Z", "2026-09-29T09:10:00Z", "2026-09-29T12:10:00Z", "2026-09-29T15:10:00Z", "2026-09-30T06:10:00Z", "2026-10-01T06:10:00Z"];
+      for (const iso of passes) await runClientAlerts({ now: at(iso) });
       expect(eventsOf("a")).toHaveLength(1);
-      expect(eventsOf("dry")).toHaveLength(1);
+      expect(eventsOf("a")[0].triggeredAt).toEqual(at(passes[passes.length - 1]));
     });
 
-    it("the flood guard and the ceilings", async () => {
-      // Five alerts out of five trigger at once: an outage, nothing is sent — and nothing is sent later either.
-      for (let i = 0; i < FLOOD.minAlerts; i++) { seed(`f${i}`); high(`f${i}`); }
-      const summary = await runClientAlerts({ now: NOW });
-      expect(summary).toMatchObject({ held: FLOOD.minAlerts, failed: 0, sent: 0 });
-      for (let i = 0; i < FLOOD.minAlerts; i++) expect(alert(`f${i}`)).toMatchObject({ armed: false, lastTriggeredAt: NOW, consecutiveFailures: 0 });
-      for (const iso of LATER) await runClientAlerts({ now: at(iso) });
+    it("does not bring back an undelivered event older than the silence of its alert: a new one is made", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      // Left undelivered four days ago (the silence is three days), never closed.
+      h.events.push({ id: "stale", alertId: "a", kind: "trigger", triggeredAt: at("2026-09-25T06:10:00Z"), message: "vieux", dryRun: false, notifiedAt: null, notifyError: HELD.daily, batchId: null });
+      // Not due at 09:10 because of it…
+      Object.assign(alert("a"), { lastCheckedAt: NOW });
+      const two = definition({ accounts: [account("act_a")], checks: "1x" });
+      Object.assign(alert("a"), { definitionJson: JSON.stringify(two) });
+      await runClientAlerts({ now: at("2026-09-29T09:10:00Z") });
+      expect(alert("a").lastCheckedAt).toEqual(NOW);
+      // …and when the alert triggers, the old event stays history.
+      high("a");
+      const morning = at("2026-09-30T06:10:00Z");
+      await runClientAlerts({ now: morning });
+      expect(eventsOf("a")).toHaveLength(2);
+      expect(eventsOf("a")[0]).toMatchObject({ id: "stale", notifiedAt: null, message: "vieux" });
+      expect(eventsOf("a")[1].notifiedAt).toEqual(morning);
+    });
+  });
+
+  describe("switching the sending on after a dry run", () => {
+    const REAL = at("2026-09-29T09:10:00Z");
+    const dry = async () => {
+      delete process.env.CLIENT_ALERTS_SEND;
+      await runClientAlerts({ now: NOW });
+      sendingOn();
+    };
+
+    it("re-arms at the first real pass an alert a dry run had disarmed, and never sends the dry-run event", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      await dry();
+      // The dry run mirrored a real pass: event recorded, state advanced, nothing sent.
+      expect(eventsOf("a")).toHaveLength(1);
+      expect(eventsOf("a")[0]).toMatchObject({ dryRun: true, notifiedAt: null });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
       expect(h.send).not.toHaveBeenCalled();
-      expect(h.events).toHaveLength(FLOOD.minAlerts);
+
+      // Sending is on: what is true is said — without it, the alert would stay mute until it went back to normal.
+      const summary = await runClientAlerts({ now: REAL });
+      expect(summary).toMatchObject({ dryRun: false, triggered: 1, sent: 1 });
+      expect(h.send).toHaveBeenCalledTimes(1);
+      expect(eventsOf("a")).toHaveLength(2);
+      // The dry-run event is history; the message is a new, real event.
+      expect(eventsOf("a")[0]).toMatchObject({ dryRun: true, notifiedAt: null });
+      expect(eventsOf("a")[1]).toMatchObject({ dryRun: false, notifiedAt: REAL });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: REAL });
+      // Said once.
+      await runClientAlerts({ now: at("2026-09-29T12:10:00Z") });
+      expect(h.send).toHaveBeenCalledTimes(1);
+    });
+
+    it("goes back to the silence of the last message really delivered", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      // A real message yesterday morning, then sending was switched off and a dry run recorded a reminder-less trigger.
+      const said = at("2026-09-28T06:10:00Z");
+      h.events.push({ id: "real", alertId: "a", kind: "trigger", triggeredAt: said, message: "dit", dryRun: false, notifiedAt: said, notifyError: null, batchId: "b" });
+      h.events.push({ id: "essai", alertId: "a", kind: "trigger", triggeredAt: NOW, message: "essai", dryRun: true, notifiedAt: null, notifyError: null, batchId: null });
+      Object.assign(alert("a"), { armed: false, lastTriggeredAt: NOW, lastCheckedAt: NOW });
+      sendingOn();
+      const summary = await runClientAlerts({ now: REAL });
+      // Re-armed, but inside the three days of the message of yesterday: nothing new is sent.
+      expect(summary).toMatchObject({ triggered: 0, sent: 0 });
+      expect(alert("a")).toMatchObject({ armed: true, lastTriggeredAt: said });
+      expect(h.send).not.toHaveBeenCalled();
+      // Once that silence is over, it speaks.
+      const later = at("2026-10-01T06:10:00Z");
+      expect(await runClientAlerts({ now: later })).toMatchObject({ sent: 1 });
+    });
+
+    it("leaves alone an alert that a real message disarmed", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      sendingOn();
+      await runClientAlerts({ now: NOW });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
+      await runClientAlerts({ now: REAL });
+      await runClientAlerts({ now: at("2026-09-30T06:10:00Z") });
+      expect(h.send).toHaveBeenCalledTimes(1);
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
+    });
+
+    it("does not mute an alert when a pass is forced dry while sending is on", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      high("a");
+      sendingOn();
+      await runClientAlerts({ now: NOW, dryRun: true });
+      expect(alert("a")).toMatchObject({ armed: false, lastTriggeredAt: NOW });
+      expect(h.send).not.toHaveBeenCalled();
+      expect(await runClientAlerts({ now: REAL })).toMatchObject({ sent: 1 });
+      expect(eventsOf("a").map((e) => e.dryRun)).toEqual([true, false]);
+    });
+
+    it("never sends a backlog of dry-run events, even when their alerts are still armed", async () => {
+      seed("a"); seed("calm1"); seed("calm2");
+      // Weeks of dry runs left events behind; the situation is normal today.
+      for (let i = 0; i < 4; i++) h.events.push({ id: `essai${i}`, alertId: "a", kind: "trigger", triggeredAt: at(`2026-09-2${i}T06:10:00Z`), message: "essai", dryRun: true, notifiedAt: null, notifyError: null, batchId: null });
+      sendingOn();
+      for (const iso of ["2026-09-29T06:10:00Z", "2026-09-29T09:10:00Z"]) await runClientAlerts({ now: at(iso) });
+      expect(h.send).not.toHaveBeenCalled();
+      expect(h.events.every((e) => e.notifiedAt === null)).toBe(true);
     });
   });
 
@@ -952,20 +1245,6 @@ describe("sending", () => {
       expect(h.events).toHaveLength(1);
     });
 
-    it("never sends later the EVENT whose delivery failed — the alert tries again with a new one", async () => {
-      seed("a"); seed("calm1"); seed("calm2");
-      high("a");
-      h.send.mockRejectedValueOnce(new h.SlackDmError("le service d'envoi vers Slack ne répond pas", "n8n ne répond pas"));
-      await runClientAlerts({ now: NOW });
-      expect(h.events[0].notifiedAt).toBeNull();
-      // Slack is back, the condition is still true: one message, for the event of that pass, and then the silence.
-      for (const iso of ["2026-09-29T09:10:00Z", "2026-09-30T06:10:00Z", "2026-10-01T06:10:00Z"]) await runClientAlerts({ now: at(iso) });
-      expect(h.send).toHaveBeenCalledTimes(2);
-      expect(h.events).toHaveLength(2);
-      expect(h.events[0].notifiedAt).toBeNull();
-      expect(h.events[1].notifiedAt).toEqual(at("2026-09-29T09:10:00Z"));
-    });
-
     it("does not send an event that was delivered meanwhile", async () => {
       seed("a"); seed("calm1"); seed("calm2");
       high("a");
@@ -979,6 +1258,60 @@ describe("sending", () => {
       expect(summary.sent).toBe(0);
       expect(h.events[0]).toMatchObject({ batchId: "other-pass", notifiedAt: at("2026-09-29T06:10:01Z") });
     });
+
+    it("only ever writes on events that are not notified yet: notifiedAt is the idempotence of the delivery", async () => {
+      const first = at("2026-09-29T06:10:01Z");
+      h.alerts.push({ id: "x", definitionHash: "hx", armed: true, lastTriggeredAt: null, consecutiveFailures: 2, status: "active" });
+      h.events.push(
+        { id: "done", alertId: "x", notifiedAt: first, batchId: "other-pass", notifyError: null, dryRun: false },
+        { id: "todo", alertId: "x", notifiedAt: null, batchId: null, notifyError: "plafond", dryRun: false },
+      );
+      // A hold never rewrites what another pass delivered…
+      await holdEvents(["done", "todo"], "anomalie générale : non envoyé");
+      expect(h.events.find((e) => e.id === "done")).toMatchObject({ notifiedAt: first, batchId: "other-pass", notifyError: null });
+      expect(h.events.find((e) => e.id === "todo")).toMatchObject({ notifyError: "anomalie générale : non envoyé" });
+      // …and neither does a delivery: the message of the other pass keeps its instant and its batch.
+      await markNotified(["done", "todo"], [{ id: "x", definitionHash: "hx" }], "this-pass", NOW);
+      expect(h.events.find((e) => e.id === "done")).toMatchObject({ notifiedAt: first, batchId: "other-pass" });
+      expect(h.events.find((e) => e.id === "todo")).toMatchObject({ notifiedAt: NOW, batchId: "this-pass", notifyError: null });
+      expect(h.alerts.find((a) => a.id === "x")).toMatchObject({ armed: false, lastTriggeredAt: NOW, consecutiveFailures: 0 });
+      // A rule replaced since the pass read it is not disarmed by the message of the old one.
+      Object.assign(h.alerts.find((a) => a.id === "x")!, { definitionHash: "nouvelle", armed: true, lastTriggeredAt: null });
+      await markNotified(["todo"], [{ id: "x", definitionHash: "hx" }], "again", NOW);
+      expect(h.alerts.find((a) => a.id === "x")).toMatchObject({ armed: true, lastTriggeredAt: null });
+    });
+  });
+});
+
+describe("the creator must still be staff", () => {
+  it("pauses the alerts of a person who is no longer in the team, without evaluating them nor sending anything", async () => {
+    sendingOn();
+    seed("mine"); seed("theirs", { createdById: "u2" }); seed("gone", { createdById: "u9" }); seed("calm1"); seed("calm2");
+    high("mine", "theirs", "gone");
+    // u2 became a client login; u9 was deleted.
+    Object.assign(h.users.find((u) => u.id === "u2")!, { role: "client" });
+    h.users.splice(h.users.findIndex((u) => u.id === "u9"), 1);
+    const summary = await runClientAlerts({ now: NOW });
+    expect(alert("theirs")).toMatchObject({ status: "paused", lastNote: CREATOR_NOT_STAFF, lastCheckedAt: null, armed: true });
+    expect(alert("gone")).toMatchObject({ status: "paused", lastNote: CREATOR_GONE, lastCheckedAt: null });
+    expect(CREATOR_NOT_STAFF).toBe("La personne qui a créé cette alerte ne fait plus partie de l'équipe : alerte mise en pause.");
+    expect(CREATOR_GONE).toBe("La personne qui a créé cette alerte n'a plus de compte dans l'application : alerte mise en pause.");
+    expect(eventsOf("theirs")).toEqual([]);
+    expect(eventsOf("gone")).toEqual([]);
+    // Neither read nor counted: the pass is the three others.
+    expect(summary).toMatchObject({ checked: 3, triggered: 1, sent: 1 });
+    expect(h.read.mock.calls.map((c) => (c[0] as AlertAccountRef[])[0].accountId).sort()).toEqual(["act_calm1", "act_calm2", "act_mine"]);
+    expect(h.send).toHaveBeenCalledTimes(1);
+    expect((h.send.mock.calls[0] as [string, string])[0]).toBe("UU10000000");
+    expect(summary.errors.join(" ")).toMatch(/2 alertes mises en pause/);
+  });
+
+  it("reads the roles once per pass, and leaves admins and consultants alone", async () => {
+    const roles = vi.spyOn(h.db.user, "findMany");
+    seed("a"); seed("b", { createdById: "u2" }); seed("c", { createdById: "u2" });
+    await runClientAlerts({ now: NOW });
+    expect(roles).toHaveBeenCalledTimes(1);
+    expect(h.alerts.every((a) => a.status === "active" && a.lastCheckedAt !== null)).toBe(true);
   });
 });
 
@@ -986,10 +1319,13 @@ describe("cron route", () => {
   const call = (query = "", headers: Record<string, string> = { authorization: "Bearer s3cret" }, method: "GET" | "POST" = "GET") =>
     route[method](new NextRequest(`https://app.impulse.test/api/cron/client-alerts${query}`, { method, headers }));
 
+  let logged: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(at("2026-09-29T09:10:00Z"));
     process.env.CRON_SECRET = "s3cret";
+    logged = vi.spyOn(console, "log").mockImplementation(() => undefined);
     seed("four", {}, { checks: "4x" });
     seed("once", { lastCheckedAt: at("2026-09-29T06:10:00Z") }, { checks: "1x" });
     high("four");
@@ -1012,6 +1348,17 @@ describe("cron route", () => {
     expect(await res.json()).toEqual({ slot: 1, checked: 1, triggered: 1, skipped: 0, sent: 0, dryRun: true, held: 0, failed: 0, errors: [] });
     expect(alert("four").lastCheckedAt).toEqual(at("2026-09-29T09:10:00Z"));
     expect(alert("once").lastCheckedAt).toEqual(at("2026-09-29T06:10:00Z"));
+  });
+
+  it("leaves one line per pass in the platform's logs: the summary it answers", async () => {
+    const summary = await (await call()).json();
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(logged.mock.calls[0][0]).toBe("[client-alerts] pass");
+    expect(JSON.parse(String(logged.mock.calls[0][1]))).toEqual(summary);
+    // Nothing is logged for a call that is refused.
+    logged.mockClear();
+    await call("", {});
+    expect(logged).not.toHaveBeenCalled();
   });
 
   it("answers a POST like a GET", async () => {

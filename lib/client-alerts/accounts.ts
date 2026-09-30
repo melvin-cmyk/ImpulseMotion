@@ -18,15 +18,14 @@
  *     only be deleted.
  * An alert without a client keeps the accounts it was created with.
  *
- * Also here: which accounts of a proposal the series could not read — what
- * makes a replay wait instead of vouching for an alert nobody measured.
+ * Also here: what the person reads when a replay has to wait for an account
+ * that could not be read (replayVerdict of backtest.ts says when).
  */
 
 import { prisma } from "@/lib/prisma";
 import { getAccountScope, googleInScope, metaInScope } from "@/lib/scope";
 import { parseAccounts } from "@/lib/auto-alerts/clients";
-import { accountKey } from "@/lib/client-alerts/validate";
-import type { AlertAccountRef, ClientSeries } from "@/lib/client-alerts/types";
+import type { AlertAccountRef } from "@/lib/client-alerts/types";
 
 export type UsableAccounts =
   /** `clientName`: the client's name today; null for an alert without a client. */
@@ -67,17 +66,6 @@ export async function goneClients(ids: Array<string | null | undefined>): Promis
 }
 
 const PLATFORM_FR = { meta: "Meta", google: "Google Ads" } as const;
-
-/**
- * The accounts of a proposal the series could not read. While there is one,
- * the replay judges nothing (evaluate skips whatever depends on an unreadable
- * account): its « never triggered » would vouch for an alert nobody measured.
- * The proposal then waits — it is not wrong, and it is not validated either.
- */
-export function unreadAccounts(accounts: AlertAccountRef[], series: ClientSeries): AlertAccountRef[] {
-  const read = new Set(series.accounts.filter((a) => !a.error && a.days.length > 0).map((a) => accountKey(a.account.platform, a.account.accountId)));
-  return accounts.filter((a) => !read.has(accountKey(a.platform, a.accountId)));
-}
 
 /** What the person reads when the replay has to wait for an account. */
 export function unreadText(unread: AlertAccountRef[]): string {

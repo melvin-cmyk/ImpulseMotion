@@ -35,6 +35,15 @@ export class SlackDmError extends Error {
   }
 }
 
+/** The address given is the login of another person: their alerts would land in the wrong private conversation. */
+export const ADDRESS_TAKEN = "Cette adresse est celle d'un autre compte ImpulseMotion.";
+export class SlackAddressError extends Error {
+  constructor(message: string = ADDRESS_TAKEN) {
+    super(message);
+    this.name = "SlackAddressError";
+  }
+}
+
 const SERVICE = "le service d'envoi vers Slack";
 /** Slack's codes a consultant may meet, in words; anything else is « Slack a refusé l'envoi ». */
 const SLACK_WORDS: Record<string, string> = {
@@ -162,6 +171,7 @@ export function slackIdentityOf(user: SlackColumns): SlackIdentity {
  * always with `force`), stores the result. `email` replaces User.slackEmail first.
  *
  * A failure of n8n or Slack throws and stores nothing: « unknown » is only ever Slack's own answer.
+ * An address that is the login of ANOTHER user is refused (SlackAddressError) and nothing is stored.
  */
 export async function resolveSlackIdentity(userId: string, opts: { force?: boolean; email?: string | null } = {}): Promise<SlackIdentity> {
   const select = { email: true, slackEmail: true, slackUserId: true, slackCheckedAt: true } as const;
@@ -176,6 +186,11 @@ export async function resolveSlackIdentity(userId: string, opts: { force?: boole
     const login = cleanEmail(user.email);
     // null or "" = back to the login address; the login address itself is not stored twice.
     const slackEmail = address && address !== login ? address : null;
+    // A private alert goes to its creator: never to the Slack of another person of the application.
+    if (slackEmail) {
+      const other = await prisma.user.findFirst({ where: { email: { equals: slackEmail, mode: "insensitive" }, NOT: { id: userId } }, select: { id: true } });
+      if (other) throw new SlackAddressError();
+    }
     if (slackEmail !== (user.slackEmail ?? null)) {
       // What Slack said about the previous address says nothing about this one.
       const moved = (slackEmail ?? login) !== (cleanEmail(user.slackEmail) ?? login);
@@ -195,5 +210,6 @@ export async function resolveSlackIdentity(userId: string, opts: { force?: boole
   const member = await lookupSlackUser(address);
   const data = { slackUserId: member?.id ?? null, slackCheckedAt: new Date() };
   await prisma.user.update({ where: { id: userId }, data });
-  return slackIdentityOf({ ...user, ...data });
+  // The name is what lets the person see Slack found the right account; it is not kept.
+  return { ...slackIdentityOf({ ...user, ...data }), name: member?.name ?? null };
 }

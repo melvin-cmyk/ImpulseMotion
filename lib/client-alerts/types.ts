@@ -13,21 +13,21 @@
  *
  * Files and what they export (nothing else is shared between them):
  *   series.ts        readClientSeries, summarizeSeries
- *   evaluate.ts      evaluate, definitionHash
- *   backtest.ts      backtest
+ *   evaluate.ts      evaluate, windowOf (where a window ends, which days it holds), definitionHash
+ *   backtest.ts      advance (what decides a message), backtest, replayVerdict (what a replay is worth)
  *   run.ts           runClientAlerts
  *   store.ts         database reads and writes of ClientAlert / ClientAlertEvent
  *   slack-dm.ts      dmConfigured, lookupSlackUser, sendSlackDm, slackIdentityOf, resolveSlackIdentity, SlackDmError
  *   message.ts       buildAlertLine, buildDmText, slackToPlain (a stored message as the page shows it)
  *   validate.ts      validateAlertProposal
- *   accounts.ts      usableAccounts (the accounts a proposal may use today), goneClients, unreadAccounts
+ *   accounts.ts      usableAccounts (the accounts a proposal may use today), goneClients, unreadText
  *   compose-prompt.ts  prompt, relay body, extraction of the ```alert block
  *
  * Units, once for every file: money in euros; `ctr`, `changePct` and the thresholds of drop_pct /
  * rise_pct are percentages (1.2 = 1,2 %, 50 = half), never ratios; `roas` is a ratio (2.5).
  * Days are YYYY-MM-DD: `ClientSeries.until` is the last full day in Paris, `Evaluation.asOf` the last
- * day of the window judged (the day in progress for a live stop), `BacktestTrigger.date` the morning
- * the message would have been received.
+ * day of the window judged (never the day in progress), `BacktestTrigger.date` the morning the
+ * message would have been received.
  */
 
 export type AlertPlatform = "meta" | "google";
@@ -144,20 +144,45 @@ export function cpaSpendFloor(def: Pick<AlertDefinition, "metric" | "condition" 
 }
 
 /**
- * Days between the window and the one a variation is compared with.
- * previous_window: the N days just before. same_weekdays: back by whole
- * weeks, as many as it takes to clear the window — 7 days for a window of 1,
- * 3 or 7 days, 14 for 14, 35 for 30. One place for the figure, so that the
+ * How far back « the same weekdays » are, in calendar days: whole weeks, as
+ * many as it takes to clear the window — one for a window of 1, 3 or 7 days
+ * (two for 7 working days), two for 14, five for 30. Only `same_weekdays`
+ * reads it; `previous_window` is the N counting days just before the window,
+ * and the function answers N for it. One place for the figure, so that the
  * words on the card and in the message say what the engine compares.
+ * New definitions may only ask for `same_weekdays` up to 7 days (validate.ts);
+ * longer ones already stored keep working through here.
  */
-export function compareShiftDays(def: Pick<AlertDefinition, "windowDays" | "compare">): number {
-  return def.compare === "same_weekdays" ? Math.ceil(def.windowDays / 7) * 7 : def.windowDays;
+export function compareShiftDays(def: Pick<AlertDefinition, "windowDays" | "compare"> & { weekdaysOnly?: boolean }): number {
+  if (def.compare !== "same_weekdays") return def.windowDays;
+  return Math.ceil(def.windowDays / (def.weekdaysOnly === true ? 5 : 7)) * 7;
+}
+
+/** `stopped` looks at the 7 counting days before its window to know the account was delivering. */
+export const STOP_LOOKBACK_DAYS = 7;
+
+/** The measures that depend on conversions: reported late by the platforms, and counted by both. */
+export const CONVERSION_METRICS: readonly AlertMetric[] = ["conversions", "cpa", "roas", "revenue"];
+
+/**
+ * Days of hindsight before a measure is judged. Meta and Google go on
+ * attributing the conversions of a day for a day or more: at six in the
+ * morning, yesterday's are not all there, and a CPA or a « no conversion » on
+ * yesterday alone would trigger falsely — without the replay, which reads
+ * matured figures, ever showing it. Whatever depends on conversions is
+ * therefore judged on a window that ends one day earlier.
+ */
+export function conversionLagDays(metric: AlertMetric): number {
+  return CONVERSION_METRICS.includes(metric) ? 1 : 0;
 }
 
 // ── Series ───────────────────────────────────────────────────────────────────
 
-/** Days read per account: 30 days replayed × the longest window (30) and its comparison (30), plus a margin. */
-export const SERIES_DAYS = 95;
+/**
+ * Days read per account: the 30 days replayed, the longest window and its comparison — 30 working
+ * days each, 42 calendar days —, the day of hindsight of the conversions, and a margin.
+ */
+export const SERIES_DAYS = 125;
 export const BACKTEST_DAYS = 30;
 
 export interface SeriesPoint {
@@ -179,7 +204,7 @@ export interface AccountSeries {
   eurRate: number;
   /** Full days, oldest first, ending yesterday, without gaps. Empty when `error` is set. */
   days: SeriesPoint[];
-  /** The day in progress (euros) and the hour (0–23.99) in the account timezone; null when unread. */
+  /** The day in progress (euros) and the hour (0–23.99) in the account timezone; null when unread. Read by the AI, never judged. */
   today: { spend: number; conversions: number; hour: number } | null;
   /** The account could not be read: whatever depends on it is skipped, never triggered. */
   error?: string;
@@ -212,13 +237,26 @@ export interface EvaluationPart {
   triggered: boolean;
 }
 
+/**
+ * Why a check could not judge, as a kind: what tells a passing trouble (an account that could not
+ * be read) from a rule that cannot be judged on this client (its guards, its measure, its history).
+ */
+export type SkipKind = "unreadable" | "guard_spend" | "guard_conversions" | "no_value" | "no_history" | "no_reference" | "definition";
+
 export interface Evaluation {
   /** skipped = not judged (account unreadable, guard not met, not enough days): never a trigger. */
   status: "triggered" | "ok" | "skipped";
   /** Why it was skipped, in French, for the page. */
   reason?: string;
-  /** Last day of the window (YYYY-MM-DD). */
+  /** The same, as a kind. Absent from evaluations stored before it existed. */
+  skip?: SkipKind;
+  /**
+   * The real last day of the window judged (YYYY-MM-DD): one day before the last full day for what
+   * depends on conversions, a Friday on a Monday morning for working days only.
+   */
   asOf: string;
+  /** First day of the window. Absent from evaluations stored before it existed. */
+  from?: string;
   /**
    * The part that decides: `combined`, or the platform that triggered (first one) when aggregation is `each`.
    * null even when `triggered` for a CPA « above » that spent without any conversion: there is no CPA to give.
@@ -246,6 +284,10 @@ export interface Backtest {
   messages: BacktestTrigger[];
   /** Days not judged (guards, unreadable data). */
   skippedDays: number;
+  /** Days on which a check would have run (30, less the Saturdays and Sundays of a working-days alert). Absent from older replays. */
+  checkedDays?: number;
+  /** Why most of the skipped days were skipped; null when none was. */
+  skipKind?: SkipKind | null;
   /** Value today, and its spread over the replayed days that have one (a day without a value is left out, never counted as 0). */
   current: number | null;
   min: number | null;
@@ -272,15 +314,22 @@ export const MAX_DM_PER_RUN = 10;
 /** Delivery failures in a row that put an alert in `error`. */
 export const MAX_DELIVERY_FAILURES = 3;
 
+/**
+ * What an undelivered event says once its alert went back to normal before the message could leave.
+ * It closes the event: kept on the page, never sent late, and no longer what makes its alert due.
+ */
+export const BACK_TO_NORMAL = "situation revenue à la normale avant l'envoi : non envoyé";
+
 export type ClientAlertStatus = "draft" | "active" | "paused" | "review" | "error";
 
 export interface RunSummary {
   slot: number | null;
-  /** Alerts evaluated at this pass (those sent to `review` are not). */
+  /** Alerts evaluated at this pass (those sent to `review` or paused are not). */
   checked: number;
   /**
-   * EVENTS recorded at this pass — a trigger or a reminder worth a message — not the alerts whose
-   * condition is true: an alert that stays true in its silence is checked, not triggered.
+   * EVENTS this pass has to say — a trigger or a reminder worth a message, new or still pending from
+   * an earlier pass — not the alerts whose condition is true: an alert that stays true in its silence
+   * is checked, not triggered.
    */
   triggered: number;
   /** Alerts evaluated that could not be judged. */
@@ -292,9 +341,9 @@ export interface RunSummary {
   sent: number;
   /** Events recorded without sending (CLIENT_ALERTS_SEND off, or explicit dry run). */
   dryRun: boolean;
-  /** Events held back on purpose: daily cap, per-run cap, flood guard, no Slack identity, webhook not configured. */
+  /** Events held back on purpose: daily cap, per-run cap, flood guard, no Slack identity, webhook not configured. Tried again at the next pass. */
   held: number;
-  /** Events whose private message could not be delivered: their alerts are tried again at the next pass. */
+  /** Events whose private message could not be delivered. Tried again at the next pass. */
   failed: number;
   errors: string[];
 }
@@ -314,4 +363,6 @@ export interface SlackIdentity {
   checkedAt: string | null;
   /** found = messages can be sent; unknown = Slack has nobody with this address; unchecked = never looked up. */
   status: "found" | "unknown" | "unchecked";
+  /** The member's name as Slack just answered it — only right after a lookup, never stored. */
+  name?: string | null;
 }

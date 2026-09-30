@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { SHOW_DORMANT, platformCounts, type ClientOption } from "@/components/client-alerts/alert-model";
+import { SHOW_DORMANT, pickOnEnter, platformCounts, type ClientOption } from "@/components/client-alerts/alert-model";
 
 const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -63,7 +63,13 @@ export function ClientPicker({ clients, busyId, error, focusKey, onPick }: {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && shown.length > 0 && !busy) { e.preventDefault(); onPick(shown[0]); } }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              // Nothing typed, nothing chosen: Enter in an empty box must not open the first client of the list.
+              const first = busy ? null : pickOnEnter(query, shown);
+              if (first) onPick(first);
+            }}
             placeholder="Chercher un client ou un compte"
             aria-label="Chercher un client"
             className="w-full pl-9 pr-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white placeholder:text-gray-600 focus:border-violet-500 focus:outline-none"

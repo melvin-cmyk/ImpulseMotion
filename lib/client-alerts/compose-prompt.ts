@@ -28,7 +28,7 @@ import {
   EXPLANATION_MAX, LABEL_MAX, NOISY_MESSAGES,
   type AlertAccountRef, type AlertCondition, type AlertDefinition, type AlertMetric, type AlertProposalInput,
 } from "@/lib/client-alerts/types";
-import { CPA_MIN_CONVERSIONS, type AlertValidation } from "@/lib/client-alerts/validate";
+import { CPA_MIN_CONVERSIONS, SAME_WEEKDAYS_MAX_DAYS, type AlertValidation } from "@/lib/client-alerts/validate";
 
 // ── Relay call ───────────────────────────────────────────────────────────
 
@@ -99,7 +99,7 @@ const CONDITION_DOCS: Record<AlertCondition, string> = {
   below: "la valeur de la période passe sous le seuil",
   drop_pct: `la valeur a baissé d'au moins « threshold » % par rapport à la période de comparaison (50 = divisée par deux)`,
   rise_pct: `la valeur a augmenté d'au moins « threshold » % par rapport à la période de comparaison (100 = doublée)`,
-  stopped: `plus rien du tout sur la période alors qu'il y en avait sur les 7 jours d'avant — uniquement avec "spend" (la dépense s'arrête) ou "conversions" (zéro conversion alors que la dépense continue), et "threshold" vaut null`,
+  stopped: `plus rien du tout sur la période (des jours complets, jamais la journée en cours) alors qu'il y en avait sur les 7 jours d'avant — uniquement avec "spend" (la dépense s'arrête) ou "conversions" (zéro conversion alors que la dépense continue), et "threshold" vaut null`,
 };
 
 const values = (list: readonly (string | number)[]) => list.map((v) => (typeof v === "string" ? `"${v}"` : String(v))).join(" | ");
@@ -109,13 +109,13 @@ const FIELD_DOCS: { [K in Exclude<keyof AlertProposalInput, "version">]-?: strin
   metric: `obligatoire — ${values(ALERT_METRICS)}`,
   condition: `obligatoire — ${values(ALERT_CONDITIONS)}`,
   threshold: `nombre supérieur à 0, obligatoire sauf avec "stopped" (null) — des euros pour spend, cpa et revenue ; un nombre pour conversions ; un ratio pour roas ; un pourcentage pour ctr (entre 0 et 100) et pour drop_pct / rise_pct (entre 1 et 1000)`,
-  windowDays: `obligatoire — ${values(ALERT_WINDOWS)} : la période jugée, en jours COMPLETS, le dernier étant hier. Aucune autre durée n'existe : pour « 2 jours » propose 3, pour « une semaine » 7, pour « un mois » 30, et dis-le`,
+  windowDays: `obligatoire — ${values(ALERT_WINDOWS)} : la période jugée, en jours COMPLETS. Elle se termine hier pour la dépense et le taux de clic, et AVANT-HIER pour tout ce qui dépend des conversions (conversions, cpa, roas, revenue) : ces mesures sont jugées avec un jour de recul, le temps que les conversions remontent. Aucune autre durée n'existe : pour « 2 jours » propose 3, pour « une semaine » 7, pour « un mois » 30, et dis-le`,
   aggregation: `"combined" (par défaut : Meta et Google Ads additionnés, en euros) | "each" (chaque plateforme jugée seule, une seule suffit à déclencher)`,
-  compare: `lu seulement par drop_pct et rise_pct — "previous_window" (par défaut : les N jours juste avant la période) | "same_weekdays" (les mêmes jours de la semaine, une semaine plus tôt — deux semaines plus tôt pour une période de 14 jours, cinq pour 30 —, utile quand l'activité dépend du jour de la semaine)`,
+  compare: `lu seulement par drop_pct et rise_pct — "previous_window" (par défaut : les N jours juste avant la période) | "same_weekdays" (les mêmes jours de la semaine, une semaine plus tôt : utile quand l'activité dépend du jour de la semaine ; REFUSÉ au-delà de ${SAME_WEEKDAYS_MAX_DAYS} jours — pour 14 ou 30 jours, écris "previous_window")`,
   accounts: `à OMETTRE dans le cas normal : l'alerte couvre alors tous les comptes du client. À écrire seulement si le consultant veut se limiter à certains comptes : [{"platform":"meta" | "google","accountId":"<identifiant recopié du contexte>"}]`,
-  guards: `optionnel — {"minSpend"?: euros, "minConversions"?: nombre} : sous ces volumes sur la période, l'alerte n'est pas jugée (trop peu de données pour conclure). Pour le cpa, ${CPA_MIN_CONVERSIONS} conversions minimum s'appliquent d'office si tu n'écris rien. Exception voulue, cpa + "above" : avec moins de conversions que ce minimum (ou aucune), l'alerte se déclenche quand même dès que la dépense de la période atteint seuil × minimum (60 € × ${CPA_MIN_CONVERSIONS} = ${60 * CPA_MIN_CONVERSIONS} €) — « on dépense sans convertir » est donc couvert, inutile de baisser le minimum pour cela`,
+  guards: `optionnel — {"minSpend"?: euros, "minConversions"?: nombre} : sous ces volumes, l'alerte n'est pas jugée (trop peu de données pour conclure). Ils se lisent sur la période jugée pour above / below, sur la période de COMPARAISON pour drop_pct / rise_pct (une dépense qui s'effondre doit déclencher, pas être écartée), sur les 7 jours d'avant pour stopped. Pour le cpa, ${CPA_MIN_CONVERSIONS} conversions minimum s'appliquent d'office si tu n'écris rien. Exception voulue, cpa + "above" : avec moins de conversions que ce minimum (ou aucune), l'alerte se déclenche quand même dès que la dépense de la période atteint seuil × minimum (60 € × ${CPA_MIN_CONVERSIONS} = ${60 * CPA_MIN_CONVERSIONS} €) — « on dépense sans convertir » est donc couvert, inutile de baisser le minimum pour cela`,
   checks: `"1x" | "2x" | "4x" — vérifications par jour, "${ALERT_DEFAULTS.checks}" par défaut`,
-  weekdaysOnly: `booléen, ${ALERT_DEFAULTS.weekdaysOnly} par défaut (week-ends compris) — true = vérifiée du lundi au vendredi seulement`,
+  weekdaysOnly: `booléen, ${ALERT_DEFAULTS.weekdaysOnly} par défaut (week-ends compris) — true = jours ouvrés seulement : les samedis et dimanches ne comptent pas. Aucune vérification le week-end, ET ces deux jours sortent des chiffres : une période de 3 jours devient 3 jours ouvrés, la comparaison aussi ; le lundi juge le vendredi`,
   cooldownHours: `nombre entier d'heures entre ${COOLDOWN_MIN_HOURS} et ${COOLDOWN_MAX_HOURS}, ${ALERT_DEFAULTS.cooldownHours} par défaut (${ALERT_DEFAULTS.cooldownHours / 24} jours) — le silence après un message ; avec "remind": true, c'est aussi l'intervalle entre deux rappels`,
   remind: `booléen, ${ALERT_DEFAULTS.remind} par défaut — false : après un message, le suivant attend que la situation soit revenue à la normale ; true : tant que la situation dure, un nouveau message après chaque silence. Le rythme du rappel EST donc "cooldownHours" : « un rappel tous les jours » s'écrit "remind": true ET "cooldownHours": 24 ; « tous les deux jours », 48. Ne dis jamais « rappel quotidien » en laissant ${ALERT_DEFAULTS.cooldownHours} heures de silence`,
   explanation: `string, ${EXPLANATION_MAX} caractères au plus — comment tu as lu la demande, et les limites de l'alerte (ce qu'elle ne voit pas)`,
@@ -137,7 +137,7 @@ const EXAMPLE_PROPOSAL: AlertProposalInput = {
   condition: "above",
   threshold: 60,
   windowDays: 3,
-  explanation: "Coût par conversion de Meta et Google Ads additionnés sur les 3 derniers jours complets. Sous 5 conversions, ne se déclenche que si 300 € ont déjà été dépensés. Ne dit pas quelle campagne est en cause.",
+  explanation: "Coût par conversion de Meta et Google Ads additionnés sur 3 jours complets, jugé avec un jour de recul, le temps que les conversions remontent. Sous 5 conversions, ne se déclenche que si 300 € ont déjà été dépensés. Ne dit pas quelle campagne est en cause.",
 };
 
 const days = (hours: number) => (hours % 24 === 0 ? `${hours / 24} jour${hours / 24 > 1 ? "s" : ""}` : `${hours} heures`);
@@ -161,7 +161,8 @@ CONDUITE DE LA CONVERSATION :
 - Une demande de modification (« plutôt 70 € », « préviens-moi tous les jours », « seulement en semaine ») donne une nouvelle proposition COMPLÈTE, jamais un correctif partiel. C'est vrai aussi quand une alerte est déjà en service : reprends-la entièrement avec le changement demandé ; elle remplacera l'ancienne quand le consultant validera.
 - Un message « [Résultat des propositions précédentes : …] » te dit ce qui est arrivé à ta proposition (validée, ou rejetée et pourquoi) : corrige exactement ce qui est reproché et propose à nouveau.
 
-META ET GOOGLE ADS ENSEMBLE : par défaut l'alerte additionne les comptes Meta et Google Ads du client ("combined") ; le message Slack donne ensuite le détail par plateforme. Choisis "each" quand le consultant veut que chaque plateforme soit jugée seule (« si Meta OU Google s'arrête »), ou quand un rapport ne peut pas être calculé sur l'ensemble (un ROAS alors qu'une des deux plateformes ne remonte aucune valeur de conversion). Ne choisis "each" que dans ces deux cas : sans demande du consultant, garde l'ensemble, et ne dis jamais « réunis » dans ta phrase en écrivant "each" dans le bloc. Si aucun compte ne remonte de valeur de conversion, ne propose ni ROAS ni revenu : propose le coût par conversion et dis pourquoi.
+META ET GOOGLE ADS ENSEMBLE : par défaut l'alerte additionne les comptes Meta et Google Ads du client ("combined") ; le message Slack donne ensuite le détail par plateforme. Choisis "each" seulement quand le consultant veut que chaque plateforme soit jugée seule (« si Meta OU Google s'arrête ») : sans demande de sa part, garde l'ensemble, et ne dis jamais « réunis » dans ta phrase en écrivant "each" dans le bloc. Avec "each", l'alerte n'est jugée que si CHAQUE plateforme peut l'être.
+VALEUR DES CONVERSIONS : un ROAS ou un revenu ne se calcule que sur des comptes qui remontent une valeur (« valeur suivie » dans le contexte). Si un compte qui dépense n'en remonte pas, limite l'alerte aux comptes qui en remontent une (champ "accounts") et dis-le — "each" ne règle pas ce cas. Si aucun compte n'en remonte, ne propose ni ROAS ni revenu : propose le coût par conversion et dis pourquoi.
 
 RÉGLAGES PAR DÉFAUT — garde-les sauf demande contraire, et rappelle-les en UNE ligne en disant qu'ils se changent sur simple demande : ${parseInt(ALERT_DEFAULTS.checks, 10)} vérifications par jour, week-ends compris ; ${days(ALERT_DEFAULTS.cooldownHours)} de silence après un message ; pas de rappel tant que la situation n'est pas revenue à la normale. N'écris ces champs dans le bloc que si le consultant demande autre chose.
 
@@ -172,6 +173,7 @@ CE QUE L'ALERTE NE FAIT PAS — dis-le honnêtement dès qu'une demande le touch
 - Une seule règle par alerte, sur une seule mesure : pas de « et », pas de « ou » entre deux mesures. Pour deux règles, le consultant crée deux alertes.
 - Elle juge le client entier (ou chaque plateforme), pas une campagne, un ensemble de publicités ni une publicité.
 - Elle ne suit ni budget mensuel, ni objectif de fin de mois, ni CPM, ni créas. TikTok et Google Analytics ne sont pas couverts.
+- Elle juge des journées COMPLÈTES, jamais la journée en cours. Si le consultant parle d'« aujourd'hui », de « maintenant » ou d'« en ce moment », dis-lui qu'un arrêt en cours de journée est déjà surveillé par les alertes automatiques de l'agence, dans le canal Slack du client, et propose la version sur jour complet (la dépense de la veille à zéro).
 - Elle ne modifie rien sur les comptes : elle prévient, c'est tout.
 - Le message part TOUJOURS en message privé Slack à la personne qui crée l'alerte. Pas de canal, pas d'e-mail, pas d'autre destinataire : ne promets jamais autre chose. Si on te demande de prévenir quelqu'un d'autre, dis que ce n'est pas possible et que cette personne peut créer la même alerte de son côté, dans cette page.
 - Au-delà de ${NOISY_MESSAGES} messages sur les ${BACKTEST_DAYS} derniers jours, l'application demande une confirmation : une alerte qui sonne tout le temps ne sert à rien.
@@ -185,7 +187,7 @@ ${JSON.stringify(EXAMPLE_PROPOSAL, null, 1)}
 Avant le bloc : ce que l'alerte surveille, le seuil et d'où il vient, puis la ligne des réglages par défaut. L'application rejoue ensuite ta proposition sur les ${BACKTEST_DAYS} derniers jours et montre au consultant combien de messages il aurait reçus : n'annonce pas ce nombre toi-même.
 - N'invente JAMAIS un identifiant de compte : les seuls qui existent sont ceux du contexte.
 - N'affirme JAMAIS que l'alerte est créée, enregistrée ou en service : elle est proposée, et ne sera enregistrée que lorsque le consultant cliquera sur « Valider ». Écris « je propose », jamais « je mets en place », « je crée » ni « c'est fait ». Tu n'écris nulle part et tu n'envoies rien toi-même.
-- Dans "explanation", dis en une ou deux phrases comment tu as lu la demande et ce que l'alerte ne voit pas.
+- Dans "explanation", dis en une ou deux phrases comment tu as lu la demande et ce que l'alerte ne voit pas. Pour une mesure qui dépend des conversions, dis-y aussi, en mots simples, qu'elle est jugée avec un jour de recul, le temps que les conversions remontent.
 
 HORS SUJET : tu ne fais que créer et ajuster cette alerte. Pour une analyse de performances ou un rapport, renvoie vers l'assistant IA de l'application.
 ${SYSTEM_PROMPT_DYNAMIC_BOUNDARY}
@@ -414,4 +416,17 @@ export function stripProposalNotes(content: string): string {
   if (!content.startsWith(NOTES_OPEN)) return content;
   const end = content.indexOf(NOTES_CLOSE);
   return end === -1 ? content : content.slice(end + NOTES_CLOSE.length);
+}
+
+/**
+ * The AI's reply without its images: this conversation shows text and a card,
+ * and an image address written by a model (or copied from an account name) is
+ * a request the consultant's browser would make without anybody asking.
+ * Markdown images become their caption; an image tag goes.
+ */
+export function stripImages(markdown: string): string {
+  return markdown
+    .replace(/!\[([^\]]*)\]\((?:[^()\s]|\([^()]*\))*(?:\s+"[^"]*")?\)/g, "$1")
+    .replace(/!\[([^\]]*)\]\[[^\]]*\]/g, "$1")
+    .replace(/<img\b[^>]*>/gi, "");
 }

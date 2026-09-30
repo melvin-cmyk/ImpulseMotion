@@ -21,12 +21,14 @@ import { AiActivity } from "@/components/ai/activity";
 import { Pill } from "@/components/ui/surface";
 import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 import {
-  ALERT_CHAT_MAX_MESSAGES, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks, stripProposalNotes, withProposalNotes,
+  ALERT_CHAT_MAX_MESSAGES, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks, stripImages, stripProposalNotes, withProposalNotes,
 } from "@/lib/client-alerts/compose-prompt";
 import type { AlertDefinition, Backtest } from "@/lib/client-alerts/types";
-import { ProposalCard, type CardState } from "@/components/client-alerts/proposal-card";
+import { ProposalCard } from "@/components/client-alerts/proposal-card";
 import { PlatformBadges } from "@/components/client-alerts/client-picker";
-import { ALERT_STATUS, CLIENT_GONE, dayLabel, exampleRequests, type AlertView, type ProposalCheck } from "@/components/client-alerts/alert-model";
+import {
+  ALERT_STATUS, CLIENT_GONE, cardStateOf, dayLabel, exampleRequests, latestValidKey, type AlertView, type CardState, type ProposalCheck,
+} from "@/components/client-alerts/alert-model";
 
 interface ChatMessage { role: "user" | "assistant"; content: string }
 
@@ -323,23 +325,15 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
     const outcome = outcomes[key] ?? {};
     const draftLabel = local.kind === "candidate" && typeof local.raw.label === "string" ? local.raw.label : null;
 
-    let state: CardState;
-    let errors: string[] | undefined;
-    if (blocked) { state = "closed"; errors = [blocked]; }
-    else if (local.kind === "malformed") { state = "invalid"; errors = local.errors; }
-    else if (!check) state = verifying ? "checking" : "unverified";
-    else if (!check.ok) { state = check.retry ? (verifying ? "checking" : "unverified") : "invalid"; errors = check.errors; }
-    else if (outcome.applying) state = "applying";
-    else {
-      // The server's word on which proposal is the alert: the hash of what was replayed.
-      const isTheAlert = !!alert.definitionHash && check.backtest.hash === alert.definitionHash;
-      if (isTheAlert && alert.status === "active") state = "inService";
-      else if (isTheAlert && alert.status === "paused") state = "paused";
-      else if (outcome.confirm !== undefined) state = "confirming";
-      else if (outcome.errors) { state = "failed"; errors = outcome.errors; }
-      else if (!isTheAlert && statuses[key] === "applied") state = "replaced";
-      else state = "pending";
-    }
+    const state: CardState = cardStateOf({
+      key, malformed: local.kind === "malformed", check, verifying, outcome, stored: statuses[key],
+      alert, latestValid: latestValidKey(checks), blocked: !!blocked,
+    });
+    const errors: string[] | undefined = state === "closed" ? [blocked ?? ""]
+      : local.kind === "malformed" ? local.errors
+      : check && !check.ok ? check.errors
+      : state === "failed" ? outcome.errors
+      : undefined;
     const valid = check?.ok && !blocked ? check : null;
 
     return (
@@ -374,7 +368,8 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         </div>
       );
     }
-    const clean = stripAlertBlocks(m.content);
+    // Text and a card: no image is ever loaded from what a model wrote.
+    const clean = stripImages(stripAlertBlocks(m.content));
     return (
       <div key={i} className="sm:mr-10 space-y-2">
         {clean && (

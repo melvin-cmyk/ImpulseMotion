@@ -3,13 +3,14 @@
  *
  * GET                                   → { configured, identity } as stored, no call to Slack
  * POST { action: "check", email? }      → looks the address up in Slack again; `email` (null = the login address) replaces it first
+ *                                         (409 when it is the login address of another user); the identity carries the member's name
  * POST { action: "test" }               → one private message to the caller, and to nobody else
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { SlackDmError, cleanEmail, dmConfigured, resolveSlackIdentity, sendSlackDm, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
+import { ADDRESS_TAKEN, SlackAddressError, SlackDmError, cleanEmail, dmConfigured, resolveSlackIdentity, sendSlackDm, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
 
 export const maxDuration = 60;
 
@@ -50,10 +51,17 @@ export async function POST(req: NextRequest) {
       email = given ? cleanEmail(given) : null;
       if (given === null || (given && !email)) return NextResponse.json({ error: "Adresse e-mail invalide." }, { status: 400 });
     }
+    // The address of another person of the application is never somebody's Slack address: refused before anything is asked to Slack.
+    if (email) {
+      const other = await prisma.user.findFirst({ where: { email: { equals: email, mode: "insensitive" }, NOT: { id: guard.session.userId } }, select: { id: true } });
+      if (other) return NextResponse.json({ error: ADDRESS_TAKEN }, { status: 409 });
+    }
     try {
+      // `identity.name`: the member Slack found, for the person to see it is the right one.
       const identity = await resolveSlackIdentity(guard.session.userId, { force: true, ...(email !== undefined ? { email } : {}) });
       return NextResponse.json({ identity });
     } catch (err) {
+      if (err instanceof SlackAddressError) return NextResponse.json({ error: err.message }, { status: 409 });
       if (err instanceof SlackDmError) return failure("Slack n'a pas pu être interrogé", err);
       throw err;
     }

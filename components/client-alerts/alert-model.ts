@@ -9,8 +9,9 @@
  */
 
 import {
-  BACKTEST_DAYS, compareShiftDays, cpaSpendFloor, readDefinition,
-  type AlertAccountRef, type AlertDefinition, type AlertMetric, type AlertPlatform, type Backtest, type ClientAlertStatus,
+  BACKTEST_DAYS, compareShiftDays, conversionLagDays, cpaSpendFloor, readDefinition, STOP_LOOKBACK_DAYS,
+  BACK_TO_NORMAL, COOLDOWN_MIN_HOURS,
+  type AlertAccountRef, type AlertDefinition, type AlertMetric, type AlertPlatform, type Backtest, type ClientAlertStatus, type SlackIdentity,
 } from "@/lib/client-alerts/types";
 import { slackToPlain } from "@/lib/client-alerts/message";
 
@@ -65,6 +66,8 @@ export interface BacktestSummary {
   dates: string[];
   daysTrue: number;
   skippedDays: number;
+  /** Days that were really judged (checked and not skipped). */
+  judgedDays: number;
   current: number | null;
   min: number | null;
   median: number | null;
@@ -139,6 +142,7 @@ export function summarizeBacktest(json: string | null | undefined): BacktestSumm
       dates: b.messages.map((m) => (m && typeof m.date === "string" ? m.date : "")).filter(Boolean),
       daysTrue: num(b.daysTrue) ?? 0,
       skippedDays: num(b.skippedDays) ?? 0,
+      judgedDays: Math.max(0, (num(b.checkedDays) ?? num(b.days) ?? BACKTEST_DAYS) - (num(b.skippedDays) ?? 0)),
       current: num(b.current), min: num(b.min), median: num(b.median), max: num(b.max),
       notes: Array.isArray(b.notes) ? b.notes.filter((n): n is string => typeof n === "string") : [],
       ranAt: typeof b.ranAt === "string" ? b.ranAt : null,
@@ -264,7 +268,12 @@ function scopeWords(def: AlertDefinition): string {
   return n.google ? "de Google Ads" : "de Meta";
 }
 
-const windowWords = (days: number) => (days === 1 ? "sur le dernier jour complet" : `sur les ${days} derniers jours`);
+/** « sur les 3 derniers jours », « sur les 3 derniers jours ouvrés » when Saturdays and Sundays do not count. */
+const windowWords = (def: Pick<AlertDefinition, "windowDays" | "weekdaysOnly">) => {
+  const worked = def.weekdaysOnly === true;
+  return def.windowDays === 1 ? `sur le dernier jour${worked ? " ouvré" : ""} complet` : `sur les ${def.windowDays} derniers jours${worked ? " ouvrés" : ""}`;
+};
+const beforeWords = (def: Pick<AlertDefinition, "weekdaysOnly">) => `les ${STOP_LOOKBACK_DAYS} jours${def.weekdaysOnly === true ? " ouvrés" : ""} d'avant`;
 
 function compareWords(def: AlertDefinition): string {
   if (def.compare === "same_weekdays") {
@@ -272,20 +281,25 @@ function compareWords(def: AlertDefinition): string {
     const weeks = compareShiftDays(def) / 7;
     return weeks > 1 ? `par rapport aux mêmes jours de la semaine, ${weeks} semaines plus tôt` : "par rapport aux mêmes jours de la semaine précédente";
   }
-  return def.windowDays === 1 ? "par rapport à la veille" : `par rapport aux ${def.windowDays} jours précédents`;
+  const worked = def.weekdaysOnly === true;
+  if (def.windowDays === 1) return worked ? "par rapport au jour ouvré précédent" : "par rapport à la veille";
+  return `par rapport aux ${def.windowDays} jours${worked ? " ouvrés" : ""} précédents`;
 }
 
 /** The rule as ONE sentence, built from the definition alone. */
 export function ruleSentence(def: AlertDefinition): string {
   const who = `${SUBJECT[def.metric]} ${scopeWords(def)}`;
-  const when = windowWords(def.windowDays);
+  const when = windowWords(def);
   const pct = def.threshold === null ? "" : plain(nf(1).format(def.threshold));
   switch (def.condition) {
     case "above": return `Vous êtes prévenu quand ${who} dépasse ${formatValue(def.metric, def.threshold)} ${when}.`;
     case "below": return `Vous êtes prévenu quand ${who} passe sous ${formatValue(def.metric, def.threshold)} ${when}.`;
     case "drop_pct": return `Vous êtes prévenu quand ${who} baisse d'au moins ${pct} % ${when}, ${compareWords(def)}.`;
     case "rise_pct": return `Vous êtes prévenu quand ${who} augmente d'au moins ${pct} % ${when}, ${compareWords(def)}.`;
-    case "stopped": return `Vous êtes prévenu quand ${who} tombe à zéro ${when}, alors qu'il y en avait les jours d'avant.`;
+    // No conversion while nothing is spent is the other alert (the spend that stops): the card says which one this is.
+    case "stopped": return def.metric === "conversions"
+      ? `Vous êtes prévenu quand ${who} tombe à zéro ${when} alors que la dépense continue, et qu'il y en avait sur ${beforeWords(def)}.`
+      : `Vous êtes prévenu quand ${who} tombe à zéro ${when}, alors qu'il y en avait sur ${beforeWords(def)}.`;
   }
 }
 
@@ -316,11 +330,23 @@ export function settingsLine(def: AlertDefinition): string {
     `${checks} vérification${checks > 1 ? "s" : ""} par jour`,
     `silence de ${silenceWords(def.cooldownHours)} après un message`,
     def.remind ? "rappel tant que la situation dure" : "pas de rappel",
-    def.weekdaysOnly ? "du lundi au vendredi" : "week-ends compris",
+    def.weekdaysOnly ? "jours ouvrés seulement : les samedis et dimanches ne comptent pas" : "week-ends compris",
   ].join(" · ");
 }
 
-/** The volumes under which the alert is not judged, in words; null when there is none. */
+/**
+ * What depends on conversions is judged with one day of hindsight (conversionLagDays): said on the
+ * card, or the consultant looks for yesterday in the figures. null for the spend and the click rate.
+ */
+export function hindsightLine(def: Pick<AlertDefinition, "metric">): string | null {
+  return conversionLagDays(def.metric) > 0 ? "Jugée avec un jour de recul, le temps que les conversions remontent : la journée d'hier n'est pas encore comptée." : null;
+}
+
+/**
+ * The volumes under which the alert is not judged, in words; null when there is none.
+ * The period is the one the engine reads them on: the window for a threshold, the comparison
+ * period for a variation, the 7 days before for a stop.
+ */
 export function guardsLine(def: AlertDefinition): string | null {
   const parts: string[] = [];
   if (def.guards.minConversions) parts.push(`${plain(nf(1).format(def.guards.minConversions))} conversion${def.guards.minConversions > 1 ? "s" : ""}`);
@@ -330,7 +356,10 @@ export function guardsLine(def: AlertDefinition): string | null {
   const spent = floor === null ? null : formatValue("spend", floor);
   if (!parts.length) return spent ? `Sans aucune conversion, se déclenche dès ${spent} dépensés sur la période.` : null;
   const few = def.guards.minConversions && spent ? ` Avec moins de conversions, elle se déclenche quand même dès ${spent} dépensés.` : "";
-  return `Jugée seulement à partir de ${parts.join(" et ")} sur la période.${few}`;
+  const where = def.condition === "stopped" ? `sur ${beforeWords(def)}`
+    : def.condition === "drop_pct" || def.condition === "rise_pct" ? "sur la période de comparaison"
+    : "sur la période";
+  return `Jugée seulement à partir de ${parts.join(" et ")} ${where}.${few}`;
 }
 
 /** A value that does not exist, in words: a CPA without any conversion is not « — ». */
@@ -405,16 +434,118 @@ export function datesLabel(dates: string[]): string {
   return `les ${words.slice(0, -1).join(", ")} et ${words[words.length - 1]}`;
 }
 
-/** « Sur les 30 derniers jours : 3 messages — les 4, 12 et 21 sept. » — the days the messages would have been received. */
-export function replayLine(replay: { days: number; messages: number; dates: string[] }): string {
-  if (replay.messages === 0) return `Ne se serait jamais déclenchée sur ${replay.days} jours`;
+/**
+ * « Sur les 30 derniers jours : 3 messages — les 4, 12 et 21 sept. » — the days the messages would
+ * have been received. A replay that judged no day never reads « ne se serait jamais déclenchée »:
+ * nobody measured anything.
+ */
+export function replayLine(replay: { days: number; messages: number; dates: string[]; judgedDays?: number | null }): string {
+  if (replay.messages === 0) {
+    return replay.judgedDays === 0 ? `Aucun jour n'a pu être jugé sur ${replay.days} jours` : `Ne se serait jamais déclenchée sur ${replay.days} jours`;
+  }
   const when = datesLabel(replay.dates);
   return `Sur les ${replay.days} derniers jours : ${replay.messages} message${replay.messages > 1 ? "s" : ""}${when ? ` — ${when}` : ""}`;
 }
 
 /** The replay of a proposal, reduced to what the card and the list both read. */
-export function replayOf(backtest: Backtest): { days: number; messages: number; dates: string[] } {
-  return { days: backtest.days, messages: backtest.messages.length, dates: backtest.messages.map((m) => m.date) };
+export function replayOf(backtest: Backtest): { days: number; messages: number; dates: string[]; judgedDays: number } {
+  return {
+    days: backtest.days, messages: backtest.messages.length, dates: backtest.messages.map((m) => m.date),
+    judgedDays: Math.max(0, (backtest.checkedDays ?? backtest.days) - backtest.skippedDays),
+  };
+}
+
+// ── The cards of a conversation ──────────────────────────────────────────
+
+/**
+ * checking    the server is validating and replaying the proposal
+ * unverified  it could not be judged (server unreachable, figures unreadable): to be checked again
+ * invalid     refused by the validation: the reasons, no button
+ * pending     valid, waiting for the click
+ * confirming  valid but noisy: the click asks for a confirmation first
+ * applying    being put in service
+ * failed      valid, but the server refused to put it in service
+ * inService   it is the alert in service
+ * paused      it is the alert, which is paused
+ * replaced    it was validated, then another proposal took its place
+ * superseded  valid, never validated, and a more recent valid proposal exists: only the latest can be validated
+ * closed      nothing can be validated any more (the client is gone): the reason, no button
+ */
+export type CardState =
+  | "checking" | "unverified" | "invalid" | "pending" | "confirming" | "applying" | "failed" | "inService" | "paused" | "replaced" | "superseded" | "closed";
+
+/** The key (« m7 ») of the most recent proposal the server found valid; null when there is none. */
+export function latestValidKey(checks: Record<string, ProposalCheck>): string | null {
+  let best = -1;
+  for (const [key, check] of Object.entries(checks)) {
+    const m = /^m(\d+)$/.exec(key);
+    if (m && check.ok && Number(m[1]) > best) best = Number(m[1]);
+  }
+  return best === -1 ? null : `m${best}`;
+}
+
+/**
+ * What one card of the conversation shows. Only the LATEST valid proposal can
+ * be validated: an older one the consultant scrolls back to must not replace,
+ * by one click, what was asked for since.
+ */
+export function cardStateOf(input: {
+  key: string;
+  /** The block could not even be read (extraction). */
+  malformed: boolean;
+  check: ProposalCheck | undefined;
+  verifying: boolean;
+  outcome: { applying?: boolean; errors?: string[]; confirm?: number };
+  /** Status kept with the conversation (« applied » once validated). */
+  stored: string | undefined;
+  alert: Pick<AlertView, "definitionHash" | "status">;
+  latestValid: string | null;
+  blocked: boolean;
+}): CardState {
+  const { check, outcome, alert } = input;
+  if (input.blocked) return "closed";
+  if (input.malformed) return "invalid";
+  if (!check) return input.verifying ? "checking" : "unverified";
+  if (!check.ok) return check.retry ? (input.verifying ? "checking" : "unverified") : "invalid";
+  if (outcome.applying) return "applying";
+  // The server's word on which proposal is the alert: the hash of what was replayed.
+  const isTheAlert = !!alert.definitionHash && check.backtest.hash === alert.definitionHash;
+  if (isTheAlert && alert.status === "active") return "inService";
+  if (isTheAlert && alert.status === "paused") return "paused";
+  if (input.key !== input.latestValid) return input.stored === "applied" ? "replaced" : "superseded";
+  if (outcome.confirm !== undefined) return "confirming";
+  if (outcome.errors) return "failed";
+  if (!isTheAlert && input.stored === "applied") return "replaced";
+  return "pending";
+}
+
+/** « Compte Slack trouvé : Prénom N. » — with the name Slack answered, so that the person sees it is theirs. */
+export function slackFoundLine(identity: Pick<SlackIdentity, "name" | "email">): string {
+  const who = identity.name?.trim() || identity.email?.trim();
+  // « Prénom N. » already ends the sentence.
+  return who ? `Compte Slack trouvé : ${who}${who.endsWith(".") ? "" : "."}` : "Compte Slack trouvé.";
+}
+
+/**
+ * Where a trigger stands, as the list says it. An undelivered event is still
+ * to be sent while it is younger than the silence of its alert (the next pass
+ * tries again if the condition is true); once the situation is back to normal,
+ * or the silence is over, it is simply not sent.
+ */
+export function eventStateOf(
+  e: Pick<AlertEventView, "triggeredAt" | "dryRun" | "notifiedAt" | "notifyError">, cooldownHours: number | null | undefined, now: Date = new Date(),
+): { label: string; tone: Tone } {
+  if (e.notifiedAt) return { label: "envoyé dans Slack", tone: "emerald" };
+  if (e.dryRun) return { label: "mode d'essai", tone: "amber" };
+  if (e.notifyError === BACK_TO_NORMAL) return { label: "non envoyé", tone: "default" };
+  const hours = Math.max(typeof cooldownHours === "number" && Number.isFinite(cooldownHours) ? cooldownHours : 72, COOLDOWN_MIN_HOURS);
+  const age = now.getTime() - new Date(e.triggeredAt).getTime();
+  return Number.isFinite(age) && age < hours * 3_600_000 ? { label: "envoi en attente", tone: "amber" } : { label: "non envoyé", tone: "red" };
+}
+
+/** Enter in the search of the client picker: the first client shown — and nothing while nothing is typed. */
+export function pickOnEnter<T>(query: string, shown: T[]): T | null {
+  return query.trim() && shown.length ? shown[0] : null;
 }
 
 /** Example requests of the empty conversation, in words the engine can honour, for the platforms the client has. */

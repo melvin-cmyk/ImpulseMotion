@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { definitionHash, evaluate, lastFullDay } from "@/lib/client-alerts/evaluate";
+import { definitionHash, evaluate, lastFullDay, windowOf } from "@/lib/client-alerts/evaluate";
+import { backtest } from "@/lib/client-alerts/backtest";
 import type { AccountSeries, AlertAccountRef, AlertDefinition, ClientSeries, SeriesPoint } from "@/lib/client-alerts/types";
 
 const UNTIL = "2026-09-29";
@@ -43,7 +44,10 @@ describe("evaluate — value of each metric over the window", () => {
       const ev = evaluate(def({ metric, windowDays: 3, threshold: expected - 0.01 }), steady());
       expect(ev.value).toBeCloseTo(expected, 10);
       expect(ev.status).toBe("triggered");
-      expect(ev.asOf).toBe(UNTIL);
+      // What depends on conversions is judged with one day of hindsight; the evaluation reports the real window.
+      const late = metric !== "spend" && metric !== "ctr";
+      expect(ev.asOf).toBe(late ? dateOf(1) : UNTIL);
+      expect(ev.from).toBe(late ? dateOf(3) : dateOf(2));
       expect(evaluate(def({ metric, windowDays: 3, condition: "below", threshold: expected + 0.01 }), steady()).status).toBe("triggered");
     });
   }
@@ -108,7 +112,7 @@ describe("evaluate — values that cannot be computed are skipped, never trigger
     expect(ev.value).toBeCloseTo(0.5, 10);
     expect(ev.status).toBe("triggered");
     // It spent outside of the window only: the window is still exact.
-    const before = series(account(META, () => ({ spend: 100, revenue: 50 })), account(GOOGLE, (back) => ({ spend: back >= 3 ? 40 : 0, revenue: null })));
+    const before = series(account(META, () => ({ spend: 100, revenue: 50 })), account(GOOGLE, (back) => ({ spend: back >= 4 ? 40 : 0, revenue: null })));
     expect(evaluate(def({ metric: "roas", condition: "below", threshold: 2, windowDays: 3 }), before).value).toBeCloseTo(0.5, 10);
     expect(evaluate(def({ metric: "roas", condition: "below", threshold: 2, windowDays: 7 }), before).status).toBe("skipped");
     // No account tracks a value at all: nothing to compute.
@@ -229,9 +233,10 @@ describe("evaluate — stopped", () => {
   });
 
   it("conversions: spending without converting, not an account that stopped spending", () => {
-    const spending = series(account(META, (back) => ({ spend: 80, conversions: back === 0 ? 0 : 3 })));
-    expect(evaluate(stop({ metric: "conversions" }), spending).status).toBe("triggered");
-    const off = series(account(META, (back) => ({ spend: back === 0 ? 0 : 80, conversions: back === 0 ? 0 : 3 })));
+    // The day judged is the day before yesterday: yesterday's conversions are not all reported yet.
+    const spending = series(account(META, (back) => ({ spend: 80, conversions: back === 1 ? 0 : 3 })));
+    expect(evaluate(stop({ metric: "conversions" }), spending)).toMatchObject({ status: "triggered", asOf: dateOf(1), baseline: 21 });
+    const off = series(account(META, (back) => ({ spend: back === 1 ? 0 : 80, conversions: back === 1 ? 0 : 3 })));
     expect(evaluate(stop({ metric: "conversions" }), off).status).toBe("ok");
   });
 
@@ -240,53 +245,13 @@ describe("evaluate — stopped", () => {
     expect(ev.status).toBe("skipped");
   });
 
-  describe("the day in progress (live)", () => {
-    const spending = (today: AccountSeries["today"]) => series(account(META, () => ({ spend: 80 }), { today }));
-
-    it("triggers in the afternoon when nothing was spent today and yesterday had some", () => {
-      const ev = evaluate(stop(), spending({ spend: 0, conversions: 0, hour: 14.2 }), { live: true });
-      expect(ev.status).toBe("triggered");
-      expect(ev.asOf).toBe("2026-09-30");
-      expect(ev.value).toBe(0);
-    });
-
-    it("waits for 13 h", () => {
-      expect(evaluate(stop(), spending({ spend: 0, conversions: 0, hour: 12.9 }), { live: true }).status).toBe("ok");
-      expect(evaluate(stop(), spending({ spend: 0, conversions: 0, hour: 13 }), { live: true }).status).toBe("triggered");
-    });
-
-    it("is never read by the replay", () => {
-      const ev = evaluate(stop(), spending({ spend: 0, conversions: 0, hour: 16 }));
-      expect(ev.status).toBe("ok");
-      expect(ev.asOf).toBe(UNTIL);
-    });
-
-    it("needs every account of the scope at zero and read", () => {
-      const at = (metaToday: AccountSeries["today"], googleToday: AccountSeries["today"]) => evaluate(
-        stop({ accounts: [META, GOOGLE] }),
-        series(account(META, () => ({ spend: 80 }), { today: metaToday }), account(GOOGLE, () => ({ spend: 40 }), { today: googleToday })),
-        { live: true },
-      ).status;
-      const zero = { spend: 0, conversions: 0, hour: 15 };
-      expect(at(zero, zero)).toBe("triggered");
-      expect(at(zero, { spend: 12, conversions: 0, hour: 15 })).toBe("ok");
-      expect(at(zero, { spend: 0, conversions: 0, hour: 9 })).toBe("ok");
-      expect(at(zero, null)).toBe("ok");
-    });
-
-    it("falls back to full days when yesterday was already at zero", () => {
-      const s = series(account(META, (back) => ({ spend: back === 0 ? 0 : 80 }), { today: { spend: 0, conversions: 0, hour: 15 } }));
-      const ev = evaluate(stop(), s, { live: true });
-      expect(ev.status).toBe("triggered");
-      expect(ev.asOf).toBe(UNTIL);
-    });
-
-    it("only applies to spend over one day", () => {
-      const today = { spend: 0, conversions: 0, hour: 15 };
-      expect(evaluate(stop({ windowDays: 3 }), spending(today), { live: true }).status).toBe("ok");
-      const converting = series(account(META, () => ({ spend: 80, conversions: 3 }), { today }));
-      expect(evaluate(stop({ metric: "conversions" }), converting, { live: true }).status).toBe("ok");
-    });
+  it("never judges the day in progress: a stop is a full day at zero", () => {
+    // Nothing spent by the afternoon, yesterday had some: not this alert's to say (the automatic alerts watch the day).
+    const today = series(account(META, () => ({ spend: 80 }), { today: { spend: 0, conversions: 0, hour: 16 } }));
+    expect(evaluate(stop(), today)).toMatchObject({ status: "ok", asOf: UNTIL });
+    // Yesterday at zero: that is a stop, whatever the day in progress says.
+    const yesterday = series(account(META, (back) => ({ spend: back === 0 ? 0 : 80 }), { today: { spend: 40, conversions: 0, hour: 16 } }));
+    expect(evaluate(stop(), yesterday)).toMatchObject({ status: "triggered", asOf: UNTIL });
   });
 });
 
@@ -325,7 +290,9 @@ describe("evaluate — guards", () => {
     const s = series(account(META, () => ({ spend: 200, conversions: 2 })), account(GOOGLE, () => ({ spend: 20, conversions: 1 })));
     const ev = evaluate(def({ metric: "cpa", condition: "below", threshold: 50, aggregation: "each", guards: { minSpend: 100 } }), s);
     // Google alone would trigger (20 € < 50 €) but is under the guard; Meta is judged and is fine.
-    expect(ev.status).toBe("ok");
+    // One platform not judged: the alert is neither true nor back to normal.
+    expect(ev).toMatchObject({ status: "skipped", skip: "guard_spend" });
+    expect(ev.reason).toMatch(/Trop peu de dépense/);
     expect(ev.parts.map((p) => p.triggered)).toEqual([false, false]);
   });
 });
@@ -420,10 +387,17 @@ describe("evaluate — combined and each", () => {
     expect(ev.value).toBe(40);
   });
 
-  it("each is skipped only when every platform is", () => {
+  it("each is « ok » only when every platform was judged and none triggered", () => {
     const half = series(broken(META), account(GOOGLE, () => ({ spend: 45 })));
-    expect(evaluate(def({ aggregation: "each", threshold: 100 }), half).status).toBe("ok");
+    // Meta could not be read: it may be the one in trouble. Not judged — so never re-armed on half a look.
+    const blind = evaluate(def({ aggregation: "each", threshold: 100 }), half);
+    expect(blind).toMatchObject({ status: "skipped", skip: "unreadable" });
+    expect(blind.reason).toMatch(/Meta FR/);
+    // One platform that triggers is enough, whatever the other.
     expect(evaluate(def({ aggregation: "each", threshold: 42 }), half).status).toBe("triggered");
+    // Both judged, none over: ok.
+    const both = series(account(META, () => ({ spend: 45 })), account(GOOGLE, () => ({ spend: 45 })));
+    expect(evaluate(def({ aggregation: "each", threshold: 100 }), both).status).toBe("ok");
     const none = evaluate(def({ aggregation: "each", threshold: 42 }), series(broken(META), broken(GOOGLE, "lecture impossible — relay 502")));
     expect(none.status).toBe("skipped");
     expect(none.reason).toMatch(/Meta FR/);
@@ -455,7 +429,7 @@ describe("evaluate — a CPA « above » that spends without converting enough",
 
   it("triggers under the guard with the CPA as value: even with the conversions it waits for, the threshold is passed", () => {
     // 2 conversions for 900 €: 450 € each; 5 conversions would still be 180 €.
-    const ev = evaluate(cpa(), series(account(META, (back) => ({ spend: 300, conversions: back === 0 ? 2 : 0 }))));
+    const ev = evaluate(cpa(), series(account(META, (back) => ({ spend: 300, conversions: back === 1 ? 2 : 0 }))));
     expect(ev).toMatchObject({ status: "triggered", value: 450 });
   });
 
@@ -488,18 +462,130 @@ describe("evaluate — a CPA « above » that spends without converting enough",
     expect(ev.parts).toMatchObject([{ scope: "meta", triggered: true, value: null, spend: 600 }, { scope: "google", triggered: false, value: 30 }]);
   });
 
-  it("is what the replay counts too: same code, and the days without a value stay out of the spread", async () => {
-    const { backtest } = await import("@/lib/client-alerts/backtest");
-    // Converting at 50 € until 3 days ago, then nothing converts any more while the spend goes on.
-    const s = series(account(META, (back) => ({ spend: 300, conversions: back < 3 ? 0 : 6 })));
+  it("is what the replay counts too: same code, and the days without a value stay out of the spread", () => {
+    // Converting at 50 € until 4 days ago, then nothing converts any more while the spend goes on.
+    const s = series(account(META, (back) => ({ spend: 300, conversions: back < 4 ? 0 : 6 })));
     const replay = backtest(cpa(), s, { now: new Date("2026-09-30T06:10:00Z") });
-    // Window ending the 27th: 900 € for 12 conversions = 75 € → the message of the morning of the 28th.
+    // Checked the 28th on the window ending the 26th (one day of hindsight): 900 € for 12 conversions = 75 € → the message of that morning.
     // Then 150 € (6 conversions), then no conversion at all for 900 €: true three days in a row, said once.
     expect(replay.messages).toEqual([{ date: "2026-09-28", value: 75, changePct: null }]);
     expect(replay.current).toBeNull();
     expect(replay.daysTrue).toBe(3);
     expect(replay.skippedDays).toBe(0);
     expect([replay.min, replay.median, replay.max]).toEqual([50, 50, 150]);
+  });
+});
+
+describe("evaluate — one day of hindsight for what depends on conversions", () => {
+  // Yesterday (back 0) is still filling up: 1 conversion reported of the 10 it will have. Every other day: 10 for 500 €.
+  const filling = () => series(account(META, (back) => ({ spend: 500, conversions: back === 0 ? 1 : 10, revenue: back === 0 ? 50 : 1500 })));
+
+  it("does not judge yesterday: a morning check would see a CPA, a ROAS or a « no conversion » that is not the final one", () => {
+    const one = (over: Partial<AlertDefinition>) => evaluate(def({ accounts: [META], windowDays: 1, ...over }), filling());
+    // On yesterday alone the CPA would read 500 €, the conversions 1, the ROAS 0,1: all false alarms.
+    expect(one({ metric: "cpa", condition: "above", threshold: 60, guards: {} })).toMatchObject({ status: "ok", value: 50, asOf: dateOf(1), from: dateOf(1) });
+    expect(one({ metric: "conversions", condition: "below", threshold: 5 })).toMatchObject({ status: "ok", value: 10, asOf: dateOf(1) });
+    expect(one({ metric: "roas", condition: "below", threshold: 1 })).toMatchObject({ status: "ok", value: 3, asOf: dateOf(1) });
+    expect(one({ metric: "revenue", condition: "below", threshold: 1000 })).toMatchObject({ status: "ok", value: 1500, asOf: dateOf(1) });
+    expect(one({ metric: "conversions", condition: "drop_pct", threshold: 50 })).toMatchObject({ status: "ok", value: 10, baseline: 10 });
+    const none = series(account(META, (back) => ({ spend: 500, conversions: back === 0 ? 0 : 10 })));
+    expect(evaluate(def({ accounts: [META], metric: "conversions", condition: "stopped", threshold: null }), none)).toMatchObject({ status: "ok", asOf: dateOf(1) });
+  });
+
+  it("still judges the spend and the click rate on yesterday", () => {
+    const s = series(account(META, (back) => ({ spend: back === 0 ? 900 : 100, clicks: back === 0 ? 1 : 30, impressions: 1000 })));
+    expect(evaluate(def({ accounts: [META], metric: "spend", threshold: 500 }), s)).toMatchObject({ status: "triggered", value: 900, asOf: UNTIL, from: UNTIL });
+    expect(evaluate(def({ accounts: [META], metric: "ctr", condition: "below", threshold: 1 }), s)).toMatchObject({ status: "triggered", asOf: UNTIL });
+  });
+
+  it("moves the replay with the cron: same window for the same morning", () => {
+    // The replay judges each morning on the window the cron had that morning — yesterday's figures never enter it.
+    const b = backtest(def({ accounts: [META], metric: "cpa", condition: "above", threshold: 60, windowDays: 1, guards: {} }), filling(), { now: new Date("2026-09-30T06:10:00Z") });
+    expect(b).toMatchObject({ daysTrue: 0, skippedDays: 0, current: 50, max: 50 });
+    expect(windowOf({ metric: "cpa", windowDays: 3, weekdaysOnly: false }, UNTIL)).toEqual({ from: dateOf(3), to: dateOf(1) });
+    expect(windowOf({ metric: "spend", windowDays: 3, weekdaysOnly: false }, UNTIL)).toEqual({ from: dateOf(2), to: UNTIL });
+  });
+});
+
+describe("evaluate — working days only", () => {
+  // UNTIL is Tuesday 29 Sept. 2026; the 26th and 27th are a Saturday and a Sunday.
+  const weekend = (date: string) => [0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay());
+  /** 100 € on working days, 5 € on Saturdays and Sundays. */
+  const office = (over: (back: number) => Partial<SeriesPoint> = () => ({})) =>
+    series(account(META, (back) => ({ spend: weekend(dateOf(back)) ? 5 : 100, conversions: weekend(dateOf(back)) ? 0 : 4, ...over(back) })));
+  const worked = (over: Partial<AlertDefinition> = {}) => def({ accounts: [META], weekdaysOnly: true, ...over });
+
+  it("takes Saturdays and Sundays out before any window is built: 3 days are three working days", () => {
+    // Checked on Monday 28 (last full day: Sunday 27): the window is Wednesday 23, Thursday 24, Friday 25.
+    const monday = evaluate(worked({ windowDays: 3, threshold: 299 }), office(), { asOf: "2026-09-27" });
+    expect(monday).toMatchObject({ status: "triggered", value: 300, from: "2026-09-23", asOf: "2026-09-25" });
+    // With week-ends in, the same morning reads Friday, Saturday, Sunday: 110 €.
+    expect(evaluate(def({ accounts: [META], windowDays: 3, threshold: 299 }), office(), { asOf: "2026-09-27" })).toMatchObject({ status: "ok", value: 110, from: "2026-09-25", asOf: "2026-09-27" });
+  });
+
+  it("judges Friday on Monday for one day — Thursday for what depends on conversions", () => {
+    const s = office((back) => (dateOf(back) === "2026-09-25" ? { spend: 900, conversions: 0 } : dateOf(back) === "2026-09-24" ? { conversions: 1 } : {}));
+    expect(evaluate(worked({ threshold: 500 }), s, { asOf: "2026-09-27" })).toMatchObject({ status: "triggered", value: 900, asOf: "2026-09-25", from: "2026-09-25" });
+    expect(evaluate(worked({ metric: "conversions", condition: "below", threshold: 2 }), s, { asOf: "2026-09-27" })).toMatchObject({ status: "triggered", value: 1, asOf: "2026-09-24" });
+    expect(windowOf({ metric: "conversions", windowDays: 1, weekdaysOnly: true }, "2026-09-27")).toEqual({ from: "2026-09-24", to: "2026-09-24" });
+    expect(windowOf({ metric: "spend", windowDays: 1, weekdaysOnly: true }, "2026-09-28")).toEqual({ from: "2026-09-28", to: "2026-09-28" });
+  });
+
+  it("compares working days with working days: a Monday is not a drop from the week-end before it", () => {
+    // Monday 28 judged on Tuesday: 100 € against Friday's 100 € — not against Sunday's 5 €.
+    const drop = evaluate(worked({ condition: "rise_pct", threshold: 50 }), office());
+    expect(drop).toMatchObject({ status: "ok", value: 100, baseline: 100 });
+    expect(evaluate(def({ accounts: [META], condition: "rise_pct", threshold: 50 }), office(), { asOf: "2026-09-28" })).toMatchObject({ status: "triggered", value: 100, baseline: 5 });
+    // Three working days against the three before them: 24, 25, 28 against 21, 22, 23.
+    const three = evaluate(worked({ windowDays: 3, condition: "drop_pct", threshold: 10 }), office((back) => (["2026-09-21", "2026-09-22", "2026-09-23"].includes(dateOf(back)) ? { spend: 200 } : {})), { asOf: "2026-09-28" });
+    expect(three).toMatchObject({ status: "triggered", value: 300, baseline: 600, from: "2026-09-24", asOf: "2026-09-28" });
+    // The same weekdays a week earlier stay working days.
+    const weeks = evaluate(worked({ windowDays: 3, condition: "drop_pct", threshold: 10, compare: "same_weekdays" }), office((back) => (["2026-09-17", "2026-09-18", "2026-09-21"].includes(dateOf(back)) ? { spend: 200 } : {})), { asOf: "2026-09-28" });
+    expect(weeks).toMatchObject({ status: "triggered", value: 300, baseline: 600 });
+  });
+
+  it("reads the 7 days of reference of a stop as working days", () => {
+    // Nothing on Monday 28; the 7 working days before run from Thursday 17 to Friday 25.
+    const s = office((back) => (dateOf(back) === "2026-09-28" ? { spend: 0 } : {}));
+    expect(evaluate(worked({ condition: "stopped", threshold: null }), s, { asOf: "2026-09-28" })).toMatchObject({ status: "triggered", value: 0, baseline: 700, asOf: "2026-09-28" });
+    // A week-end at zero is not a stop: on Monday morning the day judged is Friday.
+    const off = office((back) => (weekend(dateOf(back)) ? { spend: 0 } : {}));
+    expect(evaluate(worked({ condition: "stopped", threshold: null }), off, { asOf: "2026-09-27" })).toMatchObject({ status: "ok", asOf: "2026-09-25" });
+  });
+
+  it("is replayed the same way: no check on a week-end, and windows of working days", () => {
+    // One high Friday (the 25th): said on Monday morning, once.
+    const s = office((back) => (dateOf(back) === "2026-09-25" ? { spend: 900 } : {}));
+    const b = backtest(worked({ threshold: 500 }), s, { now: new Date("2026-09-30T06:10:00Z") });
+    expect(b.messages).toEqual([{ date: "2026-09-28", value: 900, changePct: null }]);
+    expect(b.checkedDays).toBe(22);
+    expect(b.daysTrue).toBe(1);
+    expect(b.notes.join(" ")).toContain("Jours ouvrés seulement : 22 jours rejoués sur 30, les samedis et dimanches ne comptent pas.");
+  });
+});
+
+describe("evaluate — the guards of a variation are read on the reference", () => {
+  const collapse = () => series(account(META, (back) => ({ spend: back === 0 ? 10 : 500, conversions: back <= 1 ? 0 : 8 })));
+
+  it("triggers on a spend that falls from 500 € to 10 €, instead of skipping it for too little spend", () => {
+    const ev = evaluate(def({ accounts: [META], condition: "drop_pct", threshold: 50, guards: { minSpend: 100 } }), collapse());
+    expect(ev).toMatchObject({ status: "triggered", value: 10, baseline: 500 });
+    expect(ev.changePct).toBeCloseTo(-98, 10);
+  });
+
+  it("triggers on conversions that fall to nothing under a minimum of conversions", () => {
+    const ev = evaluate(def({ accounts: [META], metric: "conversions", condition: "drop_pct", threshold: 50, guards: { minConversions: 5 } }), collapse());
+    expect(ev).toMatchObject({ status: "triggered", value: 0, baseline: 8, changePct: -100 });
+  });
+
+  it("skips when the reference itself is too small to fall from", () => {
+    const small = series(account(META, (back) => ({ spend: back === 0 ? 1 : 20 })));
+    const ev = evaluate(def({ accounts: [META], condition: "drop_pct", threshold: 50, guards: { minSpend: 100 } }), small);
+    expect(ev).toMatchObject({ status: "skipped", skip: "guard_spend" });
+    expect(ev.reason).toBe("Trop peu de dépense pour juger : 20 € sur la période de comparaison, il en faut 100 €");
+    // A rise from a small reference is skipped too: what is measured from must be big enough.
+    const rise = series(account(META, (back) => ({ spend: back === 0 ? 900 : 20 })));
+    expect(evaluate(def({ accounts: [META], condition: "rise_pct", threshold: 50, guards: { minSpend: 100 } }), rise).status).toBe("skipped");
   });
 });
 

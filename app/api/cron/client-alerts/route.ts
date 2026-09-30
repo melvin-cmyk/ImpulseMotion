@@ -28,8 +28,12 @@ export async function GET(req: NextRequest) {
   // undefined = the slot of the hour; null = no slot, every active alert.
   const slot = q.get("all") === "1" ? null : forced !== null && /^[0-3]$/.test(forced) ? Number(forced) : undefined;
   try {
-    return NextResponse.json(await runClientAlerts({ slot, dryRun: q.get("dry") === "1" }));
+    const summary = await runClientAlerts({ slot, dryRun: q.get("dry") === "1" });
+    // One line per pass in the platform's logs: what ran, what was said, what was held back.
+    console.log("[client-alerts] pass", JSON.stringify(summary));
+    return NextResponse.json(summary);
   } catch (e) {
+    console.error("[client-alerts] pass failed", e);
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }

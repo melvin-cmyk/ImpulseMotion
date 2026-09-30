@@ -129,10 +129,22 @@ vi.mock("@/lib/client-alerts/series", () => ({
   },
   summarizeSeries: (series: ClientSeries) => `RÉSUMÉ DES CHIFFRES (${series.accounts.map((a) => a.account.accountId).join("+")})`,
 }));
-vi.mock("@/lib/client-alerts/evaluate", () => ({ definitionHash: (def: AlertDefinition) => fakeHash(def) }));
-vi.mock("@/lib/client-alerts/backtest", () => ({
+vi.mock("@/lib/client-alerts/evaluate", async (original) => ({
+  ...(await original<typeof import("@/lib/client-alerts/evaluate")>()),
+  definitionHash: (def: AlertDefinition) => fakeHash(def),
+}));
+/** What the replay counts as not judged, and why — to stand for a replay that judged (almost) nothing. */
+let backtestSkipped: { days: number; kind: string } | null = null;
+// The real verdict on a replay (replayVerdict); only the replay itself is replaced.
+vi.mock("@/lib/client-alerts/backtest", async (original) => ({
+  ...(await original<typeof import("@/lib/client-alerts/backtest")>()),
   backtest: (def: AlertDefinition): Backtest => ({
-    days: 30, daysTrue: backtestMessages, skippedDays: 0, current: 48, min: 31, median: 45, max: 72, notes: [],
+    days: 30, daysTrue: backtestMessages, checkedDays: 30,
+    // As the engine: nothing is judged while an account of the rule cannot be read.
+    ...(def.accounts.some((a) => unreadable.has(a.accountId))
+      ? { skippedDays: 30, skipKind: "unreadable" as const }
+      : { skippedDays: backtestSkipped?.days ?? 0, skipKind: (backtestSkipped?.kind ?? null) as Backtest["skipKind"] }),
+    current: 48, min: 31, median: 45, max: 72, notes: [],
     messages: Array.from({ length: backtestMessages }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, "0")}`, value: 70, changePct: null })),
     hash: backtestHashOverride ?? fakeHash(def), ranAt: "2026-09-30T06:00:00.000Z",
   }),
@@ -225,7 +237,7 @@ beforeEach(() => {
   writes.length = 0; relayCalls.length = 0; usageRows.length = 0; seriesReads.length = 0;
   nextId = 1;
   relayDown = false; seriesDown = false; clientsDown = false; backtestMessages = 2; backtestHashOverride = null; slackConfigured = true;
-  unreadable.clear();
+  unreadable.clear(); backtestSkipped = null;
   session = LEA;
   clients.push(
     { id: "c-lpev", name: "LPEV", accountsJson: JSON.stringify([META, GOOGLE]), gone: false, dormant: false },
@@ -862,13 +874,16 @@ describe("alertes client API — mise en service", () => {
         ...raw, version: 9, status: "paused", createdById: "u-sam", definitionHash: "h:forgé",
         accounts: [{ platform: "meta", accountId: "act_1234567890", name: "Nom forgé", currency: "USD" }],
       },
-      status: "paused", createdById: "u-sam", clientName: "Autre", accountsJson: "[]",
+      // A list of accounts next to the proposal is not read either: the accounts are the client's.
+      status: "paused", createdById: "u-sam", clientName: "Autre", accountsJson: "[]", accounts: [{ platform: "meta", accountId: "999000111", name: "ICN Meta", currency: "EUR" }],
       backtest: { messages: [], hash: "h:forgé" }, definitionHash: "h:forgé", backtestHash: "h:forgé",
     }), at(id));
     expect(res.status).toBe(200);
     const stored = row(id);
     const definition = JSON.parse(stored.definitionJson as string);
     expect(definition.accounts).toEqual([META]);
+    expect(seriesReads).toEqual([[META, GOOGLE]]);
+    expect(JSON.stringify(stored)).not.toContain("999000111");
     expect(definition.version).toBe(1);
     expect(definition).not.toHaveProperty("status");
     expect(definition).not.toHaveProperty("createdById");
@@ -1007,6 +1022,36 @@ describe("alertes client API — mise en service", () => {
     expect(writes).toEqual([]);
     // The same alert on the account that was read goes through.
     expect((await ACTIVATE(req({ proposal: { ...raw, accounts: [{ platform: "meta", accountId: META.accountId }] } }), at(id))).status).toBe(200);
+  });
+});
+
+describe("alertes client API — un rejeu qui n'a presque rien jugé n'est pas une mesure", () => {
+  const REFUSED = "Cette règle n'aurait pas pu être jugée sur 16 jours sur 30 rejoués : le nombre minimum de conversions n'est presque jamais atteint. Telle quelle, elle ne vous préviendrait presque jamais : demandez une règle qui peut être jugée sur ce client.";
+
+  it("refuse la proposition, avec la raison, quand plus de la moitié des jours n'ont pas pu être jugés", async () => {
+    const id = await draft();
+    backtestSkipped = { days: 16, kind: "guard_conversions" };
+    const json = await (await CHAT_PUT(req({ messages: thread(), proposals: { m1: "pending" } }), at(id))).json();
+    // Refused, not waiting: it is the rule that cannot be judged, and the AI is told what to write instead.
+    expect(json.checks.m1).toEqual({ ok: false, errors: [REFUSED], hints: ['"guards.minConversions" plus bas, ou une période "windowDays" plus longue'] });
+    expect(json.proposals).toEqual({ m1: "invalid" });
+    // Exactly half judged is still a measure.
+    backtestSkipped = { days: 15, kind: "guard_conversions" };
+    expect((await (await CHAT_PUT(req({ messages: thread() }), at(id))).json()).checks.m1.ok).toBe(true);
+  });
+
+  it("répond 422 à la mise en service, et n'enregistre rien", async () => {
+    const id = await draft();
+    backtestSkipped = { days: 30, kind: "no_history" };
+    writes.length = 0;
+    const res = await ACTIVATE(req({ proposal: raw }), at(id));
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.error).toBe("Cette proposition ne peut pas être validée.");
+    expect(json.errors).toEqual(["Cette règle n'aurait pas pu être jugée sur aucun des 30 jours rejoués : les comptes n'ont pas assez d'historique pour cette période. Telle quelle, elle ne vous préviendrait presque jamais : demandez une règle qui peut être jugée sur ce client."]);
+    expect(json.hints).toEqual(['une période "windowDays" plus courte']);
+    expect(writes).toEqual([]);
+    expect(row(id).status).toBe("draft");
   });
 });
 

@@ -2,60 +2,67 @@
  * Client alerts — one pass of the cron.
  *
  * Two phases, like the automatic alerts (lib/auto-alerts/run.ts): every alert
- * that is due is evaluated and its state written first; what reaches Slack is
- * decided afterwards, once the whole pass is known.
+ * that is due is evaluated first; what reaches Slack is decided afterwards,
+ * once the whole pass is known.
+ *
+ * An alert is disarmed by a DELIVERED message only. A trigger leaves ONE
+ * pending event on the alert — a new one, or its undelivered event brought up
+ * to date — and the state does not move until the private message is out
+ * (markNotified). Whatever stands in between behaves the same way: a ceiling,
+ * the general anomaly, a person Slack does not know, sending not plugged, a
+ * send that fails, a pass cut short or killed between the two phases. At the
+ * next pass, if the condition is still true the same event is tried again; if
+ * the situation is back to normal the event stays on the page as not sent,
+ * with the reason, and nothing is sent late. An alert that has such an event
+ * is due at EVERY pass, whatever its own frequency, until then.
  *
  * What the pass guarantees, so that Slack is never filled:
  *   - a message only when `advance` says so (silence, re-arming, reminders);
- *   - a dry run (asked for, or CLIENT_ALERTS_SEND not on) records the events
- *     and advances the state exactly as a real pass, and sends nothing (the
- *     general anomaly is noted on its events too; the ceilings are not
- *     simulated, they count messages really delivered);
- *   - the same break on most alerts at once is an outage, not that many
+ *   - never more than one undelivered event per alert;
+ *   - a dry run (asked for, or CLIENT_ALERTS_SEND not on) records its events
+ *     and advances the state as a real pass that delivered would, and sends
+ *     nothing; at the first real pass, an alert a dry run had disarmed is
+ *     re-armed before being evaluated, and no dry-run event is ever sent;
+ *   - the same break on most CLIENTS at once is an outage, not that many
  *     problems: nothing is sent (FLOOD);
  *   - one private message per consultant and per pass, a ceiling per
- *     consultant and per day, a ceiling per pass;
- *   - an event that was not sent is never sent later: it stays on the page
- *     with the reason. An alert from yesterday is noise.
+ *     consultant and per day, a ceiling per pass.
  *
- * Held on purpose and failed are two things. An event held on purpose (the
- * ceilings, the general anomaly, a person Slack does not know, sending not
- * plugged, a dry run) leaves the state advanced: the alert said what it had to
- * say, on the page. A delivery that FAILED (n8n or Slack down, the Slack
- * identity that could not be looked up) puts the alert back as it was before
- * the trigger: the next pass tries again with a new event if the condition
- * is still true, and MAX_DELIVERY_FAILURES failures in a row end in `error`.
- *
- * An alert whose accounts left its client goes to `review` instead of being
- * evaluated. One alert that fails does not stop the others.
+ * An alert whose accounts left its client goes to `review`, the alerts of a
+ * person who is no longer staff go to `paused`, instead of being evaluated.
+ * One alert that fails does not stop the others.
  */
 
 import { randomUUID } from "node:crypto";
 import { todayIn } from "@/lib/date-ranges";
 import { readClientSeries } from "@/lib/client-alerts/series";
 import { evaluate, PLATFORM_LABEL, sameAccount } from "@/lib/client-alerts/evaluate";
-import { advance, checkedOn } from "@/lib/client-alerts/backtest";
+import { advance, checkedOn, cooldownMs } from "@/lib/client-alerts/backtest";
 import { buildAlertLine, buildDmText } from "@/lib/client-alerts/message";
 import { dmConfigured, resolveSlackIdentity, sendSlackDm, SlackDmError } from "@/lib/client-alerts/slack-dm";
 import {
-  alertClientState, dmBatchesToday, holdEvents, listActiveAlerts, markNotified, recordCheck, recordDeliveryFailure, sendToReview, unsentEvents,
-  type AlertClientState, type AlertRow,
+  alertClientState, creatorRoles, dmBatchesToday, holdEvents, listActiveAlerts, markNotified, pauseAlerts, pendingEvents, rearmAfterDryRun,
+  recordCheck, recordDeliveryFailure, sendToReview, unsentEvents,
+  type AlertClientState, type AlertRow, type PendingEvent,
 } from "@/lib/client-alerts/store";
 import {
-  ALERT_DEFAULTS, CHECK_SLOTS_UTC, MAX_DM_PER_RUN, MAX_DM_PER_USER_PER_DAY, readDefinition, sendingEnabled,
+  ALERT_DEFAULTS, BACK_TO_NORMAL, CHECK_SLOTS_UTC, COOLDOWN_MAX_HOURS, MAX_DM_PER_RUN, MAX_DM_PER_USER_PER_DAY, readDefinition, sendingEnabled,
   type AlertAccountRef, type AlertChecks, type AlertDefinition, type ClientSeries, type RunSummary,
 } from "@/lib/client-alerts/types";
 
 const PARIS = "Europe/Paris";
 const CONCURRENCY = 4;
-/** Under the 300 s of the function: what is not reached waits for the next pass. */
-export const RUN_BUDGET_MS = 270_000;
+/** Time given to the evaluations, under the 300 s of the function: what is not reached waits for the next pass. */
+export const RUN_BUDGET_MS = 200_000;
+/** From the start of the pass: no private message is started after it. What is left stays pending for the next pass. */
+export const SEND_DEADLINE_MS = 270_000;
 /**
- * From this many alerts triggering in one pass, when they are at least this
- * share of the alerts evaluated, nothing is sent: a platform that reports
- * late or answers zeros, not that many real problems.
+ * From this many CLIENTS triggering in one pass, when they are at least this
+ * share of the clients checked, nothing is sent: a platform that reports late
+ * or answers zeros, not that many real problems. Clients, not alerts: five
+ * alerts of one client that breaks are one problem, to be said.
  */
-export const FLOOD = { minAlerts: 5, share: 0.5 } as const;
+export const FLOOD = { minClients: 5, share: 0.5 } as const;
 /** Alerts written out in one private message; the others are one line « N autres alertes ». */
 export const MAX_LINES_PER_DM = 6;
 
@@ -65,7 +72,13 @@ export const HELD = {
   daily: `plafond de ${MAX_DM_PER_USER_PER_DAY} messages privés par jour atteint : non envoyé`,
   run: `plafond de ${MAX_DM_PER_RUN} messages privés par passage atteint : non envoyé`,
   notConfigured: "envoi des messages privés Slack non configuré : non envoyé",
+  /** Closes a pending event: it is kept on the page, and is no longer what makes its alert due at every pass. */
+  normal: BACK_TO_NORMAL,
 } as const;
+
+const STAFF_ROLES = new Set(["admin", "consultant"]);
+export const CREATOR_GONE = "La personne qui a créé cette alerte n'a plus de compte dans l'application : alerte mise en pause.";
+export const CREATOR_NOT_STAFF = "La personne qui a créé cette alerte ne fait plus partie de l'équipe : alerte mise en pause.";
 
 const SLOTS_OF: Record<AlertChecks, number[]> = { "1x": [0], "2x": [0, 2], "4x": [0, 1, 2, 3] };
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").slice(0, 200);
@@ -82,13 +95,15 @@ export function slotOf(now: Date): number | null {
 
 /**
  * Is this alert checked at this pass? `slot` null = a manual pass: every
- * alert, whatever its frequency. Weekend = Saturday and Sunday in Paris.
- * An alert that missed a slot of its own earlier today (budget of the pass
- * used up, alert activated since) is taken at the next pass, whatever the slot.
+ * alert, whatever its frequency. Never on a Saturday or a Sunday (Paris) for
+ * working days only. An alert that missed a slot of its own earlier today
+ * (budget of the pass used up, alert activated since) is taken at the next
+ * pass, whatever the slot — and so is, at every pass, an alert with a message
+ * still to deliver (`pending`).
  */
-export function isDue(def: Pick<AlertDefinition, "checks" | "weekdaysOnly">, lastCheckedAt: Date | null, slot: number | null, now: Date): boolean {
+export function isDue(def: Pick<AlertDefinition, "checks" | "weekdaysOnly">, lastCheckedAt: Date | null, slot: number | null, now: Date, pending = false): boolean {
   if (!checkedOn(def, todayIn(PARIS, now))) return false;
-  if (slot === null) return true;
+  if (slot === null || pending) return true;
   const slots = SLOTS_OF[def.checks] ?? SLOTS_OF[ALERT_DEFAULTS.checks];
   if (slots.includes(slot)) return true;
   const day = now.toISOString().slice(0, 10);
@@ -108,23 +123,51 @@ export function clientProblem(accounts: AlertAccountRef[], clientName: string, c
 }
 
 interface Pending {
-  order: number; eventId: string; alertId: string; userId: string; who: string; line: string;
-  /** The state the trigger was taken from: what a failed delivery puts back. */
-  before: { armed: boolean; lastTriggeredAt: Date | null };
+  order: number; eventId: string; alertId: string; definitionHash: string; userId: string; who: string; line: string;
+  /** The client the alert is about: what the general anomaly counts. */
+  client: string;
 }
+
+const plural = (n: number) => (n > 1 ? "s" : "");
 
 /** One pass of the cron: checks the active alerts that are due, records the triggers, sends the private messages. */
 export async function runClientAlerts(opts: { now?: Date; slot?: number | null; dryRun?: boolean; only?: string[] } = {}): Promise<RunSummary> {
   const now = opts.now ?? new Date();
-  const deadlineAt = Date.now() + RUN_BUDGET_MS;
+  const startedAt = Date.now();
   const slot = opts.slot === undefined ? slotOf(now) : opts.slot;
   const dryRun = opts.dryRun === true || !sendingEnabled();
   const summary: RunSummary = { slot, checked: 0, triggered: 0, skipped: 0, sent: 0, dryRun, held: 0, failed: 0, errors: [] };
 
-  const due = (await listActiveAlerts(opts.only)).flatMap((row) => {
-    const def = readDefinition(row.definitionJson);
-    return def && isDue(def, row.lastCheckedAt, slot, now) ? [{ row, def }] : [];
+  const rows = await listActiveAlerts(opts.only);
+
+  // The creator must still be staff: one read of the roles per pass.
+  const roles = await creatorRoles(rows.map((r) => r.createdById));
+  const orphans = rows.filter((r) => !STAFF_ROLES.has(roles.get(r.createdById) ?? ""));
+  if (orphans.length) {
+    const gone = orphans.filter((r) => !roles.has(r.createdById)).map((r) => r.id);
+    const notStaff = orphans.filter((r) => roles.has(r.createdById)).map((r) => r.id);
+    const paused = (await pauseAlerts(gone, CREATOR_GONE)) + (await pauseAlerts(notStaff, CREATOR_NOT_STAFF));
+    if (paused) summary.errors.push(`${paused} alerte${plural(paused)} mise${plural(paused)} en pause : créée${plural(paused)} par une personne qui ne fait plus partie de l'équipe.`);
+  }
+  const orphan = new Set(orphans.map((r) => r.id));
+  const live = rows.flatMap((row) => {
+    const def = orphan.has(row.id) ? null : readDefinition(row.definitionJson);
+    return def ? [{ row, def }] : [];
   });
+
+  // The undelivered event of an alert, young enough to be its message still: reused rather than doubled.
+  // A dry run has no pending event: each of its events is final.
+  const undelivered = dryRun
+    ? new Map<string, PendingEvent>()
+    : await pendingEvents(live.map(({ row }) => row.id), new Date(now.getTime() - COOLDOWN_MAX_HOURS * 3_600_000));
+  const reusable = (row: AlertRow, def: AlertDefinition): PendingEvent | null => {
+    const event = undelivered.get(row.id);
+    return event && now.getTime() - event.triggeredAt.getTime() < cooldownMs(def) ? event : null;
+  };
+  /** Still to deliver: not closed by a return to normal. */
+  const open = (event: PendingEvent | null) => !!event && event.notifyError !== HELD.normal;
+
+  const due = live.filter(({ row, def }) => isDue(def, row.lastCheckedAt, slot, now, open(reusable(row, def))));
 
   // One read per account and per pass, shared by the alerts that look at it.
   const reads = new Map<string, Promise<ClientSeries>>();
@@ -139,37 +182,48 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
   };
 
   const pending: Pending[] = [];
+  const clientsChecked = new Set<string>();
 
   const one = async (row: AlertRow, def: AlertDefinition, order: number): Promise<void> => {
     if (row.alertClientId) {
       const problem = clientProblem(def.accounts, row.clientName, await alertClientState(row.alertClientId));
       if (problem) { await sendToReview(row.id, problem, now); return; }
     }
-    const evaluation = evaluate(def, await seriesOf(def.accounts), { live: true });
-    const step = advance({ armed: row.armed, lastMessageAt: row.lastTriggeredAt }, evaluation.status, now, def);
+    let state = { armed: row.armed, lastMessageAt: row.lastTriggeredAt };
+    // Sending is on: what a dry run disarmed was never said to anybody.
+    if (!dryRun && !row.armed) {
+      const back = await rearmAfterDryRun(row);
+      if (back) state = { armed: true, lastMessageAt: back.lastTriggeredAt };
+    }
+    const evaluation = evaluate(def, await seriesOf(def.accounts));
+    const step = advance(state, evaluation.status, now, def);
     const line = step.message ? buildAlertLine({ clientName: row.clientName, def, evaluation, kind: step.message }) : null;
+    const waiting = reusable(row, def);
     const eventId = await recordCheck(row, {
       at: now, evaluation, armed: step.state.armed,
-      event: step.message && line !== null ? { kind: step.message, threshold: def.threshold ?? null, message: line, dryRun } : null,
+      event: step.message && line !== null ? { kind: step.message, threshold: def.threshold ?? null, message: line, dryRun, reuse: waiting?.id ?? null } : null,
     });
+    const client = row.alertClientId ?? `nom:${row.clientName}`;
     summary.checked++;
+    clientsChecked.add(client);
     if (evaluation.status === "skipped") summary.skipped++;
     if (eventId && line !== null) {
       summary.triggered++;
-      pending.push({
-        order, eventId, alertId: row.id, userId: row.createdById, who: row.createdByEmail ?? row.createdById, line,
-        before: { armed: row.armed, lastTriggeredAt: row.lastTriggeredAt },
-      });
+      pending.push({ order, eventId, alertId: row.id, definitionHash: row.definitionHash, userId: row.createdById, who: row.createdByEmail ?? row.createdById, line, client });
+    } else if (evaluation.status === "ok" && waiting && open(waiting)) {
+      // Back to normal before the message could leave: it stays on the page, said as such, and is never sent late.
+      await holdEvents([waiting.id], HELD.normal);
     }
   };
 
+  const evaluateUntil = startedAt + RUN_BUDGET_MS;
   let next = 0;
   let unreached = 0;
   const workers = Array.from({ length: Math.min(CONCURRENCY, due.length) }, async () => {
     for (;;) {
       const i = next++;
       if (i >= due.length) return;
-      if (Date.now() >= deadlineAt) { unreached++; continue; }
+      if (Date.now() >= evaluateUntil) { unreached++; continue; }
       const { row, def } = due[i];
       try {
         await one(row, def, i);
@@ -179,7 +233,7 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
     }
   });
   await Promise.all(workers);
-  if (unreached) summary.errors.push(`Temps du passage écoulé : ${unreached} alerte${unreached > 1 ? "s" : ""} non vérifiée${unreached > 1 ? "s" : ""}, reprise${unreached > 1 ? "s" : ""} au passage suivant.`);
+  if (unreached) summary.errors.push(`Temps du passage écoulé : ${unreached} alerte${plural(unreached)} non vérifiée${plural(unreached)}, reprise${plural(unreached)} au passage suivant.`);
 
   // ── What reaches Slack ─────────────────────────────────────────────────────
   if (!pending.length) return summary;
@@ -190,8 +244,11 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
   };
 
   // Said in a dry run too: it is what the measure before switching the sending on must show.
-  if (pending.length >= FLOOD.minAlerts && pending.length >= summary.checked * FLOOD.share) {
-    summary.errors.push(`Anomalie générale suspectée : ${pending.length} alertes déclenchées sur ${summary.checked} vérifiées — rien n'a été envoyé dans Slack, à vérifier côté plateformes.`);
+  const clientsTriggered = new Set(pending.map((p) => p.client));
+  if (clientsTriggered.size >= FLOOD.minClients && clientsTriggered.size >= clientsChecked.size * FLOOD.share) {
+    const said = `Anomalie générale suspectée : ${clientsTriggered.size} clients déclenchés sur ${clientsChecked.size} vérifiés (${pending.length} alertes) — rien n'a été envoyé dans Slack, à vérifier côté plateformes.`;
+    console.warn(`[client-alerts] ${said}`);
+    summary.errors.push(said);
     await hold(pending, HELD.flood);
     return summary;
   }
@@ -205,9 +262,13 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
   const byUser = new Map<string, Pending[]>();
   for (const p of pending) byUser.set(p.userId, [...(byUser.get(p.userId) ?? []), p]);
   const pageUrl = process.env.NEXTAUTH_URL ? `${process.env.NEXTAUTH_URL.replace(/\/$/, "")}/admin/alerts/assistant` : null;
+  const sendUntil = startedAt + SEND_DEADLINE_MS;
+  let late = 0;
 
   for (const [userId, all] of byUser) {
     const who = all[0].who;
+    // The function is about to be cut: a message started now could be sent and never recorded.
+    if (Date.now() >= sendUntil) { late += all.length; continue; }
     try {
       if (summary.sent >= MAX_DM_PER_RUN) { await hold(all, HELD.run); continue; }
       if ((await dmBatchesToday(userId, now)) >= MAX_DM_PER_USER_PER_DAY) { await hold(all, HELD.daily); continue; }
@@ -216,26 +277,26 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
       const events = all.filter((p) => left.has(p.eventId));
       if (!events.length) continue;
       const eventIds = events.map((p) => p.eventId);
-      const alertIds = [...new Set(events.map((p) => p.alertId))];
       try {
         const identity = await resolveSlackIdentity(userId);
         if (identity.status !== "found" || !identity.slackUserId) { await hold(events, HELD.identity); continue; }
         const lines = events.slice(0, MAX_LINES_PER_DM).map((p) => p.line);
         await sendSlackDm(identity.slackUserId, buildDmText(lines, events.length - lines.length, pageUrl));
       } catch (e) {
-        // Not said, so not swallowed: the alerts go back as they were and are tried again at the next pass.
+        // Nothing was disarmed: the events stay pending and are tried again at the next pass.
         summary.failed += events.length;
         summary.errors.push(`Message privé à ${who} non remis : ${causeText(e)} — nouvel essai au prochain passage.`);
-        const triggers = events.map((p) => ({ alertId: p.alertId, ...p.before }));
-        const stopped = await recordDeliveryFailure(eventIds, triggers, now, failureWords(e));
-        if (stopped.length) summary.errors.push(`${stopped.length} alerte${stopped.length > 1 ? "s" : ""} de ${who} arrêtée${stopped.length > 1 ? "s" : ""} après plusieurs échecs d'envoi.`);
+        const stopped = await recordDeliveryFailure(eventIds, events.map((p) => p.alertId), failureWords(e));
+        if (stopped.length) summary.errors.push(`${stopped.length} alerte${plural(stopped.length)} de ${who} arrêtée${plural(stopped.length)} après plusieurs échecs d'envoi.`);
         continue;
       }
       summary.sent++;
-      await markNotified(eventIds, alertIds, randomUUID(), now);
+      // The message is out: this, and only this, disarms its alerts.
+      await markNotified(eventIds, events.map((p) => ({ id: p.alertId, definitionHash: p.definitionHash })), randomUUID(), now);
     } catch (e) {
       summary.errors.push(`Envoi à ${who} : ${errText(e)}`);
     }
   }
+  if (late) summary.errors.push(`Temps du passage écoulé : ${late} message${plural(late)} non envoyé${plural(late)}, repris au passage suivant.`);
   return summary;
 }

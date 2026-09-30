@@ -14,8 +14,8 @@ import { ChevronDown, ChevronRight, Loader2, MessageSquare, Pause, Play, Trash2 
 import { Pill } from "@/components/ui/surface";
 import { PlatformBadges } from "@/components/client-alerts/client-picker";
 import {
-  ALERT_STATUS, CLIENT_GONE, dayLabel, guardsLine, lastValueLine, ownerLine, replayLine, ruleSentence, settingsLine, unbreakable,
-  type AlertEventView, type AlertView,
+  ALERT_STATUS, CLIENT_GONE, dayLabel, eventStateOf, guardsLine, hindsightLine, lastValueLine, ownerLine, replayLine, ruleSentence, settingsLine, unbreakable,
+  type AlertView,
 } from "@/components/client-alerts/alert-model";
 
 export type AlertAction = "pause" | "resume" | "delete";
@@ -24,13 +24,6 @@ const btnBase = "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px]
 const actionBtn = `${btnBase} bg-gray-950 hover:bg-gray-800 text-gray-300 border-gray-800`;
 const openBtn = `${btnBase} bg-violet-500/10 hover:bg-violet-500/20 text-violet-200 border-violet-500/40`;
 const dangerBtn = `${btnBase} bg-gray-950 hover:bg-red-950/40 text-red-300 border-red-900/60`;
-
-function eventState(e: AlertEventView): { label: string; tone: "emerald" | "amber" | "red" | "default" } {
-  if (e.notifyError) return { label: "non envoyé", tone: "red" };
-  if (e.notifiedAt) return { label: "envoyé dans Slack", tone: "emerald" };
-  if (e.dryRun) return { label: "mode d'essai", tone: "amber" };
-  return { label: "en attente d'envoi", tone: "default" };
-}
 
 function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
   alert: AlertView;
@@ -94,13 +87,15 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
           <p className="text-gray-200">{unbreakable(ruleSentence(def))}</p>
           <p>{settingsLine(def)}</p>
           {guardsLine(def) && <p>{guardsLine(def)}</p>}
+          {hindsightLine(def) && <p>{hindsightLine(def)}</p>}
           {alert.backtest && <p className="text-gray-500">{replayLine(alert.backtest)} (au moment de la validation).</p>}
           <div className="pt-1 border-t border-gray-800">
             <p className="text-gray-500 mb-1">Derniers déclenchements</p>
             {alert.events.length === 0 && <p className="text-gray-600">Aucun pour l&apos;instant.</p>}
             <ul className="space-y-1.5">
               {alert.events.map((e) => {
-                const st = eventState(e);
+                const st = eventStateOf(e, def.cooldownHours);
+                const waiting = st.label === "envoi en attente";
                 return (
                   <li key={e.id} className="space-y-0.5">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -109,7 +104,7 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
                       <Pill tone={st.tone} className="text-[10px]">{st.label}</Pill>
                     </div>
                     <p className="text-gray-400 whitespace-pre-wrap break-words line-clamp-4">{e.message}</p>
-                    {e.notifyError && <p className="text-red-400 break-words">{e.notifyError}</p>}
+                    {e.notifyError && <p className={`${waiting ? "text-amber-300" : "text-red-400"} break-words`}>{e.notifyError}{waiting ? " — nouvel essai au prochain passage si la situation dure." : ""}</p>}
                   </li>
                 );
               })}

@@ -23,9 +23,11 @@
  *
  * The series are read once per request and never throw: an account that
  * cannot be read carries its `error`. When no account is readable the
- * conversation goes on — the AI is told it has no figures — and a proposal
- * that covers an unreadable account waits (`retry`) instead of being shown
- * as wrong, or as replayed when nothing was.
+ * conversation goes on — the AI is told it has no figures. A replay that
+ * judged less than half of its days is not shown as a measure
+ * (replayVerdict): the proposal waits (`retry`) when an account could not be
+ * read, and is refused, with the reason, when the rule itself cannot be
+ * judged on this client.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -35,9 +37,9 @@ import { relayStream, teeRelayStream } from "@/lib/relay-chat";
 import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay-attachments";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { readClientSeries, summarizeSeries } from "@/lib/client-alerts/series";
-import { backtest } from "@/lib/client-alerts/backtest";
+import { backtest, replayVerdict } from "@/lib/client-alerts/backtest";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
-import { unreadAccounts, unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
+import { unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
 import { NOISY_MESSAGES, readDefinition, type AlertAccountRef, type ClientSeries } from "@/lib/client-alerts/types";
 import {
   ALERT_CHAT_MAX_MESSAGES, ALERT_CHAT_MAX_MESSAGE_CHARS,
@@ -109,11 +111,12 @@ function checksOf(
       out[key] = check.kind === "invalid" ? { ok: false, errors: check.errors, hints: check.hints } : { ok: false, errors: ["Proposition illisible."] };
       continue;
     }
-    // A replay over an account that could not be read judges nothing: it must not read as « never triggered ».
-    const unread = unreadAccounts(check.proposal.accounts, series);
-    if (unread.length) { out[key] = { ok: false, errors: [unreadText(unread)], retry: true }; continue; }
     try {
       const replay = backtest(check.proposal, series);
+      // A replay that judged (almost) nothing is not a measure: it waits for an account, or the rule is refused.
+      const verdict = replayVerdict(check.proposal, series, replay);
+      if (verdict.kind === "wait") { out[key] = { ok: false, errors: [unreadText(verdict.unread)], retry: true }; continue; }
+      if (verdict.kind === "refused") { out[key] = { ok: false, errors: [verdict.error], hints: [verdict.hint] }; continue; }
       out[key] = { ok: true, proposal: check.proposal, warnings: check.warnings, backtest: replay, noisy: replay.messages.length > NOISY_MESSAGES };
     } catch (e) {
       console.error("[client-alerts] backtest failed", e);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { advance, backtest, checkedOn, type AlertState } from "@/lib/client-alerts/backtest";
-import { definitionHash } from "@/lib/client-alerts/evaluate";
-import { BACKTEST_DAYS, type AccountSeries, type AlertAccountRef, type AlertDefinition, type ClientSeries, type SeriesPoint } from "@/lib/client-alerts/types";
+import { advance, backtest, checkedOn, COOLDOWN_SLACK_MS, replayVerdict, type AlertState } from "@/lib/client-alerts/backtest";
+import { definitionHash, evaluate } from "@/lib/client-alerts/evaluate";
+import { BACKTEST_DAYS, SERIES_DAYS, type AccountSeries, type AlertAccountRef, type AlertDefinition, type ClientSeries, type SeriesPoint } from "@/lib/client-alerts/types";
 
 // A Tuesday: the 26th and 27th are a Saturday and a Sunday.
 const UNTIL = "2026-09-29";
@@ -70,11 +70,15 @@ describe("advance — what decides a message", () => {
     expect(advance(sent, "triggered", after(72), rule).message).toBeNull();
   });
 
-  it("counts a check a few minutes early as the end of the silence, not one an hour early", () => {
+  it("counts a check up to 90 minutes early as the end of the silence: the platform fires a cron anywhere within its hour", () => {
     const rearmed: AlertState = { armed: true, lastMessageAt: T0 };
-    // The cron never fires at the same second.
-    expect(advance(rearmed, "triggered", new Date(after(72).getTime() - 5 * 60_000), rule).message).toBe("trigger");
-    expect(advance(rearmed, "triggered", after(71), rule).message).toBeNull();
+    // Said at :55 one day, checked at :05 three days later: 71 h 10 is three days.
+    expect(advance(rearmed, "triggered", new Date(after(72).getTime() - 50 * 60_000), rule).message).toBe("trigger");
+    expect(advance(rearmed, "triggered", new Date(after(72).getTime() - 90 * 60_000), rule).message).toBe("trigger");
+    expect(COOLDOWN_SLACK_MS).toBe(90 * 60_000);
+    // The slot before (three hours earlier) is still inside the silence.
+    expect(advance(rearmed, "triggered", new Date(after(72).getTime() - 91 * 60_000), rule).message).toBeNull();
+    expect(advance(rearmed, "triggered", after(69), rule).message).toBeNull();
   });
 
   it("never goes under the floor of 12 h, whatever a stored definition says", () => {
@@ -139,21 +143,24 @@ describe("backtest", () => {
     expect(b.messages.map((m) => m.date)).toEqual([received(25), received(10), received(8)]);
   });
 
-  it("does not check on weekends: a full day is judged the morning after", () => {
-    // Friday the 25th is judged on Saturday the 26th, Saturday on Sunday: neither is checked.
+  it("working days only: no check on a week-end, and Saturdays and Sundays do not count in the figures", () => {
+    // Friday the 25th and Saturday the 26th are high.
     const friday = series(account(META, (back) => ({ spend: back === 4 || back === 3 ? 200 : 100 })));
     expect(dateOf(4)).toBe("2026-09-25");
     const open = backtest(def(), friday, { now: NOW });
-    // Received on the Saturday, when week-ends are checked.
+    // Week-ends in: received on the Saturday, true two days.
     expect(open.messages.map((m) => m.date)).toEqual(["2026-09-26"]);
     expect(open.daysTrue).toBe(2);
+    // Working days only: Friday is judged on Monday morning — no check on Saturday or Sunday, and Saturday's figures are out.
     const weekdays = backtest(def({ weekdaysOnly: true }), friday, { now: NOW });
-    expect(weekdays.messages).toEqual([]);
-    expect(weekdays.daysTrue).toBe(0);
-    expect(weekdays.notes.join(" ")).toMatch(/Week-ends non vérifiés/);
-    // Sunday the 27th is judged on Monday: it is checked, and the message is Monday's — never dated a Sunday.
+    expect(weekdays.messages).toEqual([{ date: "2026-09-28", value: 200, changePct: null }]);
+    expect(weekdays.daysTrue).toBe(1);
+    expect(weekdays.checkedDays).toBe(22);
+    expect(weekdays.notes.join(" ")).toMatch(/Jours ouvrés seulement : 22 jours rejoués sur 30, les samedis et dimanches ne comptent pas/);
+    // A high Sunday is nobody's working day: nothing is said.
     const sunday = series(account(META, (back) => ({ spend: back === 2 ? 200 : 100 })));
-    expect(backtest(def({ weekdaysOnly: true }), sunday, { now: NOW }).messages.map((m) => m.date)).toEqual(["2026-09-28"]);
+    expect(backtest(def({ weekdaysOnly: true }), sunday, { now: NOW }).messages).toEqual([]);
+    expect(backtest(def(), sunday, { now: NOW }).messages.map((m) => m.date)).toEqual(["2026-09-28"]);
   });
 
   it("gives the value today and its spread over the judged days", () => {
@@ -232,10 +239,9 @@ describe("backtest", () => {
       expect(backtest(def(), series(account(META, () => ({ spend: 100 }))), { now: NOW }).notes.join(" ")).not.toMatch(/convertis/);
     });
 
-    it("says that a stop of spend is replayed on full days only", () => {
+    it("says nothing of the day in progress any more: the cron judges full days too", () => {
       const s = series(account(META, () => ({ spend: 100 })));
-      expect(backtest(def({ condition: "stopped", threshold: null }), s, { now: NOW }).notes.join(" ")).toMatch(/jours complets seulement/);
-      expect(backtest(def(), s, { now: NOW }).notes.join(" ")).not.toMatch(/jours complets seulement/);
+      expect(backtest(def({ condition: "stopped", threshold: null }), s, { now: NOW }).notes).toEqual([]);
     });
   });
 
@@ -245,5 +251,91 @@ describe("backtest", () => {
     const b = backtest(def({ condition: "stopped", threshold: null }), s, { now: NOW });
     expect(b.daysTrue).toBe(0);
     expect(b.messages).toEqual([]);
+  });
+});
+
+describe("backtest — the same days as the cron", () => {
+  it("ends on the day the cron judges this morning when an account further west has not finished yesterday", () => {
+    // Meta (Los Angeles) stops at the 28th while Paris is already past the 29th; its 28th is high.
+    const late = account(META, (back) => ({ spend: back === 1 ? 900 : 100 }));
+    late.days.pop();
+    const s = series(late, account(GOOGLE, () => ({ spend: 10 })));
+    const d = def({ accounts: [META, GOOGLE], threshold: 500 });
+    const cron = evaluate(d, s);
+    expect(cron).toMatchObject({ status: "triggered", asOf: "2026-09-28", value: 910 });
+    const b = backtest(d, s, { now: NOW });
+    // Same last day: the replay's « today » is the cron's, and no day is lost to an account that is merely late.
+    expect(b.current).toBe(cron.value);
+    expect(b.skippedDays).toBe(0);
+    expect(b.checkedDays).toBe(30);
+    expect(b.messages).toEqual([{ date: "2026-09-29", value: 910, changePct: null }]);
+  });
+
+  it("has enough history for the longest working-days window and its comparison, over the 30 days replayed", () => {
+    // What readClientSeries returns: SERIES_DAYS full days.
+    const days: SeriesPoint[] = [];
+    for (let back = SERIES_DAYS - 1; back >= 0; back--) days.push({ date: dateOf(back), spend: 100, conversions: 3, revenue: null, clicks: 0, impressions: 0 });
+    const s = series({ account: META, currency: "EUR", eurRate: 1, days, today: null });
+    for (const metric of ["spend", "conversions"] as const) {
+      const b = backtest(def({ metric, condition: "drop_pct", threshold: 50, windowDays: 30, weekdaysOnly: true }), s, { now: NOW });
+      expect(b.skippedDays, metric).toBe(0);
+      expect(b.checkedDays).toBe(22);
+    }
+  });
+});
+
+describe("replayVerdict — what a replay is worth", () => {
+  const cpa = (over: Partial<AlertDefinition> = {}) => def({ accounts: [META], metric: "cpa", threshold: 60, windowDays: 1, guards: { minConversions: 5 }, ...over });
+  const verdict = (d: AlertDefinition, s: ClientSeries) => replayVerdict(d, s, backtest(d, s, { now: NOW }));
+
+  it("is a measure while at most half of the days were not judged", () => {
+    // 15 days under the guard (2 conversions for 100 €), 15 days judged.
+    const half = series(account(META, (back) => ({ spend: 100, conversions: back % 2 ? 2 : 10 })));
+    const b = backtest(cpa(), half, { now: NOW });
+    expect(b).toMatchObject({ skippedDays: 15, checkedDays: 30, skipKind: "guard_conversions" });
+    expect(replayVerdict(cpa(), half, b)).toEqual({ kind: "ok" });
+    // One more day skipped: more than half.
+    expect(replayVerdict(cpa(), half, { ...b, skippedDays: 16 }).kind).toBe("refused");
+  });
+
+  it("refuses a rule whose guards are never met, with the reason in plain French and the fields for the AI", () => {
+    const thin = series(account(META, () => ({ spend: 100, conversions: 2 })));
+    const v = verdict(cpa(), thin);
+    expect(v).toEqual({
+      kind: "refused",
+      error: "Cette règle n'aurait pas pu être jugée sur aucun des 30 jours rejoués : le nombre minimum de conversions n'est presque jamais atteint. Telle quelle, elle ne vous préviendrait presque jamais : demandez une règle qui peut être jugée sur ce client.",
+      hint: '"guards.minConversions" plus bas, ou une période "windowDays" plus longue',
+    });
+    const spend = verdict(def({ guards: { minSpend: 5000 } }), thin);
+    expect(spend).toMatchObject({ kind: "refused", error: expect.stringContaining("la dépense minimum demandée n'est presque jamais atteinte") });
+  });
+
+  it("refuses a ROAS on an account that spends without tracking a value, and a window the history cannot fill", () => {
+    const blind = series(account(META, () => ({ spend: 100, revenue: 300 })), account(GOOGLE, () => ({ spend: 50, revenue: null })));
+    const roas = verdict(def({ accounts: [META, GOOGLE], metric: "roas", condition: "below", threshold: 2 }), blind);
+    expect(roas).toMatchObject({ kind: "refused", error: expect.stringContaining("un compte qui dépense sans remonter de valeur de conversion") });
+    // 40 days of history: a drop over 30 days against the 30 before can never be judged.
+    const short = series({ ...account(META, () => ({ spend: 100 })), days: account(META, () => ({ spend: 100 })).days.slice(-40) });
+    const drop = verdict(def({ condition: "drop_pct", threshold: 50, windowDays: 30 }), short);
+    expect(drop).toMatchObject({ kind: "refused", error: expect.stringContaining("pas assez d'historique") });
+  });
+
+  it("waits, instead of refusing, when the days were lost to an account that could not be read", () => {
+    const s = series(account(META, () => ({ spend: 500 })), { account: GOOGLE, currency: "EUR", eurRate: 1, days: [], today: null, error: "lecture Google Ads impossible pour le moment" });
+    const d = def({ accounts: [META, GOOGLE] });
+    expect(verdict(d, s)).toEqual({ kind: "wait", unread: [GOOGLE] });
+    // The account the series does not even carry is unread too.
+    expect(verdict(d, series(account(META, () => ({ spend: 500 })))).kind).toBe("wait");
+    // An unreadable account the rule does not cover changes nothing.
+    expect(verdict(def({ accounts: [META] }), s)).toEqual({ kind: "ok" });
+  });
+
+  it("counts working days only for a working-days alert", () => {
+    const s = series(account(META, () => ({ spend: 100 })));
+    const b = backtest(def({ weekdaysOnly: true }), s, { now: NOW });
+    expect(b.checkedDays).toBe(22);
+    // 11 of 22 skipped is half: still a measure. 12 is not.
+    expect(replayVerdict(def({ weekdaysOnly: true }), s, { ...b, skippedDays: 11 })).toEqual({ kind: "ok" });
+    expect(replayVerdict(def({ weekdaysOnly: true }), s, { ...b, skippedDays: 12, skipKind: "guard_spend" }).kind).toBe("refused");
   });
 });

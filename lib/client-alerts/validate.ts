@@ -25,7 +25,7 @@
  */
 
 import {
-  ALERT_CONDITIONS, ALERT_DEFAULTS, ALERT_METRICS, ALERT_WINDOWS,
+  ALERT_CONDITIONS, ALERT_DEFAULTS, ALERT_METRICS, ALERT_WINDOWS, BACKTEST_DAYS,
   COOLDOWN_MAX_HOURS, COOLDOWN_MIN_HOURS, EXPLANATION_MAX, LABEL_MAX,
   type AccountSeries, type AlertAccountRef, type AlertAggregation, type AlertChecks, type AlertCompare, type AlertCondition,
   type AlertDefinition, type AlertMetric, type AlertPlatform, type AlertWindow, type ClientSeries,
@@ -38,8 +38,13 @@ export type AlertValidation =
 
 /** A CPA on two conversions means nothing: below this, the check is skipped unless the consultant says otherwise. */
 export const CPA_MIN_CONVERSIONS = 5;
+/** « The same weekdays, a week earlier » only makes sense for a window that fits in a week. */
+export const SAME_WEEKDAYS_MAX_DAYS = 7;
 export const PCT_MIN = 1;
 export const PCT_MAX = 1000;
+
+/** « An account that spends »: over the days the replay covers. */
+const RECENT_DAYS = BACKTEST_DAYS;
 
 const AGGREGATIONS: readonly AlertAggregation[] = ["combined", "each"];
 const COMPARES: readonly AlertCompare[] = ["previous_window", "same_weekdays"];
@@ -126,6 +131,13 @@ export function validateAlertProposal(input: unknown, ctx: { accounts: AlertAcco
     (v) => refuse(`Regroupement inconnu : ${shown(v)}. Possibles : Meta et Google Ads additionnés, ou chaque plateforme jugée seule.`, `"aggregation" : ${list(AGGREGATIONS)}`));
   const compare = oneOf(input.compare, COMPARES, ALERT_DEFAULTS.compare,
     (v) => refuse(`Comparaison inconnue : ${shown(v)}. Possibles : les jours d'avant, ou les mêmes jours une semaine plus tôt.`, `"compare" : ${list(COMPARES)}`));
+  // « The same weekdays » of a window longer than a week would be weeks away from it: not what anyone means.
+  if (compare === "same_weekdays" && windowDays !== null && windowDays > SAME_WEEKDAYS_MAX_DAYS && (condition === "drop_pct" || condition === "rise_pct")) {
+    refuse(
+      `La comparaison avec les mêmes jours de la semaine précédente ne vaut que pour une période de ${SAME_WEEKDAYS_MAX_DAYS} jours au plus : sur ${windowDays} jours, comparez avec les ${windowDays} jours d'avant.`,
+      `"compare" : "previous_window" dès que "windowDays" dépasse ${SAME_WEEKDAYS_MAX_DAYS}`,
+    );
+  }
   const checks = oneOf(input.checks, CHECKS, ALERT_DEFAULTS.checks,
     (v) => refuse(`Nombre de vérifications inconnu : ${shown(v)}. Possibles : 1, 2 ou 4 par jour.`, `"checks" : ${list(CHECKS)}`));
 
@@ -138,7 +150,7 @@ export function validateAlertProposal(input: unknown, ctx: { accounts: AlertAcco
     }
   }
   const weekdaysOnly = yesNo(input.weekdaysOnly, ALERT_DEFAULTS.weekdaysOnly,
-    () => refuse("« Du lundi au vendredi seulement » se règle par oui ou non.", `"weekdaysOnly" : true | false`));
+    () => refuse("« Jours ouvrés seulement » se règle par oui ou non.", `"weekdaysOnly" : true | false`));
   const remind = yesNo(input.remind, ALERT_DEFAULTS.remind,
     () => refuse("Le rappel tant que la situation dure se règle par oui ou non.", `"remind" : true | false`));
 
@@ -236,38 +248,65 @@ const copy = (a: AlertAccountRef): AlertAccountRef => ({ platform: a.platform, a
 
 /**
  * What the accounts say of the DEFINITION: a measure that cannot be computed on them (errors), or
- * that leaves a platform out (warnings). Nothing here about the figures themselves — double
+ * that leaves accounts out (warnings). Nothing here about the figures themselves — double
  * counting, unreadable accounts, currencies are the replay's to say (backtest().notes).
+ *
+ * « Tracks a value » is read as the engine reads it (totalsOver / metricOf of evaluate.ts): per
+ * ACCOUNT, and an account only matters when it spends. A ROAS needs every spending account of its
+ * scope to track a value — one that spends without is enough to make it unknown; a revenue is the
+ * sum of the accounts that track one, and needs at least one per scope. The scope is the whole
+ * alert, or each platform when each is judged on its own — and there, a platform that can never be
+ * judged leaves the alert « not judged » for good (evaluate: every platform must be), so it is
+ * refused as well.
  */
 function dataFindings(def: AlertDefinition, series: ClientSeries | null): { errors: string[]; hints: string[]; warnings: string[] } {
   const errors: string[] = [];
   const hints: string[] = [];
   const warnings: string[] = [];
   if (!series || (def.metric !== "roas" && def.metric !== "revenue")) return { errors, hints, warnings };
-  const platforms = (["meta", "google"] as const).filter((p) => def.accounts.some((a) => a.platform === p));
 
   const read = new Map<string, AccountSeries>();
   for (const s of series.accounts) read.set(accountKey(s.account.platform, s.account.accountId), s);
   const seriesOf = (a: AlertAccountRef) => read.get(accountKey(a.platform, a.accountId)) ?? null;
-  const readable = (a: AlertAccountRef) => { const s = seriesOf(a); return !!s && !s.error; };
+  const readable = (a: AlertAccountRef) => { const s = seriesOf(a); return !!s && !s.error && s.days.length > 0; };
   const tracks = (a: AlertAccountRef) => seriesOf(a)?.days.some((d) => d.revenue !== null) ?? false;
+  // Over the days the replay covers: an account that has not spent for a month takes nothing away.
+  const spends = (a: AlertAccountRef) => (seriesOf(a)?.days.slice(-RECENT_DAYS).some((d) => d.spend > 0)) ?? false;
+  const named = (list: AlertAccountRef[]) => list.map((a) => `${PLATFORM_FR[a.platform]} « ${a.name} »`).join(", ");
+  const ids = (list: AlertAccountRef[]) => JSON.stringify(list.map((a) => ({ platform: a.platform, accountId: a.accountId })));
 
   const readAccounts = def.accounts.filter(readable);
-  // A platform « tracks nothing » only when its accounts were read and none carries a value.
-  const silent = platforms.filter((p) => {
-    const ofPlatform = readAccounts.filter((a) => a.platform === p);
-    return ofPlatform.length > 0 && !ofPlatform.some(tracks);
-  });
+  // An account that could not be read says nothing: the replay will wait for it.
+  if (!readAccounts.length) return { errors, hints, warnings };
   const what = def.metric === "roas" ? "le ROAS" : "le revenu";
-  if (readAccounts.length && !readAccounts.some(tracks)) {
+  const tracking = readAccounts.filter(tracks);
+  const blind = readAccounts.filter((a) => !tracks(a) && spends(a));
+
+  if (!tracking.length) {
     errors.push(`Aucun compte de cette alerte ne remonte de valeur de conversion : ${what} ne peut pas être calculé. Surveillez plutôt le coût par conversion ou le nombre de conversions.`);
     hints.push(`"metric" : "cpa" ou "conversions" à la place de "${def.metric}"`);
-  } else if (silent.length && def.metric === "roas" && def.aggregation === "combined") {
-    errors.push(`Le ROAS de Meta et Google Ads additionnés ne peut pas être calculé : ${PLATFORM_FR[silent[0]]} ne remonte aucune valeur de conversion. Jugez chaque plateforme séparément, ou surveillez le coût par conversion.`);
-    hints.push(`"aggregation" : "each" en gardant "metric":"roas", ou bien "metric" : "cpa"`);
-  } else if (silent.length) {
-    const other = platforms.find((p) => !silent.includes(p));
-    warnings.push(`${PLATFORM_FR[silent[0]]} ne remonte aucune valeur de conversion : ${what} ne tient compte que de ${other ? PLATFORM_FR[other] : "l'autre plateforme"}.`);
+    return { errors, hints, warnings };
+  }
+  const limit = `"accounts" : ${ids(tracking)} (les seuls comptes qui remontent une valeur), ou bien "metric" : "cpa"`;
+
+  if (def.metric === "roas") {
+    if (blind.length) {
+      const many = blind.length > 1;
+      errors.push(`Le ROAS ne peut pas être calculé avec ${many ? "les comptes" : "le compte"} ${named(blind)} : ${many ? "ils dépensent" : "il dépense"} sans remonter de valeur de conversion. Limitez l'alerte aux comptes qui en remontent une, ou surveillez le coût par conversion.`);
+      hints.push(limit);
+    }
+    return { errors, hints, warnings };
+  }
+
+  // Revenue: the sum of the accounts that track a value.
+  const platforms = (["meta", "google"] as const).filter((p) => readAccounts.some((a) => a.platform === p));
+  const silent = platforms.filter((p) => !tracking.some((a) => a.platform === p));
+  if (def.aggregation === "each" && silent.length) {
+    errors.push(`${PLATFORM_FR[silent[0]]} ne remonte aucune valeur de conversion : son revenu ne peut pas être jugé séparément. Limitez l'alerte aux comptes qui en remontent une, ou surveillez le nombre de conversions.`);
+    hints.push(`"accounts" : ${ids(tracking)} (les seuls comptes qui remontent une valeur), ou bien "metric" : "conversions"`);
+  } else if (blind.length) {
+    const many = blind.length > 1;
+    warnings.push(`${many ? "Les comptes" : "Le compte"} ${named(blind)} ${many ? "ne remontent" : "ne remonte"} aucune valeur de conversion : le revenu ne tient compte que des autres comptes.`);
   }
   return { errors, hints, warnings };
 }
