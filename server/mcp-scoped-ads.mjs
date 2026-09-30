@@ -2,8 +2,8 @@
 /**
  * MCP stdio "scoped-ads" — proxy de périmètre devant un serveur MCP n8n.
  *
- * Les serveurs Meta Ads / Google Ads / GA4 sont des endpoints SSE n8n qui
- * parlent au Business Manager ENTIER via le token System User partagé. Le
+ * Les serveurs Meta Ads / Google Ads / GA4 / TikTok Ads sont des endpoints SSE
+ * n8n qui parlent au Business Manager ENTIER via le jeton partagé de l'agence. Le
  * relay ne pouvait restreindre le LLM à un compte qu'en le lui demandant dans
  * le system prompt — une consigne, pas un contrôle : une injection dans le
  * message d'un consultant, ou dans celui d'un client via son bot privé,
@@ -15,9 +15,10 @@
  * transmettre la requête en amont.
  *
  * Lancé par le relay avec, en env :
- *   SCOPED_SERVER_NAME  — meta-ads-impulse | mcp-google-ads | mcp-google-analytics
+ *   SCOPED_SERVER_NAME  — meta-ads-impulse | mcp-google-ads | mcp-google-analytics | mcp-tiktok-ads
  *   SCOPED_UPSTREAM_URL — URL SSE du serveur n8n
  *   SCOPED_ACCOUNTS     — identifiants autorisés, séparés par des virgules
+ *   SCOPED_TOOLS        — (option) seuls outils ouverts, séparés par des virgules
  * Refuse de démarrer si l'une manque ou si le périmètre est vide (fail-closed).
  */
 
@@ -31,6 +32,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { compactToolResult } from "./mcp-compact.mjs";
 import { followDailyPages } from "./mcp-meta-paging.mjs";
+import { prepareTikTokArgs, describeTikTokTool } from "./mcp-tiktok-args.mjs";
 
 const SERVER_NAME = process.env.SCOPED_SERVER_NAME || "";
 const UPSTREAM_URL = process.env.SCOPED_UPSTREAM_URL || "";
@@ -49,8 +51,12 @@ const die = (msg) => {
  *              sans prendre de paramètre de compte. Rien à valider dessus :
  *              on les coupe. Le modèle reçoit déjà ses comptes autorisés dans
  *              le system prompt, il n'a pas besoin de les découvrir.
+ *  - `requireId` : un appel sans aucun identifiant de compte est refusé (au
+ *              lieu d'être laissé à l'amont).
+ *  - `prepare` / `describe` : arguments complétés avant l'envoi, et description
+ *              de l'outil corrigée en conséquence (server/mcp-tiktok-args.mjs).
  */
-const PROFILES = {
+export const PROFILES = {
   "meta-ads-impulse": {
     label: "Meta Ads",
     keys: /account/i,
@@ -74,6 +80,23 @@ const PROFILES = {
     // Outils d'administration / écriture GA4 : jamais depuis un chat.
     denyPattern: /^(create|update|archive|delete)_/,
   },
+  "mcp-tiktok-ads": {
+    label: "TikTok Ads",
+    keys: /advertiser/i,
+    // Un identifiant TikTok est une suite de chiffres. Toute autre forme est
+    // gardée telle quelle : elle n'est jamais dans le périmètre, donc refusée,
+    // plutôt qu'ignorée puis interprétée autrement par TikTok.
+    norm: (v) => String(v).trim(),
+    // Énumère tous les annonceurs de l'agence, et demande le secret de
+    // l'application TikTok en paramètre : jamais depuis un chat.
+    deny: new Set(["list_advertisers"]),
+    // Le serveur n8n est en lecture seule aujourd'hui ; un outil d'écriture
+    // ajouté plus tard resterait fermé.
+    denyPattern: /^(create|update|delete|remove|upload|modify|set|enable|disable)_/i,
+    requireId: true,
+    prepare: prepareTikTokArgs,
+    describe: describeTikTokTool,
+  },
 };
 
 const profile = PROFILES[SERVER_NAME];
@@ -87,6 +110,11 @@ const allowed = new Set(
   UNRESTRICTED ? [] : RAW_ACCOUNTS.split(",").map((s) => profile.norm(s)).filter(Boolean),
 );
 if (!UNRESTRICTED && allowed.size === 0) die(`périmètre vide pour ${SERVER_NAME}`);
+
+// Liste fermée d'outils, posée par le relay (bot client : moins d'outils que
+// l'équipe). Absente = tous les outils de l'amont, moins `deny` et les écritures.
+const ONLY_TOOLS = (process.env.SCOPED_TOOLS || "").split(",").map((s) => s.trim()).filter(Boolean);
+const onlyTools = ONLY_TOOLS.length ? new Set(ONLY_TOOLS) : null;
 
 // ── Extraction des identifiants ──────────────────────────────────────────────
 
@@ -129,12 +157,25 @@ export function collectAccountIds(value, keys, depth = 0) {
   return found;
 }
 
-/** The scalar values held directly by v (v itself, or the items of an array). */
-function scalars(v) {
-  if (typeof v === "string" || typeof v === "number") return [String(v)];
-  if (Array.isArray(v)) {
-    return v.filter((x) => typeof x === "string" || typeof x === "number").map(String);
+/**
+ * The scalar values held directly by v (v itself, or the items of an array).
+ * A string that is a serialised JSON array (`"[\"123\"]"`, the form TikTok's
+ * advertiser_ids takes) is read as that array: taken whole, it was neither a
+ * known id nor — once normalised to nothing — a refused one.
+ */
+function scalars(v, depth = 0) {
+  if (typeof v === "number") return [String(v)];
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (t.startsWith("[") && depth < 4) {
+      try {
+        const parsed = JSON.parse(t);
+        if (Array.isArray(parsed)) return scalars(parsed, depth + 1);
+      } catch { /* chaîne ordinaire */ }
+    }
+    return [v];
   }
+  if (Array.isArray(v) && depth < 4) return v.flatMap((x) => (typeof x === "string" || typeof x === "number" || Array.isArray(x) ? scalars(x, depth + 1) : []));
   return [];
 }
 
@@ -150,6 +191,11 @@ export function outOfScope(args, { keys, norm }, allowedSet) {
     if (!allowedSet.has(n) && !bad.includes(id)) bad.push(id);
   }
   return bad;
+}
+
+/** True when the call names at least one account (whatever its scope). */
+export function namesAnAccount(args, { keys, norm }) {
+  return collectAccountIds(args, keys).some((id) => norm(id));
 }
 
 // ── Amont (SSE) ──────────────────────────────────────────────────────────────
@@ -171,25 +217,60 @@ const server = new Server(
   { capabilities: { tools: {} } },
 );
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
+// Dernière liste d'outils lue en amont : dit sous quelle forme un outil attend
+// ses arguments (voir `prepare`).
+let upstreamTools = null;
+async function readUpstreamTools() {
   const { tools } = await upstream.listTools();
-  return { tools: (tools || []).filter((t) => !isDenied(t.name)) };
+  upstreamTools = tools || [];
+  return upstreamTools;
+}
+
+/** Outil n8n d'ancienne génération : un seul paramètre `input`, objet JSON en chaîne. */
+async function takesSerialisedInput(name) {
+  let tool;
+  try { tool = (upstreamTools ?? await readUpstreamTools()).find((t) => t.name === name); } catch { return true; }
+  const props = tool?.inputSchema?.properties;
+  return !props || (Object.keys(props).length === 1 && "input" in props);
+}
+
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  const tools = await readUpstreamTools();
+  return {
+    tools: tools
+      .filter((t) => !isDenied(t.name))
+      .map((t) => (profile.describe ? { ...t, description: profile.describe(t.name, t.description) } : t)),
+  };
 });
 
 const refusal = (text) => ({ isError: true, content: [{ type: "text", text }] });
 const isWrite = (name) => (profile.denyPattern ? profile.denyPattern.test(name) : false);
-const isDenied = (name) => profile.deny.has(name) || isWrite(name);
+const isClosed = (name) => (onlyTools ? !onlyTools.has(name) : false);
+const isDenied = (name) => profile.deny.has(name) || isWrite(name) || isClosed(name);
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
+  const { name, arguments: given } = request.params;
 
   if (isWrite(name)) {
     return refusal(`Outil "${name}" indisponible : les outils qui créent ou modifient ${profile.label} ne sont pas ouverts dans cette conversation.`);
   }
-  if (isDenied(name)) {
+  if (profile.deny.has(name)) {
     return refusal(
       `Outil "${name}" indisponible : l'énumération des comptes ${profile.label} n'est pas autorisée. ` +
         `Les comptes sur lesquels tu peux travailler te sont donnés dans tes instructions.`,
+    );
+  }
+  if (isClosed(name)) {
+    return refusal(`Outil "${name}" indisponible : il n'est pas ouvert dans cette conversation.`);
+  }
+
+  // Le contrôle porte sur ce qui part réellement en amont.
+  const args = profile.prepare ? profile.prepare(name, given, { legacy: await takesSerialisedInput(name) }) : given;
+
+  if (!UNRESTRICTED && profile.requireId && !namesAnAccount(args, profile)) {
+    return refusal(
+      `Appel refusé : "${name}" doit nommer le compte ${profile.label} interrogé. ` +
+        `Tu ne peux interroger que : ${[...allowed].join(", ")}.`,
     );
   }
 

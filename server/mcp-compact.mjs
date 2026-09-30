@@ -1,6 +1,6 @@
 /**
  * Compaction déterministe des résultats d'outils MCP (Meta Ads, Google Ads,
- * GA4 via n8n) avant qu'ils n'atteignent le modèle.
+ * GA4, TikTok Ads via n8n) avant qu'ils n'atteignent le modèle.
  *
  * Pourquoi : une session d'analyse type injecte ~160 k tokens de JSON
  * (mesuré le 2026-09-22 : n8n indente tout, Google répète un `resourceName`
@@ -43,6 +43,7 @@ const ENVELOPE_DROP = new Set([
   "paging", "next", "previous", "cursors", "requestId", "fieldMask",
   "queryResourceConsumption", "kind", "metadata", "summary_row_count", "__debug",
   "dimensionHeaders", "metricHeaders", "totals", "maximums", "minimums",
+  "request_id",
 ]);
 
 // Champs sans valeur d'analyse, quel que soit le serveur (chemin aplati).
@@ -79,7 +80,22 @@ const TOOL_OPTS = {
     run_realtime_report: { cap: 300, fieldDrop: false },
     get_metadata: { cap: 1000, fieldDrop: false },
   },
+  "mcp-tiktok-ads": {
+    get_report_integrated: { cap: 400, order: "date" },
+    get_breakdown_report: { cap: 300 },
+    get_campaigns: { cap: 60 },
+    get_adgroups: { cap: 60 },
+    get_ads: { cap: 60 },
+    search_ad_videos: { cap: 40 },
+    search_ad_images: { cap: 40 },
+    list_custom_audiences: { cap: 40 },
+  },
 };
+
+// TikTok, fiche d'un compte : seuls ces champs passent. Le reste (solde,
+// e-mail, téléphone et adresse du contact, licence) n'a rien à faire dans une
+// conversation, encore moins dans celle d'un bot client.
+const TIKTOK_ADVERTISER_FIELDS = ["advertiser_id", "name", "company", "currency", "timezone", "display_timezone", "status", "country", "industry", "role"];
 
 const MAX_PROSE_CHARS = 12_000;
 
@@ -89,10 +105,10 @@ const RECALC_MIN_ROWS = 40;
 const GROUP_MIN_GAIN = 0.15;
 
 // Métriques sommables d'un jour à l'autre et d'une campagne à l'autre.
-const ADDITIVE_COL = /^(metrics\.)?(impressions|clicks|cost|spend|conversions|conversionsValue|allConversions|allConversionsValue|interactions|engagements|videoViews|inline_link_clicks|sessions|engagedSessions|screenPageViews|eventCount|keyEvents|transactions|ecommercePurchases|purchaseRevenue|totalRevenue|addToCarts|checkouts)$|^(actions|action_values)\./;
+const ADDITIVE_COL = /^(metrics\.)?(impressions|clicks|cost|spend|conversions|conversion|complete_payment|video_play_actions|video_watched_2s|video_watched_6s|video_views_p(25|50|75|100)|conversionsValue|allConversions|allConversionsValue|interactions|engagements|videoViews|inline_link_clicks|sessions|engagedSessions|screenPageViews|eventCount|keyEvents|transactions|ecommercePurchases|purchaseRevenue|totalRevenue|addToCarts|checkouts)$|^(actions|action_values)\./;
 
 // Métriques connues pour ne pas se sommer : retirées des agrégats, et nommées.
-const NON_ADDITIVE_COL = /(^|\.)(ctr|cpc|cpm|cpp|reach|frequency|unique_\w+|totalUsers|activeUsers|averageCpc|averageCpm|averageCpv|averageCost|costPerConversion|costPerAllConversions|valuePerConversion|\w*Rate|\w*Share)$|^(cost_per_\w+|\w*purchase_roas)\./;
+const NON_ADDITIVE_COL = /(^|\.)(ctr|cpc|cpm|cpp|reach|frequency|unique_\w+|totalUsers|activeUsers|averageCpc|averageCpm|averageCpv|averageCost|costPerConversion|costPerAllConversions|valuePerConversion|\w*Rate|\w*Share|\w+_rate|cost_per_conversion|\w+_roas)$|^(cost_per_\w+|\w*purchase_roas)\./;
 // Dimensions qui peuvent arriver sous forme de nombre (heure, date GA4 20260601) : jamais des métriques.
 const DIMENSION_COL = /(^|[._])(hour|day|date|week|month|quarter|year|dayOfWeek|day_of_week|isoWeek|isoYear|id)$/i;
 
@@ -104,6 +120,8 @@ const RATIO_FORMULAS = [
   [/^(averageCpc|cpc)$/, ["cost", "spend"], ["clicks"]],
   [/^(averageCpm|cpm)$/, ["cost", "spend"], ["impressions"]],
   [/^(costPerConversion)$/, ["cost"], ["conversions"]],
+  [/^(cost_per_conversion)$/, ["spend"], ["conversion"]],
+  [/^(conversion_rate)$/, ["conversion"], ["clicks"]],
   [/^(costPerAllConversions)$/, ["cost"], ["allConversions"]],
   [/^(averageCost)$/, ["cost"], ["interactions"]],
   [/^(frequency)$/, ["impressions"], ["reach"]],
@@ -238,6 +256,47 @@ function ga4Rows(o) {
   if (o.rowCount !== undefined) env.rowCount = o.rowCount;
   if (o.metadata?.currencyCode) env.currency = o.metadata.currencyCode;
   if (o.metadata?.timeZone) env.timeZone = o.metadata.timeZone;
+  return { rows, env };
+}
+
+/** Réponse de l'API TikTok : { code, message, request_id, data }. */
+const isTikTok = (o) => !!o && typeof o === "object" && !Array.isArray(o) && typeof o.code === "number" && "request_id" in o && "message" in o;
+
+/**
+ * TikTok → lignes à plat. Un rapport rend { dimensions, metrics } par ligne,
+ * fusionnés ici ; « - » (métrique sans objet) est une absence ; la date d'un
+ * jour arrive en « AAAA-MM-JJ 00:00:00 ». Une page qui n'est pas la dernière
+ * est annoncée (has_more), avec le numéro de page à demander.
+ */
+function tiktokRows(o, tool) {
+  if (!isTikTok(o)) return null;
+  if (o.code !== 0) return { rows: null, env: null, value: { erreur_tiktok: o.code, message: o.message } };
+  const data = o.data && typeof o.data === "object" ? o.data : {};
+  if (!Array.isArray(data.list)) {
+    // Pas de liste : on rend `data` seul, sans l'enveloppe (code, message, request_id).
+    const found = findRows(data);
+    return found.rows ? found : { rows: null, env: null, value: data };
+  }
+
+  const rows = data.list.filter((r) => r && typeof r === "object").map((r) => {
+    const merged = r.dimensions || r.metrics ? { ...(r.dimensions || {}), ...(r.metrics || {}) } : r;
+    const x = {};
+    for (const [k, v] of Object.entries(merged)) {
+      if (v === "-") continue;
+      x[k] = /^stat_time_day$/.test(k) && typeof v === "string" ? v.slice(0, 10) : v;
+    }
+    if (tool === "get_advertiser_info") return Object.fromEntries(TIKTOK_ADVERTISER_FIELDS.filter((k) => k in x).map((k) => [k, x[k]]));
+    return x;
+  });
+
+  const env = {};
+  const p = data.page_info;
+  if (p && typeof p === "object" && Number(p.total_page) > Number(p.page)) {
+    env.has_more = true;
+    env.page = p.page;
+    env.total_page = p.total_page;
+    if (p.total_number !== undefined) env.total_number = p.total_number;
+  }
   return { rows, env };
 }
 
@@ -523,7 +582,7 @@ export function compactText(text, { server = "", tool = "", cap: capOverride } =
   if (capOverride) tuning.cap = capOverride;
 
   const unwrapped = Array.isArray(j) && j.length === 1 && j[0] && typeof j[0] === "object" && !Array.isArray(j[0]) ? j[0] : j;
-  const located = ga4Rows(unwrapped) || findRows(j);
+  const located = ga4Rows(unwrapped) || tiktokRows(unwrapped, tool) || findRows(j);
   const env = {};
   for (const [k, v] of Object.entries(located.env || {})) {
     if (ENVELOPE_DROP.has(k) || isEmpty(v)) continue;
@@ -574,7 +633,7 @@ export function compactText(text, { server = "", tool = "", cap: capOverride } =
     }
   }
 
-  const dateKey = ["date", "date_start", "segments.date", "day"].find((k) => rows.some((r) => k in r));
+  const dateKey = ["date", "date_start", "segments.date", "day", "stat_time_day"].find((k) => rows.some((r) => k in r));
   const spendKey = ["spend", "cost", "metrics.cost", "sessions", "impressions", "metrics.impressions", "contacts"].find((k) => rows.some((r) => k in r));
   // Page partielle : dite en première ligne, et jamais résumée (les sommes seraient prises pour des totaux).
   const partial = env.has_more === true;

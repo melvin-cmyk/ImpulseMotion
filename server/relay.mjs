@@ -116,7 +116,8 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
-const MCP_CONFIG = "/root/ImpulseMotion/config/mcp-claude.json";
+// RELAY_MCP_CONFIG : autre fichier pour les tests (le relay de production lit celui du dépôt).
+const MCP_CONFIG = process.env.RELAY_MCP_CONFIG || "/root/ImpulseMotion/config/mcp-claude.json";
 // MCP stdio "client-data" (entrepôt e-commerce des bots clients). Démarré à la
 // demande, scoped par CLIENT_KEY côté serveur — voir buildScopedMcpConfig().
 const CLIENT_DATA_SERVER = "client-data";
@@ -388,6 +389,21 @@ const HQ_READ_TOOLS = [
 // tout l'espace de l'agence : IA interne uniquement, jamais un bot client.
 const NOTION_SERVER = "notion";
 
+// TikTok Ads : serveur MCP n8n en lecture seule (« TikTok Ads MCP v2.1 »), un
+// seul jeton pour tous les annonceurs de l'agence. Toujours derrière le proxy
+// de périmètre, qui complète aussi les arguments des rapports.
+const TIKTOK_SERVER = "mcp-tiktok-ads";
+// Performance seulement : ce qu'un bot client peut lire.
+const TIKTOK_CLIENT_TOOLS = [
+  "get_advertiser_info", "get_campaigns", "get_adgroups", "get_ads",
+  "get_campaign_performance", "get_adgroup_performance", "get_ad_performance",
+  "get_breakdown_report", "get_report_integrated",
+];
+// L'équipe lit aussi les audiences et la médiathèque. `list_advertisers`
+// (tous les annonceurs, et le secret de l'application en paramètre) n'est
+// ouvert à aucune conversation.
+const TIKTOK_STAFF_TOOLS = [...TIKTOK_CLIENT_TOOLS, "list_custom_audiences", "search_ad_videos", "search_ad_images"];
+
 // Global whitelist — only servers declared here can ever be routed to the AI.
 // The per-request `allowedServers` list is intersected with this set, so even
 // a malicious caller can't open up new MCP surface area.
@@ -397,6 +413,7 @@ const ALLOWED_MCP_SERVERS = new Set([
   "meta-ads-impulse",
   "mcp-google-ads",
   "mcp-google-analytics",
+  TIKTOK_SERVER,
   // Google Sheets (n8n, compte data@ de l'agence) : lecture seule, staff.
   // Le consultant partage sa feuille avec ce compte, puis colle le lien.
   "mcp-google-sheet",
@@ -427,7 +444,16 @@ const SERVER_TOOL_ALLOWLIST = {
     "list_firebase_links", "list_google_ads_links", "list_key_events", "list_properties",
     "run_pivot_report", "run_realtime_report", "run_report",
   ],
+  // Liste fermée : un outil ajouté plus tard dans n8n reste fermé tant qu'il
+  // n'est pas nommé ici. Un bot client reçoit TIKTOK_CLIENT_TOOLS (chatToolsOf).
+  [TIKTOK_SERVER]: TIKTOK_STAFF_TOOLS,
 };
+
+/** Tools of a server open to this chat: fewer for a client bot where it matters. */
+function chatToolsOf(server, clientBot) {
+  if (server === TIKTOK_SERVER && clientBot) return TIKTOK_CLIENT_TOOLS;
+  return SERVER_TOOL_ALLOWLIST[server] ?? null;
+}
 
 // Tools open to /api/tool (direct call, no AI, no scope proxy): read tools
 // only, named one by one. A server absent from this map, or a tool absent from
@@ -449,6 +475,9 @@ const DIRECT_TOOL_ALLOWLIST = {
   ],
   "mcp-google-analytics": SERVER_TOOL_ALLOWLIST["mcp-google-analytics"],
   "mcp-google-sheet": SERVER_TOOL_ALLOWLIST["mcp-google-sheet"],
+  // No scope proxy here: the application checks the advertiser id itself, and
+  // only ever sends one it read from its own database or an admin typed.
+  [TIKTOK_SERVER]: ["get_advertiser_info", "get_report_integrated"],
 };
 
 /** "<server>.<tool>" → null when /api/tool may call it, the reason otherwise. */
@@ -552,7 +581,11 @@ const SCOPED_ADS_SERVERS = {
   "meta-ads-impulse": (scope) => scope.meta,
   "mcp-google-ads": (scope) => scope.google,
   "mcp-google-analytics": (scope) => scope.ga4,
+  [TIKTOK_SERVER]: (scope) => scope.tiktok,
 };
+// Servers whose open tools are also pinned in the proxy (SCOPED_TOOLS), not
+// only in the CLI's --allowedTools.
+const PROXY_PINNED_TOOLS = new Set([TIKTOK_SERVER]);
 
 /**
  * Builds the mcp-config the spawned CLI will see, pinning every scope in the
@@ -578,7 +611,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, workspaceDir = null, gwsAuthState = null }) {
+function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -664,6 +697,7 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
         SCOPED_SERVER_NAME: name,
         SCOPED_UPSTREAM_URL: upstream.url,
         SCOPED_ACCOUNTS: ids.join(","),
+        ...(PROXY_PINNED_TOOLS.has(name) ? { SCOPED_TOOLS: (chatToolsOf(name, clientBot) || []).join(",") } : {}),
       },
     };
     kept.push(name);
@@ -887,7 +921,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       catch (err) { gwsAuthState = { error: err.message }; }
     }
   }
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, workspaceDir, gwsAuthState });
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, workspaceDir, gwsAuthState, clientBot });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -895,9 +929,10 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   // Read-only tool allowlists: the GA4 MCP also exposes mutations
   // (create/update/archive custom dimensions, key events, retention…). No chat
   // caller — client bot or staff — may ever mutate a client property.
-  const toolPatterns = servers.flatMap((s) =>
-    SERVER_TOOL_ALLOWLIST[s] ? SERVER_TOOL_ALLOWLIST[s].map((t) => `mcp__${s}__${t}`) : [`mcp__${s}__*`],
-  );
+  const toolPatterns = servers.flatMap((s) => {
+    const tools = chatToolsOf(s, clientBot);
+    return tools ? tools.map((t) => `mcp__${s}__${t}`) : [`mcp__${s}__*`];
+  });
   if (useHq) toolPatterns.push(...HQ_READ_TOOLS.map((t) => `${hqToolPrefix}${t}`));
   // Built-ins are denied in --print mode unless allowed explicitly, like MCP tools.
   if (useWeb) toolPatterns.push(...builtinTools.filter((t) => t !== "ToolSearch"));
@@ -1444,15 +1479,19 @@ const server = http.createServer(async (req, res) => {
         const tmp = path.join(os.tmpdir(), `mcporter-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.out`);
         const fd = fs.openSync(tmp, "w");
         const cleanup = () => { try { fs.unlinkSync(tmp); } catch { /* already gone */ } };
+        // "error" (mcporter introuvable) est suivi de "close" : fermer deux fois
+        // le descripteur levait une exception hors de la promesse, et le relay tombait.
+        let open = true;
+        const closeFd = () => { if (open) { open = false; fs.closeSync(fd); } };
         const child = spawn(
           "mcporter", ["call", body.tool, "--args", JSON.stringify(toolInput), "--output", "json"],
           { cwd: "/root/ImpulseMotion", stdio: ["ignore", fd, "pipe"], timeout: timeoutMs }
         );
         let stderr = "";
         child.stderr.on("data", (c) => { stderr += c; });
-        child.on("error", (err) => { fs.closeSync(fd); cleanup(); reject(err); });
+        child.on("error", (err) => { closeFd(); cleanup(); reject(err); });
         child.on("close", (code, signal) => {
-          fs.closeSync(fd);
+          closeFd();
           if (signal) { cleanup(); reject(new Error(`mcporter killed (${signal}) after ${timeoutMs}ms`)); return; }
           if (code !== 0) { cleanup(); reject(new Error(`mcporter exit ${code}: ${stderr.slice(0, 300)}`)); return; }
           const stdout = fs.readFileSync(tmp, "utf8");

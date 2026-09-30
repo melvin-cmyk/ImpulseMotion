@@ -19,6 +19,10 @@
     "notion": {
       "type": "http",
       "url": "https://impulseai.app.n8n.cloud/mcp/notion-read-write-mcp"
+    },
+    "mcp-tiktok-ads": {
+      "type": "sse",
+      "url": "https://impulseai.app.n8n.cloud/mcp/tiktok-ads-mcp-v2/sse"
     }
   }
 }
