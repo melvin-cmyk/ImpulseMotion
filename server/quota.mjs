@@ -131,6 +131,8 @@ export function createQuotaMonitor(opts = {}) {
         kind: "switch",
         message: `${label} à ${lvl}% (5 h : ${pct(state.fiveHour)}%, 7 j : ${pct(state.sevenDay)}%). Les chats et rapports de l'équipe passent sur un autre compte Claude Max jusqu'à la remise à zéro (${fmt(state.fiveHour?.resetsAt)}) ; Amazon Bedrock reste réservé aux bots clients.`,
         value: lvl,
+        threshold: switchPct,
+        window: windowOf(),
       });
     } else if (lvl >= warnPct && lvl < switchPct && state.warnedFor !== key) {
       state.warnedFor = key;
@@ -139,6 +141,8 @@ export function createQuotaMonitor(opts = {}) {
         kind: "warn",
         message: `${label} à ${lvl}% (5 h : ${pct(state.fiveHour)}%, remise à zéro ${fmt(state.fiveHour?.resetsAt)} ; 7 j : ${pct(state.sevenDay)}%). Bascule automatique sur un autre compte Claude Max à ${switchPct}% (Bedrock reste réservé aux bots clients).`,
         value: lvl,
+        threshold: warnPct,
+        window: windowOf(),
       });
     }
   }
@@ -156,8 +160,15 @@ export function createQuotaMonitor(opts = {}) {
         kind: "switch",
         message: `${label} : le CLI Claude a refusé une requête (quota atteint : « ${state.exhaustedReason.slice(0, 120)} »). Les chats et rapports de l'équipe passent sur un autre compte Claude Max jusqu'à ${fmt(new Date(state.exhaustedUntil).toISOString())} ; Amazon Bedrock reste réservé aux bots clients.`,
         value: level(),
+        threshold: switchPct,
+        window: windowOf(),
       });
     }
+  }
+
+  /** Which window drives level(): the Slack line reads « fenêtre 7j » when the weekly cap is the binding one. */
+  function windowOf() {
+    return pct(state.sevenDay) > pct(state.fiveHour) ? "7j" : "5h";
   }
 
   function snapshot() {
@@ -204,7 +215,7 @@ function fmt(iso) {
 /** Posts a quota notice through the n8n alert webhook (payload v1, same as the app's alert rules). */
 export function makeWebhookNotifier({ url, secret, slackChannel, appUrl }) {
   if (!url || !slackChannel) return async () => {};
-  return async ({ kind, message, value }) => {
+  return async ({ kind, message, value, threshold = 0, window = "5h" }) => {
     const payload = {
       version: 1,
       event: {
@@ -212,9 +223,9 @@ export function makeWebhookNotifier({ url, secret, slackChannel, appUrl }) {
         triggeredAt: new Date().toISOString(),
         metric: "claude_max_usage",
         condition: "above",
-        threshold: 0,
+        threshold,
         value,
-        window: "5h",
+        window,
         message,
         accountId: "claude-max",
         accountLabel: "Abonnement Claude Max (relay)",
