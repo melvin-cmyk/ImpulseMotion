@@ -179,11 +179,11 @@ async function readCustomer(step: GoogleInsightsStep, customerId: string, ctx: P
 /** The customers of several clients: one that fails is said, the others are kept. */
 async function runClients(step: GoogleInsightsStep, ctx: StepContext, rowsIn: number): Promise<StepRunOutcome> {
   if (!ctx.accounts) return failed(rowsIn, "functional", "Périmètre de lecture inconnu : aucun compte client n'est lu.");
-  const { accounts, warnings } = await resolveClientAccounts(step.clients!, "google", ctx.accounts);
+  const { accounts, warnings, notices } = await resolveClientAccounts(step.clients!, "google", ctx.accounts);
   const columns = withClientColumns(columnsOf(step));
   if (!accounts.length) {
-    if (ctx.accounts.problem) return failed(rowsIn, "functional", ctx.accounts.problem, { warnings });
-    return done(rowsIn, 0, { output: { rows: { columns, rows: [], truncated: false } }, warnings });
+    if (ctx.accounts.problem) return failed(rowsIn, "functional", ctx.accounts.problem, { warnings, notices });
+    return done(rowsIn, 0, { output: { rows: { columns, rows: [], truncated: false } }, warnings, notices });
   }
   const { results, unread } = await readEachAccount(accounts, (a) => readCustomer(step, a.accountId, ctx), { deadlineAt: ctx.deadlineAt, signal: ctx.signal });
   const rows: Row[] = [];
@@ -196,11 +196,15 @@ async function runClients(step: GoogleInsightsStep, ctx: StepContext, rowsIn: nu
   }
   for (const f of failures.slice(0, 10)) warnings.push(`${f.account.clientName} (Google Ads ${f.account.accountId}) non lu : ${f.message}`);
   if (failures.length > 10) warnings.push(`${failures.length - 10} autres comptes Google Ads non lus.`);
-  if (unread) warnings.push(`Temps écoulé : ${unread} compte${unread > 1 ? "s" : ""} Google Ads non lu${unread > 1 ? "s" : ""}.`);
-  if (failures.length && failures.length === results.length) {
-    return failed(rowsIn, failures.every((f) => f.errorClass === "functional") ? "functional" : "infra", `Aucun compte Google Ads lu : ${failures[0].message}`, { warnings });
+  if (unread) {
+    const late = `Temps réservé à la suite de la routine : ${unread} compte${unread > 1 ? "s" : ""} Google Ads NON LU${unread > 1 ? "S" : ""} sur ${accounts.length}.`;
+    warnings.push(late);
+    notices.push(late);
   }
-  return done(rowsIn, rows.length, { output: { rows: { columns, rows, truncated } }, warnings });
+  if (failures.length && failures.length === results.length) {
+    return failed(rowsIn, failures.every((f) => f.errorClass === "functional") ? "functional" : "infra", `Aucun compte Google Ads lu : ${failures[0].message}`, { warnings, notices });
+  }
+  return done(rowsIn, rows.length, { output: { rows: { columns, rows, truncated } }, warnings, notices });
 }
 
 const NO_ACCOUNT = "aucun compte Google Ads n'est rattaché à la routine";

@@ -13,17 +13,23 @@ const db = vi.hoisted(() => ({
   clients: [] as Array<{ id: string; name: string; accountsJson: string; dormant: boolean; gone: boolean }>,
   users: new Map<string, { id: string; role: string }>(),
   assigned: new Map<string, Array<{ platform: string; accountId: string }>>(),
+  snapshot: null as null | { dataJson: string },
+  dashboards: [] as Array<{ name: string; slackChannel: string | null; slackChannelId: string | null }>,
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     alertClient: {
-      findMany: vi.fn(async ({ where }: { where: { gone?: boolean; id?: { in: string[] } } }) =>
+      findMany: vi.fn(async ({ where = {} }: { where?: { gone?: boolean; id?: { in: string[] } } } = {}) =>
         db.clients.filter((c) => (where.gone === undefined || c.gone === where.gone) && (!where.id || where.id.in.includes(c.id)))),
     },
     user: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => db.users.get(where.id) ?? null) },
     userAdAccount: { findMany: vi.fn(async ({ where }: { where: { userId: string } }) => db.assigned.get(where.userId) ?? []) },
     accountSetting: { findFirst: vi.fn(async () => null) },
-    dashboardSource: { findMany: vi.fn(async () => []) },
+    dashboardSource: {
+      findMany: vi.fn(async ({ where }: { where: { dashboardId: string } }) => (where.dashboardId === "d1" ? [{ externalId: "7111111111111111111" }] : [])),
+    },
+    cockpitSnapshot: { findFirst: vi.fn(async () => db.snapshot) },
+    dashboard: { findMany: vi.fn(async () => db.dashboards) },
   },
 }));
 // Consultants with an assigned scope, as lib/roles.ts would give them with CONSULTANT_FULL_ACCESS off.
@@ -86,6 +92,8 @@ beforeEach(() => {
     client(SLEEP, "Belle au bois", [account("meta", "444444")], { dormant: true }),
     client("cgoneclient00001", "Parti", [account("meta", "555555")], { gone: true }),
   ];
+  db.snapshot = null;
+  db.dashboards = [];
   db.users = new Map([["owner", { id: "owner", role: "consultant" }], ["admin", { id: "admin", role: "admin" }], ["other", { id: "other", role: "consultant" }]]);
   db.assigned = new Map([["owner", [{ platform: "meta", accountId: "111111" }, { platform: "meta", accountId: "222222" }, { platform: "google", accountId: "2222222222" }]]]);
   for (const fn of [...Object.values(meta), ...Object.values(tiktok), relayDirectTool]) fn.mockReset();
@@ -195,10 +203,11 @@ describe("comptes lus — périmètre relu à chaque exécution", () => {
     const reader = readerOver([ALL_ACCOUNTS], null, 3);
     const first = await resolveClientAccounts("all", "meta", reader);
     expect(first.accounts).toHaveLength(3);
-    expect(first.warnings.join(" ")).toMatch(/4 comptes Meta à lire : seuls les 3 premiers/);
+    expect(first.warnings.join(" ")).toMatch(/4 comptes Meta à lire : 3 lus, 1 NON LUS .*par ordre alphabétique/);
+    expect(first.notices).toEqual([first.warnings.find((w) => /NON LUS/.test(w))]);
     const second = await resolveClientAccounts([LPEV], "google", reader);
     expect(second.accounts).toEqual([]);
-    expect(second.warnings.join(" ")).toMatch(/seuls les 0 premiers/);
+    expect(second.notices.join(" ")).toMatch(/1 comptes Google Ads à lire : 0 lus, 1 NON LUS/);
     expect(MAX_ACCOUNTS_PER_RUN).toBe(40);
   });
 
@@ -334,7 +343,7 @@ describe("pages et IA", () => {
     const view = (over: Record<string, unknown>) => toRoutineView({ id: "r", clientName: "—", ...over })!;
     expect(routineClientLabel(view({}))).toBe("Routine libre");
     expect(routineClientLabel(view({ clientName: "Portefeuille" }))).toBe("Portefeuille (routine libre)");
-    expect(routineClientLabel(view({ definition: { version: 1, steps: [step({ clients: "all" })] } }))).toBe("Routine libre · Tous mes clients");
+    expect(routineClientLabel(view({ definition: { version: 1, steps: [step({ clients: "all" })] } }))).toBe("Routine libre · Tous les clients");
     expect(routineClientLabel(view({ definition: { version: 1, steps: [step({ clients: [JOW, LPEV] })] } }))).toBe("Routine libre · 2 clients");
     expect(routineClientLabel(view({ clientName: "LPEV", dashboardId: "d1", definition: { version: 1, steps: [step({ clients: [JOW] })] } }))).toBe("LPEV + 1 client");
     expect(routineClientLabel(view({ clientName: "LPEV", dashboardId: "d1" }))).toBe("LPEV");
@@ -342,7 +351,7 @@ describe("pages et IA", () => {
   });
 
   it("décrit les étapes en français", () => {
-    expect(describeStep(step({ clients: "all" }))).toBe("Lit les performances Meta de tous vos clients (un total par compte), 7 derniers jours : dépense, coût par conversion.");
+    expect(describeStep(step({ clients: "all" }))).toBe("Lit les performances Meta de tous les clients de l'agence (40 comptes au plus par exécution, les plus dépensiers d'abord, sinon par ordre alphabétique ; clients en sommeil exclus) (un total par compte), 7 derniers jours : dépense, coût par conversion.");
     expect(describeStep(step({ clients: [JOW, LPEV], level: "campaign" }), { [JOW]: "Jow", [LPEV]: "LPEV" })).toBe("Lit les performances Meta de Jow, LPEV par campagne, 7 derniers jours : dépense, coût par conversion.");
     expect(describeStep(step({ clients: [JOW, LPEV, ICN] }), { [JOW]: "Jow" })).toMatch(/de 3 clients \(dont Jow\)/);
     expect(describeStep(step())).toBe("Lit les performances Meta du compte, 7 derniers jours : dépense, coût par conversion.");
@@ -369,5 +378,120 @@ describe("pages et IA", () => {
     expect(buildRoutineComposePrompt({ name: "R", clientName: "LPEV", dashboardId: "d1", metaAccountId: "act_222222", googleCustomerId: null, timezone: "Europe/Paris" }))
       .toMatch(/CLIENT : "LPEV"/);
     expect(clientListText([])).toMatch(/aucun connu/);
+  });
+});
+
+// ── Corrections of the review ────────────────────────────────────────────
+
+import { clientChannelErrors, readEachAccount, recentSpendByAccount, type ClientAccount } from "@/lib/routines/clients";
+import { isAgencyEmail, looksLikeClientChannel, multiClientMessageErrors } from "@/lib/routines/client-selection";
+import { parseStoredDefinition } from "@/lib/routines/validate";
+import { hashDefinition } from "@/lib/routines/hash";
+import { readsTikTok, routineTikTokIds } from "@/lib/routines/store";
+import { MULTI_CLIENT_RESERVE_MS } from "@/lib/routines/types";
+
+describe("messages d'une routine sur plusieurs clients : l'agence seulement", () => {
+  const email = (to: string[]) => ({ id: "mail", type: "email.send", to, subject: "Point", body: "Bonjour", includeTable: true });
+
+  it("refuse un e-mail hors de l'agence et un canal nommé comme celui d'un client", () => {
+    const outside = validateDefinition({ version: 1, steps: [step({ clients: "all" }), email(["melvin@impulse-analytics.com", "patron@lpev.fr"])] });
+    expect(outside.ok).toBe(false);
+    if (!outside.ok) expect(outside.errors.join(" ")).toMatch(/adresses de l'agence \(@impulse-analytics\.com\) ; refusé : patron@lpev\.fr/);
+    const channel = validateDefinition({ version: 1, steps: [step({ clients: [JOW] }), { ...slack, channel: "#c_jow" }] });
+    expect(channel.ok).toBe(false);
+    if (!channel.ok) expect(channel.errors.join(" ")).toMatch(/jamais dans le canal d'un client/);
+    expect(validateDefinition({ version: 1, steps: [step({ clients: "all" }), email(["equipe@impulse-analytics.com"]), slack] }).ok).toBe(true);
+    // A routine of one client keeps writing to its client.
+    expect(validateDefinition({ version: 1, steps: [step(), email(["patron@lpev.fr"]), { ...slack, channel: "#c_lpev" }] }).ok).toBe(true);
+    expect(isAgencyEmail("A@Impulse-Analytics.com")).toBe(true);
+    expect(isAgencyEmail("a@impulse-analytics.com.evil.fr")).toBe(false);
+    expect(looksLikeClientChannel("c_lpev")).toBe(true);
+    expect(looksLikeClientChannel("#interne-perf")).toBe(false);
+    expect(multiClientMessageErrors([step(), email(["x@y.fr"])] as never)).toEqual([]);
+  });
+
+  it("refuse un canal enregistré pour un client (alertes ou dashboard), au nom comme à l'identifiant", async () => {
+    db.clients[0] = { ...db.clients[0], ...({ slackChannel: "#perf-lpev", slackChannelId: "C0LPEV0001" } as object) };
+    db.dashboards = [{ name: "Jow", slackChannel: "jow-equipe", slackChannelId: null }];
+    const def = (channel: string): RoutineDefinition => ({ version: 1, steps: [step({ clients: "all" }), { ...slack, channel } as never] });
+    expect((await clientChannelErrors(def("#PERF-LPEV")))[0]).toMatch(/canal du client « LPEV »/);
+    expect((await clientChannelErrors(def("C0LPEV0001")))[0]).toMatch(/LPEV/);
+    expect((await clientChannelErrors(def("#jow-equipe")))[0]).toMatch(/« Jow »/);
+    expect(await clientChannelErrors(def("#interne-perf"))).toEqual([]);
+    // Without `clients`, the client's channel is where its routine posts.
+    expect(await clientChannelErrors({ version: 1, steps: [step(), { ...slack, channel: "#perf-lpev" } as never] })).toEqual([]);
+  });
+
+  it("au chemin d'exécution : une définition enregistrée qui crée des publicités en lisant plusieurs clients est refusée", () => {
+    const stored = parseStoredDefinition(JSON.stringify({ version: 1, steps: [step({ clients: [JOW] }), sheet, createAds] }));
+    expect(stored.ok).toBe(false);
+    expect(parseStoredDefinition(JSON.stringify({ version: 1, steps: [step({ clients: [JOW] }), email(["x@lpev.fr"])] })).ok).toBe(false);
+  });
+});
+
+describe("temps et plafond", () => {
+  const acc = (n: number): ClientAccount => ({ clientId: `c${n}`, clientName: `Client ${n}`, platform: "meta", accountId: String(100000 + n), accountName: `C${n}`, currency: "EUR" });
+
+  it("« all » ne se lit qu'aux niveaux compte ou campagne", () => {
+    expect(metaInsightsHandler.validate(step({ clients: "all", level: "ad" })).ok).toBe(false);
+    expect(metaInsightsHandler.validate(step({ clients: "all", level: "adset" })).ok).toBe(false);
+    expect(metaInsightsHandler.validate(step({ clients: "all", level: "campaign" })).ok).toBe(true);
+    expect(metaInsightsHandler.validate(step({ clients: [JOW], level: "ad" })).ok).toBe(true);
+    expect(tiktokInsightsHandler.validate({ id: "t", type: "tiktok.insights", level: "day", window: "7d", metrics: ["spend"], clients: "all" }).ok).toBe(false);
+  });
+
+  it("ne lance plus de lecture quand il ne reste que la réserve, compte ce qui n'est pas lu, garde l'ordre", async () => {
+    const read = vi.fn(async (a: ClientAccount) => a.accountId);
+    const late = await readEachAccount([acc(1), acc(2), acc(3)], read, { deadlineAt: Date.now() + MULTI_CLIENT_RESERVE_MS - 1_000 });
+    expect(late).toEqual({ results: [], unread: 3 });
+    expect(read).not.toHaveBeenCalled();
+    const aborted = new AbortController();
+    aborted.abort();
+    expect((await readEachAccount([acc(1)], read, { deadlineAt: Date.now() + 600_000, signal: aborted.signal })).unread).toBe(1);
+    // Answers out of order: results in the order of the accounts.
+    const slow = async (a: ClientAccount) => { await new Promise((r) => setTimeout(r, a.accountId.endsWith("1") ? 30 : 1)); return a.accountId; };
+    const ok = await readEachAccount([acc(1), acc(2), acc(3), acc(4)], slow, { deadlineAt: Date.now() + 600_000 });
+    expect(ok.unread).toBe(0);
+    expect(ok.results.map((r) => r.result)).toEqual(["100001", "100002", "100003", "100004"]);
+  });
+
+  it("les plus dépensiers d'abord, d'après le dernier instantané du Global Cockpit", async () => {
+    db.snapshot = { dataJson: JSON.stringify({ clients: [
+      { platforms: { meta: { plat: "meta", accountId: "act_333333", spend: 900, spend_base: 800 } } },
+      { platforms: { m1: { plat: "meta", accountId: "111111", spend: 10, spend_base: null }, g: { plat: "google", accountId: "222-222-2222", spend: 5 } } },
+    ] }) };
+    expect((await recentSpendByAccount())?.get("google:2222222222")).toBe(5);
+    const { accounts, notices } = await resolveClientAccounts("all", "meta", readerOver([ALL_ACCOUNTS], null, 2));
+    expect(accounts.map((a) => a.accountId)).toEqual(["333333", "111111"]);
+    expect(notices.join(" ")).toMatch(/2 NON LUS .*les plus dépensiers de la semaine passée d'abord/);
+    db.snapshot = { dataJson: "pas du json" };
+    expect(await recentSpendByAccount()).toBeNull();
+  });
+
+  it("l'exécution dit combien de comptes ne sont pas lus", async () => {
+    const out = await metaInsightsHandler.run(step({ clients: "all" }), context(readerOver([ALL_ACCOUNTS], null, 1)));
+    expect(out.status).toBe("ok");
+    expect((out as { notices?: string[] }).notices?.join(" ")).toMatch(/1 lus, 3 NON LUS/);
+  });
+});
+
+describe("compatibilité", () => {
+  it("l'empreinte d'une définition sans « clients » ne change pas", () => {
+    const raw = { version: 1 as const, steps: [step(), slack] };
+    const checked = validateDefinition(raw);
+    expect(checked.ok).toBe(true);
+    if (!checked.ok) return;
+    expect("clients" in checked.value.steps[0]).toBe(false);
+    const args = { schedule: { kind: "manual" as const }, maxItemsPerRun: 20, metaAccountId: "act_222222", googleCustomerId: null, timezone: "Europe/Paris" };
+    expect(hashDefinition({ ...args, definition: checked.value })).toBe(hashDefinition({ ...args, definition: raw as RoutineDefinition }));
+  });
+
+  it("TikTok du client de la routine : lu sans « clients », pas avec", async () => {
+    const own = JSON.stringify({ steps: [{ id: "t", type: "tiktok.insights", level: "account", window: "7d", metrics: ["spend"] }] });
+    const many = JSON.stringify({ steps: [{ id: "t", type: "tiktok.insights", level: "account", window: "7d", metrics: ["spend"], clients: "all" }] });
+    expect(readsTikTok(own)).toBe(true);
+    expect(readsTikTok(many)).toBe(false);
+    expect(await routineTikTokIds({ dashboardId: "d1", definitionJson: own })).toEqual(["7111111111111111111"]);
+    expect(await routineTikTokIds({ dashboardId: "d1", definitionJson: many })).toEqual([]);
   });
 });

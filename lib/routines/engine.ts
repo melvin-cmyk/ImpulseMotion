@@ -27,7 +27,7 @@
  *     It is closed as interrupted (closeInterruptedRuns) and never replayed.
  */
 
-import { accountReaderFor, readsSeveralClients } from "@/lib/routines/clients";
+import { accountReaderFor, clientChannelErrors, readsSeveralClients } from "@/lib/routines/clients";
 import { hashDefinition } from "@/lib/routines/hash";
 import { notifyAutoDisabled, notifyDegraded } from "@/lib/routines/notify";
 import { catchUpDecision, computeNextRunAt, lastOccurrenceAt } from "@/lib/routines/schedule";
@@ -286,7 +286,10 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
     let accounts: AccountReader | undefined;
     if (loaded.ok && !fatal && readsSeveralClients(loaded.value.definition)) {
       try {
-        accounts = await accountReaderFor(routine, opts.startedById ?? null);
+        // A channel that has become a client's since the definition was applied stops the run before anything is read.
+        const channels = await clientChannelErrors(loaded.value.definition);
+        if (channels.length) fatal = { class: "functional", message: channels.join(" ") };
+        else accounts = await accountReaderFor(routine, opts.startedById ?? null);
       } catch (e) {
         fatal = { class: "infra", message: `Vérification du périmètre impossible : ${errorMessage(e)}` };
       }

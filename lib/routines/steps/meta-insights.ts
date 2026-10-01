@@ -213,6 +213,8 @@ export const metaInsightsHandler: StepHandler<MetaInsightsStep> = {
     if (step.clients !== undefined) {
       const clients = readClientSelection(step.clients);
       if (!clients.ok) return { ok: false, error: `meta.insights : ${clients.error}` };
+      // Every client, ad by ad, would read for nothing: the run's ceiling and time are spent long before.
+      if (clients.value === "all" && (level === "adset" || level === "ad")) return { ok: false, error: `meta.insights : "clients": "all" se lit au niveau "account" ou "campaign" seulement` };
       out.clients = clients.value;
     }
     return { ok: true, step: out };
@@ -314,10 +316,10 @@ async function readAccount(step: MetaInsightsStep, accountId: string, ctx: Pick<
 /** The accounts of several clients, one after the other: one that fails is said, the others are kept. */
 async function runClients(step: MetaInsightsStep, ctx: StepContext): Promise<StepRunOutcome> {
   if (!ctx.accounts) return failure("Périmètre de lecture inconnu : aucun compte client n'est lu.", "functional");
-  const { accounts, warnings } = await resolveClientAccounts(step.clients!, "meta", ctx.accounts);
+  const { accounts, warnings, notices } = await resolveClientAccounts(step.clients!, "meta", ctx.accounts);
   if (!accounts.length) {
-    if (ctx.accounts.problem) return failure(ctx.accounts.problem, "functional", warnings);
-    return { status: "ok", rowsIn: 0, rowsOut: 0, output: { rows: { columns: withClientColumns(baseColumns(step)), rows: [], truncated: false } }, planned: [], written: [], warnings };
+    if (ctx.accounts.problem) return { ...failure(ctx.accounts.problem, "functional", warnings), notices };
+    return { status: "ok", rowsIn: 0, rowsOut: 0, output: { rows: { columns: withClientColumns(baseColumns(step)), rows: [], truncated: false } }, planned: [], written: [], warnings, notices };
   }
   const { results, unread } = await readEachAccount(accounts, (a) => readAccount(step, a.accountId, ctx), { deadlineAt: ctx.deadlineAt, signal: ctx.signal });
   const rows: Row[] = [];
@@ -331,16 +333,20 @@ async function runClients(step: MetaInsightsStep, ctx: StepContext): Promise<Ste
   }
   for (const f of failures.slice(0, 10)) warnings.push(cleanMetaMessage(`${f.account.clientName} (Meta ${f.account.accountId}) non lu : ${f.message}`));
   if (failures.length > 10) warnings.push(`${failures.length - 10} autres comptes Meta non lus.`);
-  if (unread) warnings.push(`Temps écoulé : ${unread} compte${unread > 1 ? "s" : ""} Meta non lu${unread > 1 ? "s" : ""}.`);
+  if (unread) {
+    const late = `Temps réservé à la suite de la routine : ${unread} compte${unread > 1 ? "s" : ""} Meta NON LU${unread > 1 ? "S" : ""} sur ${accounts.length}.`;
+    warnings.push(late);
+    notices.push(late);
+  }
   if (failures.length && failures.length === results.length) {
     // Nothing could be read: the step fails, functional only when every account said so.
     const errorClass = failures.every((f) => f.errorClass === "functional") ? "functional" : "infra";
-    return failure(`Aucun compte Meta lu : ${failures[0].message}`, errorClass, warnings);
+    return { ...failure(`Aucun compte Meta lu : ${failures[0].message}`, errorClass, warnings), notices };
   }
   return {
     status: "ok", rowsIn: 0, rowsOut: rows.length,
     output: { rows: { columns: withClientColumns(baseColumns(step)), rows, truncated } },
-    planned: [], written: [], warnings,
+    planned: [], written: [], warnings, notices,
   };
 }
 

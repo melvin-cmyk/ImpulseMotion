@@ -678,6 +678,15 @@ describe("routines — reading several clients", () => {
     expect(seen.every((s) => s.ctx.accounts === undefined)).toBe(true);
   });
 
+  it("stops before any read when its channel has become a client's since it was applied", async () => {
+    const routine = await seed([allClients, slackStep]);
+    await db.alertClient.create({ data: { key: "meta:1", name: "LPEV", slackChannel: "#client" } });
+    const result = await dry(routine);
+    expect(result.status).toBe("failed");
+    expect(result.error).toMatch(/canal du client « LPEV »/);
+    expect(seen).toEqual([]);
+  });
+
   it("reads nothing when who answers for the routine is no longer of the team", async () => {
     const routine = await seed([allClients, slackStep]);
     db.user.rows.find((u) => u.id === "u1")!.role = "client";

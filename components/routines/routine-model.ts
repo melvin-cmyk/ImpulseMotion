@@ -8,7 +8,7 @@
  */
 
 import {
-  STEP_WRITES, WRITE_COUNT_KEYS, emptyCounts,
+  MAX_ACCOUNTS_PER_RUN, STEP_WRITES, WRITE_COUNT_KEYS, emptyCounts,
   type Cell, type PlannedWrite, type RoutineStep, type RowSet, type Schedule, type StepResult, type StepType, type WriteCounts,
 } from "@/lib/routines/types";
 import { counterTexts, type CounterText } from "@/lib/routines/counts";
@@ -160,13 +160,13 @@ export function toRoutineView(raw: unknown): RoutineView | null {
 /**
  * Who the routine works for, as the list and the page say it: its client,
  * « Routine libre » when it has none, and the clients its steps read beyond
- * its own (« Tous mes clients », « 3 clients »).
+ * its own (« Tous les clients », « 3 clients »).
  */
 export function routineClientLabel(r: Pick<RoutineView, "clientName" | "dashboardId" | "metaAccountId" | "googleCustomerId" | "steps">): string {
   const free = isFreeRoutine(r);
   const own = r.clientName && r.clientName !== "—" ? r.clientName : null;
   const reads = definitionClients(r.steps);
-  const many = reads.all ? "Tous mes clients" : reads.ids.length ? `${reads.ids.length} client${reads.ids.length > 1 ? "s" : ""}` : null;
+  const many = reads.all ? "Tous les clients" : reads.ids.length ? `${reads.ids.length} client${reads.ids.length > 1 ? "s" : ""}` : null;
   if (free && many) return `${own ? `${own} · ` : ""}Routine libre · ${many}`;
   if (free) return own ? `${own} (routine libre)` : "Routine libre";
   return many ? `${own ?? "—"} + ${many.charAt(0).toLowerCase()}${many.slice(1)}` : own ?? "—";
@@ -458,11 +458,11 @@ const q = (v: unknown) => `« ${String(v ?? "")} »`;
 const names = (list: unknown, map: Record<string, string>) =>
   (Array.isArray(list) ? list : []).map((m) => map[String(m)] ?? String(m)).join(", ");
 
-/** « de tous vos clients », « de Jow, Lpev », « de 3 clients » — or null for the routine's own accounts. */
+/** « de tous les clients de l'agence (…) », « de Jow, Lpev », « de 3 clients » — or null for the routine's own accounts. */
 function clientsPhrase(step: RoutineStep, names: Record<string, string>): string | null {
   const selection = stepClients(step);
   if (!selection) return null;
-  if (selection === "all") return "de tous vos clients";
+  if (selection === "all") return `de tous les clients de l'agence (${MAX_ACCOUNTS_PER_RUN} comptes au plus par exécution, les plus dépensiers d'abord, sinon par ordre alphabétique ; clients en sommeil exclus)`;
   const known = selection.map((id) => names[id]).filter((n): n is string => !!n);
   if (known.length === selection.length && known.length <= 4) return `de ${known.join(", ")}`;
   return `de ${selection.length} client${selection.length > 1 ? "s" : ""}${known.length ? ` (dont ${known.slice(0, 3).join(", ")})` : ""}`;

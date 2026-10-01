@@ -124,6 +124,7 @@ function validate(raw: unknown): Checked<TikTokInsightsStep> {
   const { level, window, metrics } = head.raw;
   const clients = head.raw.clients === undefined ? null : readClientSelection(head.raw.clients);
   if (clients && !clients.ok) return refuse(clients.error);
+  if (clients?.ok && clients.value === "all" && level === "day") return refuse(`"clients": "all" se lit au niveau "account" ou "campaign" seulement`);
   if (!TIKTOK_LEVELS.includes(level as Level)) return refuse(`level attendu : ${TIKTOK_LEVELS.join(", ")}`);
   if (!TIKTOK_WINDOWS.includes(window as Window)) return refuse(`window attendu : ${TIKTOK_WINDOWS.join(", ")}`);
   if (!Array.isArray(metrics) || metrics.length === 0) return refuse("metrics : au moins une métrique");
@@ -167,11 +168,11 @@ async function readAdvertiser(step: TikTokInsightsStep, a: RoutineTikTokAccount,
 /** The advertisers of several clients: one that fails is said, the others are kept. */
 async function runClients(step: TikTokInsightsStep, ctx: StepContext, rowsIn: number): Promise<StepRunOutcome> {
   if (!ctx.accounts) return failed(rowsIn, "functional", "Périmètre de lecture inconnu : aucun compte client n'est lu.");
-  const { accounts, warnings } = await resolveClientAccounts(step.clients!, "tiktok", ctx.accounts);
+  const { accounts, warnings, notices } = await resolveClientAccounts(step.clients!, "tiktok", ctx.accounts);
   const columns = withClientColumns(columnsOf(step));
   if (!accounts.length) {
-    if (ctx.accounts.problem) return failed(rowsIn, "functional", ctx.accounts.problem, { warnings });
-    return done(rowsIn, 0, { output: { rows: { columns, rows: [], truncated: false } }, warnings });
+    if (ctx.accounts.problem) return failed(rowsIn, "functional", ctx.accounts.problem, { warnings, notices });
+    return done(rowsIn, 0, { output: { rows: { columns, rows: [], truncated: false } }, warnings, notices });
   }
   const range = windowRange(step.window, ctx.routine.timezone, ctx.now);
   const { results, unread } = await readEachAccount(accounts, async (a) => {
@@ -190,15 +191,19 @@ async function runClients(step: TikTokInsightsStep, ctx: StepContext, rowsIn: nu
   }
   for (const f of failures.slice(0, 10)) warnings.push(`${f.account.clientName} (TikTok ${f.account.accountId}) non lu : ${f.message}`);
   if (failures.length > 10) warnings.push(`${failures.length - 10} autres comptes TikTok non lus.`);
-  if (unread) warnings.push(`Temps écoulé : ${unread} compte${unread > 1 ? "s" : ""} TikTok non lu${unread > 1 ? "s" : ""}.`);
+  if (unread) {
+    const late = `Temps réservé à la suite de la routine : ${unread} compte${unread > 1 ? "s" : ""} TikTok NON LU${unread > 1 ? "S" : ""} sur ${accounts.length}.`;
+    warnings.push(late);
+    notices.push(late);
+  }
   if (failures.length && failures.length === results.length) {
-    return failed(rowsIn, failures.every((f) => f.errorClass === "functional") ? "functional" : "infra", `Aucun compte TikTok lu : ${failures[0].message}`, { warnings });
+    return failed(rowsIn, failures.every((f) => f.errorClass === "functional") ? "functional" : "infra", `Aucun compte TikTok lu : ${failures[0].message}`, { warnings, notices });
   }
   if (step.level === "campaign") rows.sort((x, y) => Number(y.spend ?? 0) - Number(x.spend ?? 0));
   const truncated = unread > 0 || (step.level === "campaign" && rows.length > MAX_CAMPAIGNS);
   const kept = step.level === "campaign" ? rows.slice(0, MAX_CAMPAIGNS) : rows;
   if (kept.length < rows.length) warnings.push(`Plus de ${MAX_CAMPAIGNS} campagnes : seules les ${MAX_CAMPAIGNS} plus dépensières sont gardées.`);
-  return done(rowsIn, kept.length, { output: { rows: { columns, rows: kept, truncated } }, warnings });
+  return done(rowsIn, kept.length, { output: { rows: { columns, rows: kept, truncated } }, warnings, notices });
 }
 
 const NO_ACCOUNT = "aucun compte TikTok Ads n'est rattaché au client de la routine";

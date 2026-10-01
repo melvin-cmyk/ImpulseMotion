@@ -12,7 +12,8 @@
  *   - chaining: `input` names an earlier step that produces rows, and a step
  *     that consumes rows has a source above it;
  *   - one meta.create_ads step at most, and none in a routine whose read
- *     steps cover several clients (`clients`);
+ *     steps cover several clients (`clients`); such a routine e-mails the
+ *     agency's addresses only, and posts in no channel named as a client's;
  *   - templates within the grammar of lib/routines/template.ts, reading only
  *     earlier steps;
  *   - columns, when they can be known without reading anything (after a
@@ -23,7 +24,7 @@
  */
 
 import { findStepHandler } from "@/lib/routines/steps";
-import { definitionClients } from "@/lib/routines/client-selection";
+import { definitionClients, multiClientMessageErrors } from "@/lib/routines/client-selection";
 import { isValidTimezone } from "@/lib/routines/schedule";
 import { STEP_ID_RE, parseTemplate, rowOnlyTemplateError, type TemplateToken } from "@/lib/routines/template";
 import {
@@ -277,6 +278,8 @@ export function validateDefinition(input: unknown): Validation<RoutineDefinition
   if (creations.length && definitionClients(steps).multi) {
     errors.push("meta.create_ads est refusée dans une routine qui lit plusieurs clients (« clients ») : une routine qui crée des publicités travaille pour un seul client, sur le compte Meta de la routine.");
   }
+  // The figures of several clients stay inside the agency.
+  errors.push(...multiClientMessageErrors(steps));
 
   for (const [i, step] of steps.entries()) {
     const name = `Étape ${i + 1} « ${step.id} » (${step.type})`;

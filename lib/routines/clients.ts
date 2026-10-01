@@ -17,7 +17,12 @@
  *     nothing is frozen, a client that left the scope is no longer read;
  *   - an account of a named client that left the scope is skipped, and the
  *     run says so;
- *   - MAX_ACCOUNTS_PER_RUN accounts at most, all steps together.
+ *   - MAX_ACCOUNTS_PER_RUN accounts at most, all steps together, the most
+ *     spending first (latest Global Cockpit snapshot), and no read started
+ *     once MULTI_CLIENT_RESERVE_MS is all that is left of the run;
+ *   - the messages of such a routine stay inside the agency: no e-mail
+ *     outside AGENCY_EMAIL_DOMAINS, no channel of a client
+ *     (clientChannelErrors, here, and the pure rule of validate.ts).
  *
  * Who may SEE a routine that reads several clients, or a routine without a
  * client (routineVisible):
@@ -34,9 +39,9 @@ import { prisma } from "@/lib/prisma";
 import { effectiveRole } from "@/lib/roles";
 import { clientInScope, parseAlertAccounts, type AlertAccount } from "@/lib/auto-alerts/clients";
 import { bindingOutOfScope, getAccountScope, platformAccountInScope, type AccountScope } from "@/lib/scope";
-import { definitionClients, isFreeRoutine, storedDefinitionClients } from "@/lib/routines/client-selection";
+import { channelKey, definitionClients, isFreeRoutine, storedDefinitionClients } from "@/lib/routines/client-selection";
 import {
-  CLIENT_COLUMNS, MAX_ACCOUNTS_PER_RUN, type AccountReader, type AdPlatform, type ClientSelection, type RoutineDefinition, type Row,
+  CLIENT_COLUMNS, MAX_ACCOUNTS_PER_RUN, MULTI_CLIENT_RESERVE_MS, type AccountReader, type AdPlatform, type ClientSelection, type RoutineDefinition, type Row,
 } from "@/lib/routines/types";
 
 const PLATFORM_NAME: Record<AdPlatform, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
@@ -111,15 +116,47 @@ export interface ClientAccount {
 }
 
 /**
- * The accounts of one platform a step reads for its selection, in the order
- * of the clients' names, already counted against the ceiling of the run.
+ * Recent spend of each account ("<platform>:<accountId>" → spend of the last
+ * week and of its baseline, in the account's currency), read in the latest
+ * snapshot of the Global Cockpit, which is built twice a day anyway. Only an
+ * order of size: null when there is no snapshot, and the order is then the
+ * one of the clients' names.
+ */
+export async function recentSpendByAccount(): Promise<Map<string, number> | null> {
+  try {
+    const last = await prisma.cockpitSnapshot.findFirst({ orderBy: { createdAt: "desc" }, select: { dataJson: true } });
+    if (!last) return null;
+    const data = JSON.parse(last.dataJson) as { clients?: Array<{ platforms?: Record<string, { plat?: string; accountId?: string; spend?: number; spend_base?: number | null }> }> };
+    const out = new Map<string, number>();
+    for (const c of data.clients ?? []) {
+      for (const p of Object.values(c.platforms ?? {})) {
+        if (!p?.plat || !p.accountId) continue;
+        const id = p.plat === "meta" ? p.accountId.replace(/^act_/, "") : p.plat === "google" ? p.accountId.replace(/-/g, "") : p.accountId.trim();
+        const spend = (Number(p.spend) || 0) + (Number(p.spend_base) || 0);
+        out.set(`${p.plat}:${id}`, (out.get(`${p.plat}:${id}`) ?? 0) + spend);
+      }
+    }
+    return out.size ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What resolveClientAccounts gives: `notices` are said with the run, not only under the step. */
+export interface ResolvedAccounts { accounts: ClientAccount[]; warnings: string[]; notices: string[] }
+
+/**
+ * The accounts of one platform a step reads for its selection, the most
+ * spending first (latest Global Cockpit snapshot), in the order of the
+ * clients' names otherwise, already counted against the ceiling of the run.
  * Nothing outside the reader's scope ever comes out of here.
  */
 export async function resolveClientAccounts(
   selection: ClientSelection, platform: AdPlatform, reader: AccountReader,
-): Promise<{ accounts: ClientAccount[]; warnings: string[] }> {
+): Promise<ResolvedAccounts> {
   const warnings: string[] = [];
-  if (reader.problem) return { accounts: [], warnings: [reader.problem] };
+  const notices: string[] = [];
+  if (reader.problem) return { accounts: [], warnings: [reader.problem], notices: [reader.problem] };
   const all = selection === "all";
   const clients = await loadClients(all ? undefined : selection);
   if (!all) {
@@ -146,12 +183,20 @@ export async function resolveClientAccounts(
   }
   if (outside.length) warnings.push(`Compte${outside.length > 1 ? "s" : ""} hors du périmètre de la personne qui répond de la routine, non lu${outside.length > 1 ? "s" : ""} : ${outside.slice(0, 10).join(", ")}${outside.length > 10 ? "…" : ""}.`);
   if (without.length) warnings.push(`Sans compte ${PLATFORM_NAME[platform]} : ${without.slice(0, 10).join(", ")}${without.length > 10 ? "…" : ""}.`);
+  const spend = await recentSpendByAccount();
+  if (spend) {
+    const of = (a: ClientAccount) => spend.get(`${platform}:${a.accountId}`) ?? 0;
+    // Stable: same spend, order of the names.
+    wanted.sort((x, y) => of(y) - of(x));
+  }
   const granted = reader.take(wanted.length);
   if (granted < wanted.length) {
-    warnings.push(`${wanted.length} comptes ${PLATFORM_NAME[platform]} à lire : seuls les ${granted} premiers (ordre alphabétique des clients) sont lus, plafond de ${MAX_ACCOUNTS_PER_RUN} comptes par exécution.`);
+    const notice = `${wanted.length} comptes ${PLATFORM_NAME[platform]} à lire : ${granted} lus, ${wanted.length - granted} NON LUS (plafond de ${MAX_ACCOUNTS_PER_RUN} comptes par exécution ; ${spend ? "les plus dépensiers de la semaine passée d'abord" : "par ordre alphabétique des clients"}).`;
+    warnings.push(notice);
+    notices.push(notice);
   }
   if (all && wanted.length === 0) warnings.push(`Aucun client de votre périmètre n'a de compte ${PLATFORM_NAME[platform]} actif.`);
-  return { accounts: wanted.slice(0, granted), warnings };
+  return { accounts: wanted.slice(0, granted), warnings, notices };
 }
 
 /** Columns of a step that reads several clients: who first, then what the step reads. */
@@ -165,8 +210,10 @@ export function clientCells(a: ClientAccount): Row {
 }
 
 /**
- * Reads the accounts one after the other, a few at a time, and stops before
- * the end of the run's budget: what was not read is said. `read` never
+ * Reads the accounts a few at a time, and launches no new read once less than
+ * MULTI_CLIENT_RESERVE_MS is left of the run: the steps that follow (AI
+ * summary, message) keep their time, and a run that read for nothing is not
+ * repeated at every firing. What was not read is counted. `read` never
  * throws for one account: it says what went wrong.
  */
 export async function readEachAccount<T>(
@@ -177,7 +224,7 @@ export async function readEachAccount<T>(
   const results: Array<{ account: ClientAccount; result: T }> = [];
   let next = 0;
   let unread = 0;
-  const margin = opts.marginMs ?? 20_000;
+  const margin = opts.marginMs ?? MULTI_CLIENT_RESERVE_MS;
   async function worker() {
     while (next < accounts.length) {
       const account = accounts[next++];
@@ -228,7 +275,38 @@ export async function clientSelectionErrors(definition: RoutineDefinition, scope
     for (const id of selection) {
       const client = clients.get(id);
       if (!client) errors.push(`Étape ${i + 1} « ${step.id} » (${step.type}) : client « ${id} » inconnu. Reprends l'identifiant dans la liste des clients donnée en fin de prompt.`);
-      else if (!client.accounts.length || !clientInScope(scope, client.accounts)) errors.push(`Étape ${i + 1} « ${step.id} » (${step.type}) : le client « ${client.name} » n'est pas dans votre périmètre.`);
+      // Every account of the client, the rule routineVisible applies: what one applies, they may see.
+      else if (!client.accounts.length || !client.accounts.every((a) => platformAccountInScope(scope, a.platform, a.accountId))) errors.push(`Étape ${i + 1} « ${step.id} » (${step.type}) : le client « ${client.name} » n'est pas dans votre périmètre.`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * Slack steps of a routine that reads several clients that would post in a
+ * channel stored as a client's (AlertClient or Dashboard, name or id, gone
+ * clients included): refused, in French. The name rule (« #c_… ») is in
+ * validate.ts; this one needs the database, and is run where the definition
+ * is applied and again at the start of every run.
+ */
+export async function clientChannelErrors(definition: RoutineDefinition): Promise<string[]> {
+  if (!definitionClients(definition.steps).multi) return [];
+  const slack = definition.steps.filter((s) => s.type === "slack.message");
+  if (!slack.length) return [];
+  const [clients, dashboards] = await Promise.all([
+    prisma.alertClient.findMany({ select: { name: true, slackChannel: true, slackChannelId: true } }),
+    prisma.dashboard.findMany({ select: { name: true, slackChannel: true, slackChannelId: true } }),
+  ]);
+  const owners = new Map<string, string>();
+  for (const c of [...clients, ...dashboards]) {
+    for (const ch of [c.slackChannel, c.slackChannelId]) if (typeof ch === "string" && ch.trim()) owners.set(channelKey(ch), c.name);
+  }
+  const errors: string[] = [];
+  for (const step of slack) {
+    if (step.type !== "slack.message") continue;
+    const owner = owners.get(channelKey(step.channel));
+    if (owner) {
+      errors.push(`Étape « ${step.id} » (slack.message) : ${step.channel} est le canal du client « ${owner} ». Cette routine lit plusieurs clients : elle ne poste que dans un canal interne de l'agence.`);
     }
   }
   return errors;

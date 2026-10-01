@@ -31,7 +31,7 @@ import { handlerFor, writesPlatform } from "@/lib/routines/steps";
 import { proposalNotices } from "@/lib/routines/proposal-notices";
 import { actorOf, applyDefinition, chosenPageOf, getRoutine, routineForSession, routineTikTokIds, routineView } from "@/lib/routines/store";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
-import { clientSelectionErrors } from "@/lib/routines/clients";
+import { clientChannelErrors, clientSelectionErrors } from "@/lib/routines/clients";
 import { validateProposal } from "@/lib/routines/validate";
 import type { PreflightIssue, StepContext } from "@/lib/routines/types";
 
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const proposal = checked.value;
   const scope = await getAccountScope(guard.session);
   // The clients a step names must exist and be in the person's scope. What is read of them is decided again at every run.
-  const clientErrors = await clientSelectionErrors(proposal.definition, scope);
+  const clientErrors = [...await clientSelectionErrors(proposal.definition, scope), ...await clientChannelErrors(proposal.definition)];
   if (clientErrors.length) return NextResponse.json({ error: "proposition invalide", errors: clientErrors }, { status: 400 });
   // A definition that reads TikTok reads the client's TikTok accounts: they must be in the person's scope too.
   const tiktokOutside = scope.all ? null : bindingOutOfScope(scope, {

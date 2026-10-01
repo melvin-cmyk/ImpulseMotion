@@ -22,7 +22,7 @@ const CLIENT_ID_RE = /^[a-z0-9]{8,40}$/i;
 export function readClientSelection(value: unknown): { ok: true; value: ClientSelection } | { ok: false; error: string } {
   if (value === "all") return { ok: true, value: "all" };
   if (!Array.isArray(value) || value.length === 0) {
-    return { ok: false, error: `« clients » vaut "all" (tous vos clients) ou la liste des identifiants de clients (${MAX_LISTED_CLIENTS} au plus)` };
+    return { ok: false, error: `« clients » vaut "all" (tous les clients du périmètre) ou la liste des identifiants de clients (${MAX_LISTED_CLIENTS} au plus)` };
   }
   const ids: string[] = [];
   for (const raw of value) {
@@ -79,4 +79,47 @@ export function storedDefinitionClients(definitionJson: string | null | undefine
 /** A routine with no client of its own: no dashboard, no Meta nor Google account. */
 export function isFreeRoutine(r: { dashboardId?: string | null; metaAccountId?: string | null; googleCustomerId?: string | null }): boolean {
   return !r.dashboardId && !r.metaAccountId && !r.googleCustomerId;
+}
+
+// ── Where a routine of several clients may send ─────────────────────────
+
+/**
+ * Domains of the agency's own addresses. A routine that reads several
+ * clients puts the figures of one client next to those of others: its
+ * e-mails go to the agency only.
+ */
+export const AGENCY_EMAIL_DOMAINS = ["impulse-analytics.com"] as const;
+
+export function isAgencyEmail(address: string): boolean {
+  const domain = address.trim().toLowerCase().split("@").pop() ?? "";
+  return AGENCY_EMAIL_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
+/** « #c_lpev », « c_lpev »: the naming of the agency's channels opened per client (sometimes shared with the client). */
+export function looksLikeClientChannel(channel: string): boolean {
+  return /^#?c[_-]/i.test(channel.trim());
+}
+
+/** Same channel, whatever its spelling: « #C_LPEV » = « c_lpev »; a Slack id as it is. */
+export const channelKey = (channel: string): string => channel.trim().replace(/^#/, "").toLowerCase();
+
+/**
+ * Messages of a routine that reads several clients that would leave the
+ * agency: an e-mail outside AGENCY_EMAIL_DOMAINS, a channel named as a
+ * client's. Pure; the channels stored on a client are checked on the server
+ * (lib/routines/clients.ts, clientChannelErrors).
+ */
+export function multiClientMessageErrors(steps: ReadonlyArray<RoutineStep>): string[] {
+  if (!definitionClients(steps).multi) return [];
+  const errors: string[] = [];
+  for (const [i, step] of steps.entries()) {
+    const name = `Étape ${i + 1} « ${step.id} » (${step.type})`;
+    if (step.type === "email.send") {
+      const outside = (Array.isArray(step.to) ? step.to : []).filter((a) => typeof a === "string" && !isAgencyEmail(a));
+      if (outside.length) errors.push(`${name} : cette routine lit plusieurs clients, ses e-mails ne partent qu'à des adresses de l'agence (${AGENCY_EMAIL_DOMAINS.map((d) => `@${d}`).join(", ")}) ; refusé : ${outside.join(", ")}.`);
+    } else if (step.type === "slack.message" && typeof step.channel === "string" && looksLikeClientChannel(step.channel)) {
+      errors.push(`${name} : cette routine lit plusieurs clients, elle ne poste que dans un canal interne de l'agence, jamais dans le canal d'un client (${step.channel}).`);
+    }
+  }
+  return errors;
 }

@@ -25,7 +25,7 @@ import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay
 import { recordAiUsage } from "@/lib/ai-usage";
 import { chatJsonWith, readRoutineContext } from "@/lib/routines/context";
 import { routineAllowed } from "@/lib/routines/store";
-import { clientSelectionErrors, selectableClients } from "@/lib/routines/clients";
+import { clientChannelErrors, clientSelectionErrors, selectableClients } from "@/lib/routines/clients";
 import { proposalNotices } from "@/lib/routines/proposal-notices";
 import { validateProposal, type ProposalContext } from "@/lib/routines/validate";
 import { writesPlatform } from "@/lib/routines/steps";
@@ -82,7 +82,9 @@ async function checksOf(routine: Routine, messages: Array<{ role: string; conten
     if (check.kind === "none") continue;
     if (check.kind !== "valid") { out[proposalKey(i)] = { ok: false, errors: check.errors }; continue; }
     // Clients named by the proposal: known, and in the consultant's scope. Checked again when it is applied.
-    const clientErrors = await clientSelectionErrors(check.proposal.definition, scope).catch(() => ["Liste des clients illisible : réessayez."]);
+    const clientErrors = await Promise.all([clientSelectionErrors(check.proposal.definition, scope), clientChannelErrors(check.proposal.definition)])
+      .then(([a, b]) => [...a, ...b])
+      .catch(() => ["Liste des clients illisible : réessayez."]);
     out[proposalKey(i)] = clientErrors.length
       ? { ok: false, errors: clientErrors }
       : {

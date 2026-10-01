@@ -157,7 +157,7 @@ export default function NewRoutinePage() {
         <legend className="sr-only">Pour qui travaille la routine</legend>
         {([
           ["client", "Pour un client", "Ses comptes Meta, Google Ads et TikTok ; seule une routine de client peut créer des publicités."],
-          ["free", "Sans client (routine libre)", "Pour n'importe quoi : un Google Sheet, plusieurs clients ou tous vos clients, un résumé IA, Slack ou e-mail."],
+          ["free", "Sans client (routine libre)", "Pour n'importe quoi : un Google Sheet, plusieurs clients ou tous ceux de l'agence, un résumé IA, Slack ou e-mail."],
         ] as const).map(([value, title, text]) => (
           <label key={value} className={`flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer ${mode === value ? "border-violet-500 bg-violet-950/20" : "border-gray-800 bg-gray-950/50"}`}>
             <input type="radio" name="routine-mode" value={value} checked={mode === value} onChange={() => { setMode(value); setPageId(""); }} disabled={busy} className="accent-violet-600 mt-1" />
@@ -205,8 +205,9 @@ export default function NewRoutinePage() {
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
                   Remplace le nom du client dans la liste des routines. La routine n&apos;a aucun compte à elle : ses étapes de lecture
-                  nomment les clients qu&apos;elles lisent (ou « tous mes clients »), relus à chaque exécution dans votre périmètre.
-                  Elle ne crée pas de publicités, et ses messages partent dans le canal Slack ou aux adresses que vous donnez à l&apos;IA.
+                  nomment les clients qu&apos;elles lisent (ou tous les clients de l&apos;agence : 40 comptes au plus par exécution, les plus
+                  dépensiers d&apos;abord), relus à chaque exécution dans votre périmètre. Elle ne crée pas de publicités, et ses messages
+                  partent dans un canal Slack interne de l&apos;agence ou à des adresses @impulse-analytics.com, jamais chez un client.
                 </p>
                 {example?.key === "creas" && (
                   <p className="text-xs text-amber-300 mt-1.5">Cet exemple crée des publicités : il lui faut un client et son compte Meta Ads.</p>

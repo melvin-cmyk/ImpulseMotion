@@ -60,6 +60,12 @@ export const MAX_STEPS = 12;
 export const MAX_ACCOUNTS_PER_RUN = 40;
 /** Clients one step may name in its `clients` list. */
 export const MAX_LISTED_CLIENTS = 50;
+/**
+ * Time a step that reads several clients leaves to the rest of the run: no
+ * account read is started once less than this is left before the deadline
+ * (an AI summary and a message come after the reads).
+ */
+export const MULTI_CLIENT_RESERVE_MS = 90_000;
 /** Items written per run (Routine.maxItemsPerRun); the surplus waits for the next run. */
 export const DEFAULT_MAX_ITEMS_PER_RUN = 20;
 export const MAX_ITEMS_PER_RUN_CAP = 50;
