@@ -13,7 +13,7 @@
 import { prisma } from "@/lib/prisma";
 import { normGoogle, normMeta } from "@/lib/portfolio";
 import type { AccountScope } from "@/lib/scope";
-import { looksLikeId, parseAccounts } from "@/lib/auto-alerts/clients";
+import { looksLikeId, parseAlertAccounts } from "@/lib/auto-alerts/clients";
 
 export interface PendingClient {
   /** "account:meta=<id>,google=<id>,tiktok=<id>" — any part may be missing. */
@@ -53,6 +53,7 @@ export function buildPending(input: PendingInput): PendingClient[] {
   const free = {
     meta: input.scope.meta.map(normMeta).filter((id) => id && !input.covered.meta.has(id)),
     google: input.scope.google.map(normGoogle).filter((id) => id && !input.covered.google.has(id)),
+    tiktok: [...new Set(input.scope.tiktok ?? [])].filter((id) => /^\d{5,25}$/.test(id) && !input.covered.tiktok?.has(id)),
   };
   const groupOf = new Map<string, number>();
   const accountName = new Map<string, string>();
@@ -66,7 +67,7 @@ export function buildPending(input: PendingInput): PendingClient[] {
   // A client with several accounts on a platform gives several entries: the account tells them apart.
   const crowded = (key: string, group: number | undefined): boolean => {
     if (group === undefined) return false;
-    const platform = key.split(":")[0] as "meta" | "google";
+    const platform = key.split(":")[0] as keyof typeof free;
     return free[platform].filter((id) => groupOf.get(`${platform}:${id}`) === group).length > 1;
   };
   const nameOf = (keys: string[], group: number | undefined): string => {
@@ -77,6 +78,11 @@ export function buildPending(input: PendingInput): PendingClient[] {
     if (client && account && crowded(keys[0], group) && account.toLowerCase() !== client.toLowerCase()) return `${client} — ${account}`;
     return client ?? account ?? `Compte ${keys[0].split(":")[1]}`;
   };
+  const freeTikTok = free.tiktok;
+  /** The TikTok account of the same client, when the consultant has it too (one per entry). */
+  const tiktokOf = (group: number | undefined): string | undefined => (group === undefined
+    ? undefined
+    : freeTikTok.find((t) => groupOf.get(`tiktok:${t}`) === group && !used.has(`tiktok:${t}`)));
   for (const id of free.meta) {
     const key = `meta:${id}`;
     const group = groupOf.get(key);
@@ -84,19 +90,31 @@ export function buildPending(input: PendingInput): PendingClient[] {
     const google = group === undefined ? undefined : free.google.find((g) => groupOf.get(`google:${g}`) === group && !used.has(`google:${g}`));
     used.add(key);
     if (google) used.add(`google:${google}`);
-    out.push({ id: pendingId(id, google ?? null), name: nameOf(google ? [key, `google:${google}`] : [key], group), metaAccountId: id, googleCustomerId: google ?? null });
+    const tiktok = tiktokOf(group);
+    if (tiktok) used.add(`tiktok:${tiktok}`);
+    out.push({
+      id: pendingId(id, google ?? null, tiktok ?? null),
+      name: nameOf(google ? [key, `google:${google}`] : [key], group),
+      metaAccountId: id,
+      googleCustomerId: google ?? null,
+      ...(tiktok ? { tiktokAdvertiserId: tiktok } : {}),
+    });
   }
   for (const id of free.google) {
     const key = `google:${id}`;
     if (used.has(key)) continue;
-    out.push({ id: pendingId(null, id), name: nameOf([key], groupOf.get(key)), metaAccountId: null, googleCustomerId: id });
+    const group = groupOf.get(key);
+    const tiktok = tiktokOf(group);
+    if (tiktok) used.add(`tiktok:${tiktok}`);
+    out.push({ id: pendingId(null, id, tiktok ?? null), name: nameOf([key], group), metaAccountId: null, googleCustomerId: id, ...(tiktok ? { tiktokAdvertiserId: tiktok } : {}) });
   }
-  const freeTikTok = [...new Set(input.scope.tiktok ?? [])].filter((id) => /^\d{5,25}$/.test(id) && !input.covered.tiktok?.has(id));
   for (const id of freeTikTok) {
-    const label = input.labels.get(`tiktok:${id}`);
+    const key = `tiktok:${id}`;
+    if (used.has(key)) continue;
+    const name = nameOf([key], groupOf.get(key));
     out.push({
       id: pendingId(null, null, id),
-      name: label && !looksLikeId(label) ? label : `Compte TikTok ${id}`,
+      name: name.startsWith("Compte ") && looksLikeId(name.slice(7)) ? `Compte TikTok ${id}` : name,
       metaAccountId: null,
       googleCustomerId: null,
       tiktokAdvertiserId: id,
@@ -121,11 +139,15 @@ export async function pendingReportClients(userId: string, scope: AccountScope):
     if (!a.label) continue;
     labels.set(`${a.platform}:${a.platform === "meta" ? normMeta(a.accountId) : a.platform === "tiktok" ? a.accountId.trim() : normGoogle(a.accountId)}`, a.label);
   }
-  const groups = alertClients.map((c) => ({ name: c.name, accounts: parseAccounts(c.accountsJson) }));
+  const groups = alertClients.map((c) => ({ name: c.name, accounts: parseAlertAccounts(c.accountsJson) }));
   const every = groups.flatMap((g) => g.accounts);
   return buildPending({
     scope: scope.all
-      ? { meta: every.filter((a) => a.platform === "meta").map((a) => a.accountId), google: every.filter((a) => a.platform === "google").map((a) => a.accountId) }
+      ? {
+          meta: every.filter((a) => a.platform === "meta").map((a) => a.accountId),
+          google: every.filter((a) => a.platform === "google").map((a) => a.accountId),
+          tiktok: every.filter((a) => a.platform === "tiktok").map((a) => a.accountId),
+        }
       : { meta: [...scope.meta], google: [...scope.google], tiktok: [...scope.tiktok] },
     covered: {
       meta: new Set(boards.map((b) => (b.metaAccountId ? normMeta(b.metaAccountId) : "")).filter(Boolean)),

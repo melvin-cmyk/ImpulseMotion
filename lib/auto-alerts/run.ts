@@ -18,6 +18,16 @@ import { autoAlertWebhook, postDigest } from "@/lib/auto-alerts/slack";
 import { enabledKinds, isDue, parseConfig } from "@/lib/auto-alerts/config";
 import { parseAlertAccounts, syncAlertClients, type AlertAccount } from "@/lib/auto-alerts/clients";
 import { loadFx } from "@/lib/cockpit/fx";
+import { getAccountProfileSettings } from "@/lib/account-settings";
+
+/** Currency of a TikTok account matched by name (the sheet gives none): its profile, cached. */
+async function tiktokCurrency(advertiserId: string): Promise<string | null> {
+  try {
+    return (await getAccountProfileSettings("tiktok", advertiserId)).currency ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export interface RunOptions {
   /** Detect only: no incident written, nothing sent, no AI. */
@@ -123,6 +133,15 @@ export function tagAccount(account: AlertAccount, scan: Pick<ScanResult, "findin
   return { findings, evaluated: [...scan.evaluated].map((s) => `${s}@${account.accountId}`), dormant };
 }
 
+/**
+ * TikTok Ads is watched in a dry run (to measure it), and live only once
+ * AUTO_ALERTS_TIKTOK=1 is set after that measure: a new platform must not
+ * open in the clients' Slack channels with every break already under way.
+ */
+export function scansTikTok(opts: Pick<RunOptions, "dryRun">, env: Record<string, string | undefined> = process.env): boolean {
+  return !!opts.dryRun || env.AUTO_ALERTS_TIKTOK === "1";
+}
+
 export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
   const now = opts.now ?? new Date();
   const result: RunResult = { clients: 0, scanned: 0, withFindings: 0, messages: 0, aiCalls: 0, timedOut: false, errors: [], runs: [] };
@@ -143,6 +162,7 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
   result.clients = clients.length;
 
   const canSend = !opts.dryRun && autoAlertWebhook() !== null;
+  const scanTikTok = scansTikTok(opts);
   // EUR value of each currency: the thresholds of the detectors are amounts in EUR.
   const rates = (await loadFx()).rates;
   let next = 0;
@@ -151,7 +171,7 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
   const pending: Pending[] = [];
 
   const one = async (c: (typeof clients)[number]): Promise<ClientRun> => {
-    const accounts = parseAlertAccounts(c.accountsJson);
+    const accounts = parseAlertAccounts(c.accountsJson).filter((a) => a.platform !== "tiktok" || scanTikTok);
     const channel = c.slackChannel ?? c.slackChannelId ?? null;
     const target = c.slackChannelId ?? c.slackChannel ?? null;
     const kinds = enabledKinds(parseConfig(c.autoAlertConfig));
@@ -176,7 +196,7 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
         const scan = await within(
           a.platform === "meta" ? scanMetaAccount(a.accountId, now, rates)
             : a.platform === "google" ? scanGoogleAccount(a.accountId, a.currency ?? fallbackCurrency, now, rates)
-            : scanTikTokAccount(a.accountId, a.currency ?? fallbackCurrency, now, rates),
+            : scanTikTokAccount(a.accountId, a.currency ?? (await tiktokCurrency(a.accountId)) ?? fallbackCurrency, now, rates),
           label,
         );
         run.errors.push(...scan.errors.map((e) => (count[a.platform] > 1 ? `${a.name} — ${e}` : e)));

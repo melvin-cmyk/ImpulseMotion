@@ -125,7 +125,7 @@ export async function revokeUncoveredAccess(
 ): Promise<void> {
   const remaining = await prisma.dashboard.findMany({
     where: { OR: [{ userId }, { members: { some: { userId } } }] },
-    select: { metaAccountId: true, googleCustomerId: true, sources: { where: { kind: "tiktok" }, select: { externalId: true } } },
+    select: { metaAccountId: true, googleCustomerId: true, sources: { where: { kind: "tiktok", status: { not: "disabled" } }, select: { externalId: true } } },
   });
   const stillMeta = new Set(remaining.flatMap((d) => (d.metaAccountId ? [normMeta(d.metaAccountId)] : [])));
   const stillGoogle = new Set(remaining.flatMap((d) => (d.googleCustomerId ? [normGoogle(d.googleCustomerId)] : [])));

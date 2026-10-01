@@ -6,12 +6,11 @@
  * conversions at zero on an account that usually converts. No account status
  * nor billing (TikTok gives neither in a report), no drift.
  *
- * Unlike Google, a stop cannot be told from campaigns paused on purpose: the
- * relay does not open the campaign list to direct calls. The detector already
- * asks for a big enough account that spent the same weekday one week before.
+ * As for Google, a stop with no campaign switched on is a pause on purpose,
+ * not a break: `spend_stopped` is then dropped (campaign list, read only).
  */
 
-import { fetchTikTokDaily, type TikTokDailyRow } from "@/lib/tiktok-data";
+import { fetchTikTokDaily, tiktokHasActiveCampaign, type TikTokDailyRow } from "@/lib/tiktok-data";
 import { addDays, todayIn } from "@/lib/date-ranges";
 import { detectFromDays, fillDays, type DayPoint, type FindingKind } from "@/lib/auto-alerts/detect";
 import { hourIn, type ScanResult } from "@/lib/auto-alerts/meta";
@@ -37,8 +36,12 @@ export async function scanTikTokAccount(advertiserId: string, currency: string, 
     const full = points.slice(0, -1);
     const todayPoint = points[points.length - 1];
     out.series = full;
-    const found = detectFromDays({ platform: "tiktok", full, today: { spend: todayPoint.spend, hour: hourIn(TZ, now) }, currency, eurRate: rates[currency] });
-    out.findings.push(...found.filter((f) => CLEAN_BREAKS.has(f.kind)));
+    let found = detectFromDays({ platform: "tiktok", full, today: { spend: todayPoint.spend, hour: hourIn(TZ, now) }, currency, eurRate: rates[currency] })
+      .filter((f) => CLEAN_BREAKS.has(f.kind));
+    if (found.some((f) => f.kind === "spend_stopped") && !(await tiktokHasActiveCampaign(advertiserId))) {
+      found = found.filter((f) => f.kind !== "spend_stopped");
+    }
+    out.findings.push(...found);
     out.evaluated.add("tiktok:days");
   } catch (e) {
     out.errors.push(`tiktok jours : ${e instanceof Error ? e.message : String(e)}`);

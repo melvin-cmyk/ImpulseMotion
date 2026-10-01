@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { isValidHqSlug } from "@/lib/hq-client-context";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor, denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
-import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
+import { bindingOutOfScope, getAccountScope, TIKTOK_SOURCES_SELECT } from "@/lib/scope";
 import { bindTikTokAdvertiser, checkTikTokBinding } from "@/lib/tiktok-binding";
 import { getDashboardTikTokAccounts } from "@/lib/tiktok-dashboard";
 import type { TikTokAdvertiser } from "@/lib/tiktok-accounts";
@@ -125,7 +125,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const denied = await denyIfDashboardOutOfScope(guard.session, id);
   if (denied) return denied;
 
-  const existing = await prisma.dashboard.findUnique({ where: { id } });
+  // With its TikTok advertisers: a change of owner must take them back from the old one too.
+  const existing = await prisma.dashboard.findUnique({ where: { id }, include: { sources: TIKTOK_SOURCES_SELECT } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
