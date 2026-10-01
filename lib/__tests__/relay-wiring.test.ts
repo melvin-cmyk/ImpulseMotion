@@ -117,6 +117,7 @@ async function startRelay(extraEnv: Record<string, string> = {}) {
       RELAY_SHARED_SECRET: SECRET,
       RELAY_CLAUDE_CWD: state(),
       MAX_ACCOUNTS_FILE: path.join(root, "accounts.json"),
+      QUOTA_STATE_FILE: path.join(root, "quota-notified.json"),
       HQ_OAUTH_FILE: path.join(root, "hq-oauth.json"),
       STUB_DIR: stubDir(),
     },
