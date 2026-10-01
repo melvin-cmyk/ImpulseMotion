@@ -11,10 +11,10 @@
  */
 
 export type Severity = "critical" | "warning";
-export type AutoPlatform = "meta" | "google";
+export type AutoPlatform = "meta" | "google" | "tiktok";
 
 /** Group of checks fed by one fetch; an incident is only resolved when its scope was evaluated. */
-export type Scope = "meta:account" | "meta:days" | "meta:ads" | "meta:pacing" | "google:days";
+export type Scope = "meta:account" | "meta:days" | "meta:ads" | "meta:pacing" | "google:days" | "tiktok:days";
 
 export type FindingKind =
   | "access_lost"
@@ -117,8 +117,9 @@ export interface DaysInput {
   eurRate?: number;
 }
 
-const scopeOf = (p: AutoPlatform): Scope => (p === "google" ? "google:days" : "meta:days");
-const label = (p: AutoPlatform) => (p === "google" ? "Google Ads" : "Meta Ads");
+const scopeOf = (p: AutoPlatform): Scope => `${p}:days`;
+const LABEL: Record<AutoPlatform, string> = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" };
+const label = (p: AutoPlatform) => LABEL[p];
 
 /** Account-level checks on the daily series. */
 export function detectFromDays(input: DaysInput): Finding[] {

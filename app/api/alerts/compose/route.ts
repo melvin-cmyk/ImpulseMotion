@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
 import { composeAlertProposal } from "@/lib/alert-ai";
+import { parseAlertPlatform } from "@/lib/alert-entities";
 
 export const maxDuration = 60;
 
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (text.length < 8) return NextResponse.json({ error: "décrivez l'alerte en une phrase" }, { status: 400 });
   try {
-    const platform = body.platform === "google" ? "google" : "meta";
+    const platform = parseAlertPlatform(body.platform);
     const proposal = await composeAlertProposal(text, { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role }, platform);
     return NextResponse.json({ proposal });
   } catch (e) {

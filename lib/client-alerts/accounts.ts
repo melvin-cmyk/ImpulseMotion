@@ -23,8 +23,8 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { getAccountScope, googleInScope, metaInScope } from "@/lib/scope";
-import { parseAccounts } from "@/lib/auto-alerts/clients";
+import { getAccountScope, platformAccountInScope } from "@/lib/scope";
+import { parseAlertAccounts } from "@/lib/auto-alerts/clients";
 import type { AlertAccountRef } from "@/lib/client-alerts/types";
 
 export type UsableAccounts =
@@ -50,8 +50,8 @@ export async function usableAccounts(
   if (!client || client.gone) return { state: "gone", accounts: [], reason: clientGoneText(client?.name ?? alert.clientName) };
   // Only the accounts the person may read: an alert never opens the figures of an account out of scope.
   const scope = await getAccountScope(session);
-  const accounts = parseAccounts(client.accountsJson)
-    .filter((a) => (a.platform === "meta" ? metaInScope(scope, a.accountId) : googleInScope(scope, a.accountId)));
+  const accounts = parseAlertAccounts(client.accountsJson)
+    .filter((a) => platformAccountInScope(scope, a.platform, a.accountId));
   if (!accounts.length) return { state: "noAccess", accounts: [], reason: NO_ACCESS };
   return { state: "ok", accounts, clientName: client.name };
 }
@@ -65,7 +65,7 @@ export async function goneClients(ids: Array<string | null | undefined>): Promis
   return new Set(wanted.filter((id) => !alive.has(id)));
 }
 
-const PLATFORM_FR = { meta: "Meta", google: "Google Ads" } as const;
+const PLATFORM_FR = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" } as const;
 
 /** What the person reads when the replay has to wait for an account. */
 export function unreadText(unread: AlertAccountRef[]): string {

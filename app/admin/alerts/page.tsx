@@ -10,6 +10,7 @@ import {
   CONDITIONS,
   ComposeBlock,
   EMPTY_DRAFT,
+  PLATFORMS,
   PlatformSwitch,
   applyProposal,
   draftToBody,
@@ -250,7 +251,7 @@ export default function AdminAlertsPage() {
                   className={`${inputCls} disabled:opacity-50`}
                 >
                   {/* An account-agnostic rule spans every account of the platform → admins only. */}
-                  <option value="">{isAdmin ? `Tous (${draft.platform === "google" ? "Google Ads" : "Meta Ads"})` : "— Sélectionner —"}</option>
+                  <option value="">{isAdmin ? `Tous (${PLATFORMS.find((p) => p.value === draft.platform)?.label})` : "— Sélectionner —"}</option>
                   {accountOptions.map((a) => (
                     <option key={a.accountId} value={a.accountId}>{a.label ?? a.accountId}</option>
                   ))}

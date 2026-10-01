@@ -40,7 +40,7 @@ const METRIC: Record<AlertMetric, { label: string; format: (n: number) => string
   revenue: { label: "Revenu", format: euros },
   ctr: { label: "CTR", format: percent },
 };
-const PLATFORM: Record<AlertPlatform, string> = { meta: "Meta", google: "Google" };
+const PLATFORM: Record<AlertPlatform, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
 
 // ── Dates ────────────────────────────────────────────────────────────────────
 

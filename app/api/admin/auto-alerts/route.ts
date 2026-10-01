@@ -65,6 +65,7 @@ export async function GET() {
       accounts: c.accounts.map((a) => ({ platform: a.platform, accountId: a.accountId, name: a.name })),
       meta: c.accounts.some((a) => a.platform === "meta"),
       google: c.accounts.some((a) => a.platform === "google"),
+      tiktok: c.accounts.some((a) => a.platform === "tiktok"),
       enabled: c.autoAlerts,
       dormant: c.dormant,
       lastScanAt: c.lastScanAt,

@@ -129,7 +129,7 @@ export function AlertsAssistant() {
     <div className="space-y-6">
       <PageHeader
         title="Alertes"
-        subtitle="Choisissez un client et dites, en une phrase, de quoi vous voulez être prévenu. L'IA propose l'alerte sur ses comptes Meta et Google Ads réunis ; vous validez, puis vous recevez un message privé dans Slack quand elle se déclenche."
+        subtitle="Choisissez un client et dites, en une phrase, de quoi vous voulez être prévenu. L'IA propose l'alerte sur ses comptes Meta, Google Ads et TikTok Ads réunis ; vous validez, puis vous recevez un message privé dans Slack quand elle se déclenche."
         action={
           <div className="flex items-center gap-4 shrink-0 ml-4">
             {/* The rules set by hand still run: they keep a way in. */}

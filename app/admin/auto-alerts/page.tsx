@@ -9,13 +9,14 @@ type Channel = { id: string; name: string; isPrivate: boolean; isMember: boolean
 type Incident = { id: string; severity: string; title: string; detail: string; firstSeenAt: string; notifiedAt: string | null; notifyError: string | null };
 type Config = { topics: Record<string, boolean>; frequency: string; weekdaysOnly: boolean };
 type SlackStatus = "connected" | "public" | "absent" | "none" | "unknown";
-type Account = { platform: "meta" | "google"; accountId: string; name: string };
+type Account = { platform: "meta" | "google" | "tiktok"; accountId: string; name: string };
 type Client = {
   clientId: string;
   name: string;
   accounts: Account[];
   meta: boolean;
   google: boolean;
+  tiktok: boolean;
   enabled: boolean;
   /** no account spent anything over the last ten days */
   dormant: boolean;
@@ -127,7 +128,7 @@ export default function AutoAlertsPage() {
         subtitle={<>Chaque compte est vérifié sans réglage. Seules les ruptures nettes partent dans Slack : compte bloqué, dépense à l&apos;arrêt, en forte baisse ou qui double, plus aucune conversion. Un message seulement quand quelque chose change, dix au plus par passage ; performance, budget et créas s&apos;activent client par client. {linked}/{data.clients.length} clients reliés à Slack · {openIncidents} point{openIncidents > 1 ? "s" : ""} en cours.</>}
         action={
           <div className="flex items-center gap-2">
-            <button className={ghostBtnCls} disabled={!!busy} title="Relit les comptes Meta et Google Ads : nouveaux comptes, comptes renommés" onClick={() => act("sync", async () => {
+            <button className={ghostBtnCls} disabled={!!busy} title="Relit les comptes Meta et Google Ads, et les comptes TikTok rattachés aux clients : nouveaux comptes, comptes renommés" onClick={() => act("sync", async () => {
               const res = await call("POST", { action: "sync" });
               const added = res.created ? `, ${res.created} nouveau${res.created > 1 ? "x" : ""}` : "";
               return `${res.clients} clients${added}.${res.warnings?.length ? ` ${res.warnings.join(" · ")}` : ""}`;
@@ -239,7 +240,7 @@ export default function AutoAlertsPage() {
                 <button className="text-left min-w-0 flex-1" onClick={() => setOpen(isOpen ? null : c.clientId)}>
                   <span className="text-sm font-medium text-white">{c.name}</span>
                   <span className="ml-2 text-[11px] text-gray-500">
-                    {[c.meta && "Meta", c.google && "Google"].filter(Boolean).join(" · ")}
+                    {[c.meta && "Meta", c.google && "Google", c.tiktok && "TikTok"].filter(Boolean).join(" · ")}
                     {c.accounts.length > 1 && ` · ${c.accounts.length} comptes`}
                   </span>
                   {c.dormant && <span title="Aucune dépense sur les dix derniers jours"><Pill className="ml-2">sans dépense</Pill></span>}
@@ -282,7 +283,7 @@ export default function AutoAlertsPage() {
                     <p className="text-xs text-gray-400">Compte{c.accounts.length > 1 ? "s" : ""} surveillé{c.accounts.length > 1 ? "s" : ""}</p>
                     {c.accounts.map((a) => (
                       <p key={`${a.platform}:${a.accountId}`} className="text-xs text-gray-300">
-                        {a.platform === "meta" ? "Meta Ads" : "Google Ads"} · {a.name} <span className="text-gray-600">{a.accountId}</span>
+                        {a.platform === "meta" ? "Meta Ads" : a.platform === "google" ? "Google Ads" : "TikTok Ads"} · {a.name} <span className="text-gray-600">{a.accountId}</span>
                       </p>
                     ))}
                   </div>

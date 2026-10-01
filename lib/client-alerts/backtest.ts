@@ -128,7 +128,12 @@ export function backtest(def: AlertDefinition, series: ClientSeries, opts: { now
   }
   const platforms = new Set(def.accounts.map((a) => a.platform));
   if (def.aggregation !== "each" && platforms.size > 1 && CONVERSION_METRICS.includes(def.metric)) {
-    notes.push("Meta et Google sont additionnés : la même vente peut être comptée par Meta et par Google, le total peut dépasser les ventes réelles.");
+    if (!platforms.has("tiktok")) {
+      notes.push("Meta et Google sont additionnés : la même vente peut être comptée par Meta et par Google, le total peut dépasser les ventes réelles.");
+    } else {
+      const names = (["meta", "google", "tiktok"] as const).filter((p) => platforms.has(p)).map((p) => PLATFORM_LABEL[p]);
+      notes.push(`${names.slice(0, -1).join(", ")} et ${names[names.length - 1]} sont additionnés : la même vente peut être comptée par plusieurs plateformes, le total peut dépasser les ventes réelles.`);
+    }
   }
   const foreign = mine.filter((a): a is NonNullable<typeof a> => !!a && !a.error && a.currency !== "EUR");
   for (const a of foreign) {

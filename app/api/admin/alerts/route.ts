@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { validateNotify } from "@/lib/alert-notify";
-import { parseFilter, validateRuleInput } from "@/lib/alert-entities";
+import { parseAlertPlatform, parseFilter, validateRuleInput } from "@/lib/alert-entities";
 import { BUDGET_PACING_METRIC } from "@/lib/alerts";
 import { accountIdInScope, getAccountScope } from "@/lib/scope";
 
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { userId, clientId } = body;
   if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
-  const platform = body.platform === "google" ? "google" : "meta";
+  const platform = parseAlertPlatform(body.platform);
   const spec = validateRuleInput(body, { platform });
   if (!spec.ok) return NextResponse.json({ error: spec.error }, { status: 400 });
   const scope = await getAccountScope(guard.session);

@@ -88,7 +88,7 @@ describe("alertes client — prompt de l'IA", () => {
   });
 
   it("couvre Meta et Google ensemble par défaut, et dit quand juger chaque plateforme seule", () => {
-    expect(fixed).toContain('par défaut l\'alerte additionne les comptes Meta et Google Ads du client ("combined")');
+    expect(fixed).toContain('par défaut l\'alerte additionne les comptes Meta, Google Ads et TikTok Ads du client ("combined")');
     expect(fixed).toContain('Choisis "each" seulement quand le consultant veut que chaque plateforme soit jugée seule');
   });
 

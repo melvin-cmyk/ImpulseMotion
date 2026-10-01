@@ -50,7 +50,9 @@ const AGGREGATIONS: readonly AlertAggregation[] = ["combined", "each"];
 const COMPARES: readonly AlertCompare[] = ["previous_window", "same_weekdays"];
 const CHECKS: readonly AlertChecks[] = ["1x", "2x", "4x"];
 
-const PLATFORM_FR: Record<AlertPlatform, string> = { meta: "Meta", google: "Google Ads" };
+const PLATFORM_FR: Record<AlertPlatform, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
+const PLATFORMS: readonly AlertPlatform[] = ["meta", "google", "tiktok"];
+const isPlatform = (v: unknown): v is AlertPlatform => PLATFORMS.includes(v as AlertPlatform);
 const METRIC_FR: Record<AlertMetric, string> = {
   spend: "la dépense", conversions: "les conversions", cpa: "le coût par conversion (CPA)",
   roas: "le ROAS", revenue: "le revenu", ctr: "le taux de clic (CTR)",
@@ -128,7 +130,7 @@ export function validateAlertProposal(input: unknown, ctx: { accounts: AlertAcco
 
   // ── Optional fields: the owner's defaults when the AI leaves them out ──
   const aggregation = oneOf(input.aggregation, AGGREGATIONS, ALERT_DEFAULTS.aggregation,
-    (v) => refuse(`Regroupement inconnu : ${shown(v)}. Possibles : Meta et Google Ads additionnés, ou chaque plateforme jugée seule.`, `"aggregation" : ${list(AGGREGATIONS)}`));
+    (v) => refuse(`Regroupement inconnu : ${shown(v)}. Possibles : toutes les plateformes additionnées, ou chaque plateforme jugée seule.`, `"aggregation" : ${list(AGGREGATIONS)}`));
   const compare = oneOf(input.compare, COMPARES, ALERT_DEFAULTS.compare,
     (v) => refuse(`Comparaison inconnue : ${shown(v)}. Possibles : les jours d'avant, ou les mêmes jours une semaine plus tôt.`, `"compare" : ${list(COMPARES)}`));
   // « The same weekdays » of a window longer than a week would be weeks away from it: not what anyone means.
@@ -206,7 +208,7 @@ function yesNo(raw: unknown, fallback: boolean, refuse: () => void): boolean {
 }
 
 type Refuse = (sentence: string, hint: string) => void;
-const ACCOUNTS_HINT = `"accounts" : à omettre pour couvrir tous les comptes, sinon [{"platform":"meta" | "google","accountId":"<identifiant recopié du contexte>"}]`;
+const ACCOUNTS_HINT = `"accounts" : à omettre pour couvrir tous les comptes, sinon [{"platform":"meta" | "google" | "tiktok","accountId":"<identifiant recopié du contexte>"}]`;
 
 /** The accounts the alert covers, in the order of the client's list; none asked = all of them. */
 function pickAccounts(raw: unknown, mine: AlertAccountRef[], refuse: Refuse): AlertAccountRef[] {
@@ -230,8 +232,8 @@ function pickAccounts(raw: unknown, mine: AlertAccountRef[], refuse: Refuse): Al
       refuse("Un compte de la liste n'a pas d'identifiant : chaque compte se désigne par sa plateforme et son identifiant.", ACCOUNTS_HINT);
       continue;
     }
-    if (platform !== "meta" && platform !== "google") {
-      refuse(`Plateforme inconnue pour le compte ${accountId.trim().slice(0, 40)} : ${shown(platform)}. Seuls Meta et Google Ads sont couverts.`, ACCOUNTS_HINT);
+    if (!isPlatform(platform)) {
+      refuse(`Plateforme inconnue pour le compte ${accountId.trim().slice(0, 40)} : ${shown(platform)}. Seuls Meta, Google Ads et TikTok Ads sont couverts.`, ACCOUNTS_HINT);
       continue;
     }
     const key = accountKey(platform, accountId);
@@ -299,7 +301,7 @@ function dataFindings(def: AlertDefinition, series: ClientSeries | null): { erro
   }
 
   // Revenue: the sum of the accounts that track a value.
-  const platforms = (["meta", "google"] as const).filter((p) => readAccounts.some((a) => a.platform === p));
+  const platforms = PLATFORMS.filter((p) => readAccounts.some((a) => a.platform === p));
   const silent = platforms.filter((p) => !tracking.some((a) => a.platform === p));
   if (def.aggregation === "each" && silent.length) {
     errors.push(`${PLATFORM_FR[silent[0]]} ne remonte aucune valeur de conversion : son revenu ne peut pas être jugé séparément. Limitez l'alerte aux comptes qui en remontent une, ou surveillez le nombre de conversions.`);

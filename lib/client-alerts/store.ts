@@ -34,7 +34,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { todayIn } from "@/lib/date-ranges";
-import { parseAccounts, type AlertAccount } from "@/lib/auto-alerts/clients";
+import { parseAlertAccounts, type AlertAccount } from "@/lib/auto-alerts/clients";
 import { randomUUID } from "node:crypto";
 import { DELIVERY_UNKNOWN, MAX_DELIVERY_FAILURES, type Evaluation } from "@/lib/client-alerts/types";
 
@@ -91,7 +91,7 @@ export interface AlertClientState { name: string; gone: boolean; accounts: Alert
 /** The client an alert was made from, as it is today; null when the row no longer exists. */
 export async function alertClientState(id: string): Promise<AlertClientState | null> {
   const c = await prisma.alertClient.findUnique({ where: { id }, select: { name: true, gone: true, accountsJson: true } });
-  return c ? { name: c.name, gone: c.gone, accounts: parseAccounts(c.accountsJson) } : null;
+  return c ? { name: c.name, gone: c.gone, accounts: parseAlertAccounts(c.accountsJson) } : null;
 }
 
 /** The accounts of the alert are no longer those of its client: a person decides what it becomes. */

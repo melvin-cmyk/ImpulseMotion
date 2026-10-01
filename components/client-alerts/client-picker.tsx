@@ -19,6 +19,7 @@ export function PlatformBadges({ accounts, className }: { accounts: Array<{ plat
     <span className={`inline-flex items-center gap-1 ${className ?? ""}`}>
       {n.meta > 0 && <Pill tone="blue" className="text-[10px]">Meta{n.meta > 1 ? ` × ${n.meta}` : ""}</Pill>}
       {n.google > 0 && <Pill tone="emerald" className="text-[10px]">Google Ads{n.google > 1 ? ` × ${n.google}` : ""}</Pill>}
+      {n.tiktok > 0 && <Pill tone="violet" className="text-[10px]">TikTok Ads{n.tiktok > 1 ? ` × ${n.tiktok}` : ""}</Pill>}
     </span>
   );
 }

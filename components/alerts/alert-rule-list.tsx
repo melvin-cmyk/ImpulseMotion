@@ -16,11 +16,17 @@ import {
   rulePlatform,
 } from "@/components/alerts/alert-rule-form";
 
-/** Small « Meta » (blue) / « Google » (emerald) pill. */
+const PILL: Record<AlertPlatform, { title: string; tone: "blue" | "emerald" | "violet" }> = {
+  meta: { title: "Meta Ads", tone: "blue" },
+  google: { title: "Google Ads", tone: "emerald" },
+  tiktok: { title: "TikTok Ads", tone: "violet" },
+};
+
+/** Small « Meta » (blue) / « Google » (emerald) / « TikTok » (violet) pill. */
 export function PlatformPill({ platform }: { platform: AlertPlatform }) {
   return (
-    <span title={platform === "google" ? "Google Ads" : "Meta Ads"}>
-      <Pill tone={platform === "google" ? "emerald" : "blue"}>{PLATFORM_LABEL[platform]}</Pill>
+    <span title={PILL[platform].title}>
+      <Pill tone={PILL[platform].tone}>{PLATFORM_LABEL[platform]}</Pill>
     </span>
   );
 }

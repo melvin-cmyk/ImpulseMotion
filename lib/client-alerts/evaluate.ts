@@ -36,8 +36,8 @@ import {
   type EvaluationPart, type EvaluationScope, type SkipKind,
 } from "@/lib/client-alerts/types";
 
-export const PLATFORM_LABEL: Record<AlertPlatform, string> = { meta: "Meta Ads", google: "Google Ads" };
-const PLATFORMS: AlertPlatform[] = ["meta", "google"];
+export const PLATFORM_LABEL: Record<AlertPlatform, string> = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" };
+const PLATFORMS: AlertPlatform[] = ["meta", "google", "tiktok"];
 
 
 /** Ids as the platforms and the stored lists write them: with or without `act_`, with or without dashes. */

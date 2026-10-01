@@ -17,7 +17,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const owned = await getOwned(id, guard.session.userId);
   if (!owned) return NextResponse.json({ error: "not found" }, { status: 404 });
   const body = await req.json();
-  const spec = validateRuleInput(body, { partial: true });
+  // Judged against the platform of the rule: a TikTok rule never becomes an AI one, a Google one gets no frequency.
+  const spec = validateRuleInput(body, { partial: true, platform: owned.platform });
   if (!spec.ok) return NextResponse.json({ error: spec.error }, { status: 400 });
   let notify: import("@/lib/alert-notify").AlertNotify | null = null;
   if (body.notify !== undefined) {

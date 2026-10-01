@@ -3,7 +3,7 @@ import { requireSession } from "@/lib/auth-helpers";
 import { assertAccountAllowed } from "@/lib/acl";
 import { prisma } from "@/lib/prisma";
 import { validateNotify } from "@/lib/alert-notify";
-import { parseFilter, validateRuleInput } from "@/lib/alert-entities";
+import { parseAlertPlatform, parseFilter, validateRuleInput } from "@/lib/alert-entities";
 import { BUDGET_PACING_METRIC } from "@/lib/alerts";
 
 export async function GET() {
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   if ("error" in guard) return guard.error;
   const body = await req.json();
   const { clientId } = body;
-  const platform = body.platform === "google" ? "google" : "meta";
+  const platform = parseAlertPlatform(body.platform);
   const spec = validateRuleInput(body, { platform });
   if (!spec.ok) return NextResponse.json({ error: spec.error }, { status: 400 });
   if (clientId) {

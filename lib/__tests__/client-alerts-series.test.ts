@@ -24,10 +24,13 @@ const h = vi.hoisted(() => {
     relay: vi.fn(),
     rates: { EUR: 1, USD: 0.5, JPY: 0.006 } as Record<string, number>,
     fx: vi.fn(),
+    ttDaily: vi.fn(),
+    source: vi.fn(),
   };
 });
 
-vi.mock("@/lib/prisma", () => ({ prisma: { kpiCache: h.kpiCache } }));
+vi.mock("@/lib/prisma", () => ({ prisma: { kpiCache: h.kpiCache, dashboardSource: { findFirst: h.source } } }));
+vi.mock("@/lib/tiktok-data", () => ({ fetchTikTokDaily: h.ttDaily }));
 vi.mock("@/lib/meta-api", async (original) => ({
   ...(await original<typeof import("@/lib/meta-api")>()),
   getMetaSystemToken: () => "token",
@@ -69,6 +72,8 @@ beforeEach(() => {
   h.settings.mockReset().mockResolvedValue(settings());
   h.relay.mockReset().mockResolvedValue([]);
   h.fx.mockReset().mockImplementation(async () => ({ rates: h.rates, note: "" }));
+  h.ttDaily.mockReset().mockResolvedValue([]);
+  h.source.mockReset().mockResolvedValue(null);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 
@@ -199,6 +204,48 @@ describe("readClientSeries — Google", () => {
     const a = (await readClientSeries([GOOGLE], { now: NOW })).accounts[0];
     expect(a.days.every((d) => d.revenue === null)).toBe(true);
     expect(day(a, "2026-09-27").spend).toBe(40);
+  });
+});
+
+describe("readClientSeries — TikTok", () => {
+  const TIKTOK: AlertAccountRef = { platform: "tiktok", accountId: "7412345678901234567", name: "TikTok FR", currency: "USD" };
+  const ttRow = (date: string, spend: number, over: Record<string, number> = {}) =>
+    ({ date, spend, impressions: 1000, clicks: 20, conversions: 2, purchases: 1, purchaseValue: 0, videoViews: 0, ...over });
+
+  it("one daily report in Paris days, conversions and purchase value, amounts in euros", async () => {
+    h.ttDaily.mockResolvedValue([ttRow("2026-09-27", 100, { purchaseValue: 300 }), ttRow("2026-09-29", 40)]);
+    const s = await readClientSeries([TIKTOK], { now: NOW });
+    const a = s.accounts[0];
+    expect(a.error).toBeUndefined();
+    expect(h.ttDaily).toHaveBeenCalledTimes(1);
+    expect(h.ttDaily).toHaveBeenCalledWith("7412345678901234567", "2026-05-27", "2026-09-29");
+    expect(a).toMatchObject({ currency: "USD", eurRate: 0.5 });
+    expect(a.days).toHaveLength(SERIES_DAYS);
+    expect(day(a, "2026-09-27")).toEqual({ date: "2026-09-27", spend: 50, conversions: 2, revenue: 150, clicks: 20, impressions: 1000 });
+    // A day TikTok leaves out is a day at zero; the account tracks a value, so its revenue is 0, not unknown.
+    expect(day(a, "2026-09-28")).toEqual({ date: "2026-09-28", spend: 0, conversions: 0, revenue: 0, clicks: 0, impressions: 0 });
+    expect(a.today).toEqual({ spend: 20, conversions: 2, hour: 12 });
+  });
+
+  it("follows the timezone TikTok gave when the account was attached", async () => {
+    h.source.mockResolvedValue({ config: JSON.stringify({ currency: "USD", timezone: "America/Los_Angeles" }) });
+    const s = await readClientSeries([TIKTOK], { now: NOW });
+    expect(s.accounts[0].today).toMatchObject({ hour: 3 });
+    expect(h.source).toHaveBeenCalledWith({ where: { kind: "tiktok", externalId: "7412345678901234567" }, select: { config: true } });
+  });
+
+  it("says a TikTok failure in its fixed phrase", async () => {
+    h.ttDaily.mockRejectedValue(new Error("TikTok 40100 : token"));
+    const s = await readClientSeries([TIKTOK], { now: NOW });
+    expect(s.accounts[0]).toMatchObject({ days: [], today: null, error: "lecture TikTok Ads impossible pour le moment" });
+  });
+
+  it("is read as TikTok in what the AI reads, next to Meta", async () => {
+    h.insights.mockResolvedValue([metaRow("2026-09-28", 80)]);
+    h.ttDaily.mockResolvedValue([ttRow("2026-09-28", 40)]);
+    const text = summarizeSeries(await readClientSeries([META, TIKTOK], { now: NOW }), 7);
+    expect(text).toContain("- TikTok Ads · TikTok FR · USD converti en euros");
+    expect(text).toContain("jour | Meta dépense conv. revenu | TikTok dépense conv. revenu | Total dépense conv. revenu");
   });
 });
 
