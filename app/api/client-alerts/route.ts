@@ -15,8 +15,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { getAccountScope, googleInScope, metaInScope } from "@/lib/scope";
-import { loadAlertClients, parseAccounts } from "@/lib/auto-alerts/clients";
+import { getAccountScope, platformAccountInScope } from "@/lib/scope";
+import { loadAlertClients, parseAlertAccounts } from "@/lib/auto-alerts/clients";
 import { dmConfigured, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
 import { goneClients } from "@/lib/client-alerts/accounts";
 import { sendingEnabled, type SlackIdentity } from "@/lib/client-alerts/types";
@@ -88,8 +88,8 @@ export async function POST(req: NextRequest) {
 
   // Only the accounts the person may read are copied: an alert never opens the figures of an account out of scope.
   const scope = await getAccountScope(session);
-  const accounts = parseAccounts(client.accountsJson)
-    .filter((a) => (a.platform === "meta" ? metaInScope(scope, a.accountId) : googleInScope(scope, a.accountId)));
+  const accounts = parseAlertAccounts(client.accountsJson)
+    .filter((a) => platformAccountInScope(scope, a.platform, a.accountId));
   if (!accounts.length) return NextResponse.json({ error: "Vous n'avez pas accès aux comptes de ce client." }, { status: 403 });
 
   // A draft opened for this client and left without a word is taken up again rather than piled up.

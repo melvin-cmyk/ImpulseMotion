@@ -10,7 +10,7 @@ import { useState } from "react";
  * Meta, account-level "rule".
  */
 
-export type AlertPlatform = "meta" | "google";
+export type AlertPlatform = "meta" | "google" | "tiktok";
 export type AlertLevel = "account" | "campaign" | "adset" | "ad" | "ad_group" | "keyword";
 export type AlertMode = "rule" | "ai";
 export type AlertFilter = { nameContains?: string; minSpend?: number };
@@ -33,8 +33,9 @@ export type AlertRuleExt = {
 export const PLATFORMS: { value: AlertPlatform; label: string; short: string }[] = [
   { value: "meta", label: "Meta Ads", short: "Meta" },
   { value: "google", label: "Google Ads", short: "Google" },
+  { value: "tiktok", label: "TikTok Ads", short: "TikTok" },
 ];
-export const PLATFORM_LABEL: Record<AlertPlatform, string> = { meta: "Meta", google: "Google" };
+export const PLATFORM_LABEL: Record<AlertPlatform, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
 
 /** Every level id, with its label — the per-platform subsets come from LEVELS_BY_PLATFORM. */
 export const LEVELS: { value: AlertLevel; label: string }[] = [
@@ -50,6 +51,7 @@ export const LEVEL_LABEL: Record<AlertLevel, string> = Object.fromEntries(LEVELS
 export const LEVELS_BY_PLATFORM: Record<AlertPlatform, AlertLevel[]> = {
   meta: ["account", "campaign", "adset", "ad"],
   google: ["account", "campaign", "ad_group", "keyword"],
+  tiktok: ["account"],
 };
 export function levelsFor(platform: AlertPlatform): { value: AlertLevel; label: string }[] {
   return LEVELS_BY_PLATFORM[platform].map((value) => ({ value, label: LEVEL_LABEL[value] }));
@@ -68,6 +70,7 @@ export const METRICS = [
 export const METRICS_BY_PLATFORM: Record<AlertPlatform, string[]> = {
   meta: ["roas", "cpa", "ctr", "spend", "frequency"],
   google: ["roas", "cpa", "ctr", "spend"],
+  tiktok: ["roas", "cpa", "ctr", "spend"],
 };
 export function metricsFor(platform: AlertPlatform): { value: string; label: string }[] {
   return METRICS.filter((m) => METRICS_BY_PLATFORM[platform].includes(m.value));
@@ -89,7 +92,7 @@ export const WINDOWS = [
 ];
 
 export function isPlatform(p: unknown): p is AlertPlatform {
-  return p === "meta" || p === "google";
+  return p === "meta" || p === "google" || p === "tiktok";
 }
 export function rulePlatform(r: Pick<AlertRuleExt, "platform">): AlertPlatform {
   return isPlatform(r.platform) ? r.platform : "meta";
@@ -204,6 +207,8 @@ export function withPlatform(d: AlertDraft, platform: AlertPlatform): AlertDraft
   return {
     ...d,
     platform,
+    // No AI alert on TikTok: only the account totals are read there.
+    mode: platform === "tiktok" ? "rule" : d.mode,
     level: isLevelFor(platform, d.level) ? d.level : "account",
     metric: isMetricFor(platform, d.metric) ? d.metric : "roas",
   };
@@ -403,11 +408,14 @@ export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsPro
           <button type="button" onClick={() => setMode("rule")} className={switchBtn(!ai)} aria-pressed={!ai}>
             Règle classique
           </button>
-          <button type="button" onClick={() => setMode("ai")} className={switchBtn(ai)} aria-pressed={ai}>
-            Alerte IA
-          </button>
+          {draft.platform !== "tiktok" && (
+            <button type="button" onClick={() => setMode("ai")} className={switchBtn(ai)} aria-pressed={ai}>
+              Alerte IA
+            </button>
+          )}
         </div>
         {ai && <span className="text-xs text-gray-500">~1 appel IA léger par jour</span>}
+        {draft.platform === "tiktok" && <span className="text-xs text-gray-500">TikTok Ads : règle classique sur le compte entier</span>}
       </div>
 
       <label className="block">

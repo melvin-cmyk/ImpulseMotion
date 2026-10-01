@@ -27,7 +27,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const denied = await denyIfRuleOutOfScope(guard.session, id);
   if (denied) return denied;
   const body = await req.json();
-  const spec = validateRuleInput(body, { partial: true });
+  // Judged against the platform of the rule: a TikTok rule never becomes an AI one, a Google one gets no frequency.
+  const current = await prisma.alertRule.findUnique({ where: { id }, select: { platform: true } });
+  const spec = validateRuleInput(body, { partial: true, platform: current?.platform });
   if (!spec.ok) return NextResponse.json({ error: spec.error }, { status: 400 });
   const data: Record<string, unknown> = { ...spec.data };
   if (typeof body.enabled === "boolean") data.enabled = body.enabled;

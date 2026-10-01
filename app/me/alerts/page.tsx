@@ -8,6 +8,7 @@ import {
   CONDITIONS,
   ComposeBlock,
   EMPTY_DRAFT,
+  PLATFORMS,
   PlatformSwitch,
   applyProposal,
   draftToBody,
@@ -132,7 +133,7 @@ export default function MeAlertsPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Mes alertes</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Détection proactive d&apos;anomalies sur tes comptes Meta Ads et Google Ads.
+            Détection proactive d&apos;anomalies sur tes comptes Meta Ads, Google Ads et TikTok Ads.
           </p>
         </div>
         <button
@@ -166,7 +167,7 @@ export default function MeAlertsPage() {
                 onChange={(e) => setFormAccountId(e.target.value)}
                 className={inputCls}
               >
-                <option value="">Tous ({draft.platform === "google" ? "Google Ads" : "Meta Ads"})</option>
+                <option value="">Tous ({PLATFORMS.find((p) => p.value === draft.platform)?.label})</option>
                 {accountOptions.map((a) => (
                   <option key={a.accountId} value={a.accountId}>{a.label ?? a.accountId}</option>
                 ))}

@@ -2,11 +2,14 @@
  * Automatic alerting — who is watched.
  *
  * Every ad account the agency can read (Meta system token, Google manager
- * account) is watched, with or without a dashboard. Accounts are gathered
- * into clients: the accounts of one client of the budget sheet (same
- * matching as the Global Cockpit), the Meta and Google accounts a dashboard
- * puts side by side, and the accounts that bear the same name. An account
- * nobody claims is a client by itself.
+ * account) is watched, with or without a dashboard. TikTok accounts are
+ * watched once they belong to a client: attached to a dashboard
+ * (DashboardSource "tiktok") or to a client of the budget sheet
+ * (CockpitAccount "tiktok"). Accounts are gathered into clients: the accounts
+ * of one client of the budget sheet (same matching as the Global Cockpit),
+ * the Meta, Google and TikTok accounts a dashboard puts side by side, and the
+ * accounts that bear the same name. An account nobody claims is a client by
+ * itself.
  *
  * A client is named after the sheet, else after its account at the platform
  * — what is really scanned — and only then after a dashboard.
@@ -17,7 +20,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { groupDashboardsByAccount, normGoogle, normMeta } from "@/lib/portfolio";
-import { googleInScope, metaInScope, type AccountScope } from "@/lib/scope";
+import { platformAccountInScope, type AccountScope } from "@/lib/scope";
 import { listGoogleAccounts, listMetaAccounts } from "@/lib/cockpit/fetch";
 import { syncAccounts } from "@/lib/cockpit/build";
 import { fetchBudgetSheet, sheetClients, type SheetClient } from "@/lib/cockpit/sheet";
@@ -32,6 +35,12 @@ export interface AlertAccount {
   currency: string | null;
 }
 
+/** The Meta and Google accounts only — what the surfaces that do not read TikTok yet get. */
+export type ClassicAlertAccount = AlertAccount & { platform: "meta" | "google" };
+
+/** A TikTok account claimed by a client (a dashboard or the budget sheet). */
+export interface TikTokCandidate { accountId: string; name: string; currency: string | null }
+
 export interface ClientDraft {
   key: string;
   name: string;
@@ -45,12 +54,16 @@ export interface DashboardRow {
   name: string;
   metaAccountId: string | null;
   googleCustomerId: string | null;
+  /** TikTok advertisers attached to the dashboard (DashboardSource "tiktok", not disabled). */
+  tiktokAdvertiserIds?: string[];
   createdAt: Date | string;
 }
 
 export interface BuildInput {
   /** Accounts read at the platforms; an account they do not list is not watched. */
   available: AvailableAccount[];
+  /** TikTok accounts a dashboard or the budget sheet claims: no listing of the agency's accounts decides here. */
+  tiktok?: TikTokCandidate[];
   /** Account → client of the budget sheet (CockpitAccount). */
   cockpit: Array<{ platform: string; accountId: string; clientKey: string }>;
   /** Name of each client of the sheet. */
@@ -58,7 +71,9 @@ export interface BuildInput {
   dashboards: DashboardRow[];
 }
 
-const norm = (platform: AutoPlatform, id: string) => (platform === "meta" ? normMeta(id) : normGoogle(id));
+const norm = (platform: AutoPlatform, id: string) => (platform === "meta" ? normMeta(id) : platform === "google" ? normGoogle(id) : id.trim());
+const PLATFORM_NAME: Record<AutoPlatform, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
+const isPlatform = (p: unknown): p is AutoPlatform => p === "meta" || p === "google" || p === "tiktok";
 const node = (platform: AutoPlatform, id: string) => `${platform}:${norm(platform, id)}`;
 const ts = (d: Date | string) => new Date(d).getTime();
 
@@ -68,7 +83,7 @@ export function looksLikeId(name: string | null | undefined): boolean {
   return !s || /^(compte|account|ad account)?\s*(act_)?[\d\s-]{6,}$/i.test(s);
 }
 
-const FILLER = /\b(fr|france|ads|adwords|google|meta|facebook|new|compte|account|publicitaire|official|officiel|sas|sarl)\b/g;
+const FILLER = /\b(fr|france|ads|adwords|google|meta|facebook|tiktok|new|compte|account|publicitaire|official|officiel|sas|sarl)\b/g;
 
 /** « QUARTIER IODE » = « Quartier Iode », « EcoleMultimedia » = « ECOLE MULTIMEDIA ». Empty when nothing is left. */
 export function sameNameKey(name: string): string {
@@ -84,6 +99,11 @@ export function buildClients(input: BuildInput): ClientDraft[] {
   for (const a of input.available) {
     if (!a.active || !a.accountId) continue;
     accounts.set(node(a.platform, a.accountId), { platform: a.platform, accountId: norm(a.platform, a.accountId), name: a.name, currency: a.currency });
+  }
+  for (const t of input.tiktok ?? []) {
+    const id = norm("tiktok", t.accountId);
+    if (!id || accounts.has(node("tiktok", id))) continue;
+    accounts.set(node("tiktok", id), { platform: "tiktok", accountId: id, name: t.name, currency: t.currency });
   }
   // An account the agency can no longer read is not watched, even when a
   // dashboard still points to it: there is nothing to check on it, and a
@@ -103,7 +123,7 @@ export function buildClients(input: BuildInput): ClientDraft[] {
   const cockpitOf = new Map<string, string>();
   const firstOfClient = new Map<string, string>();
   for (const c of input.cockpit) {
-    if (c.platform !== "meta" && c.platform !== "google") continue;
+    if (!isPlatform(c.platform)) continue;
     const k = node(c.platform, c.accountId);
     if (!accounts.has(k)) continue;
     cockpitOf.set(k, c.clientKey);
@@ -113,7 +133,10 @@ export function buildClients(input: BuildInput): ClientDraft[] {
   for (const d of dashboards) {
     const m = d.metaAccountId && norm("meta", d.metaAccountId) ? node("meta", d.metaAccountId) : null;
     const g = d.googleCustomerId && norm("google", d.googleCustomerId) ? node("google", d.googleCustomerId) : null;
-    if (m && g) union(m, g);
+    const t = (d.tiktokAdvertiserIds ?? []).filter((id) => norm("tiktok", id)).map((id) => node("tiktok", id));
+    // Only accounts that are watched link a client: a dashboard does not resurrect an account.
+    const linked = [m, g, ...t].filter((k): k is string => !!k && accounts.has(k));
+    for (const k of linked.slice(1)) union(linked[0], k);
   }
 
   const firstOfName = new Map<string, string>();
@@ -127,21 +150,23 @@ export function buildClients(input: BuildInput): ClientDraft[] {
   const groups = new Map<string, string[]>();
   for (const k of accounts.keys()) groups.set(find(k), [...(groups.get(find(k)) ?? []), k]);
 
-  const order = (a: string, b: string) => Number(a.startsWith("google:")) - Number(b.startsWith("google:")) || a.localeCompare(b);
+  const rank = (k: string) => (k.startsWith("tiktok:") ? 2 : k.startsWith("google:") ? 1 : 0);
+  const order = (a: string, b: string) => rank(a) - rank(b) || a.localeCompare(b);
   const out: ClientDraft[] = [];
   for (const members of groups.values()) {
     members.sort(order);
     const mine = members.map((k) => accounts.get(k)!);
     const keys = new Set(members);
     const boards = dashboards.filter((d) =>
-      (d.metaAccountId && keys.has(node("meta", d.metaAccountId))) || (d.googleCustomerId && keys.has(node("google", d.googleCustomerId))));
+      (d.metaAccountId && keys.has(node("meta", d.metaAccountId))) || (d.googleCustomerId && keys.has(node("google", d.googleCustomerId)))
+      || (d.tiktokAdvertiserIds ?? []).some((id) => keys.has(node("tiktok", id))));
     const sheetKeys = [...new Set(members.map((k) => cockpitOf.get(k)).filter((k): k is string => !!k))].sort();
     const sheetName = sheetKeys.map((k) => input.cockpitNames.get(k)).find((n) => n && !looksLikeId(n));
     const boardName = boards.map((d) => d.name).find((n) => !looksLikeId(n));
     const accountName = mine.map((a) => a.name).find((n) => !looksLikeId(n));
     const first = mine[0];
     const name = sheetName ?? accountName ?? boardName
-      ?? `Compte ${first.platform === "meta" ? "Meta" : "Google Ads"} ${first.accountId}`;
+      ?? `Compte ${PLATFORM_NAME[first.platform]} ${first.accountId}`;
     out.push({
       key: sheetKeys.length ? `c:${sheetKeys[0]}` : members[0],
       name: name.trim(),
@@ -153,21 +178,27 @@ export function buildClients(input: BuildInput): ClientDraft[] {
   return out.sort((a, b) => a.name.localeCompare(b.name, "fr"));
 }
 
-export function parseAccounts(json: string | null | undefined): AlertAccount[] {
+/** Every account of a stored client, TikTok included; anything unknown is dropped, never read as Meta. */
+export function parseAlertAccounts(json: string | null | undefined): AlertAccount[] {
   try {
     const list = JSON.parse(json || "[]");
     if (!Array.isArray(list)) return [];
     return list
-      .filter((a) => a && (a.platform === "meta" || a.platform === "google") && typeof a.accountId === "string" && a.accountId)
+      .filter((a) => a && isPlatform(a.platform) && typeof a.accountId === "string" && a.accountId)
       .map((a) => ({ platform: a.platform, accountId: a.accountId, name: String(a.name ?? a.accountId), currency: typeof a.currency === "string" ? a.currency : null }));
   } catch {
     return [];
   }
 }
 
+/** The Meta and Google accounts of a stored client (surfaces that do not read TikTok). */
+export function parseAccounts(json: string | null | undefined): ClassicAlertAccount[] {
+  return parseAlertAccounts(json).filter((a): a is ClassicAlertAccount => a.platform !== "tiktok");
+}
+
 export function clientInScope(scope: AccountScope, accounts: AlertAccount[]): boolean {
   if (scope.all) return true;
-  return accounts.some((a) => (a.platform === "meta" ? metaInScope(scope, a.accountId) : googleInScope(scope, a.accountId)));
+  return accounts.some((a) => platformAccountInScope(scope, a.platform, a.accountId));
 }
 
 export interface ExistingClient { id: string; key: string; accounts: AlertAccount[]; hasChannel: boolean }
@@ -225,14 +256,41 @@ async function cockpitNames(sheet: SheetClient[]): Promise<Map<string, string>> 
   return names;
 }
 
+/**
+ * Pure: the TikTok accounts a client claims — attached to a dashboard (name
+ * and currency checked at TikTok when attached) or to a client of the sheet.
+ */
+export function tiktokCandidates(
+  sources: Array<{ externalId: string; label: string | null; config: string | null }>,
+  cockpit: Array<{ platform: string; accountId: string; name?: string | null; currency?: string | null }>,
+): TikTokCandidate[] {
+  const out = new Map<string, TikTokCandidate>();
+  for (const s of sources) {
+    const id = s.externalId.trim();
+    if (!id || out.has(id)) continue;
+    let currency: string | null = null;
+    try {
+      const c = JSON.parse(s.config || "{}") as { currency?: unknown };
+      if (typeof c.currency === "string" && c.currency) currency = c.currency;
+    } catch { /* no currency */ }
+    out.set(id, { accountId: id, name: s.label?.trim() || id, currency });
+  }
+  for (const c of cockpit) {
+    const id = c.platform === "tiktok" ? c.accountId.trim() : "";
+    if (!id || out.has(id)) continue;
+    out.set(id, { accountId: id, name: c.name?.trim() || id, currency: c.currency ?? null });
+  }
+  return [...out.values()];
+}
+
 /** Reads the platforms and brings the stored list of clients up to date. */
 export async function syncAlertClients(): Promise<SyncResult> {
   const warnings: string[] = [];
   const stored = await prisma.alertClient.findMany();
-  const storedAccounts = stored.flatMap((s) => (s.gone ? [] : parseAccounts(s.accountsJson)));
+  const storedAccounts = stored.flatMap((s) => (s.gone ? [] : parseAlertAccounts(s.accountsJson)));
   // A platform that cannot be listed today keeps the accounts known yesterday.
-  const keep = (platform: AutoPlatform): AvailableAccount[] =>
-    storedAccounts.filter((a) => a.platform === platform).map((a) => ({ ...a, active: true }));
+  const keep = (platform: AvailableAccount["platform"]): AvailableAccount[] =>
+    storedAccounts.filter((a): a is ClassicAlertAccount => a.platform === platform).map((a) => ({ ...a, active: true }));
 
   const [meta, google, lines] = await Promise.all([
     listMetaAccounts().catch((e) => { warnings.push(`Liste des comptes Meta indisponible (${errText(e)})`); return null; }),
@@ -247,14 +305,21 @@ export async function syncAlertClients(): Promise<SyncResult> {
   if (sheet.length && available.length) {
     await syncAccounts(sheet, available).catch((e) => { warnings.push(`Rapprochement comptes ↔ clients incomplet (${errText(e)})`); });
   }
-  const [cockpit, dashboards, names] = await Promise.all([
-    prisma.cockpitAccount.findMany({ select: { platform: true, accountId: true, clientKey: true } }),
-    prisma.dashboard.findMany({ select: { id: true, name: true, metaAccountId: true, googleCustomerId: true, createdAt: true, slackChannel: true, slackChannelId: true, autoAlerts: true, autoAlertConfig: true } }),
+  const [cockpit, boardRows, names] = await Promise.all([
+    prisma.cockpitAccount.findMany({ select: { platform: true, accountId: true, clientKey: true, name: true, currency: true } }),
+    prisma.dashboard.findMany({
+      select: {
+        id: true, name: true, metaAccountId: true, googleCustomerId: true, createdAt: true, slackChannel: true, slackChannelId: true, autoAlerts: true, autoAlertConfig: true,
+        sources: { where: { kind: "tiktok", status: { not: "disabled" } }, select: { externalId: true, label: true, config: true } },
+      },
+    }),
     cockpitNames(sheet),
   ]);
+  const dashboards = boardRows.map(({ sources, ...d }) => ({ ...d, tiktokAdvertiserIds: sources.map((s) => s.externalId) }));
+  const tiktok = tiktokCandidates(boardRows.flatMap((d) => d.sources), cockpit);
 
-  const drafts = buildClients({ available, cockpit, cockpitNames: names, dashboards });
-  const { pairs, orphans } = reconcile(drafts, stored.map((s) => ({ id: s.id, key: s.key, accounts: parseAccounts(s.accountsJson), hasChannel: !!(s.slackChannelId || s.slackChannel) })));
+  const drafts = buildClients({ available, tiktok, cockpit, cockpitNames: names, dashboards });
+  const { pairs, orphans } = reconcile(drafts, stored.map((s) => ({ id: s.id, key: s.key, accounts: parseAlertAccounts(s.accountsJson), hasChannel: !!(s.slackChannelId || s.slackChannel) })));
 
   let created = 0;
   const boardById = new Map(dashboards.map((d) => [d.id, d]));
@@ -297,7 +362,7 @@ async function adoptLegacyIncidents(dashboards: DashboardRow[]): Promise<void> {
   const legacy = await prisma.autoIncident.findMany({ where: { clientId: null }, select: { id: true, dashboardId: true, key: true, scope: true, platform: true } });
   if (!legacy.length) return;
   const { groups } = groupDashboardsByAccount(dashboards);
-  const clients = (await prisma.alertClient.findMany({ select: { id: true, accountsJson: true } })).map((c) => ({ id: c.id, accounts: parseAccounts(c.accountsJson) }));
+  const clients = (await prisma.alertClient.findMany({ select: { id: true, accountsJson: true } })).map((c) => ({ id: c.id, accounts: parseAlertAccounts(c.accountsJson) }));
   for (const inc of legacy) {
     const group = groups.find((g) => inc.dashboardId && g.dashboardIds.includes(inc.dashboardId));
     const platform: AutoPlatform = inc.platform === "google" ? "google" : "meta";
@@ -326,6 +391,6 @@ export async function loadAlertClients(scope: AccountScope) {
   if ((await prisma.alertClient.count()) === 0) await syncAlertClients();
   const rows = await prisma.alertClient.findMany({ where: { gone: false }, select: SELECT, orderBy: { name: "asc" } });
   return rows
-    .map(({ accountsJson, ...r }) => ({ ...r, accounts: parseAccounts(accountsJson) }))
+    .map(({ accountsJson, ...r }) => ({ ...r, accounts: parseAlertAccounts(accountsJson) }))
     .filter((r) => r.accounts.length && clientInScope(scope, r.accounts));
 }

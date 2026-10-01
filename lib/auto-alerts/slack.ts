@@ -84,7 +84,7 @@ export function slug(name: string): string {
   return name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/^c_/, "").replace(/[^a-z0-9]+/g, "");
 }
 
-const STOP = /\b(et|and|the|le|la|les|de|du|des|sas|sarl|groupe|group|france|fr|ads|meta|google|pilotage|dashboard)\b/g;
+const STOP = /\b(et|and|the|le|la|les|de|du|des|sas|sarl|groupe|group|france|fr|ads|meta|google|tiktok|pilotage|dashboard)\b/g;
 const loose = (name: string) => slug(name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/^c_/, "").replace(/[^a-z0-9]+/g, " ").replace(STOP, " "));
 
 export interface ChannelMatch { clientId: string; channel: SlackChannel; confidence: "exact" | "close" }

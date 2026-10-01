@@ -124,7 +124,7 @@ export function readAccounts(json: string | null | undefined): AlertAccountRef[]
     const list = JSON.parse(json || "[]");
     if (!Array.isArray(list)) return [];
     return list
-      .filter((a) => a && (a.platform === "meta" || a.platform === "google") && typeof a.accountId === "string" && a.accountId)
+      .filter((a) => a && (a.platform === "meta" || a.platform === "google" || a.platform === "tiktok") && typeof a.accountId === "string" && a.accountId)
       .map((a) => ({ platform: a.platform, accountId: a.accountId, name: String(a.name ?? a.accountId), currency: typeof a.currency === "string" ? a.currency : null }));
   } catch {
     return [];
@@ -224,12 +224,13 @@ export const ALERT_STATUS: Record<ClientAlertStatus, { label: string; tone: Tone
   error: { label: "En erreur", tone: "red", help: "Les messages n'ont pas pu être envoyés plusieurs fois de suite." },
 };
 
-export const PLATFORM_LABEL: Record<AlertPlatform, string> = { meta: "Meta", google: "Google Ads" };
+export const PLATFORM_LABEL: Record<AlertPlatform, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
 
 export function platformCounts(accounts: Array<{ platform: string }>): Record<AlertPlatform, number> {
   return {
     meta: accounts.filter((a) => a.platform === "meta").length,
     google: accounts.filter((a) => a.platform === "google").length,
+    tiktok: accounts.filter((a) => a.platform === "tiktok").length,
   };
 }
 
@@ -262,10 +263,20 @@ const SUBJECT: Record<AlertMetric, string> = {
   ctr: "le taux de clic (CTR)",
 };
 
+/** « Meta », « Meta et Google Ads », « Meta, Google Ads et TikTok Ads » (or « ou » for each). */
+function platformList(names: string[], last: "et" | "ou"): string {
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} ${last} ${names[names.length - 1]}` : names[0] ?? "";
+}
+
 function scopeWords(def: AlertDefinition): string {
   const n = platformCounts(def.accounts);
-  if (n.meta && n.google) return def.aggregation === "each" ? "de Meta ou de Google Ads, chaque plateforme jugée seule," : "de Meta et Google Ads réunis";
-  return n.google ? "de Google Ads" : "de Meta";
+  const present = (["meta", "google", "tiktok"] as AlertPlatform[]).filter((p) => n[p] > 0).map((p) => PLATFORM_LABEL[p]);
+  if (present.length > 1) {
+    return def.aggregation === "each"
+      ? `${platformList(present.map((p) => `de ${p}`), "ou")}, chaque plateforme jugée seule,`
+      : `de ${platformList(present, "et")} réunis`;
+  }
+  return `de ${present[0] ?? "Meta"}`;
 }
 
 /** « sur les 3 derniers jours », « sur les 3 derniers jours ouvrés » when Saturdays and Sundays do not count. */
@@ -553,12 +564,12 @@ export function pickOnEnter<T>(query: string, shown: T[]): T | null {
 /** Example requests of the empty conversation, in words the engine can honour, for the platforms the client has. */
 export function exampleRequests(accounts: Array<{ platform: string }>): string[] {
   const n = platformCounts(accounts);
-  const both = n.meta > 0 && n.google > 0;
+  const present = (["meta", "google", "tiktok"] as AlertPlatform[]).filter((p) => n[p] > 0).map((p) => PLATFORM_LABEL[p]);
   return [
     "Préviens-moi si la dépense chute de moitié par rapport à la semaine précédente",
     "Alerte si le CPA devient trop élevé sur 3 jours — propose-moi un seuil d'après les chiffres",
-    both
-      ? "Préviens-moi si Meta ou Google Ads ne dépense plus rien depuis hier"
+    present.length > 1
+      ? `Préviens-moi si ${platformList(present, "ou")} ne dépense plus rien depuis hier`
       : "Préviens-moi s'il n'y a plus aucune conversion sur 3 jours",
   ];
 }

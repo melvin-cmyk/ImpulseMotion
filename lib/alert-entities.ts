@@ -25,16 +25,24 @@ import { computeFromInsight, windowToRange, type ComputedMetrics } from "@/lib/a
 
 export type AlertLevel = "account" | "campaign" | "adset" | "ad" | "ad_group" | "keyword";
 export type AlertMode = "rule" | "ai";
-export type AlertPlatform = "meta" | "google";
+export type AlertPlatform = "meta" | "google" | "tiktok";
+export const PLATFORM_NAMES: Record<AlertPlatform, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
+/** Platform of a request or a stored rule: anything unknown is Meta (rules created before the field). */
+export function parseAlertPlatform(v: unknown): AlertPlatform {
+  return v === "google" || v === "tiktok" ? v : "meta";
+}
 export const ALERT_LEVELS: readonly AlertLevel[] = ["account", "campaign", "adset", "ad", "ad_group", "keyword"];
 export const LEVEL_LABELS: Record<AlertLevel, string> = { account: "Compte", campaign: "Campagne", adset: "Ad set", ad: "Créa", ad_group: "Groupe d'annonces", keyword: "Mot-clé" };
 export const LEVELS_BY_PLATFORM: Record<AlertPlatform, readonly AlertLevel[]> = {
   meta: ["account", "campaign", "adset", "ad"],
   google: ["account", "campaign", "ad_group", "keyword"],
+  // Account totals only: the relay reads TikTok reports, not its campaigns' statuses.
+  tiktok: ["account"],
 };
 export const METRICS_BY_PLATFORM: Record<AlertPlatform, readonly string[]> = {
   meta: ["roas", "spend", "cpa", "ctr", "frequency"],
   google: ["roas", "spend", "cpa", "ctr"],
+  tiktok: ["roas", "spend", "cpa", "ctr"],
 };
 export const AI_METRIC = "ai";
 
@@ -76,10 +84,10 @@ export function validateRuleInput(body: Record<string, unknown>, opts: { partial
   | { ok: true; data: { level?: AlertLevel; filterJson?: string; mode?: AlertMode; prompt?: string | null; label?: string | null; metric?: string; condition?: string; threshold?: number; window?: string } }
   | { ok: false; error: string } {
   const data: { level?: AlertLevel; filterJson?: string; mode?: AlertMode; prompt?: string | null; label?: string | null; metric?: string; condition?: string; threshold?: number; window?: string } = {};
-  const platform: AlertPlatform = (opts.platform ?? body.platform) === "google" ? "google" : "meta";
+  const platform = parseAlertPlatform(opts.platform ?? body.platform);
   if (body.level !== undefined) {
     if (!isAlertLevel(body.level)) return { ok: false, error: "level invalide" };
-    if (!LEVELS_BY_PLATFORM[platform].includes(body.level)) return { ok: false, error: `niveau « ${LEVEL_LABELS[body.level]} » indisponible sur ${platform === "google" ? "Google Ads" : "Meta"}` };
+    if (!LEVELS_BY_PLATFORM[platform].includes(body.level)) return { ok: false, error: `niveau « ${LEVEL_LABELS[body.level]} » indisponible sur ${PLATFORM_NAMES[platform]}` };
     data.level = body.level;
   }
   if (body.filter !== undefined) {
@@ -98,6 +106,9 @@ export function validateRuleInput(body: Record<string, unknown>, opts: { partial
     data.window = String(body.window);
   }
   const mode = data.mode ?? (opts.partial ? undefined : "rule");
+  if (mode === "ai" && platform === "tiktok") {
+    return { ok: false, error: "Les alertes IA ne sont pas disponibles sur TikTok Ads : choisissez une règle classique sur le compte entier." };
+  }
   if (mode === "ai") {
     // The AI judges `prompt`: metric / condition / threshold are placeholders.
     if (!opts.partial && !data.prompt) return { ok: false, error: "prompt requis pour une alerte IA (la condition à évaluer)" };
@@ -107,7 +118,7 @@ export function validateRuleInput(body: Record<string, unknown>, opts: { partial
     if (!data.level && !opts.partial) data.level = platform === "google" ? "keyword" : "ad";
   } else {
     if (body.metric !== undefined) {
-      if (!METRICS_BY_PLATFORM[platform].includes(String(body.metric))) return { ok: false, error: `métrique « ${String(body.metric)} » indisponible sur ${platform === "google" ? "Google Ads" : "Meta"}` };
+      if (!METRICS_BY_PLATFORM[platform].includes(String(body.metric))) return { ok: false, error: `métrique « ${String(body.metric)} » indisponible sur ${PLATFORM_NAMES[platform]}` };
       data.metric = String(body.metric);
     }
     if (body.condition !== undefined) {

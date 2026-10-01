@@ -15,7 +15,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { normGoogle, normMeta } from "@/lib/portfolio";
-import { parseAccounts, type AlertAccount } from "@/lib/auto-alerts/clients";
+import { parseAccounts, type ClassicAlertAccount } from "@/lib/auto-alerts/clients";
 import { parseBotSources, type BotSources } from "@/lib/admin-bots";
 
 export type BotPlatform = "meta" | "google";
@@ -24,7 +24,7 @@ export interface ClientInput {
   id: string;
   name: string;
   dormant: boolean;
-  accounts: Array<Pick<AlertAccount, "platform" | "accountId" | "name">>;
+  accounts: Array<Pick<ClassicAlertAccount, "platform" | "accountId" | "name">>;
 }
 
 export interface DashboardInput {

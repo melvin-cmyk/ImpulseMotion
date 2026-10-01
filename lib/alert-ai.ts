@@ -12,19 +12,19 @@
 import { relayComplete, parseLooseJson } from "@/lib/relay-chat";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { METRIC_LABELS, type AlertMetric, type ComputedMetrics } from "@/lib/alerts";
-import { LEVEL_LABELS, LEVELS_BY_PLATFORM, METRICS_BY_PLATFORM, validateFilter, isAlertLevel, type AlertFilter, type AlertLevel, type EntityMetrics } from "@/lib/alert-entities";
+import { LEVEL_LABELS, LEVELS_BY_PLATFORM, METRICS_BY_PLATFORM, parseAlertPlatform, validateFilter, isAlertLevel, type AlertFilter, type AlertLevel, type AlertPlatform, type EntityMetrics } from "@/lib/alert-entities";
 
 export type AlertProposal =
-  | { mode: "rule"; platform: "meta" | "google"; label: string; level: AlertLevel; metric: AlertMetric; condition: "below" | "above" | "drop_pct"; threshold: number; window: string; filter: AlertFilter; explanation: string }
+  | { mode: "rule"; platform: AlertPlatform; label: string; level: AlertLevel; metric: AlertMetric; condition: "below" | "above" | "drop_pct"; threshold: number; window: string; filter: AlertFilter; explanation: string }
   | { mode: "ai"; platform: "meta" | "google"; label: string; prompt: string; level: AlertLevel; window: string; filter: AlertFilter; explanation: string };
 
 const WINDOWS = ["1d", "7d", "14d", "30d"];
 
-export const COMPOSE_SYSTEM_PROMPT = `Tu transformes la demande d'un consultant média (en français) en règle d'alerte pour ImpulseMotion, un outil de pilotage Meta Ads et Google Ads.
+export const COMPOSE_SYSTEM_PROMPT = `Tu transformes la demande d'un consultant média (en français) en règle d'alerte pour ImpulseMotion, un outil de pilotage Meta Ads, Google Ads et TikTok Ads.
 
 GRAMMAIRE D'UNE RÈGLE CLASSIQUE (préférée : gratuite et déterministe)
-- platform : meta | google (déduis-la des mots : créa, ad set, fréquence, Facebook, Instagram → meta ; mot-clé, groupe d'annonces, Search, PMAX, terme de recherche → google ; sinon garde la plateforme indiquée dans la demande, par défaut meta)
-- level : meta → account (compte entier) | campaign | adset | ad (créa) ; google → account | campaign | ad_group (groupe d'annonces) | keyword (mot-clé)
+- platform : meta | google | tiktok (déduis-la des mots : créa, ad set, fréquence, Facebook, Instagram → meta ; mot-clé, groupe d'annonces, Search, PMAX, terme de recherche → google ; TikTok → tiktok ; sinon garde la plateforme indiquée dans la demande, par défaut meta)
+- level : meta → account (compte entier) | campaign | adset | ad (créa) ; google → account | campaign | ad_group (groupe d'annonces) | keyword (mot-clé) ; tiktok → account uniquement
 - metric : roas | spend (dépenses) | cpa | ctr | frequency (frequency uniquement sur meta)
 - condition : below | above | drop_pct (chute en % vs période précédente)
 - threshold : nombre (montant, ratio, % pour drop_pct)
@@ -34,6 +34,7 @@ Une règle classique évalue UNE métrique contre UN seuil, par élément du niv
 
 ALERTE IA (seulement si la demande ne rentre pas dans la grammaire : comparaison entre éléments, part de budget, tendance, combinaison de plusieurs métriques non réductible)
 - mode "ai", prompt = la condition reformulée précisément en une phrase, level = le niveau d'éléments à regarder, window.
+- Jamais sur tiktok : sur TikTok, propose toujours une règle classique sur le compte entier et dis dans explanation ce qu'elle ne voit pas.
 
 RÉPONDS UNIQUEMENT par un bloc \`\`\`json :
 {"mode":"rule","platform":"meta","label":"Nom court","level":"ad","metric":"cpa","condition":"above","threshold":30,"window":"7d","filter":{"minSpend":200},"explanation":"1 phrase : comment tu as lu la demande"}
@@ -41,10 +42,10 @@ ou
 {"mode":"ai","platform":"google","label":"Nom court","prompt":"Condition précise","level":"keyword","window":"7d","filter":{},"explanation":"1 phrase : pourquoi une règle classique ne suffit pas"}
 Le label fait moins de 60 caractères. Ne pose pas de question : choisis l'interprétation la plus utile et dis-la dans explanation.`;
 
-export function parseProposal(raw: string, defaultPlatform: "meta" | "google" = "meta"): AlertProposal {
+export function parseProposal(raw: string, defaultPlatform: AlertPlatform = "meta"): AlertProposal {
   const p = parseLooseJson<Record<string, unknown>>(raw);
   if (!p || typeof p !== "object") throw new Error("Réponse IA illisible");
-  const platform: "meta" | "google" = p.platform === "google" ? "google" : p.platform === "meta" ? "meta" : defaultPlatform;
+  const platform: AlertPlatform = p.platform === "google" || p.platform === "meta" || p.platform === "tiktok" ? parseAlertPlatform(p.platform) : defaultPlatform;
   const allowed = LEVELS_BY_PLATFORM[platform];
   const level = isAlertLevel(p.level) && allowed.includes(p.level) ? p.level : "account";
   const window = WINDOWS.includes(String(p.window)) ? String(p.window) : "7d";
@@ -53,6 +54,7 @@ export function parseProposal(raw: string, defaultPlatform: "meta" | "google" = 
   const label = String(p.label ?? "").trim().slice(0, 60) || "Alerte";
   const explanation = String(p.explanation ?? "").trim().slice(0, 300);
   if (p.mode === "ai") {
+    if (platform === "tiktok") throw new Error("L'IA a formulé une alerte IA, inconnue sur TikTok Ads : reformulez avec une métrique et un seuil sur le compte entier.");
     const prompt = String(p.prompt ?? "").trim().slice(0, 1500);
     if (!prompt) throw new Error("L'IA n'a pas formulé de condition");
     return { mode: "ai", platform, label, prompt, level: level === "account" ? (platform === "google" ? "keyword" : "ad") : level, window, filter, explanation };
@@ -66,7 +68,7 @@ export function parseProposal(raw: string, defaultPlatform: "meta" | "google" = 
   return { mode: "rule", platform, label, level, metric: metric as AlertMetric, condition: condition as "below" | "above" | "drop_pct", threshold, window, filter, explanation };
 }
 
-export async function composeAlertProposal(text: string, user?: { id: string; email?: string | null; role: string }, platform: "meta" | "google" = "meta"): Promise<AlertProposal> {
+export async function composeAlertProposal(text: string, user?: { id: string; email?: string | null; role: string }, platform: AlertPlatform = "meta"): Promise<AlertProposal> {
   const raw = await relayComplete(
     { messages: [{ role: "user", content: `PLATEFORME SÉLECTIONNÉE DANS LE FORMULAIRE : ${platform}\nDEMANDE DU CONSULTANT :\n${text.trim().slice(0, 1000)}` }], systemPrompt: COMPOSE_SYSTEM_PROMPT, allowedServers: [], accountScope: {} },
     { maxMs: 40_000, onUsage: (usage) => void recordAiUsage(usage, { feature: "alert_compose", clientName: "—", user }) },

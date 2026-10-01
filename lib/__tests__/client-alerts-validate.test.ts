@@ -116,10 +116,28 @@ describe("alertes client — validation : comptes", () => {
   });
 
   it("refuse une plateforme inconnue, un compte sans identifiant, une liste illisible", () => {
-    expect(refused({ ...base, accounts: [{ platform: "tiktok", accountId: "1" }] })[0]).toContain("Plateforme inconnue");
+    expect(refused({ ...base, accounts: [{ platform: "snapchat", accountId: "1" }] })[0]).toContain("Plateforme inconnue");
     expect(refused({ ...base, accounts: [{ platform: "meta" }] })[0]).toContain("n'a pas d'identifiant");
     expect(refused({ ...base, accounts: ["1234567890"] })[0]).toContain("n'a pas d'identifiant");
     expect(refused({ ...base, accounts: "tous" })[0]).toContain("liste des comptes");
+  });
+
+  it("accepte un compte TikTok Ads du client, et refuse celui d'un autre client", () => {
+    const TIKTOK: AlertAccountRef = { platform: "tiktok", accountId: "7412345678901234567", name: "LPEV TikTok", currency: "EUR" };
+    const { value } = ok({ ...base, accounts: [{ platform: "tiktok", accountId: " 7412345678901234567 " }] }, ctx({ accounts: [...CLIENT, TIKTOK] }));
+    expect(value.accounts).toEqual([TIKTOK]);
+    expect(ok(base, ctx({ accounts: [...CLIENT, TIKTOK] })).value.accounts).toEqual([...CLIENT, TIKTOK]);
+    expect(refused({ ...base, accounts: [{ platform: "tiktok", accountId: "7400000000000000000" }] }, ctx({ accounts: [...CLIENT, TIKTOK] })))
+      .toEqual(["Le compte TikTok Ads 7400000000000000000 ne fait pas partie des comptes de ce client."]);
+  });
+
+  it("refuse un revenu jugé par plateforme quand TikTok ne remonte aucune valeur", () => {
+    const TIKTOK: AlertAccountRef = { platform: "tiktok", accountId: "7412345678901234567", name: "LPEV TikTok", currency: "EUR" };
+    const errors = refused(
+      { ...base, metric: "revenue", condition: "below", threshold: 100, aggregation: "each", accounts: [{ platform: "meta", accountId: "1234567890" }, { platform: "tiktok", accountId: "7412345678901234567" }] },
+      ctx({ accounts: [...CLIENT, TIKTOK], series: series(read(META, 400), read(TIKTOK, null)) }),
+    );
+    expect(errors[0]).toContain("TikTok Ads ne remonte aucune valeur de conversion");
   });
 
   it("refuse une alerte pour un client sans compte", () => {

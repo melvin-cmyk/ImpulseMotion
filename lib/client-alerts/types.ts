@@ -30,7 +30,7 @@
  * message would have been received.
  */
 
-export type AlertPlatform = "meta" | "google";
+export type AlertPlatform = "meta" | "google" | "tiktok";
 
 /** Same shape as AlertAccount of lib/auto-alerts/clients.ts (AlertClient.accountsJson). */
 export interface AlertAccountRef {

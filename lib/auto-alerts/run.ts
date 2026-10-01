@@ -11,11 +11,12 @@ import { prisma } from "@/lib/prisma";
 import { pruneFindings, type DayPoint, type Finding } from "@/lib/auto-alerts/detect";
 import { scanMetaAccount, type ScanResult } from "@/lib/auto-alerts/meta";
 import { scanGoogleAccount } from "@/lib/auto-alerts/google";
+import { scanTikTokAccount } from "@/lib/auto-alerts/tiktok";
 import { applyPlan, markNotified, markNotifyError, planIncidents, type Plan } from "@/lib/auto-alerts/incidents";
 import { buildDigest, hasNews, writeReading } from "@/lib/auto-alerts/message";
 import { autoAlertWebhook, postDigest } from "@/lib/auto-alerts/slack";
 import { enabledKinds, isDue, parseConfig } from "@/lib/auto-alerts/config";
-import { parseAccounts, syncAlertClients, type AlertAccount } from "@/lib/auto-alerts/clients";
+import { parseAlertAccounts, syncAlertClients, type AlertAccount } from "@/lib/auto-alerts/clients";
 import { loadFx } from "@/lib/cockpit/fx";
 
 export interface RunOptions {
@@ -97,7 +98,7 @@ function within<T>(p: Promise<T>, what: string): Promise<T> {
 }
 
 const appUrl = () => (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://app.impulse-analytics.com").replace(/\/$/, "");
-const PLATFORM = { meta: "Meta Ads", google: "Google Ads" } as const;
+const PLATFORM = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" } as const;
 
 export interface AccountOutcome { findings: Finding[]; evaluated: string[]; dormant: boolean }
 
@@ -109,7 +110,7 @@ export interface AccountOutcome { findings: Finding[]; evaluated: string[]; dorm
  * open on it keeps being followed.
  */
 export function tagAccount(account: AlertAccount, scan: Pick<ScanResult, "findings" | "evaluated" | "series">, opts: { siblings: number; openKeys: ReadonlySet<string> }): AccountOutcome {
-  const read = scan.evaluated.has(account.platform === "meta" ? "meta:days" : "google:days");
+  const read = scan.evaluated.has(`${account.platform}:days`);
   const dormant = read && scan.series.every((d) => d.spend <= 0);
   const findings = scan.findings
     .map((f): Finding => ({
@@ -150,7 +151,7 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
   const pending: Pending[] = [];
 
   const one = async (c: (typeof clients)[number]): Promise<ClientRun> => {
-    const accounts = parseAccounts(c.accountsJson);
+    const accounts = parseAlertAccounts(c.accountsJson);
     const channel = c.slackChannel ?? c.slackChannelId ?? null;
     const target = c.slackChannelId ?? c.slackChannel ?? null;
     const kinds = enabledKinds(parseConfig(c.autoAlertConfig));
@@ -158,7 +159,11 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
 
     const existing = await prisma.autoIncident.findMany({ where: { clientId: c.id } });
     const openKeys = new Set(existing.filter((i) => i.status === "open").map((i) => i.key));
-    const count = { meta: accounts.filter((a) => a.platform === "meta").length, google: accounts.filter((a) => a.platform === "google").length };
+    const count = {
+      meta: accounts.filter((a) => a.platform === "meta").length,
+      google: accounts.filter((a) => a.platform === "google").length,
+      tiktok: accounts.filter((a) => a.platform === "tiktok").length,
+    };
     const fallbackCurrency = accounts.find((a) => a.currency)?.currency ?? "EUR";
 
     const evaluated = new Set<string>();
@@ -169,7 +174,9 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
       const label = count[a.platform] > 1 ? `${PLATFORM[a.platform]} — ${a.name}` : PLATFORM[a.platform];
       try {
         const scan = await within(
-          a.platform === "meta" ? scanMetaAccount(a.accountId, now, rates) : scanGoogleAccount(a.accountId, a.currency ?? fallbackCurrency, now, rates),
+          a.platform === "meta" ? scanMetaAccount(a.accountId, now, rates)
+            : a.platform === "google" ? scanGoogleAccount(a.accountId, a.currency ?? fallbackCurrency, now, rates)
+            : scanTikTokAccount(a.accountId, a.currency ?? fallbackCurrency, now, rates),
           label,
         );
         run.errors.push(...scan.errors.map((e) => (count[a.platform] > 1 ? `${a.name} — ${e}` : e)));

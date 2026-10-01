@@ -29,6 +29,8 @@ import { cached } from "@/lib/kpi-cache";
 import { FX_FALLBACK, loadFx } from "@/lib/cockpit/fx";
 import { hourIn } from "@/lib/auto-alerts/meta";
 import { toDayPoint } from "@/lib/auto-alerts/google";
+import { fetchTikTokDaily } from "@/lib/tiktok-data";
+import { prisma } from "@/lib/prisma";
 import { metricOf, PLATFORM_LABEL, totalsOver, tracksValue, type Totals } from "@/lib/client-alerts/evaluate";
 import { SERIES_DAYS, type AccountSeries, type AlertAccountRef, type AlertPlatform, type ClientSeries, type SeriesPoint } from "@/lib/client-alerts/types";
 
@@ -153,13 +155,47 @@ async function readGoogle(account: AlertAccountRef, now: Date, rates: Record<str
   return build(account, currency, eurRateOf(currency, rates), points, addDays(today, -SERIES_DAYS), today, hourIn(tz, now));
 }
 
+/** Timezone TikTok gave when the account was attached to a dashboard (lib/tiktok-accounts.ts); null when unknown. */
+async function tiktokTimezone(advertiserId: string): Promise<string | null> {
+  try {
+    const source = await prisma.dashboardSource.findFirst({ where: { kind: "tiktok", externalId: advertiserId }, select: { config: true } });
+    const tz = (JSON.parse(source?.config || "{}") as { timezone?: unknown }).timezone;
+    return typeof tz === "string" && tz ? tz : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One daily report (lib/tiktok-data.ts, ranges of 30 days summed there). The
+ * days are those of the account timezone, known from its dashboard, else
+ * Paris; the currency is the one stored with the client. TikTok's
+ * « conversion » (the optimisation event) is the conversion, the value of its
+ * purchases the revenue.
+ */
+async function readTikTok(account: AlertAccountRef, now: Date, rates: Record<string, number>): Promise<AccountSeries> {
+  const tz = (await tiktokTimezone(account.accountId)) ?? PARIS;
+  const today = todayIn(tz, now);
+  const since = addDays(today, -SERIES_DAYS);
+  const currency = account.currency ?? "EUR";
+  const eurRate = eurRateOf(currency, rates);
+  const rows = await fetchTikTokDaily(account.accountId, since, today);
+  const points = rows.map((r): SeriesPoint => ({
+    date: r.date, spend: r.spend, conversions: r.conversions,
+    revenue: r.purchaseValue > 0 ? r.purchaseValue : null, clicks: r.clicks, impressions: r.impressions,
+  }));
+  return build(account, currency, eurRate, points, since, today, hourIn(tz, now));
+}
+
+const READERS: Record<AlertPlatform, typeof readMeta> = { meta: readMeta, google: readGoogle, tiktok: readTikTok };
+
 async function readAccount(account: AlertAccountRef, now: Date, rates: Record<string, number>, fresh: boolean): Promise<AccountSeries> {
   try {
     // The day is part of the key: a series read before midnight is not served after it.
     const key = `client-alerts:series:${account.platform}:${account.accountId}:${todayIn(PARIS, now)}`;
     const read = await cached(
       key,
-      () => within(account.platform === "meta" ? readMeta(account, now, rates) : readGoogle(account, now, rates)),
+      () => within(READERS[account.platform](account, now, rates)),
       { ttlMs: CACHE_TTL_MS, refresh: fresh },
     );
     // The name and the currency shown are those the caller knows today, not those of the cached read.
@@ -229,8 +265,9 @@ export function summarizeSeries(series: ClientSeries, days = 60): string {
   const readable = series.accounts.filter((a) => !a.error && a.days.length);
   if (!readable.length) return [...lines, "Aucune donnée lisible."].join("\n");
 
-  const groups: Array<{ label: string; accounts: AccountSeries[] }> = (["meta", "google"] as AlertPlatform[])
-    .map((p) => ({ label: p === "meta" ? "Meta" : "Google", accounts: readable.filter((a) => a.account.platform === p) }))
+  const SHORT: Record<AlertPlatform, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
+  const groups: Array<{ label: string; accounts: AccountSeries[] }> = (["meta", "google", "tiktok"] as AlertPlatform[])
+    .map((p) => ({ label: SHORT[p], accounts: readable.filter((a) => a.account.platform === p) }))
     .filter((g) => g.accounts.length > 0);
   // One platform only: its figures are the total.
   if (groups.length > 1) groups.push({ label: "Total", accounts: readable });

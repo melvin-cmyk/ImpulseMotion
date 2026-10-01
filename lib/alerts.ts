@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { notifyAlertEvents } from "@/lib/alert-notify";
-import { fetchEntityMetrics, filterEntities, isAlertLevel, parseFilter, LEVEL_LABELS, type AlertLevel, type AlertPlatform, type EntityMetrics } from "@/lib/alert-entities";
+import { fetchEntityMetrics, filterEntities, isAlertLevel, parseAlertPlatform, parseFilter, LEVEL_LABELS, type AlertLevel, type AlertPlatform, type EntityMetrics } from "@/lib/alert-entities";
 import { fetchGoogleAccountMetrics, fetchGoogleEntityMetrics } from "@/lib/alert-google";
+import { fetchTikTokAccountMetrics } from "@/lib/alert-tiktok";
 import { evaluateAiRule } from "@/lib/alert-ai";
 import {
   getMetaSystemToken,
@@ -173,7 +174,8 @@ async function getOrCreateBudgetRule(userId: string): Promise<string> {
  */
 async function scanBudgetPacing(): Promise<{ scanned: number; triggered: number; unknown: number; createdIds: string[] }> {
   const createdIds: string[] = [];
-  const budgets = await prisma.accountBudget.findMany();
+  // The pacing below reads Meta: a budget of another platform (TikTok) is never read as a Meta account.
+  const budgets = await prisma.accountBudget.findMany({ where: { platform: "meta" } });
   if (budgets.length === 0) return { scanned: 0, triggered: 0, unknown: 0, createdIds: [] };
 
   const pacing = await computePacingBatch(
@@ -252,7 +254,8 @@ export async function runAlertScan(): Promise<{
   // Group rules by account so we hit Meta once per account
   const accountsToFetch = new Set<string>();
   const accountsByUser = new Map<string, string[]>();
-  const platformOf = (rule: { platform: string }): AlertPlatform => (rule.platform === "google" ? "google" : "meta");
+  // A TikTok rule is read as TikTok, never as Meta.
+  const platformOf = (rule: { platform: string }): AlertPlatform => parseAlertPlatform(rule.platform);
   for (const rule of rules) {
     const platform = platformOf(rule);
     if (rule.clientId) {
@@ -274,7 +277,9 @@ export async function runAlertScan(): Promise<{
     Array.from(accountsToFetch).map(async (key) => {
       const [platform, accountId, window] = key.split("|");
       try {
-        const metrics = platform === "google" ? await fetchGoogleAccountMetrics(accountId, window) : await fetchMetricsForAccount(accountId, window);
+        const metrics = platform === "google" ? await fetchGoogleAccountMetrics(accountId, window)
+          : platform === "tiktok" ? await fetchTikTokAccountMetrics(accountId, window)
+          : await fetchMetricsForAccount(accountId, window);
         metricsCache.set(key, metrics);
       } catch (e) {
         errors.push(`${accountId}: ${e instanceof Error ? e.message : "fetch error"}`);
@@ -289,6 +294,7 @@ export async function runAlertScan(): Promise<{
     const hit = entityCache.get(key);
     if (hit) return hit;
     let data: EntityBatch;
+    if (platform === "tiktok") throw new Error(`niveau ${level} indisponible sur TikTok Ads`);
     if (platform === "google") {
       if (level !== "campaign" && level !== "ad_group" && level !== "keyword") throw new Error(`niveau ${level} indisponible sur Google Ads`);
       data = await fetchGoogleEntityMetrics(accountId, level, window);
@@ -333,6 +339,8 @@ export async function runAlertScan(): Promise<{
       // ── Mode IA : la condition en français est jugée sur un snapshot du compte.
       if (rule.mode === "ai") {
         if (!rule.prompt) continue;
+        // Refused when created: the AI judges campaigns and ads, which TikTok does not give here.
+        if (platform === "tiktok") { skipped.push(`${accountId}/ia ${rule.label ?? rule.id}: alerte IA indisponible sur TikTok Ads`); continue; }
         try {
           if (await recentlyFired(rule.id, accountId, null)) continue;
           const detailLevel = platform === "google" ? "keyword" : "ad";
