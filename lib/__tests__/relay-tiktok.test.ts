@@ -153,26 +153,47 @@ describe("relay — TikTok Ads dans une conversation", () => {
 });
 
 describe("relay — TikTok Ads en appel direct", () => {
-  const post = async (tool: string) => {
+  const post = async (tool: string, input: unknown = { advertiser_ids: '["7111111111111111111"]' }) => {
     const res = await fetch(`http://127.0.0.1:${port}/api/tool`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
-      body: JSON.stringify({ tool, input: { advertiser_ids: '["7111111111111111111"]' } }),
+      body: JSON.stringify({ tool, input }),
     });
     return { status: res.status, json: (await res.json()) as { error?: string } };
   };
+  const REPORT = { advertiser_id: "7111111111111111111", data_level: "AUCTION_ADVERTISER", dimensions: ["advertiser_id", "stat_time_day"], metrics: ["spend"], start_date: "2026-09-01", end_date: "2026-09-30" };
 
-  it.each(["list_advertisers", "get_campaigns", "get_report_integrated", "search_ad_videos", "create_campaign"])("ferme %s", async (tool) => {
+  it.each(["list_advertisers", "get_campaigns", "search_ad_videos", "create_campaign"])("ferme %s", async (tool) => {
     const out = await post(`${TIKTOK}.${tool}`);
     expect(out.status).toBe(403);
     expect(out.json.error).toMatch(/^tool not allowed/);
   });
 
-  it("ouvre get_advertiser_info, la seule lecture dont l'application a besoin", async () => {
+  it("ouvre la fiche, le rapport libre et la liste des comptes : les lectures de l'application", async () => {
     // No mcporter in this relay's PATH: the call is let through, then fails to run — and the relay stays up.
-    for (let i = 0; i < 2; i++) {
-      const out = await post(`${TIKTOK}.get_advertiser_info`);
-      expect(out.status).toBeGreaterThanOrEqual(500);
+    for (const [tool, input] of [
+      ["get_advertiser_info", undefined],
+      ["get_report_integrated", REPORT],
+      ["list_business_centers", {}],
+      ["list_bc_advertisers", { bc_id: "7005927560051687425" }],
+    ] as Array<[string, unknown]>) {
+      const out = await post(`${TIKTOK}.${tool}`, input);
+      expect(out.status, tool).toBeGreaterThanOrEqual(500);
       expect(out.json.error).not.toMatch(/^tool not allowed/);
     }
+  });
+
+  it("relit les arguments comme dans une conversation : un rapport sans compte ou mal formé ne part pas", async () => {
+    for (const input of [
+      { ...REPORT, advertiser_id: undefined },
+      { ...REPORT, advertiser_id: 7111111111111111111 },
+      { ...REPORT, start_date: "01/09/2026" },
+      { ...REPORT, metrics: "spend; drop" },
+      { input: "{advertiser_id: '7111111111111111111'}" },
+    ]) {
+      const out = await post(`${TIKTOK}.get_report_integrated`, input);
+      expect(out.status, JSON.stringify(input)).toBe(400);
+      expect(out.json.error).toMatch(/^Appel refusé/);
+    }
+    expect((await post(`${TIKTOK}.list_bc_advertisers`, {})).status).toBe(400);
   });
 });

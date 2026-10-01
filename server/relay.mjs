@@ -22,6 +22,7 @@ import * as maxAccounts from "./max-accounts.mjs";
 import * as gwsAuth from "./gws-auth.mjs";
 import { handleSheetsRequest } from "./sheets-direct.mjs";
 import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promptLogExcerpt } from "./relay-prompt.mjs";
+import { accountsOfTikTokCall, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
 let hqProjectsCache = null;
 
 const execFileAsync = promisify(execFile);
@@ -479,9 +480,11 @@ const DIRECT_TOOL_ALLOWLIST = {
   ],
   "mcp-google-analytics": SERVER_TOOL_ALLOWLIST["mcp-google-analytics"],
   "mcp-google-sheet": SERVER_TOOL_ALLOWLIST["mcp-google-sheet"],
-  // No scope proxy here: the application sends the one advertiser id a staff
-  // member typed, to read its name before attaching it (lib/tiktok-accounts.ts).
-  [TIKTOK_SERVER]: ["get_advertiser_info"],
+  // No scope proxy here, like Google's GAQL: the application checks the
+  // caller's accounts before asking (lib/tiktok-data.ts). The arguments are
+  // still read and completed by prepareTikTokArgs (fixed metrics, strict JSON,
+  // one advertiser named), see tiktokDirectInput.
+  [TIKTOK_SERVER]: ["get_advertiser_info", "get_report_integrated", "list_business_centers", "list_bc_advertisers"],
 };
 
 /** "<server>.<tool>" → null when /api/tool may call it, the reason otherwise. */
@@ -1386,6 +1389,19 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
 //     the real parameters as typed properties.
 // Callers in the app were written against the first shape. The relay adapts
 // either way from the tool's schema, so a node migration never breaks a widget.
+/**
+ * TikTok on /api/tool: the same reading as in a chat (server/mcp-tiktok-args.mjs)
+ * — only the parameters the tool declares leave, each one checked, and a
+ * report names exactly one advertiser. Returns { input } or { error }.
+ */
+export function tiktokDirectInput(name, input) {
+  const prepared = prepareTikTokArgs(name, input ?? {}, { legacy: true });
+  if (prepared.error) return { error: prepared.error };
+  const named = accountsOfTikTokCall(name, prepared.object);
+  if (named.error) return { error: named.error };
+  return { input: prepared.args };
+}
+
 async function adaptToolInput(toolName, input) {
   const firstDot = toolName.indexOf(".");
   const server = toolName.slice(0, firstDot);
@@ -1475,7 +1491,18 @@ const server = http.createServer(async (req, res) => {
       }
       // Callers may raise the timeout for slow n8n-backed tools (capped at 30s).
       const timeoutMs = Math.min(30000, Math.max(2000, Number(body.timeoutMs) || 20000));
-      const toolInput = await adaptToolInput(String(body.tool), body.input || {});
+      let toolInput;
+      if (String(body.tool).startsWith(`${TIKTOK_SERVER}.`)) {
+        const direct = tiktokDirectInput(String(body.tool).slice(TIKTOK_SERVER.length + 1), body.input || {});
+        if (direct.error) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: direct.error }));
+          return;
+        }
+        toolInput = direct.input;
+      } else {
+        toolInput = await adaptToolInput(String(body.tool), body.input || {});
+      }
       // MCP backends (n8n) fail transiently; one retry absorbs most blips.
       // stdout goes to a temp FILE, not a pipe: mcporter exits without
       // flushing async pipe writes, which truncates large outputs (>~128KB)

@@ -94,6 +94,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   const PICKER_ENDPOINTS: Record<string, string> = {
     meta: "/api/admin/meta/accounts",
     google: "/api/admin/google-ads/accounts",
+    tiktok: "/api/admin/tiktok/accounts",
   };
 
   useEffect(() => {
