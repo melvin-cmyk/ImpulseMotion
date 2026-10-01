@@ -4,6 +4,7 @@ import { assertAccountAllowed } from "@/lib/acl";
 import { prisma } from "@/lib/prisma";
 import { validateNotify } from "@/lib/alert-notify";
 import { parseAlertPlatform, parseFilter, validateRuleInput } from "@/lib/alert-entities";
+import { normalizeAdvertiserId } from "@/lib/tiktok-accounts";
 import { BUDGET_PACING_METRIC } from "@/lib/alerts";
 
 export async function GET() {
@@ -25,6 +26,10 @@ export async function POST(req: NextRequest) {
   const platform = parseAlertPlatform(body.platform);
   const spec = validateRuleInput(body, { platform });
   if (!spec.ok) return NextResponse.json({ error: spec.error }, { status: 400 });
+  // A TikTok advertiser is digits only: anything else would fail at TikTok on every scan.
+  if (clientId && platform === "tiktok" && !normalizeAdvertiserId(String(clientId))) {
+    return NextResponse.json({ error: "Identifiant TikTok Ads invalide : des chiffres seulement." }, { status: 400 });
+  }
   if (clientId) {
     const allowed = await assertAccountAllowed(guard.session.userId, platform, clientId);
     if (!allowed) return NextResponse.json({ error: "forbidden" }, { status: 403 });

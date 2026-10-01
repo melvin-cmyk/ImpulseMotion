@@ -141,6 +141,13 @@ describe("pacing d'un budget TikTok", () => {
     expect(p).toMatchObject({ status: "unknown", reason: expect.stringContaining("40100") });
   });
 
+  it("client TikTok seul sans compte dans la devise du budget : « inconnu », jamais un faux sous-investissement", async () => {
+    const p = await computePacing(A, 10000, "EUR", { skipMeta: true, tiktokAdvertiserIds: [], tz: "Europe/Paris", now: NOW });
+    expect(p).toMatchObject({ status: "unknown", mtdSpend: 0, reason: expect.stringContaining("devise") });
+    expect(data.fetchTikTokTotals).not.toHaveBeenCalled();
+    expect(metaInsights).not.toHaveBeenCalled();
+  });
+
   it("reste sur Meta par défaut", async () => {
     metaInsights.mockResolvedValue({ data: { spend: "700" }, fetchedAt: "2026-09-15T09:00:00Z" });
     const p = await computePacing("act_123456789", 1500, "EUR", { tz: "Europe/Paris", now: NOW });

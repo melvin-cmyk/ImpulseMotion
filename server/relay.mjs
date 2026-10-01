@@ -484,7 +484,7 @@ const DIRECT_TOOL_ALLOWLIST = {
   // caller's accounts before asking (lib/tiktok-data.ts). The arguments are
   // still read and completed by prepareTikTokArgs (fixed metrics, strict JSON,
   // one advertiser named), see tiktokDirectInput.
-  [TIKTOK_SERVER]: ["get_advertiser_info", "get_report_integrated", "list_business_centers", "list_bc_advertisers"],
+  [TIKTOK_SERVER]: ["get_advertiser_info", "get_campaigns", "get_report_integrated", "list_business_centers", "list_bc_advertisers"],
 };
 
 /** "<server>.<tool>" → null when /api/tool may call it, the reason otherwise. */

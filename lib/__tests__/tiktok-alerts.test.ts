@@ -5,17 +5,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * scanner), the alerts created with the AI (validation, series), the personal
  * rules (/me/alerts). TikTok itself is replaced: lib/tiktok-data.ts is mocked.
  */
-const h = vi.hoisted(() => ({ daily: vi.fn(), totals: vi.fn() }));
+const h = vi.hoisted(() => ({ daily: vi.fn(), totals: vi.fn(), active: vi.fn() }));
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 vi.mock("@/lib/cockpit/fetch", () => ({ listMetaAccounts: vi.fn(), listGoogleAccounts: vi.fn() }));
 vi.mock("@/lib/cockpit/build", () => ({ syncAccounts: vi.fn() }));
-vi.mock("@/lib/tiktok-data", () => ({ fetchTikTokDaily: h.daily, fetchTikTokTotals: h.totals }));
+vi.mock("@/lib/tiktok-data", () => ({ fetchTikTokDaily: h.daily, fetchTikTokTotals: h.totals, tiktokHasActiveCampaign: h.active }));
 // The real cache needs a database: every read goes to the fetcher here.
 vi.mock("@/lib/kpi-cache", () => ({ cached: (_key: string, fetcher: () => Promise<unknown>) => fetcher(), ttlForRange: () => 60_000 }));
 
 import { buildClients, clientInScope, parseAccounts, parseAlertAccounts, tiktokCandidates, type BuildInput } from "@/lib/auto-alerts/clients";
-import { tagAccount } from "@/lib/auto-alerts/run";
+import { scansTikTok, tagAccount } from "@/lib/auto-alerts/run";
 import { scanTikTokAccount } from "@/lib/auto-alerts/tiktok";
 import { detectFromDays, type DayPoint } from "@/lib/auto-alerts/detect";
 import { fetchTikTokAccountMetrics, metricsFromTikTok } from "@/lib/alert-tiktok";
@@ -106,8 +106,17 @@ function rows(spend: number, conv: number, over: Partial<Record<string, Partial<
   return out;
 }
 
+describe("alertes automatiques — ouverture de TikTok dans Slack", () => {
+  it("TikTok n'est lu en vrai qu'avec AUTO_ALERTS_TIKTOK=1 ; un passage à blanc le mesure toujours", () => {
+    expect(scansTikTok({}, {})).toBe(false);
+    expect(scansTikTok({ dryRun: false }, { AUTO_ALERTS_TIKTOK: "0" })).toBe(false);
+    expect(scansTikTok({ dryRun: true }, {})).toBe(true);
+    expect(scansTikTok({}, { AUTO_ALERTS_TIKTOK: "1" })).toBe(true);
+  });
+});
+
 describe("alertes automatiques — scanner TikTok", () => {
-  beforeEach(() => { h.daily.mockReset(); });
+  beforeEach(() => { h.daily.mockReset(); h.active.mockReset(); h.active.mockResolvedValue(true); });
 
   it("une lecture par compte, sur 11 jours en heure de Paris", async () => {
     h.daily.mockResolvedValue(rows(100, 5));
@@ -125,6 +134,27 @@ describe("alertes automatiques — scanner TikTok", () => {
     expect(scan.findings.map((f) => [f.key, f.kind, f.platform, f.scope, f.title])).toEqual([
       ["tiktok:spend_stopped", "spend_stopped", "tiktok", "tiktok:days", "TikTok Ads · Dépense à l'arrêt"],
     ]);
+    expect(h.active).toHaveBeenCalledWith(TT);
+  });
+
+  it("dépense à l'arrêt sans aucune campagne allumée : pause volontaire, rien n'est signalé", async () => {
+    h.daily.mockResolvedValue(rows(100, 5, { "2026-09-29": { spend: 0, conversions: 0 } }));
+    h.active.mockResolvedValue(false);
+    expect((await scanTikTokAccount(TT, "EUR", NOW, { EUR: 1 })).findings).toEqual([]);
+  });
+
+  it("liste des campagnes illisible : rien ne part, l'erreur est notée (Slack reste calme)", async () => {
+    h.daily.mockResolvedValue(rows(100, 5, { "2026-09-29": { spend: 0, conversions: 0 } }));
+    h.active.mockRejectedValue(new Error("TikTok 40100"));
+    const scan = await scanTikTokAccount(TT, "EUR", NOW, { EUR: 1 });
+    expect(scan.errors.join(" ")).toMatch(/40100/);
+    expect(scan.findings).toEqual([]);
+  });
+
+  it("la liste des campagnes n'est lue que pour confirmer un arrêt", async () => {
+    h.daily.mockResolvedValue(rows(100, 5));
+    await scanTikTokAccount(TT, "EUR", NOW, { EUR: 1 });
+    expect(h.active).not.toHaveBeenCalled();
   });
 
   it("plus aucune conversion sur un compte qui convertit d'habitude", async () => {

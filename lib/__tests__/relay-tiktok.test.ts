@@ -162,7 +162,7 @@ describe("relay — TikTok Ads en appel direct", () => {
   };
   const REPORT = { advertiser_id: "7111111111111111111", data_level: "AUCTION_ADVERTISER", dimensions: ["advertiser_id", "stat_time_day"], metrics: ["spend"], start_date: "2026-09-01", end_date: "2026-09-30" };
 
-  it.each(["list_advertisers", "get_campaigns", "search_ad_videos", "create_campaign"])("ferme %s", async (tool) => {
+  it.each(["list_advertisers", "get_adgroups", "search_ad_videos", "create_campaign"])("ferme %s", async (tool) => {
     const out = await post(`${TIKTOK}.${tool}`);
     expect(out.status).toBe(403);
     expect(out.json.error).toMatch(/^tool not allowed/);
@@ -172,6 +172,7 @@ describe("relay — TikTok Ads en appel direct", () => {
     // No mcporter in this relay's PATH: the call is let through, then fails to run — and the relay stays up.
     for (const [tool, input] of [
       ["get_advertiser_info", undefined],
+      ["get_campaigns", { advertiser_id: "7111111111111111111" }],
       ["get_report_integrated", REPORT],
       ["list_business_centers", {}],
       ["list_bc_advertisers", { bc_id: "7005927560051687425" }],

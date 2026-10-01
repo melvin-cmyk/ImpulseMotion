@@ -233,14 +233,29 @@ export async function computePacing(
     };
   }
 
-  let mtdSpend = 0;
-  let fetchedAt: string | undefined;
   // A TikTok budget (AccountBudget platform "tiktok") reads that advertiser
   // alone; a client budget may add its TikTok advertisers to its Meta account.
   const skipMeta = platform === "tiktok" || !!opts.skipMeta;
   const tiktokIds = platform === "tiktok"
     ? [accountId, ...(opts.tiktokAdvertiserIds ?? []).filter((id) => id !== accountId)]
     : opts.tiktokAdvertiserIds ?? [];
+  // Nothing left to read (TikTok-only client whose advertisers are in another
+  // currency than the budget): no spend is not "under-delivering".
+  if (skipMeta && !tiktokIds.length) {
+    return {
+      ...base,
+      mtdSpend: 0,
+      daysRemaining: Math.max(0, progress.daysInMonth - progress.fullDays),
+      dailyRunRate: 0,
+      projectedSpend: 0,
+      pacingPct: 0,
+      status: "unknown",
+      reason: "Aucun compte TikTok Ads dans la devise du budget",
+    };
+  }
+
+  let mtdSpend = 0;
+  let fetchedAt: string | undefined;
   let tiktokSpend: number | null = null;
   try {
     const mtd = { since: progress.first, until: progress.lastClosed };

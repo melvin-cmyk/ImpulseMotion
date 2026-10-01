@@ -67,6 +67,20 @@ describe("TikTok accounts without a dashboard", () => {
     expect(list).toEqual([{ id: `account:tiktok=${TT}`, name: "Jow TikTok", metaAccountId: null, googleCustomerId: null, tiktokAdvertiserId: TT }]);
   });
 
+  it("puts the TikTok account of a client next to its Meta account, and names a TikTok-only client from its group", () => {
+    const list = buildPending(input({
+      scope: { meta: ["111111"], google: [], tiktok: [TT, "7000000000000000003"] },
+      groups: [
+        { name: "Naturalia", accounts: [{ platform: "meta", accountId: "111111", name: "Naturalia IA" }, { platform: "tiktok", accountId: TT, name: "NATURALIA" }] },
+        { name: "Jow", accounts: [{ platform: "tiktok", accountId: "7000000000000000003", name: "Jow.cuisine" }] },
+      ],
+    }));
+    expect(list).toEqual([
+      { id: "account:tiktok=7000000000000000003", name: "Jow", metaAccountId: null, googleCustomerId: null, tiktokAdvertiserId: "7000000000000000003" },
+      { id: `account:meta=111111,tiktok=${TT}`, name: "Naturalia", metaAccountId: "111111", googleCustomerId: null, tiktokAdvertiserId: TT },
+    ]);
+  });
+
   it("round-trips a TikTok pending id; meta/google ids are unchanged", () => {
     expect(parsePendingId(pendingId(null, null, TT))).toEqual({ metaAccountId: null, googleCustomerId: null, tiktokAdvertiserId: TT });
     expect(parsePendingId(pendingId("111111", null))).toEqual({ metaAccountId: "111111", googleCustomerId: null });

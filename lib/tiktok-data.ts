@@ -182,6 +182,20 @@ export async function fetchTikTokCampaigns(advertiserId: string, since: string, 
   return [...byId.values()].sort((a, b) => b.spend - a.spend);
 }
 
+/**
+ * Whether at least one campaign of the advertiser is switched on
+ * (operation_status ENABLE). Read page by page, stopping at the first one.
+ * Throws on a TikTok error: the scan then reports an error and says nothing.
+ */
+export async function tiktokHasActiveCampaign(advertiserId: string): Promise<boolean> {
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { list, totalPage } = tiktokEnvelope(await relayDirectTool(`${TIKTOK_SERVER}.get_campaigns`, { advertiser_id: advertiserId, page: String(page) }, TIMEOUT_MS));
+    if (list.some((c) => c.operation_status === "ENABLE")) return true;
+    if (page >= totalPage) return false;
+  }
+  return false;
+}
+
 /** All pages of one enumeration call. */
 async function enumerate(tool: "list_business_centers" | "list_bc_advertisers", input: Record<string, unknown>): Promise<Array<Record<string, unknown>>> {
   const out: Array<Record<string, unknown>> = [];
