@@ -14,6 +14,8 @@ import {
   resolveBinding,
   resolveWidgets,
   prevRange,
+  boundPlatforms,
+  sourceFor,
   findHubspotSourceDashboard,
   type CompareRange,
 } from "@/lib/dashboard-widgets";
@@ -75,7 +77,7 @@ export interface ReportNextStep {
   detail: string;
   priority: "high" | "medium" | "low";
   /** crm = attribution / CRM setup action (HubSpot, UTM…) */
-  platform?: "meta" | "google" | "global" | "crm";
+  platform?: "meta" | "google" | "tiktok" | "global" | "crm";
   done: boolean;
 }
 
@@ -98,7 +100,9 @@ export interface ReportData {
     name: string;
     metaAccountId: string | null;
     googleCustomerId: string | null;
-    platforms: Array<"meta" | "google">;
+    /** TikTok Ads advertisers summed in the snapshot (absent on snapshots taken before TikTok). */
+    tiktokAdvertiserIds?: string[];
+    platforms: Array<"meta" | "google" | "tiktok">;
   };
   period: { since: string; until: string };
   compare: { since: string; until: string; kind: string } | null;
@@ -111,6 +115,8 @@ export interface ReportData {
     metaRoas?: Array<{ date: string; value: number }>;
     googleSpend?: Array<{ date: string; value: number }>;
     googleConversions?: Array<{ date: string; value: number }>;
+    tiktokSpend?: Array<{ date: string; value: number }>;
+    tiktokRoas?: Array<{ date: string; value: number }>;
   };
   funnel: { steps: Array<{ label: string; value: number }>; rates: Array<{ label: string; pct: number }> } | null;
   demographics: Array<{ age: string; gender: string; value: number }>;
@@ -119,6 +125,8 @@ export interface ReportData {
   campaigns: {
     meta: Array<{ name: string; spend: number; clicks: number; conversions: number; roas: number }>;
     google: Array<{ name: string; spend: number; clicks: number; conversions: number; roas: number }>;
+    /** Absent on snapshots taken before TikTok. */
+    tiktok?: Array<{ name: string; spend: number; clicks: number; conversions: number; roas: number }>;
   };
   keywords: Array<{ name: string; matchType?: string; spend: number; clicks: number; conversions: number; ctr?: number }>;
   searchTerms: Array<{ name: string; spend: number; clicks: number; conversions: number }>;
@@ -223,19 +231,23 @@ export async function collectReportData(
   const binding = await resolveBinding(dashboard.userId, dashboard);
   const hasMeta = !!binding.metaAccountId;
   const hasGoogle = !!binding.googleCustomerId;
-  const warnings: string[] = [];
-  if (!hasMeta && !hasGoogle) throw new Error("Aucun compte publicitaire lié à ce client");
+  const hasTikTok = binding.tiktokAdvertiserIds.length > 0;
+  const warnings: string[] = [...binding.tiktokWarnings];
+  if (!hasMeta && !hasGoogle && !hasTikTok) throw new Error("Aucun compte publicitaire lié à ce client");
 
   const effectiveCompare: CompareRange | null =
     compare === undefined ? { ...prevRange(since, until), kind: "prev" } : compare;
-  const source = hasMeta && hasGoogle ? "combined" : hasGoogle ? "google" : "meta";
+  const platforms = boundPlatforms(binding);
+  const source = sourceFor(platforms);
+  // The funnel reads Meta and Google only.
+  const funnelSource = hasMeta && hasGoogle ? "combined" : hasGoogle ? "google" : "meta";
 
   const widgets: SyntheticWidget[] = [];
   for (const metric of ["spend", "revenue", "roas", "purchases", "cpa", "ctr", "cpc", "cr", "clicks", "impressions"]) {
     widgets.push(w(`kpi:${metric}`, "kpi", { metric, source }));
   }
   widgets.push(w("platforms", "platform_table", {}));
-  widgets.push(w("funnel", "funnel", { source }));
+  if (hasMeta || hasGoogle) widgets.push(w("funnel", "funnel", { source: funnelSource }));
   if (hasMeta) {
     widgets.push(w("daily:metaSpend", "timeseries", { metric: "spend", source: "meta" }));
     widgets.push(w("daily:metaRoas", "timeseries", { metric: "roas", source: "meta" }));
@@ -252,6 +264,13 @@ export async function collectReportData(
     widgets.push(w("keywords", "table", { kind: "keywords", source: "google", limit: 15 }));
     widgets.push(w("searchTerms", "table", { kind: "search_terms", source: "google", limit: 15 }));
     if (!hasMeta) widgets.push(w("devices", "geo_device", { source: "google", dimension: "device" }));
+  }
+  if (hasTikTok) {
+    widgets.push(w("daily:tiktokSpend", "timeseries", { metric: "spend", source: "tiktok" }));
+    widgets.push(w("daily:tiktokRoas", "timeseries", { metric: "roas", source: "tiktok" }));
+    widgets.push(w("campaigns:tiktok", "table", { kind: "campaigns", source: "tiktok", limit: 15 }));
+    // Pacing against the client's budget (Meta's widget above already adds TikTok's spend).
+    if (!hasMeta) widgets.push(w("pacing", "pacing", {}));
   }
   widgets.push(w("alerts", "alerts", { limit: 10 }));
   // CRM (HubSpot) only when a source is connected — same loader as the widgets.
@@ -329,10 +348,6 @@ export async function collectReportData(
     previousReport = { id: prev.id, periodSince: prev.periodSince, periodUntil: prev.periodUntil, nextSteps: steps };
   }
 
-  const platforms: Array<"meta" | "google"> = [];
-  if (hasMeta) platforms.push("meta");
-  if (hasGoogle) platforms.push("google");
-
   let crm: ReportCrm | undefined;
   if (hasHubspot) {
     const funnel = dataOf<CrmFunnelData>("crm:funnel");
@@ -346,6 +361,7 @@ export async function collectReportData(
       name: dashboard.name,
       metaAccountId: binding.metaAccountId,
       googleCustomerId: binding.googleCustomerId,
+      ...(hasTikTok ? { tiktokAdvertiserIds: binding.tiktokAdvertiserIds } : {}),
       platforms,
     },
     period: { since, until },
@@ -358,6 +374,8 @@ export async function collectReportData(
       metaRoas: series("daily:metaRoas"),
       googleSpend: series("daily:googleSpend"),
       googleConversions: series("daily:googleConversions"),
+      tiktokSpend: series("daily:tiktokSpend"),
+      tiktokRoas: series("daily:tiktokRoas"),
     },
     funnel: dataOf("funnel"),
     demographics: tableRows<{ age: string; gender: string; value: number }>("demographics").slice(0, 10),
@@ -366,6 +384,7 @@ export async function collectReportData(
     campaigns: {
       meta: tableRows("campaigns:meta"),
       google: tableRows("campaigns:google"),
+      ...(hasTikTok ? { tiktok: tableRows<{ name: string; spend: number; clicks: number; conversions: number; roas: number }>("campaigns:tiktok") } : {}),
     },
     keywords: tableRows("keywords"),
     searchTerms: tableRows("searchTerms"),

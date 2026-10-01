@@ -18,7 +18,7 @@ import {
 } from "@/components/portfolio/crm-shared";
 import type { CrmAttributionData, CrmFunnelData } from "@/components/portfolio/crm-types";
 import {
-  emptyMessage, kpiValueClass, pacingView, partialNote,
+  emptyMessage, kpiValueClass, pacingView, partialNote, sourceLabel,
   type AlertsData, type DemographicsData, type MetaActionsData, type FunnelData, type GeoDeviceData, type KpiData,
   type PacingData, type PlatformTableData, type TableData, type TimeseriesData, type TopCreativesData,
 } from "@/components/dashboard/widget-display";
@@ -29,7 +29,6 @@ const KPI_LABELS: Record<string, string> = {
   purchases: "Conversions", clicks: "Clics", impressions: "Impressions",
 };
 
-const SOURCE_LABELS: Record<string, string> = { meta: "Meta", google: "Google", combined: "Meta + Google" };
 
 export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
   if (widget.error) {
@@ -112,7 +111,7 @@ function KpiWidget({ widget }: { widget: ResolvedWidget }) {
         <span>
           {KPI_LABELS[d.metric] ?? d.metric}
           {d.conversionLabel && <span className="text-gray-400"> ({d.conversionLabel})</span>}
-          {" · "}{SOURCE_LABELS[d.source] ?? d.source}
+          {" · "}{sourceLabel(d.source, d.platforms)}
         </span>
         {!d.unavailable && typeof d.deltaPct === "number" && (
           <span
@@ -177,7 +176,7 @@ function PlatformTableWidget({ widget }: { widget: ResolvedWidget }) {
               <td className="py-2 px-1 text-left text-gray-200">{String(row.platform)}</td>
               {PLATFORM_COLUMNS.map((c) => (
                 <td key={c.key} className="py-2 px-1 text-right text-gray-300 tabular-nums align-top">
-                  {c.fmt(Number(row[c.key] ?? 0), d.currency)}
+                  {c.fmt(Number(row[c.key] ?? 0), (row.currency as string | undefined) ?? d.currency)}
                   <DeltaCell deltaPct={row[`${c.key}DeltaPct`] as number | null} goodUp={c.goodUp} />
                 </td>
               ))}
@@ -382,7 +381,7 @@ function FunnelWidget({ widget }: { widget: ResolvedWidget }) {
   return (
     <div className="py-1">
       <div className="text-xs text-gray-500 mb-2">
-        {SOURCE_LABELS[d.source] ?? d.source}
+        {sourceLabel(d.source)}
         {note && <span className="text-amber-400/90"> · partiel</span>}
       </div>
       {note && <div className="text-xs text-amber-400/90 mb-2" title={d.errors?.join(" · ")}>{note}</div>}
@@ -501,7 +500,7 @@ function GeoDeviceWidget({ widget }: { widget: ResolvedWidget }) {
   return (
     <div className="py-1">
       <div className="flex items-center text-[11px] text-gray-500 uppercase tracking-wide border-b border-gray-800 pb-1.5 mb-1">
-        <span className="flex-1">{d.dimension === "country" ? "Pays" : "Appareil"} · {SOURCE_LABELS[d.source] ?? d.source}</span>
+        <span className="flex-1">{d.dimension === "country" ? "Pays" : "Appareil"} · {sourceLabel(d.source)}</span>
         <span className="w-16 text-right">Dépenses</span>
         <span className="w-14 text-right">Clics</span>
         <span className="w-12 text-right">Conv.</span>

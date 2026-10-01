@@ -141,7 +141,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const tiktokIds = await getDashboardTikTokIds(dashboard.id);
   // The dashboard as it is now. It travels in `turnContext` when the relay
   // takes it, in the system prompt otherwise (a relay not restarted yet).
-  const state = buildCopilotTurnContext({ ...dashboard, widgets: dashboard.widgets, pages: dashboard.pages });
+  const state = buildCopilotTurnContext({ ...dashboard, tiktokAdvertiserIds: tiktokIds, widgets: dashboard.widgets, pages: dashboard.pages });
   const systemPromptFor = (inlineState: string | null) => buildCopilotSystemPrompt(
     dashboard,
     dashboard.user.name ?? dashboard.user.email ?? "client",

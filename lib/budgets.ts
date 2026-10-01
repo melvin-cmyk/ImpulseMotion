@@ -1,5 +1,7 @@
 /**
- * Monthly budget pacing for a Meta ad account or a TikTok advertiser.
+ * Monthly budget pacing for a Meta ad account or a TikTok advertiser — plus
+ * the client's TikTok Ads advertisers when the budget is the client's
+ * (Dashboard.monthlyBudget).
  *
  * Rules (Lot F4):
  * - the month is computed in the ACCOUNT timezone (Meta interprets since/until
@@ -22,7 +24,7 @@ import { getMetaSystemToken } from "@/lib/meta-api";
 import { getAccountInsightsCachedWithMeta } from "@/lib/insights";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { addDays, todayIn } from "@/lib/date-ranges";
-import { fetchTikTokTotals } from "@/lib/tiktok-data";
+import { tiktokTotals } from "@/lib/tiktok-dashboard";
 
 /** Platforms whose spend the pacing can read. */
 export type PacingPlatform = "meta" | "tiktok";
@@ -50,6 +52,10 @@ export interface PacingResult {
   source?: "dashboard" | "account_budget";
   /** ISO timestamp of the MTD spend fetch (cache aware). */
   fetchedAt?: string;
+  /** Platforms whose spend makes up mtdSpend (absent = Meta only). */
+  platforms?: Array<"meta" | "tiktok">;
+  /** TikTok part of mtdSpend, when TikTok counts. */
+  tiktokSpend?: number;
 }
 
 export function classify(pacingPct: number): Exclude<PacingStatus, "unknown"> {
@@ -182,6 +188,10 @@ export interface ComputePacingOptions {
   now?: Date;
   refresh?: boolean;
   source?: BudgetChoice["source"];
+  /** TikTok advertisers whose spend also counts (same currency as the budget — the caller checks). */
+  tiktokAdvertiserIds?: string[];
+  /** The client has no Meta account: `accountId` is a TikTok advertiser, only TikTok counts. */
+  skipMeta?: boolean;
 }
 
 export async function computePacing(
@@ -192,6 +202,7 @@ export async function computePacing(
 ): Promise<PacingResult> {
   const platform = opts.platform ?? "meta";
   let tz = opts.tz;
+  if (tz === undefined && opts.skipMeta && platform !== "tiktok") tz = null;
   if (tz === undefined) {
     try {
       tz = (await getAccountProfileSettings(platform, accountId)).timezone;
@@ -224,20 +235,27 @@ export async function computePacing(
 
   let mtdSpend = 0;
   let fetchedAt: string | undefined;
+  // A TikTok budget (AccountBudget platform "tiktok") reads that advertiser
+  // alone; a client budget may add its TikTok advertisers to its Meta account.
+  const skipMeta = platform === "tiktok" || !!opts.skipMeta;
+  const tiktokIds = platform === "tiktok"
+    ? [accountId, ...(opts.tiktokAdvertiserIds ?? []).filter((id) => id !== accountId)]
+    : opts.tiktokAdvertiserIds ?? [];
+  let tiktokSpend: number | null = null;
   try {
-    if (platform === "tiktok") {
-      mtdSpend = (await fetchTikTokTotals(accountId, progress.first, progress.lastClosed)).spend;
-      fetchedAt = new Date().toISOString();
-    } else {
-      const token = getMetaSystemToken();
-      const res = await getAccountInsightsCachedWithMeta(
-        token,
-        accountId,
-        { since: progress.first, until: progress.lastClosed },
-        { refresh: opts.refresh },
-      );
-      mtdSpend = parseFloat(res.data.spend ?? "0") || 0;
-      fetchedAt = res.fetchedAt;
+    const mtd = { since: progress.first, until: progress.lastClosed };
+    const [meta, tiktok] = await Promise.all([
+      skipMeta ? null : getAccountInsightsCachedWithMeta(getMetaSystemToken(), accountId, mtd, { refresh: opts.refresh }),
+      tiktokIds.length ? tiktokTotals(tiktokIds, mtd.since, mtd.until) : null,
+    ]);
+    if (meta) {
+      mtdSpend = parseFloat(meta.data.spend ?? "0") || 0;
+      fetchedAt = meta.fetchedAt;
+    }
+    if (tiktok) {
+      tiktokSpend = tiktok.spend;
+      mtdSpend += tiktok.spend;
+      fetchedAt ??= new Date().toISOString();
     }
   } catch (e) {
     return {
@@ -258,6 +276,9 @@ export async function computePacing(
     mtdSpend: Math.round(mtdSpend),
     ...proj,
     ...(fetchedAt ? { fetchedAt } : {}),
+    ...(tiktokSpend !== null
+      ? { platforms: skipMeta ? ["tiktok" as const] : ["meta" as const, "tiktok" as const], tiktokSpend: Math.round(tiktokSpend) }
+      : {}),
   };
 }
 

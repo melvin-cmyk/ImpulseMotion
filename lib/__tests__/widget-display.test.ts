@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  emptyMessage, failedPlatforms, kpiValueClass, pacingView, partialNote,
+  emptyMessage, failedPlatforms, kpiValueClass, pacingView, partialNote, sourceLabel,
 } from "@/components/dashboard/widget-display";
 import { fmtMetric, fmtMoney, fmtRoas } from "@/components/portfolio/format";
 
@@ -86,5 +86,14 @@ describe("widget amounts follow the account currency", () => {
     expect(fmtRoas(0, { unavailable: true })).toBe("—");
     expect(fmtRoas(0)).toBe("—");
     expect(fmtRoas(2.4, { estimated: true })).toBe("2,4x*");
+  });
+});
+
+describe("sourceLabel() — TikTok", () => {
+  it("names TikTok, and the platforms a combined KPI really summed", () => {
+    expect(sourceLabel("tiktok")).toBe("TikTok");
+    expect(sourceLabel("combined", ["meta", "tiktok"])).toBe("Meta + TikTok");
+    expect(sourceLabel("combined")).toBe("Meta + Google");
+    expect(failedPlatforms(["TikTok: 40100 quota"])).toEqual(["TikTok"]);
   });
 });

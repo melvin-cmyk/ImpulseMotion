@@ -32,6 +32,8 @@ export interface KpiData extends WidgetFlags {
   compareUntil?: string | null;
   /** purchases/cpa/cr on Meta: which conversion action is counted. */
   conversionLabel?: string;
+  /** Platforms summed into the value (combined source). */
+  platforms?: string[];
 }
 
 export interface MetaActionsData extends WidgetFlags {
@@ -104,7 +106,15 @@ export interface AlertsData extends WidgetFlags {
   }>;
 }
 
-const PLATFORM_PREFIX: Record<string, string> = { meta: "Meta", google: "Google" };
+const PLATFORM_PREFIX: Record<string, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
+
+const SOURCE_LABEL: Record<string, string> = { meta: "Meta", google: "Google", tiktok: "TikTok", combined: "Meta + Google" };
+
+/** Label of a widget source; a combined KPI names the platforms it really summed. */
+export function sourceLabel(source: string, platforms?: string[]): string {
+  if (source === "combined" && platforms?.length) return platforms.map((p) => SOURCE_LABEL[p] ?? p).join(" + ");
+  return SOURCE_LABEL[source] ?? source;
+}
 
 /** Platforms named in a resolver's `errors`, in the client's vocabulary. */
 export function failedPlatforms(errors?: string[]): string[] {

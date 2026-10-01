@@ -1,12 +1,12 @@
 /**
  * Portfolio = one row per CLIENT, where a client is an AD ACCOUNT (a Meta
- * account and/or a Google Ads customer) represented by one or more Dashboard
- * rows — never a login. Feeds /portfolio, /portfolio/[id], /api/changes and
+ * account, a Google Ads customer and/or TikTok Ads advertisers attached as
+ * DashboardSource rows) represented by one or more Dashboard rows — never a login. Feeds /portfolio, /portfolio/[id], /api/changes and
  * the cockpit summary from a single implementation.
  *
  * Rules (Lot F4):
- * - dedup by ACCOUNT: dashboards sharing a metaAccountId OR a googleCustomerId
- *   are one client (union-find), so "meta-only + combined + google-only" for
+ * - dedup by ACCOUNT: dashboards sharing a metaAccountId, a googleCustomerId OR
+ *   a TikTok advertiser are one client (union-find), so "meta-only + combined + google-only" for
  *   the same brand collapse to one row; unlinked dashboards are listed apart;
  * - the default window is the last 30 FULL days ending yesterday in the
  *   account timezone (UTC when unknown); the comparison window is the
@@ -25,7 +25,8 @@
 
 import { ALL_ACCOUNTS, dashboardWhere, type AccountScope } from "@/lib/scope";
 import { prisma } from "@/lib/prisma";
-import { resolveWidgets, loadDashboardCrm, findHubspotSourceDashboard } from "@/lib/dashboard-widgets";
+import { resolveWidgets, loadDashboardCrm, findHubspotSourceDashboard, sourceFor, tiktokPacingIds } from "@/lib/dashboard-widgets";
+import { sameCurrencyAccounts, tiktokAccountsFromSources, TIKTOK_ACCOUNT_SOURCES_SELECT, type TikTokBoundAccount } from "@/lib/tiktok-dashboard";
 import type { CrmSummary } from "@/lib/crm-view";
 import { computePacing, pickBudget, type PacingResult } from "@/lib/budgets";
 import { getAccountProfileSettings } from "@/lib/account-settings";
@@ -74,6 +75,8 @@ export interface PortfolioClient {
   name: string;
   metaAccountId: string | null;
   googleCustomerId: string | null;
+  /** TikTok Ads advertisers of the client (every dashboard of the group). */
+  tiktokAdvertiserIds: string[];
   reportFrequency: string | null;
   owner: { id: string; name: string | null; email: string | null };
   memberCount: number;
@@ -85,7 +88,7 @@ export interface PortfolioClient {
   duplicateIds: string[];
   range: DateRange;
   compare: DateRange;
-  /** ISO 4217 of the KPIs (Meta account currency, else Google), null when unknown. */
+  /** ISO 4217 of the KPIs (Meta account currency, else Google, else TikTok), null when unknown. */
   currency: string | null;
   timezone: string | null;
   spend: PortfolioKpi;
@@ -169,6 +172,8 @@ export interface DashboardLike {
   metaAccountId: string | null;
   googleCustomerId: string | null;
   createdAt: Date | string;
+  /** DashboardSource rows when loaded (TikTok advertisers: TIKTOK_ACCOUNT_SOURCES_SELECT). */
+  sources?: Array<{ kind: string; externalId: string; status?: string | null; label?: string | null; config?: string | null }>;
 }
 
 export interface ClientGroup<T extends DashboardLike> {
@@ -177,6 +182,8 @@ export interface ClientGroup<T extends DashboardLike> {
   members: T[];
   metaAccountId: string | null;
   googleCustomerId: string | null;
+  /** TikTok advertisers of every member (oldest dashboard first, once each). */
+  tiktokAccounts: TikTokBoundAccount[];
   dashboardIds: string[];
   duplicates: number;
 }
@@ -187,8 +194,8 @@ export const normGoogle = (id: string) => id.trim().replace(/-/g, "").replace(/^
 const ts = (d: Date | string) => new Date(d).getTime();
 
 /**
- * Groups dashboards that share a Meta account OR a Google customer (transitively).
- * Unlinked dashboards (no account at all) are returned apart.
+ * Groups dashboards that share a Meta account, a Google customer OR a TikTok
+ * advertiser (transitively). Unlinked dashboards (no account at all) are returned apart.
  */
 export function groupDashboardsByAccount<T extends DashboardLike>(rows: T[]): { groups: Array<ClientGroup<T>>; unlinked: T[] } {
   const parent = new Map<string, string>();
@@ -208,11 +215,13 @@ export function groupDashboardsByAccount<T extends DashboardLike>(rows: T[]): { 
   const unlinked: T[] = [];
   const byMeta = new Map<string, string>();
   const byGoogle = new Map<string, string>();
+  const byTikTok = new Map<string, string>();
   const sorted = [...rows].sort((a, b) => ts(a.createdAt) - ts(b.createdAt) || a.id.localeCompare(b.id));
   for (const d of sorted) {
     const meta = d.metaAccountId ? normMeta(d.metaAccountId) : "";
     const google = d.googleCustomerId ? normGoogle(d.googleCustomerId) : "";
-    if (!meta && !google) { unlinked.push(d); continue; }
+    const tiktok = tiktokAccountsFromSources(d.sources).map((a) => a.id);
+    if (!meta && !google && tiktok.length === 0) { unlinked.push(d); continue; }
     parent.set(d.id, d.id);
     if (meta) {
       const first = byMeta.get(meta);
@@ -221,6 +230,10 @@ export function groupDashboardsByAccount<T extends DashboardLike>(rows: T[]): { 
     if (google) {
       const first = byGoogle.get(google);
       if (first) union(first, d.id); else byGoogle.set(google, d.id);
+    }
+    for (const id of tiktok) {
+      const first = byTikTok.get(id);
+      if (first) union(first, d.id); else byTikTok.set(id, d.id);
     }
   }
 
@@ -244,6 +257,7 @@ export function groupDashboardsByAccount<T extends DashboardLike>(rows: T[]): { 
       members,
       metaAccountId: meta ? normMeta(meta) : null,
       googleCustomerId: google ? normGoogle(google) : null,
+      tiktokAccounts: tiktokAccountsFromSources(members.flatMap((m) => m.sources ?? [])),
       dashboardIds: members.map((m) => m.id),
       duplicates: members.length - 1,
     });
@@ -476,6 +490,7 @@ export interface PortfolioClientRef {
   name: string;
   metaAccountId: string | null;
   googleCustomerId: string | null;
+  tiktokAdvertiserIds: string[];
   dashboardIds: string[];
   duplicates: number;
   ownerId: string;
@@ -486,7 +501,7 @@ export interface PortfolioClientRef {
 export async function listPortfolioClients(scope: AccountScope = ALL_ACCOUNTS): Promise<{ clients: PortfolioClientRef[]; unlinked: Array<{ id: string; name: string }> }> {
   const rows = await prisma.dashboard.findMany({
     where: dashboardWhere(scope),
-    select: { id: true, name: true, userId: true, metaAccountId: true, googleCustomerId: true, createdAt: true },
+    select: { id: true, name: true, userId: true, metaAccountId: true, googleCustomerId: true, createdAt: true, sources: TIKTOK_ACCOUNT_SOURCES_SELECT },
   });
   const { groups, unlinked } = groupDashboardsByAccount(rows);
   return {
@@ -495,6 +510,7 @@ export async function listPortfolioClients(scope: AccountScope = ALL_ACCOUNTS): 
       name: g.primary.name,
       metaAccountId: g.metaAccountId,
       googleCustomerId: g.googleCustomerId,
+      tiktokAdvertiserIds: g.tiktokAccounts.map((a) => a.id),
       dashboardIds: g.dashboardIds,
       duplicates: g.duplicates,
       ownerId: g.primary.userId,
@@ -545,6 +561,7 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
       include: {
         user: { select: { id: true, name: true, email: true } },
         _count: { select: { members: true } },
+        sources: TIKTOK_ACCOUNT_SOURCES_SELECT,
         reports: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true, periodSince: true, periodUntil: true, createdAt: true } },
       },
     }),
@@ -586,12 +603,19 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
     // Account profile (timezone / currency) → window in the account timezone.
     let timezone: string | null = null;
     let currency: string | null = null;
+    // TikTok advertisers summed for this client: one currency (lib/tiktok-dashboard).
+    const tiktok = sameCurrencyAccounts(g.tiktokAccounts);
+    const tiktokIds = tiktok.accounts.map((a) => a.id);
     if (g.metaAccountId) {
       try {
         const p = await getAccountProfileSettings("meta", g.metaAccountId);
         timezone = p.timezone;
         currency = p.currency;
       } catch { /* UTC fallback */ }
+    } else if (!g.googleCustomerId && tiktokIds.length) {
+      // TikTok alone: the advertisers' timezone and currency.
+      timezone = tiktok.accounts.find((a) => a.timezone)?.timezone ?? null;
+      currency = tiktok.currency;
     }
     const range = opts.range ?? lastFullDays(30, { tz: timezone, now });
     const compare = opts.compare ?? prevRange(range);
@@ -601,6 +625,7 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
       name: d.name,
       metaAccountId: g.metaAccountId,
       googleCustomerId: g.googleCustomerId,
+      tiktokAdvertiserIds: tiktokIds,
       reportFrequency,
       owner: d.user,
       memberCount,
@@ -618,7 +643,8 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
       error: null,
       errors: [],
       fetchedAt: null,
-      alertCount: (g.metaAccountId ? alertsByAccount.get(g.metaAccountId) ?? 0 : 0) + (g.googleCustomerId ? alertsByAccount.get(g.googleCustomerId) ?? 0 : 0),
+      alertCount: (g.metaAccountId ? alertsByAccount.get(g.metaAccountId) ?? 0 : 0) + (g.googleCustomerId ? alertsByAccount.get(g.googleCustomerId) ?? 0 : 0)
+        + tiktokIds.reduce((n, id) => n + (alertsByAccount.get(id) ?? 0), 0),
       lastReport: lastReportRow ? { ...lastReportRow, createdAt: lastReportRow.createdAt.toISOString() } : null,
       pacing: null,
       attention: 0,
@@ -626,7 +652,7 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
       attentionSignals: [],
     };
 
-    if (opts.refresh) await invalidateAccountCache([g.metaAccountId, g.googleCustomerId, ...g.dashboardIds]);
+    if (opts.refresh) await invalidateAccountCache([g.metaAccountId, g.googleCustomerId, ...tiktokIds, ...g.dashboardIds]);
 
     // CRM (HubSpot) in parallel with the KPIs — never blocks nor fails the row.
     const crmDashboardId = g.dashboardIds.find((id) => crmDashboards.has(id)) ?? null;
@@ -669,11 +695,11 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
       }
     }
 
-    // 2) Same resolvers as the client dashboards (combined when both platforms are bound).
-    const source = g.metaAccountId && g.googleCustomerId ? "combined" : g.googleCustomerId && !g.metaAccountId ? "google" : "meta";
+    // 2) Same resolvers as the client dashboards (combined when several platforms are bound).
+    const source = sourceFor([g.metaAccountId && "meta", g.googleCustomerId && "google", tiktokIds.length > 0 && "tiktok"].filter((p): p is string => !!p));
     try {
       const resolved = await resolveWidgets(
-        { id: d.id, userId: d.userId, metaAccountId: g.metaAccountId, googleCustomerId: g.googleCustomerId },
+        { id: d.id, userId: d.userId, metaAccountId: g.metaAccountId, googleCustomerId: g.googleCustomerId, tiktokAccounts: g.tiktokAccounts },
         KPI_METRICS.map((metric, i) => ({ id: metric, type: "kpi", title: null, width: "third", position: i, config: JSON.stringify({ metric, source }) })),
         range.since,
         range.until,
@@ -709,11 +735,22 @@ export async function loadPortfolio(opts: LoadPortfolioOptions = {}): Promise<Po
     }
 
     // 3) Budget pacing: Dashboard.monthlyBudget first, then any AccountBudget for the account.
+    //    TikTok spend counts against the client's budget (same currency), alone when there is no Meta account.
+    const tiktokBinding = { tiktokAdvertiserIds: tiktokIds, tiktokCurrency: tiktok.currency };
     if (g.metaAccountId) {
       const choice = pickBudget(g.members, budgetsByAccount.get(g.metaAccountId) ?? [], base.currency);
       if (choice) {
         base.pacing = await computePacing(g.metaAccountId, choice.monthlyTarget, choice.currency, {
           tz: timezone, now, refresh: opts.refresh, source: choice.source,
+          tiktokAdvertiserIds: tiktokPacingIds(choice, tiktokBinding),
+        }).catch(() => null);
+      }
+    } else if (tiktokIds.length) {
+      const choice = pickBudget(g.members, [], tiktok.currency ?? base.currency);
+      if (choice) {
+        base.pacing = await computePacing(tiktokIds[0], choice.monthlyTarget, choice.currency, {
+          tz: timezone, now, source: choice.source, skipMeta: true,
+          tiktokAdvertiserIds: tiktokPacingIds(choice, tiktokBinding),
         }).catch(() => null);
       }
     }

@@ -8,7 +8,7 @@
  * dropped connection.
  */
 
-import { getAccountScope, dashboardWhere, dashboardInScope } from "@/lib/scope";
+import { getAccountScope, dashboardWhere, dashboardInScope, TIKTOK_SOURCES_SELECT } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
@@ -16,6 +16,8 @@ import { generateClientReport, defaultReportTitle, resolveCompare } from "@/lib/
 import { REPORT_LIST_SELECT, serializeReportRow } from "@/lib/reports-api";
 import { parsePendingId, pendingReportClients } from "@/lib/report-clients";
 import { createDashboardForUser } from "@/lib/dashboard-widgets";
+import { checkTikTokBinding } from "@/lib/tiktok-binding";
+import type { TikTokAdvertiser } from "@/lib/tiktok-accounts";
 
 export const maxDuration = 300;
 
@@ -57,15 +59,23 @@ export async function POST(req: NextRequest) {
     // list is rebuilt here, so only what they were really given can be opened.
     const pending = (await pendingReportClients(guard.session.userId, scope)).find((p) => p.id === dashboardId);
     if (!pending) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
+    // A TikTok advertiser is looked up at TikTok before it is stored (lib/tiktok-binding).
+    let tiktok: TikTokAdvertiser[] = [];
+    if (pending.tiktokAdvertiserId) {
+      const checked = await checkTikTokBinding(pending.tiktokAdvertiserId, scope);
+      if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: checked.status });
+      tiktok = [checked.advertiser];
+    }
     const created = await createDashboardForUser({
       userId: guard.session.userId,
       name: pending.name,
       metaAccountId: pending.metaAccountId,
       googleCustomerId: pending.googleCustomerId,
+      tiktok,
     });
     dashboardId = created.id;
   }
-  const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } });
+  const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId }, include: { sources: TIKTOK_SOURCES_SELECT } });
   if (!dashboard) return NextResponse.json({ error: "client introuvable" }, { status: 404 });
   if (!dashboardInScope(scope, dashboard)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });

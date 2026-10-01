@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getAccountScope, dashboardWhere } from "@/lib/scope";
 import { groupDashboardsByAccount } from "@/lib/portfolio";
+import { TIKTOK_ACCOUNT_SOURCES_SELECT } from "@/lib/tiktok-dashboard";
 import { CreateDashboardForm } from "@/components/dashboard/create-form";
 import { DashboardMembersManager } from "@/components/dashboard/members-manager";
 
@@ -67,6 +68,7 @@ export default async function DashboardsIndex() {
         orderBy: { createdAt: "asc" },
       },
       bot: { select: { enabled: true, name: true, accesses: { select: { userId: true } } } },
+      sources: TIKTOK_ACCOUNT_SOURCES_SELECT,
     },
     orderBy: [{ name: "asc" }, { createdAt: "asc" }],
   });
@@ -105,6 +107,7 @@ export default async function DashboardsIndex() {
                   Créé par {d.user.name ?? d.user.email} · {d._count.widgets} widgets
                   {d.metaAccountId ? ` · Meta ${d.metaAccountId}` : ""}
                   {d.googleCustomerId ? ` · Google ${d.googleCustomerId}` : ""}
+                  {d.sources.length ? ` · TikTok ${d.sources.map((x) => x.label ?? x.externalId).join(", ")}` : ""}
                   {d.duplicates > 0 ? ` · ${d.duplicates} doublon${d.duplicates > 1 ? "s" : ""} masqué${d.duplicates > 1 ? "s" : ""}` : ""}
                 </div>
               </div>

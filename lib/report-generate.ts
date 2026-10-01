@@ -58,11 +58,13 @@ function kpiForPrompt(k: ReportKpi, value: number | null, currency: string | nul
   return fmtMetric(k.metric, value, k.currency ?? currency, { estimated: k.estimated });
 }
 
+const PLATFORM_NAMES: Record<string, string> = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" };
+
 /** Compact, human-readable rendering of the snapshot for the prompt. */
 export function renderDataForPrompt(d: ReportData): string {
   const cur = d.currency;
   const lines: string[] = [];
-  lines.push(`CLIENT : ${d.client.name} (${d.client.platforms.map((p) => (p === "meta" ? "Meta Ads" : "Google Ads")).join(" + ")})`);
+  lines.push(`CLIENT : ${d.client.name} (${d.client.platforms.map((p) => PLATFORM_NAMES[p] ?? p).join(" + ")})`);
   lines.push(`PÉRIODE : ${periodLabel(d.period.since, d.period.until)} (${d.period.since} → ${d.period.until})`);
   lines.push(`DEVISE DU COMPTE : ${cur ?? "inconnue — n'affiche aucun symbole monétaire"}`);
   if (d.compare) lines.push(`COMPARAISON : ${d.compare.since} → ${d.compare.until} (${d.compare.kind === "year" ? "N-1" : d.compare.kind === "prev" ? "période précédente" : "personnalisée"})`);
@@ -100,6 +102,8 @@ export function renderDataForPrompt(d: ReportData): string {
   seriesLine("ROAS Meta", d.daily.metaRoas);
   seriesLine("Dépenses Google", d.daily.googleSpend);
   seriesLine("Conversions Google", d.daily.googleConversions);
+  seriesLine("Dépenses TikTok", d.daily.tiktokSpend);
+  seriesLine("ROAS TikTok", d.daily.tiktokRoas);
 
   const camp = (label: string, rows: ReportData["campaigns"]["meta"]) => {
     if (!rows.length) return;
@@ -108,6 +112,10 @@ export function renderDataForPrompt(d: ReportData): string {
   };
   camp("META", d.campaigns.meta);
   camp("GOOGLE", d.campaigns.google);
+  camp("TIKTOK", d.campaigns.tiktok ?? []);
+  if (d.client.platforms.includes("tiktok")) {
+    lines.push("\nNB TIKTOK : conversions = événement d'optimisation des campagnes TikTok, revenu = valeur des achats attribuée par TikTok (sa propre attribution, comme chaque plateforme).");
+  }
 
   if (d.keywords.length) {
     lines.push("\nTOP MOTS-CLÉS GOOGLE :");
@@ -225,7 +233,7 @@ Si des next steps précédents existent : pour chacun, fait / non fait / impact 
 Termine OBLIGATOIREMENT par un bloc :
 \`\`\`nextsteps
 [
-  { "title": "Action courte à l'impératif", "detail": "Pourquoi et comment, 1-2 phrases avec les chiffres qui la justifient", "priority": "high|medium|low", "platform": "meta|google|global" }
+  { "title": "Action courte à l'impératif", "detail": "Pourquoi et comment, 1-2 phrases avec les chiffres qui la justifient", "priority": "high|medium|low", "platform": "meta|google|tiktok|global" }
 ]
 \`\`\`
 4 à 7 actions, ordonnées par priorité, chacune actionnable cette semaine.
@@ -295,7 +303,7 @@ export function parseReportOutput(raw: string): ParsedReport {
           title: String(s.title).trim(),
           detail: typeof s.detail === "string" ? s.detail.trim() : "",
           priority: (["high", "medium", "low"].includes(String(s.priority)) ? String(s.priority) : "medium") as ReportNextStep["priority"],
-          platform: (["meta", "google", "global", "crm"].includes(String(s.platform)) ? String(s.platform) : "global") as ReportNextStep["platform"],
+          platform: (["meta", "google", "tiktok", "global", "crm"].includes(String(s.platform)) ? String(s.platform) : "global") as ReportNextStep["platform"],
           done: false,
         }));
       text = candidate.rest;

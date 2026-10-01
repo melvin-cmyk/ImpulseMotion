@@ -18,6 +18,8 @@ interface DashboardForPrompt {
   name: string;
   metaAccountId: string | null;
   googleCustomerId: string | null;
+  /** TikTok Ads advertisers attached (widgets source "tiktok"). */
+  tiktokAdvertiserIds?: string[];
   widgets: Array<{ id: string; type: string; title: string | null; width: string; position: number; config: string; pageId?: string | null }>;
   pages?: Array<{ id: string; name: string; position: number }>;
 }
@@ -79,7 +81,7 @@ export function buildCopilotTurnContext(dashboard: DashboardForPrompt, maxChars:
     if (missing > 0) notes.push(`${missing} widget(s) non listé(s) faute de place, sur ${dashboard.widgets.length} : positions ${dashboard.widgets[listed].position} et suivantes.`);
     return `[ÉTAT ACTUEL DU DASHBOARD "${dashboard.name}" — remplace tout état donné plus haut dans la conversation
 Compte Meta lié : ${dashboard.metaAccountId ?? "aucun"}
-Compte Google Ads lié : ${dashboard.googleCustomerId ?? "aucun"}${notes.length ? `\n${notes.join("\n")}` : ""}
+Compte Google Ads lié : ${dashboard.googleCustomerId ?? "aucun"}${dashboard.tiktokAdvertiserIds?.length ? `\nComptes TikTok Ads liés : ${dashboard.tiktokAdvertiserIds.join(", ")} (source "tiktok" des widgets kpi, timeseries et table de campagnes)` : ""}${notes.length ? `\n${notes.join("\n")}` : ""}
 Widgets (ordonnés par position) :
 ${lines.join("\n") || "(aucun widget)"}${pageList}]`;
   };

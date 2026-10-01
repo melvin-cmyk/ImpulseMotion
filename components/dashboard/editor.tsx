@@ -51,9 +51,12 @@ const isConversionType = (t: WidgetType) => (CONVERSION_WIDGET_TYPES as readonly
 /** The conversion picker only makes sense when the widget reads Meta. */
 function readsMeta(f: WidgetFormState): boolean {
   if (!isConversionType(f.type)) return false;
-  if (["kpi", "funnel", "timeseries", "table", "geo_device"].includes(f.type)) return f.source !== "google";
+  if (["kpi", "funnel", "timeseries", "table", "geo_device"].includes(f.type)) return f.source === "meta" || f.source === "combined";
   return true;
 }
+
+/** Sources a widget type can read: TikTok only where it has an equivalent (KPI, courbe, campagnes). */
+const sourceOrMeta = (source: string, allowed: string[]) => (allowed.includes(source) ? source : "meta");
 
 const CRM_ATTRIBUTION: WidgetType = "crm_attribution";
 const isCrmType = (t: WidgetType) => t === "crm_funnel" || t === CRM_ATTRIBUTION;
@@ -69,17 +72,21 @@ function typedConfig(f: WidgetFormState): Record<string, unknown> {
     case "crm_funnel": return {};
     case "crm_attribution": return { limit: Math.min(Math.max(f.limit || 10, 1), 50) };
     case "kpi": return { metric: f.metric, source: f.source };
-    case "timeseries": return { metric: f.metric, source: f.source === "combined" ? "meta" : f.source };
-    case "table": return { kind: f.kind, source: f.source === "combined" ? "google" : f.source, limit: f.limit };
+    case "timeseries": return { metric: f.metric, source: sourceOrMeta(f.source, ["meta", "google", "tiktok"]) };
+    case "table": {
+      const source = f.source === "combined" ? "google" : sourceOrMeta(f.source, ["meta", "google", "tiktok"]);
+      // TikTok n'a que des campagnes (ni mots-clés ni termes de recherche).
+      return { kind: source === "tiktok" ? "campaigns" : f.kind, source, limit: f.limit };
+    }
     case "top_creatives": return { limit: f.limit };
     case "platform_table":
     case "pacing": return {};
     case "text": return { markdown: f.markdown };
-    case "funnel": return { source: f.source };
+    case "funnel": return { source: f.source === "tiktok" ? "combined" : f.source };
     case "demographics":
       return { metric: ["spend", "purchases", "clicks"].includes(f.metric) ? f.metric : "spend" };
     case "geo_device":
-      return { source: f.source === "combined" ? "meta" : f.source, dimension: String(f.kind === "country" ? "country" : "device") };
+      return { source: sourceOrMeta(f.source, ["meta", "google"]), dimension: String(f.kind === "country" ? "country" : "device") };
     case "alerts": return { limit: Math.min(f.limit, 20) };
     case "meta_actions": return { actions: f.actions, limit: Math.min(Math.max(f.limit || 15, 1), 50) };
   }
@@ -279,8 +286,16 @@ export function WidgetForm({
             {metricOptions.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         )}
-        {(form.type === "kpi" || form.type === "funnel") && (
+        {form.type === "kpi" && (
           <select value={form.source} onChange={(e) => set({ source: e.target.value })} className={inputCls}>
+            <option value="meta">Meta</option>
+            <option value="google">Google</option>
+            <option value="tiktok">TikTok Ads</option>
+            <option value="combined">Toutes les plateformes liées</option>
+          </select>
+        )}
+        {form.type === "funnel" && (
+          <select value={form.source === "tiktok" ? "combined" : form.source} onChange={(e) => set({ source: e.target.value })} className={inputCls}>
             <option value="meta">Meta</option>
             <option value="google">Google</option>
             <option value="combined">Meta + Google</option>
@@ -326,12 +341,17 @@ export function WidgetForm({
           </>
         )}
         {(form.type === "timeseries" || form.type === "table") && (
-          <select value={form.source} onChange={(e) => set({ source: e.target.value })} className={inputCls}>
+          <select
+            value={form.source === "combined" ? (form.type === "table" ? "google" : "meta") : form.source}
+            onChange={(e) => set({ source: e.target.value, ...(e.target.value === "tiktok" ? { kind: "campaigns" } : {}) })}
+            className={inputCls}
+          >
             <option value="meta">Meta</option>
             <option value="google">Google</option>
+            <option value="tiktok">TikTok Ads</option>
           </select>
         )}
-        {form.type === "table" && (
+        {form.type === "table" && form.source !== "tiktok" && (
           <select value={form.kind} onChange={(e) => set({ kind: e.target.value })} className={inputCls}>
             {TABLE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
           </select>
@@ -393,6 +413,7 @@ export function DashboardSettingsForm({
   const [name, setName] = useState(dashboard.name);
   const [metaId, setMetaId] = useState(dashboard.metaAccountId ?? "");
   const [googleId, setGoogleId] = useState(dashboard.googleCustomerId ?? "");
+  const [tiktokId, setTikTokId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -406,6 +427,7 @@ export function DashboardSettingsForm({
         name,
         metaAccountId: metaId.trim() || null,
         googleCustomerId: googleId.trim() || null,
+        ...(tiktokId.trim() ? { tiktokAdvertiserId: tiktokId.trim() } : {}),
       }),
     });
     setSaving(false);
@@ -427,10 +449,13 @@ export function DashboardSettingsForm({
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom" className={inputCls + " w-48"} />
         <input value={metaId} onChange={(e) => setMetaId(e.target.value)} placeholder="Compte Meta (act_…)" className={inputCls + " w-48"} />
         <input value={googleId} onChange={(e) => setGoogleId(e.target.value)} placeholder="Customer Google Ads" className={inputCls + " w-48"} />
+        <input value={tiktokId} onChange={(e) => setTikTokId(e.target.value)} inputMode="numeric" placeholder="Ajouter un compte TikTok Ads" className={inputCls + " w-56 font-mono"} />
       </div>
       <p className="text-[11px] text-gray-500 mt-2">
         Les accès (consultants, clients, bot) se gèrent par un admin depuis la liste des dashboards.
         Changer de compte met à jour les droits de toutes les personnes rattachées.
+        Un compte TikTok Ads est retrouvé chez TikTok puis ajouté aux comptes déjà rattachés (liste et retrait : fiche client, Sources de données) ;
+        « Réinitialiser les widgets par défaut » ajoute ensuite ses widgets.
       </p>
       {error && <div className="text-xs text-red-400 mt-2">{error}</div>}
       <div className="mt-3 flex items-center gap-2">

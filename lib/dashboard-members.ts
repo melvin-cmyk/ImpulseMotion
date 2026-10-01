@@ -100,7 +100,7 @@ export async function addDashboardMember(input: {
 export async function removeDashboardMember(dashboardId: string, userId: string): Promise<void> {
   const dashboard = await prisma.dashboard.findUnique({
     where: { id: dashboardId },
-    select: { id: true, metaAccountId: true, googleCustomerId: true, bot: { select: { id: true } } },
+    select: { id: true, metaAccountId: true, googleCustomerId: true, bot: { select: { id: true } }, sources: { where: { kind: "tiktok" }, select: { kind: true, externalId: true } } },
   });
   if (!dashboard) throw new MemberError("dashboard introuvable", 404);
 
@@ -112,17 +112,24 @@ export async function removeDashboardMember(dashboardId: string, userId: string)
 }
 
 /** Drops the user's ACL rows on the given accounts unless another dashboard
- *  they own or belong to is bound to the same account. */
+ *  they own or belong to is bound to the same account. TikTok advertisers are
+ *  passed as `tiktokAdvertiserIds` or as loaded `sources`. */
 export async function revokeUncoveredAccess(
   userId: string,
-  accounts: { metaAccountId: string | null; googleCustomerId: string | null },
+  accounts: {
+    metaAccountId: string | null;
+    googleCustomerId: string | null;
+    tiktokAdvertiserIds?: string[];
+    sources?: Array<{ kind: string; externalId: string }>;
+  },
 ): Promise<void> {
   const remaining = await prisma.dashboard.findMany({
     where: { OR: [{ userId }, { members: { some: { userId } } }] },
-    select: { metaAccountId: true, googleCustomerId: true },
+    select: { metaAccountId: true, googleCustomerId: true, sources: { where: { kind: "tiktok" }, select: { externalId: true } } },
   });
   const stillMeta = new Set(remaining.flatMap((d) => (d.metaAccountId ? [normMeta(d.metaAccountId)] : [])));
   const stillGoogle = new Set(remaining.flatMap((d) => (d.googleCustomerId ? [normGoogle(d.googleCustomerId)] : [])));
+  const stillTikTok = new Set(remaining.flatMap((d) => (d.sources ?? []).map((s) => s.externalId)));
 
   if (accounts.metaAccountId && !stillMeta.has(normMeta(accounts.metaAccountId))) {
     const id = normMeta(accounts.metaAccountId);
@@ -134,6 +141,10 @@ export async function revokeUncoveredAccess(
     const ids = rows.filter((r) => normGoogle(r.accountId) === id).map((r) => r.id);
     if (ids.length) await prisma.userAdAccount.deleteMany({ where: { id: { in: ids } } });
   }
+  const tiktok = accounts.tiktokAdvertiserIds
+    ?? (accounts.sources ?? []).filter((s) => s.kind === "tiktok").map((s) => s.externalId);
+  const gone = [...new Set(tiktok)].filter((id) => !stillTikTok.has(id));
+  if (gone.length) await prisma.userAdAccount.deleteMany({ where: { userId, platform: "tiktok", accountId: { in: gone } } });
 }
 
 /** Splits "a@x.fr, b@y.fr" / arrays into a clean, de-duplicated email list. */

@@ -2,7 +2,8 @@
  * Dashboard widget system (Lot 3).
  *
  * A dashboard belongs to a client user and is bound to one Meta account and/or
- * one Google Ads customer. Widgets are typed, their config is validated here,
+ * one Google Ads customer, plus any TikTok Ads advertisers attached as
+ * DashboardSource rows (lib/tiktok-dashboard). Widgets are typed, their config is validated here,
  * and `resolveWidgets` fetches their data server-side with the KPI cache.
  *
  * Security invariant: whatever the widget config says, data is only ever
@@ -32,13 +33,26 @@ import {
 import { getAccountInsightsCachedWithMeta } from "@/lib/insights";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { relayDirectTool } from "@/lib/relay-tool";
-import { computePacing, findBudgetForMetaAccount } from "@/lib/budgets";
+import { computePacing, findBudgetForMetaAccount, pickBudget } from "@/lib/budgets";
 import { prevRange as prevRangeOf } from "@/lib/date-ranges";
 import { getHubspotSource, markSourceSync } from "@/lib/sources";
 import { getCrmSnapshotCached, type CrmSnapshot } from "@/lib/hubspot/client";
 import { isHubspotApiError } from "@/lib/hubspot/http";
 import type { KnownCampaign } from "@/lib/hubspot/types";
 import { buildCrmView, type CrmSpendByCampaign, type CrmSpendByPlatform, type CrmView } from "@/lib/crm-view";
+import {
+  getDashboardTikTokAccounts,
+  sameCurrencyAccounts,
+  tiktokCampaigns,
+  tiktokDaily,
+  tiktokMetric,
+  tiktokRevenueUnavailable,
+  tiktokTotals,
+  type TikTokBoundAccount,
+} from "@/lib/tiktok-dashboard";
+import type { TikTokStats } from "@/lib/tiktok-data";
+import type { TikTokAdvertiser } from "@/lib/tiktok-accounts";
+import { effectiveRole } from "@/lib/roles";
 
 import { conversionEventLabel, metaActionLabel, needsCustomNames, summarizeMetaActions } from "@/lib/meta-actions";
 import {
@@ -64,21 +78,33 @@ export type { WidgetType, ResolvedWidget } from "@/lib/dashboard-types";
 export interface DashboardBinding {
   metaAccountId: string | null;
   googleCustomerId: string | null;
+  /** TikTok advertisers the widgets sum — one currency only (lib/tiktok-dashboard). */
+  tiktokAdvertiserIds: string[];
+  tiktokCurrency: string | null;
+  tiktokTimezone: string | null;
+  /** Accounts left out of the sum (other currency), shown on the TikTok widgets. */
+  tiktokWarnings: string[];
 }
 
 const normMeta = (id: string) => id.replace(/^act_/, "");
 const normGoogle = (id: string) => id.replace(/-/g, "").replace(/^0+/, "");
 
 /** Resolves the dashboard's accounts, constrained to the owner's ACL.
- *  An unlinked dashboard (no Meta nor Google account) is an error — there is
+ *  An unlinked dashboard (no Meta, Google nor TikTok account) is an error — there is
  *  no more "first ACL account of the owner" fallback, which used to show a
- *  random client's numbers on an unbound dashboard. */
+ *  random client's numbers on an unbound dashboard.
+ *  TikTok advertisers come from the dashboard's DashboardSource rows (or
+ *  `tiktokAccounts` when the caller already loaded them); they are kept when
+ *  the owner holds them in their ACL, or works with every account (admin, or
+ *  consultant while lib/roles gives them full access: the attach itself was
+ *  scope-checked, lib/tiktok-binding). */
 export async function resolveBinding(
   ownerId: string,
-  dashboard: { metaAccountId: string | null; googleCustomerId: string | null },
+  dashboard: { id?: string; metaAccountId: string | null; googleCustomerId: string | null; tiktokAccounts?: TikTokBoundAccount[] },
 ): Promise<DashboardBinding> {
-  if (!dashboard.metaAccountId && !dashboard.googleCustomerId) {
-    throw issue("Ce dashboard n'est lié à aucun compte publicitaire (Meta ou Google) — liez un compte dans ses réglages");
+  const tiktok = dashboard.tiktokAccounts ?? (dashboard.id ? await getDashboardTikTokAccounts(dashboard.id) : []);
+  if (!dashboard.metaAccountId && !dashboard.googleCustomerId && tiktok.length === 0) {
+    throw issue("Ce dashboard n'est lié à aucun compte publicitaire (Meta, Google ou TikTok) — liez un compte dans ses réglages");
   }
   const acl = await prisma.userAdAccount.findMany({ where: { userId: ownerId } });
   const metaIds = acl.filter((a) => a.platform === "meta").map((a) => normMeta(a.accountId));
@@ -89,7 +115,38 @@ export async function resolveBinding(
   const googleCustomerId =
     dashboard.googleCustomerId && googleIds.includes(normGoogle(dashboard.googleCustomerId)) ? normGoogle(dashboard.googleCustomerId) : null;
 
-  return { metaAccountId, googleCustomerId };
+  let allowed = tiktok;
+  if (tiktok.length > 0) {
+    const tiktokIds = new Set(acl.filter((a) => a.platform === "tiktok").map((a) => a.accountId.trim()));
+    if (!tiktok.every((a) => tiktokIds.has(a.id))) {
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { role: true } });
+      if (effectiveRole(owner?.role) !== "admin") allowed = tiktok.filter((a) => tiktokIds.has(a.id));
+    }
+  }
+  const picked = sameCurrencyAccounts(allowed);
+
+  return {
+    metaAccountId,
+    googleCustomerId,
+    tiktokAdvertiserIds: picked.accounts.map((a) => a.id),
+    tiktokCurrency: picked.currency,
+    tiktokTimezone: picked.accounts.find((a) => a.timezone)?.timezone ?? null,
+    tiktokWarnings: picked.warnings,
+  };
+}
+
+/** Platforms bound to the dashboard, in display order. */
+export function boundPlatforms(binding: Pick<DashboardBinding, "metaAccountId" | "googleCustomerId" | "tiktokAdvertiserIds">): Array<"meta" | "google" | "tiktok"> {
+  const out: Array<"meta" | "google" | "tiktok"> = [];
+  if (binding.metaAccountId) out.push("meta");
+  if (binding.googleCustomerId) out.push("google");
+  if (binding.tiktokAdvertiserIds.length > 0) out.push("tiktok");
+  return out;
+}
+
+/** KPI source of a set of platforms: "combined" when several, else the only one. */
+export function sourceFor(platforms: string[]): string {
+  return platforms.length > 1 ? "combined" : platforms[0] ?? "meta";
 }
 
 // ── Google fetch helpers (via relay MCP) ─────────────────────────────────────
@@ -310,6 +367,8 @@ export interface KpiResult {
   fetchedAt?: string;
   /** revenue/roas only: no tracked value and no AOV configured */
   unavailable?: boolean;
+  /** Platforms whose figures make up the value (meta | google | tiktok). */
+  platforms?: string[];
 }
 
 function metaMetricValue(
@@ -345,11 +404,18 @@ function metaMetricValue(
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** TikTok accounts left out of the sum (other currency), as the partial flags of a TikTok-only widget. */
+function tiktokWarnings(ctx: ResolveContext): { partial?: true; errors?: string[] } {
+  return ctx.binding.tiktokWarnings.length ? { partial: true, errors: ctx.binding.tiktokWarnings } : {};
+}
+
 /**
  * One KPI value over an arbitrary range, for the widget's source.
- * - single source: any fetch error propagates (the widget shows the error);
- * - combined: one platform failing yields the other's value with
- *   `partial: true` + `errors` — never a silent 0. Both failing → throws.
+ * - single source (meta | google | tiktok): any fetch error propagates (the
+ *   widget shows the error);
+ * - combined: every bound platform is summed; one platform failing yields the
+ *   others' value with `partial: true` + `errors` — never a silent 0. All
+ *   failing → throws.
  */
 async function kpiValue(
   metric: string,
@@ -358,18 +424,24 @@ async function kpiValue(
   since: string,
   until: string,
 ): Promise<KpiResult> {
-  const useMeta = source !== "google";
-  const useGoogle = source !== "meta";
+  const combined = source === "combined";
+  const tiktokIds = ctx.binding.tiktokAdvertiserIds;
+  const useMeta = source === "meta" || (combined && !!ctx.binding.metaAccountId);
+  const useGoogle = source === "google" || (combined && !!ctx.binding.googleCustomerId);
+  const useTikTok = source === "tiktok" || (combined && tiktokIds.length > 0);
   if (useMeta && !ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
   if (useGoogle && !ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
+  if (useTikTok && tiktokIds.length === 0) throw issue("Aucun compte TikTok Ads autorisé pour ce dashboard");
+  if (!useMeta && !useGoogle && !useTikTok) throw issue("Aucun compte lié à ce dashboard");
 
-  const [metaRes, googleRes] = await Promise.allSettled([
+  const [metaRes, googleRes, tiktokRes] = await Promise.allSettled([
     useMeta
       ? getAccountInsightsCachedWithMeta(ctx.token, ctx.binding.metaAccountId!, { since, until })
       : Promise.resolve(null),
     useGoogle
       ? fetchGoogleCampaignRows(ctx.binding.googleCustomerId!, since, until).then(googleTotals)
       : Promise.resolve(null),
+    useTikTok ? tiktokTotals(tiktokIds, since, until) : Promise.resolve(null),
   ]);
 
   const errors: string[] = [];
@@ -384,25 +456,30 @@ async function kpiValue(
   let google: GoogleTotals | null = null;
   if (googleRes.status === "fulfilled") google = googleRes.value;
   else errors.push(`Google: ${errMsg(googleRes.reason)}`);
+  let tiktok: TikTokStats | null = null;
+  if (tiktokRes.status === "fulfilled") tiktok = tiktokRes.value;
+  else errors.push(`TikTok: ${errMsg(tiktokRes.reason)}`);
 
   const metaOk = useMeta && !!insight;
   const googleOk = useGoogle && !!google;
-  if (errors.length > 0 && !metaOk && !googleOk) {
+  const tiktokOk = useTikTok && !!tiktok;
+  if (errors.length > 0 && !metaOk && !googleOk && !tiktokOk) {
     throw new Error(errors.join(" · "));
   }
-  if (errors.length > 0 && source !== "combined") {
+  if (errors.length > 0 && !combined) {
     throw new Error(errors[0]);
   }
 
   const metaRev = insight ? computeRevenue(insight, ctx.aov, ctx.conversionEvent) : { revenue: 0, estimated: false, unavailable: false };
   const metaPurchases = insight ? purchasesFor(insight, ctx.conversionEvent) : 0;
   const g = google ?? { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0, currency: null };
+  const t = tiktokOk ? tiktok! : null;
 
-  const spend = (metaOk ? toNum(insight?.spend) : 0) + (googleOk ? g.spend : 0);
-  const revenue = (metaOk ? metaRev.revenue : 0) + (googleOk ? g.revenue : 0);
-  const purchases = (metaOk ? metaPurchases : 0) + (googleOk ? g.conversions : 0);
-  const clicks = (metaOk ? toNum(insight?.clicks) : 0) + (googleOk ? g.clicks : 0);
-  const impressions = (metaOk ? toNum(insight?.impressions) : 0) + (googleOk ? g.impressions : 0);
+  const spend = (metaOk ? toNum(insight?.spend) : 0) + (googleOk ? g.spend : 0) + (t?.spend ?? 0);
+  const revenue = (metaOk ? metaRev.revenue : 0) + (googleOk ? g.revenue : 0) + (t ? tiktokMetric(t, "revenue") : 0);
+  const purchases = (metaOk ? metaPurchases : 0) + (googleOk ? g.conversions : 0) + (t ? tiktokMetric(t, "purchases") : 0);
+  const clicks = (metaOk ? toNum(insight?.clicks) : 0) + (googleOk ? g.clicks : 0) + (t?.clicks ?? 0);
+  const impressions = (metaOk ? toNum(insight?.impressions) : 0) + (googleOk ? g.impressions : 0) + (t?.impressions ?? 0);
 
   let value = 0;
   switch (metric) {
@@ -416,26 +493,33 @@ async function kpiValue(
     case "cpc": value = clicks > 0 ? spend / clicks : 0; break;
     case "cr": value = clicks > 0 ? (purchases / clicks) * 100 : 0; break;
     case "ctr":
-      // pure-google: compute; meta & combined: Meta's own CTR (mixing platforms is meaningless)
-      value = source === "google"
-        ? (impressions > 0 ? (clicks / impressions) * 100 : 0)
-        : toNum(insight?.ctr);
+      // Meta (alone or in a combined total): Meta's own CTR (mixing platforms
+      // is meaningless); otherwise clicks / impressions.
+      value = metaOk
+        ? toNum(insight?.ctr)
+        : (impressions > 0 ? (clicks / impressions) * 100 : 0);
       break;
   }
   const isRevenueMetric = metric === "revenue" || metric === "roas";
   const estimated = metaOk && metaRev.estimated && isRevenueMetric;
-  // Revenue is unavailable only when Meta is the sole contributor and has no value.
-  const unavailable = isRevenueMetric && metaOk && !!metaRev.unavailable && !googleOk;
+  // Revenue is unavailable when no contributing platform tracks a value
+  // (Meta without value nor AOV, TikTok without any purchase); Google always does.
+  const unavailable = isRevenueMetric && (metaOk || !!t) && !googleOk
+    && (!metaOk || !!metaRev.unavailable) && (!t || tiktokRevenueUnavailable(t));
 
-  // Currency: Meta's account currency, else Google's; flagged mismatch when both differ.
+  // Currency: Meta's account currency, else Google's, else TikTok's; flagged mismatch when they differ.
   const metaCur = metaOk ? insight?.currency ?? null : null;
   const googleCur = googleOk ? g.currency : null;
-  const currency = metaCur ?? googleCur ?? ctx.currency ?? undefined;
-  if (metaCur && googleCur && metaCur !== googleCur) {
-    errors.push(`Devises différentes: Meta ${metaCur} / Google ${googleCur} — total non homogène`);
+  const tiktokCur = t ? ctx.binding.tiktokCurrency : null;
+  const currency = metaCur ?? googleCur ?? tiktokCur ?? ctx.currency ?? undefined;
+  const labelled = [["Meta", metaCur], ["Google", googleCur], ["TikTok", tiktokCur]].filter((x): x is [string, string] => !!x[1]);
+  if (new Set(labelled.map(([, c]) => c)).size > 1) {
+    errors.push(`Devises différentes: ${labelled.map(([p, c]) => `${p} ${c}`).join(" / ")} — total non homogène`);
   }
+  if (t) errors.push(...ctx.binding.tiktokWarnings);
 
-  const out: KpiResult = { value, estimated };
+  const platforms = [metaOk && "meta", googleOk && "google", t && "tiktok"].filter((p): p is string => !!p);
+  const out: KpiResult = { value, estimated, platforms };
   if (errors.length > 0) { out.partial = true; out.errors = errors; }
   if (currency) out.currency = currency;
   if (fetchedAt) out.fetchedAt = fetchedAt;
@@ -468,10 +552,12 @@ async function resolveKpi(cfg: Record<string, unknown>, ctx: ResolveContext) {
     } catch { /* comparison is optional */ }
   }
 
-  const countsConversions = ["purchases", "cpa", "cr"].includes(metric) && source !== "google";
+  const readsMeta = source === "meta" || (source === "combined" && !!ctx.binding.metaAccountId);
+  const countsConversions = ["purchases", "cpa", "cr"].includes(metric) && readsMeta;
   return {
     metric,
     source,
+    ...(current.platforms ? { platforms: current.platforms } : {}),
     ...(countsConversions ? { conversionLabel: conversionEventLabel(ctx.conversionEvent, await customNamesOf(ctx, [ctx.conversionEvent])) } : {}),
     value: Math.round(current.value * 100) / 100,
     previous,
@@ -532,6 +618,20 @@ async function resolveTimeseries(cfg: Record<string, unknown>, ctx: ResolveConte
   const metric = String(cfg.metric);
   const source = String(cfg.source ?? "meta");
 
+  if (source === "tiktok") {
+    const ids = ctx.binding.tiktokAdvertiserIds;
+    if (ids.length === 0) throw issue("Aucun compte TikTok Ads autorisé pour ce dashboard");
+    const rows = await tiktokDaily(ids, ctx.since, ctx.until);
+    const points = rows.map((r) => ({ date: r.date, value: Math.round(tiktokMetric(r, metric) * 100) / 100 }));
+    const unavailable = (metric === "revenue" || metric === "roas") && rows.every(tiktokRevenueUnavailable);
+    return {
+      metric, source, points, estimated: false,
+      ...(ctx.binding.tiktokCurrency ? { currency: ctx.binding.tiktokCurrency } : {}),
+      ...(unavailable && rows.length > 0 ? { unavailable: true } : {}),
+      ...tiktokWarnings(ctx),
+    };
+  }
+
   if (source === "google") {
     if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
     const rows = await fetchGoogleDailyRows(ctx.binding.googleCustomerId, ctx.since, ctx.until);
@@ -578,6 +678,26 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
   const kind = String(cfg.kind);
   const source = String(cfg.source ?? "google");
   const limit = Number(cfg.limit ?? 10);
+
+  if (source === "tiktok") {
+    const ids = ctx.binding.tiktokAdvertiserIds;
+    if (ids.length === 0) throw issue("Aucun compte TikTok Ads autorisé pour ce dashboard");
+    if (kind !== "campaigns") throw issue("La source tiktok ne supporte que kind=campaigns");
+    const rows = await tiktokCampaigns(ids, ctx.since, ctx.until);
+    return {
+      kind,
+      source,
+      ...(ctx.binding.tiktokCurrency ? { currency: ctx.binding.tiktokCurrency } : {}),
+      ...tiktokWarnings(ctx),
+      rows: rows.slice(0, limit).map((r) => ({
+        name: r.name,
+        spend: Math.round(r.spend),
+        clicks: Math.round(r.clicks),
+        conversions: Math.round(r.conversions * 10) / 10,
+        roas: Math.round(tiktokMetric(r, "roas") * 100) / 100,
+      })),
+    };
+  }
 
   if (source === "meta") {
     if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
@@ -734,12 +854,20 @@ function statsFrom(cost: number, impressions: number, clicks: number, conversion
   };
 }
 
+type Platform = "meta" | "google" | "tiktok";
+const PLATFORM_LABEL: Record<Platform, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
+
 async function platformStats(
-  source: "meta" | "google",
+  source: Platform,
   ctx: ResolveContext,
   since: string,
   until: string,
 ): Promise<PlatformStats> {
+  if (source === "tiktok") {
+    if (ctx.binding.tiktokAdvertiserIds.length === 0) throw issue("Aucun compte TikTok Ads autorisé");
+    const t = await tiktokTotals(ctx.binding.tiktokAdvertiserIds, since, until);
+    return statsFrom(t.spend, t.impressions, t.clicks, t.conversions);
+  }
   if (source === "meta") {
     if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé");
     const { data: insight } = await getAccountInsightsCachedWithMeta(ctx.token, ctx.binding.metaAccountId, { since, until });
@@ -765,9 +893,7 @@ function withDeltas(current: PlatformStats, previous: PlatformStats | null) {
 }
 
 async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveContext) {
-  const sources: Array<"meta" | "google"> = [];
-  if (ctx.binding.metaAccountId) sources.push("meta");
-  if (ctx.binding.googleCustomerId) sources.push("google");
+  const sources = boundPlatforms(ctx.binding);
   if (sources.length === 0) throw issue("Aucun compte lié à ce dashboard");
 
   const rows: Array<Record<string, unknown>> = [];
@@ -778,12 +904,13 @@ async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveC
   // the way resolveKpi does, so the client sees which side is missing instead
   // of a widget-wide error (or worse, a Total silently short of one platform).
   const errors: string[] = [];
+  let mixedCurrency: string | null = null;
   for (const source of sources) {
     let current: PlatformStats;
     try {
       current = await platformStats(source, ctx, ctx.since, ctx.until);
     } catch (e) {
-      errors.push(`${source === "meta" ? "Meta" : "Google"}: ${e instanceof Error ? e.message : String(e)}`);
+      errors.push(`${PLATFORM_LABEL[source]}: ${e instanceof Error ? e.message : String(e)}`);
       continue;
     }
     let previous: PlatformStats | null = null;
@@ -794,12 +921,19 @@ async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveC
     }
     currentTotals.push(current);
     if (previous) previousTotals.push(previous);
-    rows.push({ platform: source === "meta" ? "Meta" : "Google", ...withDeltas(current, previous) });
+    // A TikTok row in another currency than the dashboard's carries its own.
+    const ownCurrency = source === "tiktok" && ctx.binding.tiktokCurrency && ctx.binding.tiktokCurrency !== ctx.currency
+      ? ctx.binding.tiktokCurrency : null;
+    if (ownCurrency && ctx.currency) mixedCurrency = `Devises différentes: TikTok ${ownCurrency} / ${ctx.currency} — pas de total`;
+    if (source === "tiktok") errors.push(...ctx.binding.tiktokWarnings);
+    rows.push({ platform: PLATFORM_LABEL[source], ...(ownCurrency ? { currency: ownCurrency } : {}), ...withDeltas(current, previous) });
   }
   if (currentTotals.length === 0) throw issue(errors[0] ?? "Aucune donnée plateforme");
+  if (mixedCurrency) errors.push(mixedCurrency);
 
-  // A Total over an incomplete set of platforms would read as a real drop.
-  if (currentTotals.length > 1) {
+  // A Total over an incomplete set of platforms would read as a real drop;
+  // a Total over two currencies would not be an amount at all.
+  if (currentTotals.length > 1 && !mixedCurrency) {
     const sum = (list: PlatformStats[]) =>
       statsFrom(
         list.reduce((s, x) => s + x.cost, 0),
@@ -822,12 +956,44 @@ async function resolvePlatformTable(_cfg: Record<string, unknown>, ctx: ResolveC
 }
 
 async function resolvePacing(_cfg: Record<string, unknown>, ctx: ResolveContext) {
-  if (!ctx.binding.metaAccountId) throw issue("Aucun compte Meta autorisé pour ce dashboard");
-  // Same lookup as the portfolio: Dashboard.monthlyBudget first, then any
-  // AccountBudget for the ACCOUNT (not the owner) so /d/[id] and /portfolio agree.
-  const budget = await findBudgetForMetaAccount(ctx.binding.metaAccountId, ctx.currency);
-  if (!budget) throw issue("Aucun budget mensuel configuré pour ce client (fiche client → Budget mensuel)");
-  return computePacing(ctx.binding.metaAccountId, budget.monthlyTarget, budget.currency, { source: budget.source });
+  const tiktokIds = ctx.binding.tiktokAdvertiserIds;
+  if (ctx.binding.metaAccountId) {
+    // Same lookup as the portfolio: Dashboard.monthlyBudget first, then any
+    // AccountBudget for the ACCOUNT (not the owner) so /d/[id] and /portfolio agree.
+    const budget = await findBudgetForMetaAccount(ctx.binding.metaAccountId, ctx.currency);
+    if (!budget) throw issue("Aucun budget mensuel configuré pour ce client (fiche client → Budget mensuel)");
+    return computePacing(ctx.binding.metaAccountId, budget.monthlyTarget, budget.currency, {
+      source: budget.source,
+      tiktokAdvertiserIds: tiktokPacingIds(budget, ctx.binding),
+    });
+  }
+  if (tiktokIds.length > 0) {
+    // TikTok without Meta: the client's budget (Dashboard.monthlyBudget) only —
+    // an AccountBudget belongs to a Meta account.
+    const dashboard = await prisma.dashboard.findUnique({ where: { id: ctx.dashboardId }, select: { monthlyBudget: true, budgetCurrency: true } });
+    const budget = pickBudget(dashboard ? [dashboard] : [], [], ctx.binding.tiktokCurrency);
+    if (!budget) throw issue("Aucun budget mensuel configuré pour ce client (fiche client → Budget mensuel)");
+    return computePacing(tiktokIds[0], budget.monthlyTarget, budget.currency, {
+      source: budget.source,
+      tz: ctx.binding.tiktokTimezone,
+      skipMeta: true,
+      tiktokAdvertiserIds: tiktokPacingIds(budget, ctx.binding),
+    });
+  }
+  throw issue("Aucun compte Meta ou TikTok Ads autorisé pour ce dashboard");
+}
+
+/**
+ * TikTok spend counts against the CLIENT's budget (Dashboard.monthlyBudget),
+ * in its currency; an AccountBudget is the budget of one Meta account.
+ */
+export function tiktokPacingIds(
+  budget: { source: "dashboard" | "account_budget"; currency: string },
+  binding: Pick<DashboardBinding, "tiktokAdvertiserIds" | "tiktokCurrency">,
+): string[] {
+  if (budget.source !== "dashboard" || binding.tiktokAdvertiserIds.length === 0) return [];
+  if (binding.tiktokCurrency && binding.tiktokCurrency !== budget.currency) return [];
+  return binding.tiktokAdvertiserIds;
 }
 
 // ── Funnel ───────────────────────────────────────────────────────────────────
@@ -1003,6 +1169,7 @@ async function resolveAlerts(cfg: Record<string, unknown>, ctx: ResolveContext) 
     clientIds.push(ctx.binding.metaAccountId, `act_${ctx.binding.metaAccountId}`);
   }
   if (ctx.binding.googleCustomerId) clientIds.push(ctx.binding.googleCustomerId);
+  clientIds.push(...ctx.binding.tiktokAdvertiserIds);
   if (clientIds.length === 0) throw issue("Aucun compte lié à ce dashboard");
 
   const events = await prisma.alertEvent.findMany({
@@ -1296,6 +1463,8 @@ export interface ResolvableDashboard {
   googleCustomerId: string | null;
   /** Other dashboards of the same client whose HubSpot source may serve the CRM widgets. */
   sourceDashboardIds?: string[];
+  /** TikTok advertisers when the caller already loaded them (a client's merged dashboards); else read from the dashboard's sources. */
+  tiktokAccounts?: TikTokBoundAccount[];
 }
 
 async function buildResolveContext(
@@ -1314,6 +1483,8 @@ async function buildResolveContext(
   const profile = binding.metaAccountId
     ? await getAccountProfileSettings("meta", binding.metaAccountId)
     : { aov: null, currency: null, timezone: null, conversionEvent: "purchase" };
+  // TikTok alone: its currency and timezone are the dashboard's.
+  const tiktokOnly = !binding.metaAccountId && !binding.googleCustomerId;
   // undefined = default (previous window of equal length); null = disabled
   const effectiveCompare: CompareRange | null =
     compare === undefined ? { ...prevRange(since, until), kind: "prev" } : compare;
@@ -1321,9 +1492,9 @@ async function buildResolveContext(
     binding, ownerId: dashboard.userId, since, until, token,
     dashboardId: dashboard.id,
     sourceDashboardIds: dashboard.sourceDashboardIds ?? [],
-    timezone: profile.timezone ?? null,
+    timezone: profile.timezone ?? (tiktokOnly ? binding.tiktokTimezone : null),
     aov: profile.aov,
-    currency: profile.currency,
+    currency: profile.currency ?? (tiktokOnly ? binding.tiktokCurrency : null),
     conversionEvent: profile.conversionEvent,
     compare: effectiveCompare,
     customNames: {},
@@ -1369,11 +1540,18 @@ export async function resolveWidgets(
  *  Grid: "third" = 2/6, "half" = 3/6, "full" = 6/6 — the composition below
  *  always fills complete rows (no holes).
  *  `accountName` (optional) personalises the intro text widget. */
-export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName?: string | null, hasHubspot = false): Array<{
+export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName?: string | null, hasHubspot = false, hasTikTok = false): Array<{
   type: WidgetType; title: string; width: string; position: number; config: Record<string, unknown>;
 }> {
-  const source = hasMeta && hasGoogle ? "combined" : hasGoogle && !hasMeta ? "google" : "meta";
-  const platforms = hasMeta && hasGoogle ? "Meta Ads + Google Ads" : hasMeta ? "Meta Ads" : "Google Ads";
+  const bound = [hasMeta && "meta", hasGoogle && "google", hasTikTok && "tiktok"].filter((p): p is string => !!p);
+  const source = sourceFor(bound);
+  const several = bound.length > 1;
+  const platforms = bound.length
+    ? bound.map((p) => (p === "meta" ? "Meta Ads" : p === "google" ? "Google Ads" : "TikTok Ads")).join(" + ")
+    : "Meta Ads";
+  // The funnel reads Meta and Google only (no TikTok equivalent).
+  const funnelSource = hasMeta && hasGoogle ? "combined" : hasGoogle ? "google" : "meta";
+  const hasFunnel = hasMeta || hasGoogle;
   const intro = [
     `**Vue d'ensemble ${platforms}.**`,
     "Les chiffres couvrent la période sélectionnée en haut de page, avec comparaison automatique vs la période précédente.",
@@ -1401,18 +1579,21 @@ export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName
     // ── CRM (HubSpot) juste après les KPI : entonnoir CRM à côté de
     //    l'entonnoir pub (half + half), attribution en pleine largeur, puis
     //    les alertes passent en full pour garder des rangées complètes.
-    w.push({ type: "crm_funnel", title: "Entonnoir CRM (HubSpot)", width: "half", config: {} });
-    w.push({ type: "funnel", title: "Entonnoir de conversion", width: "half", config: { source } });
+    //    Sans Meta ni Google (TikTok seul), pas d'entonnoir pub : CRM en full.
+    w.push({ type: "crm_funnel", title: "Entonnoir CRM (HubSpot)", width: hasFunnel ? "half" : "full", config: {} });
+    if (hasFunnel) w.push({ type: "funnel", title: "Entonnoir de conversion", width: "half", config: { source: funnelSource } });
     w.push({ type: "crm_attribution", title: "Attribution HubSpot", width: "full", config: { limit: 10 } });
     w.push({ type: "alerts", title: "Dernières alertes", width: "full", config: { limit: 5 } });
-  } else {
+  } else if (hasFunnel) {
     // ── Entonnoir + alertes : rangée complète (half + half) ───────────────
-    w.push({ type: "funnel", title: "Entonnoir de conversion", width: "half", config: { source } });
+    w.push({ type: "funnel", title: "Entonnoir de conversion", width: "half", config: { source: funnelSource } });
     w.push({ type: "alerts", title: "Dernières alertes", width: "half", config: { limit: 5 } });
+  } else {
+    w.push({ type: "alerts", title: "Dernières alertes", width: "full", config: { limit: 5 } });
   }
 
-  // ── Pacing budget (Meta uniquement : le resolver s'appuie sur AccountBudget/meta)
-  if (hasMeta) {
+  // ── Pacing budget (Meta : budget client ou du compte ; TikTok : budget client)
+  if (hasMeta || hasTikTok) {
     w.push({ type: "pacing", title: "Suivi du budget mensuel", width: "full", config: {} });
   }
 
@@ -1426,11 +1607,18 @@ export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName
     w.push({ type: "timeseries", title: "ROAS quotidien — Meta", width: "half", config: { metric: "roas", source: "meta" } });
     w.push({ type: "timeseries", title: "Conversions quotidiennes — Google", width: "half", config: { metric: "purchases", source: "google" } });
   } else if (hasMeta) {
-    w.push({ type: "timeseries", title: "Dépenses quotidiennes", width: "half", config: { metric: "spend", source: "meta" } });
-    w.push({ type: "timeseries", title: "ROAS quotidien", width: "half", config: { metric: "roas", source: "meta" } });
-  } else {
-    w.push({ type: "timeseries", title: "Dépenses quotidiennes", width: "half", config: { metric: "spend", source: "google" } });
-    w.push({ type: "timeseries", title: "Conversions quotidiennes", width: "half", config: { metric: "purchases", source: "google" } });
+    const suffix = several ? " — Meta" : "";
+    w.push({ type: "timeseries", title: `Dépenses quotidiennes${suffix}`, width: "half", config: { metric: "spend", source: "meta" } });
+    w.push({ type: "timeseries", title: `ROAS quotidien${suffix}`, width: "half", config: { metric: "roas", source: "meta" } });
+  } else if (hasGoogle) {
+    const suffix = several ? " — Google" : "";
+    w.push({ type: "timeseries", title: `Dépenses quotidiennes${suffix}`, width: "half", config: { metric: "spend", source: "google" } });
+    w.push({ type: "timeseries", title: `Conversions quotidiennes${suffix}`, width: "half", config: { metric: "purchases", source: "google" } });
+  }
+  if (hasTikTok) {
+    const suffix = several ? " — TikTok" : "";
+    w.push({ type: "timeseries", title: `Dépenses quotidiennes${suffix}`, width: "half", config: { metric: "spend", source: "tiktok" } });
+    w.push({ type: "timeseries", title: `ROAS quotidien${suffix}`, width: "half", config: { metric: "roas", source: "tiktok" } });
   }
 
   // ── Répartitions d'audience (Meta) : rangée complète après les courbes ─
@@ -1457,20 +1645,27 @@ export function defaultWidgets(hasMeta: boolean, hasGoogle: boolean, accountName
     w.push({ type: "table", title: "Top mots-clés", width: "half", config: { kind: "keywords", source: "google", limit: 10 } });
     w.push({ type: "table", title: "Termes de recherche", width: "full", config: { kind: "search_terms", source: "google", limit: 10 } });
   }
+  if (hasTikTok) {
+    w.push({ type: "table", title: "Campagnes TikTok Ads", width: "full", config: { kind: "campaigns", source: "tiktok", limit: 10 } });
+  }
 
   return w.map((widget, position) => ({ ...widget, position }));
 }
 
 /** Grants the dashboard owner ACL rows for the dashboard's accounts, so the
  *  resolver's ACL re-check passes. Called when staff link a dashboard to a
- *  client login. */
+ *  client login. TikTok advertisers: `tiktokAdvertiserIds` when given, else
+ *  the dashboard's TikTok sources (read by its `id`). */
 export async function grantDashboardAccess(
   userId: string,
-  dashboard: { name: string; metaAccountId: string | null; googleCustomerId: string | null },
+  dashboard: { id?: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; tiktokAdvertiserIds?: string[] },
 ): Promise<void> {
   const grants: Array<{ platform: string; accountId: string }> = [];
   if (dashboard.metaAccountId) grants.push({ platform: "meta", accountId: normMeta(dashboard.metaAccountId) });
   if (dashboard.googleCustomerId) grants.push({ platform: "google", accountId: normGoogle(dashboard.googleCustomerId) });
+  const tiktokIds = dashboard.tiktokAdvertiserIds
+    ?? (dashboard.id ? (await getDashboardTikTokAccounts(dashboard.id)).map((a) => a.id) : []);
+  for (const id of tiktokIds) grants.push({ platform: "tiktok", accountId: id });
   for (const g of grants) {
     await prisma.userAdAccount.upsert({
       where: { userId_platform_accountId: { userId, platform: g.platform, accountId: g.accountId } },
@@ -1481,19 +1676,24 @@ export async function grantDashboardAccess(
 }
 
 /** Staff-created dashboard explicitly bound to a client login + account(s).
- *  Also grants the matching ACL rows so the client can actually see it. */
+ *  Also grants the matching ACL rows so the client can actually see it.
+ *  `tiktok`: advertisers already checked (lib/tiktok-binding.checkTikTokBinding),
+ *  stored as DashboardSource rows. */
 export async function createDashboardForUser(input: {
   userId: string;
   name?: string;
   metaAccountId?: string | null;
   googleCustomerId?: string | null;
+  tiktok?: TikTokAdvertiser[];
 }) {
   const metaAccountId = input.metaAccountId ? normMeta(String(input.metaAccountId)) : null;
   const googleCustomerId = input.googleCustomerId ? normGoogle(String(input.googleCustomerId)) : null;
-  if (!metaAccountId && !googleCustomerId) {
-    throw new Error("Un compte Meta ou Google est requis");
+  const tiktok = input.tiktok ?? [];
+  if (!metaAccountId && !googleCustomerId && tiktok.length === 0) {
+    throw new Error("Un compte Meta, Google ou TikTok est requis");
   }
-  const name = (input.name ?? "").trim() || dashboardName(null, metaAccountId ?? googleCustomerId ?? "");
+  const name = (input.name ?? "").trim()
+    || (!metaAccountId && !googleCustomerId ? tiktok[0].name : dashboardName(null, metaAccountId ?? googleCustomerId ?? ""));
 
   const dashboard = await prisma.dashboard.create({
     data: {
@@ -1502,14 +1702,22 @@ export async function createDashboardForUser(input: {
       metaAccountId,
       googleCustomerId,
       widgets: {
-        create: defaultWidgets(!!metaAccountId, !!googleCustomerId, name).map((w) => ({
+        create: defaultWidgets(!!metaAccountId, !!googleCustomerId, name, false, tiktok.length > 0).map((w) => ({
           type: w.type, title: w.title, width: w.width, position: w.position,
           config: JSON.stringify(w.config),
         })),
       },
+      ...(tiktok.length ? {
+        sources: {
+          create: tiktok.map((a) => ({
+            kind: "tiktok", externalId: a.id, label: a.name, status: "active",
+            config: JSON.stringify({ currency: a.currency, timezone: a.timezone }),
+          })),
+        },
+      } : {}),
     },
   });
-  await grantDashboardAccess(input.userId, dashboard);
+  await grantDashboardAccess(input.userId, { ...dashboard, tiktokAdvertiserIds: tiktok.map((a) => a.id) });
   return dashboard;
 }
 
@@ -1518,7 +1726,8 @@ export async function resetDashboardWidgets(dashboardId: string) {
   const dashboard = await prisma.dashboard.findUnique({ where: { id: dashboardId } });
   if (!dashboard) return null;
   const hasHubspot = !!(await findHubspotSourceDashboard([dashboardId]));
-  const widgets = defaultWidgets(!!dashboard.metaAccountId, !!dashboard.googleCustomerId, dashboard.name, hasHubspot);
+  const hasTikTok = (await getDashboardTikTokAccounts(dashboardId)).length > 0;
+  const widgets = defaultWidgets(!!dashboard.metaAccountId, !!dashboard.googleCustomerId, dashboard.name, hasHubspot, hasTikTok);
   await prisma.$transaction([
     prisma.dashboardWidget.deleteMany({ where: { dashboardId } }),
     prisma.dashboardWidget.createMany({

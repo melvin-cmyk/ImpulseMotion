@@ -16,6 +16,8 @@ const m = vi.hoisted(() => ({
   listSources: vi.fn(),
   upsertHubspotSource: vi.fn(),
   testHubspotConnection: vi.fn(),
+  scope: { all: true } as { all: true } | { all: false; meta: Set<string>; google: Set<string>; tiktok: Set<string> },
+  grant: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-helpers", () => ({
@@ -40,6 +42,11 @@ vi.mock("@/lib/tiktok-accounts", async (importOriginal) => ({
 vi.mock("@/lib/sources", () => ({ listSources: m.listSources, upsertHubspotSource: m.upsertHubspotSource }));
 vi.mock("@/lib/secrets", () => ({ hasSecretsKey: () => true }));
 vi.mock("@/lib/hubspot/client", () => ({ testHubspotConnection: m.testHubspotConnection }));
+vi.mock("@/lib/scope", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/scope")>()),
+  getAccountScope: async () => m.scope,
+}));
+vi.mock("@/lib/dashboard-widgets", () => ({ grantDashboardAccess: m.grant }));
 
 import { POST } from "@/app/api/dashboards/[id]/sources/route";
 
@@ -58,8 +65,9 @@ const nothingWritten = () => {
 beforeEach(() => {
   m.session = { userId: "u1", role: "consultant" };
   m.outOfScope = false;
-  for (const f of [m.findDashboard, m.checkAdvertiser, m.dashboardsWithAdvertiser, m.attachTikTokAdvertiser, m.listSources, m.upsertHubspotSource, m.testHubspotConnection]) f.mockReset();
-  m.findDashboard.mockResolvedValue({ id: "d1" });
+  m.scope = { all: true };
+  for (const f of [m.findDashboard, m.checkAdvertiser, m.dashboardsWithAdvertiser, m.attachTikTokAdvertiser, m.listSources, m.upsertHubspotSource, m.testHubspotConnection, m.grant]) f.mockReset();
+  m.findDashboard.mockResolvedValue({ id: "d1", name: "Client Démo", userId: "owner", members: [{ userId: "c1" }] });
   m.checkAdvertiser.mockResolvedValue({ ok: true, advertiser: ADVERTISER });
   m.dashboardsWithAdvertiser.mockResolvedValue([]);
   m.attachTikTokAdvertiser.mockResolvedValue({ id: "s1" });
@@ -135,6 +143,18 @@ describe("POST /api/dashboards/[id]/sources — TikTok", () => {
     expect(m.attachTikTokAdvertiser).toHaveBeenCalledTimes(1);
     expect(m.attachTikTokAdvertiser).toHaveBeenCalledWith("d1", ADVERTISER);
     expect(m.listSources).toHaveBeenCalledWith("d1");
+    // Access follows the binding: the owner and the members get the advertiser.
+    expect(m.grant.mock.calls.map((c) => c[0])).toEqual(["owner", "c1"]);
+    expect(m.grant).toHaveBeenCalledWith("owner", expect.objectContaining({ tiktokAdvertiserIds: [ID] }));
+  });
+
+  it("refuses an advertiser outside the staff member's scope, without asking TikTok", async () => {
+    m.scope = { all: false, meta: new Set(), google: new Set(), tiktok: new Set(["7222222222222222222"]) };
+    const res = await post({ kind: "tiktok", advertiserId: ID, confirm: true });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe(`compte hors périmètre : ${ID}`);
+    expect(m.checkAdvertiser).not.toHaveBeenCalled();
+    nothingWritten();
   });
 
   it("stores the name TikTok gives, not one sent by the browser", async () => {
