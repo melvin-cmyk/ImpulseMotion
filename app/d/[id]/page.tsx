@@ -7,7 +7,7 @@
  * Period lives in the URL (?days=7|30|90) so views are shareable.
  */
 
-import { useCallback, useEffect, useMemo, useState, use } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, use } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -16,7 +16,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { WidgetBody, WidgetFrame } from "@/components/dashboard/renderers";
-import { WidgetForm, DashboardSettingsForm, EditControls, SortableWidgetFrame } from "@/components/dashboard/editor";
+import { WidgetForm, DashboardSettingsForm, EditControls, InlineWidgetEditor, SortableWidgetFrame } from "@/components/dashboard/editor";
 import { CopilotPanel } from "@/components/dashboard/copilot";
 import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
 import { DEFAULT_PAGE_ID, type DashboardPageInfo, type ResolvedWidget } from "@/lib/dashboard-types";
@@ -422,9 +422,6 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
       {showAdd && payload && (
         <WidgetForm dashboardId={payload.dashboard.id} widget={null} range={range} pageId={activePageId === DEFAULT_PAGE_ID ? null : activePageId} onDone={onMutated} onCancel={() => setShowAdd(false)} />
       )}
-      {editingWidget && payload && (
-        <WidgetForm dashboardId={payload.dashboard.id} widget={editingWidget} range={range} onDone={onMutated} onCancel={() => setEditingWidget(null)} />
-      )}
       {showSettings && payload && (
         <DashboardSettingsForm
           dashboard={payload.dashboard}
@@ -457,7 +454,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
                     </WidgetFrame>
                   );
                 }
-                return (
+                const frame = (
                   <SortableWidgetFrame
                     key={w.id}
                     widget={w}
@@ -474,6 +471,14 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
                   >
                     <WidgetBody widget={w} />
                   </SortableWidgetFrame>
+                );
+                // The edit form opens right above the widget being edited.
+                if (editingWidget?.id !== w.id) return frame;
+                return (
+                  <Fragment key={w.id}>
+                    <InlineWidgetEditor dashboardId={payload.dashboard.id} widget={editingWidget} range={range} onDone={onMutated} onCancel={() => setEditingWidget(null)} />
+                    {frame}
+                  </Fragment>
                 );
               })}
               {widgets.length === 0 && !loading && (

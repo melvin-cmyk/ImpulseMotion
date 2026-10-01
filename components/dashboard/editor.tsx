@@ -6,7 +6,7 @@
  * calls /api/dashboards/* then triggers a reload.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
@@ -259,7 +259,7 @@ export function WidgetForm({
     <Card padded className="border-violet-800/60">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-white">
-          {widget ? "Modifier le widget" : "Ajouter un widget"}
+          {widget ? `Modifier le widget${widget.title ? ` « ${widget.title} »` : ""}` : "Ajouter un widget"}
         </h3>
         <button type="button" onClick={onCancel} className="text-xs text-gray-500 hover:text-gray-300">Annuler</button>
       </div>
@@ -528,6 +528,23 @@ export function SortableWidgetFrame({ widget, children, editControls }: {
     >
       {children}
     </WidgetFrame>
+  );
+}
+
+/**
+ * Edit form of one widget, laid out in the dashboard grid right above that
+ * widget (full width) instead of at the top of the board, and scrolled into
+ * view when it opens.
+ */
+export function InlineWidgetEditor(props: React.ComponentProps<typeof WidgetForm>) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [props.widget?.id]);
+  return (
+    <div ref={ref} className="col-span-6 scroll-mt-4">
+      <WidgetForm {...props} />
+    </div>
   );
 }
 
