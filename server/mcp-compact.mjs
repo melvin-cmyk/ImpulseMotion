@@ -765,6 +765,16 @@ export function compactText(text, { server = "", tool = "", cap: capOverride } =
         notes.unshift(`regroupées par ${name(cand.col)} (titre « # » avant les lignes de chaque groupe)`);
       }
     }
+    // Lignes cachées par le plafond : leurs sommes restent lisibles. Sans elles, un
+    // total recompté sur les lignes affichées passe pour celui du rapport (constaté
+    // le 2026-10-01 : valeur des achats TikTok de Jow lue 106 k€ au lieu de 691 k€).
+    if (truncated) {
+      const sums = Object.keys(freq).filter((c) => ADDITIVE_COL.test(c) && isNumCol(view, c)).map((c) => {
+        const sum = view.reduce((acc, r) => acc + (Number(r[c]) || 0), 0);
+        return `${name(c)}=${Math.round(sum * 100) / 100}`;
+      });
+      if (sums.length) notes.unshift(`totaux sur les ${total} lignes, cachées comprises : ${sums.join(" ; ")}`);
+    }
     const first = `${total} ligne${total > 1 ? "s" : ""}${truncated ? `, ${truncated.shown} affichées (${truncated.kept}) — affine la période ou le filtre pour le reste` : ""}`;
     const table = { text: [...head(first, notes, Object.keys(common)), ...body].join("\n"), mode: "table", truncated, summary: null };
 

@@ -144,7 +144,7 @@ describe("buildBotSystemPrompt — sources conditionnelles", () => {
     expect(p).toContain("advertiser_id : 7000000000000000001, le seul compte autorisé");
     expect(p).toContain("30 jours au plus par appel");
     expect(p).toContain("Dates dans le fuseau du compte, montants dans sa devise");
-    expect(p).toContain("Achats : « purchase » (nombre) et « total_purchase_value » (valeur, dans la devise du compte)");
+    expect(p).toContain("Achats : « total_purchase » (nombre) et « total_purchase_value » (valeur, dans la devise du compte)");
     expect(p).toContain("ROAS = total_purchase_value ÷ spend");
     expect(p).toContain("n'additionne pas leurs conversions comme des ventes distinctes");
     // Rien de ce qui ne concerne que l'équipe.

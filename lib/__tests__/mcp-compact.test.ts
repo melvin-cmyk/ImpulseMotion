@@ -116,6 +116,17 @@ describe("mcp-compact — garde-fous", () => {
     expect(out).not.toContain("2026-09-01\t");
   });
 
+  it("donne les totaux de toutes les lignes quand le plafond en cache, pas ceux des seules lignes affichées", () => {
+    // Une campagne peu dépensière peut porter l'essentiel de la valeur : hors du top dépense, elle restait invisible.
+    const rows = Array.from({ length: 12 }, (_, i) => ({ campaign_id: `c${i}`, spend: `${100 - i}`, total_purchase_value: i === 11 ? "5000" : "10", ctr: "1.5" }));
+    const { text: out } = compactText(pretty({ data: rows }), { server: "meta-ads-impulse", tool: "Campaign_Performance", cap: 5 });
+    expect(out).toContain("12 lignes, 5 affichées");
+    expect(out).toMatch(/totaux sur les 12 lignes, cachées comprises : .*spend=1134/);
+    expect(out).toMatch(/total_purchase_value=5110/);
+    // Un taux ne s'additionne pas.
+    expect(out).not.toMatch(/totaux[^\n]*ctr=/);
+  });
+
   it("plafonne par dépense décroissante quand il n'y a pas de date", () => {
     const rows = Array.from({ length: 10 }, (_, i) => ({ name: `n${i}`, spend: `${i * 10}` }));
     const { text: out } = compactText(pretty({ data: rows }), { server: "meta-ads-impulse", tool: "Ad_Performance1", cap: 3 });

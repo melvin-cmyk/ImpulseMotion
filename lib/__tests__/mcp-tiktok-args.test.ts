@@ -31,7 +31,7 @@ describe("prepareTikTokArgs — reports", () => {
     const out = sent("get_campaign_performance", input(ask));
     expect(out).toMatchObject({ ...ask, report_type: "BASIC", data_level: "AUCTION_CAMPAIGN", dimensions: '["campaign_id"]', page: "1", page_size: "1000" });
     const metrics = JSON.parse(out.metrics) as string[];
-    expect(metrics).toEqual(expect.arrayContaining(["campaign_name", "spend", "conversion", "complete_payment", "complete_payment_roas", "purchase", "total_purchase_value"]));
+    expect(metrics).toEqual(expect.arrayContaining(["campaign_name", "spend", "conversion", "complete_payment", "complete_payment_roas", "total_purchase", "total_purchase_value"]));
     // Every value is a string: the n8n tool rejects anything else.
     for (const v of Object.values(out)) expect(typeof v).toBe("string");
   });

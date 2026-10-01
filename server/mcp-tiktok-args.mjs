@@ -23,10 +23,10 @@ const BASE_METRICS = [
   "conversion", "cost_per_conversion", "conversion_rate",
   "video_play_actions", "video_watched_2s", "video_watched_6s", "video_views_p100",
   "complete_payment", "complete_payment_roas",
-  // Achats et leur valeur, tous événements d'achat confondus. Constaté le
-  // 2026-10-01 sur Jow : complete_payment et son ROAS à 0, purchase et
-  // total_purchase_value remplis (696 183 € en septembre).
-  "purchase", "total_purchase_value",
+  // Achats et leur valeur, tous événements d'achat confondus (total_purchase
+  // compte ce que total_purchase_value valorise). Constaté le 2026-10-01 sur
+  // Jow : complete_payment et son ROAS à 0, total_purchase_value = 696 183 €.
+  "total_purchase", "total_purchase_value",
 ];
 
 /** Ce que le serveur fixe, par outil de rapport. Une clé absente reste au modèle. */
@@ -48,7 +48,7 @@ const REPORTS = {
   },
   get_breakdown_report: {
     data_level: "AUCTION_CAMPAIGN",
-    metrics: ["spend", "impressions", "reach", "clicks", "ctr", "cpc", "cpm", "conversion", "cost_per_conversion", "conversion_rate", "purchase", "total_purchase_value"],
+    metrics: ["spend", "impressions", "reach", "clicks", "ctr", "cpc", "cpm", "conversion", "cost_per_conversion", "conversion_rate", "total_purchase", "total_purchase_value"],
   },
   get_report_integrated: {},
 };
