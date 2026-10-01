@@ -3,7 +3,8 @@
  *
  * GET    → the routine ({ routine }), with its health: how many live runs in
  *          a row were not a full success, the last error, and how many items
- *          wait for a person
+ *          wait for a person; and the names of the clients its steps name
+ *          (`clientNames`, by id)
  * PATCH  → { name? } and/or { action: "pause" | "resume" | "archive" }
  *          pause   : active → paused, leaves the schedule
  *          resume  : paused → active, if the dry run still covers the routine
@@ -19,6 +20,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRoutinesAccess } from "@/lib/routines/access";
 import { adminRuleRefusal } from "@/lib/routines/admin-rule";
+import { clientNamesOf } from "@/lib/routines/clients";
 import { hashDefinition } from "@/lib/routines/hash";
 import { computeNextRunAt } from "@/lib/routines/schedule";
 import {
@@ -38,15 +40,16 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   if ("error" in guard) return guard.error;
   const found = await routineForSession(guard.session, (await params).id);
   if (found.status !== 200) return found.status === 403 ? FORBIDDEN() : NOT_FOUND();
-  const [health, toCheck] = await Promise.all([
+  const [health, toCheck, clientNames] = await Promise.all([
     routineHealth(found.routine.id).catch(() => null),
     itemsToCheck(found.routine.id).catch(() => []),
+    clientNamesOf(found.routine.definitionJson).catch(() => ({})),
   ]);
   return NextResponse.json({
     routine: {
       ...routineView(found.routine),
       degradedRuns: health?.degradedRuns ?? 0, degradedAtLeast: health?.atLeast ?? false, degradedError: health?.lastError ?? null,
-      itemsToCheck: toCheck.length,
+      itemsToCheck: toCheck.length, clientNames,
     },
   }, { headers: NO_STORE });
 }

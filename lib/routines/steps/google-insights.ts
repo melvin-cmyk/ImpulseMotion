@@ -19,6 +19,11 @@
  *   cpa, roas, ctr        null when the divisor is 0
  * Windows are full days ending yesterday, in the routine's timezone
  * (month_to_date: from the 1st to yesterday).
+ *
+ * With `clients` the step reads the Google Ads accounts of several clients
+ * instead (lib/routines/clients.ts, at every run, in the scope of who answers
+ * for the routine): every row then starts with client_name, platform,
+ * account_id and account_name.
  */
 
 import { googleCustomerDigits } from "@/lib/routines/accounts";
@@ -26,7 +31,9 @@ import { lastFullDays, monthToDate, YMD_RE, type DateRange } from "@/lib/date-ra
 import { costFrom, extractRows } from "@/lib/dashboard-widgets";
 import { relayDirectTool } from "@/lib/relay-tool";
 import { type Checked, done, errorMessage, failed, readStepBase, refuse, unverified } from "@/lib/routines/steps/sheet-read";
-import type { Cell, ErrorClass, GoogleInsightsStep, Row, StepContext, StepHandler } from "@/lib/routines/types";
+import { readClientSelection } from "@/lib/routines/client-selection";
+import { clientCells, readEachAccount, resolveClientAccounts, withClientColumns, type ClientAccount } from "@/lib/routines/clients";
+import type { Cell, ErrorClass, GoogleInsightsStep, Row, StepContext, StepHandler, StepRunOutcome } from "@/lib/routines/types";
 
 export const GOOGLE_LEVELS = ["account", "campaign"] as const;
 export const GOOGLE_WINDOWS = ["yesterday", "7d", "14d", "30d", "month_to_date"] as const;
@@ -134,9 +141,11 @@ async function query(customerId: string, gaql: string): Promise<Array<Record<str
 
 function validate(raw: unknown): Checked<GoogleInsightsStep> {
   // No account field: a customer id written in a step is refused as an unknown key.
-  const head = readStepBase(raw, "google.insights", ["level", "window", "metrics"]);
+  const head = readStepBase(raw, "google.insights", ["level", "window", "metrics", "clients"]);
   if (!head.ok) return head;
   const { level, window, metrics } = head.raw;
+  const clients = head.raw.clients === undefined ? null : readClientSelection(head.raw.clients);
+  if (clients && !clients.ok) return refuse(clients.error);
   if (!GOOGLE_LEVELS.includes(level as Level)) return refuse(`level attendu : ${GOOGLE_LEVELS.join(" ou ")}`);
   if (!GOOGLE_WINDOWS.includes(window as Window)) return refuse(`window attendu : ${GOOGLE_WINDOWS.join(", ")}`);
   if (!Array.isArray(metrics) || metrics.length === 0) return refuse("metrics : au moins une métrique");
@@ -145,7 +154,53 @@ function validate(raw: unknown): Checked<GoogleInsightsStep> {
     if (!GOOGLE_METRICS.includes(m as Metric)) return refuse(`métrique inconnue : ${String(m).slice(0, 40)} (acceptées : ${GOOGLE_METRICS.join(", ")})`);
     if (!kept.includes(m as Metric)) kept.push(m as Metric);
   }
-  return { ok: true, step: { ...head.base, type: "google.insights", level: level as Level, window: window as Window, metrics: kept } };
+  return {
+    ok: true,
+    step: { ...head.base, type: "google.insights", level: level as Level, window: window as Window, metrics: kept, ...(clients?.ok ? { clients: clients.value } : {}) },
+  };
+}
+
+const columnsOf = (step: GoogleInsightsStep) => [...IDENTITY[step.level].columns, ...DATE_COLUMNS, ...step.metrics];
+
+type AccountRead = { ok: true; rows: Row[]; truncated: boolean; range: DateRange } | { ok: false; message: string; errorClass: ErrorClass };
+
+/** The rows of one customer, as the step asks for them. Never throws. */
+async function readCustomer(step: GoogleInsightsStep, customerId: string, ctx: Pick<StepContext, "routine" | "now">): Promise<AccountRead> {
+  try {
+    const range = windowRange(step.window, ctx.routine.timezone, ctx.now);
+    const raw = await query(customerId, buildGaql(step.level, step.metrics, range));
+    return { ok: true, rows: raw.map((r) => toInsightRow(r, step.level, step.metrics, range)), truncated: step.level === "campaign" && raw.length >= MAX_CAMPAIGNS, range };
+  } catch (e) {
+    const message = errorMessage(e);
+    return { ok: false, message, errorClass: googleErrorClass(message) };
+  }
+}
+
+/** The customers of several clients: one that fails is said, the others are kept. */
+async function runClients(step: GoogleInsightsStep, ctx: StepContext, rowsIn: number): Promise<StepRunOutcome> {
+  if (!ctx.accounts) return failed(rowsIn, "functional", "Périmètre de lecture inconnu : aucun compte client n'est lu.");
+  const { accounts, warnings } = await resolveClientAccounts(step.clients!, "google", ctx.accounts);
+  const columns = withClientColumns(columnsOf(step));
+  if (!accounts.length) {
+    if (ctx.accounts.problem) return failed(rowsIn, "functional", ctx.accounts.problem, { warnings });
+    return done(rowsIn, 0, { output: { rows: { columns, rows: [], truncated: false } }, warnings });
+  }
+  const { results, unread } = await readEachAccount(accounts, (a) => readCustomer(step, a.accountId, ctx), { deadlineAt: ctx.deadlineAt, signal: ctx.signal });
+  const rows: Row[] = [];
+  let truncated = unread > 0;
+  const failures: Array<{ account: ClientAccount; message: string; errorClass: ErrorClass }> = [];
+  for (const { account, result } of results) {
+    if (!result.ok) { failures.push({ account, ...result }); continue; }
+    if (result.truncated) { truncated = true; warnings.push(`${account.clientName} : plus de ${MAX_CAMPAIGNS} campagnes, seules les plus dépensières sont lues.`); }
+    for (const row of result.rows) rows.push({ ...row, ...clientCells(account) });
+  }
+  for (const f of failures.slice(0, 10)) warnings.push(`${f.account.clientName} (Google Ads ${f.account.accountId}) non lu : ${f.message}`);
+  if (failures.length > 10) warnings.push(`${failures.length - 10} autres comptes Google Ads non lus.`);
+  if (unread) warnings.push(`Temps écoulé : ${unread} compte${unread > 1 ? "s" : ""} Google Ads non lu${unread > 1 ? "s" : ""}.`);
+  if (failures.length && failures.length === results.length) {
+    return failed(rowsIn, failures.every((f) => f.errorClass === "functional") ? "functional" : "infra", `Aucun compte Google Ads lu : ${failures[0].message}`, { warnings });
+  }
+  return done(rowsIn, rows.length, { output: { rows: { columns, rows, truncated } }, warnings });
 }
 
 const NO_ACCOUNT = "aucun compte Google Ads n'est rattaché à la routine";
@@ -156,6 +211,8 @@ export const googleInsightsHandler: StepHandler<GoogleInsightsStep> = {
   validate,
 
   async preflight(step, routine) {
+    // The accounts of several clients are known at run time only, in the scope of that moment.
+    if (step.clients) return [];
     const customerId = cleanCustomerId(routine.googleCustomerId);
     if (!customerId) return [{ stepId: step.id, severity: "error", message: NO_ACCOUNT }];
     try {
@@ -170,24 +227,18 @@ export const googleInsightsHandler: StepHandler<GoogleInsightsStep> = {
 
   async run(step, ctx: StepContext) {
     const rowsIn = ctx.input?.rows.length ?? 0;
+    if (step.clients) return runClients(step, ctx, rowsIn);
     const customerId = cleanCustomerId(ctx.routine.googleCustomerId);
     if (!customerId) return failed(rowsIn, "functional", NO_ACCOUNT);
-    try {
-      const range = windowRange(step.window, ctx.routine.timezone, ctx.now);
-      const raw = await query(customerId, buildGaql(step.level, step.metrics, range));
-      const rows = raw.map((r) => toInsightRow(r, step.level, step.metrics, range));
-      const truncated = step.level === "campaign" && raw.length >= MAX_CAMPAIGNS;
-      const columns = [...IDENTITY[step.level].columns, ...DATE_COLUMNS, ...step.metrics];
-      return done(rowsIn, rows.length, {
-        output: { rows: { columns, rows, truncated } },
-        warnings: [
-          ...(truncated ? [`Plus de ${MAX_CAMPAIGNS} campagnes : seules les ${MAX_CAMPAIGNS} plus dépensières sont lues.`] : []),
-          ...(rows.length === 0 ? [`Aucune diffusion Google Ads du ${range.since} au ${range.until}.`] : []),
-        ],
-      });
-    } catch (e) {
-      const message = errorMessage(e);
-      return failed(rowsIn, googleErrorClass(message), `Google Ads : ${message}`);
-    }
+    const read = await readCustomer(step, customerId, ctx);
+    if (!read.ok) return failed(rowsIn, read.errorClass, `Google Ads : ${read.message}`);
+    const { rows, truncated, range } = read;
+    return done(rowsIn, rows.length, {
+      output: { rows: { columns: columnsOf(step), rows, truncated } },
+      warnings: [
+        ...(truncated ? [`Plus de ${MAX_CAMPAIGNS} campagnes : seules les ${MAX_CAMPAIGNS} plus dépensières sont lues.`] : []),
+        ...(rows.length === 0 ? [`Aucune diffusion Google Ads du ${range.since} au ${range.until}.`] : []),
+      ],
+    });
   },
 };

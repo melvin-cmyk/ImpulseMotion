@@ -196,7 +196,7 @@ describe("routines — appel du relay par l'IA de création", () => {
     const scope = buildRoutineRelayBody({ routine: withTikTok, userId: "u1", author: null, messages: [] }).accountScope!;
     expect(scope.tiktok).toEqual(["7123456789012345678", "7000000000000000001"]);
     expect(buildRoutineComposePrompt(withTikTok)).toContain("Comptes TikTok Ads du client : 7123456789012345678, 7000000000000000001");
-    expect(buildRoutineComposePrompt(routine)).toContain("Comptes TikTok Ads du client : aucun (pas d'étape tiktok.insights possible)");
+    expect(buildRoutineComposePrompt(routine)).toContain("Comptes TikTok Ads du client : aucun (tiktok.insights seulement avec \"clients\")");
   });
 
   it("prend le profil de création et laisse les consignes HQ à l'appelant", () => {

@@ -19,7 +19,7 @@ import { RunHistory } from "@/components/routines/run-history";
 import { ItemsToCheck } from "@/components/routines/items-to-check";
 import { scheduleTitle } from "@/components/routines/schedule-label";
 import {
-  ROUTINE_STATUS, RUN_STATUS, actionBlocked, dateTimeLabel, degradedBanner, exampleByKey, hasDefinition, runCounters, toRoutineView, toRunView,
+  ROUTINE_STATUS, RUN_STATUS, actionBlocked, dateTimeLabel, degradedBanner, exampleByKey, hasDefinition, routineClientLabel, runCounters, toRoutineView, toRunView,
   type RoutineAction, type RoutineView,
 } from "@/components/routines/routine-model";
 
@@ -151,7 +151,7 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
       </Link>
 
       <div className="space-y-2">
-        <PageHeader title={routine.name} subtitle={<span className="text-violet-300">{routine.clientName}</span>} />
+        <PageHeader title={routine.name} subtitle={<span className="text-violet-300">{routineClientLabel(routine)}</span>} />
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
           <Pill tone={st.tone}>{st.label}</Pill>
           {routine.running && <Pill tone="blue">Exécution en cours</Pill>}

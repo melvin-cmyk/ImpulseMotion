@@ -656,3 +656,34 @@ describe("routines — what is stored of a run", () => {
 // Type-level: the context handed to a step is the shared contract, nothing more.
 const _ctx: keyof StepContext = "write";
 void _ctx;
+
+describe("routines — reading several clients", () => {
+  const allClients = { id: "perf", type: "meta.insights", level: "account", window: "7d", metrics: ["spend"], clients: "all" };
+
+  it("gives a step that reads several clients a reader, made from the scope of who answers for the run", async () => {
+    const routine = await seed([allClients, slackStep]);
+    const result = await dry(routine);
+    expect(result.status).toBe("success");
+    const ctx = seen.find((s) => s.stepId === "perf")!.ctx;
+    expect(ctx.accounts).toBeDefined();
+    expect(ctx.accounts!.problem).toBeNull();
+    expect(ctx.accounts!.take(100)).toBe(40);
+    expect(ctx.accounts!.take(1)).toBe(0);
+    // The same reader for every step of the run: the ceiling is the run's.
+    expect(seen.find((s) => s.stepId === "prevenir")!.ctx.accounts).toBe(ctx.accounts);
+  });
+
+  it("gives none to a routine that reads only its own accounts", async () => {
+    await dry(await seed([readStep, slackStep]));
+    expect(seen.every((s) => s.ctx.accounts === undefined)).toBe(true);
+  });
+
+  it("reads nothing when who answers for the routine is no longer of the team", async () => {
+    const routine = await seed([allClients, slackStep]);
+    db.user.rows.find((u) => u.id === "u1")!.role = "client";
+    await dry(routine);
+    const ctx = seen.find((s) => s.stepId === "perf")!.ctx;
+    expect(ctx.accounts!.problem).toMatch(/ne fait plus partie de l'équipe/);
+    expect(ctx.accounts!.canRead("meta", "564381881705822")).toBe(false);
+  });
+});

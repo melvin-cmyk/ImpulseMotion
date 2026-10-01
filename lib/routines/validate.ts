@@ -11,7 +11,8 @@
  *     Meta step is refused, not ignored);
  *   - chaining: `input` names an earlier step that produces rows, and a step
  *     that consumes rows has a source above it;
- *   - one meta.create_ads step at most;
+ *   - one meta.create_ads step at most, and none in a routine whose read
+ *     steps cover several clients (`clients`);
  *   - templates within the grammar of lib/routines/template.ts, reading only
  *     earlier steps;
  *   - columns, when they can be known without reading anything (after a
@@ -22,6 +23,7 @@
  */
 
 import { findStepHandler } from "@/lib/routines/steps";
+import { definitionClients } from "@/lib/routines/client-selection";
 import { isValidTimezone } from "@/lib/routines/schedule";
 import { STEP_ID_RE, parseTemplate, rowOnlyTemplateError, type TemplateToken } from "@/lib/routines/template";
 import {
@@ -45,9 +47,9 @@ const BASE_FIELDS = ["id", "type", "label", "input"] as const;
 /** Fields of each step type (lib/routines/types.ts). Anything else is refused. */
 const STEP_FIELDS: Record<StepType, readonly string[]> = {
   "sheet.read": ["sheet", "requiredColumns", "maxRows"],
-  "meta.insights": ["level", "window", "metrics", "nameContains"],
-  "google.insights": ["level", "window", "metrics"],
-  "tiktok.insights": ["level", "window", "metrics"],
+  "meta.insights": ["level", "window", "metrics", "nameContains", "clients"],
+  "google.insights": ["level", "window", "metrics", "clients"],
+  "tiktok.insights": ["level", "window", "metrics", "clients"],
   "rows.filter": ["where"],
   "rows.sort": ["by", "dir"],
   "rows.limit": ["count"],
@@ -271,6 +273,10 @@ export function validateDefinition(input: unknown): Validation<RoutineDefinition
   // 2. The steps together.
   const creations = steps.filter((s) => s.type === "meta.create_ads");
   if (creations.length > 1) errors.push(`Une seule étape meta.create_ads par routine (${creations.length} trouvées).`);
+  // Writing on a platform stays with ONE account, the routine's own: never in a routine that reads several clients.
+  if (creations.length && definitionClients(steps).multi) {
+    errors.push("meta.create_ads est refusée dans une routine qui lit plusieurs clients (« clients ») : une routine qui crée des publicités travaille pour un seul client, sur le compte Meta de la routine.");
+  }
 
   for (const [i, step] of steps.entries()) {
     const name = `Étape ${i + 1} « ${step.id} » (${step.type})`;
@@ -395,6 +401,34 @@ export type ValidProposal = RoutineProposal & { maxItemsPerRun: number };
 export interface ProposalContext {
   /** Facebook Page chosen in the form that created the routine. */
   pageId?: string | null;
+  /**
+   * The accounts of the routine, when the caller knows them: a step that reads
+   * (or writes) the routine's own account is refused when it has none, so
+   * that the AI corrects its proposal before anything is tried.
+   */
+  accounts?: { meta: boolean; google: boolean; dashboard: boolean };
+}
+
+/** Steps that need an account the routine does not have (routine without client, or without this platform). */
+export function routineAccountErrors(definition: RoutineDefinition, context: ProposalContext | undefined): string[] {
+  const accounts = context?.accounts;
+  if (!accounts) return [];
+  const errors: string[] = [];
+  const free = !accounts.meta && !accounts.google && !accounts.dashboard;
+  for (const [i, step] of definition.steps.entries()) {
+    const name = `Étape ${i + 1} « ${step.id} » (${step.type})`;
+    const own = !("clients" in step) || step.clients === undefined;
+    if (step.type === "meta.create_ads" && !accounts.meta) {
+      errors.push(`${name} : ${free ? "une routine libre (sans client) ne crée pas de publicités" : "la routine n'a pas de compte Meta"} ; la création de publicités exige le compte Meta d'un client, choisi à la création de la routine.`);
+    } else if (own && step.type === "meta.insights" && !accounts.meta) {
+      errors.push(`${name} : la routine n'a pas de compte Meta à elle. Pour lire des clients, précise "clients" ("all" ou la liste de leurs identifiants).`);
+    } else if (own && step.type === "google.insights" && !accounts.google) {
+      errors.push(`${name} : la routine n'a pas de compte Google Ads à elle. Pour lire des clients, précise "clients" ("all" ou la liste de leurs identifiants).`);
+    } else if (own && step.type === "tiktok.insights" && !accounts.dashboard) {
+      errors.push(`${name} : la routine n'a pas de client à elle dont lire les comptes TikTok. Pour lire des clients, précise "clients" ("all" ou la liste de leurs identifiants).`);
+    }
+  }
+  return errors;
 }
 
 /** A proposal that publishes under another Page than the one chosen for the routine is refused. */
@@ -441,7 +475,7 @@ export function validateProposal(input: unknown, context?: ProposalContext): Val
   if (!maxItems.ok) errors.push(...maxItems.errors);
   const definition = validateDefinition(input.definition);
   if (!definition.ok) errors.push(...definition.errors);
-  else errors.push(...chosenPageErrors(definition.value, context));
+  else errors.push(...chosenPageErrors(definition.value, context), ...routineAccountErrors(definition.value, context));
 
   if (errors.length || !name.ok || !schedule.ok || !maxItems.ok || !definition.ok) return { ok: false, errors: errors.slice(0, MAX_ERRORS) };
   return {

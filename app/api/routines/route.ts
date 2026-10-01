@@ -4,7 +4,10 @@
  * GET  → the routines the caller may see ({ routines }), archived ones left out
  *        unless ?archived=1
  * POST → creates a draft: { name, dashboardId?, clientName?, metaAccountId?, googleCustomerId?, pageId? }
- *        The accounts default to those of the dashboard. Every account
+ *        The accounts default to those of the dashboard. Without dashboard
+ *        nor account, the routine is free (« routine libre »): it reads
+ *        Sheets, or several clients through the `clients` of its read steps,
+ *        and creates no ad. Its clientName is the label typed, "—" otherwise. Every account
  *        received is checked against the caller's scope (lib/scope.ts): a
  *        routine never gives access to an account the person does not have.
  *        `pageId` is the Facebook Page picked in the form: it must be one the
@@ -18,6 +21,7 @@ import { bindingOutOfScope, dashboardInScope, getAccountScope } from "@/lib/scop
 import { cleanMetaMessage, isMetaId, listPromotablePages } from "@/lib/meta-write";
 import type { RoutinePage } from "@/lib/routines/context";
 import { GOOGLE_CUSTOMER_INVALID, META_ACCOUNT_INVALID, isGoogleCustomerId, isMetaAccountId } from "@/lib/routines/accounts";
+import { visibleRoutines } from "@/lib/routines/clients";
 import { actorOf, createRoutine, listRoutines, routineView } from "@/lib/routines/store";
 import { validateName } from "@/lib/routines/validate";
 
@@ -34,7 +38,8 @@ export async function GET(req: NextRequest) {
     includeArchived: params.get("archived") === "1",
     dashboardId: params.get("dashboardId") || undefined,
   });
-  const routines = rows.filter((r) => !bindingOutOfScope(scope, r)).map(routineView);
+  // Accounts of its own in scope, and, for a routine that reads several clients or none of its own, the rule of lib/routines/clients.ts.
+  const routines = (await visibleRoutines(guard.session, scope, rows)).map(routineView);
   return NextResponse.json({ routines }, { headers: NO_STORE });
 }
 

@@ -24,6 +24,7 @@ import { initialChatJson, type RoutinePage } from "@/lib/routines/context";
 import { hashDefinition } from "@/lib/routines/hash";
 import { effectiveRole } from "@/lib/roles";
 import { readRoutineContext } from "@/lib/routines/context";
+import { routineVisible } from "@/lib/routines/clients";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 import {
   DEFAULT_TIMEZONE, MAX_CONSECUTIVE_FAILURES, MAX_ITEM_ATTEMPTS, PLATFORM_WRITE_NEEDS_ADMIN_ENV, WRITE_COUNT_KEYS, emptyCounts, platformWriteNeedsAdmin,
@@ -229,10 +230,15 @@ export function actorOf(session: { userId: string; baseRole?: string | null; rol
   return { userId: session.userId, email: session.user?.email ?? null, role: session.baseRole ?? session.role ?? null };
 }
 
-/** One step of the stored definition reads TikTok (tiktok.insights). Unreadable definition: no. */
+/**
+ * One step of the stored definition reads the TikTok accounts of the routine's
+ * client (tiktok.insights without `clients`: a step that names its clients
+ * reads theirs, checked at run time). Unreadable definition: no.
+ */
 export function readsTikTok(definitionJson: string | null | undefined): boolean {
   const parsed = parseJson(definitionJson, {}) as { steps?: unknown };
-  return Array.isArray(parsed.steps) && parsed.steps.some((s) => !!s && typeof s === "object" && (s as { type?: unknown }).type === "tiktok.insights");
+  return Array.isArray(parsed.steps) && parsed.steps.some((s) => !!s && typeof s === "object"
+    && (s as { type?: unknown }).type === "tiktok.insights" && (s as { clients?: unknown }).clients === undefined);
 }
 
 /**
@@ -253,7 +259,9 @@ export async function routineTikTokIds(routine: { dashboardId?: string | null; d
 /**
  * Loads a routine for a staff session: 404 when it does not exist, 403 when
  * one of its ad accounts (TikTok ones included, when it reads them) is
- * outside the person's scope (lib/scope.ts).
+ * outside the person's scope (lib/scope.ts), or when it reads several
+ * clients, or none of its own, and the person may not see it
+ * (routineVisible, lib/routines/clients.ts).
  */
 export async function routineForSession(
   session: { userId: string; role?: string | null }, id: string,
@@ -262,9 +270,16 @@ export async function routineForSession(
   const routine = await getRoutine(id);
   if (!routine) return { status: 404 };
   const scope = await getAccountScope(session);
-  if (bindingOutOfScope(scope, routine)) return { status: 403 };
-  if (!scope.all && bindingOutOfScope(scope, { tiktokAdvertiserIds: await routineTikTokIds(routine) })) return { status: 403 };
-  return { status: 200, routine };
+  return (await routineAllowed(session, scope, routine)) ? { status: 200, routine } : { status: 403 };
+}
+
+/** The checks of routineForSession on a routine already loaded. */
+export async function routineAllowed(
+  session: { userId: string }, scope: Awaited<ReturnType<typeof getAccountScope>>, routine: RoutineRecord,
+): Promise<boolean> {
+  if (bindingOutOfScope(scope, routine)) return false;
+  if (!scope.all && bindingOutOfScope(scope, { tiktokAdvertiserIds: await routineTikTokIds(routine) })) return false;
+  return routineVisible(session, scope, routine);
 }
 
 // ── Run lock ─────────────────────────────────────────────────────────────

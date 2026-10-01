@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, CalendarClock, Loader2, Megaphone, MessageSquare, Plus, Repeat, Table2 } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { scheduleTitle } from "@/components/routines/schedule-label";
-import { ROUTINE_EXAMPLES, ROUTINE_STATUS, RUN_STATUS, dateTimeLabel, hasDefinition, toRoutineView, type RoutineView } from "@/components/routines/routine-model";
+import { ROUTINE_EXAMPLES, ROUTINE_STATUS, RUN_STATUS, dateTimeLabel, hasDefinition, routineClientLabel, toRoutineView, type RoutineView } from "@/components/routines/routine-model";
 import { ACL_CHANGED_EVENT } from "@/lib/acl-version";
 
 const EXAMPLE_ICON: Record<string, React.ElementType> = { creas: Megaphone, slack: MessageSquare, suivi: Table2 };
@@ -124,7 +124,7 @@ export default function RoutinesPage() {
                     <Card padded interactive className="h-full">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold truncate">{r.clientName}</div>
+                          <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold truncate">{routineClientLabel(r)}</div>
                           <h3 className="text-sm font-semibold text-white mt-0.5 break-words">{r.name}</h3>
                         </div>
                         <Pill tone={st.tone} className="shrink-0">{st.label}</Pill>

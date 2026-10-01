@@ -10,6 +10,11 @@
  * Who may read them is checked by lib/routines/store.ts (routineTikTokIds),
  * with the Meta and Google accounts of the routine.
  *
+ * With `clients` the step reads the TikTok accounts of several clients
+ * instead (lib/routines/clients.ts, at every run, in the scope of who answers
+ * for the routine): every row then starts with client_name, platform,
+ * account_id and account_name, before advertiser_id and advertiser_name.
+ *
  * The figures come from lib/tiktok-data.ts (relay's direct call, ranges of
  * more than 30 days cut and summed there). Windows are the ones of
  * google.insights: full days ending yesterday, in the routine's timezone.
@@ -30,7 +35,9 @@ import { checkAdvertiser, normalizeAdvertiserId } from "@/lib/tiktok-accounts";
 import { fetchTikTokCampaigns, fetchTikTokDaily, fetchTikTokTotals, type TikTokStats } from "@/lib/tiktok-data";
 import { windowRange } from "@/lib/routines/steps/google-insights";
 import { type Checked, done, errorMessage, failed, readStepBase, refuse } from "@/lib/routines/steps/sheet-read";
-import type { Cell, ErrorClass, PreflightIssue, Row, StepContext, StepHandler, TikTokInsightsStep } from "@/lib/routines/types";
+import { readClientSelection } from "@/lib/routines/client-selection";
+import { clientCells, readEachAccount, resolveClientAccounts, withClientColumns, type ClientAccount } from "@/lib/routines/clients";
+import type { Cell, ErrorClass, PreflightIssue, Row, StepContext, StepHandler, StepRunOutcome, TikTokInsightsStep } from "@/lib/routines/types";
 
 export const TIKTOK_LEVELS = ["account", "campaign", "day"] as const;
 export const TIKTOK_WINDOWS = ["yesterday", "7d", "14d", "30d", "month_to_date"] as const;
@@ -112,9 +119,11 @@ export function tiktokErrorClass(message: string): ErrorClass {
 
 function validate(raw: unknown): Checked<TikTokInsightsStep> {
   // No account field: an advertiser id written in a step is refused as an unknown key.
-  const head = readStepBase(raw, "tiktok.insights", ["level", "window", "metrics"]);
+  const head = readStepBase(raw, "tiktok.insights", ["level", "window", "metrics", "clients"]);
   if (!head.ok) return head;
   const { level, window, metrics } = head.raw;
+  const clients = head.raw.clients === undefined ? null : readClientSelection(head.raw.clients);
+  if (clients && !clients.ok) return refuse(clients.error);
   if (!TIKTOK_LEVELS.includes(level as Level)) return refuse(`level attendu : ${TIKTOK_LEVELS.join(", ")}`);
   if (!TIKTOK_WINDOWS.includes(window as Window)) return refuse(`window attendu : ${TIKTOK_WINDOWS.join(", ")}`);
   if (!Array.isArray(metrics) || metrics.length === 0) return refuse("metrics : au moins une métrique");
@@ -123,7 +132,73 @@ function validate(raw: unknown): Checked<TikTokInsightsStep> {
     if (!TIKTOK_METRICS.includes(m as Metric)) return refuse(`métrique inconnue : ${String(m).slice(0, 40)} (acceptées : ${TIKTOK_METRICS.join(", ")})`);
     if (!kept.includes(m as Metric)) kept.push(m as Metric);
   }
-  return { ok: true, step: { ...head.base, type: "tiktok.insights", level: level as Level, window: window as Window, metrics: kept } };
+  return {
+    ok: true,
+    step: { ...head.base, type: "tiktok.insights", level: level as Level, window: window as Window, metrics: kept, ...(clients?.ok ? { clients: clients.value } : {}) },
+  };
+}
+
+const columnsOf = (step: TikTokInsightsStep) => [...IDENTITY[step.level], ...DATE_COLUMNS, ...step.metrics];
+
+/** The rows of one advertiser, as the step asks for them. Throws what TikTok or the relay said. */
+async function readAdvertiser(step: TikTokInsightsStep, a: RoutineTikTokAccount, range: { since: string; until: string }): Promise<Row[]> {
+  const rows: Row[] = [];
+  const who: Row = { advertiser_id: a.id, advertiser_name: a.name };
+  if (step.level === "account") {
+    const s = await fetchTikTokTotals(a.id, range.since, range.until);
+    // An account that did not deliver gives no row, as Google gives none.
+    if (s.impressions > 0 || s.spend > 0) rows.push({ ...who, currency: a.currency, date_start: range.since, date_stop: range.until, ...metricCells(s, step.metrics) });
+  } else if (step.level === "day") {
+    for (const d of await fetchTikTokDaily(a.id, range.since, range.until)) {
+      rows.push({ ...who, currency: a.currency, date_start: d.date, date_stop: d.date, ...metricCells(d, step.metrics) });
+    }
+  } else {
+    for (const c of await fetchTikTokCampaigns(a.id, range.since, range.until)) {
+      if (c.impressions <= 0 && c.spend <= 0) continue;
+      rows.push({
+        ...who, campaign_id: c.id, campaign_name: c.name, objective: c.objective, currency: a.currency,
+        date_start: range.since, date_stop: range.until, ...metricCells(c, step.metrics),
+      });
+    }
+  }
+  return rows;
+}
+
+/** The advertisers of several clients: one that fails is said, the others are kept. */
+async function runClients(step: TikTokInsightsStep, ctx: StepContext, rowsIn: number): Promise<StepRunOutcome> {
+  if (!ctx.accounts) return failed(rowsIn, "functional", "Périmètre de lecture inconnu : aucun compte client n'est lu.");
+  const { accounts, warnings } = await resolveClientAccounts(step.clients!, "tiktok", ctx.accounts);
+  const columns = withClientColumns(columnsOf(step));
+  if (!accounts.length) {
+    if (ctx.accounts.problem) return failed(rowsIn, "functional", ctx.accounts.problem, { warnings });
+    return done(rowsIn, 0, { output: { rows: { columns, rows: [], truncated: false } }, warnings });
+  }
+  const range = windowRange(step.window, ctx.routine.timezone, ctx.now);
+  const { results, unread } = await readEachAccount(accounts, async (a) => {
+    try {
+      return { ok: true as const, rows: await readAdvertiser(step, { id: a.accountId, name: a.accountName, currency: a.currency }, range) };
+    } catch (e) {
+      const message = errorMessage(e);
+      return { ok: false as const, message, errorClass: tiktokErrorClass(message) };
+    }
+  }, { deadlineAt: ctx.deadlineAt, signal: ctx.signal });
+  const rows: Row[] = [];
+  const failures: Array<{ account: ClientAccount; message: string; errorClass: ErrorClass }> = [];
+  for (const { account, result } of results) {
+    if (!result.ok) { failures.push({ account, message: result.message, errorClass: result.errorClass }); continue; }
+    for (const row of result.rows) rows.push({ ...row, ...clientCells(account) });
+  }
+  for (const f of failures.slice(0, 10)) warnings.push(`${f.account.clientName} (TikTok ${f.account.accountId}) non lu : ${f.message}`);
+  if (failures.length > 10) warnings.push(`${failures.length - 10} autres comptes TikTok non lus.`);
+  if (unread) warnings.push(`Temps écoulé : ${unread} compte${unread > 1 ? "s" : ""} TikTok non lu${unread > 1 ? "s" : ""}.`);
+  if (failures.length && failures.length === results.length) {
+    return failed(rowsIn, failures.every((f) => f.errorClass === "functional") ? "functional" : "infra", `Aucun compte TikTok lu : ${failures[0].message}`, { warnings });
+  }
+  if (step.level === "campaign") rows.sort((x, y) => Number(y.spend ?? 0) - Number(x.spend ?? 0));
+  const truncated = unread > 0 || (step.level === "campaign" && rows.length > MAX_CAMPAIGNS);
+  const kept = step.level === "campaign" ? rows.slice(0, MAX_CAMPAIGNS) : rows;
+  if (kept.length < rows.length) warnings.push(`Plus de ${MAX_CAMPAIGNS} campagnes : seules les ${MAX_CAMPAIGNS} plus dépensières sont gardées.`);
+  return done(rowsIn, kept.length, { output: { rows: { columns, rows: kept, truncated } }, warnings });
 }
 
 const NO_ACCOUNT = "aucun compte TikTok Ads n'est rattaché au client de la routine";
@@ -134,6 +209,8 @@ export const tiktokInsightsHandler: StepHandler<TikTokInsightsStep> = {
   validate,
 
   async preflight(step, routine) {
+    // The accounts of several clients are known at run time only, in the scope of that moment.
+    if (step.clients) return [];
     const accounts = await routineTikTokAccounts(routine.dashboardId);
     if (accounts.length === 0) return [{ stepId: step.id, severity: "error", message: NO_ACCOUNT }];
     const issues: PreflightIssue[] = [];
@@ -149,6 +226,7 @@ export const tiktokInsightsHandler: StepHandler<TikTokInsightsStep> = {
 
   async run(step, ctx: StepContext) {
     const rowsIn = ctx.input?.rows.length ?? 0;
+    if (step.clients) return runClients(step, ctx, rowsIn);
     let accounts: RoutineTikTokAccount[];
     try {
       accounts = await routineTikTokAccounts(ctx.routine.dashboardId);
@@ -160,26 +238,7 @@ export const tiktokInsightsHandler: StepHandler<TikTokInsightsStep> = {
     const range = windowRange(step.window, ctx.routine.timezone, ctx.now);
     const rows: Row[] = [];
     try {
-      for (const a of read) {
-        const who: Row = { advertiser_id: a.id, advertiser_name: a.name };
-        if (step.level === "account") {
-          const s = await fetchTikTokTotals(a.id, range.since, range.until);
-          // An account that did not deliver gives no row, as Google gives none.
-          if (s.impressions > 0 || s.spend > 0) rows.push({ ...who, currency: a.currency, date_start: range.since, date_stop: range.until, ...metricCells(s, step.metrics) });
-        } else if (step.level === "day") {
-          for (const d of await fetchTikTokDaily(a.id, range.since, range.until)) {
-            rows.push({ ...who, currency: a.currency, date_start: d.date, date_stop: d.date, ...metricCells(d, step.metrics) });
-          }
-        } else {
-          for (const c of await fetchTikTokCampaigns(a.id, range.since, range.until)) {
-            if (c.impressions <= 0 && c.spend <= 0) continue;
-            rows.push({
-              ...who, campaign_id: c.id, campaign_name: c.name, objective: c.objective, currency: a.currency,
-              date_start: range.since, date_stop: range.until, ...metricCells(c, step.metrics),
-            });
-          }
-        }
-      }
+      for (const a of read) rows.push(...await readAdvertiser(step, a, range));
     } catch (e) {
       const message = errorMessage(e);
       return failed(rowsIn, tiktokErrorClass(message), `TikTok Ads : ${message}`);
@@ -189,7 +248,7 @@ export const tiktokInsightsHandler: StepHandler<TikTokInsightsStep> = {
     const truncated = step.level === "campaign" && rows.length > MAX_CAMPAIGNS;
     const kept = truncated ? rows.slice(0, MAX_CAMPAIGNS) : rows;
     return done(rowsIn, kept.length, {
-      output: { rows: { columns: [...IDENTITY[step.level], ...DATE_COLUMNS, ...step.metrics], rows: kept, truncated } },
+      output: { rows: { columns: columnsOf(step), rows: kept, truncated } },
       warnings: [
         ...(accounts.length > MAX_ADVERTISERS ? [`${accounts.length} comptes TikTok rattachés : seuls les ${MAX_ADVERTISERS} premiers sont lus.`] : []),
         ...(truncated ? [`Plus de ${MAX_CAMPAIGNS} campagnes : seules les ${MAX_CAMPAIGNS} plus dépensières sont gardées.`] : []),

@@ -19,11 +19,15 @@
  *     (relay, network, quota). Three runs in a row that failed as a whole, by
  *     the routine's fault, switch it off. A run that wrote something, a run
  *     where only items failed and an infrastructure failure never count;
+ *   - a step that reads several clients gets a reader made at the start of
+ *     EVERY run from the scope of who answers for the routine, and of who
+ *     started the run (lib/routines/clients.ts): nothing outside it is read;
  *   - a scheduled run moves nextRunAt when it takes the lock, before any step:
  *     a run that crashes or is killed is not started again by the next firing.
  *     It is closed as interrupted (closeInterruptedRuns) and never replayed.
  */
 
+import { accountReaderFor, readsSeveralClients } from "@/lib/routines/clients";
 import { hashDefinition } from "@/lib/routines/hash";
 import { notifyAutoDisabled, notifyDegraded } from "@/lib/routines/notify";
 import { catchUpDecision, computeNextRunAt, lastOccurrenceAt } from "@/lib/routines/schedule";
@@ -39,7 +43,7 @@ import { parseStoredDefinition, parseStoredSchedule, resolveInputId, stepDepende
 import { mintWriteGuard, revokeWriteGuard } from "@/lib/routines/write-guard";
 import {
   DEGRADED_AFTER_RUNS, MAX_CONSECUTIVE_FAILURES, MAX_ITEMS_PER_RUN_CAP, MAX_RESUMES_PER_SLOT, MIN_START_MS, MIN_START_PLATFORM_MS, RUN_BUDGET_MS, WRITE_COUNT_KEYS, emptyCounts, writesOf,
-  type ErrorClass, type ItemClaim, type RoutineDefinition, type RoutineStep, type RunMode, type RunResult, type RunTrigger,
+  type AccountReader, type ErrorClass, type ItemClaim, type RoutineDefinition, type RoutineStep, type RunMode, type RunResult, type RunTrigger,
   type Schedule, type StepContext, type StepOutput, type StepResult, type StepRunOutcome, type WriteCounts, type WriteGuard, type WriteKind,
 } from "@/lib/routines/types";
 
@@ -278,6 +282,16 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
       }
     }
 
+    // A step that reads several clients reads only what the scope of who answers for the run (and of who started it) holds, read now.
+    let accounts: AccountReader | undefined;
+    if (loaded.ok && !fatal && readsSeveralClients(loaded.value.definition)) {
+      try {
+        accounts = await accountReaderFor(routine, opts.startedById ?? null);
+      } catch (e) {
+        fatal = { class: "infra", message: `Vérification du périmètre impossible : ${errorMessage(e)}` };
+      }
+    }
+
     const context = (input: StepContext["input"]): StepContext => ({
       mode,
       routine: {
@@ -289,6 +303,7 @@ export async function runRoutine(routine: RoutineRecord, opts: RunOptions): Prom
       runId, now, deadlineAt, input,
       // Each step sees the outputs of the steps before it, and cannot change them for the next ones.
       outputs: { ...outputs },
+      ...(accounts ? { accounts } : {}),
       write: guard,
       signal: stop.signal,
       async claimItem(stepId, itemKey, label): Promise<ItemClaim> {

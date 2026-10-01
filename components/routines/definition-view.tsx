@@ -56,7 +56,7 @@ export function DefinitionView({ routine }: { routine: RoutineView }) {
                     {step.label && <span className="text-sm font-medium text-white break-words">{step.label}</span>}
                     <span className="text-[10px] text-gray-600 font-mono">{step.id} · {step.type}</span>
                   </div>
-                  <p className="text-xs text-gray-300 mt-1 break-words">{describeStep(step)}</p>
+                  <p className="text-xs text-gray-300 mt-1 break-words">{describeStep(step, routine.clientNames)}</p>
                   {step.input && <p className="text-[11px] text-gray-500 mt-0.5">Lit les lignes de l&apos;étape « {step.input} ».</p>}
                   {texts.length > 0 && (
                     <dl className="mt-2 space-y-1">

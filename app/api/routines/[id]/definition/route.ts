@@ -10,6 +10,10 @@
  *   3. with no blocking issue, the definition is stored, the routine goes
  *      back to `ready` and its previous dry run is forgotten.
  *
+ * The clients named in the `clients` of a read step must exist and be in
+ * the person's scope (400 otherwise). A routine without client, or with
+ * several, never creates ads (refused by the validation).
+ *
  * A proposal cannot go against what the routine has fixed: with a Facebook
  * Page chosen when the routine was created, a proposal that publishes under
  * another Page is refused (400). What the proposal changes of a routine that
@@ -27,6 +31,7 @@ import { handlerFor, writesPlatform } from "@/lib/routines/steps";
 import { proposalNotices } from "@/lib/routines/proposal-notices";
 import { actorOf, applyDefinition, chosenPageOf, getRoutine, routineForSession, routineTikTokIds, routineView } from "@/lib/routines/store";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
+import { clientSelectionErrors } from "@/lib/routines/clients";
 import { validateProposal } from "@/lib/routines/validate";
 import type { PreflightIssue, StepContext } from "@/lib/routines/types";
 
@@ -65,11 +70,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const body = await req.json().catch(() => null);
   const chosenPage = chosenPageOf(routine);
-  const checked = validateProposal(body && typeof body === "object" && "proposal" in body ? body.proposal : body, { pageId: chosenPage?.id ?? null });
+  const checked = validateProposal(body && typeof body === "object" && "proposal" in body ? body.proposal : body, {
+    pageId: chosenPage?.id ?? null,
+    accounts: { meta: !!routine.metaAccountId, google: !!routine.googleCustomerId, dashboard: !!routine.dashboardId },
+  });
   if (!checked.ok) return NextResponse.json({ error: "proposition invalide", errors: checked.errors }, { status: 400 });
   const proposal = checked.value;
-  // A definition that reads TikTok reads the client's TikTok accounts: they must be in the person's scope too.
   const scope = await getAccountScope(guard.session);
+  // The clients a step names must exist and be in the person's scope. What is read of them is decided again at every run.
+  const clientErrors = await clientSelectionErrors(proposal.definition, scope);
+  if (clientErrors.length) return NextResponse.json({ error: "proposition invalide", errors: clientErrors }, { status: 400 });
+  // A definition that reads TikTok reads the client's TikTok accounts: they must be in the person's scope too.
   const tiktokOutside = scope.all ? null : bindingOutOfScope(scope, {
     tiktokAdvertiserIds: await routineTikTokIds({ dashboardId: routine.dashboardId, definitionJson: JSON.stringify(proposal.definition) }),
   });

@@ -13,6 +13,7 @@ import {
 } from "@/lib/routines/types";
 import { counterTexts, type CounterText } from "@/lib/routines/counts";
 import { parseSchedule } from "@/components/routines/schedule-label";
+import { definitionClients, isFreeRoutine, stepClients } from "@/lib/routines/client-selection";
 
 type Tone = "default" | "violet" | "emerald" | "amber" | "red" | "blue";
 type Raw = Record<string, unknown>;
@@ -64,6 +65,8 @@ export interface RoutineView {
   degradedError: string | null;
   /** Rows a person has to look at (outcome unknown, or given up). */
   itemsToCheck: number;
+  /** Names of the clients the steps name in `clients`, by id (sent with one routine, not with the list). */
+  clientNames: Record<string, string>;
 }
 
 /** Runs in a row without a full success from which the routine is said degraded (DEGRADED_AFTER_RUNS). */
@@ -148,7 +151,25 @@ export function toRoutineView(raw: unknown): RoutineView | null {
     degradedAtLeast: raw.degradedAtLeast === true,
     degradedError: str(raw.degradedError),
     itemsToCheck: int(raw.itemsToCheck),
+    clientNames: isRecord(raw.clientNames)
+      ? Object.fromEntries(Object.entries(raw.clientNames).filter((e): e is [string, string] => typeof e[1] === "string"))
+      : {},
   };
+}
+
+/**
+ * Who the routine works for, as the list and the page say it: its client,
+ * « Routine libre » when it has none, and the clients its steps read beyond
+ * its own (« Tous mes clients », « 3 clients »).
+ */
+export function routineClientLabel(r: Pick<RoutineView, "clientName" | "dashboardId" | "metaAccountId" | "googleCustomerId" | "steps">): string {
+  const free = isFreeRoutine(r);
+  const own = r.clientName && r.clientName !== "—" ? r.clientName : null;
+  const reads = definitionClients(r.steps);
+  const many = reads.all ? "Tous mes clients" : reads.ids.length ? `${reads.ids.length} client${reads.ids.length > 1 ? "s" : ""}` : null;
+  if (free && many) return `${own ? `${own} · ` : ""}Routine libre · ${many}`;
+  if (free) return own ? `${own} (routine libre)` : "Routine libre";
+  return many ? `${own ?? "—"} + ${many.charAt(0).toLowerCase()}${many.slice(1)}` : own ?? "—";
 }
 
 export const ROUTINE_STATUS: Record<string, { label: string; tone: Tone }> = {
@@ -437,17 +458,31 @@ const q = (v: unknown) => `« ${String(v ?? "")} »`;
 const names = (list: unknown, map: Record<string, string>) =>
   (Array.isArray(list) ? list : []).map((m) => map[String(m)] ?? String(m)).join(", ");
 
-/** One sentence per step, for a consultant who does not read JSON. */
-export function describeStep(step: RoutineStep): string {
+/** « de tous vos clients », « de Jow, Lpev », « de 3 clients » — or null for the routine's own accounts. */
+function clientsPhrase(step: RoutineStep, names: Record<string, string>): string | null {
+  const selection = stepClients(step);
+  if (!selection) return null;
+  if (selection === "all") return "de tous vos clients";
+  const known = selection.map((id) => names[id]).filter((n): n is string => !!n);
+  if (known.length === selection.length && known.length <= 4) return `de ${known.join(", ")}`;
+  return `de ${selection.length} client${selection.length > 1 ? "s" : ""}${known.length ? ` (dont ${known.slice(0, 3).join(", ")})` : ""}`;
+}
+
+/** One sentence per step, for a consultant who does not read JSON. `clientNames` names the clients of `clients`, when known. */
+export function describeStep(step: RoutineStep, clientNames: Record<string, string> = {}): string {
+  const clients = clientsPhrase(step, clientNames);
+  const many = clients ? ` ${clients}` : "";
+  // Several clients at the account level: one total per account, hence per client or so.
+  const level = (l: string) => (clients && l === "account" ? "(un total par compte)" : LEVEL[l] ?? l);
   switch (step.type) {
     case "sheet.read":
       return `Lit l'onglet ${q(step.sheet?.tab)} du Google Sheet${step.requiredColumns?.length ? ` (colonnes attendues : ${step.requiredColumns.join(", ")})` : ""}${step.maxRows ? `, ${step.maxRows} lignes au plus` : ""}.`;
     case "meta.insights":
-      return `Lit les performances Meta ${LEVEL[step.level] ?? step.level}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}${step.nameContains ? ` — noms contenant ${q(step.nameContains)}` : ""}.`;
+      return `Lit les performances Meta${many} ${level(step.level)}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}${step.nameContains ? ` — noms contenant ${q(step.nameContains)}` : ""}.`;
     case "google.insights":
-      return `Lit les performances Google Ads ${LEVEL[step.level] ?? step.level}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}.`;
+      return `Lit les performances Google Ads${many} ${level(step.level)}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}.`;
     case "tiktok.insights":
-      return `Lit les performances TikTok Ads des comptes du client ${step.level === "account" ? "(un total par compte)" : LEVEL[step.level] ?? step.level}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}.`;
+      return `Lit les performances TikTok Ads ${clients ?? "des comptes du client"} ${step.level === "account" ? "(un total par compte)" : LEVEL[step.level] ?? step.level}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}.`;
     case "rows.filter":
       return `Garde les lignes où ${(step.where ?? []).map((w) => `${q(w.column)} ${OP[w.op] ?? w.op}${w.op === "empty" || w.op === "not_empty" ? "" : ` ${q(w.value)}`}`).join(" et ")}.`;
     case "rows.sort":

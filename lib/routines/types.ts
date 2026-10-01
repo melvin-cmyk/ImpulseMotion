@@ -51,6 +51,15 @@ export const STEP_WRITES: Record<StepType, WriteKind> = {
 
 /** Steps in one definition, at most. */
 export const MAX_STEPS = 12;
+/**
+ * Ad accounts a run reads at most through the steps that read several clients
+ * (`clients` of meta.insights, google.insights, tiktok.insights), all steps
+ * together: one report per account. Beyond, the first ones in the order of
+ * the clients' names are read and the run says what was left out.
+ */
+export const MAX_ACCOUNTS_PER_RUN = 40;
+/** Clients one step may name in its `clients` list. */
+export const MAX_LISTED_CLIENTS = 50;
 /** Items written per run (Routine.maxItemsPerRun); the surplus waits for the next run. */
 export const DEFAULT_MAX_ITEMS_PER_RUN = 20;
 export const MAX_ITEMS_PER_RUN_CAP = 50;
@@ -132,6 +141,21 @@ export interface SheetRef { spreadsheetId: string; tab: string }
 /** Text with {{row.<column>}}, {{run.date}} and {{steps.<id>.text}} only, plain substitution. */
 export type Template = string;
 
+/**
+ * Clients a read step covers, instead of the routine's own accounts:
+ *   "all"      every client in the scope of who answers for the run, read
+ *              again at EVERY run (never frozen: a client that leaves the
+ *              scope is no longer read, one that comes in is);
+ *   string[]   clients by their id (AlertClient.id, lib/auto-alerts/clients.ts),
+ *              each account checked against that same scope at every run.
+ * Absent: the routine's own accounts, as before.
+ */
+export type ClientSelection = "all" | string[];
+/** Columns put first on every row of a step that reads several clients. */
+export const CLIENT_COLUMNS = ["client_name", "platform", "account_id", "account_name"] as const;
+
+export type AdPlatform = "meta" | "google" | "tiktok";
+
 /** Structured schedule (no free cron expression), read in the routine's timezone. */
 export interface Schedule {
   kind: "daily" | "weekly" | "monthly" | "manual";
@@ -153,11 +177,15 @@ export interface MetaInsightsStep extends StepBase {
   window: "yesterday" | "7d" | "14d" | "30d" | "month_to_date";
   metrics: Array<"spend"|"impressions"|"clicks"|"ctr"|"cpm"|"conversions"|"cpa"|"roas">;
   nameContains?: string;
+  /** Several clients instead of the routine's account (ClientSelection). */
+  clients?: ClientSelection;
 }
 export interface GoogleInsightsStep extends StepBase {
   type: "google.insights"; level: "account" | "campaign";
   window: MetaInsightsStep["window"];
   metrics: Array<"spend"|"impressions"|"clicks"|"ctr"|"conversions"|"cpa"|"roas">;
+  /** Several clients instead of the routine's account (ClientSelection). */
+  clients?: ClientSelection;
 }
 /**
  * TikTok Ads figures of the advertisers attached to the routine's dashboard
@@ -168,6 +196,8 @@ export interface TikTokInsightsStep extends StepBase {
   type: "tiktok.insights"; level: "account" | "campaign" | "day";
   window: MetaInsightsStep["window"];
   metrics: Array<"spend"|"impressions"|"clicks"|"ctr"|"cpm"|"conversions"|"cpa"|"purchases"|"purchase_value"|"roas"|"video_views">;
+  /** Several clients instead of the advertisers of the routine's dashboard (ClientSelection). */
+  clients?: ClientSelection;
 }
 export interface RowsFilterStep extends StepBase {
   type: "rows.filter";
@@ -297,6 +327,20 @@ export function splitItemKey(itemKey: string): { adsetId: string | null; rowKey:
 /** What a step may know of the items of its routine (StepContext.listItems). */
 export interface KnownItem { itemKey: string; status: ItemStatus; externalId: string | null }
 
+/**
+ * What a run may read of the ad accounts of several clients. Made by the
+ * engine for a routine that has a step with `clients`, from the scope of who
+ * answers for the run (lib/routines/clients.ts, accountReaderFor).
+ */
+export interface AccountReader {
+  /** The account is in the scope of who answers for the run, and of who started it. */
+  canRead(platform: AdPlatform, accountId: string): boolean;
+  /** Takes up to `wanted` reads out of what is left for the run (MAX_ACCOUNTS_PER_RUN); returns how many were granted. */
+  take(wanted: number): number;
+  /** Why nothing may be read (owner gone, scope unreadable); null when all is well. */
+  problem: string | null;
+}
+
 export interface StepContext {
   mode: RunMode;
   routine: {
@@ -309,6 +353,8 @@ export interface StepContext {
   runId: string; now: Date; deadlineAt: number;
   input: RowSet | null;
   outputs: Record<string, StepOutput>;
+  /** Set by the engine when a step reads several clients; absent otherwise, and such a step then reads nothing. */
+  accounts?: AccountReader;
   write: WriteGuard | null;   // null en essai à blanc
   /**
    * Aborted by the engine when the run ends or gives the step up: a step looks
