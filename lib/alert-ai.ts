@@ -70,7 +70,7 @@ export function parseProposal(raw: string, defaultPlatform: AlertPlatform = "met
 
 export async function composeAlertProposal(text: string, user?: { id: string; email?: string | null; role: string }, platform: AlertPlatform = "meta"): Promise<AlertProposal> {
   const raw = await relayComplete(
-    { messages: [{ role: "user", content: `PLATEFORME SÉLECTIONNÉE DANS LE FORMULAIRE : ${platform}\nDEMANDE DU CONSULTANT :\n${text.trim().slice(0, 1000)}` }], systemPrompt: COMPOSE_SYSTEM_PROMPT, allowedServers: [], accountScope: {} },
+    { messages: [{ role: "user", content: `PLATEFORME SÉLECTIONNÉE DANS LE FORMULAIRE : ${platform}\nDEMANDE DU CONSULTANT :\n${text.trim().slice(0, 1000)}` }], systemPrompt: COMPOSE_SYSTEM_PROMPT, allowedServers: [], accountScope: {}, model: "sonnet", effort: "low", maxTurns: 1 },
     { maxMs: 40_000, onUsage: (usage) => void recordAiUsage(usage, { feature: "alert_compose", clientName: "—", user }) },
   );
   return parseProposal(raw, platform);
@@ -145,6 +145,10 @@ export async function evaluateAiRule(
       systemPrompt: EVALUATE_SYSTEM_PROMPT,
       allowedServers: [],
       accountScope: {},
+      // One verdict on inline figures: no tool, no reasoning budget to spend.
+      model: "sonnet",
+      effort: "low",
+      maxTurns: 1,
     },
     { maxMs: 60_000, onUsage: (u) => void recordAiUsage(u, { feature: "alert_ai", ...usage }) },
   );
