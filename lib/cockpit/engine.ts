@@ -24,6 +24,15 @@
 
 export type KpiMode = "cpa" | "roas" | "brand" | "mixte";
 export type AccountMode = "cpa" | "roas" | "brand";
+/** Ad platforms the cockpit reads. */
+export type CockpitPlatform = "meta" | "google" | "tiktok";
+export const COCKPIT_PLATFORMS: readonly CockpitPlatform[] = ["meta", "google", "tiktok"];
+/** Short name of a platform (account labels, alerts) and the one shown in lists. */
+export const PLATFORM_SHORT: Record<CockpitPlatform, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
+export const PLATFORM_NAME: Record<CockpitPlatform, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
+/** A stored platform string read as a cockpit platform; anything else → null (never read as Meta). */
+export const asPlatform = (v: string | null | undefined): CockpitPlatform | null =>
+  v === "meta" || v === "google" || v === "tiktok" ? v : null;
 export type Severity = "urgent" | "action" | "watch" | "ok";
 export type AlertCategory = "data" | "measurement" | "performance" | "budget" | "delivery" | "limited";
 
@@ -111,9 +120,9 @@ export interface SeriesMetrics {
 }
 
 export interface PlatformInput {
-  /** stable key inside the client ("meta", "google", "meta-<account>") */
+  /** stable key inside the client ("meta", "google", "tiktok", "meta-<account>") */
   key: string;
-  plat: "meta" | "google";
+  plat: CockpitPlatform;
   label: string;
   accountId: string;
   ccy: string | null;
@@ -127,7 +136,7 @@ export interface PlatformInput {
 
 export interface PlatformRow extends SeriesMetrics {
   key: string;
-  plat: "meta" | "google";
+  plat: CockpitPlatform;
   label: string;
   accountId: string;
   ccy: string | null;
@@ -159,7 +168,7 @@ export interface ClientInput {
    * several accounts the sheet does not say how it splits, so the pace is
    * read at the client level only.
    */
-  budgets: { meta: number | null; google: number | null };
+  budgets: { meta: number | null; google: number | null; tiktok?: number | null };
   platforms: PlatformInput[];
 }
 
@@ -466,8 +475,8 @@ export function buildClient(input: ClientInput, ctx: BuildContext): ClientRow {
 
   // Budget of the platforms that have a readable account, against what those accounts spent.
   let budget = 0, mtd = 0, budgeted = false;
-  for (const plat of ["meta", "google"] as const) {
-    const b = input.budgets[plat];
+  for (const plat of COCKPIT_PLATFORMS) {
+    const b = input.budgets[plat] ?? null;
     const accounts = live.filter((p) => p.plat === plat && p.mtd !== null);
     if (b === null || b <= 0 || !accounts.length) continue;
     budgeted = true;

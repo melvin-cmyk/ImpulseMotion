@@ -6,7 +6,7 @@
  */
 
 import type { ReactNode } from "react";
-import type { ClientRow, Pacing, Severity } from "@/lib/cockpit/engine";
+import { COCKPIT_PLATFORMS, PLATFORM_NAME, type ClientRow, type CockpitPlatform, type Pacing, type Severity } from "@/lib/cockpit/engine";
 import { SEVERITY_LABEL, TXT, pacePts, paceTone, pct, tone, type Tone } from "@/lib/cockpit/display";
 import type { KpiMode, AccountMode } from "@/lib/cockpit/engine";
 
@@ -45,12 +45,23 @@ export function Tag({ children, className }: { children: ReactNode; className?: 
   return <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none ${className ?? "bg-gray-800 text-gray-300"}`}>{children}</span>;
 }
 
+const PLATFORM_TAG: Record<CockpitPlatform, { letter: string; className: string }> = {
+  meta: { letter: "M", className: "bg-blue-500/20 text-blue-300" },
+  google: { letter: "G", className: "bg-emerald-500/20 text-emerald-300" },
+  tiktok: { letter: "T", className: "bg-fuchsia-500/20 text-fuchsia-300" },
+};
+
+/** One letter per platform (M, G, T), its name on hover. */
+export function PlatformTag({ plat }: { plat: CockpitPlatform }) {
+  const t = PLATFORM_TAG[plat];
+  return <span title={PLATFORM_NAME[plat]}><Tag className={t.className}>{t.letter}</Tag></span>;
+}
+
 export function Badges({ c }: { c: ClientRow & { missing?: string[] } }) {
   const platforms = Object.values(c.platforms);
   return (
     <span className="ml-2 inline-flex flex-wrap items-center gap-1 align-middle">
-      {platforms.some((p) => p.plat === "meta") && <Tag className="bg-blue-500/20 text-blue-300">M</Tag>}
-      {platforms.some((p) => p.plat === "google") && <Tag className="bg-emerald-500/20 text-emerald-300">G</Tag>}
+      {COCKPIT_PLATFORMS.filter((pl) => platforms.some((p) => p.plat === pl)).map((pl) => <PlatformTag key={pl} plat={pl} />)}
       <Tag>{c.mixed ? "MIX ¤" : c.ccy ?? "—"}</Tag>
       {platforms.some((p) => p.data_issue) && <Tag className="bg-red-500/20 text-red-300">DONNÉES À VÉRIFIER</Tag>}
       {(c.missing ?? []).map((m) => <Tag key={m} className="bg-amber-500/20 text-amber-300">{m.toUpperCase()} NON RELIÉ</Tag>)}

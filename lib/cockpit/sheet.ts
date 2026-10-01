@@ -7,8 +7,8 @@
  *   Client | Team | Country / Region | Platform | Currency | Mois | Budget |
  *   Target ROAS | Target CPL | …
  *
- * Only Meta (« FB/IG ») and Google lines feed the cockpit: the other
- * platforms have no data source here. Lines of the same brand
+ * Only Meta (« FB/IG »), Google and TikTok (« TikTok », « TT ») lines feed
+ * the cockpit: the other platforms have no data source here. Lines of the same brand
  * (« LPEV ACQ », « LPEV Traffic ») are one client.
  *
  * Pure parsing below; `fetchBudgetSheet` is the only I/O.
@@ -17,7 +17,7 @@
 export const BUDGET_SHEET_ID = process.env.COCKPIT_SHEET_ID || "1oj4ZZnxCNHWdR56XDH7NhiqiNYm2ia8Xoq5EOkpt6rs";
 export const BUDGET_SHEET_GID = process.env.COCKPIT_SHEET_GID || "952272258";
 
-export type SheetPlatform = "meta" | "google" | "other";
+export type SheetPlatform = "meta" | "google" | "tiktok" | "other";
 
 export interface SheetLine {
   client: string;
@@ -42,11 +42,11 @@ export interface SheetClient {
   team: string | null;
   currency: string | null;
   /** budget of the month, per platform, in the sheet currency (null = not filled) */
-  budget: { meta: number | null; google: number | null };
+  budget: { meta: number | null; google: number | null; tiktok: number | null };
   /** latest target found in the sheet, whatever the month */
   targetRoas: number | null;
   targetCpl: number | null;
-  /** lines of the month on platforms the cockpit cannot read (LinkedIn, TikTok…) */
+  /** lines of the month on platforms the cockpit cannot read (LinkedIn, Snapchat…) */
   otherPlatforms: string[];
 }
 
@@ -107,6 +107,7 @@ export function parsePlatform(raw: string | undefined): SheetPlatform {
   const p = (raw ?? "").trim().toLowerCase();
   if (p === "fb/ig" || p === "meta" || p === "facebook") return "meta";
   if (p.startsWith("google")) return "google";
+  if (p === "tt" || p.startsWith("tiktok") || p.startsWith("tik tok")) return "tiktok";
   return "other";
 }
 
@@ -205,7 +206,7 @@ export function sheetClients(lines: SheetLine[], month: string): SheetClient[] {
       sheetNames: names,
       team: ls.find((l) => l.team)?.team ?? null,
       currency: ls.find((l) => l.currency)?.currency ?? null,
-      budget: { meta: budgetOf("meta"), google: budgetOf("google") },
+      budget: { meta: budgetOf("meta"), google: budgetOf("google"), tiktok: budgetOf("tiktok") },
       targetRoas: t?.roas?.v ?? null,
       targetCpl: t?.cpl?.v ?? null,
       otherPlatforms: [...new Set(ls.filter((l) => l.platform === "other" && l.budget).map((l) => l.platformRaw))],

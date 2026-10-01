@@ -10,6 +10,8 @@ import { relayDirectTool } from "@/lib/relay-tool";
 import { costFrom, extractRows } from "@/lib/dashboard-widgets";
 import { getAccountDailyInsightsPaged, getActionValue, getMetaSystemToken, type MetaAccountInsight } from "@/lib/meta-api";
 import { getAdAccountsCached } from "@/lib/insights";
+import { fetchTikTokDaily, listTikTokAdvertisers } from "@/lib/tiktok-data";
+import { checkAdvertiser } from "@/lib/tiktok-accounts";
 import type { AccountMode } from "@/lib/cockpit/engine";
 import type { AvailableAccount } from "@/lib/cockpit/match";
 import type { DailyPoint } from "@/lib/cockpit/weeks";
@@ -65,6 +67,31 @@ export async function listGoogleAccounts(): Promise<AvailableAccount[]> {
     }
     return [...out.values()];
   }, { ttlMs: 6 * HOUR, cacheEmpty: false });
+}
+
+/**
+ * TikTok accounts of the agency (every Business Center its token reads). The
+ * listing carries no currency: it is read per account when its figures are
+ * (tiktokCurrency).
+ */
+export async function listTikTokAccounts(): Promise<AvailableAccount<"tiktok">[]> {
+  const advertisers = await listTikTokAdvertisers();
+  return advertisers.map((a) => ({ platform: "tiktok" as const, accountId: a.id, name: a.name, currency: null, active: true }));
+}
+
+/** Currency of a TikTok account (get_advertiser_info), cached a week; null when TikTok does not answer. */
+export async function tiktokCurrency(advertiserId: string): Promise<string | null> {
+  try {
+    const ccy = await cached(`cockpit:tiktok:currency:${advertiserId}`, async () => {
+      const check = await checkAdvertiser(advertiserId);
+      // A failed check throws so that nothing is cached: the next build asks again.
+      if (!check.ok) throw new Error(check.error);
+      return check.advertiser.currency ?? "";
+    }, { ttlMs: 7 * 24 * HOUR, cacheEmpty: false });
+    return ccy || null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Daily figures of one account ─────────────────────────────────────────────
@@ -154,4 +181,36 @@ export async function googleSeries(
     };
   }).filter((d) => d.date);
   return { days, currency: null, convEvent: "conversions" };
+}
+
+/**
+ * TikTok: the value is `total_purchase_value`. Read in ROAS, the conversion is
+ * the purchase (TikTok's optimisation event when no purchase is counted); in
+ * CPA, the optimisation event of the campaigns. Without a model, an account
+ * that tracks a purchase value is read in ROAS — as for Google.
+ */
+export async function tiktokSeries(
+  advertiserId: string,
+  range: { since: string; until: string },
+  opts: { mode: AccountMode | null; refresh?: boolean },
+): Promise<AccountSeries & { mode: AccountMode }> {
+  const [rows, currency] = await Promise.all([
+    cached(
+      `cockpit:tiktok:daily:${advertiserId}:${range.since}_${range.until}`,
+      () => fetchTikTokDaily(advertiserId, range.since, range.until),
+      { ttlMs: 6 * HOUR, refresh: opts.refresh },
+    ),
+    tiktokCurrency(advertiserId),
+  ]);
+  const mode = opts.mode ?? (rows.some((r) => r.purchaseValue > 0) ? "roas" : "cpa");
+  const byPurchase = mode === "roas" && rows.some((r) => r.purchases > 0);
+  const days = rows.map((r) => ({
+    date: r.date,
+    spend: r.spend,
+    impressions: r.impressions,
+    clicks: r.clicks,
+    conv: byPurchase ? r.purchases : r.conversions,
+    value: r.purchaseValue,
+  }));
+  return { days, currency, convEvent: byPurchase ? "total_purchase" : "conversion", mode };
 }

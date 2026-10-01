@@ -6,13 +6,14 @@
  * from the sheet targets, then from its data.
  */
 
-import type { AccountMode } from "@/lib/cockpit/engine";
+import type { AccountMode, CockpitPlatform } from "@/lib/cockpit/engine";
 
 export interface DefaultModel {
   /** "mixte": the accounts have different models, read per account */
   mode: AccountMode | "mixte";
   meta?: AccountMode;
   google?: AccountMode;
+  tiktok?: AccountMode;
 }
 
 export const DEFAULT_MODELS: Record<string, DefaultModel> = {
@@ -50,7 +51,7 @@ export const DEFAULT_MODELS: Record<string, DefaultModel> = {
   yoga: { mode: "cpa" },
 };
 
-export function defaultModeFor(clientKey: string, platform: "meta" | "google"): AccountMode | null {
+export function defaultModeFor(clientKey: string, platform: CockpitPlatform): AccountMode | null {
   const d = DEFAULT_MODELS[clientKey];
   if (!d) return null;
   return d[platform] ?? (d.mode === "mixte" ? null : d.mode);

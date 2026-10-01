@@ -8,13 +8,13 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { PERIOD_LIMITS, buildClient, sortClients, type AccountMode, type ClientInput, type ClientRow, type KpiMode, type PeriodKind, type PlatformInput, type Severity } from "@/lib/cockpit/engine";
+import { COCKPIT_PLATFORMS, PERIOD_LIMITS, PLATFORM_SHORT, asPlatform, buildClient, sortClients, type AccountMode, type ClientInput, type ClientRow, type CockpitPlatform, type KpiMode, type PeriodKind, type PlatformInput, type Severity } from "@/lib/cockpit/engine";
 import { fetchBudgetSheet, sheetClients, type SheetClient } from "@/lib/cockpit/sheet";
 import { accountLabel, matchAccounts, type AvailableAccount } from "@/lib/cockpit/match";
 import { bucket, bucketRanges, cockpitCalendar, cockpitPeriods, type CockpitCalendar } from "@/lib/cockpit/weeks";
 import { loadFx } from "@/lib/cockpit/fx";
 import { defaultModeFor } from "@/lib/cockpit/defaults";
-import { googleSeries, listGoogleAccounts, listMetaAccounts, metaSeries, type AccountSeries } from "@/lib/cockpit/fetch";
+import { googleSeries, listGoogleAccounts, listMetaAccounts, listTikTokAccounts, metaSeries, tiktokSeries, type AccountSeries } from "@/lib/cockpit/fetch";
 
 /** A client row, plus the platforms budgeted in the sheet that no account covers. */
 export interface CockpitClientRow extends ClientRow { missing: string[] }
@@ -90,10 +90,13 @@ async function pool<T, R>(items: T[], size: number, deadline: number, fn: (item:
   return { done, skipped };
 }
 
+/** Platforms the sheet budgets for this client this month (« Meta », « Google », « TikTok »). */
+const budgetedPlatforms = (client: SheetClient): string[] => COCKPIT_PLATFORMS.filter((p) => client.budget[p]).map((p) => PLATFORM_SHORT[p]);
+
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").slice(0, 160);
 
 /** Attaches to each client the accounts that match its name, without touching what an admin set. */
-export async function syncAccounts(clients: SheetClient[], available: AvailableAccount[]): Promise<void> {
+export async function syncAccounts(clients: SheetClient[], available: AvailableAccount<CockpitPlatform>[]): Promise<void> {
   const known = await prisma.cockpitAccount.findMany({ select: { platform: true, accountId: true } });
   const seen = new Set(known.map((k) => `${k.platform}:${k.accountId}`));
   const matched = matchAccounts(clients, available.filter((a) => !seen.has(`${a.platform}:${a.accountId}`)));
@@ -117,11 +120,12 @@ export async function buildCockpit(opts: BuildOptions = {}): Promise<CockpitData
   const [lines, fx] = await Promise.all([fetchBudgetSheet(), loadFx()]);
   const sheet = sheetClients(lines, cal.month.key);
 
-  const [meta, google] = await Promise.all([
+  const [meta, google, tiktok] = await Promise.all([
     listMetaAccounts().catch((e) => { warnings.push(`Liste des comptes Meta indisponible (${errText(e)})`); return [] as AvailableAccount[]; }),
     listGoogleAccounts().catch((e) => { warnings.push(`Liste des comptes Google Ads indisponible (${errText(e)})`); return [] as AvailableAccount[]; }),
+    listTikTokAccounts().catch((e) => { warnings.push(`Liste des comptes TikTok Ads indisponible (${errText(e)})`); return [] as AvailableAccount<"tiktok">[]; }),
   ]);
-  const available = [...meta, ...google];
+  const available: AvailableAccount<CockpitPlatform>[] = [...meta, ...google, ...tiktok];
   if (available.length) await syncAccounts(sheet, available);
 
   const [accounts, overrides, settings] = await Promise.all([
@@ -134,26 +138,32 @@ export async function buildCockpit(opts: BuildOptions = {}): Promise<CockpitData
   const availableName = new Map(available.map((a) => [`${a.platform}:${a.accountId}`, a]));
 
   // One job per account; the client rows are assembled afterwards.
-  type Job = { client: SheetClient; account: (typeof accounts)[number]; mode: AccountMode | null };
+  type Job = { client: SheetClient; account: (typeof accounts)[number]; plat: CockpitPlatform; mode: AccountMode | null };
   const jobs: Job[] = [];
   const bySheet = new Map(sheet.map((c) => [c.key, c]));
   for (const a of accounts) {
     const client = bySheet.get(a.clientKey);
-    if (!client || override.get(client.key)?.hidden) continue;
+    // A platform the cockpit cannot read is left out — never read as another one.
+    const plat = asPlatform(a.platform);
+    if (!client || !plat || override.get(client.key)?.hidden) continue;
     // Admin choice, then the model known for this client, then the sheet targets.
     const forced = asMode(a.mode) ?? asMode(override.get(client.key)?.kpiMode)
-      ?? defaultModeFor(client.key, a.platform === "google" ? "google" : "meta")
+      ?? defaultModeFor(client.key, plat)
       ?? (client.targetRoas ? "roas" : client.targetCpl ? "cpa" : null);
-    jobs.push({ client, account: a, mode: forced });
+    jobs.push({ client, account: a, plat, mode: forced });
   }
 
   const read = async (job: Job): Promise<{ series: AccountSeries | null; mode: AccountMode; err: string | null }> => {
     const id = job.account.accountId;
     try {
-      if (job.account.platform === "google") {
+      if (job.plat === "google") {
         const series = await googleSeries(id, cal.fetch, { refresh: opts.refresh });
         // Without a target in the sheet, an account that tracks a value is read in ROAS.
         const mode = job.mode ?? (series.days.reduce((s, d) => s + d.value, 0) > 0 ? "roas" : "cpa");
+        return { series, mode, err: null };
+      }
+      if (job.plat === "tiktok") {
+        const { mode, ...series } = await tiktokSeries(id, cal.fetch, { mode: job.mode, refresh: opts.refresh });
         return { series, mode, err: null };
       }
       const asRoas = await metaSeries(id, cal.fetch, { mode: "roas", conversionEvent: convEvent.get(id), refresh: opts.refresh });
@@ -179,14 +189,14 @@ export async function buildCockpit(opts: BuildOptions = {}): Promise<CockpitData
       if (o?.hidden) continue;
       const mine = jobs.filter((j) => j.client.key === client.key);
       if (!mine.length) {
-        const platforms = [client.budget.meta ? "Meta" : null, client.budget.google ? "Google" : null].filter((p): p is string => !!p);
+        const platforms = budgetedPlatforms(client);
         if (platforms.length) unmatched.push({ key: client.key, name: o?.name ?? client.name, platforms });
         continue;
       }
       const name = o?.name ?? client.name;
       const read: Array<Omit<PlatformInput, "key" | "label" | "budget"> & { rawName: string; custom: string | null; spent: boolean }> = [];
       for (const j of mine) {
-        const plat = j.account.platform === "google" ? "google" : "meta";
+        const plat = j.plat;
         const res = done.get(j);
         const live = availableName.get(`${plat}:${j.account.accountId}`);
         const b = res?.series ? bucket(res.series.days, cal) : null;
@@ -207,7 +217,7 @@ export async function buildCockpit(opts: BuildOptions = {}): Promise<CockpitData
       // Accounts that never spent over the window say nothing: keep them out of the view.
       const kept = read.filter((p) => p.err || p.spent);
       if (!kept.length) {
-        const platformsWithBudget = [client.budget.meta ? "Meta" : null, client.budget.google ? "Google" : null].filter((p): p is string => !!p);
+        const platformsWithBudget = budgetedPlatforms(client);
         if (platformsWithBudget.length) unmatched.push({ key: client.key, name, platforms: platformsWithBudget });
         continue;
       }
@@ -218,8 +228,8 @@ export async function buildCockpit(opts: BuildOptions = {}): Promise<CockpitData
         const from = fx.rates[client.currency], to = fx.rates[mainCcy];
         return from && to ? Math.round((amount * from) / to) : amount;
       };
-      const budgets = { meta: convert(client.budget.meta), google: convert(client.budget.google) };
-      const count = { meta: kept.filter((p) => p.plat === "meta").length, google: kept.filter((p) => p.plat === "google").length };
+      const budgets = { meta: convert(client.budget.meta), google: convert(client.budget.google), tiktok: convert(client.budget.tiktok) };
+      const count = Object.fromEntries(COCKPIT_PLATFORMS.map((pl) => [pl, kept.filter((p) => p.plat === pl).length])) as Record<CockpitPlatform, number>;
       const active: PlatformInput[] = kept.map(({ rawName, custom, spent: _spent, ...p }) => ({
         ...p,
         key: count[p.plat] > 1 ? `${p.plat}-${p.accountId}` : p.plat,
@@ -229,9 +239,9 @@ export async function buildCockpit(opts: BuildOptions = {}): Promise<CockpitData
       const modes = [...new Set(active.filter((p) => !p.err).map((p) => p.mode))];
       const kpi: KpiMode = asMode(o?.kpiMode) ?? (modes.length > 1 ? "mixte" : modes[0] ?? (client.targetRoas ? "roas" : "cpa"));
       // A budget in the sheet for a platform no account of which could be read.
-      for (const plat of ["meta", "google"] as const) {
+      for (const plat of COCKPIT_PLATFORMS) {
         if (client.budget[plat] && !active.some((p) => p.plat === plat && !p.err)) {
-          missing.set(client.key, [...(missing.get(client.key) ?? []), plat === "meta" ? "Meta" : "Google"]);
+          missing.set(client.key, [...(missing.get(client.key) ?? []), PLATFORM_SHORT[plat]]);
         }
       }
       inputs.push({

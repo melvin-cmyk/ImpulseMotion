@@ -12,9 +12,15 @@
  */
 
 import { normalizeName } from "@/lib/cockpit/sheet";
+import { PLATFORM_SHORT, type CockpitPlatform } from "@/lib/cockpit/engine";
 
-export interface AvailableAccount {
-  platform: "meta" | "google";
+/**
+ * An account a platform lists. The default stays Meta | Google for the
+ * readers that only know those two (automatic alerts); the cockpit reads
+ * `AvailableAccount<CockpitPlatform>`, TikTok included.
+ */
+export interface AvailableAccount<P extends CockpitPlatform = "meta" | "google"> {
+  platform: P;
   accountId: string;
   name: string;
   currency: string | null;
@@ -52,8 +58,8 @@ export function accountMatches(clientName: string, accountName: string): boolean
 export interface MatchClient { key: string; name: string; sheetNames: string[] }
 
 /** Accounts of each client; an account goes to the client with the longest matching name. */
-export function matchAccounts(clients: MatchClient[], accounts: AvailableAccount[]): Map<string, AvailableAccount[]> {
-  const out = new Map<string, AvailableAccount[]>();
+export function matchAccounts<A extends AvailableAccount<CockpitPlatform>>(clients: MatchClient[], accounts: A[]): Map<string, A[]> {
+  const out = new Map<string, A[]>();
   for (const a of accounts) {
     if (!a.active) continue;
     let best: { key: string; size: number } | null = null;
@@ -78,10 +84,10 @@ export function matchAccounts(clients: MatchClient[], accounts: AvailableAccount
 }
 
 /** Short label of an account inside its client: what its name adds to the client's. */
-export function accountLabel(platform: "meta" | "google", clientName: string, accountName: string, siblings: number): string {
-  const plat = platform === "meta" ? "Meta" : "Google";
+export function accountLabel(platform: CockpitPlatform, clientName: string, accountName: string, siblings: number): string {
+  const plat = PLATFORM_SHORT[platform];
   if (siblings <= 1) return plat;
-  const drop = new Set([...significantTokens(clientName), "new", "compte", "account", "ads", "google", "meta", "publicitaire", "official"]);
+  const drop = new Set([...significantTokens(clientName), "new", "compte", "account", "ads", "google", "meta", "tiktok", "publicitaire", "official"]);
   const rest = accountName.split(/[\s\-–_.]+/).filter((w) => w && !drop.has(normalizeName(w)) && !/^\d+$/.test(w));
   return rest.length ? `${plat} · ${rest.slice(0, 3).join(" ")}` : `${plat} · ${accountName}`;
 }

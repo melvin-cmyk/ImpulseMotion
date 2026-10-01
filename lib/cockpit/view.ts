@@ -5,7 +5,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { googleInScope, metaInScope, type AccountScope } from "@/lib/scope";
+import { platformAccountInScope, type AccountScope } from "@/lib/scope";
 import { evolutionOf, totalsOf, type CockpitData, type EvolutionPoint } from "@/lib/cockpit/build";
 import type { PeriodKind } from "@/lib/cockpit/engine";
 
@@ -43,7 +43,7 @@ export function periodsOf(data: CockpitData): PeriodKind[] {
 export function scopeData(data: CockpitData, scope: AccountScope): CockpitData {
   if ("all" in scope && scope.all) return data;
   const clients = data.clients.filter((c) =>
-    Object.values(c.platforms).some((p) => (p.plat === "meta" ? metaInScope(scope, p.accountId) : googleInScope(scope, p.accountId))));
+    Object.values(c.platforms).some((p) => platformAccountInScope(scope, p.plat, p.accountId)));
   return {
     ...data,
     clients,

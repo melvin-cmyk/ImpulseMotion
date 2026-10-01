@@ -12,7 +12,7 @@ import type { ClientRow, PlatformRow } from "@/lib/cockpit/engine";
 import type { EvolutionPoint } from "@/lib/cockpit/build";
 import type { CockpitActionView } from "@/lib/cockpit/view";
 import { SEVERITY_LABEL, TXT, cause, kpiText, modeLabel, money, noKpi, spendText, type MoneyOptions, type PeriodWords } from "@/lib/cockpit/display";
-import { Badges, Chip, Muted, PaceGauge, SeverityBadge, Spark, Tag } from "@/components/cockpit/global-parts";
+import { Badges, Chip, Muted, PaceGauge, PlatformTag, SeverityBadge, Spark, Tag } from "@/components/cockpit/global-parts";
 
 const COMPONENT: Record<string, string> = { cpm: "CPM", ctr: "CTR", cvr: "CVR", aov: "AOV" };
 
@@ -29,7 +29,7 @@ function PlatformBlock({ c, v, starts, o, words }: { c: ClientRow; v: PlatformRo
   return (
     <section className="rounded-xl border border-gray-800 bg-gray-900/60 p-3">
       <h4 className="mb-1 flex flex-wrap items-center gap-1.5 text-sm font-semibold text-white">
-        <Tag className={v.plat === "meta" ? "bg-blue-500/20 text-blue-300" : "bg-emerald-500/20 text-emerald-300"}>{v.plat === "meta" ? "M" : "G"}</Tag>
+        <PlatformTag plat={v.plat} />
         {v.label}
         {c.kpi_mode === "mixte" && <Muted>· {modeLabel(v.mode)}</Muted>}
       </h4>

@@ -153,7 +153,8 @@ describe("budget sheet", () => {
     expect(parseMonth("SEPTEMBRE 2026")).toBeNull();
     expect(parsePlatform("FB/IG")).toBe("meta");
     expect(parsePlatform("Google INTER")).toBe("google");
-    expect(parsePlatform("Tiktok")).toBe("other");
+    expect(parsePlatform("Tiktok")).toBe("tiktok");
+    expect(parsePlatform("LinkedIn")).toBe("other");
     expect(parseCsv('a,"b,c","d ""e"""\n1,2,3')).toEqual([["a", "b,c", 'd "e"'], ["1", "2", "3"]]);
   });
 
@@ -161,13 +162,13 @@ describe("budget sheet", () => {
     const clients = sheetClients(parseBudgetSheet(csv), "2026-09");
     const lpev = clients.find((c) => c.key === "lpev")!;
     expect(lpev.name).toBe("LPEV");
-    expect(lpev.budget).toEqual({ meta: 6000, google: 11_000 });
+    expect(lpev.budget).toEqual({ meta: 6000, google: 11_000, tiktok: null });
     expect(lpev.targetRoas).toBe(5.2);
     const tbs = clients.find((c) => c.key === "tbs")!;
-    expect(tbs.budget).toEqual({ meta: null, google: 11_421 });
+    expect(tbs.budget).toEqual({ meta: null, google: 11_421, tiktok: null });
     expect(tbs.otherPlatforms).toEqual(["LinkedIn"]);
     expect(tbs.targetCpl).toBe(27);
-    expect(clients.find((c) => c.key === "cotton")!.budget).toEqual({ meta: null, google: null });
+    expect(clients.find((c) => c.key === "cotton")!.budget).toEqual({ meta: null, google: null, tiktok: null });
     expect(clients.find((c) => c.key === "leroy")!.currency).toBe("ZAR");
   });
 

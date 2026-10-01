@@ -180,7 +180,7 @@ export function GlobalCockpit() {
     return (
       <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 text-sm text-gray-300">
         <p className="font-semibold text-white">Le cockpit n&apos;a pas encore été calculé.</p>
-        <p className="mt-1 text-gray-400">Il est construit deux fois par jour à partir de la feuille des budgets et des comptes Meta et Google Ads.</p>
+        <p className="mt-1 text-gray-400">Il est construit deux fois par jour à partir de la feuille des budgets et des comptes Meta, Google Ads et TikTok Ads.</p>
         {payload.canEdit && (
           <button type="button" onClick={rebuild} disabled={building} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-60">
             {building ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
@@ -328,7 +328,7 @@ export function GlobalCockpit() {
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un client" aria-label="Rechercher un client" className={`${select} w-48 pl-7`} />
             </label>
             <select value={platform} onChange={(e) => setPlatform(e.target.value)} className={select} aria-label="Plateforme">
-              <option value="all">Plateforme : toutes</option><option value="meta">Meta</option><option value="google">Google</option>
+              <option value="all">Plateforme : toutes</option><option value="meta">Meta</option><option value="google">Google</option><option value="tiktok">TikTok</option>
             </select>
             <select value={model} onChange={(e) => setModel(e.target.value)} className={select} aria-label="Modèle">
               <option value="all">Modèle : tous</option><option value="cpa">CPA</option><option value="roas">ROAS</option><option value="brand">Branding</option><option value="mixte">Mixte</option>
@@ -540,7 +540,7 @@ function BudgetView({ data, budget, total, o, onOpen }: {
         </table>
       </div>
       <p className="mt-2 text-[11px] text-gray-500">
-        {inPace} autres comptes budgétés dans les clous (écart &lt; {COCKPIT_CFG.paceBadPts} pts) · {total - budget.rows.length} clients sans budget renseigné · dépensé du 1ᵉʳ du mois à hier · projection = rythme actuel maintenu jusqu&apos;à la fin du mois · budgets Meta et Google de la feuille des budgets.
+        {inPace} autres comptes budgétés dans les clous (écart &lt; {COCKPIT_CFG.paceBadPts} pts) · {total - budget.rows.length} clients sans budget renseigné · dépensé du 1ᵉʳ du mois à hier · projection = rythme actuel maintenu jusqu&apos;à la fin du mois · budgets Meta, Google et TikTok de la feuille des budgets.
       </p>
     </section>
   );

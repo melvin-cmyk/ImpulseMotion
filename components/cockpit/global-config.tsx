@@ -9,14 +9,22 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
+import { PLATFORM_NAME, asPlatform, type CockpitPlatform } from "@/lib/cockpit/engine";
 
 interface ConfigAccount { platform: string; accountId: string; name: string; currency: string | null; label: string | null; mode: string | null; source: string; enabled: boolean }
 interface ConfigClient {
   key: string; name: string; sheetName: string; sheetNames: string[]; team: string | null; currency: string | null;
-  budget: { meta: number | null; google: number | null }; targetRoas: number | null; targetCpl: number | null;
+  budget: { meta: number | null; google: number | null; tiktok?: number | null }; targetRoas: number | null; targetCpl: number | null;
   otherPlatforms: string[]; kpiMode: string | null; defaultMode: string | null; hidden: boolean; accounts: ConfigAccount[];
 }
-interface FreeAccount { platform: "meta" | "google"; accountId: string; name: string; currency: string | null }
+interface FreeAccount { platform: CockpitPlatform; accountId: string; name: string; currency: string | null }
+const PLATFORM_CLASS: Record<CockpitPlatform | "other", string> = {
+  meta: "bg-blue-500/20 text-blue-300",
+  google: "bg-emerald-500/20 text-emerald-300",
+  tiktok: "bg-fuchsia-500/20 text-fuchsia-300",
+  other: "bg-gray-800 text-gray-300",
+};
+const platformName = (p: string): string => { const pl = asPlatform(p); return pl ? PLATFORM_NAME[pl] : p; };
 interface Config { month: string; clients: ConfigClient[]; free: FreeAccount[]; warnings: string[] }
 
 const select = "rounded-lg border border-gray-800 bg-gray-950 px-2 py-1 text-xs text-gray-200 focus:border-violet-500 focus:outline-none";
@@ -73,7 +81,7 @@ export function CockpitConfig({ onClose }: { onClose: () => void }) {
         <header className="flex items-start justify-between gap-3 border-b border-gray-800 px-5 py-4">
           <div>
             <h2 id="cockpit-config-title" className="text-lg font-semibold text-white">Clients et comptes</h2>
-            <p className="text-xs text-gray-400">Les clients viennent de la feuille des budgets{config ? ` (${config.month})` : ""}. Rattachez à chacun ses comptes Meta et Google Ads et choisissez son modèle.</p>
+            <p className="text-xs text-gray-400">Les clients viennent de la feuille des budgets{config ? ` (${config.month})` : ""}. Rattachez à chacun ses comptes Meta, Google Ads et TikTok Ads et choisissez son modèle.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Fermer" className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white"><X className="h-4 w-4" /></button>
         </header>
@@ -93,7 +101,7 @@ export function CockpitConfig({ onClose }: { onClose: () => void }) {
                     <div>
                       <h3 className="text-sm font-semibold text-white">{c.name}</h3>
                       <p className="text-[11px] text-gray-500">
-                        Feuille : {c.sheetNames.join(", ")}{c.team ? ` · ${c.team}` : ""} · budget Meta {amount(c.budget.meta, c.currency)} · Google {amount(c.budget.google, c.currency)}
+                        Feuille : {c.sheetNames.join(", ")}{c.team ? ` · ${c.team}` : ""} · budget Meta {amount(c.budget.meta, c.currency)} · Google {amount(c.budget.google, c.currency)} · TikTok {amount(c.budget.tiktok ?? null, c.currency)}
                         {c.targetRoas ? ` · objectif ROAS ${c.targetRoas}` : ""}{c.targetCpl ? ` · objectif CPL ${c.targetCpl}` : ""}
                         {c.otherPlatforms.length ? ` · non suivis ici : ${c.otherPlatforms.join(", ")}` : ""}
                       </p>
@@ -112,7 +120,7 @@ export function CockpitConfig({ onClose }: { onClose: () => void }) {
                   <ul className="mt-2 space-y-1">
                     {c.accounts.map((a) => (
                       <li key={`${a.platform}:${a.accountId}`} className={`flex flex-wrap items-center gap-2 rounded-lg border border-gray-800 px-2 py-1.5 text-xs ${a.enabled ? "text-gray-200" : "text-gray-500"}`}>
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${a.platform === "meta" ? "bg-blue-500/20 text-blue-300" : "bg-emerald-500/20 text-emerald-300"}`}>{a.platform === "meta" ? "Meta" : "Google"}</span>
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${PLATFORM_CLASS[asPlatform(a.platform) ?? "other"]}`}>{platformName(a.platform)}</span>
                         <span className="min-w-0 flex-1 truncate">{a.name} <span className="text-gray-600">· {a.accountId}{a.currency ? ` · ${a.currency}` : ""} · {a.source === "manual" ? "réglé à la main" : "rapproché par nom"}</span></span>
                         <select value={a.mode ?? ""} disabled={busy} onChange={(e) => save({ account: { platform: a.platform, accountId: a.accountId, mode: e.target.value || null } })} className={select} aria-label={`Modèle du compte ${a.name}`}>
                           <option value="">modèle du client</option><option value="cpa">CPA</option><option value="roas">ROAS</option><option value="brand">Branding</option>
@@ -130,12 +138,12 @@ export function CockpitConfig({ onClose }: { onClose: () => void }) {
                     if (platform && accountId) void save({ account: { platform, accountId, clientKey: c.key } });
                   }} className={`${select} mt-2 w-full`} aria-label={`Rattacher un compte à ${c.name}`}>
                     <option value="">+ Rattacher un compte disponible…</option>
-                    {config.free.map((f) => <option key={`${f.platform}:${f.accountId}`} value={`${f.platform}:${f.accountId}`}>{f.platform === "meta" ? "Meta" : "Google"} · {f.name} ({f.accountId}{f.currency ? `, ${f.currency}` : ""})</option>)}
+                    {config.free.map((f) => <option key={`${f.platform}:${f.accountId}`} value={`${f.platform}:${f.accountId}`}>{platformName(f.platform)} · {f.name} ({f.accountId}{f.currency ? `, ${f.currency}` : ""})</option>)}
                   </select>
                 </section>
               ))}
               <p className="text-[11px] text-gray-500">
-                {config.free.length} compte(s) accessibles à l&apos;agence ne sont rattachés à aucun client. Un compte absent de la liste n&apos;est pas partagé avec l&apos;agence : demandez l&apos;accès côté Meta Business ou Google Ads.
+                {config.free.length} compte(s) accessibles à l&apos;agence ne sont rattachés à aucun client. Un compte absent de la liste n&apos;est pas partagé avec l&apos;agence : demandez l&apos;accès côté Meta Business, Google Ads ou TikTok Business Center.
               </p>
             </>
           )}
