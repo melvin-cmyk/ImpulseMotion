@@ -406,11 +406,12 @@ export function durationLabel(ms: number): string {
 
 // ── Steps in French ──────────────────────────────────────────────────────
 
-const LEVEL: Record<string, string> = { account: "du compte", campaign: "par campagne", adset: "par ensemble de publicités", ad: "par publicité" };
+const LEVEL: Record<string, string> = { account: "du compte", campaign: "par campagne", adset: "par ensemble de publicités", ad: "par publicité", day: "par jour" };
 const WINDOW: Record<string, string> = { yesterday: "hier", "7d": "7 derniers jours", "14d": "14 derniers jours", "30d": "30 derniers jours", month_to_date: "mois en cours" };
 const METRIC: Record<string, string> = {
   spend: "dépense", impressions: "impressions", clicks: "clics", ctr: "CTR", cpm: "CPM",
   conversions: "conversions", cpa: "coût par conversion", roas: "ROAS",
+  purchases: "achats", purchase_value: "valeur des achats", video_views: "vues de vidéo",
 };
 const OP: Record<string, string> = {
   eq: "=", neq: "≠", gt: ">", gte: "≥", lt: "<", lte: "≤", contains: "contient", empty: "est vide", not_empty: "n'est pas vide",
@@ -420,6 +421,7 @@ export const STEP_FAMILY: Record<StepType, { label: string; tone: Tone }> = {
   "sheet.read": { label: "Lecture", tone: "blue" },
   "meta.insights": { label: "Lecture", tone: "blue" },
   "google.insights": { label: "Lecture", tone: "blue" },
+  "tiktok.insights": { label: "Lecture", tone: "blue" },
   "rows.filter": { label: "Tri", tone: "default" },
   "rows.sort": { label: "Tri", tone: "default" },
   "rows.limit": { label: "Tri", tone: "default" },
@@ -444,6 +446,8 @@ export function describeStep(step: RoutineStep): string {
       return `Lit les performances Meta ${LEVEL[step.level] ?? step.level}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}${step.nameContains ? ` — noms contenant ${q(step.nameContains)}` : ""}.`;
     case "google.insights":
       return `Lit les performances Google Ads ${LEVEL[step.level] ?? step.level}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}.`;
+    case "tiktok.insights":
+      return `Lit les performances TikTok Ads des comptes du client ${step.level === "account" ? "(un total par compte)" : LEVEL[step.level] ?? step.level}, ${WINDOW[step.window] ?? step.window} : ${names(step.metrics, METRIC)}.`;
     case "rows.filter":
       return `Garde les lignes où ${(step.where ?? []).map((w) => `${q(w.column)} ${OP[w.op] ?? w.op}${w.op === "empty" || w.op === "not_empty" ? "" : ` ${q(w.value)}`}`).join(" et ")}.`;
     case "rows.sort":

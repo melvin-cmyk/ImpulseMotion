@@ -6,6 +6,11 @@ import { Target, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
 
 type Account = { platform: string; accountId: string; label: string | null };
 
+/** Platforms a budget can be followed on: the pacing reads their spend. */
+const PLATFORM_LABEL: Record<string, string> = { meta: "Meta", tiktok: "TikTok" };
+/** One value per account of the select: the same id may exist on two platforms. */
+const accountKey = (a: { platform: string; accountId: string }) => `${a.platform}:${a.accountId}`;
+
 type Pacing = {
   accountId: string;
   monthlyTarget: number;
@@ -17,7 +22,9 @@ type Pacing = {
   dailyRunRate: number;
   projectedSpend: number;
   pacingPct: number;
-  status: "on_track" | "under" | "over" | "critical_under" | "critical_over";
+  status: "on_track" | "under" | "over" | "critical_under" | "critical_over" | "unknown";
+  /** Why the pacing is unknown (no closed day yet, platform unreachable). */
+  reason?: string;
 };
 
 type Budget = {
@@ -46,6 +53,7 @@ const STATUS_LABEL: Record<Pacing["status"], string> = {
   over: "Sur-consomme",
   critical_under: "Très en retard",
   critical_over: "Très en avance",
+  unknown: "Pacing indisponible",
 };
 
 const STATUS_TONE: Record<Pacing["status"], "emerald" | "amber" | "red" | "blue"> = {
@@ -54,6 +62,7 @@ const STATUS_TONE: Record<Pacing["status"], "emerald" | "amber" | "red" | "blue"
   over: "amber",
   critical_under: "red",
   critical_over: "red",
+  unknown: "blue",
 };
 
 function PacingBar({ pacing }: { pacing: Pacing }) {
@@ -127,13 +136,14 @@ export default function MeBudgetsPage() {
   }, [load]);
 
   const availableAccounts = accounts.filter(
-    (a) => a.platform === "meta" && !budgets.some((b) => b.accountId === a.accountId),
+    (a) => a.platform in PLATFORM_LABEL && !budgets.some((b) => accountKey(b) === accountKey(a)),
   );
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!formAccountId || !formTarget) {
+    const chosen = availableAccounts.find((a) => accountKey(a) === formAccountId);
+    if (!chosen || !formTarget) {
       setError("Compte et budget requis");
       return;
     }
@@ -141,8 +151,8 @@ export default function MeBudgetsPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        accountId: formAccountId,
-        platform: "meta",
+        accountId: chosen.accountId,
+        platform: chosen.platform,
         monthlyTarget: Number(formTarget),
         currency: formCurrency,
       }),
@@ -192,7 +202,7 @@ export default function MeBudgetsPage() {
                 >
                   <option value="">— Sélectionner —</option>
                   {availableAccounts.map((a) => (
-                    <option key={a.accountId} value={a.accountId}>{a.label ?? a.accountId}</option>
+                    <option key={accountKey(a)} value={accountKey(a)}>{PLATFORM_LABEL[a.platform]} · {a.label ?? a.accountId}</option>
                   ))}
                 </select>
               </label>
@@ -245,7 +255,7 @@ export default function MeBudgetsPage() {
       ) : (
         <div className="space-y-3">
           {budgets.map((b) => {
-            const account = accounts.find((a) => a.accountId === b.accountId);
+            const account = accounts.find((a) => accountKey(a) === accountKey(b));
             const label = account?.label ?? b.accountId;
             const p = b.pacing;
             return (
@@ -254,7 +264,7 @@ export default function MeBudgetsPage() {
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-white">{label}</span>
-                      <Pill tone="violet">{b.platform}</Pill>
+                      <Pill tone="violet">{PLATFORM_LABEL[b.platform] ?? b.platform}</Pill>
                       {p && <Pill tone={STATUS_TONE[p.status]}>{STATUS_LABEL[p.status]}</Pill>}
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
@@ -263,7 +273,7 @@ export default function MeBudgetsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {p && (
+                    {p && p.status !== "unknown" && (
                       <div className="text-right">
                         <div className={`text-2xl font-bold inline-flex items-center gap-1 ${
                           p.status === "on_track"
@@ -285,7 +295,8 @@ export default function MeBudgetsPage() {
                     </button>
                   </div>
                 </div>
-                {p && <PacingBar pacing={p} />}
+                {p && p.status !== "unknown" && <PacingBar pacing={p} />}
+                {p?.status === "unknown" && p.reason && <p className="text-[11px] text-gray-500">{p.reason}</p>}
               </Card>
             );
           })}

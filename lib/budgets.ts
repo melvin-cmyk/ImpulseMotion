@@ -1,5 +1,5 @@
 /**
- * Monthly budget pacing for a Meta ad account.
+ * Monthly budget pacing for a Meta ad account or a TikTok advertiser.
  *
  * Rules (Lot F4):
  * - the month is computed in the ACCOUNT timezone (Meta interprets since/until
@@ -11,7 +11,10 @@
  * - a Meta error (or no closed day yet) yields status "unknown" — never a
  *   fake "under" that would trigger alerts;
  * - budget precedence: Dashboard.monthlyBudget first, then any AccountBudget
- *   row for the account (whatever the owner).
+ *   row for the account (whatever the owner);
+ * - TikTok (AccountBudget.platform "tiktok"): same rules, the spend of the
+ *   closed days read by lib/tiktok-data.ts, the timezone from the advertiser
+ *   profile (lib/account-settings.ts).
  */
 
 import { prisma } from "@/lib/prisma";
@@ -19,6 +22,12 @@ import { getMetaSystemToken } from "@/lib/meta-api";
 import { getAccountInsightsCachedWithMeta } from "@/lib/insights";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { addDays, todayIn } from "@/lib/date-ranges";
+import { fetchTikTokTotals } from "@/lib/tiktok-data";
+
+/** Platforms whose spend the pacing can read. */
+export type PacingPlatform = "meta" | "tiktok";
+export const PACING_PLATFORMS: readonly PacingPlatform[] = ["meta", "tiktok"];
+export const isPacingPlatform = (v: unknown): v is PacingPlatform => v === "meta" || v === "tiktok";
 
 export type PacingStatus = "on_track" | "under" | "over" | "critical_under" | "critical_over" | "unknown";
 
@@ -168,6 +177,8 @@ export async function findBudgetForMetaAccount(accountId: string, fallbackCurren
 export interface ComputePacingOptions {
   /** Account timezone (IANA); resolved from the account profile when omitted. */
   tz?: string | null;
+  /** Platform of the account: "meta" when omitted. */
+  platform?: PacingPlatform;
   now?: Date;
   refresh?: boolean;
   source?: BudgetChoice["source"];
@@ -179,10 +190,11 @@ export async function computePacing(
   currency = "EUR",
   opts: ComputePacingOptions = {},
 ): Promise<PacingResult> {
+  const platform = opts.platform ?? "meta";
   let tz = opts.tz;
   if (tz === undefined) {
     try {
-      tz = (await getAccountProfileSettings("meta", accountId)).timezone;
+      tz = (await getAccountProfileSettings(platform, accountId)).timezone;
     } catch {
       tz = null;
     }
@@ -213,15 +225,20 @@ export async function computePacing(
   let mtdSpend = 0;
   let fetchedAt: string | undefined;
   try {
-    const token = getMetaSystemToken();
-    const res = await getAccountInsightsCachedWithMeta(
-      token,
-      accountId,
-      { since: progress.first, until: progress.lastClosed },
-      { refresh: opts.refresh },
-    );
-    mtdSpend = parseFloat(res.data.spend ?? "0") || 0;
-    fetchedAt = res.fetchedAt;
+    if (platform === "tiktok") {
+      mtdSpend = (await fetchTikTokTotals(accountId, progress.first, progress.lastClosed)).spend;
+      fetchedAt = new Date().toISOString();
+    } else {
+      const token = getMetaSystemToken();
+      const res = await getAccountInsightsCachedWithMeta(
+        token,
+        accountId,
+        { since: progress.first, until: progress.lastClosed },
+        { refresh: opts.refresh },
+      );
+      mtdSpend = parseFloat(res.data.spend ?? "0") || 0;
+      fetchedAt = res.fetchedAt;
+    }
   } catch (e) {
     return {
       ...base,
@@ -246,11 +263,11 @@ export async function computePacing(
 
 /** Compute pacing for many accounts in parallel (never throws: errors → status "unknown"). */
 export async function computePacingBatch(
-  budgets: Array<{ accountId: string; monthlyTarget: number; currency: string }>,
+  budgets: Array<{ accountId: string; monthlyTarget: number; currency: string; platform?: PacingPlatform }>,
   opts: Pick<ComputePacingOptions, "refresh" | "now"> = {},
 ): Promise<PacingResult[]> {
   return Promise.all(
-    budgets.map((b) => computePacing(b.accountId, b.monthlyTarget, b.currency, opts).catch((e): PacingResult => ({
+    budgets.map((b) => computePacing(b.accountId, b.monthlyTarget, b.currency, { ...opts, ...(b.platform ? { platform: b.platform } : {}) }).catch((e): PacingResult => ({
       accountId: b.accountId,
       monthlyTarget: b.monthlyTarget,
       currency: b.currency,

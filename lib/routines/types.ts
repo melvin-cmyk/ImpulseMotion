@@ -2,7 +2,7 @@
  * Routines — contracts shared by every module of the feature.
  *
  * A routine is a deterministic plan of typed steps, written once with the
- * help of an AI and then run as is: read (Sheet, Meta, Google Ads), transform
+ * help of an AI and then run as is: read (Sheet, Meta, Google Ads, TikTok Ads), transform
  * rows with closed operators, optionally summarise with an AI that only
  * produces text, then act (Sheet, Slack, e-mail, Meta ads created paused).
  *
@@ -14,14 +14,14 @@
 // ── Steps ────────────────────────────────────────────────────────────────
 
 export type StepType =
-  | "sheet.read" | "meta.insights" | "google.insights"
+  | "sheet.read" | "meta.insights" | "google.insights" | "tiktok.insights"
   | "rows.filter" | "rows.sort" | "rows.limit" | "rows.select"
   | "ai.summary"
   | "sheet.write" | "slack.message" | "email.send" | "meta.create_ads";
 
 /** Every step type, in the order the UI lists them (sources, transformations, AI, actions). */
 export const STEP_TYPES = [
-  "sheet.read", "meta.insights", "google.insights",
+  "sheet.read", "meta.insights", "google.insights", "tiktok.insights",
   "rows.filter", "rows.sort", "rows.limit", "rows.select",
   "ai.summary",
   "sheet.write", "slack.message", "email.send", "meta.create_ads",
@@ -35,6 +35,7 @@ export const STEP_WRITES: Record<StepType, WriteKind> = {
   "sheet.read": "none",
   "meta.insights": "none",
   "google.insights": "none",
+  "tiktok.insights": "none",
   "rows.filter": "none",
   "rows.sort": "none",
   "rows.limit": "none",
@@ -158,6 +159,16 @@ export interface GoogleInsightsStep extends StepBase {
   window: MetaInsightsStep["window"];
   metrics: Array<"spend"|"impressions"|"clicks"|"ctr"|"conversions"|"cpa"|"roas">;
 }
+/**
+ * TikTok Ads figures of the advertisers attached to the routine's dashboard
+ * (DashboardSource of kind "tiktok"), never of an id written in the step.
+ * Read only: no step writes to TikTok.
+ */
+export interface TikTokInsightsStep extends StepBase {
+  type: "tiktok.insights"; level: "account" | "campaign" | "day";
+  window: MetaInsightsStep["window"];
+  metrics: Array<"spend"|"impressions"|"clicks"|"ctr"|"cpm"|"conversions"|"cpa"|"purchases"|"purchase_value"|"roas"|"video_views">;
+}
 export interface RowsFilterStep extends StepBase {
   type: "rows.filter";
   where: Array<{ column: string; op: "eq"|"neq"|"gt"|"gte"|"lt"|"lte"|"contains"|"empty"|"not_empty"; value?: Cell }>;
@@ -197,7 +208,7 @@ export interface MetaCreateAdsStep extends StepBase {
 }
 
 export type RoutineStep =
-  | SheetReadStep | MetaInsightsStep | GoogleInsightsStep
+  | SheetReadStep | MetaInsightsStep | GoogleInsightsStep | TikTokInsightsStep
   | RowsFilterStep | RowsSortStep | RowsLimitStep | RowsSelectStep
   | AiSummaryStep | SheetWriteStep | SlackMessageStep | EmailSendStep | MetaCreateAdsStep;
 

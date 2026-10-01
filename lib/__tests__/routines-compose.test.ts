@@ -14,8 +14,8 @@ import { validateProposal } from "@/lib/routines/validate";
 import type { RoutineProposal } from "@/lib/routines/types";
 
 // Written by hand on purpose: the test must not read its expectations from the code it checks.
-const TWELVE = [
-  "sheet.read", "meta.insights", "google.insights",
+const THIRTEEN = [
+  "sheet.read", "meta.insights", "google.insights", "tiktok.insights",
   "rows.filter", "rows.sort", "rows.limit", "rows.select",
   "ai.summary",
   "sheet.write", "slack.message", "email.send", "meta.create_ads",
@@ -45,12 +45,12 @@ describe("routines — prompt de l'IA de création", () => {
   const prompt = buildRoutineComposePrompt(routine, "melvin@impulse-analytics.com");
   const [fixed, dynamic] = prompt.split(`\n${B}\n`);
 
-  it("décrit les 12 types d'étapes, et seulement ceux-là", () => {
-    expect(TWELVE).toHaveLength(12);
+  it("décrit les 13 types d'étapes, et seulement ceux-là", () => {
+    expect(THIRTEEN).toHaveLength(13);
     const listed = stepCatalogue().split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2).split(" ")[0]);
-    expect(listed).toEqual(TWELVE);
-    for (const type of TWELVE) expect(fixed, type).toContain(`- ${type} — `);
-    expect(fixed).toContain("12 types");
+    expect(listed).toEqual(THIRTEEN);
+    for (const type of THIRTEEN) expect(fixed, type).toContain(`- ${type} — `);
+    expect(fixed).toContain("13 types");
   });
 
   it("donne les champs exacts des étapes", () => {
@@ -163,8 +163,8 @@ describe("routines — état de la routine (turnContext)", () => {
 describe("routines — appel du relay par l'IA de création", () => {
   const body = buildRoutineRelayBody({ routine, userId: "user_42", author: "a@b.fr", messages: [{ role: "user", content: "Bonjour" }] });
 
-  it("n'ouvre que Meta, Google Ads et Sheets", () => {
-    expect(body.allowedServers).toEqual(["meta-ads-impulse", "mcp-google-ads", "mcp-google-sheet"]);
+  it("n'ouvre que Meta, Google Ads, TikTok Ads et Sheets", () => {
+    expect(body.allowedServers).toEqual(["meta-ads-impulse", "mcp-google-ads", "mcp-tiktok-ads", "mcp-google-sheet"]);
     expect([...ROUTINE_COMPOSE_SERVERS]).toEqual(body.allowedServers);
     for (const closed of ["gws", "sandbox", "web", "notion", "hq", "mcp-google-analytics", "client-data"]) {
       expect(body.allowedServers, closed).not.toContain(closed);
@@ -172,7 +172,7 @@ describe("routines — appel du relay par l'IA de création", () => {
   });
 
   it("limite le périmètre aux comptes de la routine, jamais unrestricted", () => {
-    expect(body.accountScope).toEqual({ meta: ["1234567890"], google: ["123-456-7890"] });
+    expect(body.accountScope).toEqual({ meta: ["1234567890"], google: ["123-456-7890"], tiktok: [] });
     const variants = [
       routine,
       { ...routine, metaAccountId: null },
@@ -183,11 +183,20 @@ describe("routines — appel du relay par l'IA de création", () => {
       const scope = buildRoutineRelayBody({ routine: r, userId: "u1", author: null, messages: [] }).accountScope!;
       expect(scope.unrestricted).not.toBe(true);
       expect("unrestricted" in scope).toBe(false);
-      expect("tiktok" in scope).toBe(false);
+      // TikTok only with the advertisers the route read from the dashboard.
+      expect(scope.tiktok).toEqual([]);
       expect(scope.meta).toEqual(r.metaAccountId ? ["1234567890"] : []);
       expect(scope.google).toEqual(r.googleCustomerId ? ["123-456-7890"] : []);
     }
-    expect(routineAccountScope({ metaAccountId: null, googleCustomerId: null })).toEqual({ meta: [], google: [] });
+    expect(routineAccountScope({ metaAccountId: null, googleCustomerId: null })).toEqual({ meta: [], google: [], tiktok: [] });
+  });
+
+  it("ouvre aux comptes TikTok du client que la route a lus, et à rien d'autre", () => {
+    const withTikTok = { ...routine, tiktokAdvertiserIds: ["7123456789012345678", "pas un id", "7000000000000000001"] };
+    const scope = buildRoutineRelayBody({ routine: withTikTok, userId: "u1", author: null, messages: [] }).accountScope!;
+    expect(scope.tiktok).toEqual(["7123456789012345678", "7000000000000000001"]);
+    expect(buildRoutineComposePrompt(withTikTok)).toContain("Comptes TikTok Ads du client : 7123456789012345678, 7000000000000000001");
+    expect(buildRoutineComposePrompt(routine)).toContain("Comptes TikTok Ads du client : aucun (pas d'étape tiktok.insights possible)");
   });
 
   it("prend le profil de création et laisse les consignes HQ à l'appelant", () => {

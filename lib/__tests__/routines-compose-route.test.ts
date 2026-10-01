@@ -11,6 +11,8 @@ const relayCalls: Array<RelayChatBody & { turnContext?: string }> = [];
 const usageRows: Array<Record<string, unknown>> = [];
 let session: { userId: string; role: string; user: { email: string } } | null = null;
 let relayDown = false;
+let tiktokSources: Array<{ externalId: string }> = [];
+let assigned: Array<{ platform: string; accountId: string }> = [];
 let validation: { ok: true; value: unknown } | { ok: false; errors: string[] } = { ok: false, errors: ["refusée"] };
 
 vi.mock("@/lib/auth-helpers", () => ({
@@ -31,7 +33,8 @@ vi.mock("@/lib/prisma", () => ({
         return row;
       },
     },
-    userAdAccount: { findMany: async () => [] },
+    userAdAccount: { findMany: async () => assigned },
+    dashboardSource: { findMany: async () => tiktokSources },
   },
 }));
 vi.mock("@/lib/ai-usage", () => ({
@@ -80,6 +83,7 @@ beforeEach(() => {
   vi.stubEnv("ROUTINES_ACCESS", "staff");
   rows.clear(); updates.length = 0; relayCalls.length = 0; usageRows.length = 0;
   relayDown = false;
+  tiktokSources = []; assigned = [];
   validation = { ok: false, errors: ["refusée"] };
   session = { userId: "user_42", role: "admin", user: { email: "melvin@impulse-analytics.com" } };
   rows.set(ID, {
@@ -115,6 +119,32 @@ describe("routines — route de l'IA de création : accès", () => {
   });
 });
 
+describe("routines — route de l'IA de création : comptes TikTok", () => {
+  it("ouvre à l'IA les comptes TikTok du dashboard que la personne a dans son périmètre", async () => {
+    tiktokSources = [{ externalId: "7123456789012345678" }, { externalId: "7000000000000000001" }];
+    expect((await POST(req("POST", { messages: [{ role: "user", content: "Bonjour" }] }), ctx())).status).toBe(200);
+    expect(relayCalls[0].accountScope?.tiktok).toEqual(["7123456789012345678", "7000000000000000001"]);
+    expect(relayCalls[0].systemPrompt).toContain("Comptes TikTok Ads du client : 7123456789012345678, 7000000000000000001");
+
+    // A consultant sees only the advertisers assigned to them.
+    session = { userId: "user_7", role: "consultant", user: { email: "c@impulse-analytics.com" } };
+    assigned = [{ platform: "meta", accountId: "1234567890" }, { platform: "google", accountId: "123-456-7890" }, { platform: "tiktok", accountId: "7000000000000000001" }];
+    expect((await POST(req("POST", { messages: [{ role: "user", content: "Bonjour" }] }), ctx())).status).toBe(200);
+    expect(relayCalls[1].accountScope?.tiktok).toEqual(["7000000000000000001"]);
+  });
+
+  it("refuse une routine qui lit TikTok sur un compte hors du périmètre", async () => {
+    tiktokSources = [{ externalId: "7123456789012345678" }];
+    rows.get(ID)!.definitionJson = JSON.stringify({ version: 1, steps: [{ id: "tt", type: "tiktok.insights", level: "account", window: "7d", metrics: ["spend"] }] });
+    session = { userId: "user_7", role: "consultant", user: { email: "c@impulse-analytics.com" } };
+    assigned = [{ platform: "meta", accountId: "1234567890" }, { platform: "google", accountId: "123-456-7890" }];
+    expect((await POST(req("POST", { messages: [{ role: "user", content: "Bonjour" }] }), ctx())).status).toBe(403);
+    expect(relayCalls).toHaveLength(0);
+    assigned.push({ platform: "tiktok", accountId: "7123456789012345678" });
+    expect((await POST(req("POST", { messages: [{ role: "user", content: "Bonjour" }] }), ctx())).status).toBe(200);
+  });
+});
+
 describe("routines — route de l'IA de création : appel du relay", () => {
   it("n'ouvre ni gws ni le bac à sable, et ne sort jamais des comptes de la routine", async () => {
     const res = await POST(req("POST", {
@@ -127,10 +157,10 @@ describe("routines — route de l'IA de création : appel du relay", () => {
     expect(res.status).toBe(200);
     expect(relayCalls).toHaveLength(1);
     const body = relayCalls[0];
-    expect(body.allowedServers).toEqual(["meta-ads-impulse", "mcp-google-ads", "mcp-google-sheet"]);
+    expect(body.allowedServers).toEqual(["meta-ads-impulse", "mcp-google-ads", "mcp-tiktok-ads", "mcp-google-sheet"]);
     expect(body.allowedServers).not.toContain("gws");
     expect(body.allowedServers).not.toContain("sandbox");
-    expect(body.accountScope).toEqual({ meta: ["1234567890"], google: ["123-456-7890"] });
+    expect(body.accountScope).toEqual({ meta: ["1234567890"], google: ["123-456-7890"], tiktok: [] });
     expect(body.accountScope?.unrestricted).not.toBe(true);
     expect(body.sessionKey).toBe(`routine:${ID}:user_42`);
     expect(body.hqGuidance).toBe("caller");

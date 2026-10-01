@@ -20,6 +20,7 @@ const EXPECTED: Record<StepType, WriteKind> = {
   "sheet.read": "none",
   "meta.insights": "none",
   "google.insights": "none",
+  "tiktok.insights": "none",
   "rows.filter": "none",
   "rows.sort": "none",
   "rows.limit": "none",

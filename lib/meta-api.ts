@@ -1147,8 +1147,8 @@ export function getActionValue(
 /**
  * Historical default average order value. It is NO LONGER applied implicitly:
  * `computeRevenue` only estimates `purchases × aov` when an AOV is explicitly
- * configured for the account (AccountSetting.aov). Kept exported for callers
- * that still reference it (tiktok-api) and for the admin UI placeholder.
+ * configured for the account (AccountSetting.aov). Kept exported for the
+ * admin UI placeholder.
  */
 export const DEFAULT_AOV = 20;
 

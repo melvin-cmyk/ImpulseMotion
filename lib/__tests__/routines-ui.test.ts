@@ -234,6 +234,7 @@ describe("routines — libellés", () => {
       { id: "a", type: "sheet.read", sheet, requiredColumns: ["id", "titre"], maxRows: 200 },
       { id: "b", type: "meta.insights", level: "campaign", window: "7d", metrics: ["spend", "roas"], nameContains: "Promo" },
       { id: "c", type: "google.insights", level: "account", window: "month_to_date", metrics: ["clicks"] },
+      { id: "c2", type: "tiktok.insights", level: "day", window: "7d", metrics: ["spend", "purchase_value", "video_views"] },
       { id: "d", type: "rows.filter", where: [{ column: "statut", op: "empty" }, { column: "depense", op: "gt", value: 100 }] },
       { id: "e", type: "rows.sort", by: "depense", dir: "desc" },
       { id: "f", type: "rows.limit", count: 5 },
@@ -255,11 +256,12 @@ describe("routines — libellés", () => {
       expect(text, s.type).not.toMatch(/undefined|\[object/);
     }
     expect(describeStep(steps[1])).toContain("par campagne, 7 derniers jours : dépense, ROAS");
-    expect(describeStep(steps[3])).toContain("« statut » est vide et « depense » > « 100 »");
-    expect(describeStep(steps[11])).toContain("EN PAUSE");
-    expect(describeStep(steps[11])).toContain("vidéo");
-    expect(stepTexts(steps[9])).toEqual([{ label: "Message", text: "Point du {{run.date}}" }]);
-    expect(stepTexts(steps[11]).map((t) => t.label)).toEqual(["Nom de la publicité", "Texte principal", "Lien", "Média"]);
+    expect(describeStep(steps[3])).toBe("Lit les performances TikTok Ads des comptes du client par jour, 7 derniers jours : dépense, valeur des achats, vues de vidéo.");
+    expect(describeStep(steps[4])).toContain("« statut » est vide et « depense » > « 100 »");
+    expect(describeStep(steps[12])).toContain("EN PAUSE");
+    expect(describeStep(steps[12])).toContain("vidéo");
+    expect(stepTexts(steps[10])).toEqual([{ label: "Message", text: "Point du {{run.date}}" }]);
+    expect(stepTexts(steps[12]).map((t) => t.label)).toEqual(["Nom de la publicité", "Texte principal", "Lien", "Média"]);
     expect(stepTexts(steps[0])).toEqual([]);
   });
 
