@@ -19,6 +19,23 @@ import { enabledKinds, isDue, parseConfig } from "@/lib/auto-alerts/config";
 import { parseAlertAccounts, syncAlertClients, type AlertAccount } from "@/lib/auto-alerts/clients";
 import { loadFx } from "@/lib/cockpit/fx";
 import { getAccountProfileSettings } from "@/lib/account-settings";
+import { getHqClientContext, lookupHqClientContext } from "@/lib/hq-client-context";
+
+/**
+ * What the agency's memory (HQ) says about the client, read before something
+ * new goes to Slack: a pause written down in HQ is not a break. The brief of a
+ * dashboard is cached a week; a client without dashboard is looked up by name.
+ * Never throws: no brief = the alert is judged on the figures alone.
+ */
+async function hqBriefOf(client: { dashboardId: string | null; name: string }): Promise<string | null> {
+  try {
+    if (client.dashboardId) return (await getHqClientContext(client.dashboardId, { maxMs: 60_000 })).context?.brief ?? null;
+    const found = await lookupHqClientContext({ name: client.name, metaAccountId: null, googleCustomerId: null }, { maxMs: 60_000 });
+    return found.found ? found.brief ?? null : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Currency of a TikTok account matched by name (the sheet gives none): its profile, cached. */
 async function tiktokCurrency(advertiserId: string): Promise<string | null> {
@@ -57,6 +74,8 @@ export interface ClientRun {
   aiUsed: boolean;
   errors: string[];
   text?: string;
+  /** Not sent: the client's HQ file explains it (planned pause, end of campaign…). */
+  heldByHq?: string;
 }
 
 export interface RunResult {
@@ -97,6 +116,8 @@ export function floodedKinds(announced: Array<{ clientId: string; kinds: string[
 }
 /** Ceiling on AI readings per run, whatever happens to the accounts that day. */
 const MAX_AI_CALLS = 15;
+/** HQ reads per run (one relay session each, cached a week per dashboard). */
+const MAX_HQ_READS = 6;
 
 /** One slow account must not hold the others back. */
 const SCAN_TIMEOUT_MS = 45_000;
@@ -273,16 +294,34 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
   if (toSend.length > MAX_MESSAGES) {
     result.errors.push(`${toSend.length} messages à envoyer, ${MAX_MESSAGES} au plus par passage : les ${toSend.length - MAX_MESSAGES} autres partiront au passage suivant.`);
   }
+  let hqReads = 0;
   for (const p of toSend.slice(0, MAX_MESSAGES)) {
     if (opts.deadlineAt && Date.now() >= opts.deadlineAt) { result.timedOut = true; break; }
     const { client: c, run, plan, announcedIds } = p;
-    // The AI reads only what is new and unexplained — a reminder has already been read.
-    const unexplained = plan.announce.filter((a) => a.reason !== "reminder" && a.finding.needsAi).map((a) => a.finding);
+    // Something new for the client: HQ is read first — a pause written down
+    // there is not a break. The AI reads what is new and unexplained, and
+    // anything new once HQ has something to say about the client.
+    const fresh = plan.announce.filter((a) => a.reason !== "reminder");
+    let brief: string | null = null;
+    if (fresh.length && hqReads < MAX_HQ_READS) {
+      hqReads++;
+      brief = await hqBriefOf({ dashboardId: c.dashboardId, name: c.name });
+    }
+    const unexplained = fresh.filter((a) => a.finding.needsAi);
     let reading: string | null = null;
-    if (unexplained.length && result.aiCalls < MAX_AI_CALLS) {
+    if ((unexplained.length || (brief && fresh.length)) && result.aiCalls < MAX_AI_CALLS) {
       result.aiCalls++;
-      reading = await writeReading({ dashboardId: c.dashboardId, name: c.name }, plan.announce.map((a) => a.finding), p.series);
-      run.aiUsed = reading !== null;
+      const read = await writeReading({ dashboardId: c.dashboardId, name: c.name }, plan.announce.map((a) => a.finding), p.series, brief);
+      run.aiUsed = read !== null;
+      // Every announcement is new and HQ explains them all: followed in the app,
+      // not sent. Not marked notified either — no reminder nor « résolu » will
+      // ever follow in Slack; the next run reads HQ again and sends it if HQ
+      // no longer explains it.
+      if (read?.expected && brief && fresh.length === plan.announce.length) {
+        run.heldByHq = read.text;
+        continue;
+      }
+      reading = read?.text ?? null;
     }
     const link = c.dashboardId ? `${appUrl()}/portfolio/${c.dashboardId}` : `${appUrl()}/admin/auto-alerts`;
     run.text = buildDigest({ clientName: c.name, plan, reading, link, stillOpen: plan.touch.length });
