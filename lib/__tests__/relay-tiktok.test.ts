@@ -104,8 +104,10 @@ describe("relay — TikTok Ads dans une conversation", () => {
     expect(entry.env).toMatchObject({ SCOPED_SERVER_NAME: TIKTOK, SCOPED_UPSTREAM_URL: UPSTREAM, SCOPED_ACCOUNTS: "7111111111111111111,7222222222222222222" });
     const pinned = entry.env!.SCOPED_TOOLS.split(",").sort();
     expect(pinned).toEqual(tiktokTools(call));
-    expect(pinned).toHaveLength(12);
+    expect(pinned).toHaveLength(14);
     expect(pinned).toContain("search_ad_videos");
+    // Open to the team; the proxy still refuses them outside an unrestricted scope.
+    expect(pinned).toEqual(expect.arrayContaining(["list_business_centers", "list_bc_advertisers"]));
     expect(pinned).not.toContain("list_advertisers");
     expect(call.allowed).not.toContain(`mcp__${TIKTOK}__*`);
     expect(call.system).toContain("Comptes TikTok autorisés: 7111111111111111111, 7222222222222222222");
@@ -115,7 +117,7 @@ describe("relay — TikTok Ads dans une conversation", () => {
     const call = await chat({ allowedServers: [TIKTOK], accountScope: { tiktok: ["7111111111111111111"] }, dataScope: { clientKey: "client-demo" } });
     const tools = tiktokTools(call);
     expect(tools).toHaveLength(9);
-    for (const closed of ["list_advertisers", "list_custom_audiences", "search_ad_videos", "search_ad_images"]) expect(tools).not.toContain(closed);
+    for (const closed of ["list_advertisers", "list_custom_audiences", "search_ad_videos", "search_ad_images", "list_business_centers", "list_bc_advertisers"]) expect(tools).not.toContain(closed);
     expect(tools).toContain("get_campaign_performance");
     expect(call.config!.mcpServers[TIKTOK].env!.SCOPED_TOOLS.split(",").sort()).toEqual(tools);
   });
@@ -141,7 +143,7 @@ describe("relay — TikTok Ads dans une conversation", () => {
     const entry = call.config!.mcpServers[TIKTOK];
     expect(entry.env).toMatchObject({ SCOPED_ACCOUNTS: "*" });
     expect(entry.env!.SCOPED_TOOLS.split(",")).not.toContain("list_advertisers");
-    expect(tiktokTools(call)).toHaveLength(12);
+    expect(tiktokTools(call)).toHaveLength(14);
   });
 
   it("ne l'ajoute pas à une conversation qui ne l'a pas demandé", async () => {

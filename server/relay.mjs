@@ -399,10 +399,14 @@ const TIKTOK_CLIENT_TOOLS = [
   "get_campaign_performance", "get_adgroup_performance", "get_ad_performance",
   "get_breakdown_report", "get_report_integrated",
 ];
-// L'équipe lit aussi les audiences et la médiathèque. `list_advertisers`
-// (tous les annonceurs, et le secret de l'application en paramètre) n'est
-// ouvert à aucune conversation.
-const TIKTOK_STAFF_TOOLS = [...TIKTOK_CLIENT_TOOLS, "list_custom_audiences", "search_ad_videos", "search_ad_images"];
+// L'équipe lit aussi les audiences, la médiathèque, et la liste des Business
+// Centers et de leurs comptes (le proxy la refuse hors périmètre illimité).
+// `list_advertisers` (le secret de l'application en paramètre) n'est ouvert à
+// aucune conversation.
+const TIKTOK_STAFF_TOOLS = [
+  ...TIKTOK_CLIENT_TOOLS, "list_custom_audiences", "search_ad_videos", "search_ad_images",
+  "list_business_centers", "list_bc_advertisers",
+];
 
 // Global whitelist — only servers declared here can ever be routed to the AI.
 // The per-request `allowedServers` list is intersected with this set, so even

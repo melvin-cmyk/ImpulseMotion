@@ -214,7 +214,7 @@ function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | un
         ? `  Chaque appel nomme advertiser_id : ${tiktokIds[0]}, le seul compte autorisé. Ne l'écris jamais dans une réponse.`
         : `  Chaque appel nomme advertiser_id, l'un des comptes autorisés : ${tiktokIds.join(", ")}. Un appel par compte ; désigne chaque compte par son nom (get_advertiser_info), jamais par cet identifiant, et n'additionne pas deux comptes de devises différentes.`,
       "  Périodes : start_date et end_date, 30 jours au plus par appel ; au-delà, plusieurs appels. Dates dans le fuseau du compte, montants dans sa devise (get_advertiser_info les donne) : n'écris « € » que si c'est bien la devise du compte.",
-      "  « conversion » est l'événement d'optimisation de la campagne, « complete_payment » les achats. La valeur des achats n'est pas lue, seulement le ROAS (complete_payment_roas) : valeur ≈ ROAS × dépense, à présenter comme une estimation.",
+      "  « conversion » est l'événement d'optimisation de la campagne. Achats : « purchase » (nombre) et « total_purchase_value » (valeur, dans la devise du compte) ; ROAS = total_purchase_value ÷ spend. « complete_payment » ne compte qu'un événement web et reste souvent à 0 : ne t'y fie pas seul.",
       "  L'attribution de TikTok n'est pas celle de Meta ni de Google : une même vente peut être comptée par chacun, n'additionne pas leurs conversions comme des ventes distinctes.",
       "  Réponse annoncée « page partielle » : demande la page suivante (page).",
     );

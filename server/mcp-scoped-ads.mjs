@@ -253,6 +253,10 @@ export function createGate(p, { accounts, tools = "" }) {
       if (prepared.error) return { refusal: prepared.error };
       args = prepared.args;
       const named = p.accountsOf(name, prepared.object);
+      // Énumérer les comptes de l'agence : l'équipe seulement (périmètre illimité).
+      if (named.enumerates && !unrestricted) {
+        return { refusal: `Outil "${name}" indisponible : l'énumération des comptes ${p.label} n'est pas autorisée. Les comptes sur lesquels tu peux travailler te sont donnés dans tes instructions.` };
+      }
       if (named.error) return { refusal: unrestricted ? named.error : `${named.error} Tu ne peux interroger que : ${[...allowed].join(", ")}.` };
       const bad = unrestricted ? [] : named.ids.filter((id) => !allowed.has(p.norm(id)));
       if (bad.length) return { refusal: outside(bad) };

@@ -23,6 +23,10 @@ const BASE_METRICS = [
   "conversion", "cost_per_conversion", "conversion_rate",
   "video_play_actions", "video_watched_2s", "video_watched_6s", "video_views_p100",
   "complete_payment", "complete_payment_roas",
+  // Achats et leur valeur, tous événements d'achat confondus. Constaté le
+  // 2026-10-01 sur Jow : complete_payment et son ROAS à 0, purchase et
+  // total_purchase_value remplis (696 183 € en septembre).
+  "purchase", "total_purchase_value",
 ];
 
 /** Ce que le serveur fixe, par outil de rapport. Une clé absente reste au modèle. */
@@ -44,7 +48,7 @@ const REPORTS = {
   },
   get_breakdown_report: {
     data_level: "AUCTION_CAMPAIGN",
-    metrics: ["spend", "impressions", "reach", "clicks", "ctr", "cpc", "cpm", "conversion", "cost_per_conversion", "conversion_rate"],
+    metrics: ["spend", "impressions", "reach", "clicks", "ctr", "cpc", "cpm", "conversion", "cost_per_conversion", "conversion_rate", "purchase", "total_purchase_value"],
   },
   get_report_integrated: {},
 };
@@ -65,6 +69,15 @@ const FILTERED = new Set(["get_adgroups", "get_ads"]);
  * (server/mcp-compact.mjs) : une page demandée est une page lue.
  */
 const LISTS = { get_campaigns: 100, get_adgroups: 100, get_ads: 100, list_custom_audiences: 40, search_ad_videos: 40, search_ad_images: 40 };
+
+/**
+ * Énumération des Business Centers et de leurs comptes publicitaires : jeton
+ * seul, sans le secret de l'application. Ouverte au seul périmètre illimité
+ * (l'équipe) : voir `accountsOfTikTokCall`. 50 par page, le plafond de TikTok.
+ */
+const ENUMERATIONS = new Set(["list_business_centers", "list_bc_advertisers"]);
+const ENUMERATION_PAGE_SIZE = "50";
+const BC_ID = /^\d{5,25}$/;
 
 const PAGE_SIZE = 1000;
 const DATA_LEVELS = new Set(["AUCTION_ADVERTISER", "AUCTION_CAMPAIGN", "AUCTION_ADGROUP", "AUCTION_AD"]);
@@ -171,6 +184,16 @@ function listArgs(name, given) {
   return { ...out, page: pageOf(given), page_size: String(LISTS[name]) };
 }
 
+/** Une énumération : la page, et pour les comptes d'un Business Center son identifiant. */
+function enumerationArgs(name, given) {
+  const out = { page: pageOf(given), page_size: ENUMERATION_PAGE_SIZE };
+  if (name !== "list_bc_advertisers") return out;
+  const bc = typeof given.bc_id === "string" ? given.bc_id.trim() : "";
+  if (!BC_ID.test(bc)) return refuse("bc_id est l'identifiant du Business Center (des chiffres entre guillemets), donné par list_business_centers");
+  // Exigé par n8n alors qu'il est fixe : les comptes publicitaires, rien d'autre.
+  return { bc_id: bc, asset_type: "ADVERTISER", ...out };
+}
+
 const UNREADABLE = "Appel refusé : les arguments doivent être un objet JSON strict (guillemets doubles, sans bloc de code ni commentaire) dans `input`.";
 
 /**
@@ -203,6 +226,7 @@ export function prepareTikTokArgs(name, args, { legacy = true } = {}) {
   const object = REPORTS[name] ? reportArgs(name, given)
     : name === "get_advertiser_info" ? advertiserInfoArgs(given)
     : LISTS[name] ? listArgs(name, given)
+    : ENUMERATIONS.has(name) ? enumerationArgs(name, given)
     : { advertiser_id: given.advertiser_id };
   if ("error" in object) return { error: object.error };
   if (typeof object.advertiser_id === "string") object.advertiser_id = object.advertiser_id.trim();
@@ -217,9 +241,12 @@ const ADVERTISER_ID = /^\d{5,25}$/;
  * chiffres. Toute autre forme est une erreur, jamais « aucun compte ».
  * @param {string} name
  * @param {Record<string, unknown>} object l'objet rendu par prepareTikTokArgs
- * @returns {{ ids: string[] } | { error: string }}
+ * Une énumération ne nomme aucun compte : elle est signalée (`enumerates`),
+ * et le proxy la refuse hors périmètre illimité.
+ * @returns {{ ids: string[], enumerates?: boolean } | { error: string }}
  */
 export function accountsOfTikTokCall(name, object) {
+  if (ENUMERATIONS.has(name)) return { ids: [], enumerates: true };
   const quoted = "l'identifiant du compte TikTok Ads s'écrit entre guillemets (un nombre de 19 chiffres est arrondi en route)";
   if (name === "get_advertiser_info") {
     let ids = null;
@@ -257,6 +284,8 @@ const PARAMS = {
   list_custom_audiences: `${ACCOUNT}, ${LIST_PAGING("list_custom_audiences")}.`,
   search_ad_videos: `${ACCOUNT}, ${LIST_PAGING("search_ad_videos")}.`,
   search_ad_images: `${ACCOUNT}, ${LIST_PAGING("search_ad_images")}.`,
+  list_business_centers: `page (optional, 1 by default; ${ENUMERATION_PAGE_SIZE} per page). Then list_bc_advertisers for the ad accounts of each Business Center.`,
+  list_bc_advertisers: `bc_id (required: the Business Center ID from list_business_centers, digits as a string in double quotes), page (optional, 1 by default; ${ENUMERATION_PAGE_SIZE} per page, read page_info.total_page). The same ad account can belong to several Business Centers. ${SERVER_SIDE}`,
 };
 
 /**

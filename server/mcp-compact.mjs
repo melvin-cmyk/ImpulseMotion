@@ -108,7 +108,7 @@ const RECALC_MIN_ROWS = 40;
 const GROUP_MIN_GAIN = 0.15;
 
 // Métriques sommables d'un jour à l'autre et d'une campagne à l'autre.
-const ADDITIVE_COL = /^(metrics\.)?(impressions|clicks|cost|spend|conversions|conversion|complete_payment|video_play_actions|video_watched_2s|video_watched_6s|video_views_p(25|50|75|100)|conversionsValue|allConversions|allConversionsValue|interactions|engagements|videoViews|inline_link_clicks|sessions|engagedSessions|screenPageViews|eventCount|keyEvents|transactions|ecommercePurchases|purchaseRevenue|totalRevenue|addToCarts|checkouts)$|^(actions|action_values)\./;
+const ADDITIVE_COL = /^(metrics\.)?(impressions|clicks|cost|spend|conversions|conversion|complete_payment|purchase|total_purchase|total_purchase_value|video_play_actions|video_watched_2s|video_watched_6s|video_views_p(25|50|75|100)|conversionsValue|allConversions|allConversionsValue|interactions|engagements|videoViews|inline_link_clicks|sessions|engagedSessions|screenPageViews|eventCount|keyEvents|transactions|ecommercePurchases|purchaseRevenue|totalRevenue|addToCarts|checkouts)$|^(actions|action_values)\./;
 
 // Métriques connues pour ne pas se sommer : retirées des agrégats, et nommées.
 const NON_ADDITIVE_COL = /(^|\.)(ctr|cpc|cpm|cpp|reach|frequency|unique_\w+|totalUsers|activeUsers|averageCpc|averageCpm|averageCpv|averageCost|costPerConversion|costPerAllConversions|valuePerConversion|\w*Rate|\w*Share|\w+_rate|cost_per_conversion|\w+_roas)$|^(cost_per_\w+|\w*purchase_roas)\./;

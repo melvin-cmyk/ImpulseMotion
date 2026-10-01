@@ -258,6 +258,23 @@ describe("the gate of a TikTok conversation", () => {
       expect(refused(gate().check("get_adgroups", input({ advertiser_id: ID, filtering }))), JSON.stringify(filtering)).toContain("filtering est un objet JSON");
     }
   });
+
+  it("lists the Business Centers and their ad accounts for the team only (unrestricted scope)", () => {
+    const STAFF = `${CLIENT_TOOLS},list_business_centers,list_bc_advertisers`;
+    const BC = "7005927560051687425";
+    expect(sent(gate("*", STAFF).check("list_business_centers", input({})))).toEqual({ page: "1", page_size: "50" });
+    expect(sent(gate("*", STAFF).check("list_bc_advertisers", input({ bc_id: BC, page: 2 })))).toEqual({ bc_id: BC, asset_type: "ADVERTISER", page: "2", page_size: "50" });
+    // asset_type is fixed: the model cannot ask for another kind of asset.
+    expect(sent(gate("*", STAFF).check("list_bc_advertisers", input({ bc_id: BC, asset_type: "CATALOG" })))).toMatchObject({ asset_type: "ADVERTISER" });
+    expect(refused(gate("*", STAFF).check("list_bc_advertisers", input({})))).toContain("bc_id");
+    expect(refused(gate("*", STAFF).check("list_bc_advertisers", input({ bc_id: 7005927560051687425 })))).toContain("bc_id");
+    // A restricted scope (a client bot, a member with named accounts) never enumerates, even if the tool is open.
+    for (const name of ["list_business_centers", "list_bc_advertisers"]) {
+      expect(refused(gate(ID, STAFF).check(name, input({ bc_id: BC }))), name).toContain("énumération des comptes");
+    }
+    // Closed in a client bot's list anyway.
+    expect(refused(gate("*").check("list_business_centers", input({})))).toContain("n'est pas ouvert");
+  });
 });
 
 describe("the gate of the other servers", () => {
