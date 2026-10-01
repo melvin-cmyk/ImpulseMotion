@@ -16,6 +16,7 @@
  *   slack-message.ts      slackMessageHandler     StepHandler<SlackMessageStep>      lot B
  *   email-send.ts         emailSendHandler        StepHandler<EmailSendStep>         lot B
  *   meta-insights.ts      metaInsightsHandler     StepHandler<MetaInsightsStep>      lot C
+ *   tiktok-insights.ts    tiktokInsightsHandler   StepHandler<TikTokInsightsStep>    TikTok (lecture)
  *   meta-create-ads.ts    metaCreateAdsHandler    StepHandler<MetaCreateAdsStep>     lot C
  *   ai-summary.ts         aiSummaryHandler        StepHandler<AiSummaryStep>         lot D
  *
@@ -39,12 +40,14 @@ import { rowsFilterHandler, rowsLimitHandler, rowsSelectHandler, rowsSortHandler
 import { sheetReadHandler } from "@/lib/routines/steps/sheet-read";
 import { sheetWriteHandler } from "@/lib/routines/steps/sheet-write";
 import { slackMessageHandler } from "@/lib/routines/steps/slack-message";
+import { tiktokInsightsHandler } from "@/lib/routines/steps/tiktok-insights";
 
 /** One handler per step type; a missing or mistyped one does not compile. */
 export const STEP_HANDLERS: { readonly [T in StepType]: StepHandler<StepOf<T>> } = {
   "sheet.read": sheetReadHandler,
   "meta.insights": metaInsightsHandler,
   "google.insights": googleInsightsHandler,
+  "tiktok.insights": tiktokInsightsHandler,
   "rows.filter": rowsFilterHandler,
   "rows.sort": rowsSortHandler,
   "rows.limit": rowsLimitHandler,

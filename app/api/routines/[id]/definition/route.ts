@@ -25,7 +25,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRoutinesAccess } from "@/lib/routines/access";
 import { handlerFor, writesPlatform } from "@/lib/routines/steps";
 import { proposalNotices } from "@/lib/routines/proposal-notices";
-import { actorOf, applyDefinition, chosenPageOf, getRoutine, routineForSession, routineView } from "@/lib/routines/store";
+import { actorOf, applyDefinition, chosenPageOf, getRoutine, routineForSession, routineTikTokIds, routineView } from "@/lib/routines/store";
+import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
 import { validateProposal } from "@/lib/routines/validate";
 import type { PreflightIssue, StepContext } from "@/lib/routines/types";
 
@@ -67,10 +68,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const checked = validateProposal(body && typeof body === "object" && "proposal" in body ? body.proposal : body, { pageId: chosenPage?.id ?? null });
   if (!checked.ok) return NextResponse.json({ error: "proposition invalide", errors: checked.errors }, { status: 400 });
   const proposal = checked.value;
+  // A definition that reads TikTok reads the client's TikTok accounts: they must be in the person's scope too.
+  const scope = await getAccountScope(guard.session);
+  const tiktokOutside = scope.all ? null : bindingOutOfScope(scope, {
+    tiktokAdvertiserIds: await routineTikTokIds({ dashboardId: routine.dashboardId, definitionJson: JSON.stringify(proposal.definition) }),
+  });
+  if (tiktokOutside) return NextResponse.json({ error: "forbidden", account: tiktokOutside }, { status: 403 });
 
   const target: StepContext["routine"] = {
     id: routine.id, name: proposal.name, metaAccountId: routine.metaAccountId, googleCustomerId: routine.googleCustomerId,
     timezone: routine.timezone, maxItemsPerRun: proposal.maxItemsPerRun,
+    // tiktok.insights reads the TikTok accounts of the dashboard.
+    dashboardId: routine.dashboardId,
     pageId: chosenPage?.id ?? null,
   };
   // Read before the definition is replaced: what it changes is said with what was there.

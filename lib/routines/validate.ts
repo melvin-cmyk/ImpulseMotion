@@ -47,6 +47,7 @@ const STEP_FIELDS: Record<StepType, readonly string[]> = {
   "sheet.read": ["sheet", "requiredColumns", "maxRows"],
   "meta.insights": ["level", "window", "metrics", "nameContains"],
   "google.insights": ["level", "window", "metrics"],
+  "tiktok.insights": ["level", "window", "metrics"],
   "rows.filter": ["where"],
   "rows.sort": ["by", "dir"],
   "rows.limit": ["count"],
@@ -76,9 +77,9 @@ const FORBIDDEN_PLATFORM_KEYS = new Set(["status", "effective_status", "configur
  * the creation did not go through.
  */
 const ROW_PRODUCERS: ReadonlySet<StepType> = new Set<StepType>([
-  "sheet.read", "meta.insights", "google.insights", "rows.filter", "rows.sort", "rows.limit", "rows.select", "meta.create_ads",
+  "sheet.read", "meta.insights", "google.insights", "tiktok.insights", "rows.filter", "rows.sort", "rows.limit", "rows.select", "meta.create_ads",
 ]);
-const SOURCES: ReadonlySet<StepType> = new Set<StepType>(["sheet.read", "meta.insights", "google.insights"]);
+const SOURCES: ReadonlySet<StepType> = new Set<StepType>(["sheet.read", "meta.insights", "google.insights", "tiktok.insights"]);
 /** Steps that cannot do anything without rows. Messages need rows only if they show them. */
 const ROW_CONSUMERS: ReadonlySet<StepType> = new Set<StepType>([
   "rows.filter", "rows.sort", "rows.limit", "rows.select", "ai.summary", "sheet.write", "meta.create_ads",
@@ -284,7 +285,7 @@ export function validateDefinition(input: unknown): Validation<RoutineDefinition
     const readsRows = ROW_CONSUMERS.has(step.type)
       || tokens.some((t) => t.token.kind === "row")
       || ((step.type === "slack.message" || step.type === "email.send") && step.includeTable === true);
-    if (readsRows && !inputId) { errors.push(`${name} : aucune étape en amont ne produit de lignes (il faut une source : sheet.read, meta.insights ou google.insights).`); continue; }
+    if (readsRows && !inputId) { errors.push(`${name} : aucune étape en amont ne produit de lignes (il faut une source : sheet.read, meta.insights, google.insights ou tiktok.insights).`); continue; }
 
     for (const { field, token } of tokens) {
       if (token.kind !== "step.text") continue;

@@ -10,7 +10,6 @@ import { moneyFormatter, type MoneyFmt } from "./creative-format";
 
 /** localStorage keys shared with components/account-picker.tsx */
 export const META_ACCOUNT_STORAGE_KEY = "impulse_meta_account";
-export const TIKTOK_ACCOUNT_STORAGE_KEY = "impulse_tiktok_account";
 /** Dispatched on `window` to re-read the stored selection (refetch, deep link). */
 export const ACCOUNT_CHANGE_EVENT = "impulse:account-change";
 
@@ -21,7 +20,7 @@ export type DateRange = CanonicalRange;
 interface CreativesContextValue {
   creatives: Creative[];
   isLoading: boolean;
-  /** True when the list comes from a connected account (real Meta/TikTok data, possibly empty). */
+  /** True when the list comes from a connected account (real Meta data, possibly empty). */
   isRealData: boolean;
   /** True when at least one ad account is selected. */
   isConnected: boolean;
@@ -91,7 +90,6 @@ function subscribeAccounts(callback: () => void): () => void {
 }
 const readMeta = () => readStoredAccount(META_ACCOUNT_STORAGE_KEY);
 const readMetaName = () => readStoredMetaAccountName();
-const readTiktok = () => readStoredAccount(TIKTOK_ACCOUNT_STORAGE_KEY);
 const readNone = () => null;
 
 /** Notifies every CreativesProvider that the stored selection changed. */
@@ -124,7 +122,6 @@ export function readStoredMetaAccountName(): string | null {
 export function CreativesProvider({ children }: { children: React.ReactNode }) {
   const metaAccountId = useSyncExternalStore(subscribeAccounts, readMeta, readNone);
   const metaAccountName = useSyncExternalStore(subscribeAccounts, readMetaName, readNone);
-  const tiktokAccountId = useSyncExternalStore(subscribeAccounts, readTiktok, readNone);
   const [nonce, setNonce] = useState(0);
   const refreshRef = useRef(false);
 
@@ -176,11 +173,11 @@ export function CreativesProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const isConnected = !!(metaAccountId || tiktokAccountId);
+  // Meta only: the legacy TikTok creatives (direct API, never configured) were removed.
+  const isConnected = !!metaAccountId;
 
   const { creatives, loading, error, isRealData, meta } = useCreatives({
     metaAccountId,
-    tiktokAccountId,
     isConnected,
     since: dateRange.since,
     until: dateRange.until,

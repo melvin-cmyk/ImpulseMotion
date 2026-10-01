@@ -192,6 +192,11 @@ export default function NewRoutinePage() {
                   ) : (
                     <p className="text-xs text-gray-500 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">Pas de compte Google Ads lié à ce client.</p>
                   )}
+                  {!client.id.startsWith("account:") && (
+                    <p className="text-xs text-gray-500 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
+                      TikTok Ads : les comptes TikTok rattachés à ce client (carte « Sources de données » de sa fiche) sont lus à chaque exécution, en lecture seule.
+                    </p>
+                  )}
                 </div>
                 <p className="text-[11px] text-gray-500 mt-1.5">
                   Ces comptes sont fixés à la création : l&apos;IA et chaque exécution y sont limitées. Une routine sans compte reste possible (Google Sheet vers Slack, par exemple).

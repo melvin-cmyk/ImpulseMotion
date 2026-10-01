@@ -5,9 +5,8 @@ import type { Creative, CreativesMeta } from "./creative-types";
 import { mockCreatives } from "./mock-data";
 
 interface UseCreativesOptions {
-  /** If provided, fetch real data for this account ID */
+  /** If provided, fetch real data for this account ID. Meta only: TikTok creatives are not offered here. */
   metaAccountId?: string | null;
-  tiktokAccountId?: string | null;
   /** Whether the user has configured real accounts (mocks are shown ONLY when false) */
   isConnected?: boolean;
   /** Date range filter (YYYY-MM-DD) — forwarded to the Meta API */
@@ -51,7 +50,6 @@ const EMPTY: Creative[] = [];
  */
 export function useCreatives({
   metaAccountId,
-  tiktokAccountId,
   isConnected = false,
   since,
   until,
@@ -59,8 +57,8 @@ export function useCreatives({
   nonce = 0,
   refreshRef,
 }: UseCreativesOptions = {}): UseCreativesResult {
-  const demo = !isConnected || (!metaAccountId && !tiktokAccountId);
-  const key = JSON.stringify({ metaAccountId, tiktokAccountId, since, until, campaignId, nonce });
+  const demo = !isConnected || !metaAccountId;
+  const key = JSON.stringify({ metaAccountId, since, until, campaignId, nonce });
   const [result, setResult] = useState<FetchResult | null>(null);
 
   useEffect(() => {
@@ -87,21 +85,6 @@ export function useCreatives({
               if (Array.isArray(data)) return { creatives: data, meta: null };
               if ("creatives" in data && Array.isArray(data.creatives)) return { creatives: data.creatives, meta: data.meta ?? null };
               throw new Error((data as { error?: string }).error ?? `Meta creatives HTTP ${r.status}`);
-            }),
-        );
-      }
-
-      if (tiktokAccountId) {
-        // Same window as Meta: both lists land in the same totals and ranking.
-        const params = new URLSearchParams({ accountId: tiktokAccountId });
-        if (since) params.set("since", since);
-        if (until) params.set("until", until);
-        fetches.push(
-          fetch(`/api/tiktok/creatives?${params.toString()}`, { signal: controller.signal })
-            .then(async (r) => {
-              const data = (await r.json()) as Creative[] | { error?: string };
-              if (Array.isArray(data)) return { creatives: data, meta: null };
-              throw new Error(data.error ?? `TikTok creatives HTTP ${r.status}`);
             }),
         );
       }
@@ -135,7 +118,7 @@ export function useCreatives({
       cancelled = true;
       controller.abort();
     };
-  }, [demo, key, metaAccountId, tiktokAccountId, since, until, campaignId, refreshRef]);
+  }, [demo, key, metaAccountId, since, until, campaignId, refreshRef]);
 
   if (demo) {
     return { creatives: mockCreatives, loading: false, error: null, isRealData: false, meta: null };

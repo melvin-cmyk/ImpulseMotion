@@ -5,8 +5,10 @@
  * - AOV is only used when the account doesn't track purchase value — see
  *   computeRevenue in lib/meta-api.ts. It is NEVER defaulted: an unconfigured
  *   AOV means revenue is "unavailable", not "20 €".
- * - currency/timezone come from the Meta account profile (authoritative) and
- *   are persisted into AccountSetting as a fallback for when Meta is down.
+ * - currency/timezone come from the account profile of the platform
+ *   (authoritative: Meta's account, or the TikTok advertiser read by
+ *   checkAdvertiser) and are persisted into AccountSetting as a fallback for
+ *   when the platform is down. Google has no profile read here.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -69,13 +71,47 @@ export interface AccountProfileSettings {
   timezone: string | null;
   /** purchase | lead | complete_registration | custom:<action_type> */
   conversionEvent: string;
+  /** Account name as the platform gives it (TikTok only for now), null when unknown. */
+  name?: string | null;
+}
+
+interface LiveProfile { currency: string | null; timezone: string | null; name: string | null }
+
+const TIKTOK_PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
+const tiktokProfiles = new Map<string, { at: number; value: LiveProfile }>();
+
+/** TikTok advertiser profile (get_advertiser_info through the relay), cached 24 h like Meta's. Throws when TikTok refuses or is down. */
+async function getTikTokProfileCached(advertiserId: string): Promise<LiveProfile> {
+  const hit = tiktokProfiles.get(advertiserId);
+  if (hit && Date.now() - hit.at < TIKTOK_PROFILE_TTL_MS) return hit.value;
+  // Loaded on demand: most callers only ever read Meta accounts.
+  const { checkAdvertiser } = await import("@/lib/tiktok-accounts");
+  const check = await checkAdvertiser(advertiserId);
+  if (!check.ok) throw new Error(check.error);
+  const value = { currency: check.advertiser.currency, timezone: check.advertiser.timezone, name: check.advertiser.name };
+  tiktokProfiles.set(advertiserId, { at: Date.now(), value });
+  return value;
+}
+
+/** Tests only: forget the cached TikTok profiles. */
+export function clearTikTokProfileCache(): void {
+  tiktokProfiles.clear();
+}
+
+async function liveProfile(platform: string, id: string): Promise<LiveProfile | null> {
+  if (platform === "meta") {
+    const profile = await getAccountProfileCached(getMetaSystemToken(), id);
+    return { currency: profile.currency || null, timezone: profile.timezone_name || null, name: null };
+  }
+  if (platform === "tiktok") return getTikTokProfileCached(id);
+  return null;
 }
 
 /**
- * AccountSetting row merged with the Meta account profile. The Meta profile
- * (cached 24 h) is authoritative for currency/timezone; the row is the
+ * AccountSetting row merged with the account profile of the platform (Meta,
+ * TikTok; cached 24 h), authoritative for currency/timezone; the row is the
  * fallback and is updated (upsert) whenever the profile disagrees or the row
- * lacks a value. Never throws: a Meta failure degrades to the stored values.
+ * lacks a value. Never throws: a platform failure degrades to the stored values.
  */
 export async function getAccountProfileSettings(
   platform: string,
@@ -94,12 +130,14 @@ export async function getAccountProfileSettings(
 
   let currency = row?.currency ?? null;
   let timezone = row?.timezone ?? null;
+  let name: string | null = null;
 
-  if (platform === "meta") {
+  if (platform === "meta" || platform === "tiktok") {
     try {
-      const profile = await getAccountProfileCached(getMetaSystemToken(), id);
-      const liveCurrency = profile.currency || null;
-      const liveTz = profile.timezone_name || null;
+      const profile = (await liveProfile(platform, id))!;
+      const liveCurrency = profile.currency;
+      const liveTz = profile.timezone;
+      name = profile.name;
       const changed = (liveCurrency && liveCurrency !== currency) || (liveTz && liveTz !== timezone);
       if (liveCurrency) currency = liveCurrency;
       if (liveTz) timezone = liveTz;
@@ -124,5 +162,6 @@ export async function getAccountProfileSettings(
     currency,
     timezone,
     conversionEvent: (row?.conversionEvent ?? "").trim() || "purchase",
+    ...(platform === "tiktok" ? { name } : {}),
   };
 }

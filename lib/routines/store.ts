@@ -229,9 +229,31 @@ export function actorOf(session: { userId: string; baseRole?: string | null; rol
   return { userId: session.userId, email: session.user?.email ?? null, role: session.baseRole ?? session.role ?? null };
 }
 
+/** One step of the stored definition reads TikTok (tiktok.insights). Unreadable definition: no. */
+export function readsTikTok(definitionJson: string | null | undefined): boolean {
+  const parsed = parseJson(definitionJson, {}) as { steps?: unknown };
+  return Array.isArray(parsed.steps) && parsed.steps.some((s) => !!s && typeof s === "object" && (s as { type?: unknown }).type === "tiktok.insights");
+}
+
+/**
+ * TikTok advertisers a routine reads: those attached to its dashboard
+ * (DashboardSource of kind "tiktok", the rule of lib/tiktok-accounts.ts), when
+ * a step of its definition reads TikTok; none otherwise. Routine has no column
+ * for them: they join its Meta and Google accounts in every check of scope.
+ */
+export async function routineTikTokIds(routine: { dashboardId?: string | null; definitionJson?: string | null }): Promise<string[]> {
+  if (!routine.dashboardId || !readsTikTok(routine.definitionJson)) return [];
+  const rows = await prisma.dashboardSource.findMany({
+    where: { dashboardId: routine.dashboardId, kind: "tiktok", status: { not: "disabled" } },
+    select: { externalId: true },
+  });
+  return rows.map((r) => r.externalId.replace(/\s+/g, "")).filter((id) => /^\d{5,25}$/.test(id));
+}
+
 /**
  * Loads a routine for a staff session: 404 when it does not exist, 403 when
- * one of its ad accounts is outside the person's scope (lib/scope.ts).
+ * one of its ad accounts (TikTok ones included, when it reads them) is
+ * outside the person's scope (lib/scope.ts).
  */
 export async function routineForSession(
   session: { userId: string; role?: string | null }, id: string,
@@ -240,7 +262,9 @@ export async function routineForSession(
   const routine = await getRoutine(id);
   if (!routine) return { status: 404 };
   const scope = await getAccountScope(session);
-  return bindingOutOfScope(scope, routine) ? { status: 403 } : { status: 200, routine };
+  if (bindingOutOfScope(scope, routine)) return { status: 403 };
+  if (!scope.all && bindingOutOfScope(scope, { tiktokAdvertiserIds: await routineTikTokIds(routine) })) return { status: 403 };
+  return { status: 200, routine };
 }
 
 // ── Run lock ─────────────────────────────────────────────────────────────
@@ -305,7 +329,11 @@ export async function dueRoutineIds(now: Date, take = 50): Promise<string[]> {
  * routine in scope. Null when all is well, the reason otherwise.
  */
 export async function ownerProblem(
-  routine: Pick<RoutineRecord, "createdById" | "activatedById" | "metaAccountId" | "googleCustomerId"> & { writesPlatform?: boolean },
+  routine: Pick<RoutineRecord, "createdById" | "activatedById" | "metaAccountId" | "googleCustomerId"> & {
+    writesPlatform?: boolean;
+    /** To find the TikTok advertisers the routine reads (routineTikTokIds). */
+    dashboardId?: string | null; definitionJson?: string | null;
+  },
 ): Promise<string | null> {
   const userId = routine.activatedById || routine.createdById;
   const user = userId ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } }) : null;
@@ -316,7 +344,9 @@ export async function ownerProblem(
   if (routine.writesPlatform && platformWriteNeedsAdmin() && user.role !== "admin") {
     return `Cette routine crée des publicités et la règle ${PLATFORM_WRITE_NEEDS_ADMIN_ENV} est en vigueur : elle a été activée par une personne qui n'est pas administrateur. Elle est à réactiver par un administrateur.`;
   }
-  const outside = bindingOutOfScope(await getAccountScope({ userId: user.id, role }), routine);
+  const scope = await getAccountScope({ userId: user.id, role });
+  const outside = bindingOutOfScope(scope, routine)
+    ?? (scope.all ? null : bindingOutOfScope(scope, { tiktokAdvertiserIds: await routineTikTokIds(routine) }));
   return outside ? `Le compte ${outside} n'est plus dans le périmètre de la personne qui a activé la routine.` : null;
 }
 

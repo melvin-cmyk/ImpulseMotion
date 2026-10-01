@@ -17,11 +17,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRoutinesAccess } from "@/lib/routines/access";
-import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
+import { bindingOutOfScope, getAccountScope, tiktokInScope } from "@/lib/scope";
+import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { relayStream, teeRelayStream } from "@/lib/relay-chat";
 import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay-attachments";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { chatJsonWith, readRoutineContext } from "@/lib/routines/context";
+import { routineTikTokIds } from "@/lib/routines/store";
 import { proposalNotices } from "@/lib/routines/proposal-notices";
 import { validateProposal, type ProposalContext } from "@/lib/routines/validate";
 import { writesPlatform } from "@/lib/routines/steps";
@@ -111,7 +113,10 @@ async function loadRoutine(id: string, session: Session) {
   if (!routine) return { error: NextResponse.json({ error: "Routine introuvable" }, { status: 404 }) } as const;
   const scope = await getAccountScope(session);
   if (bindingOutOfScope(scope, routine)) return { error: NextResponse.json({ error: "forbidden" }, { status: 403 }) } as const;
-  return { routine } as const;
+  if (!scope.all && bindingOutOfScope(scope, { tiktokAdvertiserIds: await routineTikTokIds(routine) })) {
+    return { error: NextResponse.json({ error: "forbidden" }, { status: 403 }) } as const;
+  }
+  return { routine, scope } as const;
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -148,16 +153,21 @@ export async function POST(req: NextRequest, { params }: Params) {
   const { id } = await params;
   const loaded = await loadRoutine(id, guard.session);
   if ("error" in loaded) return loaded.error;
-  const { routine } = loaded;
+  const { routine, scope } = loaded;
   if (routine.status === "archived") return NextResponse.json({ error: "Cette routine est archivée." }, { status: 409 });
 
   const body = await req.json().catch(() => ({}));
   const messages = sanitizeMessages(body.messages);
   if (!messages) return NextResponse.json({ error: "messages invalid" }, { status: 400 });
 
+  // TikTok accounts of the client the AI may read: those of the dashboard, within the consultant's scope.
+  const tiktokAdvertiserIds = routine.dashboardId
+    ? (await getDashboardTikTokIds(routine.dashboardId).catch(() => [])).filter((tid) => tiktokInScope(scope, tid))
+    : [];
+
   // Model, effort, servers and accounts are decided here: nothing of them is read from the request.
   const res = await relayStream(buildRoutineRelayBody({
-    routine: { ...routine, page: readRoutineContext(routine.chatJson).page ?? null },
+    routine: { ...routine, tiktokAdvertiserIds, page: readRoutineContext(routine.chatJson).page ?? null },
     userId: guard.session.userId,
     author: guard.session.user?.email ?? null,
     messages: toRelayMessages(messages),
