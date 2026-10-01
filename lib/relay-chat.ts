@@ -42,6 +42,8 @@ export interface RelayChatBody {
   /** Inference backend. "bedrock" = the agency's AWS account (EU region),
    *  reserved to the private client bots. Absent = the relay's default. */
   provider?: "bedrock";
+  /** Client-bot restrictions (no HQ, no web) regardless of the backend. */
+  clientBot?: boolean;
   /** Model alias resolved by the relay (see lib/ai-profiles.ts). Ignored on Bedrock. */
   model?: RelayModel;
   /** Preferred Claude Max account of the pool ("host" or an id from /api/relay/accounts);

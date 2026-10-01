@@ -882,7 +882,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   // Bedrock by the quota fallback keeps HQ, through the host's local "hq"
   // server instead of the claude.ai connector. Pulled out of `servers` either
   // way — it has no entry in the mcp-config, the CLI gets it from the host.
-  const clientBot = !!dataScope || provider === "bedrock";
+  const clientBot = !!dataScope || provider === "bedrock" || options.clientBot === true;
   const useWeb = requestedServers.includes(WEB_SERVER) && !clientBot;
   const builtinTools = ["ToolSearch", ...(useWeb ? ["WebFetch", ...(useBedrock ? [] : ["WebSearch"])] : [])];
   let useHq = servers.includes(HQ_SERVER) && !clientBot;
@@ -1608,6 +1608,7 @@ const server = http.createServer(async (req, res) => {
         maxTurns: body.maxTurns,
         sessionKey: body.sessionKey,
         account: body.account,
+        clientBot: body.clientBot === true,
         turnContext: body.turnContext,
         hqGuidance: body.hqGuidance,
       }).catch((err) => {

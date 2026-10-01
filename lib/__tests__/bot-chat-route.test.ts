@@ -22,9 +22,11 @@ let attached: Record<string, string[]> = {};
 const tiktokLookups: string[] = [];
 const relayCalls: RelayChatBody[] = [];
 const saved: Array<Record<string, unknown>> = [];
+let role = "client";
 
 vi.mock("@/lib/auth-helpers", () => ({
-  requireSession: async () => ({ session: { userId: "u1", role: "client", user: { email: "client@lpev.fr" } } }),
+  requireSession: async () => ({ session: { userId: "u1", role, user: { email: "client@lpev.fr" } } }),
+  isStaff: (s: { role?: string }) => s.role === "admin" || s.role === "consultant",
 }));
 vi.mock("@/lib/bot-access", () => ({
   loadBotFor: async (_session: unknown, botId: string) => (botId === BOT.id ? { status: 200, bot: { ...BOT, sourcesJson } } : { status: 404, bot: null }),
@@ -83,6 +85,26 @@ beforeEach(() => {
   tiktokLookups.length = 0;
   relayCalls.length = 0;
   saved.length = 0;
+  role = "client";
+});
+
+describe("POST /api/bot/[botId]/chat — Bedrock pour les clients seulement", () => {
+  it("runs a client's turn on Amazon Bedrock, with client-bot restrictions", async () => {
+    const body = await ask({ meta: true });
+    expect(body.provider).toBe("bedrock");
+    expect(body.clientBot).toBe(true);
+  });
+
+  it("runs a consultant or an admin trying the bot on Claude Max, still restricted like the client", async () => {
+    for (const r of ["consultant", "admin"]) {
+      role = r;
+      relayCalls.length = 0;
+      const body = await ask({ meta: true });
+      expect(body.provider).toBeUndefined();
+      expect(body.clientBot).toBe(true);
+      expect(body.accountScope).toEqual({ meta: ["act_1"] });
+    }
+  });
 });
 
 describe("POST /api/bot/[botId]/chat — TikTok Ads", () => {

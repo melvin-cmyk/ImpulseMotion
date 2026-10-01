@@ -21,7 +21,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordBotUsage, type RelayUsage } from "@/lib/ai-usage";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/auth-helpers";
+import { isStaff, requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
 import { parseMessages, parseSources, serializeMessages, serversForSources, type BotMessage } from "@/lib/bot-types";
 import { buildBotSystemPrompt, type BotDataCoverage } from "@/lib/bot-prompt";
@@ -124,9 +124,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
     allowedServers: serversForSources(sources),
     accountScope,
     budgetMs: BUDGET_MS,
-    // Client bots — and only them — run on Amazon Bedrock (AWS, EU region).
-    provider: "bedrock",
+    // Client-bot restrictions (no HQ, no web) whoever is asking.
+    clientBot: true,
   };
+  // Amazon Bedrock (AWS, EU region) is for clients only: a consultant or an
+  // admin trying a bot runs it on the agency's Claude Max accounts (rule of
+  // 2026-10-01, Melvin).
+  if (!isStaff(guard.session)) relayBody.provider = "bedrock";
   if (sources.data || sources.ga4PropertyId) {
     relayBody.dataScope = { clientKey: bot.clientKey, ga4PropertyId: sources.ga4PropertyId };
   }
