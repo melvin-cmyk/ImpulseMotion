@@ -10,6 +10,8 @@
  *      reads the account name first (one token reads every advertiser of the
  *      agency: a mistyped id would hand a client another client's figures).
  *      With confirm: true: looked up again, stored, { source, check }.
+ *      The advertiser must be in the staff member's scope (lib/tiktok-binding):
+ *      attaching it opens it to the dashboard's people.
  */
 
 import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
@@ -19,12 +21,13 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { hasSecretsKey } from "@/lib/secrets";
 import { listSources, upsertHubspotSource, type HubspotSourceConfig } from "@/lib/sources";
 import { testHubspotConnection } from "@/lib/hubspot/client";
-import { attachTikTokAdvertiser, checkAdvertiser, dashboardsWithAdvertiser, normalizeAdvertiserId } from "@/lib/tiktok-accounts";
+import { dashboardsWithAdvertiser } from "@/lib/tiktok-accounts";
+import { bindTikTokAdvertiser, checkTikTokBinding } from "@/lib/tiktok-binding";
+import { getAccountScope } from "@/lib/scope";
 
 export const maxDuration = 30;
 
 const NO_STORE = { "Cache-Control": "no-store" };
-const TIKTOK_ID_INVALID = "Identifiant du compte TikTok Ads invalide : il ne contient que des chiffres (TikTok Ads Manager, en haut à droite sous le nom du compte).";
 const SECRETS_KEY_MISSING = "SOURCE_SECRETS_KEY non configurée : impossible de chiffrer le token (définir une clé base64 de 32 octets, ex. openssl rand -base64 32).";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -49,7 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!dashboard) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-  if (body.kind === "tiktok") return attachTikTok(id, body);
+  if (body.kind === "tiktok") return attachTikTok(guard.session, id, body);
   if (body.kind !== "hubspot") return NextResponse.json({ error: "kind doit être \"hubspot\" ou \"tiktok\"" }, { status: 400 });
   const token = typeof body.token === "string" ? body.token.trim() : "";
   let portalId = typeof body.portalId === "string" ? body.portalId.trim() : "";
@@ -83,17 +86,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 /** TikTok: a first call shows who the advertiser is, a confirmed second call stores it. */
-async function attachTikTok(dashboardId: string, body: Record<string, unknown>) {
-  const advertiserId = normalizeAdvertiserId(body.advertiserId);
-  if (!advertiserId) return NextResponse.json({ error: TIKTOK_ID_INVALID }, { status: 400 });
+async function attachTikTok(session: { userId: string; role?: string | null }, dashboardId: string, body: Record<string, unknown>) {
   // Asked again on the confirmed call: what is stored is TikTok's answer, never a name sent by the browser.
-  const checked = await checkAdvertiser(advertiserId);
-  if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+  const checked = await checkTikTokBinding(body.advertiserId, await getAccountScope(session));
+  if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: checked.status });
 
   try {
-    const check = { advertiser: checked.advertiser, alreadyOn: await dashboardsWithAdvertiser(advertiserId, dashboardId) };
+    const check = { advertiser: checked.advertiser, alreadyOn: await dashboardsWithAdvertiser(checked.advertiser.id, dashboardId) };
     if (body.confirm !== true) return NextResponse.json({ check }, { status: 200, headers: NO_STORE });
-    const stored = await attachTikTokAdvertiser(dashboardId, checked.advertiser);
+    const stored = await bindTikTokAdvertiser(dashboardId, checked.advertiser);
     const source = (await listSources(dashboardId)).find((s) => s.id === stored.id);
     if (!source) throw new Error("Compte TikTok Ads rattaché mais introuvable à la relecture");
     return NextResponse.json({ source, check }, { status: 200, headers: NO_STORE });

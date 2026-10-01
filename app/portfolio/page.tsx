@@ -91,7 +91,7 @@ export default function PortfolioPage() {
         title="Clients"
         subtitle={
           <div className="space-y-1">
-            <div>Un client = un compte publicitaire (Meta et/ou Google), comparé à la période précédente de même durée.</div>
+            <div>Un client = un compte publicitaire (Meta, Google et/ou TikTok Ads), comparé à la période précédente de même durée.</div>
             <Freshness rangeLabel={data.rangeLabel} fetchedAt={fetchedAt} onRefresh={() => load(true)} refreshing={refreshing} timedOut={s.timedOut} />
           </div>
         }
@@ -170,6 +170,7 @@ export default function PortfolioPage() {
                     <div className="flex gap-1">
                       {c.metaAccountId && <Pill tone="blue">Meta</Pill>}
                       {c.googleCustomerId && <Pill tone="emerald">Google</Pill>}
+                      {(c.tiktokAdvertiserIds?.length ?? 0) > 0 && <Pill tone="violet">TikTok</Pill>}
                     </div>
                   </td>
                   {!c.fetchOk ? (

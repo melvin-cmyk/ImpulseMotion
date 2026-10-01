@@ -73,3 +73,23 @@ describe("renderDataForPrompt()", () => {
     expect(prompt).toContain("token Meta expiré");
   });
 });
+
+describe("renderDataForPrompt() — TikTok", () => {
+  it("names TikTok Ads and renders its daily trend and campaigns", () => {
+    const prompt = renderDataForPrompt(data({
+      client: { dashboardId: "d1", name: "Jow", metaAccountId: "123", googleCustomerId: null, tiktokAdvertiserIds: ["7000000000000000001"], platforms: ["meta", "tiktok"] },
+      daily: { tiktokSpend: [{ date: "2026-08-01", value: 100 }, { date: "2026-08-02", value: 300 }] },
+      campaigns: { meta: [], google: [], tiktok: [{ name: "Spark Ads", spend: 4_000, clicks: 900, conversions: 40, roas: 3.2 }] },
+    }));
+    expect(prompt).toContain("CLIENT : Jow (Meta Ads + TikTok Ads)");
+    expect(prompt).toContain("Dépenses TikTok : 2 jours");
+    expect(prompt).toContain("CAMPAGNES TIKTOK");
+    expect(prompt).toContain("- Spark Ads :");
+    expect(prompt).toContain("NB TIKTOK");
+  });
+
+  it("an older snapshot without TikTok renders as before", () => {
+    const prompt = renderDataForPrompt(data());
+    expect(prompt).not.toContain("TIKTOK");
+  });
+});

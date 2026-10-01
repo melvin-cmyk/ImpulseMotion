@@ -12,7 +12,7 @@ describe("validateWidgetConfig", () => {
 
   it("rejects invalid metrics and sources", () => {
     expect(() => validateWidgetConfig("kpi", { metric: "likes" })).toThrow(/Métrique KPI invalide/);
-    expect(() => validateWidgetConfig("kpi", { source: "tiktok" })).toThrow(/Source invalide/);
+    expect(() => validateWidgetConfig("kpi", { source: "snapchat" })).toThrow(/Source invalide/);
     expect(() => validateWidgetConfig("timeseries", { metric: "impressions" })).toThrow(/courbe invalide/);
     expect(() => validateWidgetConfig("table", { kind: "ads" })).toThrow(/Table invalide/);
   });

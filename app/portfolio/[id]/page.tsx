@@ -20,6 +20,8 @@ interface KpiData { metric: string; source: string; value: number; previous: num
 interface ClientSheet {
   client: {
     id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; reportFrequency: string | null;
+    /** TikTok Ads advertisers summed on the sheet (absent from older payloads). */
+    tiktokAccounts?: Array<{ id: string; name: string | null; currency: string | null }>;
     owner: { id: string; name: string | null; email: string | null };
     members: Array<{ id: string; name: string | null; email: string | null }>;
     dashboardIds: string[]; duplicates: number; currency: string | null; timezone: string | null;
@@ -230,9 +232,11 @@ export default function ClientSheetPage() {
   const platforms = d.platforms as { rows: Array<Record<string, number | string | null>> } | undefined;
   const dailyMeta = (d["daily:meta"] as { points: Array<{ date: string; value: number }> } | undefined)?.points ?? [];
   const dailyGoogle = (d["daily:google"] as { points: Array<{ date: string; value: number }> } | undefined)?.points ?? [];
-  const chart = mergeDaily(dailyMeta, dailyGoogle);
+  const dailyTikTok = (d["daily:tiktok"] as { points: Array<{ date: string; value: number }> } | undefined)?.points ?? [];
+  const chart = mergeDaily(dailyMeta, dailyGoogle, dailyTikTok);
   const campaignsMeta = (d["campaigns:meta"] as { rows: Array<{ name: string; spend: number; clicks: number; conversions: number; roas: number }> } | undefined)?.rows ?? [];
   const campaignsGoogle = (d["campaigns:google"] as { rows: Array<{ name: string; spend: number; clicks: number; conversions: number; roas: number }> } | undefined)?.rows ?? [];
+  const campaignsTikTok = (d["campaigns:tiktok"] as { rows: Array<{ name: string; spend: number; clicks: number; conversions: number; roas: number }> } | undefined)?.rows ?? [];
   const creatives = (d.creatives as { creatives: Array<{ adId: string; name: string; imageUrl: string | null; spend: number; ctr: number; hookRate: number; roas: number; cpa: number; estimated: boolean }> } | undefined)?.creatives ?? [];
   const pacing = d.pacing as PacingResult | undefined;
   const alerts = (d.alerts as { events: Array<{ id: string; metric: string; message: string; triggeredAt: string; acknowledged: boolean }> } | undefined)?.events ?? [];
@@ -267,6 +271,7 @@ export default function ClientSheetPage() {
           <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs text-gray-500">
             {c.metaAccountId && <Pill tone="blue">Meta · {c.metaAccountId}</Pill>}
             {c.googleCustomerId && <Pill tone="emerald">Google · {c.googleCustomerId}</Pill>}
+            {(c.tiktokAccounts ?? []).map((a) => <Pill key={a.id} tone="violet">TikTok · {a.name ?? a.id}</Pill>)}
             {cur && <Pill>{cur}</Pill>}
             {c.duplicates > 0 && <Pill tone="amber" className="cursor-help">{c.duplicates + 1} dashboards fusionnés</Pill>}
             <span>Accès : {c.owner.name ?? c.owner.email}{c.members.length > 0 ? ` + ${c.members.map((m) => m.name ?? m.email).join(", ")}` : ""}</span>
@@ -383,16 +388,18 @@ export default function ClientSheetPage() {
                   <defs>
                     <linearGradient id="gMeta" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.4} /><stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} /></linearGradient>
                     <linearGradient id="gGoogle" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity={0.4} /><stop offset="100%" stopColor="#10b981" stopOpacity={0} /></linearGradient>
+                    <linearGradient id="gTikTok" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ec4899" stopOpacity={0.4} /><stop offset="100%" stopColor="#ec4899" stopOpacity={0} /></linearGradient>
                   </defs>
                   <XAxis dataKey="date" tickFormatter={fmtDay} tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={24} />
                   <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} width={56} tickFormatter={(v) => fmtMoney(Number(v), cur, { digits: 0 })} />
                   <Tooltip
                     contentStyle={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 8, fontSize: 12 }}
                     labelFormatter={(l) => fmtDay(String(l))}
-                    formatter={(v, name) => [fmtMoney(Number(v ?? 0), cur, { digits: 0 }), String(name) === "meta" ? "Meta" : "Google"]}
+                    formatter={(v, name) => [fmtMoney(Number(v ?? 0), cur, { digits: 0 }), String(name) === "meta" ? "Meta" : String(name) === "tiktok" ? "TikTok" : "Google"]}
                   />
                   {dailyMeta.length > 0 && <Area type="monotone" dataKey="meta" stroke="#8b5cf6" fill="url(#gMeta)" strokeWidth={2} dot={false} />}
                   {dailyGoogle.length > 0 && <Area type="monotone" dataKey="google" stroke="#10b981" fill="url(#gGoogle)" strokeWidth={2} dot={false} />}
+                  {dailyTikTok.length > 0 && <Area type="monotone" dataKey="tiktok" stroke="#ec4899" fill="url(#gTikTok)" strokeWidth={2} dot={false} />}
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -455,7 +462,7 @@ export default function ClientSheetPage() {
       ) : null}
 
       <div className="grid lg:grid-cols-2 gap-4">
-        {[{ label: "Campagnes Meta", rows: campaignsMeta, err: sheet.errors["campaigns:meta"] }, { label: "Campagnes Google Ads", rows: campaignsGoogle, err: sheet.errors["campaigns:google"] }]
+        {[{ label: "Campagnes Meta", rows: campaignsMeta, err: sheet.errors["campaigns:meta"] }, { label: "Campagnes Google Ads", rows: campaignsGoogle, err: sheet.errors["campaigns:google"] }, { label: "Campagnes TikTok Ads", rows: campaignsTikTok, err: sheet.errors["campaigns:tiktok"] }]
           .filter((t) => t.rows.length > 0 || t.err)
           .map((t) => (
             <Section key={t.label} title={t.label} bodyClassName="overflow-x-auto">
@@ -556,9 +563,10 @@ export default function ClientSheetPage() {
   );
 }
 
-function mergeDaily(meta: Array<{ date: string; value: number }>, google: Array<{ date: string; value: number }>) {
-  const byDate = new Map<string, { date: string; meta?: number; google?: number }>();
+function mergeDaily(meta: Array<{ date: string; value: number }>, google: Array<{ date: string; value: number }>, tiktok: Array<{ date: string; value: number }> = []) {
+  const byDate = new Map<string, { date: string; meta?: number; google?: number; tiktok?: number }>();
   for (const p of meta) byDate.set(p.date, { ...(byDate.get(p.date) ?? { date: p.date }), meta: p.value });
   for (const p of google) byDate.set(p.date, { ...(byDate.get(p.date) ?? { date: p.date }), google: p.value });
+  for (const p of tiktok) byDate.set(p.date, { ...(byDate.get(p.date) ?? { date: p.date }), tiktok: p.value });
   return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }

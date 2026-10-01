@@ -16,6 +16,8 @@ export const SERIES_METRICS = ["spend", "revenue", "roas", "clicks", "ctr", "cpc
 export const TABLE_KINDS = ["campaigns", "keywords", "search_terms"] as const;
 export const WIDGET_WIDTHS = ["third", "half", "full"] as const;
 export const META_ACTIONS_MAX = 30;
+/** KPI sources; "combined" sums every bound platform. Funnel and breakdowns stay Meta / Google. */
+export const KPI_SOURCES: readonly string[] = ["meta", "google", "tiktok", "combined"];
 
 /** Widgets whose Meta conversions follow `conversionEvent` (override of the account setting). */
 export const CONVERSION_WIDGET_TYPES = ["kpi", "timeseries", "table", "top_creatives", "platform_table", "funnel", "demographics", "geo_device"] as const;
@@ -24,19 +26,19 @@ export const CONVERSION_WIDGET_TYPES = ["kpi", "timeseries", "table", "top_creat
 export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: string }> = {
   kpi: {
     label: "KPI",
-    configDoc: `{ metric: ${KPI_METRICS.join("|")}, source: "meta"|"google"|"combined" } — inclut automatiquement la comparaison vs période précédente`,
+    configDoc: `{ metric: ${KPI_METRICS.join("|")}, source: "meta"|"google"|"tiktok"|"combined" } — combined additionne toutes les plateformes liées (Meta, Google, TikTok) ; inclut automatiquement la comparaison vs période précédente`,
   },
   platform_table: {
     label: "Vue par plateforme",
-    configDoc: `{} — une ligne par plateforme liée (Meta, Google, Total) avec Cost, Impr., CTR, Clics, CPC, CR%, Conversions, CPA et leur %Δ vs la période de comparaison`,
+    configDoc: `{} — une ligne par plateforme liée (Meta, Google, TikTok, Total) avec Cost, Impr., CTR, Clics, CPC, CR%, Conversions, CPA et leur %Δ vs la période de comparaison`,
   },
   timeseries: {
     label: "Courbe temporelle",
-    configDoc: `{ metric: ${SERIES_METRICS.join("|")}, source: "meta"|"google" } (quotidien)`,
+    configDoc: `{ metric: ${SERIES_METRICS.join("|")}, source: "meta"|"google"|"tiktok" } (quotidien)`,
   },
   table: {
     label: "Table de performance",
-    configDoc: `{ kind: ${TABLE_KINDS.join("|")}, source: "google"|"meta", limit?: 1-30 } — source meta uniquement pour kind=campaigns`,
+    configDoc: `{ kind: ${TABLE_KINDS.join("|")}, source: "google"|"meta"|"tiktok", limit?: 1-30 } — sources meta et tiktok uniquement pour kind=campaigns`,
   },
   top_creatives: {
     label: "Top créas Meta",
@@ -44,7 +46,7 @@ export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: st
   },
   pacing: {
     label: "Pacing budget",
-    configDoc: `{} (utilise le budget mensuel du compte Meta du dashboard)`,
+    configDoc: `{} (budget mensuel du client, ou du compte Meta ; la dépense TikTok liée compte contre le budget du client s'il est dans la même devise)`,
   },
   text: {
     label: "Texte libre",
@@ -52,7 +54,7 @@ export const WIDGET_TYPE_INFO: Record<WidgetType, { label: string; configDoc: st
   },
   funnel: {
     label: "Entonnoir de conversion",
-    configDoc: `{ source: "meta"|"google"|"combined" (défaut combined) } — étapes Impressions → Clics → Conversions avec taux de passage (CTR, taux de conversion) ; combined additionne les plateformes liées ; pas de comparaison de période`,
+    configDoc: `{ source: "meta"|"google"|"combined" (défaut combined) } — étapes Impressions → Clics → Conversions avec taux de passage (CTR, taux de conversion) ; combined additionne Meta et Google (pas TikTok) ; pas de comparaison de période`,
   },
   demographics: {
     label: "Démographie Meta",
@@ -142,8 +144,8 @@ function validateTypedConfig(type: WidgetType, cfg: Record<string, unknown>): Re
         throw widgetIssue(`Métrique KPI invalide: ${metric}. Valides: ${KPI_METRICS.join(", ")}`);
       }
       const source = String(cfg.source ?? "meta");
-      if (!["meta", "google", "combined"].includes(source)) {
-        throw widgetIssue(`Source invalide: ${source} (meta, google ou combined)`);
+      if (!KPI_SOURCES.includes(source)) {
+        throw widgetIssue(`Source invalide: ${source} (meta, google, tiktok ou combined)`);
       }
       return { metric, source };
     }
@@ -153,8 +155,8 @@ function validateTypedConfig(type: WidgetType, cfg: Record<string, unknown>): Re
         throw widgetIssue(`Métrique de courbe invalide: ${metric}. Valides: ${SERIES_METRICS.join(", ")}`);
       }
       const source = String(cfg.source ?? "meta");
-      if (!["meta", "google"].includes(source)) {
-        throw widgetIssue(`Source de courbe invalide: ${source} (meta ou google)`);
+      if (!["meta", "google", "tiktok"].includes(source)) {
+        throw widgetIssue(`Source de courbe invalide: ${source} (meta, google ou tiktok)`);
       }
       return { metric, source };
     }
@@ -164,11 +166,11 @@ function validateTypedConfig(type: WidgetType, cfg: Record<string, unknown>): Re
         throw widgetIssue(`Table invalide: ${kind}. Valides: ${TABLE_KINDS.join(", ")}`);
       }
       const source = String(cfg.source ?? "google");
-      if (!["google", "meta"].includes(source)) {
-        throw widgetIssue(`Source de table invalide: ${source} (google ou meta)`);
+      if (!["google", "meta", "tiktok"].includes(source)) {
+        throw widgetIssue(`Source de table invalide: ${source} (google, meta ou tiktok)`);
       }
-      if (source === "meta" && kind !== "campaigns") {
-        throw widgetIssue(`La source meta ne supporte que kind=campaigns`);
+      if ((source === "meta" || source === "tiktok") && kind !== "campaigns") {
+        throw widgetIssue(`La source ${source} ne supporte que kind=campaigns`);
       }
       const limit = Math.min(Math.max(Number(cfg.limit ?? 10) || 10, 1), 30);
       return { kind, source, limit };

@@ -13,7 +13,7 @@ import { useSession } from "next-auth/react";
 import { InviteList } from "@/components/dashboard/members-manager";
 
 interface InviteResult { email: string; role: string; created: boolean; tempPassword?: string; error?: string }
-interface AvailableClient { id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null }
+interface AvailableClient { id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; tiktokAdvertiserId?: string }
 
 const inputCls =
   "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
@@ -30,6 +30,7 @@ export function CreateDashboardForm() {
   const [name, setName] = useState("");
   const [metaId, setMetaId] = useState("");
   const [googleId, setGoogleId] = useState("");
+  const [tiktokId, setTikTokId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,12 +48,13 @@ export function CreateDashboardForm() {
     setName(c?.name ?? "");
     setMetaId(c?.metaAccountId ?? "");
     setGoogleId(c?.googleCustomerId ?? "");
+    setTikTokId(c?.tiktokAdvertiserId ?? "");
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!metaId.trim() && !googleId.trim()) { setError(manual ? "Renseignez au moins un compte Meta ou Google" : "Choisissez un client"); return; }
+    if (!metaId.trim() && !googleId.trim() && !tiktokId.trim()) { setError(manual ? "Renseignez au moins un compte Meta, Google ou TikTok Ads" : "Choisissez un client"); return; }
     setSaving(true);
     const res = await fetch("/api/dashboards", {
       method: "POST",
@@ -62,6 +64,7 @@ export function CreateDashboardForm() {
         name: name.trim() || undefined,
         metaAccountId: metaId.trim() || undefined,
         googleCustomerId: googleId.trim() || undefined,
+        tiktokAdvertiserId: tiktokId.trim() || undefined,
       }),
     });
     setSaving(false);
@@ -73,7 +76,7 @@ export function CreateDashboardForm() {
     const body = await res.json().catch(() => ({}));
     setInvites(body.invites ?? []);
     setOpen(false);
-    setName(""); setMetaId(""); setGoogleId(""); setClients(""); setPicked(""); setManual(false);
+    setName(""); setMetaId(""); setGoogleId(""); setTikTokId(""); setClients(""); setPicked(""); setManual(false);
     router.refresh();
   }
 
@@ -113,7 +116,7 @@ export function CreateDashboardForm() {
               <option value="">{available === null ? "Chargement des clients…" : available.length ? "Choisir un client" : "Tous les clients ont déjà un dashboard"}</option>
               {(available ?? []).map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name} ({[c.metaAccountId && "Meta", c.googleCustomerId && "Google"].filter(Boolean).join(" + ")})
+                  {c.name} ({[c.metaAccountId && "Meta", c.googleCustomerId && "Google", c.tiktokAdvertiserId && "TikTok"].filter(Boolean).join(" + ")})
                 </option>
               ))}
             </select>
@@ -134,8 +137,10 @@ export function CreateDashboardForm() {
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom (ex: Leroy Merlin)" className={inputCls + " w-52"} />
             <input value={metaId} onChange={(e) => setMetaId(e.target.value)} placeholder="Compte Meta (act_…)" className={inputCls + " w-56"} />
             <input value={googleId} onChange={(e) => setGoogleId(e.target.value)} placeholder="Customer Google Ads" className={inputCls + " w-56"} />
+            <input value={tiktokId} onChange={(e) => setTikTokId(e.target.value)} inputMode="numeric" placeholder="Compte TikTok Ads (identifiant)" className={inputCls + " w-56 font-mono"} />
           </div>
-          <button type="button" onClick={() => { setManual(false); setName(""); setMetaId(""); setGoogleId(""); }} className="text-[11px] text-gray-500 underline hover:text-gray-300">
+          <p className="text-[11px] text-gray-500">Le compte TikTok Ads est retrouvé chez TikTok à la création ; d&apos;autres comptes TikTok se rattachent ensuite depuis la fiche client (Sources de données).</p>
+          <button type="button" onClick={() => { setManual(false); setName(""); setMetaId(""); setGoogleId(""); setTikTokId(""); }} className="text-[11px] text-gray-500 underline hover:text-gray-300">
             Revenir à la liste des clients
           </button>
         </div>

@@ -56,11 +56,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let data: ReportData | null = null;
   try { data = JSON.parse(report.dataJson) as ReportData; } catch { /* keep null */ }
 
-  // TikTok advertisers attached to this client: not in the snapshot, read on request only.
+  // TikTok advertisers attached to this client. Reports generated since TikTok
+  // reached the dashboards carry its figures in the snapshot; older ones do not.
   const tiktokIds = await getDashboardTikTokIds(report.dashboard.id);
-  const tiktokLine = tiktokIds.length
-    ? [`TIKTOK ADS : ce client a aussi ${tiktokIds.length > 1 ? "des comptes" : "un compte"} TikTok Ads (advertiser_id ${tiktokIds.join(", ")}), absent du snapshot et du rapport. Ne l'interroge que si on te le demande (outils mcp__mcp-tiktok-ads__* : advertiser_id entre guillemets, start_date et end_date, 30 jours au plus par appel). Ses conversions sont attribuées par TikTok : ne les additionne pas à celles de Meta et Google comme des ventes distinctes.`]
-    : [];
+  const inSnapshot = !!data?.client.platforms?.includes("tiktok");
+  const tools = "outils mcp__mcp-tiktok-ads__* : advertiser_id entre guillemets, start_date et end_date, 30 jours au plus par appel";
+  const tiktokLine = !tiktokIds.length ? [] : inSnapshot
+    ? [`TIKTOK ADS : ${tiktokIds.length > 1 ? "les comptes" : "le compte"} TikTok Ads du client (advertiser_id ${tiktokIds.join(", ")}) ${tiktokIds.length > 1 ? "sont" : "est"} dans le snapshot (KPIs, vue par plateforme, tendances, campagnes TikTok). Pour un détail absent du snapshot (groupe d'annonces, annonce, autre période), utilise les ${tools}. Ses conversions et sa valeur d'achat suivent l'attribution de TikTok.`]
+    : [`TIKTOK ADS : ce client a aussi ${tiktokIds.length > 1 ? "des comptes" : "un compte"} TikTok Ads (advertiser_id ${tiktokIds.join(", ")}) : ce rapport a été généré sans ses chiffres, ils ne sont pas dans ce snapshot. Ne l'interroge que si on te le demande (${tools}). Ses conversions sont attribuées par TikTok : ne les additionne pas à celles de Meta et Google comme des ventes distinctes.`];
 
   const systemPrompt = [
     "Tu es le consultant média senior d'Impulse Analytics qui a rédigé le rapport ci-dessous. Tu réponds aux questions d'un collègue consultant sur ce rapport et ce client.",

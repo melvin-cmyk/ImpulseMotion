@@ -84,7 +84,7 @@ export default function ReportsPage() {
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <PageHeader
         title="Rapports IA"
-        subtitle="Un rapport par client et par période, rédigé par l'IA à partir des données Meta et Google Ads : synthèse, analyse, next steps, export PDF."
+        subtitle="Un rapport par client et par période, rédigé par l'IA à partir des données Meta, Google et TikTok Ads : synthèse, analyse, next steps, export PDF."
         action={
           <button
             type="button"

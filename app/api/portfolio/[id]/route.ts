@@ -1,6 +1,6 @@
 /**
  * GET   /api/portfolio/[id]?since&until&refresh=1 → staff: client sheet for one
- *       dashboard (merged with its duplicates: same Meta / Google accounts) —
+ *       dashboard (merged with its duplicates: same Meta / Google / TikTok accounts) —
  *       KPIs with deltas, platform table, daily spend, campaigns, top creatives,
  *       pacing, alerts, reports, members. Same resolvers as the client dashboard.
  * PATCH /api/portfolio/[id] → staff: { monthlyBudget, budgetCurrency, reportFrequency, name }
@@ -10,7 +10,8 @@ import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { resolveWidgets, findHubspotSourceDashboard } from "@/lib/dashboard-widgets";
+import { resolveWidgets, findHubspotSourceDashboard, sourceFor } from "@/lib/dashboard-widgets";
+import { sameCurrencyAccounts, tiktokAccountsFromSources, TIKTOK_ACCOUNT_SOURCES_SELECT } from "@/lib/tiktok-dashboard";
 import type { CrmAttributionData } from "@/lib/crm-view";
 import { groupDashboardsByAccount, invalidateAccountCache, toClientError } from "@/lib/portfolio";
 import { getAccountProfileSettings } from "@/lib/account-settings";
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   // Merge with the dashboards that map to the same client (same accounts).
   const all = await prisma.dashboard.findMany({
-    select: { id: true, name: true, metaAccountId: true, googleCustomerId: true, createdAt: true, monthlyBudget: true, budgetCurrency: true, reportFrequency: true, hqSlug: true, hqContextAt: true },
+    select: { id: true, name: true, metaAccountId: true, googleCustomerId: true, createdAt: true, monthlyBudget: true, budgetCurrency: true, reportFrequency: true, hqSlug: true, hqContextAt: true, sources: TIKTOK_ACCOUNT_SOURCES_SELECT },
   });
   const { groups } = groupDashboardsByAccount(all);
   const group = groups.find((g) => g.dashboardIds.includes(id)) ?? null;
@@ -47,6 +48,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const googleCustomerId = group?.googleCustomerId ?? dashboard.googleCustomerId;
   const hasMeta = !!metaAccountId;
   const hasGoogle = !!googleCustomerId;
+  const tiktokAccounts = group?.tiktokAccounts ?? tiktokAccountsFromSources(all.find((d) => d.id === id)?.sources);
+  const tiktok = sameCurrencyAccounts(tiktokAccounts);
+  const hasTikTok = tiktok.accounts.length > 0;
 
   // Window: explicit ?since&until, else last 30 full days in the account timezone.
   let timezone: string | null = null;
@@ -57,6 +61,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       timezone = p.timezone;
       currency = p.currency;
     } catch { /* UTC */ }
+  } else if (!hasGoogle && hasTikTok) {
+    timezone = tiktok.accounts.find((a) => a.timezone)?.timezone ?? null;
+    currency = tiktok.currency;
   }
   const sp = req.nextUrl.searchParams;
   let range: DateRange;
@@ -70,21 +77,23 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const cmp = { ...prevRange(range), kind: "prev" };
   const dashboardIds = group?.dashboardIds ?? [id];
   const refresh = sp.get("refresh") === "1";
-  if (refresh) await invalidateAccountCache([metaAccountId, googleCustomerId, ...dashboardIds]);
+  if (refresh) await invalidateAccountCache([metaAccountId, googleCustomerId, ...tiktok.accounts.map((a) => a.id), ...dashboardIds]);
 
-  if (!hasMeta && !hasGoogle) {
+  if (!hasMeta && !hasGoogle && !hasTikTok) {
     return NextResponse.json({
-      error: "Ce dashboard n'est lié à aucun compte publicitaire (Meta ou Google). Liez un compte dans les réglages du dashboard.",
+      error: "Ce dashboard n'est lié à aucun compte publicitaire (Meta, Google ou TikTok). Liez un compte dans les réglages du dashboard.",
       unlinked: true,
       client: { id: dashboard.id, name: dashboard.name },
     }, { status: 422, headers });
   }
 
-  const source = hasMeta && hasGoogle ? "combined" : hasGoogle && !hasMeta ? "google" : "meta";
+  const source = sourceFor([hasMeta && "meta", hasGoogle && "google", hasTikTok && "tiktok"].filter((p): p is string => !!p));
+  // The funnel reads Meta and Google only.
+  const funnelSource = hasMeta && hasGoogle ? "combined" : hasGoogle ? "google" : "meta";
   const widgets: Array<{ id: string; type: string; config: Record<string, unknown> }> = [
     ...["spend", "revenue", "roas", "purchases", "cpa", "ctr", "cpc", "cr"].map((metric) => ({ id: `kpi:${metric}`, type: "kpi", config: { metric, source } })),
     { id: "platforms", type: "platform_table", config: {} },
-    { id: "funnel", type: "funnel", config: { source } },
+    ...(hasMeta || hasGoogle ? [{ id: "funnel", type: "funnel", config: { source: funnelSource } }] : []),
     { id: "alerts", type: "alerts", config: { limit: 8 } },
   ];
   if (hasMeta) {
@@ -97,6 +106,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     widgets.push({ id: "daily:google", type: "timeseries", config: { metric: "spend", source: "google" } });
     widgets.push({ id: "campaigns:google", type: "table", config: { kind: "campaigns", source: "google", limit: 10 } });
   }
+  if (hasTikTok) {
+    widgets.push({ id: "daily:tiktok", type: "timeseries", config: { metric: "spend", source: "tiktok" } });
+    widgets.push({ id: "campaigns:tiktok", type: "table", config: { kind: "campaigns", source: "tiktok", limit: 10 } });
+    // Pacing against the client's budget (with Meta, the widget above adds TikTok's spend).
+    if (!hasMeta) widgets.push({ id: "pacing", type: "pacing", config: {} });
+  }
   // CRM (HubSpot): any dashboard of the client may carry the source.
   const crmDashboardId = await findHubspotSourceDashboard([id, ...dashboardIds]).catch(() => null);
   if (crmDashboardId) {
@@ -107,7 +122,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   let fatal: { kind: string; message: string } | null = null;
   const [resolvedRes, reports, budget] = await Promise.all([
     resolveWidgets(
-      { id: dashboard.id, userId: dashboard.userId, metaAccountId, googleCustomerId, sourceDashboardIds: dashboardIds },
+      { id: dashboard.id, userId: dashboard.userId, metaAccountId, googleCustomerId, sourceDashboardIds: dashboardIds, tiktokAccounts },
       widgets.map((w, i) => ({ id: w.id, type: w.type, title: null, width: "half", position: i, config: JSON.stringify(w.config) })),
       range.since, range.until, cmp,
     ).catch((e) => { fatal = toClientError(e); return []; }),
@@ -140,6 +155,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       name: dashboard.name,
       metaAccountId,
       googleCustomerId,
+      tiktokAccounts: tiktok.accounts.map((a) => ({ id: a.id, name: a.name, currency: a.currency })),
       reportFrequency: dashboard.reportFrequency ?? group?.members.find((m) => m.reportFrequency)?.reportFrequency ?? null,
       owner: dashboard.user,
       members: dashboard.members.map((m) => m.user),
@@ -150,7 +166,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       timezone,
       monthlyBudget: budgetDash?.monthlyBudget ?? dashboard.monthlyBudget ?? null,
       budgetCurrency: budgetDash?.budgetCurrency ?? dashboard.budgetCurrency ?? null,
-      budgetSource: budget?.source ?? null,
+      budgetSource: budget?.source ?? (!hasMeta && hasTikTok && budgetDash ? "dashboard" : null),
       budgetDashboardId: budgetDash?.id ?? dashboard.id,
       hqSlug: dashboard.hqSlug ?? group?.members.find((m) => m.hqSlug)?.hqSlug ?? null,
       hqContextAt: (dashboard.hqContextAt ?? group?.members.find((m) => m.hqContextAt)?.hqContextAt)?.toISOString() ?? null,

@@ -28,7 +28,7 @@ vi.mock("@/lib/portfolio", () => ({
 }));
 vi.mock("bcryptjs", () => ({ default: { hash: async () => "hashed" } }));
 
-import { addDashboardMember, removeDashboardMember, parseEmails, MemberError } from "@/lib/dashboard-members";
+import { addDashboardMember, removeDashboardMember, revokeUncoveredAccess, parseEmails, MemberError } from "@/lib/dashboard-members";
 
 const DASH = { id: "d1", name: "LPEV", metaAccountId: "111", googleCustomerId: "222" };
 
@@ -94,6 +94,15 @@ describe("removeDashboardMember", () => {
     await removeDashboardMember("d1", "u1");
     expect(botAccessDeleteMany).not.toHaveBeenCalled();
     expect(aclDeleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("revokeUncoveredAccess — TikTok", () => {
+  it("retire un compte TikTok que plus aucun dashboard de la personne ne porte, garde les autres", async () => {
+    dashboardFindMany.mockResolvedValue([{ metaAccountId: null, googleCustomerId: null, sources: [{ externalId: "7000000000000000002" }] }]);
+    await revokeUncoveredAccess("u1", { metaAccountId: null, googleCustomerId: null, tiktokAdvertiserIds: ["7000000000000000001", "7000000000000000002"] });
+    expect(aclDeleteMany).toHaveBeenCalledTimes(1);
+    expect(aclDeleteMany).toHaveBeenCalledWith({ where: { userId: "u1", platform: "tiktok", accountId: { in: ["7000000000000000001"] } } });
   });
 });
 

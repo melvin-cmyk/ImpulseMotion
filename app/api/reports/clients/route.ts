@@ -12,6 +12,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { groupDashboardsByAccount } from "@/lib/portfolio";
+import { TIKTOK_ACCOUNT_SOURCES_SELECT } from "@/lib/tiktok-dashboard";
 import { pendingReportClients } from "@/lib/report-clients";
 
 export async function GET() {
@@ -24,6 +25,7 @@ export async function GET() {
     orderBy: [{ name: "asc" }, { createdAt: "asc" }],
     select: {
       id: true, name: true, metaAccountId: true, googleCustomerId: true, reportFrequency: true, createdAt: true,
+      sources: TIKTOK_ACCOUNT_SOURCES_SELECT,
       user: { select: { id: true, name: true, email: true } },
       reports: {
         orderBy: { createdAt: "desc" },

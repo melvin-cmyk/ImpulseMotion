@@ -55,3 +55,21 @@ describe("aclVersion", () => {
     expect(aclVersion("consultant", a)).not.toBe(aclVersion("consultant", [a[0], { platform: "google", accountId: "3" }]));
   });
 });
+
+describe("TikTok accounts without a dashboard", () => {
+  const TT = "7000000000000000001";
+  it("lists an assigned TikTok advertiser no dashboard carries, on its own", () => {
+    const list = buildPending(input({
+      scope: { meta: [], google: [], tiktok: [TT, "7000000000000000002"] },
+      covered: { meta: new Set(), google: new Set(), tiktok: new Set(["7000000000000000002"]) },
+      labels: new Map([[`tiktok:${TT}`, "Jow TikTok"]]),
+    }));
+    expect(list).toEqual([{ id: `account:tiktok=${TT}`, name: "Jow TikTok", metaAccountId: null, googleCustomerId: null, tiktokAdvertiserId: TT }]);
+  });
+
+  it("round-trips a TikTok pending id; meta/google ids are unchanged", () => {
+    expect(parsePendingId(pendingId(null, null, TT))).toEqual({ metaAccountId: null, googleCustomerId: null, tiktokAdvertiserId: TT });
+    expect(parsePendingId(pendingId("111111", null))).toEqual({ metaAccountId: "111111", googleCustomerId: null });
+    expect(parsePendingId("account:tiktok=12")).toBeNull();
+  });
+});

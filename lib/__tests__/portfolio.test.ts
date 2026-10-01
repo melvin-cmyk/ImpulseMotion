@@ -147,6 +147,7 @@ function client(over: Partial<PortfolioClient> & { id: string }): PortfolioClien
     name: over.id,
     metaAccountId: "1",
     googleCustomerId: null,
+    tiktokAdvertiserIds: [],
     reportFrequency: null,
     owner: { id: "u", name: null, email: null },
     memberCount: 0,
@@ -253,5 +254,24 @@ describe("toClientError", () => {
     expect(toClientError(e)).toEqual({ kind: "rate_limit", message: "User request limit reached" });
     expect(toClientError(new Error("Google: relay down")).kind).toBe("google");
     expect(toClientError(new Error("boom")).kind).toBe("widget");
+  });
+});
+
+describe("groupDashboardsByAccount — TikTok advertisers", () => {
+  const TT = "7000000000000000001";
+  const tt = (id: string, status = "active") => ({ kind: "tiktok", externalId: id, status, label: `TT ${id.slice(-1)}`, config: JSON.stringify({ currency: "EUR" }) });
+
+  it("a TikTok-only dashboard is a client, and a shared advertiser merges dashboards", () => {
+    const rows = [
+      { ...D("tt-only", null, null, "2026-01-01", "Jow"), sources: [tt(TT)] },
+      { ...D("meta", "123", null, "2026-02-01", "Jow Meta"), sources: [tt(TT)] },
+      { ...D("other", null, null, "2026-03-01", "Rien"), sources: [tt("7000000000000000002", "disabled")] },
+    ];
+    const { groups, unlinked } = groupDashboardsByAccount(rows);
+    expect(unlinked.map((d) => d.id)).toEqual(["other"]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].primary.id).toBe("tt-only");
+    expect(groups[0].metaAccountId).toBe("123");
+    expect(groups[0].tiktokAccounts).toEqual([{ id: TT, name: "TT 1", currency: "EUR", timezone: null }]);
   });
 });

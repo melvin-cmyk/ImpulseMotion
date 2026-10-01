@@ -1,6 +1,7 @@
 /**
  * GET    /api/dashboards/[id]?since&until   → dashboard + widgets with resolved data
  * PATCH  /api/dashboards/[id]               → staff: rename / rebind accounts
+ *        (tiktokAdvertiserId: attaches a TikTok Ads advertiser, checked at TikTok — lib/tiktok-binding)
  * DELETE /api/dashboards/[id]               → staff
  */
 
@@ -11,6 +12,9 @@ import { isValidHqSlug } from "@/lib/hq-client-context";
 import { requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor, denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { bindingOutOfScope, getAccountScope } from "@/lib/scope";
+import { bindTikTokAdvertiser, checkTikTokBinding } from "@/lib/tiktok-binding";
+import { getDashboardTikTokAccounts } from "@/lib/tiktok-dashboard";
+import type { TikTokAdvertiser } from "@/lib/tiktok-accounts";
 import { resolveWidgets, grantDashboardAccess, type CompareRange } from "@/lib/dashboard-widgets";
 import { revokeUncoveredAccess } from "@/lib/dashboard-members";
 import { getAccountProfileSettings } from "@/lib/account-settings";
@@ -34,6 +38,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   let timezone: string | null = null;
   if (dashboard.metaAccountId) {
     try { timezone = (await getAccountProfileSettings("meta", dashboard.metaAccountId)).timezone; } catch { /* UTC */ }
+  } else if (!dashboard.googleCustomerId) {
+    // TikTok alone: the advertiser's timezone, kept when it was attached.
+    try { timezone = (await getDashboardTikTokAccounts(dashboard.id)).find((a) => a.timezone)?.timezone ?? null; } catch { /* UTC */ }
   }
   const parsed = rangeFromParams(req.nextUrl.searchParams, "last_30", { tz: timezone });
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
@@ -133,12 +140,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // denyIfDashboardOutOfScope above only cleared the accounts the dashboard has
   // *today*. Re-binding it to another account grants ACL on that account below,
   // so the incoming ids need the same check.
-  const offending = bindingOutOfScope(await getAccountScope(guard.session), {
+  const scope = await getAccountScope(guard.session);
+  const offending = bindingOutOfScope(scope, {
     metaAccountId: data.metaAccountId as string | null | undefined,
     googleCustomerId: data.googleCustomerId as string | null | undefined,
   });
   if (offending) {
     return NextResponse.json({ error: `compte hors périmètre : ${offending}` }, { status: 403 });
+  }
+  // A TikTok advertiser is not a column: checked here, stored as a source below.
+  let tiktok: TikTokAdvertiser | null = null;
+  if (typeof body.tiktokAdvertiserId === "string" && body.tiktokAdvertiserId.trim()) {
+    const checked = await checkTikTokBinding(body.tiktokAdvertiserId, scope);
+    if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: checked.status });
+    tiktok = checked.advertiser;
   }
   // HQ folder of the client (projects/{slug}); changing it drops the cached brief.
   if (body.hqSlug === null || body.hqSlug === "" || typeof body.hqSlug === "string") {
@@ -181,9 +196,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!target) return NextResponse.json({ error: "target user not found" }, { status: 404 });
     data.userId = body.userId;
   }
-  if (Object.keys(data).length === 0) {
+  if (Object.keys(data).length === 0 && !tiktok) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
   }
+  if (tiktok) await bindTikTokAdvertiser(id, tiktok);
+  if (Object.keys(data).length === 0) return NextResponse.json({ dashboard: existing });
   const dashboard = await prisma.dashboard.update({ where: { id }, data });
   // Access follows the binding: the owner (resolver's ACL re-check) and every
   // attached person get the new accounts, and lose the old ones unless another
@@ -203,7 +220,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (denied) return denied;
   const existing = await prisma.dashboard.findUnique({
     where: { id },
-    select: { userId: true, metaAccountId: true, googleCustomerId: true, members: { select: { userId: true } } },
+    select: {
+      userId: true, metaAccountId: true, googleCustomerId: true, members: { select: { userId: true } },
+      sources: { where: { kind: "tiktok" }, select: { kind: true, externalId: true } },
+    },
   });
   await prisma.dashboard.delete({ where: { id } }).catch(() => null);
   // Closing the silo closes the access it had opened.

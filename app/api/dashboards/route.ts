@@ -1,11 +1,15 @@
 /**
  * GET  /api/dashboards            → staff: all dashboards (?userId= filters); client: owned or member
  * POST /api/dashboards            → admin only: create a dashboard and attach people by email
- *   Body: { name?, metaAccountId?, googleCustomerId?, consultants?: string[], clients?: string[] }
+ *   Body: { name?, metaAccountId?, googleCustomerId?, tiktokAdvertiserId?, consultants?: string[], clients?: string[] }
+ *   At least one account; a TikTok advertiser is checked at TikTok and stored as
+ *   a DashboardSource (lib/tiktok-binding), like the sources panel does.
  *   → { dashboard, invites: [{ email, role, created, tempPassword?, error? }] }
  */
 
 import { getAccountScope, dashboardWhere } from "@/lib/scope";
+import { checkTikTokBinding } from "@/lib/tiktok-binding";
+import type { TikTokAdvertiser } from "@/lib/tiktok-accounts";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession, requireAdmin } from "@/lib/auth-helpers";
@@ -47,8 +51,15 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const metaAccountId = typeof body?.metaAccountId === "string" && body.metaAccountId.trim() ? body.metaAccountId.trim() : null;
   const googleCustomerId = typeof body?.googleCustomerId === "string" && body.googleCustomerId.trim() ? body.googleCustomerId.trim() : null;
-  if (!metaAccountId && !googleCustomerId) {
-    return NextResponse.json({ error: "Un compte Meta ou Google est requis" }, { status: 400 });
+  const tiktokRaw = typeof body?.tiktokAdvertiserId === "string" && body.tiktokAdvertiserId.trim() ? body.tiktokAdvertiserId : null;
+  if (!metaAccountId && !googleCustomerId && !tiktokRaw) {
+    return NextResponse.json({ error: "Un compte Meta, Google ou TikTok est requis" }, { status: 400 });
+  }
+  const tiktok: TikTokAdvertiser[] = [];
+  if (tiktokRaw) {
+    const checked = await checkTikTokBinding(tiktokRaw, await getAccountScope(guard.session));
+    if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: checked.status });
+    tiktok.push(checked.advertiser);
   }
   // Everybody on the staff sees every dashboard: nobody is attached as a
   // consultant any more. Opening a dashboard to a client is the client side,
@@ -70,6 +81,7 @@ export async function POST(req: NextRequest) {
       name: typeof body?.name === "string" ? body.name : undefined,
       metaAccountId,
       googleCustomerId,
+      tiktok,
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "creation failed" }, { status: 400 });

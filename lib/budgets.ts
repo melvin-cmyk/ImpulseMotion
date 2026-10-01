@@ -1,5 +1,6 @@
 /**
- * Monthly budget pacing for a Meta ad account.
+ * Monthly budget pacing for a Meta ad account — plus the client's TikTok Ads
+ * advertisers when the budget is the client's (Dashboard.monthlyBudget).
  *
  * Rules (Lot F4):
  * - the month is computed in the ACCOUNT timezone (Meta interprets since/until
@@ -19,6 +20,7 @@ import { getMetaSystemToken } from "@/lib/meta-api";
 import { getAccountInsightsCachedWithMeta } from "@/lib/insights";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { addDays, todayIn } from "@/lib/date-ranges";
+import { tiktokTotals } from "@/lib/tiktok-dashboard";
 
 export type PacingStatus = "on_track" | "under" | "over" | "critical_under" | "critical_over" | "unknown";
 
@@ -41,6 +43,10 @@ export interface PacingResult {
   source?: "dashboard" | "account_budget";
   /** ISO timestamp of the MTD spend fetch (cache aware). */
   fetchedAt?: string;
+  /** Platforms whose spend makes up mtdSpend (absent = Meta only). */
+  platforms?: Array<"meta" | "tiktok">;
+  /** TikTok part of mtdSpend, when TikTok counts. */
+  tiktokSpend?: number;
 }
 
 export function classify(pacingPct: number): Exclude<PacingStatus, "unknown"> {
@@ -171,6 +177,10 @@ export interface ComputePacingOptions {
   now?: Date;
   refresh?: boolean;
   source?: BudgetChoice["source"];
+  /** TikTok advertisers whose spend also counts (same currency as the budget — the caller checks). */
+  tiktokAdvertiserIds?: string[];
+  /** The client has no Meta account: `accountId` is a TikTok advertiser, only TikTok counts. */
+  skipMeta?: boolean;
 }
 
 export async function computePacing(
@@ -180,6 +190,7 @@ export async function computePacing(
   opts: ComputePacingOptions = {},
 ): Promise<PacingResult> {
   let tz = opts.tz;
+  if (tz === undefined && opts.skipMeta) tz = null;
   if (tz === undefined) {
     try {
       tz = (await getAccountProfileSettings("meta", accountId)).timezone;
@@ -212,16 +223,22 @@ export async function computePacing(
 
   let mtdSpend = 0;
   let fetchedAt: string | undefined;
+  const tiktokIds = opts.tiktokAdvertiserIds ?? [];
+  let tiktokSpend: number | null = null;
   try {
-    const token = getMetaSystemToken();
-    const res = await getAccountInsightsCachedWithMeta(
-      token,
-      accountId,
-      { since: progress.first, until: progress.lastClosed },
-      { refresh: opts.refresh },
-    );
-    mtdSpend = parseFloat(res.data.spend ?? "0") || 0;
-    fetchedAt = res.fetchedAt;
+    const mtd = { since: progress.first, until: progress.lastClosed };
+    const [meta, tiktok] = await Promise.all([
+      opts.skipMeta ? null : getAccountInsightsCachedWithMeta(getMetaSystemToken(), accountId, mtd, { refresh: opts.refresh }),
+      tiktokIds.length ? tiktokTotals(tiktokIds, mtd.since, mtd.until) : null,
+    ]);
+    if (meta) {
+      mtdSpend = parseFloat(meta.data.spend ?? "0") || 0;
+      fetchedAt = meta.fetchedAt;
+    }
+    if (tiktok) {
+      tiktokSpend = tiktok.spend;
+      mtdSpend += tiktok.spend;
+    }
   } catch (e) {
     return {
       ...base,
@@ -241,6 +258,9 @@ export async function computePacing(
     mtdSpend: Math.round(mtdSpend),
     ...proj,
     ...(fetchedAt ? { fetchedAt } : {}),
+    ...(tiktokSpend !== null
+      ? { platforms: opts.skipMeta ? ["tiktok" as const] : ["meta" as const, "tiktok" as const], tiktokSpend: Math.round(tiktokSpend) }
+      : {}),
   };
 }
 
