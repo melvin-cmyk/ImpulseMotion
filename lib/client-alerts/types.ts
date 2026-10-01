@@ -176,6 +176,22 @@ export function conversionLagDays(metric: AlertMetric): number {
   return CONVERSION_METRICS.includes(metric) ? 1 : 0;
 }
 
+// ── Lots ─────────────────────────────────────────────────────────────────────
+
+/** Clients in one lot (lib/client-alerts/lot.ts): the replays of all of them run at every save of the conversation. */
+export const LOT_MAX_CLIENTS = 15;
+
+/** The AlertClient ids of a lot (ClientAlert.groupJson), in order, without duplicates; [] for an alert that is not the lead of a lot. */
+export function readLot(json: string | null | undefined): string[] {
+  try {
+    const list = JSON.parse(json || "[]");
+    if (!Array.isArray(list)) return [];
+    return [...new Set(list.filter((id): id is string => typeof id === "string" && !!id.trim()).map((id) => id.trim()))];
+  } catch {
+    return [];
+  }
+}
+
 // ── Series ───────────────────────────────────────────────────────────────────
 
 /**

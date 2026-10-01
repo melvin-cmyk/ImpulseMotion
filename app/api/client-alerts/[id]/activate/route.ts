@@ -21,6 +21,14 @@
  * is stored only with `confirmNoisy: true` — otherwise 409 { needsConfirm,
  * backtest }, and the card asks the consultant.
  *
+ * A lot (lib/client-alerts/lot.ts): the same steps, client by client. Every
+ * client that takes the rule gets its own alert in service (the lead for its
+ * own client, the others created or updated with groupId = the lead's id);
+ * the answer lists what each client gave (`lot`). A client that cannot take
+ * it is left out; its alert, if it had one, goes to « À revoir » — unless the
+ * reason is only that its figures cannot be read right now. `platforms` (the
+ * platforms the card said, or none for all) is read as the AI's own block.
+ *
  * Activating does not wait for Slack: when the person is not found in Slack,
  * or sending is switched off, the alert is recorded all the same and the
  * answer says what is missing (`notice`).
@@ -35,7 +43,9 @@ import { definitionHash } from "@/lib/client-alerts/evaluate";
 import { dmConfigured, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
 import { unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
-import { NOISY_MESSAGES, sendingEnabled, type Backtest, type ClientSeries } from "@/lib/client-alerts/types";
+import { NOISY_MESSAGES, sendingEnabled, type AlertAccountRef, type AlertDefinition, type Backtest, type ClientSeries } from "@/lib/client-alerts/types";
+import { checkLot, isLotLead, lotPlatforms, lotRefusal, readLot, type LotAccepted } from "@/lib/client-alerts/lot";
+import { loadLotMembers, lotBlocked } from "@/lib/client-alerts/lot-members";
 import { ALERT_NOT_FOUND, OWNER_ONLY, alertAccess, readAccounts, toAlertView } from "@/components/client-alerts/alert-model";
 
 // Reading the series of several accounts can take a while when the cache is cold.
@@ -82,6 +92,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Aucune proposition à valider." }, { status: 400 });
   }
 
+  if (isLotLead(alert)) return activateLot(alert, body, session);
+
   const usable = await usableAccounts(alert, readAccounts(alert.accountsJson), session);
   if (usable.state !== "ok") return NextResponse.json({ error: usable.reason }, { status: 409 });
   const accounts = usable.accounts;
@@ -125,32 +137,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     }, { status: 409 });
   }
 
-  // A changed rule starts fresh; the same rule (validated again, or back from a pause) keeps the silence of its last message.
-  const changed = hash !== alert.definitionHash;
-  const state = changed
-    ? { armed: true, lastTriggeredAt: null, lastCheckedAt: null, lastValue: null }
-    // Back in service is what « Reprendre » does: re-armed. Validated again while in service: nothing moves.
-    : alert.status === "active" ? {} : { armed: true };
-
-  const saved = await prisma.clientAlert.update({
-    where: { id: alert.id },
-    data: {
-      definitionJson: JSON.stringify(definition),
-      definitionHash: hash,
-      label: definition.label,
-      // The accounts the proposal was validated against: the alert's frozen list from now on.
-      accountsJson: JSON.stringify(accounts),
-      ...(usable.clientName ? { clientName: usable.clientName } : {}),
-      backtestJson: JSON.stringify(replay),
-      backtestHash: replay.hash,
-      backtestAt: new Date(),
-      status: "active",
-      ...state,
-      consecutiveFailures: 0,
-      lastNote: null,
-    },
-    include: { events: { orderBy: { triggeredAt: "desc" }, take: 5 } },
-  });
+  const saved = await putInService(alert, { definition, hash, replay, clientName: usable.clientName, accounts });
 
   const notice = await deliveryNotice(session.userId);
   return NextResponse.json({
@@ -158,6 +145,137 @@ export async function POST(req: NextRequest, { params }: Params) {
     alert: toAlertView(saved, session.userId),
     backtest: replay,
     warnings: checked.warnings,
+    ...(notice ? { notice } : {}),
+  });
+}
+
+/** What putting an alert in service writes; the same for one client and for each client of a lot. */
+function serviceData(
+  alert: { definitionHash: string; status: string },
+  input: { definition: AlertDefinition; hash: string; replay: Backtest; clientName: string | null; accounts: AlertAccountRef[] },
+) {
+  const { definition, hash, replay } = input;
+  // A changed rule starts fresh; the same rule (validated again, or back from a pause) keeps the silence of its last message.
+  const changed = hash !== alert.definitionHash;
+  const state = changed
+    ? { armed: true, lastTriggeredAt: null, lastCheckedAt: null, lastValue: null }
+    // Back in service is what « Reprendre » does: re-armed. Validated again while in service: nothing moves.
+    : alert.status === "active" ? {} : { armed: true };
+  return {
+    definitionJson: JSON.stringify(definition),
+    definitionHash: hash,
+    label: definition.label,
+    // The accounts the proposal was validated against: the alert's frozen list from now on.
+    accountsJson: JSON.stringify(input.accounts),
+    ...(input.clientName ? { clientName: input.clientName } : {}),
+    backtestJson: JSON.stringify(replay),
+    backtestHash: replay.hash,
+    backtestAt: new Date(),
+    status: "active",
+    ...state,
+    consecutiveFailures: 0,
+    lastNote: null,
+  };
+}
+
+const WITH_EVENTS = { events: { orderBy: { triggeredAt: "desc" as const }, take: 5 } };
+
+function putInService(
+  alert: { id: string; definitionHash: string; status: string },
+  input: { definition: AlertDefinition; hash: string; replay: Backtest; clientName: string | null; accounts: AlertAccountRef[] },
+) {
+  return prisma.clientAlert.update({ where: { id: alert.id }, data: serviceData(alert, input), include: WITH_EVENTS });
+}
+
+type Session = { userId: string; role?: string | null; baseRole?: string | null; user?: { email?: string | null } | null };
+type LeadRow = NonNullable<Awaited<ReturnType<typeof prisma.clientAlert.findUnique>>>;
+
+/** The rule on every client of the lot; one alert in service per client that takes it. */
+async function activateLot(lead: LeadRow, body: Record<string, unknown>, session: Session) {
+  const ids = readLot(lead.groupJson);
+  const members = await loadLotMembers(ids, session);
+  const blocked = lotBlocked(members);
+  if (blocked) return NextResponse.json({ error: blocked }, { status: 409 });
+
+  // The platforms the card showed, read like the AI's block; the accounts are each client's own.
+  const platforms = Array.isArray(body.platforms) ? lotPlatforms(body.platforms.map((platform) => ({ platform }))) : null;
+  const proposal = body.proposal as Record<string, unknown>;
+  const rule = { ...proposal, accounts: platforms ? platforms.map((platform) => ({ platform })) : undefined };
+  const { lot, accepted } = checkLot(rule, members, unreadText);
+
+  if (!accepted.length) {
+    const refusal = lotRefusal(lot);
+    return NextResponse.json(
+      { error: refusal.retry ? "Aucun client du lot n'a pu être vérifié pour le moment : rien n'a été enregistré. Réessayez dans quelques minutes." : "Cette proposition ne peut être validée pour aucun client du lot.", errors: refusal.errors, hints: refusal.hints, lot },
+      { status: refusal.retry ? 503 : 422 },
+    );
+  }
+
+  // The cron only runs an alert whose replay vouches for its definition.
+  const proven: Array<LotAccepted & { hash: string }> = [];
+  for (const a of accepted) {
+    let hash = "";
+    try { hash = definitionHash(a.definition); } catch (e) { console.error("[client-alerts] lot hash failed", e); }
+    if (!hash || a.backtest.hash !== hash) {
+      return NextResponse.json({ error: `La vérification sur les 30 derniers jours ne correspond pas à l'alerte de ${a.member.clientName} : rien n'a été enregistré. Redemandez la proposition.` }, { status: 500 });
+    }
+    proven.push({ ...a, hash });
+  }
+
+  const noisy = proven.filter((a) => a.backtest.messages.length > NOISY_MESSAGES);
+  if (noisy.length && body.confirmNoisy !== true) {
+    const loudest = noisy.reduce((x, y) => (y.backtest.messages.length > x.backtest.messages.length ? y : x));
+    return NextResponse.json({
+      error: `Pour ${noisy.map((a) => a.member.clientName).join(", ")}, cette alerte aurait envoyé jusqu'à ${loudest.backtest.messages.length} messages en ${loudest.backtest.days} jours : confirmez pour la mettre en service.`,
+      needsConfirm: true, backtest: loudest.backtest, noisyClients: noisy.map((a) => a.member.clientName), lot,
+    }, { status: 409 });
+  }
+
+  const existing = await prisma.clientAlert.findMany({ where: { groupId: lead.id, NOT: { id: lead.id } } });
+  const rowOf = (clientId: string) => (clientId === lead.alertClientId ? lead : existing.find((r) => r.alertClientId === clientId) ?? null);
+
+  const saved = await prisma.$transaction(async (tx) => {
+    const out = [];
+    for (const a of proven) {
+      const row = rowOf(a.member.alertClientId);
+      const input = { definition: a.definition, hash: a.hash, replay: a.backtest, clientName: a.member.clientName, accounts: a.member.accounts };
+      out.push(row
+        ? await tx.clientAlert.update({ where: { id: row.id }, data: { ...serviceData(row, input), groupId: lead.id }, include: WITH_EVENTS })
+        : await tx.clientAlert.create({
+          data: {
+            createdById: lead.createdById, createdByEmail: lead.createdByEmail,
+            alertClientId: a.member.alertClientId, groupId: lead.id,
+            ...serviceData({ definitionHash: "", status: "draft" }, input),
+          },
+          include: WITH_EVENTS,
+        }));
+    }
+    // A client the new rule cannot be put on no longer runs the old one — unless its figures are only unreadable for now.
+    for (const c of lot.clients) {
+      if (c.ok || c.retry) continue;
+      const row = rowOf(c.alertClientId);
+      if (!row || row.status === "draft" || row.status === "review") continue;
+      await tx.clientAlert.update({
+        where: { id: row.id },
+        data: { status: "review", lastNote: `La nouvelle règle du lot n'a pas pu s'appliquer à ce client : ${c.error ?? "non vérifiable"}` },
+      });
+    }
+    return out;
+  });
+
+  const leadSaved = saved.find((r) => r.id === lead.id)
+    ?? await prisma.clientAlert.findUnique({ where: { id: lead.id }, include: WITH_EVENTS })
+    ?? { ...lead, events: [] };
+  const left = lot.clients.filter((c) => !c.ok);
+  const notice = await deliveryNotice(session.userId);
+  return NextResponse.json({
+    ok: true,
+    alert: toAlertView(leadSaved, session.userId),
+    alerts: saved.map((r) => toAlertView(r, session.userId)),
+    backtest: proven[0].backtest,
+    warnings: proven[0].warnings,
+    lot,
+    ...(left.length ? { skipped: left.map((c) => `${c.clientName} : ${c.error ?? "non vérifiable"}`) } : {}),
     ...(notice ? { notice } : {}),
   });
 }

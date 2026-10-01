@@ -23,7 +23,8 @@ import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-a
 import {
   ALERT_CHAT_MAX_MESSAGES, extractAlertProposal, invalidProposalNote, proposalKey, stripAlertBlocks, stripImages, stripProposalNotes, withProposalNotes,
 } from "@/lib/client-alerts/compose-prompt";
-import type { AlertDefinition, Backtest } from "@/lib/client-alerts/types";
+import type { AlertDefinition, AlertPlatform, Backtest } from "@/lib/client-alerts/types";
+import type { LotCheck, LotClientCheck } from "@/lib/client-alerts/lot";
 import { ProposalCard } from "@/components/client-alerts/proposal-card";
 import { PlatformBadges } from "@/components/client-alerts/client-picker";
 import {
@@ -33,7 +34,40 @@ import {
 interface ChatMessage { role: "user" | "assistant"; content: string }
 
 /** What a validation attempt answered; kept for the visit only. */
-interface Outcome { applying?: boolean; errors?: string[]; confirm?: number; notice?: string | null }
+interface Outcome { applying?: boolean; errors?: string[]; confirm?: number; notice?: string | null; confirmClients?: string[] }
+
+/** A client of a lot, as the assistant route describes it. */
+interface LotClient { alertClientId: string; clientName: string; platforms: AlertPlatform[]; blocked: string | null }
+
+const PLATFORM_SET: readonly string[] = ["meta", "google", "tiktok"];
+
+function readLotClients(raw: unknown): LotClient[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw
+    .filter((c) => c && typeof c === "object" && typeof c.alertClientId === "string" && typeof c.clientName === "string")
+    .map((c) => ({
+      alertClientId: c.alertClientId, clientName: c.clientName,
+      platforms: Array.isArray(c.platforms) ? c.platforms.filter((p: unknown): p is AlertPlatform => PLATFORM_SET.includes(p as string)) : [],
+      blocked: typeof c.blocked === "string" ? c.blocked : null,
+    }));
+}
+
+/** The replay of a lot, client by client, as the server sent it. */
+function readLotCheck(raw: unknown): LotCheck | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const l = raw as { platforms?: unknown; clients?: unknown };
+  if (!Array.isArray(l.clients)) return undefined;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  const clients: LotClientCheck[] = l.clients
+    .filter((c) => c && typeof c === "object" && typeof c.alertClientId === "string")
+    .map((c) => ({
+      alertClientId: c.alertClientId, clientName: String(c.clientName ?? ""), ok: c.ok === true,
+      messages: num(c.messages), judgedDays: num(c.judgedDays), days: num(c.days), noisy: c.noisy === true,
+      ...(typeof c.error === "string" ? { error: c.error } : {}), ...(c.retry === true ? { retry: true } : {}),
+    }));
+  const platforms = Array.isArray(l.platforms) ? l.platforms.filter((p): p is AlertPlatform => PLATFORM_SET.includes(p as string)) : null;
+  return { platforms: platforms && platforms.length ? platforms : null, clients };
+}
 
 type Figures = { ok: true; until: string; unreadable: string[] } | { ok: false } | null;
 
@@ -41,14 +75,15 @@ function readChecks(raw: unknown): Record<string, ProposalCheck> {
   const out: Record<string, ProposalCheck> = {};
   if (!raw || typeof raw !== "object") return out;
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    const v = value as { ok?: unknown; proposal?: unknown; warnings?: unknown; backtest?: unknown; noisy?: unknown; errors?: unknown; hints?: unknown; retry?: unknown } | null;
+    const v = value as { ok?: unknown; proposal?: unknown; warnings?: unknown; backtest?: unknown; noisy?: unknown; errors?: unknown; hints?: unknown; retry?: unknown; lot?: unknown } | null;
     if (!v || typeof v !== "object") continue;
     const strings = (list: unknown) => (Array.isArray(list) ? list.filter((s): s is string => typeof s === "string") : []);
     const replay = v.backtest as Partial<Backtest> | null | undefined;
+    const lot = readLotCheck(v.lot);
     if (v.ok === true && v.proposal && typeof v.proposal === "object" && replay && typeof replay === "object" && Array.isArray(replay.messages)) {
-      out[key] = { ok: true, proposal: v.proposal as AlertDefinition, warnings: strings(v.warnings), backtest: { ...(replay as Backtest), notes: strings(replay.notes) }, noisy: v.noisy === true };
+      out[key] = { ok: true, proposal: v.proposal as AlertDefinition, warnings: strings(v.warnings), backtest: { ...(replay as Backtest), notes: strings(replay.notes) }, noisy: v.noisy === true, ...(lot ? { lot } : {}) };
     } else if (v.ok === false) {
-      out[key] = { ok: false, errors: strings(v.errors), hints: strings(v.hints), ...(v.retry === true ? { retry: true } : {}) };
+      out[key] = { ok: false, errors: strings(v.errors), hints: strings(v.hints), ...(v.retry === true ? { retry: true } : {}), ...(lot ? { lot } : {}) };
     }
   }
   return out;
@@ -85,8 +120,8 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
   alert: AlertView;
   /** The draft was created a moment ago: nothing to load, the box is ready at once. */
   fresh?: boolean;
-  /** An alert was put in service: the page updates its list. */
-  onActivated: (alert: AlertView) => void;
+  /** An alert was put in service (with, for a lot, the alerts of its other clients): the page updates its list. */
+  onActivated: (alert: AlertView, others?: AlertView[]) => void;
   onClose: () => void;
 }) {
   const alertId = alert.id;
@@ -95,6 +130,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
   const [checks, setChecks] = useState<Record<string, ProposalCheck>>({});
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [figures, setFigures] = useState<Figures>(null);
+  const [lotClients, setLotClients] = useState<LotClient[] | null>(null);
   // Why nothing can be proposed any more (the client is gone, or out of reach), as the server says it.
   const [blocked, setBlocked] = useState<string | null>(alert.clientGone ? CLIENT_GONE : null);
   const [loaded, setLoaded] = useState(false);
@@ -127,6 +163,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       .then((j) => {
         if (cancelled) return;
         setFigures(readFigures(j.figures));
+        setLotClients(readLotClients(j.lot));
         if (typeof j.blocked === "string" && j.blocked) setBlocked(j.blocked);
         // Never clobber a conversation already in flight.
         if (busyRef.current) return;
@@ -169,6 +206,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       setChecks(next);
       setStatuses(readStatuses(j.proposals));
       setFigures(readFigures(j.figures));
+      setLotClients(readLotClients(j.lot));
       setBlocked(typeof j.blocked === "string" && j.blocked ? j.blocked : null);
       return next;
     } catch {
@@ -286,19 +324,21 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
     void save(messages, merged);
   }
 
-  async function activate(key: string, proposal: AlertDefinition, confirmNoisy: boolean) {
+  async function activate(key: string, proposal: AlertDefinition, confirmNoisy: boolean, lot?: LotCheck) {
     setOutcomes((o) => ({ ...o, [key]: { applying: true } }));
     const label = `la proposition « ${proposal.label} »`;
     try {
       const res = await fetch(`/api/client-alerts/${alertId}/activate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proposal, ...(confirmNoisy ? { confirmNoisy: true } : {}) }),
+        // A lot: the platforms the card showed, the accounts being each client's own.
+        body: JSON.stringify({ proposal, ...(lot?.platforms ? { platforms: lot.platforms } : {}), ...(confirmNoisy ? { confirmNoisy: true } : {}) }),
       });
       const body = await res.json().catch(() => ({}));
       if (res.status === 409 && body.needsConfirm) {
         const count = Array.isArray(body.backtest?.messages) ? body.backtest.messages.length : undefined;
-        setOutcomes((o) => ({ ...o, [key]: { confirm: count ?? 0 } }));
+        const confirmClients = Array.isArray(body.noisyClients) ? body.noisyClients.filter((n: unknown): n is string => typeof n === "string") : undefined;
+        setOutcomes((o) => ({ ...o, [key]: { confirm: count ?? 0, confirmClients } }));
         return;
       }
       if (!res.ok || !body.alert) {
@@ -308,10 +348,18 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         if (res.status === 422) pendingNotesRef.current.push(`${label} a été REFUSÉE par le serveur au moment de la valider, rien n'est enregistré : ${errors.slice(0, 8).join(" | ")}${hints.length ? ` — à écrire dans le bloc : ${hints.slice(0, 8).join(" ; ")}` : ""}`);
         return;
       }
-      setOutcomes((o) => ({ ...o, [key]: { notice: typeof body.notice === "string" ? body.notice : null } }));
-      pendingNotesRef.current.push(`${label} a été validée par le consultant : c'est maintenant l'alerte en service`);
+      const skipped: string[] = Array.isArray(body.skipped) ? body.skipped.filter((n: unknown): n is string => typeof n === "string") : [];
+      const notice = [
+        skipped.length ? `Non mise en service pour : ${skipped.join(" ; ")}.` : "",
+        typeof body.notice === "string" ? body.notice : "",
+      ].filter(Boolean).join(" ") || null;
+      setOutcomes((o) => ({ ...o, [key]: { notice } }));
+      const lotSaved = Array.isArray(body.alerts) ? (body.alerts as AlertView[]) : [];
+      pendingNotesRef.current.push(lotSaved.length
+        ? `${label} a été validée par le consultant : elle est maintenant en service pour ${lotSaved.length} client(s) du lot${skipped.length ? `, pas pour ${skipped.join(" ; ")}` : ""}`
+        : `${label} a été validée par le consultant : c'est maintenant l'alerte en service`);
       setStatus(key, "applied");
-      onActivated(body.alert as AlertView);
+      onActivated(body.alert as AlertView, lotSaved.filter((a) => a.id !== (body.alert as AlertView).id));
     } catch (e) {
       setOutcomes((o) => ({ ...o, [key]: { errors: [e instanceof Error ? e.message : String(e)] } }));
     }
@@ -346,14 +394,19 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         errors={errors}
         notice={outcome.notice}
         confirmCount={outcome.confirm || valid?.backtest.messages.length}
-        replaces={alert.status === "active" && !!alert.definition}
+        confirmClients={outcome.confirmClients}
+        lot={check?.lot ?? null}
+        replaces={(alert.status === "active" && !!alert.definition) || (!!lotClients && alert.status !== "draft")}
         onValidate={() => {
           if (!valid) return;
           // Known to be noisy: the question comes before any request.
-          if (valid.noisy && state !== "failed") setOutcomes((o) => ({ ...o, [key]: { confirm: valid.backtest.messages.length } }));
-          else void activate(key, valid.proposal, false);
+          if (valid.noisy && state !== "failed") {
+            const loud = valid.lot?.clients.filter((c) => c.noisy) ?? [];
+            const count = loud.length ? Math.max(...loud.map((c) => c.messages ?? 0)) : valid.backtest.messages.length;
+            setOutcomes((o) => ({ ...o, [key]: { confirm: count, confirmClients: loud.length ? loud.map((c) => c.clientName) : undefined } }));
+          } else void activate(key, valid.proposal, false, valid.lot);
         }}
-        onConfirm={() => { if (valid) void activate(key, valid.proposal, true); }}
+        onConfirm={() => { if (valid) void activate(key, valid.proposal, true, valid.lot); }}
         onCancel={() => setOutcomes((o) => ({ ...o, [key]: {} }))}
         onRecheck={() => { void save(messages, statusesRef.current); }}
       />
@@ -382,7 +435,8 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
 
   const writing = streamText !== null && /```alert\b/i.test(streamText);
   const status = ALERT_STATUS[alert.status];
-  const examples = exampleRequests(alert.accounts);
+  const lotted = !!lotClients && lotClients.length > 1;
+  const examples = exampleRequests(lotted ? lotClients.flatMap((c) => c.platforms.map((platform) => ({ platform }))) : alert.accounts);
 
   return (
     <section className="bg-gray-900 border border-gray-800 rounded-2xl flex flex-col min-w-0 h-[calc(100vh-13rem)] min-h-[460px]">
@@ -391,13 +445,22 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
           <BellRing className="w-4 h-4 text-violet-400 shrink-0 mt-0.5" />
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-white flex flex-wrap items-center gap-2">
-              <span className="truncate">{alert.clientName}</span>
-              <PlatformBadges accounts={alert.accounts} />
+              {lotted ? <span>Lot de {lotClients.length} clients</span> : <span className="truncate">{alert.clientName}</span>}
+              {!lotted && <PlatformBadges accounts={alert.accounts} />}
               {alert.status !== "draft" && <Pill tone={status.tone} className="text-[10px]">{status.label}</Pill>}
             </h2>
             <p className="text-[11px] text-gray-500 break-words">
               {alert.label ? `${alert.label} — pour la modifier, dites simplement ce qui doit changer.` : "Dites de quoi vous voulez être prévenu. L'IA propose, vous validez : rien n'est enregistré sans votre clic."}
             </p>
+            {lotted && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {lotClients.map((c) => (
+                  <span key={c.alertClientId} title={c.blocked ?? undefined}>
+                    <Pill tone={c.blocked ? "amber" : "default"} className="text-[10px]">{c.clientName}</Pill>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <button type="button" onClick={onClose} aria-label="Fermer la conversation" title="Fermer la conversation" className="shrink-0 p-1 rounded-md text-gray-500 hover:text-gray-200 hover:bg-gray-800">
@@ -412,7 +475,11 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         )}
         {ready && messages.length === 0 && streamText === null && (
           <div className="text-xs text-gray-400 bg-gray-950/50 border border-gray-800 rounded-xl px-3 py-3 space-y-2">
-            <p>Écrivez votre demande en une phrase, comme vous la diriez à un collègue. L&apos;IA lit les chiffres du client, propose l&apos;alerte et vous montre ce qu&apos;elle aurait donné sur les 30 derniers jours.</p>
+            <p>
+              {lotted
+                ? "Écrivez votre demande en une phrase, comme vous la diriez à un collègue. La même alerte sera créée pour chacun de ces clients, jugé sur ses propres comptes : l'IA lit leurs chiffres, propose la règle et vous montre ce qu'elle aurait donné sur les 30 derniers jours, client par client."
+                : "Écrivez votre demande en une phrase, comme vous la diriez à un collègue. L'IA lit les chiffres du client, propose l'alerte et vous montre ce qu'elle aurait donné sur les 30 derniers jours."}
+            </p>
             <div className="flex flex-wrap gap-1.5">
               {examples.map((ex) => (
                 <button
@@ -456,7 +523,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
               <AiActivity state={activity} startedAt={startedAt} className={streamText ? "mt-2" : undefined} />
             ) : (
               <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-violet-300">
-                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />Lecture des chiffres du client…
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />{lotted ? "Lecture des chiffres des clients…" : "Lecture des chiffres du client…"}
               </div>
             )}
           </div>
@@ -504,7 +571,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         </div>
         <p className="mt-1.5 text-[11px] text-gray-600">
           Entrée pour envoyer, Maj + Entrée pour aller à la ligne.
-          {figures?.ok && figures.until ? ` Chiffres du client lus jusqu'au ${dayLabel(figures.until)}.` : ""}
+          {figures?.ok && figures.until ? ` Chiffres ${lotted ? "des clients" : "du client"} lus jusqu'au ${dayLabel(figures.until)}.` : ""}
         </p>
       </form>
     </section>

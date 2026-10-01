@@ -40,7 +40,7 @@ export function AlertsAssistant() {
   // The alert whose conversation is open; null = the choice of a client.
   const [open, setOpen] = useState<{ id: string; fresh: boolean } | null>(null);
   const [focusKey, setFocusKey] = useState(0);
-  const [creating, setCreating] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, AlertAction | undefined>>({});
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
@@ -79,14 +79,16 @@ export function AlertsAssistant() {
     setFocusKey((k) => k + 1);
   }
 
-  async function pick(client: ClientOption) {
-    setCreating(client.id);
+  async function pick(clients: ClientOption[]) {
+    if (!clients.length) return;
+    setCreating(true);
     setCreateError(null);
+    const who = clients.length > 1 ? `ces ${clients.length} clients` : clients[0].name;
     try {
       const res = await fetch("/api/client-alerts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alertClientId: client.id }),
+        body: JSON.stringify(clients.length > 1 ? { alertClientIds: clients.map((c) => c.id) } : { alertClientId: clients[0].id }),
       });
       const body = await readJson(res);
       if (!res.ok || !body.alert) throw new Error(typeof body.error === "string" ? body.error : `Erreur ${res.status}`);
@@ -94,9 +96,9 @@ export function AlertsAssistant() {
       putAlert(alert);
       setOpen({ id: alert.id, fresh: true });
     } catch (e) {
-      setCreateError(`L'alerte n'a pas pu être ouverte pour ${client.name} (${e instanceof Error ? e.message : "erreur"}).`);
+      setCreateError(`L'alerte n'a pas pu être ouverte pour ${who} (${e instanceof Error ? e.message : "erreur"}).`);
     } finally {
-      setCreating(null);
+      setCreating(false);
     }
   }
 
@@ -110,8 +112,12 @@ export function AlertsAssistant() {
       const body = await readJson(res);
       if (!res.ok) throw new Error(typeof body.error === "string" ? body.error : `Erreur ${res.status}`);
       if (action === "delete") {
-        setData((d) => (d ? { ...d, alerts: d.alerts.filter((a) => a.id !== alert.id) } : d));
+        // The alert that holds the conversation of a lot takes the whole lot with it.
+        const lead = alert.lotSize > 1;
+        setData((d) => (d ? { ...d, alerts: d.alerts.filter((a) => a.id !== alert.id && !(lead && a.lotId === alert.id)) } : d));
         setOpen((o) => (o?.id === alert.id ? null : o));
+        // A client taken out of a lot: the lot's count changes on the alert that holds it.
+        if (!lead && alert.lotId) void load(showAll);
       } else if (body.alert) {
         putAlert(body.alert as AlertView);
       }
@@ -129,7 +135,7 @@ export function AlertsAssistant() {
     <div className="space-y-6">
       <PageHeader
         title="Alertes"
-        subtitle="Choisissez un client et dites, en une phrase, de quoi vous voulez être prévenu. L'IA propose l'alerte sur ses comptes Meta, Google Ads et TikTok Ads réunis ; vous validez, puis vous recevez un message privé dans Slack quand elle se déclenche."
+        subtitle="Choisissez un ou plusieurs clients et dites, en une phrase, de quoi vous voulez être prévenu. L'IA propose l'alerte sur leurs comptes Meta, Google Ads et TikTok Ads, chaque client jugé séparément ; vous validez, puis vous recevez un message privé dans Slack quand elle se déclenche."
         action={
           <div className="flex items-center gap-4 shrink-0 ml-4">
             {/* The rules set by hand still run: they keep a way in. */}
@@ -175,7 +181,7 @@ export function AlertsAssistant() {
               </header>
               {data.alerts.length === 0 ? (
                 <p className="px-4 py-6 text-sm text-gray-400 leading-relaxed">
-                  {showAll ? "Personne n'a encore créé d'alerte." : "Aucune alerte pour l'instant. Choisissez un client, écrivez votre demande, validez : c'est tout."}
+                  {showAll ? "Personne n'a encore créé d'alerte." : "Aucune alerte pour l'instant. Cochez un ou plusieurs clients, écrivez votre demande, validez : c'est tout."}
                 </p>
               ) : (
                 <div className="lg:max-h-[calc(100vh-13rem)] lg:overflow-y-auto">
@@ -185,7 +191,8 @@ export function AlertsAssistant() {
                     everyone={showAll}
                     busy={busy}
                     errors={errors}
-                    onOpen={(a) => setOpen({ id: a.id, fresh: false })}
+                    // An alert of a lot is changed through the conversation of the lot.
+                    onOpen={(a) => setOpen({ id: a.lotId && data.alerts.some((x) => x.id === a.lotId && x.mine) ? a.lotId : a.id, fresh: false })}
                     onAction={(a, action) => void act(a, action)}
                   />
                 </div>
@@ -203,16 +210,16 @@ export function AlertsAssistant() {
                   key={opened.id}
                   alert={opened}
                   fresh={open?.fresh}
-                  onActivated={putAlert}
+                  onActivated={(a, others) => { putAlert(a); for (const o of others ?? []) putAlert(o); }}
                   onClose={() => setOpen(null)}
                 />
               ) : (
                 <ClientPicker
                   clients={data.clients}
-                  busyId={creating}
+                  busy={creating}
                   error={createError ?? (data.clientsError ? "La liste des clients n'a pas pu être lue. Rechargez la page dans un instant." : null)}
                   focusKey={focusKey}
-                  onPick={(c) => void pick(c)}
+                  onPick={(list) => void pick(list)}
                 />
               )}
             </div>

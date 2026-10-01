@@ -64,7 +64,7 @@ vi.mock("@/lib/prisma", () => ({
         const row: Row = {
           id: `alert_${nextId++}`, createdByEmail: null, alertClientId: null, clientName: "—", label: "", accountsJson: "[]", definitionJson: "{}",
           definitionHash: "", status: "draft", backtestJson: "{}", backtestHash: null, backtestAt: null, chatJson: "{}", armed: true,
-          lastCheckedAt: null, lastTriggeredAt: null, lastValue: null, lastNote: null, consecutiveFailures: 0,
+          lastCheckedAt: null, lastTriggeredAt: null, lastValue: null, lastNote: null, consecutiveFailures: 0, groupId: null, groupJson: "[]",
           createdAt: new Date(clock += 60_000), updatedAt: new Date(clock), ...data,
         };
         alerts.push(row);

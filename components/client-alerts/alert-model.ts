@@ -10,10 +10,11 @@
 
 import {
   BACKTEST_DAYS, compareShiftDays, conversionLagDays, cpaSpendFloor, readDefinition, STOP_LOOKBACK_DAYS,
-  BACK_TO_NORMAL, COOLDOWN_MIN_HOURS, DELIVERY_UNKNOWN,
+  BACK_TO_NORMAL, COOLDOWN_MIN_HOURS, DELIVERY_UNKNOWN, readLot,
   type AlertAccountRef, type AlertDefinition, type AlertMetric, type AlertPlatform, type Backtest, type ClientAlertStatus, type SlackIdentity,
 } from "@/lib/client-alerts/types";
 import { slackToPlain } from "@/lib/client-alerts/message";
+import type { LotCheck } from "@/lib/client-alerts/lot";
 
 // ── Who may touch an alert ───────────────────────────────────────────────
 
@@ -39,13 +40,14 @@ export const ALERT_NOT_FOUND = "Alerte introuvable.";
 
 /** Validation of one proposal of the conversation, as the assistant route answers it. */
 export type ProposalCheck =
-  | { ok: true; proposal: AlertDefinition; warnings: string[]; backtest: Backtest; noisy: boolean }
+  /** `lot`: a lot of clients — `proposal` and `backtest` are then those of its first client that takes the rule. */
+  | { ok: true; proposal: AlertDefinition; warnings: string[]; backtest: Backtest; noisy: boolean; lot?: LotCheck }
   /**
    * `errors`: what the consultant reads on the card. `hints`: the fields and values to write, for the
    * AI's next turn only — never shown. `retry`: not judged (figures unreadable right now) — not the
    * proposal's fault, to be checked again.
    */
-  | { ok: false; errors: string[]; hints?: string[]; retry?: boolean };
+  | { ok: false; errors: string[]; hints?: string[]; retry?: boolean; lot?: LotCheck };
 
 export interface AlertEventView {
   id: string;
@@ -101,6 +103,13 @@ export interface AlertView {
   createdByEmail: string | null;
   /** A draft nobody wrote in yet. */
   empty: boolean;
+  /**
+   * Alert of a lot (one rule asked once for several clients): the id of the
+   * alert that holds the conversation, and — on that one only — the number of
+   * clients of the lot. null / 0 for an alert on its own.
+   */
+  lotId: string | null;
+  lotSize: number;
   createdAt: string;
   events: AlertEventView[];
 }
@@ -165,6 +174,8 @@ export interface AlertRow {
   status: string;
   backtestJson: string;
   chatJson?: string | null;
+  groupId?: string | null;
+  groupJson?: string | null;
   armed: boolean;
   lastCheckedAt: DateLike;
   lastTriggeredAt: DateLike;
@@ -185,6 +196,7 @@ export function toAlertView(row: AlertRow, viewerId: string, opts: { clientGone?
   const mine = row.createdById === viewerId;
   const definition = readDefinition(row.definitionJson);
   const chat = (row.chatJson ?? "").trim();
+  const lotSize = row.groupId === row.id ? readLot(row.groupJson).length : 0;
   return {
     id: row.id,
     clientName: row.clientName,
@@ -200,10 +212,13 @@ export function toAlertView(row: AlertRow, viewerId: string, opts: { clientGone?
     lastTriggeredAt: iso(row.lastTriggeredAt),
     lastValue: row.lastValue,
     lastNote: row.lastNote,
-    clientGone: opts.clientGone === true,
+    // The conversation of a lot lives on while one of its clients does: the route says when none does.
+    clientGone: opts.clientGone === true && lotSize < 2,
     mine,
     createdByEmail: mine ? null : row.createdByEmail,
     empty: !definition && (chat === "" || chat === "{}"),
+    lotId: row.groupId ?? null,
+    lotSize: lotSize > 1 ? lotSize : 0,
     createdAt: iso(row.createdAt) ?? "",
     events: (row.events ?? []).map((e) => ({
       id: e.id, triggeredAt: iso(e.triggeredAt) ?? "", kind: e.kind, value: e.value, message: slackToPlain(e.message),
@@ -268,6 +283,12 @@ function platformList(names: string[], last: "et" | "ou"): string {
   return names.length > 1 ? `${names.slice(0, -1).join(", ")} ${last} ${names[names.length - 1]}` : names[0] ?? "";
 }
 
+/** A lot: the accounts are each client's own — the sentence says so rather than naming one client's platforms. */
+function lotScopeWords(def: AlertDefinition, platforms: AlertPlatform[] | null): string {
+  const only = platforms ? ` (${platformList(platforms.map((p) => PLATFORM_LABEL[p]), "et")} seulement)` : "";
+  return `de chaque client${only}${def.aggregation === "each" ? ", chaque plateforme jugée seule," : ""}`;
+}
+
 function scopeWords(def: AlertDefinition): string {
   const n = platformCounts(def.accounts);
   const present = (["meta", "google", "tiktok"] as AlertPlatform[]).filter((p) => n[p] > 0).map((p) => PLATFORM_LABEL[p]);
@@ -298,8 +319,8 @@ function compareWords(def: AlertDefinition): string {
 }
 
 /** The rule as ONE sentence, built from the definition alone. */
-export function ruleSentence(def: AlertDefinition): string {
-  const who = `${SUBJECT[def.metric]} ${scopeWords(def)}`;
+export function ruleSentence(def: AlertDefinition, lot?: { platforms: AlertPlatform[] | null } | null): string {
+  const who = `${SUBJECT[def.metric]} ${lot ? lotScopeWords(def, lot.platforms) : scopeWords(def)}`;
   const when = windowWords(def);
   const pct = def.threshold === null ? "" : plain(nf(1).format(def.threshold));
   switch (def.condition) {

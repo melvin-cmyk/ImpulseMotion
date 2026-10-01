@@ -21,6 +21,12 @@
  * lets an alert sent to `review` be proposed again on accounts that exist.
  * When the client itself is gone, nothing can be proposed (`blocked`).
  *
+ * A lot (several clients ticked, one conversation — lib/client-alerts/lot.ts):
+ * every client of the lot is read the same way, the AI gets them all, and
+ * each proposal is validated and replayed client by client (`checks[key].lot`).
+ * The proposal can be validated as soon as one client takes it; `blocked`
+ * only when no client of the lot is reachable any more.
+ *
  * The series are read once per request and never throw: an account that
  * cannot be read carries its `error`. When no account is readable the
  * conversation goes on — the AI is told it has no figures. A replay that
@@ -40,7 +46,9 @@ import { readClientSeries, summarizeSeries } from "@/lib/client-alerts/series";
 import { backtest, replayVerdict } from "@/lib/client-alerts/backtest";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
 import { unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
-import { NOISY_MESSAGES, readDefinition, type AlertAccountRef, type ClientSeries } from "@/lib/client-alerts/types";
+import { NOISY_MESSAGES, readDefinition, type AlertAccountRef, type AlertDefinition, type ClientSeries } from "@/lib/client-alerts/types";
+import { checkLot, isLotLead, lotRefusal, readLot, type LotMember } from "@/lib/client-alerts/lot";
+import { loadLotMembers, lotBlocked } from "@/lib/client-alerts/lot-members";
 import {
   ALERT_CHAT_MAX_MESSAGES, ALERT_CHAT_MAX_MESSAGE_CHARS,
   buildAlertRelayBody, checkAlertProposal, extractAlertProposal, proposalKey,
@@ -78,6 +86,10 @@ async function readFigures(accounts: AlertAccountRef[]): Promise<Figures> {
     console.error("[client-alerts] summary failed", e);
     return { series, summary: null };
   }
+}
+
+function safeSummary(series: ClientSeries): string | null {
+  try { return summarizeSeries(series, 1); } catch (e) { console.error("[client-alerts] summary failed", e); return null; }
 }
 
 /** What the page says of the figures: read until which day, and which accounts are missing. */
@@ -126,6 +138,43 @@ function checksOf(
   return out;
 }
 
+/** The same as checksOf, for a lot: every proposal judged on every client of the lot. */
+function lotChecksOf(messages: Array<{ role: string; content: string }>, members: LotMember[], blocked: string | null): Record<string, ProposalCheck> {
+  const out: Record<string, ProposalCheck> = {};
+  for (const [i, m] of messages.entries()) {
+    if (m.role !== "assistant") continue;
+    const extracted = extractAlertProposal(m.content);
+    if (extracted.kind === "none") continue;
+    const key = proposalKey(i);
+    if (extracted.kind === "malformed") { out[key] = { ok: false, errors: extracted.errors }; continue; }
+    if (blocked) { out[key] = { ok: false, errors: [blocked], retry: true }; continue; }
+    const { lot, accepted } = checkLot(extracted.raw, members, unreadText);
+    const first = accepted[0];
+    if (!first) {
+      const refusal = lotRefusal(lot);
+      out[key] = { ok: false, errors: refusal.errors, hints: refusal.hints, ...(refusal.retry ? { retry: true } : {}), lot };
+      continue;
+    }
+    out[key] = {
+      ok: true, proposal: first.definition, warnings: first.warnings, backtest: first.backtest,
+      noisy: lot.clients.some((c) => c.noisy), lot,
+    };
+  }
+  return out;
+}
+
+/** What the page says of the figures of a lot: until which day, and which clients could not be read. */
+function lotFiguresView(members: LotMember[]) {
+  const read = members.filter((m) => m.series && m.series.accounts.some((a) => !a.error && a.days.length > 0));
+  if (!read.length) return { ok: false as const };
+  const unreadable = members.filter((m) => !m.blocked && !read.includes(m)).map((m) => m.clientName);
+  for (const m of read) {
+    for (const a of m.series!.accounts) if (a.error) unreadable.push(`${m.clientName} · ${a.account.name}`);
+  }
+  const until = read.map((m) => m.series!.until).sort()[0];
+  return { ok: true as const, until, accounts: read.reduce((n, m) => n + m.accounts.length, 0), unreadable };
+}
+
 /**
  * Statuses kept with the transcript. A proposal the server finds invalid is
  * stored as such, whatever was sent; one that could not be judged this time
@@ -167,8 +216,44 @@ async function loadOwnAlert(id: string, session: Session) {
   const access = alert ? alertAccess(session, alert) : null;
   if (!alert || !access) return { error: NextResponse.json({ error: ALERT_NOT_FOUND }, { status: 404 }) } as const;
   if (access !== "owner") return { error: NextResponse.json({ error: OWNER_ONLY }, { status: 403 }) } as const;
+  if (isLotLead(alert)) {
+    // Every client of the lot, with its figures: what the conversation of a lot is about.
+    const members = await loadLotMembers(readLot(alert.groupJson), session);
+    const lead = members.find((m) => m.alertClientId === alert.alertClientId) ?? members[0];
+    return { alert, accounts: lead?.accounts ?? [], blocked: lotBlocked(members), lot: members } as const;
+  }
   const usable = await usableAccounts(alert, readAccounts(alert.accountsJson), session);
-  return { alert, accounts: usable.accounts, blocked: usable.state === "ok" ? null : usable.reason } as const;
+  return { alert, accounts: usable.accounts, blocked: usable.state === "ok" ? null : usable.reason, lot: null } as const;
+}
+
+/** The clients of a lot as the page shows them: name, platforms, and why one is out of reach. */
+function lotClients(loaded: Loaded) {
+  if (!loaded.lot) return {};
+  return {
+    lot: loaded.lot.map((m) => ({
+      alertClientId: m.alertClientId, clientName: m.clientName,
+      platforms: [...new Set(m.accounts.map((a) => a.platform))], blocked: m.blocked ?? null,
+    })),
+  };
+}
+
+type Loaded = Exclude<Awaited<ReturnType<typeof loadOwnAlert>>, { error: unknown }>;
+
+/** checks and figures of the conversation, for one client or for a lot. */
+async function judge(loaded: Loaded, messages: Array<{ role: string; content: string }>) {
+  if (loaded.lot) {
+    return { checks: lotChecksOf(messages, loaded.lot, loaded.blocked), figures: lotFiguresView(loaded.lot) };
+  }
+  const { series } = await readFigures(loaded.accounts);
+  return { checks: checksOf(messages, loaded.accounts, series, loaded.blocked), figures: figuresView(loaded.accounts, series) };
+}
+
+/** The rule in service for a lot: the lead's, or else the first alert of the lot that has one. */
+async function lotCurrent(alert: { id: string; definitionJson: string }): Promise<AlertDefinition | null> {
+  const own = readDefinition(alert.definitionJson);
+  if (own) return own;
+  const other = await prisma.clientAlert.findFirst({ where: { groupId: alert.id, NOT: { definitionJson: "{}" } }, orderBy: { updatedAt: "desc" }, select: { definitionJson: true } });
+  return other ? readDefinition(other.definitionJson) : null;
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -180,12 +265,12 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const chat = readChat(loaded.alert.chatJson);
   // Read even for an empty conversation: the figures are then ready when the first message is sent.
-  const { series } = await readFigures(loaded.accounts);
-  const checks = checksOf(chat.messages, loaded.accounts, series, loaded.blocked);
+  const { checks, figures } = await judge(loaded, chat.messages);
   return NextResponse.json({
     messages: chat.messages, proposals: sanitizeStatuses(chat.proposals, checks), checks,
     // Nothing to read for an alert whose client is gone: the page says why instead.
-    ...(loaded.blocked ? { blocked: loaded.blocked } : { figures: figuresView(loaded.accounts, series) }),
+    ...(loaded.blocked ? { blocked: loaded.blocked } : { figures }),
+    ...lotClients(loaded),
   });
 }
 
@@ -198,13 +283,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
   const body = await req.json().catch(() => ({}));
   const messages = sanitizeMessages(body?.messages) ?? [];
-  const { series } = await readFigures(loaded.accounts);
-  const checks = checksOf(messages, loaded.accounts, series, loaded.blocked);
+  const { checks, figures } = await judge(loaded, messages);
   const proposals = sanitizeStatuses(body?.proposals, checks);
   await prisma.clientAlert.update({ where: { id }, data: { chatJson: JSON.stringify({ messages, proposals }) } });
   return NextResponse.json({
     ok: true, proposals, checks,
-    ...(loaded.blocked ? { blocked: loaded.blocked } : { figures: figuresView(loaded.accounts, series) }),
+    ...(loaded.blocked ? { blocked: loaded.blocked } : { figures }),
+    ...lotClients(loaded),
   });
 }
 
@@ -222,7 +307,12 @@ export async function POST(req: NextRequest, { params }: Params) {
   const messages = sanitizeMessages(body?.messages);
   if (!messages) return NextResponse.json({ error: "La conversation n'a pas pu être lue : rechargez la page, puis réessayez." }, { status: 400 });
 
-  const { summary } = await readFigures(accounts);
+  const summary = loaded.lot ? null : (await readFigures(accounts)).summary;
+  // A lot: every client with its accounts and its figures in short (the day before, 7 and 30 days).
+  const lot = loaded.lot?.map((m) => ({
+    clientName: m.clientName, accounts: m.accounts, blocked: m.blocked ?? null,
+    summary: m.series && m.series.accounts.some((a) => !a.error && a.days.length > 0) ? safeSummary(m.series) : null,
+  })) ?? null;
 
   // Model, effort, servers, accounts and figures are decided here: nothing of them is read from the request.
   const res = await relayStream(buildAlertRelayBody({
@@ -230,7 +320,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     clientName: alert.clientName,
     accounts,
     seriesSummary: summary,
-    current: readDefinition(alert.definitionJson),
+    current: loaded.lot ? await lotCurrent(alert) : readDefinition(alert.definitionJson),
+    lot,
     userId: guard.session.userId,
     author: guard.session.user?.email ?? null,
     messages: toRelayMessages(messages),
@@ -241,7 +332,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (usage) await recordAiUsage(usage, {
       feature: "client_alert_compose",
       dashboardId: null,
-      clientName: alert.clientName,
+      clientName: loaded.lot ? `${alert.clientName} + ${loaded.lot.length - 1} client(s)` : alert.clientName,
       user: { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role },
     });
   });

@@ -11,7 +11,10 @@
  *                   of its last message continues. Refused from `review`
  *                   (the way out is a new validation in the conversation)
  *                   and when the client is gone (only deleting is left).
- * DELETE → deletes the alert and its triggers (the creator or a real admin)
+ * DELETE → deletes the alert and its triggers (the creator or a real admin).
+ *          The alert that holds the conversation of a lot takes the whole lot
+ *          with it; another alert of a lot leaves the lot (the next validation
+ *          of the lot no longer puts it back).
  *
  * The definition itself changes in one place only: the conversation, then
  * POST /api/client-alerts/[id]/activate.
@@ -23,6 +26,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { definitionHash } from "@/lib/client-alerts/evaluate";
 import { clientGoneText, goneClients } from "@/lib/client-alerts/accounts";
 import { readDefinition } from "@/lib/client-alerts/types";
+import { readLot } from "@/lib/client-alerts/lot";
 import { ALERT_NOT_FOUND, OWNER_ONLY, alertAccess, toAlertView } from "@/components/client-alerts/alert-model";
 
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -102,7 +106,24 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
   if ("error" in guard) return guard.error;
   const found = await load((await params).id, guard.session);
   if (!found) return NOT_FOUND();
+  const { alert } = found;
   // The triggers go with it (cascade). deleteMany: deleting twice is not an error.
-  await prisma.clientAlert.deleteMany({ where: { id: found.alert.id } });
-  return NextResponse.json({ ok: true });
+  if (alert.groupId && alert.groupId === alert.id) {
+    // The conversation of a lot: nothing could change the other alerts of the lot any more — they go with it.
+    const done = await prisma.clientAlert.deleteMany({ where: { OR: [{ id: alert.id }, { groupId: alert.id }] } });
+    return NextResponse.json({ ok: true, deleted: done.count });
+  }
+  if (!alert.groupId || !alert.alertClientId) {
+    await prisma.clientAlert.deleteMany({ where: { id: alert.id } });
+    return NextResponse.json({ ok: true, deleted: 1 });
+  }
+  const { groupId, alertClientId } = alert;
+  await prisma.$transaction(async (tx) => {
+    await tx.clientAlert.deleteMany({ where: { id: alert.id } });
+    const lead = await tx.clientAlert.findUnique({ where: { id: groupId }, select: { id: true, groupJson: true } });
+    if (!lead) return;
+    const rest = readLot(lead.groupJson).filter((id) => id !== alertClientId);
+    await tx.clientAlert.update({ where: { id: lead.id }, data: { groupJson: JSON.stringify(rest) } });
+  });
+  return NextResponse.json({ ok: true, deleted: 1 });
 }

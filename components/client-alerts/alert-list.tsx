@@ -46,12 +46,22 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
   const canOpen = !alert.clientGone && alert.mine;
   const owner = ownerLine(alert, everyone);
   const title = alert.label || (alert.empty ? "Brouillon sans demande" : "Brouillon en cours");
+  const lot = !!alert.lotId;
+  // The alert that holds the conversation of a lot takes the whole lot with it.
+  const lead = alert.lotSize > 1;
 
   return (
     <li className={`px-4 py-3 space-y-2 ${open ? "bg-violet-500/5" : ""}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold break-words">{alert.clientName}</div>
+          <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold break-words flex flex-wrap items-center gap-1.5">
+            <span>{alert.clientName}</span>
+            {lot && (
+              <span title="Même règle demandée une fois pour plusieurs clients : chaque client est jugé séparément. La conversation se modifie pour tout le lot.">
+                <Pill tone="violet" className="text-[10px] normal-case tracking-normal">{alert.lotSize > 1 ? `Lot de ${alert.lotSize} clients` : "Lot"}</Pill>
+              </span>
+            )}
+          </div>
           <div className={`text-sm font-medium mt-0.5 break-words ${alert.label ? "text-white" : "text-gray-400"}`}>{title}</div>
           <PlatformBadges accounts={alert.accounts} className="mt-1" />
         </div>
@@ -119,7 +129,7 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
 
       {confirmDelete ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-[11px] text-amber-200">
-          <span>Supprimer cette alerte et son historique ?</span>
+          <span>{lead ? `Supprimer tout le lot : les alertes de ses ${alert.lotSize} clients et leur historique ?` : lot ? "Retirer ce client du lot et supprimer son alerte ?" : "Supprimer cette alerte et son historique ?"}</span>
           <button type="button" className={dangerBtn} disabled={busy !== null} onClick={() => onAction("delete")}>
             {busy === "delete" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}Oui, supprimer
           </button>
@@ -182,7 +192,7 @@ export function AlertList({ alerts, openId, everyone, busy, errors, onOpen, onAc
         <AlertItem
           key={a.id}
           alert={a}
-          open={openId === a.id}
+          open={openId === a.id || (!!a.lotId && openId === a.lotId)}
           everyone={everyone === true}
           busy={busy[a.id] ?? null}
           error={errors[a.id] ?? null}

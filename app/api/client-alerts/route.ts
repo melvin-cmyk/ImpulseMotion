@@ -10,6 +10,10 @@
  * POST → { alertClientId } → creates a draft for that client ({ alert }).
  *        The client must be in the session's scope; the accounts are copied
  *        on the alert, which never follows a later regrouping of the client.
+ *        { alertClientIds: [...] } with several clients → the draft of a lot
+ *        (lib/client-alerts/lot.ts): one conversation, made for the first
+ *        client, that holds the clients of the lot; every client must be in
+ *        the session's scope, at most LOT_MAX_CLIENTS.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -21,6 +25,7 @@ import { dmConfigured, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
 import { goneClients } from "@/lib/client-alerts/accounts";
 import { sendingEnabled, type SlackIdentity } from "@/lib/client-alerts/types";
 import { toAlertView, type ClientOption } from "@/components/client-alerts/alert-model";
+import { LOT_MAX_CLIENTS, readClientIds } from "@/lib/client-alerts/lot";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const LIST_MAX = 300;
@@ -77,8 +82,10 @@ export async function POST(req: NextRequest) {
   const { session } = guard;
 
   const body = await req.json().catch(() => null);
-  const alertClientId = body && typeof body === "object" && typeof body.alertClientId === "string" ? body.alertClientId.trim() : "";
-  if (!alertClientId) return NextResponse.json({ error: "Choisissez un client." }, { status: 400 });
+  const ids = readClientIds(body);
+  if (!ids) return NextResponse.json({ error: "Choisissez un client." }, { status: 400 });
+  if (ids.length > 1) return createLot(ids, session);
+  const alertClientId = ids[0];
 
   const client = await prisma.alertClient.findUnique({
     where: { id: alertClientId },
@@ -94,7 +101,7 @@ export async function POST(req: NextRequest) {
 
   // A draft opened for this client and left without a word is taken up again rather than piled up.
   const untouched = await prisma.clientAlert.findFirst({
-    where: { createdById: session.userId, alertClientId: client.id, status: "draft", chatJson: "{}", definitionJson: "{}" },
+    where: { createdById: session.userId, alertClientId: client.id, groupJson: "[]", status: "draft", chatJson: "{}", definitionJson: "{}" },
     orderBy: { createdAt: "desc" },
   });
   const accountsJson = JSON.stringify(accounts);
@@ -113,6 +120,48 @@ export async function POST(req: NextRequest) {
       clientName: client.name,
       accountsJson,
     },
+  });
+  return NextResponse.json({ ok: true, alert: toAlertView({ ...alert, events: [] }, session.userId) }, { status: 201 });
+}
+
+type Session = { userId: string; role?: string | null; user?: { email?: string | null } | null };
+
+/** The draft of a lot: the conversation, made for the first client, holds every client of the lot. */
+async function createLot(ids: string[], session: Session) {
+  if (ids.length > LOT_MAX_CLIENTS) {
+    return NextResponse.json({ error: `${LOT_MAX_CLIENTS} clients au plus par alerte groupée : retirez-en ${ids.length - LOT_MAX_CLIENTS}.` }, { status: 400 });
+  }
+  const rows = await prisma.alertClient.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, accountsJson: true, gone: true } });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const missing = ids.filter((id) => { const r = byId.get(id); return !r || r.gone; });
+  if (missing.length) return NextResponse.json({ error: missing.length > 1 ? `${missing.length} clients choisis sont introuvables.` : "Un client choisi est introuvable." }, { status: 404 });
+
+  // Every client of the lot must be readable by the person: the lot never opens the figures of an account out of scope.
+  const scope = await getAccountScope(session);
+  const accountsOf = (id: string) => parseAlertAccounts(byId.get(id)!.accountsJson).filter((a) => platformAccountInScope(scope, a.platform, a.accountId));
+  const denied = ids.filter((id) => !accountsOf(id).length).map((id) => byId.get(id)!.name);
+  if (denied.length) return NextResponse.json({ error: `Vous n'avez pas accès aux comptes de : ${denied.join(", ")}.` }, { status: 403 });
+
+  const first = byId.get(ids[0])!;
+  // The same lot opened and left without a word is taken up again rather than piled up.
+  const untouched = await prisma.clientAlert.findFirst({
+    where: { createdById: session.userId, groupJson: JSON.stringify(ids), status: "draft", chatJson: "{}", definitionJson: "{}" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (untouched) return NextResponse.json({ ok: true, alert: toAlertView({ ...untouched, events: [] }, session.userId), reused: true });
+
+  const alert = await prisma.$transaction(async (tx) => {
+    const created = await tx.clientAlert.create({
+      data: {
+        createdById: session.userId,
+        createdByEmail: session.user?.email ?? null,
+        alertClientId: first.id,
+        clientName: first.name,
+        accountsJson: JSON.stringify(accountsOf(first.id)),
+        groupJson: JSON.stringify(ids),
+      },
+    });
+    return tx.clientAlert.update({ where: { id: created.id }, data: { groupId: created.id } });
   });
   return NextResponse.json({ ok: true, alert: toAlertView({ ...alert, events: [] }, session.userId) }, { status: 201 });
 }

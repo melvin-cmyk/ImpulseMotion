@@ -10,11 +10,16 @@
  * « Valider » is rendered only for a proposal the server found valid; while it
  * is being checked, unverified or invalid, the card says why and offers no way
  * to validate.
+ *
+ * For a lot (several clients, one rule), the card shows the replay client by
+ * client — and which clients cannot take the rule, and why — instead of the
+ * accounts and the replay of one client.
  */
 
 import { AlertTriangle, BellRing, CheckCircle2, History, Loader2, XCircle } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import type { AlertDefinition, Backtest } from "@/lib/client-alerts/types";
+import type { LotCheck, LotClientCheck } from "@/lib/client-alerts/lot";
 import {
   PLATFORM_LABEL, cardNotes, guardsLine, hindsightLine, replayLine, replayOf, ruleSentence, settingsLine, statsLine, unbreakable, type CardState,
 } from "@/components/client-alerts/alert-model";
@@ -25,7 +30,7 @@ const primaryBtn = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 h
 const quietBtn = "px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors";
 
 export function ProposalCard({
-  state, proposal, draftLabel, backtest, warnings, errors, notice, confirmCount, replaces, onValidate, onConfirm, onCancel, onRecheck,
+  state, proposal, draftLabel, backtest, warnings, errors, notice, confirmCount, confirmClients, lot, replaces, onValidate, onConfirm, onCancel, onRecheck,
 }: {
   state: CardState;
   /** Validated by the server; absent while checking and when invalid. */
@@ -39,6 +44,10 @@ export function ProposalCard({
   notice?: string | null;
   /** Messages the alert would have sent, when a confirmation is asked. */
   confirmCount?: number;
+  /** A lot: the clients for which the alert would have sent that many messages. */
+  confirmClients?: string[];
+  /** A lot: what the rule gives on each client. */
+  lot?: LotCheck | null;
   /** An alert is in service for this conversation: validating replaces it. */
   replaces?: boolean;
   onValidate: () => void;
@@ -51,8 +60,10 @@ export function ProposalCard({
   const replay = backtest ? replayOf(backtest) : null;
   const guards = proposal ? guardsLine(proposal) : null;
   const hindsight = proposal ? hindsightLine(proposal) : null;
-  const notes = cardNotes(warnings ?? [], backtest?.notes ?? []);
+  // The notes of the replay are those of one client: a lot says its clients one by one instead.
+  const notes = cardNotes(warnings ?? [], lot ? [] : backtest?.notes ?? []);
   const canValidate = (state === "pending" || state === "failed") && !!proposal;
+  const lotOk = lot ? lot.clients.filter((c) => c.ok).length : 0;
 
   return (
     <div className={`bg-gray-900 border rounded-2xl overflow-hidden ${bad ? "border-amber-800/60" : live ? "border-emerald-900/60" : "border-violet-800/50"}`}>
@@ -72,9 +83,14 @@ export function ProposalCard({
         <div className="px-4 py-3 space-y-3">
           <p className="text-sm text-white leading-relaxed flex items-start gap-2">
             <BellRing className="w-4 h-4 text-violet-400 shrink-0 mt-0.5" />
-            <span className="break-words">{unbreakable(ruleSentence(proposal))}</span>
+            <span className="break-words">{unbreakable(ruleSentence(proposal, lot))}</span>
           </p>
 
+          {lot ? (
+            <p className="text-xs text-gray-400">
+              Chaque client est jugé séparément, sur {lot.platforms ? `ses comptes ${lot.platforms.map((p) => PLATFORM_LABEL[p]).join(" et ")}` : "tous ses comptes"} ; le message dit quel client est en cause.
+            </p>
+          ) : (
           <div className="flex flex-wrap items-center gap-1.5">
             {proposal.accounts.map((a) => (
               <Pill key={`${a.platform}:${a.accountId}`} tone={a.platform === "meta" ? "blue" : "emerald"} className="text-[11px]">
@@ -82,8 +98,11 @@ export function ProposalCard({
               </Pill>
             ))}
           </div>
+          )}
 
-          {replay && backtest && (
+          {lot && <LotReplay clients={lot.clients} />}
+
+          {!lot && replay && backtest && (
             <div className="text-xs bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2 space-y-1">
               <div className="flex items-start gap-1.5 text-gray-200 font-semibold">
                 <History className="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" />
@@ -147,7 +166,9 @@ export function ProposalCard({
         {canValidate && (
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={onValidate} className={primaryBtn}>
-              {state === "failed" ? "Réessayer" : replaces ? "Remplacer l'alerte en service" : "Valider cette alerte"}
+              {state === "failed" ? "Réessayer"
+                : lot ? `${replaces ? "Remplacer" : "Valider"} pour ${lotOk} client${lotOk > 1 ? "s" : ""}`
+                : replaces ? "Remplacer l'alerte en service" : "Valider cette alerte"}
             </button>
             <span className="text-[11px] text-gray-500">
               {state === "failed" ? "Rien n'a été enregistré." : "Rien n'est enregistré avant votre clic. Pour changer quelque chose, demandez-le à l'IA."}
@@ -157,7 +178,11 @@ export function ProposalCard({
         {state === "confirming" && (
           <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-amber-200">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            <span>Cette alerte vous aurait envoyé {confirmCount ?? "beaucoup de"} messages en 30 jours. C&apos;est beaucoup : la mettre en service quand même ?</span>
+            <span>
+              {confirmClients?.length
+                ? `Pour ${confirmClients.join(", ")}, cette alerte vous aurait envoyé jusqu'à ${confirmCount ?? "beaucoup de"} messages en 30 jours. C'est beaucoup : la mettre en service quand même ?`
+                : `Cette alerte vous aurait envoyé ${confirmCount ?? "beaucoup de"} messages en 30 jours. C'est beaucoup : la mettre en service quand même ?`}
+            </span>
             <button type="button" onClick={onConfirm} className={primaryBtn}>Oui, {replaces ? "remplacer" : "valider"} quand même</button>
             <button type="button" onClick={onCancel} className={quietBtn}>Annuler</button>
           </div>
@@ -183,4 +208,37 @@ export function ProposalCard({
       </div>
     </div>
   );
+}
+
+/** The replay of a lot, one line per client: the messages it would have sent, or why the client is left out. */
+function LotReplay({ clients }: { clients: LotClientCheck[] }) {
+  const out = clients.filter((c) => !c.ok);
+  return (
+    <div className="text-xs bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2 space-y-1">
+      <div className="flex items-start gap-1.5 text-gray-200 font-semibold">
+        <History className="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" />
+        <span>Sur les 30 derniers jours, client par client :</span>
+      </div>
+      <ul className="sm:pl-5 space-y-0.5">
+        {clients.map((c) => (
+          <li key={c.alertClientId} className="flex items-start justify-between gap-3">
+            <span className={`break-words ${c.ok ? "text-gray-300" : "text-amber-300"}`}>{c.clientName}</span>
+            <span className={`shrink-0 text-right tabular-nums ${c.ok ? (c.noisy ? "text-amber-300" : "text-gray-400") : "text-amber-400/80"}`}>
+              {c.ok ? lotMessages(c) : c.retry ? "à revérifier" : "non concerné"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {out.length > 0 && (
+        <ul className="sm:pl-5 pt-1 border-t border-gray-800 text-amber-300/90 space-y-0.5">
+          {out.map((c) => <li key={c.alertClientId} className="break-words">{c.clientName} : {c.error ?? "non vérifiable"}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function lotMessages(c: LotClientCheck): string {
+  const n = c.messages ?? 0;
+  return n === 0 ? "aucun message" : `${n} message${n > 1 ? "s" : ""}`;
 }
