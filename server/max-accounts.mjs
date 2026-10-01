@@ -26,6 +26,7 @@ import { execFile } from "node:child_process";
 import { createQuotaMonitor } from "./quota.mjs";
 
 const FILE = process.env.MAX_ACCOUNTS_FILE || "/root/.config/impulsemotion/max-accounts.json";
+const QUOTA_STATE_FILE = process.env.QUOTA_STATE_FILE || "/root/.config/impulsemotion/quota-notified.json";
 export const HOST_ACCOUNT = "host";
 const ID_RE = /^[a-z0-9][a-z0-9-]{1,30}$/;
 const TOKEN_RE = /^sk-ant-oat01-[A-Za-z0-9_-]{20,}$/;
@@ -61,6 +62,10 @@ function monitorFor(id) {
     warnPct: deps.warnPct,
     switchPct: deps.switchPct,
     notify: deps.notify,
+    // Slack: one message per account when its quota is reached, never the 80 % notice;
+    // the dedup is kept on disk so a relay restart does not post it again.
+    notifyWarn: false,
+    statePath: QUOTA_STATE_FILE,
     label: id === HOST_ACCOUNT ? "Claude Max (compte serveur)" : `Claude Max « ${acc.label} »`,
     ...(acc?.kind === "login"
       ? { credentialsPath: path.join(acc.configDir, ".credentials.json"), refresh: () => pingCli({ CLAUDE_CONFIG_DIR: acc.configDir }).catch((e) => console.error(`[max-accounts] ${id}: refresh échoué — ${e.message}`)) }

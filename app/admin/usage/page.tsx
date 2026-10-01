@@ -214,8 +214,8 @@ export default function AdminUsagePage() {
               </div>
               <div className="text-xs text-gray-500 mt-1">
                 {quota.fallbackActive
-                  ? `Retour à l'abonnement ${quota.exhaustedUntil ? `vers ${new Date(quota.exhaustedUntil).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "à la prochaine fenêtre"} · modèle ${quota.bedrockModel}`
-                  : `Bascule automatique ${quota.fallbackEnabled ? `à ${quota.switchPct} %` : "désactivée"} · alerte Slack à ${quota.warnPct} %`}
+                  ? `Compte saturé : l'équipe passe sur un autre compte Claude Max, retour ${quota.exhaustedUntil ? `vers ${new Date(quota.exhaustedUntil).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "à la prochaine fenêtre"}`
+                  : `Bascule sur un autre compte Claude Max à ${quota.switchPct} % · un seul message Slack, quand le quota est atteint`}
               </div>
               {quota.checkedAt && <div className="text-[11px] text-gray-600 mt-2">vérifié à {new Date(quota.checkedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{quota.error ? ` · erreur : ${quota.error}` : ""}</div>}
             </Card>

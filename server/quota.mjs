@@ -26,6 +26,11 @@ export function createQuotaMonitor(opts = {}) {
   const switchPct = Number(opts.switchPct ?? 95);
   const log = opts.log || ((...a) => console.log("[quota]", ...a));
   const notify = opts.notify || (async () => {});
+  // The 80 % notice can stay out of Slack (the pool does): one message per
+  // account, when the quota is reached, is all the team wants (Melvin, 2026-10-01).
+  const notifyWarn = opts.notifyWarn !== false;
+  // Where the dedup survives a relay restart (optional; one entry per label).
+  const statePath = opts.statePath || null;
 
   const state = {
     fiveHour: null, // { utilization, resetsAt }
@@ -55,7 +60,38 @@ export function createQuotaMonitor(opts = {}) {
   }
 
   const pct = (w) => (w && typeof w.utilization === "number" ? w.utilization : 0);
-  const windowKey = () => state.fiveHour?.resetsAt ?? "none";
+  // The window that drives level(), with its reset rounded to the hour: the
+  // endpoint returns a reset time that drifts by a few seconds between probes,
+  // and a raw timestamp made every probe look like a new window (a Slack
+  // notice every 5 minutes).
+  const windowKey = () => {
+    const w = pct(state.sevenDay) > pct(state.fiveHour) ? "7j" : "5h";
+    const at = (w === "7j" ? state.sevenDay : state.fiveHour)?.resetsAt;
+    const t = at ? Date.parse(at) : NaN;
+    return `${w}:${Number.isFinite(t) ? new Date(Math.round(t / 3600e3) * 3600e3).toISOString() : "none"}`;
+  };
+
+  function loadSent() {
+    if (!statePath) return;
+    try {
+      const saved = JSON.parse(fs.readFileSync(statePath, "utf8"))?.[label];
+      if (saved) { state.warnedFor = saved.warnedFor ?? null; state.switchedFor = saved.switchedFor ?? null; }
+    } catch { /* first run */ }
+  }
+  function saveSent() {
+    if (!statePath) return;
+    try {
+      let all = {};
+      try { all = JSON.parse(fs.readFileSync(statePath, "utf8")) || {}; } catch { /* new file */ }
+      all[label] = { warnedFor: state.warnedFor, switchedFor: state.switchedFor };
+      const tmp = `${statePath}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(all, null, 2), { mode: 0o600 });
+      fs.renameSync(tmp, statePath);
+    } catch (e) {
+      log(`${label}: dédoublonnage non sauvegardé — ${e.message}`);
+    }
+  }
+  loadSent();
 
   function level() {
     return Math.max(pct(state.fiveHour), pct(state.sevenDay));
@@ -126,6 +162,7 @@ export function createQuotaMonitor(opts = {}) {
     const key = windowKey();
     if (lvl >= switchPct && state.switchedFor !== key) {
       state.switchedFor = key;
+      saveSent();
       log(`${label}: switch (${lvl}% ≥ ${switchPct}%)`);
       await notify({
         kind: "switch",
@@ -136,8 +173,9 @@ export function createQuotaMonitor(opts = {}) {
       });
     } else if (lvl >= warnPct && lvl < switchPct && state.warnedFor !== key) {
       state.warnedFor = key;
+      saveSent();
       log(`${label}: warn (${lvl}% ≥ ${warnPct}%)`);
-      await notify({
+      if (notifyWarn) await notify({
         kind: "warn",
         message: `${label} à ${lvl}% (5 h : ${pct(state.fiveHour)}%, remise à zéro ${fmt(state.fiveHour?.resetsAt)} ; 7 j : ${pct(state.sevenDay)}%). Bascule automatique sur un autre compte Claude Max à ${switchPct}% (Bedrock reste réservé aux bots clients).`,
         value: lvl,
@@ -155,6 +193,7 @@ export function createQuotaMonitor(opts = {}) {
     const key = windowKey();
     if (state.switchedFor !== key) {
       state.switchedFor = key;
+      saveSent();
       log(`${label}: exhausted:`, state.exhaustedReason);
       await notify({
         kind: "switch",

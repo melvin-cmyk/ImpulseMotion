@@ -57,6 +57,33 @@ describe("createQuotaMonitor", () => {
     expect(q.snapshot().exhaustedUntil).not.toBeNull();
   });
 
+  it("posts one Slack message when the quota is reached, whatever the reset drift and the restarts", async () => {
+    const notify = vi.fn(async (_n: { kind: string; message: string; value: number }) => {});
+    const statePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "quota-")), "sent.json");
+    const make = () => createQuotaMonitor({ credentialsPath, warnPct: 80, switchPct: 95, notify, notifyWarn: false, statePath, log: () => {} });
+    const q = make();
+    // 80 %: no Slack at all.
+    stubUsage(85, 21, "2026-10-01T16:50:00.104+00:00");
+    await q.probe();
+    expect(notify).not.toHaveBeenCalled();
+    // Reached: one message, even though the reset time drifts between probes.
+    for (const at of ["2026-10-01T16:50:00.104+00:00", "2026-10-01T16:50:01.871+00:00", "2026-10-01T16:49:59.502+00:00"]) {
+      stubUsage(97, 21, at);
+      await q.probe();
+    }
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0]).toMatchObject({ kind: "switch" });
+    // A relay restart does not post it again.
+    const again = make();
+    stubUsage(97, 21, "2026-10-01T16:50:02.000+00:00");
+    await again.probe();
+    expect(notify).toHaveBeenCalledTimes(1);
+    // A new window does.
+    stubUsage(97, 21, "2026-10-01T21:50:00.000+00:00");
+    await again.probe();
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the last state and reports the error when the endpoint fails", async () => {
     const q = createQuotaMonitor({ credentialsPath, notify: async () => {}, log: () => {} });
     globalThis.fetch = vi.fn(async () => new Response("nope", { status: 500 })) as unknown as typeof fetch;
