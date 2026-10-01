@@ -112,7 +112,7 @@ export function hostMonitor() {
 /**
  * Chooses the account for a chat. `preferred` (an id) wins while it has
  * room; otherwise the account with the lowest utilisation that is not
- * exhausted; null when every account is dry (→ Bedrock).
+ * exhausted; null when every account is past its switch threshold.
  */
 export function pick({ preferred = null, exclude = [] } = {}) {
   const candidates = ids().filter((id) => !exclude.includes(id));
@@ -123,6 +123,30 @@ export function pick({ preferred = null, exclude = [] } = {}) {
   const rank = (id) => { const m = monitorFor(id); return m.state.usageVisible === false ? 50 : m.level(); };
   const open = candidates.filter(room).sort((a, b) => rank(a) - rank(b));
   return open[0] ?? null;
+}
+
+/**
+ * The account for a staff chat, never null: the best one with room (pick),
+ * else the least used among those the CLI has not refused yet (past the
+ * switch threshold but still answering), else the one whose refusal ends
+ * first. Staff never runs on Bedrock: it is kept for the client bots.
+ */
+export function pickForStaff({ preferred = null, exclude = [], onlyAnswering = false } = {}) {
+  const roomy = pick({ preferred, exclude });
+  if (roomy) return roomy;
+  const candidates = ids().filter((id) => !exclude.includes(id) && monitorFor(id));
+  const answering = candidates.filter((id) => !monitorFor(id).exhausted()).sort((a, b) => monitorFor(a).level() - monitorFor(b).level());
+  if (answering.length) return answering[0];
+  // A relaunch never goes to an account already refusing: the turn ends with a clear message instead.
+  if (onlyAnswering || candidates.length === 0) return null;
+  const soonest = candidates.sort((a, b) => monitorFor(a).state.exhaustedUntil - monitorFor(b).state.exhaustedUntil);
+  return soonest[0] ?? HOST_ACCOUNT;
+}
+
+/** When the first refused account answers again (ms since epoch), 0 when none is refused. */
+export function nextReset() {
+  const until = ids().map((id) => monitorFor(id)?.state.exhaustedUntil ?? 0).filter((t) => t > Date.now());
+  return until.length ? Math.min(...until) : 0;
 }
 
 /** Public snapshot (no tokens). */

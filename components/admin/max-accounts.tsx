@@ -82,7 +82,7 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
     <section className="space-y-2">
       <h2 className="text-base font-semibold text-white">Pool de comptes Claude Max</h2>
       <p className="text-xs text-gray-500">
-        Les chats staff partent sur le compte choisi par le consultant tant qu&apos;il a de la marge, sinon sur le compte le moins utilisé, et sur Amazon Bedrock quand tous sont saturés.
+        Les chats staff partent sur le compte choisi par le consultant tant qu&apos;il a de la marge, sinon sur le compte le moins utilisé. Ils ne passent jamais sur Amazon Bedrock, réservé aux bots clients : quand tous les comptes sont saturés, le consultant est prévenu de l'heure où le premier se libère.
         Pour ajouter un compte : sur un Mac connecté à cet abonnement, lancer <code className="text-gray-300">claude setup-token</code> et coller le jeton ci-dessous. Il est vérifié auprès d&apos;Anthropic puis stocké chiffré sur le serveur du relay, jamais réaffiché.
       </p>
       {error && <Card padded><p className="text-sm text-red-400">{error}</p></Card>}

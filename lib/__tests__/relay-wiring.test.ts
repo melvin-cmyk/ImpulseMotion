@@ -500,9 +500,11 @@ describe("relay — un seul tour à la fois par conversation", () => {
   }, 20_000);
 });
 
-describe("relay — relance sur un autre compte", () => {
-  beforeAll(async () => { await stopRelay(); await startRelay({ BEDROCK_FALLBACK: "1" }); }, 20_000);
-  afterAll(async () => { await stopRelay(); await startRelay(); }, 20_000);
+describe("relay — relance sur un autre compte Claude Max, jamais sur Bedrock", () => {
+  // A second Max account in the pool: a refused turn is relaunched on it.
+  const pool = () => fs.writeFileSync(path.join(root, "accounts.json"), JSON.stringify({ accounts: [{ id: "second", label: "Second", token: `sk-ant-oat01-${"x".repeat(40)}`, addedAt: "2026-10-01" }] }));
+  beforeAll(async () => { await stopRelay(); pool(); await startRelay({ BEDROCK_FALLBACK: "1" }); }, 20_000);
+  afterAll(async () => { await stopRelay(); fs.rmSync(path.join(root, "accounts.json"), { force: true }); await startRelay(); }, 20_000);
 
   it("compte ce que la tentative refusée avait consommé", async () => {
     const key = "test:relance-compte";
@@ -512,9 +514,9 @@ describe("relay — relance sur un autre compte", () => {
       { events: [...call(T3), result(T3, T3, 0.002)] },
     ]);
     const events = await chat({ messages: thread(1, "Question"), sessionKey: key });
-    expect(logs).toMatch(/saturé — relance sur bedrock/);
+    expect(logs).toMatch(/saturé — relance sur second/);
     const usage = billed(events);
-    expect(usage).toMatchObject({ provider: "bedrock", tokens: asTokens(plus(refused, T3)) });
+    expect(usage).toMatchObject({ provider: "subscription", account: "second", tokens: asTokens(plus(refused, T3)) });
     expect(usage?.cost).toBeCloseTo(0.006, 9);
     expect(usage?.earlierAttempts).toEqual([expect.objectContaining({ tokens: asTokens(refused), cost: 0.004 })]);
     expect(events.filter((e) => e.type === "error")).toEqual([]);
@@ -533,8 +535,19 @@ describe("relay — relance sur un autre compte", () => {
     await stopRelay();
     await startRelay({ BEDROCK_FALLBACK: "1" });
     const usage = billed(await chat({ messages: thread(1, "Question"), sessionKey: "test:relance-vide" }));
-    expect(usage).toMatchObject({ provider: "bedrock", cost: 0.002, tokens: asTokens(T3) });
+    expect(usage).toMatchObject({ provider: "subscription", account: "second", cost: 0.002, tokens: asTokens(T3) });
     expect(usage?.earlierAttempts).toBeUndefined();
+  }, 20_000);
+
+  it("tous les comptes saturés : un message clair, et toujours pas Bedrock (réservé aux bots clients)", async () => {
+    await stopRelay();
+    fs.rmSync(path.join(root, "accounts.json"), { force: true });
+    await startRelay({ BEDROCK_FALLBACK: "1" });
+    playAttempts([{ events: [result([0, 0, 0, 0], null, null, { is_error: true, result: "You've hit your usage limit" })] }]);
+    const events = await chat({ messages: thread(1, "Question"), sessionKey: "test:tout-sature" });
+    expect(logs).not.toMatch(/relance sur bedrock|bedrock@/);
+    expect(events.filter((e) => e.type === "error").map((e) => String(e.message))).toEqual([expect.stringMatching(/Tous les comptes Claude Max de l'agence sont saturés/)]);
+    pool();
   }, 20_000);
 });
 

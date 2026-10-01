@@ -32,7 +32,7 @@ export function createQuotaMonitor(opts = {}) {
     sevenDay: null,
     checkedAt: null,
     error: null,
-    /** Set by markExhausted(): Bedrock until then, whatever the probe says. */
+    /** Set by markExhausted(): the account is skipped until then, whatever the probe says. */
     exhaustedUntil: 0,
     exhaustedReason: null,
     /** false when the token cannot read the usage endpoint (setup-token scope). */
@@ -64,6 +64,11 @@ export function createQuotaMonitor(opts = {}) {
   function fallbackActive() {
     if (state.exhaustedUntil > Date.now()) return true;
     return level() >= switchPct;
+  }
+
+  /** Refused by the CLI (usage limit, revoked token): unusable until exhaustedUntil. */
+  function exhausted() {
+    return state.exhaustedUntil > Date.now();
   }
 
   let refreshedAt = 0;
@@ -124,7 +129,7 @@ export function createQuotaMonitor(opts = {}) {
       log(`${label}: switch (${lvl}% ≥ ${switchPct}%)`);
       await notify({
         kind: "switch",
-        message: `${label} à ${lvl}% (5 h : ${pct(state.fiveHour)}%, 7 j : ${pct(state.sevenDay)}%). Les chats et rapports basculent sur Amazon Bedrock jusqu'à la remise à zéro (${fmt(state.fiveHour?.resetsAt)}).`,
+        message: `${label} à ${lvl}% (5 h : ${pct(state.fiveHour)}%, 7 j : ${pct(state.sevenDay)}%). Les chats et rapports de l'équipe passent sur un autre compte Claude Max jusqu'à la remise à zéro (${fmt(state.fiveHour?.resetsAt)}) ; Amazon Bedrock reste réservé aux bots clients.`,
         value: lvl,
       });
     } else if (lvl >= warnPct && lvl < switchPct && state.warnedFor !== key) {
@@ -132,7 +137,7 @@ export function createQuotaMonitor(opts = {}) {
       log(`${label}: warn (${lvl}% ≥ ${warnPct}%)`);
       await notify({
         kind: "warn",
-        message: `${label} à ${lvl}% (5 h : ${pct(state.fiveHour)}%, remise à zéro ${fmt(state.fiveHour?.resetsAt)} ; 7 j : ${pct(state.sevenDay)}%). Bascule automatique sur Bedrock à ${switchPct}%.`,
+        message: `${label} à ${lvl}% (5 h : ${pct(state.fiveHour)}%, remise à zéro ${fmt(state.fiveHour?.resetsAt)} ; 7 j : ${pct(state.sevenDay)}%). Bascule automatique sur un autre compte Claude Max à ${switchPct}% (Bedrock reste réservé aux bots clients).`,
         value: lvl,
       });
     }
@@ -149,7 +154,7 @@ export function createQuotaMonitor(opts = {}) {
       log(`${label}: exhausted:`, state.exhaustedReason);
       await notify({
         kind: "switch",
-        message: `${label} : le CLI Claude a refusé une requête (quota atteint : « ${state.exhaustedReason.slice(0, 120)} »). Les chats et rapports basculent sur Amazon Bedrock jusqu'à ${fmt(new Date(state.exhaustedUntil).toISOString())}.`,
+        message: `${label} : le CLI Claude a refusé une requête (quota atteint : « ${state.exhaustedReason.slice(0, 120)} »). Les chats et rapports de l'équipe passent sur un autre compte Claude Max jusqu'à ${fmt(new Date(state.exhaustedUntil).toISOString())} ; Amazon Bedrock reste réservé aux bots clients.`,
         value: level(),
       });
     }
@@ -178,7 +183,7 @@ export function createQuotaMonitor(opts = {}) {
     return t;
   }
 
-  return { probe, evaluate, markExhausted, fallbackActive, level, snapshot, start, state, label };
+  return { probe, evaluate, markExhausted, fallbackActive, exhausted, level, snapshot, start, state, label };
 }
 
 /** True when a CLI error text looks like a subscription usage limit. */
@@ -217,7 +222,7 @@ export function makeWebhookNotifier({ url, secret, slackChannel, appUrl }) {
         entityLevel: null,
         entityName: null,
       },
-      rule: { id: "quota", ownerEmail: null, ownerName: null, label: kind === "switch" ? "Bascule Bedrock" : "Quota Claude Max", mode: "system" },
+      rule: { id: "quota", ownerEmail: null, ownerName: null, label: kind === "switch" ? "Bascule de compte Claude Max" : "Quota Claude Max", mode: "system" },
       notify: { slackChannel, emails: [] },
       links: { alerts: `${appUrl}/admin/usage`, event: `${appUrl}/admin/usage` },
     };

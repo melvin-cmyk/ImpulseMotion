@@ -200,7 +200,7 @@ export default function AdminUsagePage() {
       <section className="space-y-2">
         <h2 className="text-base font-semibold text-white">Abonnement Claude Max</h2>
         <p className="text-xs text-gray-500">
-          Utilisation de l&apos;abonnement qui fait tourner les chats, rapports et analyses. Au-delà du seuil de bascule, le relay envoie tout sur Amazon Bedrock jusqu&apos;à la remise à zéro de la fenêtre.
+          Utilisation de l&apos;abonnement qui fait tourner les chats, rapports et analyses. Au-delà du seuil de bascule, le relay envoie les chats de l&apos;équipe sur un autre compte Claude Max jusqu&apos;à la remise à zéro de la fenêtre. Amazon Bedrock reste réservé aux bots clients.
         </p>
         {quotaError && <Card padded><p className="text-sm text-red-400">Quota indisponible : {quotaError}</p></Card>}
         {quota && (
@@ -210,7 +210,7 @@ export default function AdminUsagePage() {
             <Card padded>
               <div className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Mode actuel</div>
               <div className={`mt-1 text-lg font-bold ${quota.fallbackActive ? "text-amber-300" : "text-emerald-300"}`}>
-                {quota.fallbackActive ? "Amazon Bedrock (bascule)" : "Abonnement Claude"}
+                {quota.fallbackActive ? "Autre compte Claude Max (bascule)" : "Abonnement Claude"}
               </div>
               <div className="text-xs text-gray-500 mt-1">
                 {quota.fallbackActive

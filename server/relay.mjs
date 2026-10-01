@@ -507,8 +507,10 @@ if (!RELAY_SHARED_SECRET) {
   process.exit(1);
 }
 
-// Claude Max quota → Bedrock fallback (see server/quota.mjs).
-const BEDROCK_FALLBACK = process.env.BEDROCK_FALLBACK === "1";
+// Claude Max quota (see server/quota.mjs). Since 2026-10-01 a saturated
+// account hands staff chats to another Max account, never to Bedrock:
+// Bedrock is reserved for the client bots. BEDROCK_FALLBACK is ignored.
+const BEDROCK_FALLBACK = false;
 // Pool de comptes Claude Max (server/max-accounts.mjs) : le login du serveur
 // + les jetons `claude setup-token` ajoutés via /api/accounts. Un moniteur de
 // quota par compte ; `quota` reste celui du compte serveur (compatibilité).
@@ -819,11 +821,13 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   // else the account with the most room, else Bedrock (quota fallback).
   const preferredAccount = typeof options.account === "string" && maxAccounts.isKnown(options.account) ? options.account : null;
   const excludedAccounts = Array.isArray(options.excludeAccounts) ? options.excludeAccounts : [];
-  let account = provider === "bedrock" ? null : maxAccounts.pick({ preferred: preferredAccount, exclude: excludedAccounts });
-  // Fallback disabled: try a login anyway rather than refusing the chat.
-  if (!account && provider !== "bedrock" && !BEDROCK_FALLBACK) account = preferredAccount ?? maxAccounts.HOST_ACCOUNT;
-  const fallback = provider !== "bedrock" && !account;
-  const useBedrock = provider === "bedrock" || fallback;
+  // Amazon Bedrock is for the client bots only (provider "bedrock"): a staff
+  // chat always runs on a Claude Max account — the one with the most room,
+  // then the least used still answering (rule of 2026-10-01, Melvin).
+  let account = provider === "bedrock" ? null : maxAccounts.pickForStaff({ preferred: preferredAccount, exclude: excludedAccounts });
+  if (!account && provider !== "bedrock") account = preferredAccount ?? maxAccounts.HOST_ACCOUNT;
+  const fallback = false;
+  const useBedrock = provider === "bedrock";
   const accountMonitor = account ? maxAccounts.monitor(account) : null;
   const model = resolveModel(options.model, useBedrock);
   const effort = resolveEffort(options.effort);
@@ -1279,9 +1283,9 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
           // another account (or Bedrock) if nothing has been sent yet.
           void accountMonitor?.markExhausted(authFailed ? `jeton refusé : ${String(event.result).slice(0, 120)}` : event.result);
           const nextExclude = [...excludedAccounts, account];
-          const alternative = maxAccounts.pick({ preferred: preferredAccount, exclude: nextExclude });
-          if (!sentContent && (alternative || BEDROCK_FALLBACK)) {
-            console.log(`[chat] compte ${account} saturé — relance sur ${alternative ?? "bedrock"}`);
+          const alternative = maxAccounts.pickForStaff({ preferred: preferredAccount, exclude: nextExclude, onlyAnswering: true });
+          if (!sentContent && alternative) {
+            console.log(`[chat] compte ${account} saturé — relance sur ${alternative}`);
             retrying = true;
             finished = true;
             clearTimeout(sessionBudget);
@@ -1310,7 +1314,13 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
               });
             continue;
           }
-          if (alternative || BEDROCK_FALLBACK) send("error", { message: `Compte Claude Max « ${maxAccounts.labelOf(account)} » saturé — relancez votre demande, elle partira sur ${alternative ? "un autre compte" : "Amazon Bedrock"}.` });
+          if (alternative) {
+            send("error", { message: `Compte Claude Max « ${maxAccounts.labelOf(account)} » saturé — relancez votre demande, elle partira sur un autre compte.` });
+          } else {
+            const reset = maxAccounts.nextReset();
+            const at = reset ? new Date(reset).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Paris" }) : null;
+            send("error", { message: `Tous les comptes Claude Max de l'agence sont saturés${at ? ` — le premier se libère vers ${at}` : ""}. Réessayez à ce moment-là.` });
+          }
         }
         if (event.result && !sentContent) {
           send("content", { text: event.result });
