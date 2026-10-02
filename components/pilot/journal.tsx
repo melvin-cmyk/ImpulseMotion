@@ -75,9 +75,9 @@ export function PilotJournal({ actions, loading, showClient, onUndo, onChanged }
             <div className="flex flex-wrap items-center gap-3 text-xs">
               {a.hqWrittenAt
                 ? <span className="text-emerald-300/80 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Consigné dans HQ (projects/{a.hqProject})</span>
-                : a.hqError
+                : a.executedAt && a.status !== "running" && a.hqProject
                   ? <>
-                    <span className="text-amber-300">HQ : {a.hqError}</span>
+                    <span className="text-amber-300">HQ : {a.hqError ?? "pas encore consigné"}</span>
                     <button type="button" disabled={busy !== null} onClick={() => void post(a.id, "hq")} className="flex items-center gap-1 text-gray-300 hover:text-white disabled:opacity-40">
                       {busy === `${a.id}:hq` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Réécrire dans HQ
                     </button>

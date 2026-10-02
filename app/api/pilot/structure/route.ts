@@ -7,8 +7,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
-import { hqProjectOf, resolveAccount } from "@/lib/pilot/service";
-import { readAds, readStructure } from "@/lib/pilot/meta";
+import { hqProjectOf, pilotWritesOpen, resolveAccount } from "@/lib/pilot/service";
+import { readAccountCurrency, readAds, readStructure } from "@/lib/pilot/meta";
 
 export const maxDuration = 60;
 
@@ -26,11 +26,12 @@ export async function GET(req: NextRequest) {
       const ads = await readAds(adsetId);
       return NextResponse.json({ ads: ads.filter((a) => a.accountId === account.digits) }, { headers });
     }
-    const structure = await readStructure(account.digits);
+    const [structure, currency] = await Promise.all([readStructure(account.digits), readAccountCurrency(account.digits)]);
     return NextResponse.json({
       ...structure,
-      account: { id: account.digits, name: account.name, currency: account.currency || "EUR" },
+      account: { id: account.digits, name: account.name, currency },
       hqProject: await hqProjectOf(client),
+      writesOpen: pilotWritesOpen(),
     }, { headers });
   } catch (e) {
     console.error("[pilot] structure unreadable", e);

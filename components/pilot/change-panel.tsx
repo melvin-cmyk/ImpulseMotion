@@ -53,9 +53,22 @@ export function OperationLines({ action, showStatus }: { action: PilotActionView
   );
 }
 
-export function ChangePanel({ clientId, accountId, hqDefault, pending, onRemove, onClear, preview, onPreview, onSent }: {
+const words = (v: string) => new Set(v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
+
+/** The folder chosen does not look like the client's: said before anything is written in it. */
+function folderMismatch(clientName: string, slug: string, name: string | undefined, known: string | null): boolean {
+  if (!slug || slug === known) return false;
+  const client = words(clientName);
+  const folder = new Set([...words(slug), ...words(name ?? "")]);
+  return ![...client].some((w) => folder.has(w));
+}
+
+export function ChangePanel({ clientId, clientName, accountId, writesOpen, hqDefault, pending, onRemove, onClear, preview, onPreview, onSent }: {
   clientId: string;
+  clientName: string;
   accountId: string;
+  /** PILOT_WRITES: closed during the trial, the preview still works. */
+  writesOpen: boolean;
   hqDefault: string | null;
   pending: PendingChange[];
   onRemove: (index: number) => void;
@@ -178,6 +191,9 @@ export function ChangePanel({ clientId, accountId, hqDefault, pending, onRemove,
           {hqProject && !(projects ?? []).some((p) => p.slug === hqProject) && <option value={hqProject}>projects/{hqProject}</option>}
           {(projects ?? []).map((p) => <option key={p.slug} value={p.slug}>{p.name} (projects/{p.slug})</option>)}
         </select>
+        {folderMismatch(clientName, hqProject, (projects ?? []).find((p) => p.slug === hqProject)?.name, hqDefault) && (
+          <span className="mt-1 block text-xs text-amber-300">Ce dossier ne semble pas être celui de {clientName} : vérifiez avant d&apos;envoyer.</span>
+        )}
       </label>
     </div>
   );
@@ -205,13 +221,14 @@ export function ChangePanel({ clientId, accountId, hqDefault, pending, onRemove,
         )}
         {errors.length > 0 && <ul className="text-sm text-red-300 space-y-1">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => void send()} disabled={busy !== null || !whyOk || !hqOk || (preview.needsDouble && !confirmDouble)}
+          <button type="button" onClick={() => void send()} disabled={!writesOpen || busy !== null || !whyOk || !hqOk || (preview.needsDouble && !confirmDouble)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-sm text-white font-medium">
             {busy === "send" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             Envoyer à Meta ({preview.operations.length})
           </button>
           <button type="button" onClick={() => void dropPreview()} disabled={busy !== null} className="px-3 py-2 rounded-lg text-sm text-gray-300 hover:text-white">Revenir</button>
         </div>
+        {!writesOpen && <p className="text-xs text-amber-300">Page en essai : l&apos;aperçu fonctionne, l&apos;envoi vers Meta n&apos;est pas encore ouvert.</p>}
         {(!whyOk || !hqOk) && <p className="text-xs text-gray-500">{!whyOk ? "Dites pourquoi en quelques mots. " : ""}{!hqOk ? "Choisissez le dossier HQ." : ""}</p>}
       </div>
     );

@@ -21,8 +21,8 @@ import { getAccountScope, platformAccountInScope } from "@/lib/scope";
 import { parseAlertAccounts } from "@/lib/auto-alerts/clients";
 import { metaAccountDigits } from "@/lib/routines/accounts";
 import { mintWriteGuard, revokeWriteGuard } from "@/lib/routines/write-guard";
-import { HQ_PROJECT_RE, appendHqJournal } from "@/lib/hq-journal";
-import { readObject, writeField } from "@/lib/pilot/meta";
+import { HQ_PROJECT_RE, appendHqJournal, listHqProjects } from "@/lib/hq-journal";
+import { readAccountCurrency, readObject, writeField } from "@/lib/pilot/meta";
 import { buildHqEntry, hqEntrySlug } from "@/lib/pilot/hq-entry";
 import {
   PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, describeOperation, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
@@ -90,17 +90,18 @@ export async function prepareAction(session: PilotSession, input: {
   const resolved = await resolveAccount(session, input.alertClientId, input.accountId);
   if (!resolved.ok) return resolved;
   const { client, account } = resolved;
-  const currency = account.currency || "EUR";
 
-  // Each object read once, as Meta holds it now.
+  // Each object read once, as Meta holds it now; the currency too (budgets are in its minor units).
   const objects = [...new Map(list.map((r) => [r.objectId, r.objectType])).entries()];
   let states: Map<string, PilotObjectState | null>;
+  let currency: string;
   try {
+    currency = await readAccountCurrency(account.digits);
     const read = await mapLimit(objects, READ_CONCURRENCY, async ([id, type]) => [id, await readObject(id, type)] as const);
     states = new Map(read);
   } catch (e) {
     console.error("[pilot] read before preview failed", e);
-    return { ok: false, status: 503, error: "Meta ne répond pas pour le moment : rien n'a été préparé. Réessayez dans quelques minutes." };
+    return { ok: false, status: 503, error: "Meta ne répond pas pour le moment (ou limite d'appels atteinte) : rien n'a été préparé. Réessayez dans quelques minutes." };
   }
 
   const errors: string[] = [];
@@ -108,7 +109,7 @@ export async function prepareAction(session: PilotSession, input: {
   const seen = new Set<string>();
   for (const req of list) {
     const state = states.get(req.objectId);
-    if (!state) { errors.push(`L'objet ${req.objectId} est introuvable sur Meta (supprimé ?).`); continue; }
+    if (!state) { errors.push(`L'objet ${req.objectId} est introuvable sur Meta (supprimé, ou hors de notre accès).`); continue; }
     if (state.accountId !== account.digits) { errors.push(`« ${state.name} » n'appartient pas au compte ${account.name}.`); continue; }
     const prepared = prepareOperation(req, state, currency);
     if (!prepared.ok) { errors.push(prepared.error); continue; }
@@ -149,9 +150,16 @@ export async function prepareAction(session: PilotSession, input: {
 
 // ── Execute ───────────────────────────────────────────────────────────────
 
+/** Live writes are closed until PILOT_WRITES=1 (trial on a test account first, then Melvin opens them). */
+export const pilotWritesOpen = () => process.env.PILOT_WRITES === "1";
+
+/** A send still `running` after this long was cut short (function killed, timeout): it is closed as such. */
+const STALE_RUNNING_MS = 10 * 60 * 1000;
+
 export async function executeAction(session: PilotSession, id: string, input: {
   why?: unknown; goal?: unknown; hqProject?: unknown; confirmDouble?: unknown;
 }, now: Date = new Date()): Promise<{ ok: true; action: PilotActionView } | Fail> {
+  if (!pilotWritesOpen()) return { ok: false, status: 403, error: "L'envoi vers Meta n'est pas encore ouvert : la page est en essai." };
   const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
   if (!action || action.createdById !== session.userId) return { ok: false, status: 404, error: "Modification introuvable." };
   if (action.status !== "draft") return { ok: false, status: 409, error: "Cette modification a déjà été envoyée." };
@@ -169,6 +177,13 @@ export async function executeAction(session: PilotSession, id: string, input: {
   if (!action.alertClientId) return { ok: false, status: 404, error: "Client introuvable." };
   const resolved = await resolveAccount(session, action.alertClientId, action.accountId);
   if (!resolved.ok) return resolved;
+  // A folder other than the client's known one must exist in HQ: a typo never receives a client's changes.
+  const known = await hqProjectOf(resolved.client);
+  if (hqProject !== known) {
+    const projects = await listHqProjects();
+    if (!projects) return { ok: false, status: 503, error: "HQ ne répond pas : impossible de vérifier ce dossier. Réessayez dans quelques minutes." };
+    if (!projects.some((p) => p.slug === hqProject)) return { ok: false, status: 400, error: `Le dossier HQ « ${hqProject} » n'existe pas.` };
+  }
 
   // Claimed once: a second click, or a second tab, finds it running.
   const goal: PilotGoal = input.goal === undefined ? readGoal(JSON.parse(action.goalJson || "{}")) : readGoal(input.goal);
@@ -177,14 +192,25 @@ export async function executeAction(session: PilotSession, id: string, input: {
     data: { status: "running", why, goalJson: JSON.stringify(goal), hqProject, executedAt: now },
   });
   if (claimed.count !== 1) return { ok: false, status: 409, error: "Cette modification est déjà en cours d'envoi." };
-  if (resolved.client.hqSlug !== hqProject) {
-    await prisma.alertClient.update({ where: { id: resolved.client.id }, data: { hqSlug: hqProject } }).catch(() => {});
-  }
 
-  const guard = mintWriteGuard("live", action.id);
+  try {
+    await sendOperations(action.id, action.accountId, action.operations);
+  } catch (e) {
+    // Whatever stopped the loop, what is left was not sent, or its outcome is unknown.
+    console.error("[pilot] send interrupted", action.id, e);
+    await prisma.pilotOperation.updateMany({ where: { actionId: id, status: "pending" }, data: { status: "skipped", error: "Non envoyé : l'envoi a été interrompu." } }).catch(() => {});
+  }
+  await finishAction(id);
+  return { ok: true, action: await loadView(id, session.userId) };
+}
+
+type OpRow = { id: string; objectId: string; objectType: string; field: string; beforeJson: string; afterJson: string };
+
+async function sendOperations(actionId: string, accountId: string, operations: OpRow[]) {
+  const guard = mintWriteGuard("live", actionId);
   let stopped = false;
   try {
-    for (const op of action.operations) {
+    for (const op of operations) {
       if (stopped) { await setOp(op.id, { status: "skipped", error: "Non envoyé : une modification précédente a une issue inconnue." }); continue; }
       const before = parse(op.beforeJson);
       const after = parse(op.afterJson);
@@ -192,10 +218,10 @@ export async function executeAction(session: PilotSession, id: string, input: {
       try {
         current = await readObject(op.objectId, op.objectType as PilotObjectState["type"]);
       } catch {
-        await setOp(op.id, { status: "failed", error: "Meta ne répond pas : rien n'a été envoyé pour ce changement." });
+        await setOp(op.id, { status: "failed", error: "Meta ne répond pas (ou limite d'appels atteinte) : rien n'a été envoyé pour ce changement." });
         continue;
       }
-      if (!current || current.accountId !== action.accountId) { await setOp(op.id, { status: "failed", error: "Objet introuvable sur Meta : rien n'a été envoyé." }); continue; }
+      if (!current || current.accountId !== accountId) { await setOp(op.id, { status: "failed", error: "Objet introuvable sur Meta : rien n'a été envoyé." }); continue; }
       const held = stateValue(current, op.field);
       if (sameValue(op.field, held, after)) { await setOp(op.id, { status: "unchanged", readBackJson: JSON.stringify(held), error: "Déjà à cette valeur sur Meta : rien à envoyer." }); continue; }
       if (!sameValue(op.field, held, before)) {
@@ -210,6 +236,8 @@ export async function executeAction(session: PilotSession, id: string, input: {
       try { check = await readObject(op.objectId, op.objectType as PilotObjectState["type"]); } catch { check = null; }
       const readBack = check ? stateValue(check, op.field) : null;
       if (check && !sameValue(op.field, readBack, after)) {
+        // Not what was asked: the account is not in the state the rest of the action was prepared for.
+        stopped = true;
         await setOp(op.id, { status: "uncertain", readBackJson: JSON.stringify(readBack), error: "Meta a accepté, mais la relecture donne une autre valeur : vérifiez dans le Gestionnaire de publicités." });
         continue;
       }
@@ -218,18 +246,44 @@ export async function executeAction(session: PilotSession, id: string, input: {
   } finally {
     revokeWriteGuard(guard);
   }
+}
 
-  const ops = await prisma.pilotOperation.findMany({ where: { actionId: id }, orderBy: { position: "asc" } });
+/** Final status, the undo it completes, and the HQ entry. Safe to run again on an action cut short. */
+async function finishAction(id: string) {
+  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
+  if (!action) return;
+  const ops = action.operations;
   const done = ops.filter((o) => o.status === "done").length;
   const settled = done + ops.filter((o) => o.status === "unchanged").length;
   const status = settled === ops.length ? "done" : done === 0 && !ops.some((o) => o.status === "uncertain") ? "failed" : "partial";
   await prisma.pilotAction.update({ where: { id }, data: { status } });
-  if (action.undoOfId && done > 0) {
-    await prisma.pilotAction.updateMany({ where: { id: action.undoOfId, undoneById: null }, data: { undoneById: id } });
-  }
+  if (action.undoOfId && settled > 0) await markUndone(action.undoOfId, id);
   // Something was (maybe) changed on the account: HQ keeps it. Nothing sent at all is not written.
   if (ops.some((o) => o.status === "done" || o.status === "uncertain")) await writeHq(id);
-  return { ok: true, action: await loadView(id, session.userId) };
+}
+
+/** The original action is undone when every change it applied was put back by this one. */
+async function markUndone(originalId: string, undoId: string) {
+  const [original, undo] = await Promise.all([
+    prisma.pilotOperation.findMany({ where: { actionId: originalId }, orderBy: { position: "asc" } }),
+    prisma.pilotOperation.findMany({ where: { actionId: undoId }, orderBy: { position: "asc" } }),
+  ]);
+  const back = new Set(undo.filter((o) => o.status === "done" || o.status === "unchanged").map((o) => `${o.objectId}:${o.field}`));
+  if (original.filter((o) => o.status === "done").every((o) => back.has(`${o.objectId}:${o.field}`))) {
+    await prisma.pilotAction.updateMany({ where: { id: originalId, undoneById: null }, data: { undoneById: undoId } });
+  }
+}
+
+/** Sends cut short (function killed, timeout) are closed: what was not confirmed is unknown, and HQ is told. */
+export async function recoverStale(now: Date = new Date()) {
+  const stale = await prisma.pilotAction.findMany({
+    where: { status: "running", executedAt: { lt: new Date(now.getTime() - STALE_RUNNING_MS) } },
+    select: { id: true }, take: 20,
+  });
+  for (const { id } of stale) {
+    await prisma.pilotOperation.updateMany({ where: { actionId: id, status: "pending" }, data: { status: "uncertain", error: "Envoi interrompu : vérifiez dans le Gestionnaire de publicités si ce changement a été appliqué." } });
+    await finishAction(id);
+  }
 }
 
 function describeValue(field: string, value: PilotValue): string {
@@ -242,9 +296,20 @@ function setOp(id: string, data: { status: string; error?: string | null; readBa
 
 // ── HQ ────────────────────────────────────────────────────────────────────
 
+/** Written by one request at a time; a claim older than this was cut short and may be taken again. */
+const HQ_CLAIM_MS = 3 * 60 * 1000;
+const HQ_WRITING = "Écriture dans HQ en cours…";
+
 export async function writeHq(id: string): Promise<{ ok: boolean; error?: string }> {
   const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
   if (!action || !action.hqProject || !action.executedAt) return { ok: false, error: "Rien à consigner." };
+  if (action.hqWrittenAt) return { ok: true };
+  // One writer: two tabs (or a retry during a slow write) never put the entry twice in HQ.
+  const claimed = await prisma.pilotAction.updateMany({
+    where: { id, hqWrittenAt: null, OR: [{ hqError: null }, { hqError: { not: HQ_WRITING } }, { updatedAt: { lt: new Date(Date.now() - HQ_CLAIM_MS) } }] },
+    data: { hqError: HQ_WRITING },
+  });
+  if (claimed.count !== 1) return { ok: false, error: HQ_WRITING };
   const undoOf = action.undoOfId ? await prisma.pilotAction.findUnique({ where: { id: action.undoOfId }, select: { executedAt: true, createdAt: true, createdByName: true } }) : null;
   const content = buildHqEntry({
     id: action.id, clientName: action.clientName, platform: action.platform, accountName: action.accountName, accountId: action.accountId,
@@ -261,36 +326,61 @@ export async function writeHq(id: string): Promise<{ ok: boolean; error?: string
     where: { id },
     data: written.ok ? { hqWrittenAt: new Date(), hqError: null } : { hqError: written.error },
   });
+  // The folder that received a client's change is its folder from now on.
+  if (written.ok && action.alertClientId) {
+    await prisma.alertClient.updateMany({ where: { id: action.alertClientId, NOT: { hqSlug: action.hqProject } }, data: { hqSlug: action.hqProject } }).catch(() => {});
+  }
   return written.ok ? { ok: true } : { ok: false, error: written.error };
 }
 
 export async function retryHq(session: PilotSession, id: string): Promise<{ ok: true; action: PilotActionView } | Fail> {
-  const action = await prisma.pilotAction.findUnique({ where: { id }, select: { alertClientId: true, accountId: true, hqWrittenAt: true, executedAt: true } });
+  const action = await prisma.pilotAction.findUnique({ where: { id }, select: { alertClientId: true, accountId: true, hqWrittenAt: true, executedAt: true, status: true } });
   if (!action?.alertClientId || !action.executedAt) return { ok: false, status: 404, error: "Modification introuvable." };
   const resolved = await resolveAccount(session, action.alertClientId, action.accountId);
   if (!resolved.ok) return resolved;
+  if (action.status === "running") return { ok: false, status: 409, error: "L'envoi est encore en cours." };
   if (action.hqWrittenAt) return { ok: true, action: await loadView(id, session.userId) };
   const written = await writeHq(id);
-  if (!written.ok) return { ok: false, status: 502, error: written.error ?? "Écriture dans HQ impossible." };
+  if (!written.ok) return { ok: false, status: written.error === HQ_WRITING ? 409 : 502, error: written.error ?? "Écriture dans HQ impossible." };
   return { ok: true, action: await loadView(id, session.userId) };
 }
 
 // ── Undo ──────────────────────────────────────────────────────────────────
 
-export async function prepareUndo(session: PilotSession, id: string): Promise<{ ok: true; action: PilotActionView } | Fail> {
+export async function prepareUndo(session: PilotSession, id: string, now: Date = new Date()): Promise<{ ok: true; action: PilotActionView } | Fail> {
   const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
   if (!action?.alertClientId) return { ok: false, status: 404, error: "Modification introuvable." };
   if (action.undoneById) return { ok: false, status: 409, error: "Cette modification a déjà été annulée." };
   if (action.status !== "done" && action.status !== "partial") return { ok: false, status: 409, error: "Seule une modification envoyée peut être annulée." };
-  const requests = action.operations
-    .filter((o) => o.status === "done")
-    .map((o) => inverseRequest({ kind: o.kind, objectType: o.objectType, objectId: o.objectId, field: o.field, before: parse(o.beforeJson), after: parse(o.afterJson) }, action.currency))
-    .filter((r): r is PilotRequest => !!r);
-  if (!requests.length) return { ok: false, status: 409, error: "Rien à remettre en place : une suppression ne s'annule pas." };
+  const applied = action.operations.filter((o) => o.status === "done");
+
+  // Put back only what still holds the value this action wrote: a later change (here or in Ads Manager) is never overwritten.
+  let currents: Array<PilotObjectState | null>;
+  try {
+    currents = await mapLimit(applied, READ_CONCURRENCY, (o) => readObject(o.objectId, o.objectType as PilotObjectState["type"]));
+  } catch {
+    return { ok: false, status: 503, error: "Meta ne répond pas pour le moment : réessayez dans quelques minutes." };
+  }
+  const requests: PilotRequest[] = [];
+  const left: string[] = [];
+  applied.forEach((o, i) => {
+    const before = parse(o.beforeJson);
+    const after = parse(o.afterJson);
+    const line = describeOperation({ ...o, before, after }, action.currency);
+    const current = currents[i];
+    if (!current) { left.push(`${line} (objet introuvable)`); return; }
+    const held = stateValue(current, o.field);
+    if (!sameValue(o.field, held, after)) { left.push(`${line} (modifié depuis : ${describeValue(o.field, held)})`); return; }
+    const inverse = inverseRequest({ kind: o.kind, objectType: o.objectType, objectId: o.objectId, field: o.field, before, after }, action.currency);
+    const pastDate = (o.field === "end_time" || o.field === "stop_time") && before !== null && new Date(String(before)).getTime() <= now.getTime() + 60 * 60 * 1000;
+    if (!inverse || pastDate) { left.push(`${line} (ne peut pas être remis : ${after === "DELETED" ? "suppression" : before === null ? "il n'y avait pas de date" : "date d'origine passée"})`); return; }
+    requests.push(inverse);
+  });
+  if (!requests.length) return { ok: false, status: 409, error: "Rien ne peut être remis en place automatiquement.", errors: left };
   const date = (action.executedAt ?? action.createdAt).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" });
   return prepareAction(session, {
     alertClientId: action.alertClientId, accountId: action.accountId, requests,
-    why: `Annulation de la modification du ${date} (${action.createdByName}).`,
+    why: `Annulation de la modification du ${date} (${action.createdByName}).${left.length ? ` Non remis en place : ${left.join(" ; ")}.` : ""}`,
     goal: { metric: null, target: null, note: "" }, undoOfId: action.id,
   });
 }
@@ -346,6 +436,7 @@ async function loadView(id: string, viewerId: string): Promise<PilotActionView> 
 
 /** The journal: sent actions (and the viewer's own drafts) of a client, or of every client in scope. */
 export async function listActions(session: PilotSession, opts: { alertClientId?: string | null; take?: number }): Promise<PilotActionView[]> {
+  await recoverStale().catch((e) => console.error("[pilot] stale sends not recovered", e));
   const scope = await getAccountScope(session);
   const rows = await prisma.pilotAction.findMany({
     where: {

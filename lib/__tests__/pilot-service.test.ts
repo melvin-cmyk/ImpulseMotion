@@ -19,6 +19,7 @@ const metaWrites: Array<{ objectId: string; field: string; value: string | numbe
 let nextId = 1;
 let hqDown = false;
 let scopeAll = true;
+let metaDown = false;
 /** Next writes to answer « unknown outcome » (timeout). */
 const uncertainWrites = new Set<string>();
 /** Fields that Meta accepts but leaves unchanged on the re-read. */
@@ -27,7 +28,10 @@ const ignoredWrites = new Set<string>();
 const matches = (row: Row, where: Record<string, unknown> = {}): boolean =>
   Object.entries(where).every(([k, v]) => {
     if (k === "OR") return (v as Array<Record<string, unknown>>).some((w) => matches(row, w));
+    if (k === "NOT") return !matches(row, v as Record<string, unknown>);
     if (v && typeof v === "object" && "notIn" in (v as object)) return !(v as { notIn: unknown[] }).notIn.includes(row[k]);
+    if (v && typeof v === "object" && "lt" in (v as object)) return row[k] instanceof Date && (row[k] as Date) < (v as { lt: Date }).lt;
+    if (v && typeof v === "object" && "not" in (v as object)) return row[k] !== null && row[k] !== (v as { not: unknown }).not;
     if (v && typeof v === "object" && "in" in (v as object)) return (v as { in: unknown[] }).in.includes(row[k]);
     return row[k] === v;
   });
@@ -52,20 +56,30 @@ vi.mock("@/lib/prisma", () => {
       },
       findUniqueOrThrow: async ({ where }: { where: { id: string } }) => withOps(actions.find((x) => x.id === where.id))!,
       findMany: async ({ where }: { where: Record<string, unknown> }) => actions.filter((a) => matches(a, where)).map((a) => withOps(a)),
-      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => Object.assign(actions.find((x) => x.id === where.id)!, data),
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => Object.assign(actions.find((x) => x.id === where.id)!, data, { updatedAt: new Date() }),
       updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
         const hit = actions.filter((a) => matches(a, where));
-        for (const a of hit) Object.assign(a, data);
+        for (const a of hit) Object.assign(a, data, { updatedAt: new Date() });
         return { count: hit.length };
       },
     },
     pilotOperation: {
+      updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const hit = operations.filter((o) => matches(o, where));
+        for (const o of hit) Object.assign(o, data);
+        return { count: hit.length };
+      },
       update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => Object.assign(operations.find((x) => x.id === where.id)!, data),
       findMany: async ({ where }: { where: { actionId: string } }) => operations.filter((o) => o.actionId === where.actionId).sort((x, y) => Number(x.position) - Number(y.position)),
     },
     alertClient: {
       findUnique: async ({ where }: { where: { id: string } }) => clients.find((c) => c.id === where.id) ?? null,
       update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => Object.assign(clients.find((c) => c.id === where.id)!, data),
+      updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        const hit = clients.filter((c) => matches(c, where));
+        for (const c of hit) Object.assign(c, data);
+        return { count: hit.length };
+      },
     },
     dashboard: { findUnique: async ({ where }: { where: { id: string } }) => dashboards.find((d) => d.id === where.id) ?? null },
     user: { findUnique: async ({ where }: { where: { id: string } }) => users.find((u) => u.id === where.id) ?? null },
@@ -80,6 +94,7 @@ vi.mock("@/lib/scope", () => ({
 
 vi.mock("@/lib/hq-journal", () => ({
   HQ_PROJECT_RE: /^[a-z0-9][a-z0-9-]{0,79}$/,
+  listHqProjects: async () => (hqDown ? null : [{ slug: "lpev", name: "LPEV" }, { slug: "gaia", name: "Gaia" }]),
   appendHqJournal: async (args: { project: string; slug: string; content: string }) => {
     if (hqDown) return { ok: false, error: "Écriture dans HQ impossible (relay indisponible)" };
     hqEntries.push(args);
@@ -88,7 +103,9 @@ vi.mock("@/lib/hq-journal", () => ({
 }));
 
 vi.mock("@/lib/pilot/meta", () => ({
+  readAccountCurrency: async () => "EUR",
   readObject: async (id: string) => {
+    if (metaDown) throw new Error("rate limit");
     const o = metaObjects.get(id);
     return o ? { ...o } : null;
   },
@@ -105,7 +122,7 @@ vi.mock("@/lib/pilot/meta", () => ({
   },
 }));
 
-import { executeAction, listActions, prepareAction, prepareUndo, retryHq } from "@/lib/pilot/service";
+import { executeAction, listActions, prepareAction, prepareUndo, recoverStale, retryHq, writeHq } from "@/lib/pilot/service";
 
 const LEA = { userId: "u-lea", role: "admin", baseRole: "consultant", user: { email: "lea@impulse-analytics.com" } };
 const SAM = { userId: "u-sam", role: "admin", baseRole: "consultant", user: { email: "sam@impulse-analytics.com" } };
@@ -126,7 +143,8 @@ async function prepared(requests: unknown[], who = LEA) {
 beforeEach(() => {
   actions.length = 0; operations.length = 0; clients.length = 0; dashboards.length = 0; users.length = 0; hqEntries.length = 0; metaWrites.length = 0;
   metaObjects.clear(); uncertainWrites.clear(); ignoredWrites.clear();
-  nextId = 1; hqDown = false; scopeAll = true;
+  nextId = 1; hqDown = false; scopeAll = true; metaDown = false;
+  vi.stubEnv("PILOT_WRITES", "1");
   clients.push({ id: "c-lpev", name: "LPEV", gone: false, hqSlug: null, dashboardId: "d-lpev", accountsJson: JSON.stringify([{ platform: "meta", accountId: "act_5550001111", name: "LPEV Meta", currency: "EUR" }]) });
   dashboards.push({ id: "d-lpev", hqSlug: "lpev" });
   users.push({ id: "u-lea", name: "Léa Martin", email: "lea@impulse-analytics.com" }, { id: "u-sam", name: null, email: "sam@impulse-analytics.com" });
@@ -135,7 +153,7 @@ beforeEach(() => {
   metaObjects.set(FOREIGN.id, { ...FOREIGN });
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 describe("pilotage — aperçu", () => {
   it("lit chaque objet sur Meta et garde la valeur avant et après, sans rien envoyer", async () => {
@@ -281,7 +299,7 @@ describe("pilotage — annulation et journal", () => {
   it("ne propose pas d'annuler une suppression", async () => {
     const a = await prepared([{ ...pauseAd, value: "DELETED" }]);
     await executeAction(LEA, a.id, { why: "x y z", hqProject: "lpev", confirmDouble: true });
-    expect(await prepareUndo(LEA, a.id)).toMatchObject({ ok: false, error: expect.stringContaining("suppression") });
+    expect(await prepareUndo(LEA, a.id)).toMatchObject({ ok: false, status: 409, errors: [expect.stringContaining("suppression")] });
   });
 
   it("le journal montre les actions envoyées de tous, et seulement ses propres aperçus", async () => {
@@ -290,5 +308,76 @@ describe("pilotage — annulation et journal", () => {
     await prepared([budget(150)], SAM);
     expect((await listActions(LEA, { alertClientId: "c-lpev" })).map((a) => a.status)).toEqual(["done"]);
     expect((await listActions(SAM, { alertClientId: "c-lpev" })).map((a) => a.status).sort()).toEqual(["done", "draft"]);
+  });
+});
+
+describe("pilotage — après relecture", () => {
+  it("l'envoi reste fermé tant que PILOT_WRITES n'est pas ouvert ; l'aperçu marche", async () => {
+    vi.stubEnv("PILOT_WRITES", "");
+    const a = await prepared([pauseAd]);
+    expect(await executeAction(LEA, a.id, { why: "x y z", hqProject: "lpev" })).toMatchObject({ ok: false, status: 403 });
+    expect(metaWrites).toEqual([]);
+  });
+
+  it("refuse un dossier HQ qui n'existe pas, et ne retient le dossier qu'une fois l'entrée écrite", async () => {
+    const a = await prepared([pauseAd]);
+    expect(await executeAction(LEA, a.id, { why: "x y z", hqProject: "lpev-typo" })).toMatchObject({ ok: false, status: 400 });
+    expect(metaWrites).toEqual([]);
+    hqDown = true;
+    expect(await executeAction(LEA, a.id, { why: "x y z", hqProject: "gaia" })).toMatchObject({ ok: false, status: 503 });
+    hqDown = false;
+    expect((await executeAction(LEA, a.id, { why: "x y z", hqProject: "gaia" })).ok).toBe(true);
+    expect(clients[0].hqSlug).toBe("gaia");
+  });
+
+  it("l'annulation ne remet pas ce que quelqu'un a changé depuis, et le dit", async () => {
+    const a = await prepared([pauseAd, budget(150)]);
+    await executeAction(LEA, a.id, { why: "x y z", hqProject: "lpev" });
+    metaObjects.get("1200001")!.dailyBudget = 20000;
+    const undo = await prepareUndo(SAM, a.id);
+    if (!undo.ok) throw new Error(undo.error);
+    expect(undo.action.operations.map((o) => o.field)).toEqual(["status"]);
+    expect(undo.action.why).toContain("modifié depuis");
+    await executeAction(SAM, undo.action.id, { why: undo.action.why, hqProject: "lpev" });
+    expect(metaObjects.get("1200001")!.dailyBudget).toBe(20000);
+    // Not everything was put back: the original stays open in the journal.
+    expect(actions.find((x) => x.id === a.id)!.undoneById).toBeNull();
+  });
+
+  it("une relecture différente arrête la suite", async () => {
+    ignoredWrites.add("1200003:status");
+    const a = await prepared([pauseAd, budget(150)]);
+    const r = await executeAction(LEA, a.id, { why: "x y z", hqProject: "lpev" });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.action.operations.map((o) => o.status)).toEqual(["uncertain", "skipped"]);
+    expect(metaWrites).toHaveLength(1);
+  });
+
+  it("une écriture HQ en cours n'est pas doublée", async () => {
+    hqDown = true;
+    const a = await prepared([pauseAd]);
+    await executeAction(LEA, a.id, { why: "x y z", hqProject: "lpev" });
+    hqDown = false;
+    actions[0].hqError = "Écriture dans HQ en cours…";
+    expect(await writeHq(a.id)).toMatchObject({ ok: false });
+    expect(hqEntries).toHaveLength(0);
+  });
+
+  it("un envoi interrompu est fermé : issue inconnue, et consigné dans HQ", async () => {
+    const a = await prepared([pauseAd, budget(150)]);
+    Object.assign(actions[0], { status: "running", why: "x y z", hqProject: "lpev", executedAt: new Date(Date.now() - 11 * 60 * 1000) });
+    operations[0].status = "done";
+    await recoverStale();
+    expect(actions[0].status).toBe("partial");
+    expect(operations[1]).toMatchObject({ status: "uncertain", error: expect.stringContaining("interrompu") });
+    expect(hqEntries).toHaveLength(1);
+    expect(hqEntries[0].content).toContain("issue inconnue");
+    expect(a.id).toBe(actions[0].id);
+  });
+
+  it("Meta limité au moment de l'aperçu : rien n'est préparé, et on ne dit pas « supprimé »", async () => {
+    metaDown = true;
+    const r = await prepareAction(LEA, { alertClientId: "c-lpev", accountId: "act_5550001111", requests: [pauseAd] });
+    expect(r).toMatchObject({ ok: false, status: 503, error: expect.stringContaining("limite d'appels") });
   });
 });

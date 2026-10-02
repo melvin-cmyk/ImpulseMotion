@@ -15,7 +15,7 @@ import { changeKey, readJson, type PendingChange, type PilotActionView, type Pil
 
 const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-type Structure = { campaigns: TreeRow[]; adsets: TreeRow[]; truncated: boolean; account: { id: string; name: string; currency: string }; hqProject: string | null };
+type Structure = { campaigns: TreeRow[]; adsets: TreeRow[]; truncated: boolean; account: { id: string; name: string; currency: string }; hqProject: string | null; writesOpen: boolean };
 
 export function PilotPage() {
   const [clients, setClients] = useState<PilotClient[] | null>(null);
@@ -167,7 +167,9 @@ export function PilotPage() {
             <Section title="Modifier">
               <ChangePanel
                 clientId={client.id}
+                clientName={client.name}
                 accountId={accountId}
+                writesOpen={structure?.writesOpen ?? false}
                 hqDefault={structure?.hqProject ?? null}
                 pending={pending}
                 onRemove={(i) => setPending((list) => list.filter((_, j) => j !== i))}

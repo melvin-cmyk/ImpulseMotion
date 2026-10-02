@@ -86,15 +86,28 @@ export async function readAds(adsetId: string): Promise<StructureRow[]> {
   return ads.data.map((r) => row(r, "ad", adsetId));
 }
 
-/** One object as Meta holds it now; null when it does not exist (any more) or cannot be read. */
+/**
+ * One object as Meta holds it now; null only when Meta says it does not exist
+ * (code 100, subcode 33). Quota, token or permission errors are thrown: they
+ * say nothing of the object.
+ */
 export async function readObject(objectId: string, type: PilotObjectType): Promise<PilotObjectState | null> {
   try {
     const raw = await metaGraphGetOnce<Raw>(`/${objectId}`, getMetaSystemToken(), { fields: FIELDS[type] });
     return raw && raw.id ? toState(raw, type) : null;
   } catch (e) {
-    if (isMetaApiError(e) && e.httpStatus >= 400 && e.httpStatus < 500) return null;
+    if (isMetaApiError(e) && e.code === 100 && e.subcode === 33) return null;
     throw e;
   }
+}
+
+/** The currency of the account as Meta holds it: budgets are written in its minor units. */
+export async function readAccountCurrency(accountId: string): Promise<string> {
+  const digits = metaAccountDigits(accountId);
+  if (!digits) throw new Error("Compte Meta invalide");
+  const raw = await metaGraphGetOnce<{ currency?: string }>(`/act_${digits}`, getMetaSystemToken(), { fields: "currency" });
+  if (typeof raw?.currency !== "string" || !/^[A-Z]{3}$/.test(raw.currency)) throw new Error("Devise du compte illisible");
+  return raw.currency;
 }
 
 export type WriteOutcome =

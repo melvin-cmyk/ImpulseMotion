@@ -443,6 +443,34 @@ function refusedByMeta(error: MetaApiError): boolean {
 }
 
 /**
+ * One POST per token (the write contract above): an unknown outcome is thrown
+ * as MetaWriteUncertainError and never sent again; a refusal for auth or quota
+ * moves to the backup token; any other refusal is thrown as it is.
+ */
+async function postOnceWithFailover<T>(path: string, accessToken: string, bodyFor: (token: string) => URLSearchParams, what: string): Promise<T> {
+  const tokens = failoverOrder(accessToken);
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const result = await withMetaSlot(() =>
+      metaRequestOnce<T>(`${META_API_BASE}${path}`, path, { method: "POST", body: bodyFor(token) }, WRITE_TIMEOUT_MS));
+    if (result.ok) return result.value;
+    const error = result.error;
+    if (!refusedByMeta(error)) {
+      console.warn(`[meta-api] POST ${path} (${what}) outcome unknown ${describeSafely(error)} → no retry`);
+      throw new MetaWriteUncertainError(path, error.httpStatus === 0 ? error.message : `HTTP ${error.httpStatus}`);
+    }
+    if ((error.kind === "auth" || error.kind === "rate_limit") && i < tokens.length - 1) {
+      markTokenDown(token, result.retryAfterMs);
+      console.warn(`[meta-api] POST ${path} ${describeSafely(error)} on ${tokenLabel(token)} token → failover to ${tokenLabel(tokens[i + 1])}`);
+      continue;
+    }
+    console.warn(`[meta-api] POST ${path} (${what}) refused ${describeSafely(error)}`);
+    throw error;
+  }
+  throw new MetaApiError({ message: "META_SYSTEM_TOKEN is not configured", httpStatus: 0, path });
+}
+
+/**
  * POST on the Graph API for the routines (lib/meta-write.ts is the only
  * caller). Requires the WriteGuard of a live run. See the contract above.
  */
@@ -471,26 +499,7 @@ export async function metaGraphPost<T>(
     return body;
   };
 
-  const tokens = failoverOrder(accessToken);
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    const result = await withMetaSlot(() =>
-      metaRequestOnce<T>(`${META_API_BASE}${path}`, path, { method: "POST", body: bodyFor(token) }, WRITE_TIMEOUT_MS));
-    if (result.ok) return result.value;
-    const error = result.error;
-    if (!refusedByMeta(error)) {
-      console.warn(`[meta-api] POST ${path} outcome unknown ${describeSafely(error)} → no retry`);
-      throw new MetaWriteUncertainError(path, error.httpStatus === 0 ? error.message : `HTTP ${error.httpStatus}`);
-    }
-    if ((error.kind === "auth" || error.kind === "rate_limit") && i < tokens.length - 1) {
-      markTokenDown(token, result.retryAfterMs);
-      console.warn(`[meta-api] POST ${path} ${describeSafely(error)} on ${tokenLabel(token)} token → failover to ${tokenLabel(tokens[i + 1])}`);
-      continue;
-    }
-    console.warn(`[meta-api] POST ${path} refused ${describeSafely(error)}`);
-    throw error;
-  }
-  throw new MetaApiError({ message: "META_SYSTEM_TOKEN is not configured", httpStatus: 0, path });
+  return postOnceWithFailover<T>(path, accessToken, bodyFor, target.kind);
 }
 
 // ── Writes (Pilotage) ───────────────────────────────────────────────────────
@@ -526,30 +535,13 @@ export async function metaGraphUpdate(
   const check = Object.prototype.hasOwnProperty.call(UPDATE_FIELDS, field) ? UPDATE_FIELDS[field] : null;
   if (!check) throw new Error(`Écriture refusée : champ « ${field} » non autorisé`);
   if (typeof value !== "string" || !check(value)) throw new Error(`Écriture refusée : valeur invalide pour « ${field} »`);
-  const path = `/${objectId}`;
-  const tokens = failoverOrder(accessToken);
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
+  const bodyFor = (token: string) => {
     const body = new URLSearchParams();
     body.set(field, value);
     body.set("access_token", token);
-    const result = await withMetaSlot(() =>
-      metaRequestOnce<{ success?: boolean }>(`${META_API_BASE}${path}`, path, { method: "POST", body }, WRITE_TIMEOUT_MS));
-    if (result.ok) return result.value;
-    const error = result.error;
-    if (!refusedByMeta(error)) {
-      console.warn(`[meta-api] POST ${path} (${field}) outcome unknown ${describeSafely(error)} → no retry`);
-      throw new MetaWriteUncertainError(path, error.httpStatus === 0 ? error.message : `HTTP ${error.httpStatus}`);
-    }
-    if ((error.kind === "auth" || error.kind === "rate_limit") && i < tokens.length - 1) {
-      markTokenDown(token, result.retryAfterMs);
-      console.warn(`[meta-api] POST ${path} ${describeSafely(error)} on ${tokenLabel(token)} token → failover to ${tokenLabel(tokens[i + 1])}`);
-      continue;
-    }
-    console.warn(`[meta-api] POST ${path} (${field}) refused ${describeSafely(error)}`);
-    throw error;
-  }
-  throw new MetaApiError({ message: "META_SYSTEM_TOKEN is not configured", httpStatus: 0, path });
+    return body;
+  };
+  return postOnceWithFailover<{ success?: boolean }>(`/${objectId}`, accessToken, bodyFor, field);
 }
 
 /** Every page of a Graph list (limiter + retry), up to `max` rows. */

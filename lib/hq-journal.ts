@@ -28,8 +28,25 @@ export async function appendHqJournal(args: { project: string; slug: string; con
       await prisma.dashboard.updateMany({ where: { hqSlug: args.project }, data: { hqContextAt: null } }).catch(() => {});
       return { ok: true };
     } catch (e) {
+      // Sent but not answered in time: HQ may have it. Another relay would write it a second time.
+      if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) {
+        return { ok: false, error: "HQ n'a pas répondu à temps : l'entrée a peut-être été écrite. Vérifiez le journal HQ avant de réécrire." };
+      }
       lastError = e instanceof Error ? e.message : String(e);
     }
   }
   return { ok: false, error: `Écriture dans HQ impossible (${lastError})` };
+}
+
+/** The HQ projects (slug, name), as the relay lists them; null when HQ cannot be reached. */
+export async function listHqProjects(): Promise<Array<{ slug: string; name: string }> | null> {
+  for (const url of RELAY_URLS) {
+    try {
+      const res = await fetch(`${url}/api/hq/projects`, { headers: relayHeaders(), signal: AbortSignal.timeout(30000) });
+      if (!res.ok) continue;
+      const json = await res.json();
+      return Array.isArray(json.projects) ? json.projects : [];
+    } catch { /* next url */ }
+  }
+  return null;
 }
