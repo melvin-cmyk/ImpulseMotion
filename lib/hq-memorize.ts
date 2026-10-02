@@ -3,21 +3,19 @@
  * (constats, décisions, questions ouvertes) et l'ajoute au journal du projet
  * HQ du client. Deux étapes déterministes :
  *   1. un appel IA one-shot sans outil produit la note (Markdown) ;
- *   2. le relay l'écrit dans HQ avec son propre jeton (POST /api/hq/journal).
+ *   2. le relay l'écrit dans HQ avec son propre jeton (lib/hq-journal.ts).
  * Les briefs HQ mis en cache sur les dashboards du client sont invalidés pour
  * que la prochaine lecture (rapport, copilote) tienne compte de la note.
  */
 
-import { prisma } from "@/lib/prisma";
 import { relayComplete } from "@/lib/relay-chat";
-import { RELAY_URLS } from "@/lib/relay-server";
-import { relayHeaders } from "@/lib/relay-headers";
+import { HQ_PROJECT_RE, appendHqJournal } from "@/lib/hq-journal";
 import { HQ_CONTEXT_PROFILE } from "@/lib/ai-profiles";
 import { recordAiUsage, type UsageContext } from "@/lib/ai-usage";
 
 const MAX_MESSAGES = 40;
 const MAX_CHARS = 12_000;
-export const HQ_PROJECT_RE = /^[a-z0-9][a-z0-9-]{0,79}$/;
+export { HQ_PROJECT_RE };
 
 const SUMMARY_PROMPT = `Tu rédiges une note de journal pour la mémoire de l'agence (HQ) à partir d'une conversation entre un consultant et son assistant IA au sujet d'un client.
 Écris en français, en Markdown, 250 mots maximum, avec exactement ces sections (omets une section vide) :
@@ -84,23 +82,7 @@ export async function memorizeToHq(args: {
   const content = `${note}\n\n---\n_Note issue de ${args.origin}, consignée par ${args.author}._`;
   const slug = `ia-${new Date().toISOString().slice(0, 10)}`;
 
-  let lastError = "relay indisponible";
-  for (const url of RELAY_URLS) {
-    try {
-      const res = await fetch(`${url}/api/hq/journal`, {
-        method: "POST",
-        headers: relayHeaders(),
-        body: JSON.stringify({ project: args.project, slug, content }),
-        signal: AbortSignal.timeout(45000),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) { lastError = json.error ?? `relay ${res.status}`; continue; }
-      // Cached briefs predate this note: force a fresh read next time.
-      await prisma.dashboard.updateMany({ where: { hqSlug: args.project }, data: { hqContextAt: null } }).catch(() => {});
-      return { ok: true, note, project: args.project };
-    } catch (e) {
-      lastError = e instanceof Error ? e.message : String(e);
-    }
-  }
-  return { ok: false, status: 502, error: `Écriture dans HQ impossible (${lastError})`, note };
+  const written = await appendHqJournal({ project: args.project, slug, content });
+  if (written.ok) return { ok: true, note, project: args.project };
+  return { ok: false, status: 502, error: written.error, note };
 }

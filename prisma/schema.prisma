@@ -258,6 +258,8 @@ model AlertClient {
   autoAlertConfig String         @default("{}") @db.Text
   /// No account spent anything over the last ten days at the last scan.
   dormant         Boolean        @default(false)
+  /// HQ folder (projects/{hqSlug}) where Pilotage writes what was changed, once chosen. null = take the dashboard's.
+  hqSlug          String?
   /// None of its accounts is readable any more; kept for its history.
   gone            Boolean        @default(false)
   lastScanAt      DateTime?
@@ -778,4 +780,73 @@ model ClientAlertEvent {
 
   @@index([alertId, triggeredAt])
   @@index([notifiedAt])
+}
+
+/// Pilotage: one change asked by a consultant on one ad account (lib/pilot).
+/// Prepared first (the operations with the values read on the platform),
+/// then confirmed and sent; what was done is written in the client's HQ journal.
+model PilotAction {
+  id             String           @id @default(cuid())
+  alertClientId  String?
+  clientName     String
+  /// meta | google | tiktok
+  platform       String
+  accountId      String
+  accountName    String           @default("")
+  currency       String           @default("EUR")
+  createdById    String
+  /// Name (or email) of the person, as written in HQ.
+  createdByName  String
+  createdByEmail String?
+  /// draft | running | done | partial | failed | undone | expired
+  status         String           @default("draft")
+  why            String           @default("") @db.Text
+  /// {"metric":"cpa","target":45,"note":"…"} — what the change should move.
+  goalJson       String           @default("{}") @db.Text
+  /// The preview asked for a second confirmation (big budget raise, campaign stopped, deletion).
+  needsDouble    Boolean          @default(false)
+  hqProject      String?
+  hqWrittenAt    DateTime?
+  hqError        String?          @db.Text
+  /// This action puts back what another one changed.
+  undoOfId       String?
+  /// The action that put this one back.
+  undoneById     String?
+  executedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  operations     PilotOperation[]
+
+  @@index([alertClientId, createdAt])
+  @@index([accountId, createdAt])
+  @@index([createdById, createdAt])
+}
+
+/// One field of one object changed by a PilotAction, with its value before and after.
+model PilotOperation {
+  id          String      @id @default(cuid())
+  actionId    String
+  action      PilotAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  position    Int
+  /// set_status | set_daily_budget | set_lifetime_budget | set_end_time | set_bid_amount | rename
+  kind        String
+  /// campaign | adset | ad
+  objectType  String
+  objectId    String
+  objectName  String      @default("")
+  /// Parent shown in the preview (the ad set of an ad, the campaign of an ad set).
+  parentName  String      @default("")
+  /// Platform field written (status, daily_budget, end_time…).
+  field       String
+  /// Values as the platform stores them (budgets in minor units), JSON.
+  beforeJson  String      @db.Text
+  afterJson   String      @db.Text
+  /// Value read back after the write, JSON; null until then.
+  readBackJson String?    @db.Text
+  /// pending | done | unchanged | failed | uncertain | conflict | skipped
+  status      String      @default("pending")
+  error       String?     @db.Text
+  executedAt  DateTime?
+
+  @@index([actionId, position])
 }

@@ -476,3 +476,39 @@ describe("checkAdIdentity", () => {
     expect(posts()).toHaveLength(0);
   });
 });
+
+describe("metaGraphUpdate — Pilotage", () => {
+  it("one field of one object, from a closed list, checked again here", async () => {
+    const { api, guard } = await load();
+    const refused: Array<[string, string, string]> = [
+      [AD, "access_token", "other"],
+      [AD, "targeting", "{}"],
+      [AD, "status", "ARCHIVED"],
+      [AD, "daily_budget", "-5"],
+      [AD, "daily_budget", "12.5"],
+      [AD, "end_time", "demain"],
+      [AD, "name", ""],
+      [`${AD}/../act_1`, "status", "PAUSED"],
+      ["act_1", "status", "PAUSED"],
+    ];
+    for (const [id, field, value] of refused) {
+      await expect(api.metaGraphUpdate(guard, id, field, value, PRIMARY)).rejects.toThrow(/Écriture refusée/);
+    }
+    await expect(api.metaGraphUpdate({ runId: "x" } as never, AD, "status", "PAUSED", PRIMARY)).rejects.toThrow(/Écriture refusée/);
+    expect(calls).toHaveLength(0);
+
+    reply = (c) => (c.method === "POST" && c.path === `/${CAMPAIGN}` ? json({ success: true }) : happy(c));
+    await api.metaGraphUpdate(guard, CAMPAIGN, "daily_budget", "15000", PRIMARY);
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0].path).toBe(`/${CAMPAIGN}`);
+    expect(posts()[0].url).not.toContain(PRIMARY);
+    expect([...posts()[0].body!.entries()].sort()).toEqual([["access_token", PRIMARY], ["daily_budget", "15000"]]);
+  });
+
+  it("never sends again a write whose outcome is unknown", async () => {
+    const { api, guard } = await load();
+    reply = (c) => { if (c.method === "POST") throw timeout(); return happy(c); };
+    await expect(api.metaGraphUpdate(guard, AD, "status", "PAUSED", PRIMARY)).rejects.toMatchObject({ name: "MetaWriteUncertainError" });
+    expect(posts()).toHaveLength(1);
+  });
+});

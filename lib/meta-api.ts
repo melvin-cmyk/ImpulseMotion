@@ -493,6 +493,70 @@ export async function metaGraphPost<T>(
   throw new MetaApiError({ message: "META_SYSTEM_TOKEN is not configured", httpStatus: 0, path });
 }
 
+// ── Writes (Pilotage) ───────────────────────────────────────────────────────
+//
+// Same contract as metaGraphPost: one request per token, an unknown outcome is
+// never sent again, failover only on a refusal. One field of one existing
+// object per request, from a closed list; the value is checked here again.
+
+/** Fields Pilotage may write, and what each accepts. */
+const UPDATE_FIELDS: Record<string, (value: string) => boolean> = {
+  status: (v) => v === "ACTIVE" || v === "PAUSED" || v === "DELETED",
+  daily_budget: (v) => /^[1-9]\d{0,12}$/.test(v),
+  lifetime_budget: (v) => /^[1-9]\d{0,12}$/.test(v),
+  bid_amount: (v) => /^[1-9]\d{0,12}$/.test(v),
+  end_time: (v) => !Number.isNaN(Date.parse(v)),
+  stop_time: (v) => !Number.isNaN(Date.parse(v)),
+  name: (v) => v.trim().length > 0 && v.length <= 400,
+};
+
+/**
+ * POST /{objectId} with one field (Pilotage, lib/pilot/meta.ts). Requires the
+ * WriteGuard of the action being executed.
+ */
+export async function metaGraphUpdate(
+  guard: WriteGuard,
+  objectId: string,
+  field: string,
+  value: string,
+  accessToken: string,
+): Promise<{ success?: boolean }> {
+  assertWriteGuard(guard);
+  if (!/^\d{5,25}$/.test(objectId)) throw new Error("Écriture refusée : identifiant d'objet invalide");
+  const check = Object.prototype.hasOwnProperty.call(UPDATE_FIELDS, field) ? UPDATE_FIELDS[field] : null;
+  if (!check) throw new Error(`Écriture refusée : champ « ${field} » non autorisé`);
+  if (typeof value !== "string" || !check(value)) throw new Error(`Écriture refusée : valeur invalide pour « ${field} »`);
+  const path = `/${objectId}`;
+  const tokens = failoverOrder(accessToken);
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const body = new URLSearchParams();
+    body.set(field, value);
+    body.set("access_token", token);
+    const result = await withMetaSlot(() =>
+      metaRequestOnce<{ success?: boolean }>(`${META_API_BASE}${path}`, path, { method: "POST", body }, WRITE_TIMEOUT_MS));
+    if (result.ok) return result.value;
+    const error = result.error;
+    if (!refusedByMeta(error)) {
+      console.warn(`[meta-api] POST ${path} (${field}) outcome unknown ${describeSafely(error)} → no retry`);
+      throw new MetaWriteUncertainError(path, error.httpStatus === 0 ? error.message : `HTTP ${error.httpStatus}`);
+    }
+    if ((error.kind === "auth" || error.kind === "rate_limit") && i < tokens.length - 1) {
+      markTokenDown(token, result.retryAfterMs);
+      console.warn(`[meta-api] POST ${path} ${describeSafely(error)} on ${tokenLabel(token)} token → failover to ${tokenLabel(tokens[i + 1])}`);
+      continue;
+    }
+    console.warn(`[meta-api] POST ${path} (${field}) refused ${describeSafely(error)}`);
+    throw error;
+  }
+  throw new MetaApiError({ message: "META_SYSTEM_TOKEN is not configured", httpStatus: 0, path });
+}
+
+/** Every page of a Graph list (limiter + retry), up to `max` rows. */
+export function metaGraphGetAll<T>(path: string, accessToken: string, params: Record<string, string>, max: number = META_DEFAULT_MAX): Promise<Paged<T>> {
+  return metaFetchAll<T>(path, accessToken, params, max);
+}
+
 /**
  * GET for the checks around a write (re-read of an ad set, of a created ad):
  * token in the Authorization header, one request per token, short timeout.

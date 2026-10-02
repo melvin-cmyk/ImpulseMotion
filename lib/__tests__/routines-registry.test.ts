@@ -172,9 +172,9 @@ describe("routines — write guard", () => {
     expect(isWriteGuard(JSON.parse(JSON.stringify(guard)))).toBe(false);
   });
 
-  it("is made by the engine alone", () => {
+  it("is made by the engines alone (routines, and Pilotage when a consultant confirms a change)", () => {
     const root = path.resolve(__dirname, "../..");
-    const allowed = new Set(["lib/routines/write-guard.ts", "lib/routines/engine.ts", "lib/routines/write-guard-check.ts"]);
+    const allowed = new Set(["lib/routines/write-guard.ts", "lib/routines/engine.ts", "lib/routines/write-guard-check.ts", "lib/pilot/service.ts"]);
     const offenders: string[] = [];
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {

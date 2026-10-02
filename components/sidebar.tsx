@@ -16,6 +16,7 @@ import {
   BellRing,
   MessageSquare,
   Repeat,
+  SlidersHorizontal,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
@@ -68,6 +69,12 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Routines",
         routinesOnly: true,
         match: (p) => p === "/routines" || p.startsWith("/routines/"),
+      },
+      {
+        href: "/pilotage",
+        icon: SlidersHorizontal,
+        label: "Pilotage",
+        match: (p) => p === "/pilotage" || p.startsWith("/pilotage/"),
       },
       {
         href: "/creatives",
