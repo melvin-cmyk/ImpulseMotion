@@ -46,8 +46,8 @@ import { readClientSeries, summarizeSeries } from "@/lib/client-alerts/series";
 import { backtest, replayVerdict } from "@/lib/client-alerts/backtest";
 import { validateAlertProposal } from "@/lib/client-alerts/validate";
 import { unreadText, usableAccounts } from "@/lib/client-alerts/accounts";
-import { NOISY_MESSAGES, readDefinition, type AlertAccountRef, type AlertDefinition, type ClientSeries } from "@/lib/client-alerts/types";
-import { checkLot, isLotLead, lotRefusal, readLot, type LotMember } from "@/lib/client-alerts/lot";
+import { NOISY_MESSAGES, readDefinition, type AlertAccountRef, type ClientSeries } from "@/lib/client-alerts/types";
+import { checkLot, isLotLead, lotPlatforms, lotRefusal, readLot, type LotMember } from "@/lib/client-alerts/lot";
 import { loadLotMembers, lotBlocked } from "@/lib/client-alerts/lot-members";
 import {
   ALERT_CHAT_MAX_MESSAGES, ALERT_CHAT_MAX_MESSAGE_CHARS,
@@ -226,10 +226,11 @@ async function loadOwnAlert(id: string, session: Session) {
   return { alert, accounts: usable.accounts, blocked: usable.state === "ok" ? null : usable.reason, lot: null } as const;
 }
 
-/** The clients of a lot as the page shows them: name, platforms, and why one is out of reach. */
-function lotClients(loaded: Loaded) {
+/** The clients of a lot as the page shows them: name, platforms, and why one is out of reach; whether a rule of it is in service. */
+async function lotClients(loaded: Loaded) {
   if (!loaded.lot) return {};
   return {
+    lotInService: (await lotState(loaded.alert)).inService,
     lot: loaded.lot.map((m) => ({
       alertClientId: m.alertClientId, clientName: m.clientName,
       platforms: [...new Set(m.accounts.map((a) => a.platform))], blocked: m.blocked ?? null,
@@ -248,12 +249,22 @@ async function judge(loaded: Loaded, messages: Array<{ role: string; content: st
   return { checks: checksOf(messages, loaded.accounts, series, loaded.blocked), figures: figuresView(loaded.accounts, series) };
 }
 
-/** The rule in service for a lot: the lead's, or else the first alert of the lot that has one. */
-async function lotCurrent(alert: { id: string; definitionJson: string }): Promise<AlertDefinition | null> {
-  const own = readDefinition(alert.definitionJson);
-  if (own) return own;
-  const other = await prisma.clientAlert.findFirst({ where: { groupId: alert.id, NOT: { definitionJson: "{}" } }, orderBy: { updatedAt: "desc" }, select: { definitionJson: true } });
-  return other ? readDefinition(other.definitionJson) : null;
+const IN_SERVICE = new Set(["active", "paused", "error"]);
+
+/**
+ * The rule in service for a lot, wherever it lives: on the lead, or else on an
+ * alert of the lot (the lead's own client may not have taken it). `inService`:
+ * validating again replaces rules that run for some clients.
+ */
+async function lotState(alert: { id: string; status: string; definitionJson: string; groupPlatforms: string }) {
+  const rows = await prisma.clientAlert.findMany({
+    where: { groupId: alert.id, NOT: { definitionJson: "{}" } },
+    orderBy: { updatedAt: "desc" }, select: { status: true, definitionJson: true },
+  });
+  const current = readDefinition(alert.definitionJson) ?? (rows[0] ? readDefinition(rows[0].definitionJson) : null);
+  const inService = IN_SERVICE.has(alert.status) || rows.some((r) => IN_SERVICE.has(r.status));
+  const status = IN_SERVICE.has(alert.status) ? alert.status : rows.find((r) => IN_SERVICE.has(r.status))?.status ?? alert.status;
+  return { current, inService, status, platforms: lotPlatforms(alert.groupPlatforms.split(",").map((platform) => ({ platform }))) };
 }
 
 export async function GET(_req: NextRequest, { params }: Params) {
@@ -270,7 +281,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     messages: chat.messages, proposals: sanitizeStatuses(chat.proposals, checks), checks,
     // Nothing to read for an alert whose client is gone: the page says why instead.
     ...(loaded.blocked ? { blocked: loaded.blocked } : { figures }),
-    ...lotClients(loaded),
+    ...(await lotClients(loaded)),
   });
 }
 
@@ -289,7 +300,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   return NextResponse.json({
     ok: true, proposals, checks,
     ...(loaded.blocked ? { blocked: loaded.blocked } : { figures }),
-    ...lotClients(loaded),
+    ...(await lotClients(loaded)),
   });
 }
 
@@ -314,14 +325,16 @@ export async function POST(req: NextRequest, { params }: Params) {
     summary: m.series && m.series.accounts.some((a) => !a.error && a.days.length > 0) ? safeSummary(m.series) : null,
   })) ?? null;
 
+  const state = loaded.lot ? await lotState(alert) : null;
   // Model, effort, servers, accounts and figures are decided here: nothing of them is read from the request.
   const res = await relayStream(buildAlertRelayBody({
-    alert: { id: alert.id, status: alert.status },
+    alert: { id: alert.id, status: state ? state.status : alert.status },
     clientName: alert.clientName,
     accounts,
     seriesSummary: summary,
-    current: loaded.lot ? await lotCurrent(alert) : readDefinition(alert.definitionJson),
+    current: state ? state.current : readDefinition(alert.definitionJson),
     lot,
+    lotPlatforms: state?.platforms ?? null,
     userId: guard.session.userId,
     author: guard.session.user?.email ?? null,
     messages: toRelayMessages(messages),

@@ -26,7 +26,7 @@ import type { RelayChatBody, RelayMessage } from "@/lib/relay-chat";
 import {
   ALERT_CONDITIONS, ALERT_DEFAULTS, ALERT_METRICS, ALERT_WINDOWS, BACKTEST_DAYS, COOLDOWN_MAX_HOURS, COOLDOWN_MIN_HOURS,
   EXPLANATION_MAX, LABEL_MAX, NOISY_MESSAGES,
-  type AlertAccountRef, type AlertCondition, type AlertDefinition, type AlertMetric, type AlertProposalInput,
+  type AlertAccountRef, type AlertCondition, type AlertDefinition, type AlertMetric, type AlertPlatform, type AlertProposalInput,
 } from "@/lib/client-alerts/types";
 import { CPA_MIN_CONVERSIONS, SAME_WEEKDAYS_MAX_DAYS, type AlertValidation } from "@/lib/client-alerts/validate";
 
@@ -62,6 +62,8 @@ export interface AlertRelayInput {
    * are then those of the first client, and are not what the AI reads.
    */
   lot?: LotClientContext[] | null;
+  /** A lot: the platforms its rule in service was validated on (null = every account of each client). */
+  lotPlatforms?: AlertPlatform[] | null;
   userId: string;
   author: string | null;
   messages: RelayMessage[];
@@ -83,7 +85,7 @@ export function buildAlertRelayBody(input: AlertRelayInput): AlertRelayBody {
   return {
     messages: input.messages,
     systemPrompt: buildAlertComposePrompt(input.clientName, input.author, lot ? lot.map((c) => c.clientName) : null),
-    turnContext: lot ? buildLotTurnContext({ ...input, lot, currentAccounts: input.accounts }) : buildAlertTurnContext(input),
+    turnContext: lot ? buildLotTurnContext({ ...input, lot }) : buildAlertTurnContext(input),
     sessionKey: alertSessionKey(input.alert.id, input.userId),
     model: CLIENT_ALERT_COMPOSE_PROFILE.model,
     effort: CLIENT_ALERT_COMPOSE_PROFILE.effort,
@@ -228,11 +230,11 @@ const LOT_RULES = `LOT DE PLUSIEURS CLIENTS — ces consignes priment sur ce qui
  * one client (buildAlertTurnContext).
  */
 export function buildLotTurnContext(
-  input: Pick<AlertRelayInput, "alert" | "current" | "now"> & { lot: LotClientContext[]; currentAccounts?: AlertAccountRef[] },
+  input: Pick<AlertRelayInput, "alert" | "current" | "lotPlatforms" | "now"> & { lot: LotClientContext[] },
   maxChars: number = ALERT_CONTEXT_MAX_CHARS,
 ): string {
   const current = input.current
-    ? `${JSON.stringify(lotProposal(input.current, input.currentAccounts ?? input.lot[0]?.accounts ?? []))}\nÉtat : ${STATUS_FR[input.alert.status ?? ""] ?? "enregistrée"}. Une nouvelle proposition validée la remplace pour tous les clients du lot.`
+    ? `${JSON.stringify(lotProposal(input.current, input.lotPlatforms ?? null))}\nÉtat : ${STATUS_FR[input.alert.status ?? ""] ?? "enregistrée"}. Une nouvelle proposition validée la remplace pour tous les clients du lot.`
     : "aucune (rien n'est encore validé pour cette conversation)";
   const head = `[CONTEXTE DE L'ALERTE — remplace tout contexte donné plus haut dans la conversation
 Date du jour : ${todayParis(input.now ?? new Date())} (Europe/Paris). Les chiffres s'arrêtent à la veille : la journée en cours est incomplète.
@@ -254,14 +256,12 @@ Clients du lot, leurs comptes et leurs chiffres (euros ; la veille, puis les 7 e
 
 /**
  * The rule in service of a lot, as the AI writes it: no account id, the
- * platforms only when it is limited to some — read on the client it was
- * validated for (`own`: that client's accounts today).
+ * platforms only when it was validated on some of them.
  */
-function lotProposal(def: AlertDefinition, own: AlertAccountRef[]): AlertProposalInput {
-  const { accounts, ...rest } = def;
-  const used = new Set(accounts.map((a) => a.platform));
-  const limited = own.some((a) => !used.has(a.platform));
-  return limited ? { ...rest, accounts: [...used].map((platform) => ({ platform })) } : rest;
+function lotProposal(def: AlertDefinition, platforms: AlertPlatform[] | null): AlertProposalInput {
+  const { accounts: _accounts, ...rest } = def;
+  void _accounts;
+  return platforms && platforms.length ? { ...rest, accounts: platforms.map((platform) => ({ platform })) } : rest;
 }
 
 /** Names typed elsewhere end up in the prompt: one line, no quote that would close the label. */

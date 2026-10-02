@@ -14,7 +14,8 @@
  * DELETE → deletes the alert and its triggers (the creator or a real admin).
  *          The alert that holds the conversation of a lot takes the whole lot
  *          with it; another alert of a lot leaves the lot (the next validation
- *          of the lot no longer puts it back).
+ *          of the lot no longer puts it back); with one client left, the
+ *          conversation becomes an ordinary alert again.
  *
  * The definition itself changes in one place only: the conversation, then
  * POST /api/client-alerts/[id]/activate.
@@ -123,7 +124,11 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
     const lead = await tx.clientAlert.findUnique({ where: { id: groupId }, select: { id: true, groupJson: true } });
     if (!lead) return;
     const rest = readLot(lead.groupJson).filter((id) => id !== alertClientId);
-    await tx.clientAlert.update({ where: { id: lead.id }, data: { groupJson: JSON.stringify(rest) } });
+    // One client left: the conversation is an ordinary alert again, not a lot of one.
+    await tx.clientAlert.update({
+      where: { id: lead.id },
+      data: rest.length > 1 ? { groupJson: JSON.stringify(rest) } : { groupJson: "[]", groupId: null, groupPlatforms: "" },
+    });
   });
   return NextResponse.json({ ok: true, deleted: 1 });
 }

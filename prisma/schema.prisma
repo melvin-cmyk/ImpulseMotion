@@ -743,6 +743,8 @@ model ClientAlert {
   groupId             String?
   /// On the alert that holds the conversation of a lot only: the AlertClient ids of the lot, in order ("[]" otherwise).
   groupJson           String             @default("[]") @db.Text
+  /// On the alert that holds the conversation of a lot only: the platforms the lot's rule was validated on, "meta,google" ("" = every account of each client).
+  groupPlatforms      String             @default("")
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   events              ClientAlertEvent[]
@@ -750,6 +752,8 @@ model ClientAlert {
   @@index([status])
   @@index([createdById, updatedAt])
   @@index([groupId])
+  /// One alert per client in a lot: two validations at the same time cannot both create it.
+  @@unique([groupId, alertClientId])
 }
 
 /// One trigger of a ClientAlert. notifiedAt is the idempotence of the delivery.

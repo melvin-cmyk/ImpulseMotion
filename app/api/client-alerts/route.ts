@@ -25,7 +25,7 @@ import { dmConfigured, slackIdentityOf } from "@/lib/client-alerts/slack-dm";
 import { goneClients } from "@/lib/client-alerts/accounts";
 import { sendingEnabled, type SlackIdentity } from "@/lib/client-alerts/types";
 import { toAlertView, type ClientOption } from "@/components/client-alerts/alert-model";
-import { LOT_MAX_CLIENTS, readClientIds } from "@/lib/client-alerts/lot";
+import { LOT_MAX_CLIENTS, readClientIds, readLot } from "@/lib/client-alerts/lot";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 const LIST_MAX = 300;
@@ -143,12 +143,20 @@ async function createLot(ids: string[], session: Session) {
   if (denied.length) return NextResponse.json({ error: `Vous n'avez pas accès aux comptes de : ${denied.join(", ")}.` }, { status: 403 });
 
   const first = byId.get(ids[0])!;
-  // The same lot opened and left without a word is taken up again rather than piled up.
-  const untouched = await prisma.clientAlert.findFirst({
-    where: { createdById: session.userId, groupJson: JSON.stringify(ids), status: "draft", chatJson: "{}", definitionJson: "{}" },
-    orderBy: { createdAt: "desc" },
+  // The same clients opened and left without a word (in any order) are taken up again rather than piled up, as they are today.
+  const sameSet = (json: string) => { const lot = readLot(json); return lot.length === ids.length && ids.every((id) => lot.includes(id)); };
+  const drafts = await prisma.clientAlert.findMany({
+    where: { createdById: session.userId, NOT: { groupJson: "[]" }, status: "draft", chatJson: "{}", definitionJson: "{}" },
+    orderBy: { createdAt: "desc" }, take: 20, select: { id: true, groupJson: true },
   });
-  if (untouched) return NextResponse.json({ ok: true, alert: toAlertView({ ...untouched, events: [] }, session.userId), reused: true });
+  const untouched = drafts.find((d) => sameSet(d.groupJson));
+  if (untouched) {
+    const alert = await prisma.clientAlert.update({
+      where: { id: untouched.id },
+      data: { alertClientId: first.id, clientName: first.name, accountsJson: JSON.stringify(accountsOf(first.id)), groupJson: JSON.stringify(ids) },
+    });
+    return NextResponse.json({ ok: true, alert: toAlertView({ ...alert, events: [] }, session.userId), reused: true });
+  }
 
   const alert = await prisma.$transaction(async (tx) => {
     const created = await tx.clientAlert.create({

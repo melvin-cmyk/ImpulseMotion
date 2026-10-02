@@ -131,6 +131,8 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
   const [figures, setFigures] = useState<Figures>(null);
   const [lotClients, setLotClients] = useState<LotClient[] | null>(null);
+  // A lot: a rule of it runs for some client, even when the conversation's own client did not take it.
+  const [lotInService, setLotInService] = useState(false);
   // Why nothing can be proposed any more (the client is gone, or out of reach), as the server says it.
   const [blocked, setBlocked] = useState<string | null>(alert.clientGone ? CLIENT_GONE : null);
   const [loaded, setLoaded] = useState(false);
@@ -164,6 +166,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         if (cancelled) return;
         setFigures(readFigures(j.figures));
         setLotClients(readLotClients(j.lot));
+        setLotInService(j.lotInService === true);
         if (typeof j.blocked === "string" && j.blocked) setBlocked(j.blocked);
         // Never clobber a conversation already in flight.
         if (busyRef.current) return;
@@ -207,6 +210,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       setStatuses(readStatuses(j.proposals));
       setFigures(readFigures(j.figures));
       setLotClients(readLotClients(j.lot));
+      setLotInService(j.lotInService === true);
       setBlocked(typeof j.blocked === "string" && j.blocked ? j.blocked : null);
       return next;
     } catch {
@@ -359,6 +363,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         ? `${label} a été validée par le consultant : elle est maintenant en service pour ${lotSaved.length} client(s) du lot${skipped.length ? `, pas pour ${skipped.join(" ; ")}` : ""}`
         : `${label} a été validée par le consultant : c'est maintenant l'alerte en service`);
       setStatus(key, "applied");
+      if (lotSaved.length) setLotInService(true);
       onActivated(body.alert as AlertView, lotSaved.filter((a) => a.id !== (body.alert as AlertView).id));
     } catch (e) {
       setOutcomes((o) => ({ ...o, [key]: { errors: [e instanceof Error ? e.message : String(e)] } }));
@@ -396,7 +401,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         confirmCount={outcome.confirm || valid?.backtest.messages.length}
         confirmClients={outcome.confirmClients}
         lot={check?.lot ?? null}
-        replaces={(alert.status === "active" && !!alert.definition) || (!!lotClients && alert.status !== "draft")}
+        replaces={lotClients ? lotInService : alert.status === "active" && !!alert.definition}
         onValidate={() => {
           if (!valid) return;
           // Known to be noisy: the question comes before any request.

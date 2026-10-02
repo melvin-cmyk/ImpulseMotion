@@ -153,8 +153,11 @@ export async function POST(req: NextRequest, { params }: Params) {
 function serviceData(
   alert: { definitionHash: string; status: string },
   input: { definition: AlertDefinition; hash: string; replay: Backtest; clientName: string | null; accounts: AlertAccountRef[] },
+  opts: { keepPaused?: boolean } = {},
 ) {
   const { definition, hash, replay } = input;
+  // In a lot, a client the consultant paused on its own stays paused: the new rule waits for « Reprendre ».
+  const paused = opts.keepPaused === true && alert.status === "paused";
   // A changed rule starts fresh; the same rule (validated again, or back from a pause) keeps the silence of its last message.
   const changed = hash !== alert.definitionHash;
   const state = changed
@@ -171,7 +174,7 @@ function serviceData(
     backtestJson: JSON.stringify(replay),
     backtestHash: replay.hash,
     backtestAt: new Date(),
-    status: "active",
+    status: paused ? "paused" : "active",
     ...state,
     consecutiveFailures: 0,
     lastNote: null,
@@ -231,37 +234,49 @@ async function activateLot(lead: LeadRow, body: Record<string, unknown>, session
     }, { status: 409 });
   }
 
-  const existing = await prisma.clientAlert.findMany({ where: { groupId: lead.id, NOT: { id: lead.id } } });
-  const rowOf = (clientId: string) => (clientId === lead.alertClientId ? lead : existing.find((r) => r.alertClientId === clientId) ?? null);
-
-  const saved = await prisma.$transaction(async (tx) => {
-    const out = [];
-    for (const a of proven) {
-      const row = rowOf(a.member.alertClientId);
-      const input = { definition: a.definition, hash: a.hash, replay: a.backtest, clientName: a.member.clientName, accounts: a.member.accounts };
-      out.push(row
-        ? await tx.clientAlert.update({ where: { id: row.id }, data: { ...serviceData(row, input), groupId: lead.id }, include: WITH_EVENTS })
-        : await tx.clientAlert.create({
-          data: {
-            createdById: lead.createdById, createdByEmail: lead.createdByEmail,
-            alertClientId: a.member.alertClientId, groupId: lead.id,
-            ...serviceData({ definitionHash: "", status: "draft" }, input),
-          },
-          include: WITH_EVENTS,
-        }));
+  let saved;
+  try {
+    // Up to LOT_MAX_CLIENTS writes on the pooler: more room than Prisma's 5 s default.
+    saved = await prisma.$transaction(async (tx) => {
+      // Read inside: what another validation wrote meanwhile is seen, and (groupId, alertClientId) is unique.
+      const existing = await tx.clientAlert.findMany({ where: { groupId: lead.id } });
+      const rowOf = (clientId: string) => existing.find((r) => r.alertClientId === clientId) ?? (clientId === lead.alertClientId ? lead : null);
+      const out = [];
+      for (const a of proven) {
+        const row = rowOf(a.member.alertClientId);
+        const input = { definition: a.definition, hash: a.hash, replay: a.backtest, clientName: a.member.clientName, accounts: a.member.accounts };
+        out.push(row
+          ? await tx.clientAlert.update({ where: { id: row.id }, data: { ...serviceData(row, input, { keepPaused: true }), groupId: lead.id }, include: WITH_EVENTS })
+          : await tx.clientAlert.create({
+            data: {
+              createdById: lead.createdById, createdByEmail: lead.createdByEmail,
+              alertClientId: a.member.alertClientId, groupId: lead.id,
+              ...serviceData({ definitionHash: "", status: "draft" }, input),
+            },
+            include: WITH_EVENTS,
+          }));
+      }
+      // A client the new rule cannot be put on no longer runs the old one — unless its figures are only unreadable for now.
+      for (const c of lot.clients) {
+        if (c.ok || c.retry) continue;
+        const row = rowOf(c.alertClientId);
+        if (!row || row.status === "draft" || row.status === "review") continue;
+        await tx.clientAlert.update({
+          where: { id: row.id },
+          data: { status: "review", lastNote: `La nouvelle règle du lot n'a pas pu s'appliquer à ce client : ${c.error ?? "non vérifiable"}` },
+        });
+      }
+      // The platforms of the rule in service: what the AI is told next time, whichever client it is read on.
+      await tx.clientAlert.update({ where: { id: lead.id }, data: { groupPlatforms: (lot.platforms ?? []).join(",") } });
+      return out;
+    }, { maxWait: 10_000, timeout: 30_000 });
+  } catch (e) {
+    // Two validations of the same lot at once: the second finds the first's alerts already made.
+    if ((e as { code?: string })?.code === "P2002") {
+      return NextResponse.json({ error: "Ce lot vient d'être validé dans un autre onglet : rechargez la page." }, { status: 409 });
     }
-    // A client the new rule cannot be put on no longer runs the old one — unless its figures are only unreadable for now.
-    for (const c of lot.clients) {
-      if (c.ok || c.retry) continue;
-      const row = rowOf(c.alertClientId);
-      if (!row || row.status === "draft" || row.status === "review") continue;
-      await tx.clientAlert.update({
-        where: { id: row.id },
-        data: { status: "review", lastNote: `La nouvelle règle du lot n'a pas pu s'appliquer à ce client : ${c.error ?? "non vérifiable"}` },
-      });
-    }
-    return out;
-  });
+    throw e;
+  }
 
   const leadSaved = saved.find((r) => r.id === lead.id)
     ?? await prisma.clientAlert.findUnique({ where: { id: lead.id }, include: WITH_EVENTS })

@@ -73,7 +73,7 @@ vi.mock("@/lib/prisma", () => {
         const row: Row = {
           id: `alert_${nextId++}`, createdByEmail: null, alertClientId: null, clientName: "—", label: "", accountsJson: "[]", definitionJson: "{}",
           definitionHash: "", status: "draft", backtestJson: "{}", backtestHash: null, backtestAt: null, chatJson: "{}", armed: true,
-          lastCheckedAt: null, lastTriggeredAt: null, lastValue: null, lastNote: null, consecutiveFailures: 0, groupId: null, groupJson: "[]",
+          lastCheckedAt: null, lastTriggeredAt: null, lastValue: null, lastNote: null, consecutiveFailures: 0, groupId: null, groupJson: "[]", groupPlatforms: "",
           createdAt: new Date(clock += 60_000), updatedAt: new Date(clock), ...data,
         };
         alerts.push(row);
@@ -535,5 +535,73 @@ describe("lots — suppression", () => {
     await ACTIVATE(req({ proposal: { ...raw, threshold: 70 } }), at(id));
     expect(rowOf(id, "c-dufour")).toBeUndefined();
     expect(lotRows(id)).toHaveLength(2);
+  });
+});
+
+// ── Review fixes ──────────────────────────────────────────────────────────
+
+describe("lots — après relecture", () => {
+  it("reprend le brouillon du même lot coché dans un autre ordre, à jour du client", async () => {
+    const id = await lotDraft();
+    clients.find((c) => c.id === "c-dufour")!.name = "Dufour & Fils";
+    const again = await CREATE(req({ alertClientIds: ["c-dufour", "c-lpev", "c-icn"] }));
+    expect(again.status).toBe(200);
+    expect((await again.json()).alert.id).toBe(id);
+    expect(alerts).toHaveLength(1);
+    expect(row(id)).toMatchObject({ alertClientId: "c-dufour", clientName: "Dufour & Fils", groupJson: JSON.stringify(["c-dufour", "c-lpev", "c-icn"]) });
+    expect(JSON.parse(String(row(id).accountsJson))).toEqual([DUFOUR_GOOGLE]);
+  });
+
+  it("laisse en pause le client que le consultant avait mis en pause, en lui donnant la nouvelle règle", async () => {
+    const id = await lotDraft();
+    await ACTIVATE(req({ proposal: raw }), at(id));
+    const icn = rowOf(id, "c-icn")!.id;
+    expect((await PATCH(req({ action: "pause" }), at(icn))).status).toBe(200);
+    expect((await ACTIVATE(req({ proposal: { ...raw, threshold: 75 } }), at(id))).status).toBe(200);
+    expect(row(icn).status).toBe("paused");
+    expect(JSON.parse(String(row(icn).definitionJson)).threshold).toBe(75);
+    expect(rowOf(id, "c-lpev")!.status).toBe("active");
+  });
+
+  it("dit à l'IA les plateformes de la règle validée, et « Remplacer » même si le client de la conversation n'est pas concerné", async () => {
+    // Dufour (Google seulement) tient la conversation ; la règle Meta ne le concerne pas.
+    const id = await lotDraft(["c-dufour", "c-icn", "c-lpev"]);
+    const res = await ACTIVATE(req({ proposal: raw, platforms: ["meta"] }), at(id));
+    expect(res.status).toBe(200);
+    expect(row(id).status).toBe("draft");
+    expect(row(id).groupPlatforms).toBe("meta");
+
+    const chat = await (await CHAT_GET(get(), at(id))).json();
+    expect(chat.lotInService).toBe(true);
+
+    await (await CHAT_POST(req({ messages: [{ role: "user", content: "Monte le seuil à 80 €" }] }), at(id))).text();
+    const ctx = String(relayCalls.at(-1)!.turnContext);
+    expect(ctx).toContain('"accounts":[{"platform":"meta"}]');
+    expect(ctx).toContain("en service");
+
+    // Validée ensuite sur tous les comptes : plus de plateforme dans ce que lit l'IA.
+    expect((await ACTIVATE(req({ proposal: raw }), at(id))).status).toBe(200);
+    expect(row(id).groupPlatforms).toBe("");
+    await (await CHAT_POST(req({ messages: [{ role: "user", content: "Et maintenant ?" }] }), at(id))).text();
+    expect(String(relayCalls.at(-1)!.turnContext)).not.toContain('"platform":"meta"}]');
+  });
+
+  it("un lot réduit à un client redevient une alerte ordinaire", async () => {
+    const id = await lotDraft(["c-lpev", "c-dufour"]);
+    await ACTIVATE(req({ proposal: raw }), at(id));
+    await DELETE(get(), at(rowOf(id, "c-dufour")!.id));
+    expect(row(id)).toMatchObject({ groupId: null, groupJson: "[]", groupPlatforms: "" });
+    const list = await (await LIST(get())).json();
+    expect(list.alerts.find((a: { id: string }) => a.id === id)).toMatchObject({ lotId: null, lotSize: 0 });
+  });
+
+  it("deux validations du même lot en même temps : la seconde est refusée sans rien casser", async () => {
+    const id = await lotDraft();
+    const { prisma } = await import("@/lib/prisma");
+    const create = vi.spyOn(prisma.clientAlert, "create").mockRejectedValueOnce(Object.assign(new Error("Unique constraint failed"), { code: "P2002" }));
+    const res = await ACTIVATE(req({ proposal: raw }), at(id));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/autre onglet/);
+    create.mockRestore();
   });
 });

@@ -166,13 +166,6 @@ export function checkLot(
   return { lot: { platforms, clients }, accepted };
 }
 
-/** The rule of a validated definition, as checkLot reads it again: accounts as platforms only. */
-export function ruleOf(def: AlertDefinition, platforms: AlertPlatform[] | null): Record<string, unknown> {
-  const { accounts: _accounts, ...rest } = def;
-  void _accounts;
-  return platforms ? { ...rest, accounts: platforms.map((platform) => ({ platform })) } : { ...rest };
-}
-
 /** Whatever is wrong with every client of the lot, said once for the card and the AI. */
 export function lotRefusal(lot: LotCheck): { errors: string[]; hints: string[]; retry: boolean } {
   const errors = lot.clients.map((c) => `${c.clientName} : ${c.error ?? "non vérifiable"}`);

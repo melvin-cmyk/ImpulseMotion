@@ -1,14 +1,16 @@
 /**
  * Client alerts — the clients of a lot as they are TODAY for the person who
  * talks to the AI: their current accounts in the person's scope
- * (usableAccounts, as for one client) and their figures, read once per
+ * (as usableAccounts does for one client) and their figures, read once per
  * request. Never throws for one client: a client that is gone or out of reach
  * carries `blocked`, figures that cannot be read leave `series` null.
  */
 
 import { prisma } from "@/lib/prisma";
 import { readClientSeries } from "@/lib/client-alerts/series";
-import { usableAccounts } from "@/lib/client-alerts/accounts";
+import { NO_ACCESS, clientGoneText } from "@/lib/client-alerts/accounts";
+import { getAccountScope, platformAccountInScope } from "@/lib/scope";
+import { parseAlertAccounts } from "@/lib/auto-alerts/clients";
 import type { LotMember } from "@/lib/client-alerts/lot";
 
 /** Series read at once: the cache absorbs most of them, the platforms the rest. */
@@ -17,16 +19,21 @@ const CONCURRENCY = 4;
 type SessionLike = { userId: string; role?: string | null };
 
 export async function loadLotMembers(ids: string[], session: SessionLike, opts: { series?: boolean } = {}): Promise<LotMember[]> {
-  const rows = await prisma.alertClient.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
-  const names = new Map(rows.map((r) => [r.id, r.name]));
-  const members: LotMember[] = [];
-  for (const id of ids) {
-    const name = names.get(id) ?? "Client supprimé";
-    const usable = await usableAccounts({ alertClientId: id, clientName: name }, [], session);
-    members.push(usable.state === "ok"
-      ? { alertClientId: id, clientName: usable.clientName ?? name, accounts: usable.accounts, series: null }
-      : { alertClientId: id, clientName: name, accounts: [], series: null, blocked: usable.reason });
-  }
+  // What usableAccounts does for one client, for all of them: one read of the clients, one of the scope.
+  const [rows, scope] = await Promise.all([
+    prisma.alertClient.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, gone: true, accountsJson: true } }),
+    getAccountScope(session),
+  ]);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const members: LotMember[] = ids.map((id) => {
+    const row = byId.get(id);
+    const name = row?.name ?? "Client supprimé";
+    if (!row || row.gone) return { alertClientId: id, clientName: name, accounts: [], series: null, blocked: clientGoneText(name) };
+    const accounts = parseAlertAccounts(row.accountsJson).filter((a) => platformAccountInScope(scope, a.platform, a.accountId));
+    return accounts.length
+      ? { alertClientId: id, clientName: name, accounts, series: null }
+      : { alertClientId: id, clientName: name, accounts: [], series: null, blocked: NO_ACCESS };
+  });
   if (opts.series === false) return members;
 
   let next = 0;
