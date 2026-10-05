@@ -23,6 +23,7 @@ import * as gwsAuth from "./gws-auth.mjs";
 import { handleSheetsRequest } from "./sheets-direct.mjs";
 import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promptLogExcerpt } from "./relay-prompt.mjs";
 import { accountsOfTikTokCall, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
+import * as agnes from "./agnes.mjs";
 let hqProjectsCache = null;
 
 const execFileAsync = promisify(execFile);
@@ -1672,6 +1673,45 @@ const server = http.createServer(async (req, res) => {
 
     // Mémoire client : ajoute une entrée datée au journal du projet HQ du
     // client. Écriture faite par le code (pas par le modèle), bearer du relay.
+    // ── Studio créa : génération d'images et de vidéos (Agnes AI, server/agnes.mjs) ──
+    // Signed, short-lived links to relay media (no bearer: Agnes and the app fetch them).
+    if (url.pathname.startsWith("/media/") && req.method === "GET") {
+      agnes.serveMedia(req, res, url);
+      return;
+    }
+    if (url.pathname.startsWith("/api/agnes/")) {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (!agnes.agnesConfigured()) return send(503, { error: "Agnes AI n'est pas configuré sur le relay (AGNES_API_KEY)." });
+      try {
+        if (url.pathname === "/api/agnes/image" && req.method === "POST") {
+          const out = await agnes.generateImage(await readBody(req));
+          console.log(`[agnes] image ${out.model} ${out.size} ${out.ratio} → ${out.file ?? "sans copie"}`);
+          return send(200, out);
+        }
+        if (url.pathname === "/api/agnes/video" && req.method === "POST") {
+          const out = await agnes.createVideo(await readBody(req));
+          console.log(`[agnes] vidéo ${out.model} ${out.seconds}s ${out.size} ${out.aspect_ratio} → ${out.videoId}`);
+          return send(200, out);
+        }
+        if (url.pathname === "/api/agnes/video" && req.method === "GET") {
+          return send(200, await agnes.pollVideo(url.searchParams.get("id"), url.searchParams.get("model")));
+        }
+        if (url.pathname === "/api/agnes/upload" && req.method === "POST") {
+          const body = await readBody(req);
+          return send(200, { file: agnes.saveUpload(body?.image) });
+        }
+        return send(404, { error: "not found" });
+      } catch (e) {
+        console.error("[agnes] échec:", e.message);
+        return send(e.status && e.status < 500 ? (e.status === 400 ? 400 : 422) : 502, { error: e.message });
+      }
+    }
+
     if (url.pathname === "/api/hq/journal" && req.method === "POST") {
       if (!authorized(req)) {
         res.writeHead(401, { "Content-Type": "application/json" });

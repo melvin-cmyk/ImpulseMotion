@@ -27,7 +27,8 @@ export default auth((req) => {
 
   // /api/cron and /api/ingest authenticate themselves (CRON_SECRET / bearer token).
   // /api/tiktok-verify must answer the TikTok crawler, which has no session.
-  const publicPaths = ["/login", "/api/auth", "/api/cron", "/api/ingest", "/api/tiktok-verify", "/_next", "/favicon"];
+  // /api/studio/media serves signed, short-lived links that Agnes AI fetches (no session): the signature is checked by the route.
+  const publicPaths = ["/login", "/api/auth", "/api/cron", "/api/ingest", "/api/tiktok-verify", "/api/studio/media/", "/_next", "/favicon"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   const isAdminPath = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");

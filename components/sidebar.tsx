@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Repeat,
   SlidersHorizontal,
+  Wand2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
@@ -82,6 +83,7 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Analyse Ads",
         match: (p) => ANALYSE_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
       },
+      { href: "/studio", icon: Wand2, label: "Studio créa", match: (p) => p === "/studio" || p.startsWith("/studio/") },
       { href: "/ai", icon: Bot, label: "AI Assistant", match: (p) => p.startsWith("/ai") },
     ],
   },

@@ -751,11 +751,11 @@ model ClientAlert {
   updatedAt           DateTime           @updatedAt
   events              ClientAlertEvent[]
 
+  /// One alert per client in a lot: two validations at the same time cannot both create it.
+  @@unique([groupId, alertClientId])
   @@index([status])
   @@index([createdById, updatedAt])
   @@index([groupId])
-  /// One alert per client in a lot: two validations at the same time cannot both create it.
-  @@unique([groupId, alertClientId])
 }
 
 /// One trigger of a ClientAlert. notifiedAt is the idempotence of the delivery.
@@ -825,29 +825,29 @@ model PilotAction {
 
 /// One field of one object changed by a PilotAction, with its value before and after.
 model PilotOperation {
-  id          String      @id @default(cuid())
-  actionId    String
-  action      PilotAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  position    Int
+  id           String      @id @default(cuid())
+  actionId     String
+  action       PilotAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  position     Int
   /// set_status | set_daily_budget | set_lifetime_budget | set_end_time | set_bid_amount | rename
-  kind        String
+  kind         String
   /// campaign | adset | ad
-  objectType  String
-  objectId    String
-  objectName  String      @default("")
+  objectType   String
+  objectId     String
+  objectName   String      @default("")
   /// Parent shown in the preview (the ad set of an ad, the campaign of an ad set).
-  parentName  String      @default("")
+  parentName   String      @default("")
   /// Platform field written (status, daily_budget, end_time…).
-  field       String
+  field        String
   /// Values as the platform stores them (budgets in minor units), JSON.
-  beforeJson  String      @db.Text
-  afterJson   String      @db.Text
+  beforeJson   String      @db.Text
+  afterJson    String      @db.Text
   /// Value read back after the write, JSON; null until then.
-  readBackJson String?    @db.Text
+  readBackJson String?     @db.Text
   /// pending | done | unchanged | failed | uncertain | conflict | skipped
-  status      String      @default("pending")
-  error       String?     @db.Text
-  executedAt  DateTime?
+  status       String      @default("pending")
+  error        String?     @db.Text
+  executedAt   DateTime?
 
   @@index([actionId, position])
 }
@@ -878,4 +878,40 @@ model PilotImpact {
 
   @@unique([actionId, horizon])
   @@index([status, computedAt])
+}
+
+/// An image or a video generated in the Studio créa (Agnes AI, through the relay: server/agnes.mjs).
+model CreativeAsset {
+  id            String    @id @default(cuid())
+  /// image | video
+  kind          String
+  createdById   String
+  createdByName String    @default("")
+  /// Agency client the visual is for (optional, AlertClient.id) and its name at the time.
+  alertClientId String?
+  clientName    String    @default("")
+  prompt        String    @db.Text
+  model         String
+  /// {"ratio":"4:5","size":"1K","seconds":5,…}
+  paramsJson    String    @default("{}") @db.Text
+  /// queued | in_progress | completed | failed
+  status        String    @default("queued")
+  progress      Int       @default(0)
+  /// Agnes link (public, may expire) and the copy on the relay's disk.
+  url           String?   @db.Text
+  file          String?
+  /// Video task id at Agnes.
+  providerId    String?
+  /// The image this video animates (Studio asset), when there is one.
+  sourceId      String?
+  error         String?   @db.Text
+  /// Estimated price in USD at generation (0 while Agnes offers it).
+  costUsd       Float     @default(0)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([createdAt])
+  @@index([alertClientId, createdAt])
+  @@index([status])
 }

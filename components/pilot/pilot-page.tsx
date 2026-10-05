@@ -131,11 +131,16 @@ export function PilotPage() {
     setPending((list) => [...list.filter((p) => changeKey(p) !== changeKey(change) && !(change.value === "DELETED" && p.objectId === change.objectId)), change]);
   }
 
+  // Every client, active first: the search and the platform only narrow the list, nothing is cut.
+  const [platformFilter, setPlatformFilter] = useState<"" | Platform>("");
   const found = useMemo(() => {
     if (!clients) return [];
     const q = plain(query.trim());
-    return clients.filter((c) => !q || plain(c.name).includes(q)).slice(0, 12);
-  }, [clients, query]);
+    return clients
+      .filter((c) => !q || plain(c.name).includes(q) || c.accounts.some((a) => plain(a.name ?? "").includes(q) || a.accountId.includes(q)))
+      .filter((c) => !platformFilter || c.accounts.some((a) => a.platform === platformFilter))
+      .sort((a, b) => Number(a.dormant) - Number(b.dormant) || a.name.localeCompare(b.name, "fr"));
+  }, [clients, query, platformFilter]);
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
@@ -162,12 +167,20 @@ export function PilotPage() {
           <div>
             <label className="flex items-center gap-2 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2">
               <Search className="w-4 h-4 text-gray-500" />
-              <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Chercher un client" className="bg-transparent text-sm text-white outline-none flex-1" />
+              <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={clients ? `Chercher parmi ${clients.length} clients (nom ou compte)` : "Chercher un client"} className="bg-transparent text-sm text-white outline-none flex-1" />
             </label>
+            {clients && (
+              <div className="flex flex-wrap items-center gap-2 mt-3 text-xs">
+                {([["", "Tous"], ["meta", "Avec Meta"], ["google", "Avec Google Ads"]] as const).map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setPlatformFilter(k)} className={`px-2.5 py-1 rounded-md border ${platformFilter === k ? "border-violet-500 text-white" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
+                ))}
+                <span className="text-gray-500 ml-1">{found.length} client{found.length > 1 ? "s" : ""}</span>
+              </div>
+            )}
             {clientsError && <p className="text-sm text-red-300 mt-3">{clientsError}</p>}
             {!clients && !clientsError && <p className="text-sm text-gray-500 mt-3 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture des clients…</p>}
             {clients && (
-              <ul className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              <ul className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[60vh] overflow-y-auto pr-1">
                 {found.map((c) => (
                   <li key={c.id}>
                     <button type="button" onClick={() => pick(c)} className="w-full text-left px-3 py-2 rounded-lg border border-gray-800 hover:border-violet-500/60 hover:bg-gray-800/40">
