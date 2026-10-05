@@ -51,7 +51,7 @@ function ProposalCard({ proposal, client, onPrepared }: { proposal: PilotProposa
       const res = await fetch("/api/pilot/actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: client.id, accountId: proposal.accountId, platform: proposal.platform, requests: proposal.requests, why: proposal.why }),
+        body: JSON.stringify({ clientId: client.id, accountId: proposal.accountId, platform: proposal.platform, requests: proposal.requests, why: proposal.why ? `Proposé par l'IA : ${proposal.why}` : "" }),
       });
       const j = await readJson<{ action?: PilotActionView }>(res);
       if (!res.ok || !j.action) { setErrors(j.errors?.length ? j.errors : [j.error ?? `Erreur ${res.status}`]); return; }

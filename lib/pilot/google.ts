@@ -160,10 +160,10 @@ function spendById(rows: Row[], key: "campaign" | "adGroup"): Map<string, number
 }
 
 /** Campaigns and ad groups that are not removed. */
-export async function readGoogleStructure(customerId: string): Promise<{ campaigns: StructureRow[]; adsets: StructureRow[]; truncated: boolean; currency: string }> {
+export async function readGoogleStructure(customerId: string, knownCurrency?: string): Promise<{ campaigns: StructureRow[]; adsets: StructureRow[]; truncated: boolean; currency: string }> {
   const customer = googleCustomerDigits(customerId);
   if (!customer) throw new Error("Compte Google Ads invalide");
-  const currency = await readGoogleCurrency(customer);
+  const currency = knownCurrency ?? (await readGoogleCurrency(customer));
   const [campaigns, adGroups, campaignSpend, adGroupSpend] = await Promise.all([
     gaql(customer, `SELECT ${CAMPAIGN_FIELDS} FROM campaign WHERE campaign.status != 'REMOVED' ORDER BY campaign.name LIMIT ${STRUCTURE_LIMIT}`),
     gaql(customer, `SELECT ${ADGROUP_FIELDS} FROM ad_group WHERE ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED' ORDER BY ad_group.name LIMIT ${STRUCTURE_LIMIT}`),
@@ -191,7 +191,8 @@ const isId = (id: string) => /^\d{1,25}$/.test(id);
 /** One object as Google holds it now, in this customer; null when the customer has no such object. */
 export async function readGoogleObject(customerId: string, objectId: string, type: PilotObjectType, currency?: string): Promise<PilotObjectState | null> {
   const customer = googleCustomerDigits(customerId);
-  if (!customer || !isId(objectId) || type === "ad") return null;
+  if (type === "ad") throw new Error("Les annonces Google Ads ne se modifient pas encore ici.");
+  if (!customer || !isId(objectId)) return null;
   const cur = currency ?? (await readGoogleCurrency(customer));
   if (type === "campaign") {
     const rows = await gaql(customer, `SELECT ${CAMPAIGN_FIELDS} FROM campaign WHERE campaign.id = ${objectId}`);
@@ -289,11 +290,14 @@ export async function writeGoogleField(customerId: string, objectId: string, typ
   } catch {
     return { kind: "uncertain", error: "Google Ads n'a pas répondu à temps : la modification a peut-être été appliquée. Vérifiez dans Google Ads avant de recommencer." };
   }
-  const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+  const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; googleStatus?: number | null } | null;
   if (res.ok && body?.ok) return { kind: "done" };
-  // The flow did not answer properly (n8n down, 5xx): whether Google applied it is not known.
-  if (!body || res.status >= 500) return { kind: "uncertain", error: `Réponse inattendue du relais Google Ads (${res.status}) : vérifiez dans Google Ads avant de recommencer.` };
-  return { kind: "refused", error: `Refusé par Google Ads : ${String(body.error ?? res.status).slice(0, 300)}` };
+  // Refused for sure: the flow refused the request (400/401), or Google answered 4xx.
+  const googleStatus = typeof body?.googleStatus === "number" ? body.googleStatus : null;
+  const refused = body && ((res.status >= 400 && res.status < 500) || (googleStatus !== null && googleStatus >= 400 && googleStatus < 500));
+  if (refused) return { kind: "refused", error: `Refusé par Google Ads : ${String(body.error ?? res.status).slice(0, 300)}` };
+  // Anything else (n8n down, Google unreachable or 5xx): whether Google applied it is not known.
+  return { kind: "uncertain", error: `Google Ads n'a pas donné de réponse sûre (${googleStatus ?? res.status}) : la modification a peut-être été appliquée. Vérifiez dans Google Ads avant de recommencer.` };
 }
 
 const field_ = (o: unknown, camel: string) => field(obj(o), camel);

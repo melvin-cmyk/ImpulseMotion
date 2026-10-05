@@ -52,19 +52,24 @@ export function PilotPage() {
       .catch((e) => setClientsError(e instanceof Error ? e.message : String(e)));
   }, []);
 
+  // Only the last account asked is shown: a slow answer for a previous account is dropped.
+  const structureSeq = useRef(0);
   const loadStructure = useCallback(async (clientId: string, ref: AccountRef) => {
+    const seq = ++structureSeq.current;
     setLoadingStructure(true);
     setStructureError(null);
     try {
       const res = await fetch(`/api/pilot/structure?clientId=${encodeURIComponent(clientId)}&accountId=${encodeURIComponent(ref.accountId)}&platform=${ref.platform}`);
       const j = await readJson<Structure>(res);
+      if (seq !== structureSeq.current) return;
       if (!res.ok) throw new Error(j.error ?? `Erreur ${res.status}`);
       setStructure(j);
     } catch (e) {
+      if (seq !== structureSeq.current) return;
       setStructure(null);
       setStructureError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoadingStructure(false);
+      if (seq === structureSeq.current) setLoadingStructure(false);
     }
   }, []);
 
@@ -109,7 +114,8 @@ export function PilotPage() {
   function takePrepared(action: PilotActionView) {
     if (!client) return;
     const a = client.accounts.find((x) => x.platform === action.platform && x.accountId.replace(/^act_/, "").replace(/-/g, "").replace(/^0+/, "") === action.accountId.replace(/^0+/, ""));
-    if (a && refKey(a) !== refKey(account)) {
+    if (!a) return;
+    if (refKey(a) !== refKey(account)) {
       const ref = { platform: a.platform, accountId: a.accountId };
       setAccount(ref);
       setStructure(null);

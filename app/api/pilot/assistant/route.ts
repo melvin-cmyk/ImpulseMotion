@@ -19,7 +19,7 @@ import { recordAiUsage } from "@/lib/ai-usage";
 import { getAccountScope, platformAccountInScope } from "@/lib/scope";
 import { parseAlertAccounts } from "@/lib/auto-alerts/clients";
 import { pilotAdapter } from "@/lib/pilot/adapters";
-import { readContextAccount } from "@/lib/pilot/assistant-context";
+import { cachedContextAccount } from "@/lib/pilot/assistant-context";
 import { PILOT_CHAT_MAX_MESSAGES, PILOT_CHAT_MAX_MESSAGE_CHARS, PILOT_MAX_ACCOUNTS, buildPilotRelayBody } from "@/lib/pilot/assistant";
 import type { PilotPlatform } from "@/lib/pilot/ops";
 
@@ -49,9 +49,9 @@ export async function POST(req: NextRequest) {
     return !!(focus && adapter && focus.platform === a.platform && adapter.accountKey(String(focus.accountId ?? "")) === adapter.accountKey(a.accountId));
   };
   const chosen = [...accounts].sort((a, b) => Number(isFocus(b)) - Number(isFocus(a))).slice(0, PILOT_MAX_ACCOUNTS);
-  const context = await Promise.all(chosen.map((a) => readContextAccount({ platform: a.platform, accountId: a.accountId, name: a.name ?? a.accountId })));
+  const context = await Promise.all(chosen.map((a) => cachedContextAccount({ platform: a.platform, accountId: a.accountId, name: a.name ?? a.accountId })));
 
-  const today = new Date().toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full", timeStyle: "short" });
+  const today = new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "full" });
   const res = await relayStream(buildPilotRelayBody({
     clientId: client.id, clientName: client.name, userId: guard.session.userId,
     author: guard.session.user?.email ?? null, thread, accounts: context, today,

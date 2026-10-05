@@ -17,7 +17,8 @@ export interface PilotAdapter {
   name: string;
   /** The account id as the platform's calls take it; null when it is not one. */
   accountKey(accountId: string): string | null;
-  readStructure(account: string): Promise<{ campaigns: StructureRow[]; adsets: StructureRow[]; truncated: boolean }>;
+  /** `currency` when already read: Google needs it to convert budgets. */
+  readStructure(account: string, currency?: string): Promise<{ campaigns: StructureRow[]; adsets: StructureRow[]; truncated: boolean }>;
   /** The ads of an ad set, read when it is opened; null when the platform has no such level here. */
   readAds: ((account: string, adsetId: string) => Promise<StructureRow[]>) | null;
   readCurrency(account: string): Promise<string>;
@@ -42,9 +43,9 @@ const google: PilotAdapter = {
   platform: "google",
   name: "Google Ads",
   accountKey: googleCustomerDigits,
-  readStructure: async (account) => {
-    const { currency: _c, ...rest } = await readGoogleStructure(account);
-    return rest;
+  readStructure: async (account, currency) => {
+    const { campaigns, adsets, truncated } = await readGoogleStructure(account, currency);
+    return { campaigns, adsets, truncated };
   },
   readAds: null,
   readCurrency: readGoogleCurrency,

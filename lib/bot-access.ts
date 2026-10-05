@@ -113,11 +113,13 @@ export function buildBotOverview(list: BotClientList, scope: AccountScope): BotO
   const items: BotOverviewItem[] = [];
   for (const c of list.clients) {
     const accounts = c.accounts.filter((a) => platformAccountInScope(scope, a.platform, a.accountId));
-    if (!accounts.length) continue;
+    const bots = botsOf(c.dashboards);
+    // In scope by one of its accounts, or by the dashboard of one of its bots.
+    if (!accounts.length && !bots.length) continue;
     items.push({
       key: c.id, clientId: c.id, name: c.name, dormant: c.dormant,
       accounts: accounts.map((a) => ({ platform: a.platform, accountId: a.accountId, name: a.name })),
-      bots: botsOf(c.dashboards),
+      bots,
     });
   }
   for (const d of list.orphans) {

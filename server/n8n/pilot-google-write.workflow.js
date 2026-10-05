@@ -13,11 +13,15 @@
 //   200 { ok: true, result }          Google Ads applied the mutate
 //   200 { ok: false, error }          Google Ads refused it (its message)
 //   400 { ok: false, error }          request refused before reaching Google
-//   401 { ok: false, error: "unauthorized" }
+//   401 { ok: false, error: "unauthorized" }   wrong or missing X-Pilot-Secret
 //
 // Before publishing, replace:
-//   __SECRET__            a NEW secret of 32+ characters, also set on Vercel as PILOT_GOOGLE_WEBHOOK_SECRET
-//   __DEVELOPER_TOKEN__   the Google Ads developer token (the one of the flow « MCP Google Ads - Impulse »)
+//   __SECRET_SHA256__     the SHA-256 (hex) of the secret set on Vercel as PILOT_GOOGLE_WEBHOOK_SECRET —
+//                         only the hash lives in the flow
+//   __DEVELOPER_TOKEN__   the Google Ads developer token (as in the flow « MCP Google Ads - Impulse »)
+// and keep « Available in MCP » OFF for this flow.
+//   200 replies carry googleStatus (Google's HTTP status, null when Google was not reached):
+//   the app reads a 4xx as refused, anything else as an unknown outcome.
 // Credential: « Google Ads account » (googleAdsOAuth2Api, id 2jFRGCsXDsMa6uBy), manager 7311173397.
 //
 // Environment of the application (Vercel):
@@ -35,14 +39,25 @@ const incoming = trigger({
   output: [{ headers: { 'x-pilot-secret': 'secret' }, body: { version: 1, customerId: '1234567890', resource: 'campaigns', operation: { update: { resourceName: 'customers/1234567890/campaigns/1', status: 'PAUSED' }, updateMask: 'status' } } }],
 });
 
+// Only the SHA-256 of the secret is written in the flow: reading the flow (MCP, export) does not give the key.
+const hashSecret = node({
+  type: 'n8n-nodes-base.crypto',
+  version: 1,
+  config: {
+    name: 'Empreinte du secret',
+    parameters: { action: 'hash', type: 'SHA256', value: expr('{{ $json.headers["x-pilot-secret"] || "" }}'), dataPropertyName: 'secretHash', encoding: 'hex' },
+  },
+  output: [{ secretHash: 'abc', headers: {}, body: {} }],
+});
+
 const secretOk = ifElse({
   version: 2.3,
   config: {
     name: 'Secret valide ?',
     parameters: {
       conditions: {
-        options: { caseSensitive: true, leftValue: '', typeValidation: 'strict', version: 2 },
-        conditions: [{ leftValue: expr('{{ $json.headers["x-pilot-secret"] }}'), rightValue: '__SECRET__', operator: { type: 'string', operation: 'equals' } }],
+        options: { caseSensitive: true, leftValue: '', typeValidation: 'loose', version: 2 },
+        conditions: [{ leftValue: expr('{{ $json.secretHash }}'), rightValue: '__SECRET_SHA256__', operator: { type: 'string', operation: 'equals' } }],
         combinator: 'and',
       },
     },
@@ -151,7 +166,7 @@ const answer = node({
     name: 'Réponse',
     parameters: {
       respondWith: 'json',
-      responseBody: expr('{{ JSON.stringify($json.statusCode >= 200 && $json.statusCode < 300 && Array.isArray($json.body?.results) ? { ok: true, result: $json.body.results } : { ok: false, error: ($json.body?.error?.details?.[0]?.errors?.[0]?.message) || $json.body?.error?.message || $json.error?.message || ("google_ads_" + ($json.statusCode || "error")) }) }}'),
+      responseBody: expr('{{ JSON.stringify($json.statusCode >= 200 && $json.statusCode < 300 && Array.isArray($json.body?.results) ? { ok: true, result: $json.body.results, googleStatus: $json.statusCode } : { ok: false, googleStatus: typeof $json.statusCode === "number" ? $json.statusCode : null, error: ($json.body?.error?.details?.[0]?.errors?.[0]?.message) || $json.body?.error?.message || $json.error?.message || ("google_ads_" + ($json.statusCode || "error")) }) }}'),
       options: { responseCode: 200 },
     },
   },
@@ -160,8 +175,8 @@ const answer = node({
 
 export default workflow('impulsemotion-google-write', 'ImpulseMotion — Pilotage : écritures Google Ads')
   .add(incoming)
-  .to(secretOk
+  .to(hashSecret.to(secretOk
     .onTrue(check.to(valid
       .onTrue(mutate.to(answer))
       .onFalse(invalid)))
-    .onFalse(refuse));
+    .onFalse(refuse)));

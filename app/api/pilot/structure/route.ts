@@ -25,7 +25,8 @@ export async function GET(req: NextRequest) {
       if (!adapter.readAds) return NextResponse.json({ ads: [] }, { headers });
       return NextResponse.json({ ads: await adapter.readAds(account.digits, adsetId) }, { headers });
     }
-    const [structure, currency] = await Promise.all([adapter.readStructure(account.digits), adapter.readCurrency(account.digits)]);
+    const currency = await adapter.readCurrency(account.digits);
+    const structure = await adapter.readStructure(account.digits, currency);
     return NextResponse.json({
       ...structure,
       platform: adapter.platform,

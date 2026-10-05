@@ -240,9 +240,10 @@ async function sendOperations(adapter: PilotAdapter, actionId: string, accountId
       if (outcome.kind === "refused") { await setOp(op.id, { status: "failed", error: outcome.error }); continue; }
       // Read back: what the platform holds now is what the journal says.
       let check: PilotObjectState | null = null;
-      try { check = await adapter.readObject(accountId, op.objectId, op.objectType as PilotObjectState["type"], currency); } catch { check = null; }
-      // A removed Google Ads object is no longer listed: gone is what was asked.
-      if (!check && after === "DELETED") { await setOp(op.id, { status: "done", readBackJson: JSON.stringify("DELETED"), error: null }); continue; }
+      let readFailed = false;
+      try { check = await adapter.readObject(accountId, op.objectId, op.objectType as PilotObjectState["type"], currency); } catch { readFailed = true; }
+      // Deleted and no longer found (Meta may stop serving a deleted object): gone is what was asked.
+      if (!check && !readFailed && after === "DELETED") { await setOp(op.id, { status: "done", readBackJson: JSON.stringify("DELETED"), error: null }); continue; }
       const readBack = check ? stateValue(check, op.field) : null;
       if (check && !sameValue(op.field, readBack, after)) {
         // Not what was asked: the account is not in the state the rest of the action was prepared for.
