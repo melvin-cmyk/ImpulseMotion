@@ -13,7 +13,7 @@ import { DEFAULT_PAGE_ID, DEFAULT_PAGE_NAME, type DashboardPageInfo } from "@/li
 export const FIRST_PAGE_LABEL = DEFAULT_PAGE_NAME;
 
 export function PageTabs({
-  pages, activePageId, editing, onSelect, onAdd, onRename, onDelete,
+  pages, activePageId, editing, onSelect, onAdd, onRename, onDelete, extraTabs = [],
 }: {
   pages: DashboardPageInfo[];
   activePageId: string | null;
@@ -22,13 +22,18 @@ export function PageTabs({
   onAdd: () => void;
   onRename: (page: DashboardPageInfo) => void;
   onDelete: (page: DashboardPageInfo) => void;
+  /** Tabs that are not pages of widgets (staff « Historique & impact »); one active hides the page highlight. */
+  extraTabs?: Array<{ id: string; label: string; active: boolean; onSelect: () => void }>;
 }) {
-  if (pages.length === 0 && !editing) return null;
-  const active = pages.find((p) => p.id === activePageId) ?? pages[0] ?? null;
+  if (pages.length === 0 && !editing && extraTabs.length === 0) return null;
+  const extraActive = extraTabs.some((t) => t.active);
+  const active = extraActive ? null : pages.find((p) => p.id === activePageId) ?? pages[0] ?? null;
   return (
     <div className="flex items-center gap-1 flex-wrap border-b border-gray-800 pb-1">
       {pages.length === 0 && (
-        <span className="px-3 py-1.5 text-xs font-semibold text-white border-b-2 border-violet-500">{FIRST_PAGE_LABEL}</span>
+        extraActive
+          ? <button type="button" onClick={() => onSelect(DEFAULT_PAGE_ID)} className="px-3 py-1.5 text-xs font-semibold text-gray-400 border-b-2 border-transparent hover:text-white">{FIRST_PAGE_LABEL}</button>
+          : <span className="px-3 py-1.5 text-xs font-semibold text-white border-b-2 border-violet-500">{FIRST_PAGE_LABEL}</span>
       )}
       {pages.map((p) => {
         const isActive = active?.id === p.id;
@@ -46,7 +51,17 @@ export function PageTabs({
           </button>
         );
       })}
-      {editing && (
+      {extraTabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={t.onSelect}
+          className={`px-3 py-1.5 text-xs font-semibold border-b-2 transition-colors ${t.active ? "text-white border-violet-500" : "text-gray-400 border-transparent hover:text-white"}`}
+        >
+          {t.label}
+        </button>
+      ))}
+      {editing && !extraActive && (
         <div className="flex items-center gap-1 ml-1">
           {active && active.id !== DEFAULT_PAGE_ID && (
             <>

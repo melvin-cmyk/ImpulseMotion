@@ -816,6 +816,7 @@ model PilotAction {
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   operations     PilotOperation[]
+  impacts        PilotImpact[]
 
   @@index([alertClientId, createdAt])
   @@index([accountId, createdAt])
@@ -849,4 +850,32 @@ model PilotOperation {
   executedAt  DateTime?
 
   @@index([actionId, position])
+}
+
+/// What a PilotAction did to the results, N days after (7 and 14): the changed
+/// objects and the account, N days before against N days after. Computed by the
+/// cron /api/cron/pilot-impact without any AI, then written in the client's HQ.
+model PilotImpact {
+  id          String      @id @default(cuid())
+  actionId    String
+  /// 7 | 14
+  horizon     Int
+  /// done | skipped | failed
+  status      String
+  /// {"before":{since,until},"after":{since,until},"objects":[…],"account":{…}} — see lib/pilot/impact.ts
+  resultJson  String      @default("{}") @db.Text
+  /// One paragraph, the same in the page and in HQ.
+  summary     String      @default("") @db.Text
+  /// improved | worse | mixed | flat | low_volume | skipped
+  verdict     String      @default("")
+  attempts    Int         @default(0)
+  error       String?     @db.Text
+  hqWrittenAt DateTime?
+  hqError     String?     @db.Text
+  computedAt  DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  action      PilotAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@unique([actionId, horizon])
+  @@index([status, computedAt])
 }

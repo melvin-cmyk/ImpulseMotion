@@ -21,6 +21,7 @@ import { CopilotPanel } from "@/components/dashboard/copilot";
 import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
 import { DEFAULT_PAGE_ID, type DashboardPageInfo, type ResolvedWidget } from "@/lib/dashboard-types";
 import { PageForm, PageTabs } from "@/components/dashboard/pages";
+import { PilotHistoryTab } from "@/components/pilot/history-tab";
 import { describeRange, lastFullDays, prevRange } from "@/lib/date-ranges";
 
 interface DashboardPayload {
@@ -72,6 +73,8 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
 
   const compareMode = searchParams.get("compare") ?? "prev";
   const pageParam = searchParams.get("page") ?? "";
+  // Staff tab « Historique & impact » (changes made from Pilotage and their J+7 / J+14 analyses): not a page of widgets.
+  const [showHistory, setShowHistory] = useState(() => searchParams.get("tab") === "history");
   const cmpSince = searchParams.get("cmpSince") ?? "";
   const cmpUntil = searchParams.get("cmpUntil") ?? "";
   const isCmpCustom = compareMode === "custom" && DATE_RE.test(cmpSince) && DATE_RE.test(cmpUntil) && cmpSince <= cmpUntil;
@@ -380,7 +383,8 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
           pages={pages}
           activePageId={activePageId}
           editing={isStaff && editMode}
-          onSelect={(pid) => navigate({ page: pid })}
+          onSelect={(pid) => { setShowHistory(false); navigate({ page: pid }); }}
+          extraTabs={isStaff ? [{ id: "history", label: "Historique & impact", active: showHistory, onSelect: () => { setShowHistory(true); setEditMode(false); } }] : []}
           onAdd={() => { setShowPageForm(true); setShowAdd(false); setEditingWidget(null); setShowSettings(false); }}
           onRename={renamePage}
           onDelete={deletePage}
@@ -434,7 +438,9 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
         <div className="text-sm text-red-400 bg-red-950/40 border border-red-900/50 rounded-xl px-4 py-3">{error ?? payload?.error}</div>
       )}
 
-      {loading && !payload ? (
+      {isStaff && showHistory ? (
+        <PilotHistoryTab dashboardId={id} />
+      ) : loading && !payload ? (
         <div className="grid grid-cols-6 gap-4">
           {[...Array(6)].map((_, i) => (
             <div key={i} className={`${i < 3 ? "lg:col-span-2" : "lg:col-span-3"} col-span-6 h-36 rounded-2xl bg-gray-900 border border-gray-800 animate-pulse`} />

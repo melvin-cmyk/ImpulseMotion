@@ -189,6 +189,10 @@
     {
       "path": "/api/cron/routines",
       "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/cron/pilot-impact",
+      "schedule": "40 6 * * *"
     }
   ]
 }

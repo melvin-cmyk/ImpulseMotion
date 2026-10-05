@@ -24,6 +24,7 @@ import { mintWriteGuard, revokeWriteGuard } from "@/lib/routines/write-guard";
 import { HQ_PROJECT_RE, appendHqJournal, listHqProjects } from "@/lib/hq-journal";
 import { pilotAdapter, type PilotAdapter } from "@/lib/pilot/adapters";
 import { buildHqEntry, hqEntrySlug } from "@/lib/pilot/hq-entry";
+import { IMPACT_HORIZONS, IMPACT_SETTLE_DAYS, addDays, impactWindows } from "@/lib/pilot/impact";
 import {
   PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
   sameValue, stateValue, type PilotGoal, type PilotObjectState, type PilotRequest, type PilotValue, type PreparedOperation,
@@ -145,7 +146,7 @@ export async function prepareAction(session: PilotSession, input: {
         })),
       },
     },
-    include: { operations: { orderBy: { position: "asc" } } },
+    include: { operations: { orderBy: { position: "asc" } }, impacts: true },
   });
   return { ok: true, action: toActionView(action, session.userId) };
 }
@@ -165,7 +166,7 @@ const STALE_RUNNING_MS = 10 * 60 * 1000;
 export async function executeAction(session: PilotSession, id: string, input: {
   why?: unknown; goal?: unknown; hqProject?: unknown; confirmDouble?: unknown;
 }, now: Date = new Date()): Promise<{ ok: true; action: PilotActionView } | Fail> {
-  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
+  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
   if (!action || action.createdById !== session.userId) return { ok: false, status: 404, error: "Modification introuvable." };
   if (!pilotWritesOpen(action.platform)) return { ok: false, status: 403, error: `L'envoi vers ${PLATFORM_FR[action.platform] ?? action.platform} n'est pas encore ouvert : la page est en essai.` };
   if (action.status !== "draft") return { ok: false, status: 409, error: "Cette modification a déjà été envoyée." };
@@ -260,7 +261,7 @@ async function sendOperations(adapter: PilotAdapter, actionId: string, accountId
 
 /** Final status, the undo it completes, and the HQ entry. Safe to run again on an action cut short. */
 async function finishAction(id: string) {
-  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
+  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
   if (!action) return;
   const ops = action.operations;
   const done = ops.filter((o) => o.status === "done").length;
@@ -311,7 +312,7 @@ const HQ_CLAIM_MS = 3 * 60 * 1000;
 const HQ_WRITING = "Écriture dans HQ en cours…";
 
 export async function writeHq(id: string): Promise<{ ok: boolean; error?: string }> {
-  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
+  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
   if (!action || !action.hqProject || !action.executedAt) return { ok: false, error: "Rien à consigner." };
   if (action.hqWrittenAt) return { ok: true };
   // One writer: two tabs (or a retry during a slow write) never put the entry twice in HQ.
@@ -358,7 +359,7 @@ export async function retryHq(session: PilotSession, id: string): Promise<{ ok: 
 // ── Undo ──────────────────────────────────────────────────────────────────
 
 export async function prepareUndo(session: PilotSession, id: string, now: Date = new Date()): Promise<{ ok: true; action: PilotActionView } | Fail> {
-  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
+  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
   if (!action?.alertClientId) return { ok: false, status: 404, error: "Modification introuvable." };
   if (action.undoneById) return { ok: false, status: 409, error: "Cette modification a déjà été annulée." };
   if (action.status !== "done" && action.status !== "partial") return { ok: false, status: 409, error: "Seule une modification envoyée peut être annulée." };
@@ -411,11 +412,42 @@ export interface PilotActionView {
   needsDouble: boolean; doubleReasons: string[]; hqProject: string | null; hqWrittenAt: string | null; hqError: string | null;
   undoOfId: string | null; undoneById: string | null; executedAt: string | null; createdAt: string; expiresAt: string | null;
   operations: PilotOperationView[];
+  /** J+7 and J+14 analyses (lib/pilot/impact-run.ts), computed or not yet. */
+  impacts: PilotImpactView[];
+}
+
+export interface PilotImpactView {
+  horizon: number;
+  /** done | skipped | failed | pending (not yet due or not yet computed) */
+  status: string;
+  verdict: string;
+  summary: string;
+  computedAt: string | null;
+  /** When it will be computed (pending). */
+  dueOn: string | null;
+  hqWritten: boolean;
+  result: unknown;
 }
 
 type ActionRow = NonNullable<Awaited<ReturnType<typeof prisma.pilotAction.findUnique>>> & {
   operations: Array<NonNullable<Awaited<ReturnType<typeof prisma.pilotOperation.findUnique>>>>;
+  impacts?: Array<NonNullable<Awaited<ReturnType<typeof prisma.pilotImpact.findUnique>>>>;
 };
+
+function impactViews(a: ActionRow): PilotImpactView[] {
+  const sent = (a.status === "done" || a.status === "partial") && a.executedAt && !a.undoOfId;
+  if (!sent) return [];
+  return IMPACT_HORIZONS.map((horizon) => {
+    const row = a.impacts?.find((i) => i.horizon === horizon);
+    const settled = addDays(impactWindows(a.executedAt!, horizon).after.until, IMPACT_SETTLE_DAYS + 1);
+    if (!row || row.status === "failed") {
+      return { horizon, status: "pending", verdict: "", summary: "", computedAt: null, dueOn: settled, hqWritten: false, result: null };
+    }
+    let result: unknown = null;
+    try { result = JSON.parse(row.resultJson); } catch { result = null; }
+    return { horizon, status: row.status, verdict: row.verdict, summary: row.summary, computedAt: row.computedAt.toISOString(), dueOn: null, hqWritten: !!row.hqWrittenAt, result };
+  });
+}
 
 export function toActionView(a: ActionRow, viewerId: string): PilotActionView {
   const ops = a.operations.map((o) => {
@@ -438,11 +470,12 @@ export function toActionView(a: ActionRow, viewerId: string): PilotActionView {
     undoOfId: a.undoOfId, undoneById: a.undoneById, executedAt: a.executedAt?.toISOString() ?? null, createdAt: a.createdAt.toISOString(),
     expiresAt: a.status === "draft" ? new Date(a.createdAt.getTime() + PILOT_DRAFT_TTL_MS).toISOString() : null,
     operations: ops,
+    impacts: impactViews(a),
   };
 }
 
 async function loadView(id: string, viewerId: string): Promise<PilotActionView> {
-  const a = await prisma.pilotAction.findUniqueOrThrow({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
+  const a = await prisma.pilotAction.findUniqueOrThrow({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
   return toActionView(a, viewerId);
 }
 
@@ -457,7 +490,7 @@ export async function listActions(session: PilotSession, opts: { alertClientId?:
     },
     orderBy: { createdAt: "desc" },
     take: Math.min(opts.take ?? 50, 200),
-    include: { operations: { orderBy: { position: "asc" } } },
+    include: { operations: { orderBy: { position: "asc" } }, impacts: true },
   });
   return rows.filter((r) => platformAccountInScope(scope, r.platform, r.accountId)).map((r) => toActionView(r, session.userId));
 }

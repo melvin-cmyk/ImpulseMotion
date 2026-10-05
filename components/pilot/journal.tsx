@@ -11,6 +11,7 @@ import { useState } from "react";
 import { CheckCircle2, Loader2, RotateCcw, Undo2 } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import { PLATFORM_FR, goalText } from "@/lib/pilot/ops";
+import { ImpactCards } from "@/components/pilot/impact";
 import { OperationLines } from "@/components/pilot/change-panel";
 import { readJson, type PilotActionView } from "@/components/pilot/model";
 
@@ -72,6 +73,7 @@ export function PilotJournal({ actions, loading, showClient, onUndo, onChanged }
             </div>
             <OperationLines action={a} showStatus />
             <p className="text-xs text-gray-400"><span className="text-gray-500">Pourquoi :</span> {a.why || "—"}{goal ? <> · <span className="text-gray-500">Objectif :</span> {goal}</> : null}</p>
+            <ImpactCards impacts={a.impacts ?? []} platform={a.platform} />
             <div className="flex flex-wrap items-center gap-3 text-xs">
               {a.hqWrittenAt
                 ? <span className="text-emerald-300/80 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Consigné dans HQ (projects/{a.hqProject})</span>
