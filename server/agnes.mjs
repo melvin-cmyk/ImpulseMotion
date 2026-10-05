@@ -45,7 +45,13 @@ async function agnes(path, init = {}, timeoutMs = 180_000) {
   try { json = JSON.parse(text); } catch { /* not JSON */ }
   if (!res.ok) {
     const msg = json?.error?.message || json?.message || json?.error || text.slice(0, 300) || `HTTP ${res.status}`;
-    const err = new Error(`Agnes ${res.status} : ${typeof msg === "string" ? msg : JSON.stringify(msg)}`);
+    const raw = typeof msg === "string" ? msg : JSON.stringify(msg);
+    // The messages a consultant will meet most, said in French.
+    const fr = /queue is full/i.test(raw) ? "la file d'attente vidéo d'Agnes est pleine, réessayez dans quelques minutes"
+      : /could not be downloaded/i.test(raw) ? "Agnes n'a pas pu lire l'image de départ"
+      : /rate limit|too many/i.test(raw) ? "trop de demandes en même temps chez Agnes, réessayez dans une minute"
+      : null;
+    const err = new Error(fr ? `${fr} (Agnes ${res.status})` : `Agnes ${res.status} : ${raw}`);
     err.status = res.status;
     throw err;
   }
