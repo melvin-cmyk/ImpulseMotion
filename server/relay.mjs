@@ -24,6 +24,7 @@ import { handleSheetsRequest } from "./sheets-direct.mjs";
 import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promptLogExcerpt } from "./relay-prompt.mjs";
 import { accountsOfTikTokCall, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
 import * as agnes from "./agnes.mjs";
+import { timingSafeEqual } from "node:crypto";
 let hqProjectsCache = null;
 
 const execFileAsync = promisify(execFile);
@@ -1439,10 +1440,16 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
+// RELAY_SHARED_SECRET_PREVIOUS: accepted only while a new secret is rolled out (Vercel redeploying), then removed.
+const ACCEPTED_SECRETS = [RELAY_SHARED_SECRET, process.env.RELAY_SHARED_SECRET_PREVIOUS || ""].filter((s) => s.length >= 16).map((s) => Buffer.from(s));
+
 function authorized(req) {
   const h = req.headers.authorization || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
-  return m && m[1] === RELAY_SHARED_SECRET;
+  if (!m) return false;
+  const given = Buffer.from(m[1]);
+  // Constant-time comparison: the secret cannot be guessed byte by byte from response times.
+  return ACCEPTED_SECRETS.some((s) => s.length === given.length && timingSafeEqual(s, given));
 }
 
 function readBody(req) {
@@ -1836,7 +1843,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+// RELAY_HOST=127.0.0.1 once Caddy serves the relay in HTTPS (/etc/caddy/Caddyfile): nothing in clear on the network.
+server.listen(PORT, process.env.RELAY_HOST || undefined, () => {
   console.log(`[relay] Running on :${PORT} | Model: ${CLAUDE_MODEL}`);
   getToolsList().then(t => console.log(`[relay] ${t.length} MCP tools ready`));
 });
