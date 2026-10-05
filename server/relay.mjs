@@ -1701,6 +1701,11 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname === "/api/agnes/video" && req.method === "GET") {
           return send(200, await agnes.pollVideo(url.searchParams.get("id"), url.searchParams.get("model")));
         }
+        if (url.pathname === "/api/agnes/enhance" && req.method === "POST") {
+          const out = await agnes.enhancePrompt(await readBody(req));
+          console.log(`[agnes] consigne ${out.enhanced ? "réécrite" : "d'origine"} (${out.prompt.length} car.)`);
+          return send(200, out);
+        }
         if (url.pathname === "/api/agnes/upload" && req.method === "POST") {
           const body = await readBody(req);
           return send(200, { file: agnes.saveUpload(body?.image) });

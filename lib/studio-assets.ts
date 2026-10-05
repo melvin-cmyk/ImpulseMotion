@@ -4,7 +4,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { relayPoll } from "@/lib/studio";
+import { publicMediaUrl, relayPoll } from "@/lib/studio";
 
 type Row = NonNullable<Awaited<ReturnType<typeof prisma.creativeAsset.findUnique>>>;
 
@@ -22,7 +22,9 @@ export function assetView(a: Row, viewerId: string): AssetView {
   return {
     id: a.id, kind: a.kind, status: a.status, progress: a.progress, prompt: a.prompt, model: a.model,
     clientId: a.alertClientId, clientName: a.clientName, createdByName: a.createdByName, createdAt: a.createdAt.toISOString(),
-    mine: a.createdById === viewerId, params, url: a.url, downloadUrl: ready ? `/api/studio/assets/${a.id}/file` : null, hasCopy: !!a.file,
+    // A composition made here has no Agnes link: a fresh signed HTTPS link to the relay's copy (also what Meta downloads).
+    mine: a.createdById === viewerId, params, url: a.url ?? (a.file && a.status === "completed" ? publicMediaUrl(a.file, 6 * 3600) : null),
+    downloadUrl: ready ? `/api/studio/assets/${a.id}/file` : null, hasCopy: !!a.file,
     error: a.error, costUsd: a.costUsd, sourceId: a.sourceId,
   };
 }

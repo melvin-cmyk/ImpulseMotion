@@ -79,6 +79,18 @@ export const relayPoll = (videoId: string, model: string) =>
 
 export const relayUpload = (image: string) => relay<{ file: string }>("/api/agnes/upload", { method: "POST", body: { image } }, 60_000);
 
+export const PRODUCT_SCENES: Array<[string, string]> = [
+  ["studio", "Studio, fond blanc"], ["lifestyle", "Intérieur lifestyle"], ["outdoor", "Extérieur, lumière naturelle"],
+  ["usage", "En situation d'usage"], ["seasonal", "Saisonnier (hiver, fêtes)"], ["flatlay", "Vue de dessus (flat lay)"],
+];
+export const STUDIO_MODES = ["free", "edit", "product"] as const;
+export type StudioMode = (typeof STUDIO_MODES)[number];
+
+export interface EnhanceOut { prompt: string; note: string; enhanced: boolean }
+/** The request rewritten into a precise brief by Agnes' text model (free); the request itself when that fails. */
+export const relayEnhance = (body: { request: string; kind: "image" | "video"; mode: StudioMode; scene?: string; sceneCustom?: string; textless?: boolean; ratio: string; images?: string[] }) =>
+  relay<EnhanceOut>("/api/agnes/enhance", { method: "POST", body }, 90_000);
+
 // ── Signed media links (relay GET /media/<file>) ─────────────────────────
 
 /** Same key as server/agnes.mjs: derived from the relay's shared secret. */

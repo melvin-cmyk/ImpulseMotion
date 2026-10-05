@@ -3,7 +3,8 @@
  *
  * GET  ?mine=1&clientId=…  → the latest assets (videos still in progress are followed up)
  * POST                      → generate:
- *   { kind: "image", prompt, ratio, size: "1K"|"2K", clientId?, images?: dataURI[] (≤ 3, image to image) }
+ *   { kind: "image", prompt, ratio, size: "1K"|"2K", mode: "free"|"edit"|"product", scene?, sceneCustom?, textless?, enhance? (default true), variants? (1–4), clientId?, images?: dataURI[] (≤ 3) }
+ *   { kind: "composite", sourceId, image: dataURI, layers } — texts and logo laid by the Studio editor (no AI)
  *   { kind: "video", prompt, ratio, seconds, quality: "fast"|"hd", clientId?, sourceId? (animate a Studio image) | image? (dataURI photo to animate) }
  * An image comes back at once (10–60 s); a video comes back « queued » and is followed by GET /api/studio/assets/[id].
  */
@@ -13,7 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import {
   IMAGE_RATIOS, VIDEO_QUALITIES, VIDEO_RATIOS, VIDEO_SECONDS, dataUriOk, hdSecondsPerDay, promptOk,
-  publicMediaUrl, relayImage, relayUpload, relayVideo, videoCost, type VideoQuality,
+  STUDIO_MODES, publicMediaUrl, relayEnhance, relayImage, relayUpload, relayVideo, videoCost, type StudioMode, type VideoQuality,
 } from "@/lib/studio";
 import { assetView, refreshVideo } from "@/lib/studio-assets";
 
@@ -68,19 +69,59 @@ export async function POST(req: NextRequest) {
     alertClientId: client?.id ?? null, clientName: client?.name ?? "", prompt,
   };
 
-  if (body.kind === "image") {
-    const ratio = (IMAGE_RATIOS as readonly string[]).includes(body.ratio) ? body.ratio : "1:1";
-    const size = body.size === "2K" ? "2K" : "1K";
-    const images = Array.isArray(body.images) ? body.images.filter(dataUriOk).slice(0, 3) : [];
+  // A composition made in the Studio (texts and logo laid by the editor over a visual): kept on the relay, no AI.
+  if (body.kind === "composite") {
+    if (!dataUriOk(body.image)) return NextResponse.json({ error: "Image composée invalide." }, { status: 400 });
+    const src = typeof body.sourceId === "string" ? await prisma.creativeAsset.findUnique({ where: { id: body.sourceId }, select: { id: true, paramsJson: true, alertClientId: true, clientName: true } }) : null;
     try {
-      const out = await relayImage({ prompt, ratio, size, images });
+      const { file } = await relayUpload(body.image);
+      let ratio = "1:1";
+      try { ratio = JSON.parse(src?.paramsJson ?? "{}").ratio ?? ratio; } catch { /* default */ }
       const asset = await prisma.creativeAsset.create({
-        data: { ...base, kind: "image", model: out.model, paramsJson: JSON.stringify({ ratio, size, references: images.length }), status: "completed", progress: 100, url: out.url, file: out.file },
+        data: {
+          ...base, alertClientId: base.alertClientId ?? src?.alertClientId ?? null, clientName: base.clientName || src?.clientName || "",
+          kind: "image", model: "composition", sourceId: src?.id ?? null, status: "completed", progress: 100, file,
+          paramsJson: JSON.stringify({ ratio, composite: true, layers: typeof body.layers === "object" ? body.layers : null }),
+        },
       });
       return NextResponse.json({ asset: assetView(asset, guard.session.userId) }, { status: 201 });
     } catch (e) {
-      return NextResponse.json({ error: `L'image n'a pas pu être générée : ${e instanceof Error ? e.message : String(e)}` }, { status: 502 });
+      return NextResponse.json({ error: `La composition n'a pas pu être enregistrée : ${e instanceof Error ? e.message : String(e)}` }, { status: 502 });
     }
+  }
+
+  const mode: StudioMode = (STUDIO_MODES as readonly string[]).includes(body.mode) ? body.mode : "free";
+  const textless = body.textless === true;
+  const enhance = body.enhance !== false;
+
+  if (body.kind === "image") {
+    const ratio = (IMAGE_RATIOS as readonly string[]).includes(body.ratio) ? body.ratio : "1:1";
+    const size = body.size === "1K" ? "1K" : "2K";
+    const images = Array.isArray(body.images) ? body.images.filter(dataUriOk).slice(0, 3) : [];
+    const variants = Math.min(4, Math.max(1, Math.round(Number(body.variants) || 1)));
+    const scene = typeof body.scene === "string" ? body.scene.slice(0, 40) : undefined;
+    const sceneCustom = typeof body.sceneCustom === "string" ? body.sceneCustom.slice(0, 300) : undefined;
+    // The request rewritten into a precise brief (Agnes' text model, free), unless the consultant wrote it themselves.
+    const brief = enhance
+      ? await relayEnhance({ request: prompt, kind: "image", mode: images.length && mode === "free" ? "edit" : mode, scene, sceneCustom, textless, ratio, images }).catch(() => null)
+      : null;
+    const sent = brief?.prompt ?? prompt;
+    const group = `g_${Date.now().toString(36)}`;
+    const results = await Promise.allSettled(Array.from({ length: variants }, () => relayImage({ prompt: sent, ratio, size, images })));
+    const ok = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    if (!ok.length) {
+      const first = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+      return NextResponse.json({ error: `L'image n'a pas pu être générée : ${first?.reason instanceof Error ? first.reason.message : String(first?.reason ?? "")}` }, { status: 502 });
+    }
+    const params = { ratio, size, references: images.length, mode, scene: scene ?? null, textless, promptSent: sent, note: brief?.note ?? "", enhanced: !!brief?.enhanced, group, variants };
+    const assets = [];
+    for (const out of ok) {
+      assets.push(await prisma.creativeAsset.create({
+        data: { ...base, kind: "image", model: out.model, paramsJson: JSON.stringify(params), status: "completed", progress: 100, url: out.url, file: out.file },
+      }));
+    }
+    const views = assets.map((a) => assetView(a, guard.session.userId));
+    return NextResponse.json({ asset: views[0], assets: views, failed: variants - ok.length }, { status: 201 });
   }
 
   if (body.kind === "video") {
@@ -115,12 +156,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const brief = enhance
+      ? await relayEnhance({ request: prompt, kind: "video", mode, textless: true, ratio, images: typeof body.image === "string" && dataUriOk(body.image) ? [body.image] : [] }).catch(() => null)
+      : null;
+    const sent = brief?.prompt ?? prompt;
     try {
-      const out = await relayVideo({ prompt, model: q.model, size: q.size, seconds, aspect_ratio: ratio, ...(firstFrame ? { first_frame: firstFrame } : {}) });
+      const out = await relayVideo({ prompt: sent, model: q.model, size: q.size, seconds, aspect_ratio: ratio, ...(firstFrame ? { first_frame: firstFrame } : {}) });
       const asset = await prisma.creativeAsset.create({
         data: {
           ...base, kind: "video", model: q.model, providerId: out.videoId, sourceId, status: out.status === "in_progress" ? "in_progress" : "queued",
-          paramsJson: JSON.stringify({ ratio, seconds, quality, size: q.size, fromImage: !!firstFrame }), costUsd: videoCost(quality, seconds),
+          paramsJson: JSON.stringify({ ratio, seconds, quality, size: q.size, fromImage: !!firstFrame, promptSent: sent, note: brief?.note ?? "", enhanced: !!brief?.enhanced }), costUsd: videoCost(quality, seconds),
         },
       });
       return NextResponse.json({ asset: assetView(asset, guard.session.userId) }, { status: 201 });

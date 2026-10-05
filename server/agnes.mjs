@@ -165,3 +165,64 @@ export function serveMedia(req, res, url) {
   res.writeHead(200, { "Content-Type": type, "Content-Length": size, "Accept-Ranges": "bytes", "Cache-Control": "private, max-age=3600" });
   createReadStream(path).pipe(res);
 }
+
+// ── Prompt rewriting (Agnes text model, free) ────────────────────────────
+//
+// The consultant writes a short request in French; image models follow a precise English brief
+// much better: what to keep exactly, what to change, how to handle text, one single image.
+// The rewriter sees the reference images. On any failure the request is sent as written.
+
+const SCENES = {
+  studio: "clean seamless white studio background, soft diffused key light, subtle natural shadow under the product",
+  lifestyle: "warm modern lifestyle interior, natural window light, tasteful props that do not hide the product",
+  outdoor: "natural outdoor setting matching the product's use, golden-hour light",
+  usage: "the product in real use by a person, candid and authentic, the product clearly visible and in focus",
+  seasonal: "festive seasonal setting (winter / holidays) with tasteful decor around the product",
+  flatlay: "top-down flat lay on a textured surface with a few complementary items, balanced composition",
+};
+
+const REWRITE_SYSTEM = `You write prompts for an AI image/video generator used by a marketing agency to produce paid-social ad creatives.
+Rewrite the user's request (often short, in French) into ONE precise English prompt. Rules:
+- Output ONLY a JSON object: {"prompt": "...", "note": "..."} — "note" is one short sentence in French telling the consultant what you understood (no other text).
+- If reference images are given, describe concretely what must stay IDENTICAL (subject identity, face, clothing, product shape, label, colors, packaging, logo, layout/composition) and what must change. Be explicit: "Keep ... exactly as in the reference".
+- Text: if the request says NO TEXT, write: "Do not render any text, letters, numbers, logos or watermarks. Leave clean empty space <where> for a headline added later." Otherwise, if the user wants text changed, list the text currently visible in the reference and give exact replacements in quotes, keeping French spelling and accents exactly, e.g. Replace the headline "ON FAIT ÉQUIPE TOUT L'ÉTÉ" with "ON FAIT ÉQUIPE TOUT L'HIVER". Say which texts must stay unchanged. Never invent new text the user did not ask for.
+- Always: "A single image with one composition — no collage, no split panels, no frames, no duplicated scenes."
+- Product photography: professional commercial product shot, sharp focus on the product, true-to-life colors, the product unchanged from the reference.
+- Photorealistic unless the user asks for another style. Mention the framing for the aspect ratio given.
+- For a VIDEO prompt: describe subject motion, camera movement, pace and mood over a few seconds; keep the first frame's subject and composition; no text appearing.
+- Keep it under 120 words.`;
+
+/** { request, kind, mode, scene?, sceneCustom?, textless?, ratio?, images?: dataURI[] } → { prompt, note } */
+export async function enhancePrompt(body) {
+  const request = clean(body?.request, 2000);
+  if (!request) throw Object.assign(new Error("request requis"), { status: 400 });
+  const kind = body?.kind === "video" ? "video" : "image";
+  const mode = ["free", "edit", "product"].includes(body?.mode) ? body.mode : "free";
+  const images = Array.isArray(body?.images) ? body.images.filter((s) => typeof s === "string" && /^(data:image\/(png|jpe?g|webp);base64,|https:\/\/)/.test(s)).slice(0, 3) : [];
+  const scene = SCENES[body?.scene] || clean(body?.sceneCustom, 300) || "";
+  const lines = [
+    `Type: ${kind}. Aspect ratio: ${clean(body?.ratio, 10) || "1:1"}.`,
+    `Mode: ${mode === "product" ? "product photography" : mode === "edit" ? "edit the reference image" : "free creation"}.`,
+    images.length ? `${images.length} reference image(s) attached${kind === "video" ? " (the first frame of the video)" : ""}.` : "No reference image.",
+    scene ? `Scene / setting wanted: ${scene}.` : "",
+    body?.textless ? "NO TEXT in the image: the agency adds the texts and the logo afterwards." : "",
+    `User request (French): ${request}`,
+  ].filter(Boolean).join("\n");
+  const content = [{ type: "text", text: lines }, ...images.map((url) => ({ type: "image_url", image_url: { url } }))];
+  try {
+    const json = await agnes("/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ model: "agnes-3.0-flash", max_tokens: 700, temperature: 0.3, messages: [{ role: "system", content: REWRITE_SYSTEM }, { role: "user", content }] }),
+    }, 60_000);
+    const text = String(json?.choices?.[0]?.message?.content ?? "");
+    const m = text.match(/\{[\s\S]*\}/);
+    const parsed = m ? JSON.parse(m[0]) : null;
+    const prompt = clean(parsed?.prompt, 4000);
+    if (!prompt) throw new Error("réponse sans consigne");
+    return { prompt, note: clean(parsed?.note, 400), enhanced: true };
+  } catch (e) {
+    console.error("[agnes] réécriture impossible, consigne d'origine:", e.message);
+    const extra = [scene ? `Setting: ${scene}.` : "", body?.textless ? "No text, letters or logos in the image." : "", "Single image, no collage, no split panels."].filter(Boolean).join(" ");
+    return { prompt: `${request}${extra ? `\n${extra}` : ""}`, note: "", enhanced: false };
+  }
+}

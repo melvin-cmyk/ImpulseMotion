@@ -10,17 +10,20 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clapperboard, Download, ImageIcon, ImagePlus, Loader2, RotateCcw, Send, Trash2, Wand2, X } from "lucide-react";
+import { Clapperboard, Download, ImageIcon, ImagePlus, Loader2, RotateCcw, Send, Trash2, Type, Wand2, X } from "lucide-react";
+import { TextEditor } from "@/components/studio/text-editor";
 import { Card, PageHeader, Pill, Section } from "@/components/ui/surface";
 import { prepareImage } from "@/lib/ai-chat-shared";
 
 type Kind = "image" | "video";
 type Quality = "fast" | "hd";
+type Mode = "free" | "edit" | "product";
+const SCENES: Array<[string, string]> = [["studio", "Studio, fond blanc"], ["lifestyle", "Intérieur lifestyle"], ["outdoor", "Extérieur, lumière naturelle"], ["usage", "En situation d'usage"], ["seasonal", "Saisonnier (hiver, fêtes)"], ["flatlay", "Vue de dessus (flat lay)"], ["custom", "Décor personnalisé…"]];
 
 interface Asset {
   id: string; kind: Kind; status: string; progress: number; prompt: string; model: string;
   clientId: string | null; clientName: string; createdByName: string; createdAt: string; mine: boolean;
-  params: { ratio?: string; size?: string; seconds?: number; quality?: Quality; fromImage?: boolean; references?: number };
+  params: { ratio?: string; size?: string; seconds?: number; quality?: Quality; fromImage?: boolean; references?: number; mode?: Mode; promptSent?: string; note?: string; enhanced?: boolean; composite?: boolean; textless?: boolean };
   url: string | null; downloadUrl: string | null; hasCopy: boolean; error: string | null; costUsd: number; sourceId: string | null;
 }
 interface Client { id: string; name: string }
@@ -43,7 +46,14 @@ export function StudioPage() {
   const [kind, setKind] = useState<Kind>("image");
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("1:1");
-  const [size, setSize] = useState<"1K" | "2K">("1K");
+  const [size, setSize] = useState<"1K" | "2K">("2K");
+  const [mode, setMode] = useState<Mode>("free");
+  const [scene, setScene] = useState("studio");
+  const [sceneCustom, setSceneCustom] = useState("");
+  const [textless, setTextless] = useState(true);
+  const [enhance, setEnhance] = useState(true);
+  const [variants, setVariants] = useState(2);
+  const [editing, setEditing] = useState<Asset | null>(null);
   const [seconds, setSeconds] = useState(5);
   const [quality, setQuality] = useState<Quality>("fast");
   const [refs, setRefs] = useState<Ref[]>([]);
@@ -128,13 +138,19 @@ export function StudioPage() {
     setError(null);
     try {
       const body = kind === "image"
-        ? { kind, prompt, ratio, size, clientId: clientId || undefined, images: refs.map((r) => r.dataUri) }
-        : { kind, prompt, ratio, seconds, quality, clientId: clientId || undefined, sourceId: source?.id, image: !source && refs[0] ? refs[0].dataUri : undefined };
+        ? {
+            kind, prompt, ratio, size, clientId: clientId || undefined, images: refs.map((r) => r.dataUri),
+            mode: mode === "free" && refs.length ? "edit" : mode, scene: mode === "product" && scene !== "custom" ? scene : undefined,
+            sceneCustom: mode === "product" && scene === "custom" ? sceneCustom : undefined, textless, enhance, variants,
+          }
+        : { kind, prompt, ratio, seconds, quality, enhance, clientId: clientId || undefined, sourceId: source?.id, image: !source && refs[0] ? refs[0].dataUri : undefined };
       const res = await fetch("/api/studio/assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await res.json().catch(() => ({}));
       if (!res.ok || !j.asset) throw new Error(j.error ?? `Erreur ${res.status}`);
-      setAssets((list) => [j.asset, ...(list ?? [])]);
-      if (kind === "image") setOpen(j.asset);
+      const created: Asset[] = j.assets ?? [j.asset];
+      setAssets((list) => [...created, ...(list ?? [])]);
+      if (kind === "image" && created.length === 1) setOpen(created[0]);
+      if (j.failed) setError(`${j.failed} variante(s) sur ${created.length + j.failed} n'ont pas pu être générées.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -181,6 +197,25 @@ export function StudioPage() {
             </div>
           )}
 
+          {kind === "image" && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {([["free", "Création libre"], ["edit", "Modifier une image"], ["product", "Photo produit"]] as const).map(([m, l]) => (
+                <button key={m} type="button" onClick={() => setMode(m)} className={`px-2.5 py-1 rounded-md border ${mode === m ? "border-violet-500 text-white bg-violet-500/10" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
+              ))}
+              {mode === "product" && (
+                <>
+                  <select value={scene} onChange={(e) => setScene(e.target.value)} className="bg-gray-950 border border-gray-800 rounded-md px-2 py-1 text-gray-200">
+                    {SCENES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                  {scene === "custom" && <input value={sceneCustom} onChange={(e) => setSceneCustom(e.target.value)} placeholder="Ex. : sur un comptoir de cuisine en marbre" className="bg-gray-950 border border-gray-800 rounded-md px-2 py-1 text-gray-200 min-w-[16rem]" />}
+                </>
+              )}
+              <span className="text-gray-500">
+                {mode === "product" ? "Ajoutez la photo du produit : il est gardé identique, seul le décor change." : mode === "edit" ? "Ajoutez l'image à modifier et dites ce qui change." : ""}
+              </span>
+            </div>
+          )}
+
           <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3}
             placeholder={kind === "image"
               ? "Ex. : photo produit d'une gourde isotherme sur une plage ensoleillée, lumière douce, espace libre à gauche pour le texte"
@@ -195,13 +230,21 @@ export function StudioPage() {
               </select>
             </label>
             {kind === "image" ? (
+              <>
               <label className="flex flex-col gap-1 text-xs text-gray-400">
                 Définition
                 <select value={size} onChange={(e) => setSize(e.target.value as "1K" | "2K")} className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm text-white">
-                  <option value="1K">Standard (1K)</option>
                   <option value="2K">Haute (2K)</option>
+                  <option value="1K">Standard (1K)</option>
                 </select>
               </label>
+              <label className="flex flex-col gap-1 text-xs text-gray-400">
+                Variantes
+                <select value={variants} onChange={(e) => setVariants(Number(e.target.value))} className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm text-white">
+                  {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </label>
+              </>
             ) : (
               <>
                 <label className="flex flex-col gap-1 text-xs text-gray-400">
@@ -237,6 +280,10 @@ export function StudioPage() {
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
               {busy ? (kind === "image" ? "Génération… (jusqu'à une minute)" : "Lancement…") : kind === "image" ? "Générer l'image" : "Générer la vidéo"}
             </button>
+          </div>
+          <div className="flex flex-wrap gap-4 text-xs text-gray-400">
+            <label className="flex items-center gap-1.5" title="Votre demande est réécrite en consigne précise (ce qui reste identique, ce qui change, une seule image) par le modèle texte d'Agnes, gratuit."><input type="checkbox" checked={enhance} onChange={(e) => setEnhance(e.target.checked)} /> Améliorer ma consigne (recommandé)</label>
+            {kind === "image" && <label className="flex items-center gap-1.5" title="L'IA dessine mal les textes et les logos : posez-les ensuite exactement avec « Textes & logo »."><input type="checkbox" checked={textless} onChange={(e) => setTextless(e.target.checked)} /> Sans texte ni logo dans l&apos;image (je les pose ensuite)</label>}
           </div>
           {kind === "video" && quality === "hd" && hd && <p className="text-[11px] text-gray-500">HD utilisée sur 24 h par l&apos;équipe : {hd.usedToday} s sur {hd.perDay} s.</p>}
           {kind === "video" && <p className="text-[11px] text-gray-500">Une vidéo prend en général 1 à 3 minutes : elle apparaît dans la galerie dès qu&apos;elle est prête, vous pouvez continuer à travailler.</p>}
@@ -274,7 +321,7 @@ export function StudioPage() {
                     ) : (
                       <span className="text-xs text-gray-400 flex flex-col items-center gap-1"><Loader2 className="w-5 h-5 animate-spin" /> Vidéo en cours{a.progress ? ` · ${a.progress} %` : "…"}</span>
                     )}
-                    <span className="absolute top-1.5 left-1.5"><Pill className="text-[10px]">{a.kind === "image" ? "Image" : `Vidéo ${a.params.seconds ?? ""} s`}</Pill></span>
+                    <span className="absolute top-1.5 left-1.5"><Pill className="text-[10px]">{a.kind === "image" ? (a.params.composite ? "Avec textes" : "Image") : `Vidéo ${a.params.seconds ?? ""} s`}</Pill></span>
                   </div>
                   <div className="px-2.5 py-2 space-y-0.5">
                     <p className="text-xs text-gray-200 line-clamp-2">{a.prompt}</p>
@@ -286,6 +333,14 @@ export function StudioPage() {
           </ul>
         )}
       </Section>
+
+      {editing && (
+        <TextEditor
+          asset={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(a) => { setAssets((list) => [a as Asset, ...(list ?? [])]); setEditing(null); setOpen(a as Asset); }}
+        />
+      )}
 
       {open && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setOpen(null)}>
@@ -301,6 +356,10 @@ export function StudioPage() {
                   : <video src={open.url} controls autoPlay loop className="max-h-[60vh] mx-auto rounded-lg" />
               ) : <p className="text-sm text-gray-400">{open.status === "failed" ? `Échec : ${open.error}` : "En cours de génération…"}</p>}
               <p className="text-sm text-gray-200 whitespace-pre-wrap">{open.prompt}</p>
+              {open.params.note && <p className="text-xs text-violet-300">Compris : {open.params.note}</p>}
+              {open.params.promptSent && open.params.promptSent !== open.prompt && (
+                <details className="text-xs text-gray-500"><summary className="cursor-pointer hover:text-gray-300">Consigne envoyée à Agnes</summary><p className="mt-1 whitespace-pre-wrap">{open.params.promptSent}</p></details>
+              )}
               <p className="text-xs text-gray-500">
                 {open.createdByName} · {when(open.createdAt)} · format {open.params.ratio}
                 {open.kind === "video" ? ` · ${open.params.seconds} s · ${open.params.quality === "hd" ? "HD 1080p" : "720p"}` : ` · ${open.params.size}`}
@@ -309,6 +368,7 @@ export function StudioPage() {
               </p>
               <div className="flex flex-wrap gap-2">
                 {open.downloadUrl && <a href={open.downloadUrl} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm"><Download className="w-4 h-4" /> Télécharger</a>}
+                {open.kind === "image" && open.status === "completed" && <button type="button" onClick={() => setEditing(open)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/60 text-violet-200 hover:text-white text-sm"><Type className="w-4 h-4" /> Textes & logo</button>}
                 {open.kind === "image" && open.status === "completed" && <a href={`/pilotage?studioAsset=${open.id}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/60 text-violet-200 hover:text-white text-sm"><Send className="w-4 h-4" /> Pousser sur Meta</a>}
                 {open.kind === "image" && open.status === "completed" && <button type="button" onClick={() => animate(open)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 text-gray-200 hover:text-white text-sm"><Clapperboard className="w-4 h-4" /> Animer en vidéo</button>}
                 <button type="button" onClick={() => reuse(open)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 text-gray-200 hover:text-white text-sm"><RotateCcw className="w-4 h-4" /> Réutiliser le texte</button>
