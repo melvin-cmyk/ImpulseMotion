@@ -8,6 +8,7 @@
  */
 
 import ReactMarkdown from "react-markdown";
+import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
 import type { ReportData, ReportKpi, ReportNextStep } from "@/lib/report-data";
 import { fmtMetric, fmtMoney, fmtRoas } from "@/components/portfolio/format";
@@ -89,7 +90,7 @@ export function ReportMarkdown({ content, variant = "app" }: { content: string; 
           : "prose-invert prose-h2:text-base prose-h2:mt-8 prose-h2:mb-3 prose-h2:pb-1.5 prose-h2:border-b prose-h2:border-gray-800 prose-h2:text-violet-200 prose-table:text-xs prose-th:text-gray-400 prose-td:py-1 prose-th:py-1 prose-p:text-gray-300 prose-li:text-gray-300 prose-strong:text-white",
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{content}</ReactMarkdown>
     </div>
   );
 }

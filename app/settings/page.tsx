@@ -83,8 +83,10 @@ export default function SettingsPage() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
-      <PageHeader title="Réglages" subtitle="Votre compte et l'état des connexions aux plateformes publicitaires." />
+      <PageHeader title="Réglages" subtitle={isStaff ? "Votre compte et l'état des connexions aux plateformes publicitaires." : "Votre compte et votre mot de passe."} />
 
+      {/* Internal plumbing (tokens, relay): staff only — a client only needs their account. */}
+      {isStaff && (
       <Section title={<span className="flex items-center gap-2"><Plug className="w-4 h-4 text-violet-400" /> Intégrations</span>}>
         <div className="divide-y divide-gray-800">
           <IntegrationRow name="Meta Ads" description="Token System User partagé (Business Manager Impulse) — accès par compte géré dans Utilisateurs & accès." status={meta} initial="f" color="bg-blue-600" />
@@ -94,6 +96,7 @@ export default function SettingsPage() {
           L&apos;IA (rapports, chat, analyse créas) passe par le relay Impulse (Claude). Aucune clé API n&apos;est stockée dans l&apos;application.
         </div>
       </Section>
+      )}
 
       <Card padded>
         <h2 className="text-sm font-semibold text-white mb-3">Compte</h2>

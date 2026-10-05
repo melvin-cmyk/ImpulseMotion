@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
 
 export interface ChatMessage { role: "user" | "assistant"; content: string }
@@ -173,7 +174,7 @@ export function ReportChat({
             ) : (
               <div className="bg-gray-900 border border-gray-800 rounded-2xl rounded-bl-sm px-3 py-2">
                 <div className="prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-table:text-xs">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{m.content}</ReactMarkdown>
                 </div>
                 <div className="mt-1.5 flex justify-end">
                   <button

@@ -915,3 +915,13 @@ model CreativeAsset {
   @@index([alertClientId, createdAt])
   @@index([status])
 }
+
+/// Failed sign-ins, by email and by IP (lib/login-throttle.ts): too many in a window → locked for a while.
+model LoginThrottle {
+  /// "email:<address>" | "ip:<address>"
+  key         String    @id
+  failures    Int       @default(0)
+  firstAt     DateTime  @default(now())
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+}

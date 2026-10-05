@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { DEFAULT_PAGE_ID, DEFAULT_PAGE_NAME } from "@/lib/dashboard-types";
 import { prisma } from "@/lib/prisma";
 import { isValidHqSlug } from "@/lib/hq-client-context";
-import { requireSession, requireStaff } from "@/lib/auth-helpers";
+import { isStaff, requireSession, requireStaff } from "@/lib/auth-helpers";
 import { loadDashboardFor, denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { bindingOutOfScope, getAccountScope, TIKTOK_SOURCES_SELECT } from "@/lib/scope";
 import { bindTikTokAdvertiser, checkTikTokBinding } from "@/lib/tiktok-binding";
@@ -21,6 +21,24 @@ import { getAccountProfileSettings } from "@/lib/account-settings";
 import { describeRange, prevRange, rangeFromParams, validateRange, yearAgoRange } from "@/lib/date-ranges";
 
 export const maxDuration = 60;
+
+const CLIENT_UNAVAILABLE = "Données momentanément indisponibles. Réessayez un peu plus tard.";
+
+/** A client never sees the technical reason of a failure (Meta, relay, tokens…): the platform and « indisponible ». The staff keeps it. */
+function forClient(message: string): string {
+  const platform = /^(Meta|Google|TikTok)\b/.exec(message)?.[1];
+  return platform ? `${platform} : données momentanément indisponibles` : CLIENT_UNAVAILABLE;
+}
+
+function sanitizeWidgetsForClient<T extends { error?: string; data?: unknown }>(widgets: T[]): T[] {
+  return widgets.map((w) => {
+    const out = { ...w };
+    if (out.error) out.error = forClient(out.error);
+    const data = out.data as { errors?: unknown } | undefined;
+    if (data && Array.isArray(data.errors)) out.data = { ...data, errors: data.errors.map((e) => forClient(String(e))) } as T["data"];
+    return out;
+  });
+}
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const guard = await requireSession();
@@ -93,6 +111,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       config: (() => { try { return JSON.parse(w.config || "{}") as Record<string, unknown>; } catch { return {}; } })(),
       error: message,
     }));
+  }
+  const staff = isStaff(guard.session);
+  if (!staff) {
+    widgets = sanitizeWidgetsForClient(widgets);
+    if (error) error = CLIENT_UNAVAILABLE;
   }
   const described = describeRange({ since, until }, { tz: timezone });
   return NextResponse.json({

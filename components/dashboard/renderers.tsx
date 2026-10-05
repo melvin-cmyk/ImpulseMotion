@@ -6,6 +6,7 @@
  */
 
 import ReactMarkdown from "react-markdown";
+import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -362,7 +363,7 @@ function TextWidget({ widget }: { widget: ResolvedWidget }) {
   if (!d.markdown) return <div className="text-sm text-gray-600 italic py-2">Texte vide</div>;
   return (
     <div className="prose prose-invert prose-sm max-w-none text-gray-300 [&_a]:text-violet-400">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.markdown}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{d.markdown}</ReactMarkdown>
     </div>
   );
 }

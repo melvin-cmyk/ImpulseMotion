@@ -5,7 +5,7 @@ import { getAccountScope, reportIdInScope } from "@/lib/scope";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { generateClientReport } from "@/lib/report-generate";
+import { generateClientReport, releaseStaleReports } from "@/lib/report-generate";
 
 export const maxDuration = 300;
 
@@ -14,6 +14,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if ("error" in guard) return guard.error;
   const { id } = await params;
   if (!(await reportIdInScope(await getAccountScope(guard.session), id))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  await releaseStaleReports().catch(() => {});
   const existing = await prisma.clientReport.findUnique({ where: { id }, select: { id: true, status: true } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
   if (existing.status === "generating") return NextResponse.json({ error: "génération déjà en cours" }, { status: 409 });

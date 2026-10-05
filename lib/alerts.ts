@@ -121,13 +121,24 @@ export function evaluateRule(
     return { triggered: false, value: v, message: "", skipped: "ROAS indisponible (pas de valeur de conversion ni de panier moyen)" };
   }
   if (condition === "below") {
+    // 0 is a real value when something was bought or spent around it: a ROAS of 0 with spend (no sale at all)
+    // and a spend fallen to 0 after spending are the worst cases, not « no data ». Otherwise 0 means nothing to judge.
+    const zeroCounts = v === 0 && ((metric === "roas" && current.spend > 0) || (metric === "spend" && previous.spend > 0));
     return {
-      triggered: v < threshold && v > 0,
+      triggered: v < threshold && (v > 0 || zeroCounts),
       value: v,
       message: `${METRIC_LABELS[metric]} = ${v} (seuil ${threshold})`,
     };
   }
   if (condition === "above") {
+    // A CPA without any conversion is « infinite »: spending more than the threshold without converting is above it.
+    if (metric === "cpa" && current.conversions === 0 && current.spend > 0) {
+      return {
+        triggered: current.spend > threshold,
+        value: current.spend,
+        message: `${METRIC_LABELS[metric]} : aucune conversion pour ${current.spend} dépensés (seuil ${threshold})`,
+      };
+    }
     return {
       triggered: v > threshold,
       value: v,
@@ -250,6 +261,13 @@ export async function runAlertScan(): Promise<{
   const skipped: string[] = [];
   let triggered = 0;
   const createdIds: string[] = [];
+  const started = Date.now();
+  // A pass cut short (300 s) recorded events it never sent: they go out now, first (sent once, notifiedAt).
+  const unsent = await prisma.alertEvent.findMany({
+    where: { notifiedAt: null, triggeredAt: { gte: new Date(Date.now() - 24 * 3600 * 1000) } },
+    select: { id: true }, take: 50,
+  }).catch(() => [] as Array<{ id: string }>);
+  createdIds.push(...unsent.map((e) => e.id));
 
   // Group rules by account so we hit Meta once per account
   const accountsToFetch = new Set<string>();
@@ -339,6 +357,8 @@ export async function runAlertScan(): Promise<{
       // ── Mode IA : la condition en français est jugée sur un snapshot du compte.
       if (rule.mode === "ai") {
         if (!rule.prompt) continue;
+        // Each AI rule can take a minute: past 200 s, the rest waits for tomorrow so that the sending below happens.
+        if (Date.now() - started > 200_000) { skipped.push(`${accountId}/ia ${rule.label ?? rule.id}: reporté (temps du passage épuisé)`); continue; }
         // Refused when created: the AI judges campaigns and ads, which TikTok does not give here.
         if (platform === "tiktok") { skipped.push(`${accountId}/ia ${rule.label ?? rule.id}: alerte IA indisponible sur TikTok Ads`); continue; }
         try {

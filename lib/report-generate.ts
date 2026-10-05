@@ -394,3 +394,19 @@ export async function generateClientReport(reportId: string): Promise<void> {
 export function defaultReportTitle(clientName: string, since: string, until: string): string {
   return `${clientName} — ${periodLabel(since, until)}`;
 }
+
+/** A generation longer than this was cut short (function killed at 300 s): it will never finish. */
+export const STALE_GENERATING_MS = 10 * 60 * 1000;
+
+/**
+ * Reports left « generating » by a generation cut short are closed as failed,
+ * so the cron does not skip them forever and « Régénérer » works again.
+ */
+export async function releaseStaleReports(now: Date = new Date()): Promise<number> {
+  const res = await prisma.clientReport.updateMany({
+    where: { status: "generating", updatedAt: { lt: new Date(now.getTime() - STALE_GENERATING_MS) } },
+    data: { status: "failed", error: "Génération interrompue (délai dépassé) : relancez-la." },
+  });
+  if (res.count) console.warn(`[reports] ${res.count} rapport(s) bloqué(s) en génération remis en échec`);
+  return res.count;
+}

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { aclVersion } from "@/lib/acl-version";
 import { effectiveRole } from "@/lib/roles";
 import { hasRoutinesAccess } from "@/lib/routines/access-rule";
+import { clientIp, recordFailure, recordSuccess, signInLocked } from "@/lib/login-throttle";
 
 /** How long a session token may keep its cached role before the database has
  *  the final word again. Bounds how long a revoked admin keeps their powers,
@@ -33,16 +34,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Mot de passe", type: "password" },
       },
-      async authorize(creds) {
+      async authorize(creds, request) {
         const email = String(creds?.email ?? "").trim().toLowerCase();
         const password = String(creds?.password ?? "");
         if (!email || !password) return null;
 
-        const user = await prisma.user.findUnique({ where: { email } });
-        if (!user?.passwordHash) return null;
+        // Too many failures for this account or this address: refused like a wrong password (lib/login-throttle.ts).
+        const ip = clientIp(request?.headers);
+        if (await signInLocked(email, ip)) return null;
 
-        const ok = await bcrypt.compare(password, user.passwordHash);
-        if (!ok) return null;
+        const user = await prisma.user.findUnique({ where: { email } });
+        const ok = !!user?.passwordHash && (await bcrypt.compare(password, user.passwordHash));
+        if (!user || !ok) {
+          await recordFailure(email, ip);
+          return null;
+        }
+        await recordSuccess(email);
 
         return {
           id: user.id,

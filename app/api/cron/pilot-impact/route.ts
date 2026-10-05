@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { runPilotImpacts } from "@/lib/pilot/impact-run";
+import { recoverStale } from "@/lib/pilot/service";
 
 export const maxDuration = 300;
 
@@ -21,6 +22,8 @@ export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (process.env.PILOT_IMPACT_CRON?.trim().toLowerCase() === "off") return NextResponse.json({ stopped: true });
   try {
+    // Sends cut short (function killed) are closed even when nobody opens the journal.
+    await recoverStale().catch((e) => console.error("[pilot-impact] stale sends not recovered", e));
     const summary = await runPilotImpacts();
     console.log("[pilot-impact] pass", JSON.stringify(summary));
     return NextResponse.json(summary);

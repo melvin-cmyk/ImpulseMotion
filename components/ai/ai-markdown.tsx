@@ -10,6 +10,7 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ReactNode } from "react";
+import { SafeImage } from "@/components/ai/safe-image";
 
 export function AiMarkdown({ content, filesBase, className }: { content: string; filesBase: string | null; className?: string }) {
   return (
@@ -21,10 +22,7 @@ export function AiMarkdown({ content, filesBase, className }: { content: string;
             ? (filesBase ? `${filesBase}/${url.slice(8).replace(/^\/+/, "")}` : null)
             : defaultUrlTransform(url)}
         components={{
-          img: ({ src, alt }: { src?: string; alt?: string }) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={typeof src === "string" ? src : undefined} alt={alt ?? ""} className="max-w-full rounded-lg border border-gray-800 my-2" loading="lazy" />
-          ),
+          img: ({ src, alt }: { src?: string; alt?: string }) => <SafeImage src={src} alt={alt} />,
           a: ({ href, children }: { href?: string; children?: ReactNode }) => {
             const local = !!filesBase && typeof href === "string" && href.startsWith(filesBase);
             return (

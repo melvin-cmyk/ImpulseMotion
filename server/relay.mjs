@@ -1441,7 +1441,8 @@ function setCors(req, res) {
 }
 
 // RELAY_SHARED_SECRET_PREVIOUS: accepted only while a new secret is rolled out (Vercel redeploying), then removed.
-const ACCEPTED_SECRETS = [RELAY_SHARED_SECRET, process.env.RELAY_SHARED_SECRET_PREVIOUS || ""].filter((s) => s.length >= 16).map((s) => Buffer.from(s));
+const PREVIOUS_SECRET = process.env.RELAY_SHARED_SECRET_PREVIOUS || "";
+const ACCEPTED_SECRETS = [RELAY_SHARED_SECRET, ...(PREVIOUS_SECRET.length >= 16 ? [PREVIOUS_SECRET] : [])].map((s) => Buffer.from(s));
 
 function authorized(req) {
   const h = req.headers.authorization || "";
@@ -1841,6 +1842,17 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: err.message }));
   }
+});
+
+// A promise rejected without a handler, somewhere in a tool or a stream, must not take down every session:
+// it is logged and the relay goes on. A real uncaught exception leaves the process in an unknown state:
+// logged, then exit — systemd restarts the relay (Restart=always).
+process.on("unhandledRejection", (reason) => {
+  console.error("[relay] promesse rejetée non gérée (ignorée):", reason instanceof Error ? reason.stack || reason.message : reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[relay] exception non gérée, redémarrage:", err?.stack || err);
+  process.exit(1);
 });
 
 // RELAY_HOST=127.0.0.1 once Caddy serves the relay in HTTPS (/etc/caddy/Caddyfile): nothing in clear on the network.

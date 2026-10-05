@@ -11,13 +11,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { generateClientReport, defaultReportTitle } from "@/lib/report-generate";
+import { generateClientReport, defaultReportTitle, releaseStaleReports } from "@/lib/report-generate";
 import { lastMonthRange, lastWeekRange } from "@/lib/report-data";
 import { prevRange } from "@/lib/dashboard-widgets";
 
 export const maxDuration = 300;
 
 const BUDGET_MS = 270_000;
+/** One report can take up to ~290 s (HQ brief, figures, AI): none is started without that much time left. */
+const REPORT_WORST_MS = 290_000;
 
 function checkCronAuth(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -29,6 +31,8 @@ export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const now = new Date();
+  // Reports cut short on a previous day: failed, so this pass can produce them again.
+  await releaseStaleReports(now).catch((e) => console.error("[reports] stale release failed", e));
   const force = req.nextUrl.searchParams.get("force") === "1";
   const isMonday = now.getUTCDay() === 1;
   const isFirst = now.getUTCDate() === 1;
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
   for (const d of dashboards) {
     const due = d.reportFrequency === "weekly" ? isMonday || force : isFirst || force;
     if (!due) { results.push({ dashboardId: d.id, name: d.name, status: "not_due" }); continue; }
-    if (Date.now() - started > BUDGET_MS) { results.push({ dashboardId: d.id, name: d.name, status: "deferred" }); continue; }
+    if (Date.now() - started > BUDGET_MS || (results.some((r) => r.status === "ok" || r.status === "error") && Date.now() - started + REPORT_WORST_MS > 300_000)) { results.push({ dashboardId: d.id, name: d.name, status: "deferred" }); continue; }
 
     const range = d.reportFrequency === "weekly" ? lastWeekRange(now) : lastMonthRange(now);
     const existing = await prisma.clientReport.findFirst({

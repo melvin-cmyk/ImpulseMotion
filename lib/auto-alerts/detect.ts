@@ -127,6 +127,11 @@ export function detectFromDays(input: DaysInput): Finding[] {
   const out: Finding[] = [];
   if (full.length < 8) return out;
   // Thresholds that are amounts are in EUR: 8 000 JPY a day is a small account, not a big one.
+  // A currency without a rate cannot be compared with them: nothing is judged rather than a false alarm (or a silent miss).
+  if (!(input.eurRate && input.eurRate > 0) && currency && currency !== "EUR") {
+    console.warn(`[auto-alerts] ${platform} : devise ${currency} sans taux de change, compte non jugé`);
+    return out;
+  }
   const rate = input.eurRate && input.eurRate > 0 ? input.eurRate : 1;
   const T = {
     ...THRESHOLDS,

@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
 import { AlertTriangle, Bot, Loader2, MessageSquare, Plus, Send, Trash2 } from "lucide-react";
 import type { BotMessage, BotSources } from "@/lib/bot-types";
@@ -342,7 +343,7 @@ export function BotChat({
                 ) : (
                   <div className="max-w-[90%] bg-gray-900 border border-gray-800 rounded-2xl rounded-bl-sm px-4 py-3">
                     <div className="prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-table:text-xs prose-th:text-gray-300 prose-headings:text-white">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{m.content}</ReactMarkdown>
                     </div>
                   </div>
                 )}
@@ -353,7 +354,7 @@ export function BotChat({
                 <div className="max-w-[90%] bg-gray-900 border border-gray-800 rounded-2xl rounded-bl-sm px-4 py-3">
                   {streamText ? (
                     <div className="prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-table:text-xs prose-th:text-gray-300 prose-headings:text-white">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamText}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{streamText}</ReactMarkdown>
                     </div>
                   ) : (
                     <div className="text-sm text-gray-500 flex items-center gap-2">

@@ -12,6 +12,10 @@ const ECB_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml";
 export const FX_FALLBACK: Record<string, number> = {
   EUR: 1, USD: 0.877, GBP: 1.162, ZAR: 0.0538, BRL: 0.169, AUD: 0.617, AED: 0.235,
   JPY: 0.00556, CHF: 1.07, CAD: 0.64, MXN: 0.047,
+  // Fixed pegs to the euro (exact): franc CFA (XOF, XAF), franc pacifique (XPF).
+  XOF: 1 / 655.957, XAF: 1 / 655.957, XPF: 1 / 119.33174,
+  // Not published by the ECB, approximate: dirham marocain, dinar tunisien.
+  MAD: 0.092, TND: 0.29,
 };
 
 export interface FxTable { rates: Record<string, number>; note: string }

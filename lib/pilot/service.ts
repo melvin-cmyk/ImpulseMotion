@@ -213,9 +213,10 @@ export async function executeAction(session: PilotSession, id: string, input: {
   try {
     await sendOperations(resolved.adapter, action.id, action.accountId, action.currency, action.operations);
   } catch (e) {
-    // Whatever stopped the loop, what is left was not sent, or its outcome is unknown.
+    // Whatever stopped the loop (a database write that failed right after a platform accepted the change…),
+    // the outcome of what is left is not known: it may have been applied. Said so, never « non envoyé ».
     console.error("[pilot] send interrupted", action.id, e);
-    await prisma.pilotOperation.updateMany({ where: { actionId: id, status: "pending" }, data: { status: "skipped", error: "Non envoyé : l'envoi a été interrompu." } }).catch(() => {});
+    await prisma.pilotOperation.updateMany({ where: { actionId: id, status: "pending" }, data: { status: "uncertain", error: "Envoi interrompu : vérifiez sur la plateforme si ce changement a été appliqué." } }).catch(() => {});
   }
   await finishAction(id);
   return { ok: true, action: await loadView(id, session.userId) };
@@ -223,13 +224,18 @@ export async function executeAction(session: PilotSession, id: string, input: {
 
 type OpRow = { id: string; objectId: string; objectType: string; field: string; beforeJson: string; afterJson: string };
 
+/** No write is started past this (the function is cut at 300 s): what is left is said « non envoyé ». */
+const SEND_BUDGET_MS = 240_000;
+
 async function sendOperations(adapter: PilotAdapter, actionId: string, accountId: string, currency: string, operations: OpRow[]) {
   const name = adapter.name;
+  const started = Date.now();
   const guard = mintWriteGuard("live", actionId);
   let stopped = false;
   try {
     for (const op of operations) {
       if (stopped) { await setOp(op.id, { status: "skipped", error: "Non envoyé : une modification précédente a une issue inconnue." }); continue; }
+      if (Date.now() - started > SEND_BUDGET_MS) { await setOp(op.id, { status: "skipped", error: "Non envoyé : temps d'envoi dépassé. Préparez à nouveau ce changement." }); continue; }
       const before = parse(op.beforeJson);
       const after = parse(op.afterJson);
       if (op.field === "new_ad") {
@@ -510,8 +516,9 @@ export async function listActions(session: PilotSession, opts: { alertClientId?:
       OR: [{ status: { notIn: ["draft", "expired"] } }, { status: "draft", createdById: session.userId }],
     },
     orderBy: { createdAt: "desc" },
-    take: Math.min(opts.take ?? 50, 200),
+    // Read wider than asked when the scope filters: the person's clients may not be among the latest actions.
+    take: scope.all ? Math.min(opts.take ?? 50, 200) : 500,
     include: { operations: { orderBy: { position: "asc" } }, impacts: true },
   });
-  return rows.filter((r) => platformAccountInScope(scope, r.platform, r.accountId)).map((r) => toActionView(r, session.userId));
+  return rows.filter((r) => platformAccountInScope(scope, r.platform, r.accountId)).slice(0, Math.min(opts.take ?? 50, 200)).map((r) => toActionView(r, session.userId));
 }

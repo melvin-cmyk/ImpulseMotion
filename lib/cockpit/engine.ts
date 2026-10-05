@@ -429,9 +429,16 @@ export interface BuildContext {
   limits?: PeriodLimits;
 }
 
-export function buildClient(input: ClientInput, ctx: BuildContext): ClientRow {
+export function buildClient(rawInput: ClientInput, ctx: BuildContext): ClientRow {
   const limits = ctx.limits ?? PERIOD_LIMITS.week;
   const rate = (ccy: string | null) => (ccy ? ctx.fx[ccy] ?? null : null);
+  // A currency without a rate is never added as euros: that platform is set aside, and said so.
+  const input: ClientInput = {
+    ...rawInput,
+    platforms: rawInput.platforms.map((p) => (!p.err && p.ccy && rate(p.ccy) === null
+      ? { ...p, err: `Devise ${p.ccy} sans taux de change : non comptée dans les totaux` }
+      : p)),
+  };
   const eurOf = (amount: number, ccy: string | null) => amount * (rate(ccy) ?? 1);
 
   const platforms: PlatformRow[] = input.platforms.map((p) => ({
