@@ -6,38 +6,45 @@
  * and whether clients can actually reach it. Mounted by app/bot/layout.tsx;
  * clients never see it (they only get their own bots, GET /api/bot).
  *
- * Grouping (from GET /api/bot/overview):
+ * One row per client of the agency (GET /api/bot/overview, same list as
+ * /admin/bots), grouped by its best bot:
  *   « Accessibles aux clients »     bot enabled  && accessCount > 0
  *   « Non accessibles aux clients » bot enabled  && accessCount === 0 (« aucun accès »)
  *                                   bot disabled                     (« inactif »)
- *   « Sans assistant »              no bot — admins get a « Créer » link
+ *   « Sans assistant »              no bot — admins get a « Créer » link to /admin/bots
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { Bot, Loader2 } from "lucide-react";
+import { Bot, Loader2, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Pill } from "@/components/ui/surface";
 
+type OverviewBot = { id: string; name: string; enabled: boolean; accessCount: number; dashboardId: string; dashboardName: string };
 type OverviewItem = {
-  dashboardId: string;
-  dashboardName: string;
-  metaAccountId: string | null;
-  googleCustomerId: string | null;
-  bot: { id: string; name: string; enabled: boolean; accessCount: number } | null;
+  key: string;
+  clientId: string | null;
+  name: string;
+  dormant: boolean;
+  accounts: Array<{ platform: "meta" | "google"; accountId: string; name: string }>;
+  bots: OverviewBot[];
 };
 
 type Group = { key: string; title: string; hint: string; items: OverviewItem[] };
+
+const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 function groupItems(items: OverviewItem[]): Group[] {
   const open: OverviewItem[] = [];
   const closed: OverviewItem[] = [];
   const none: OverviewItem[] = [];
   for (const it of items) {
-    if (!it.bot) none.push(it);
-    else if (it.bot.enabled && it.bot.accessCount > 0) open.push(it);
+    // The best bot of the client decides (bots come best first).
+    const best = it.bots[0];
+    if (!best) none.push(it);
+    else if (best.enabled && best.accessCount > 0) open.push(it);
     else closed.push(it);
   }
   return [
@@ -47,14 +54,14 @@ function groupItems(items: OverviewItem[]): Group[] {
   ];
 }
 
+const PLATFORM_SHORT: Record<string, string> = { meta: "Meta", google: "Google" };
+
 function accountsLine(it: OverviewItem): string {
-  const parts: string[] = [];
-  if (it.metaAccountId) parts.push(`Meta · ${it.metaAccountId}`);
-  if (it.googleCustomerId) parts.push(`Google · ${it.googleCustomerId}`);
-  return parts.length ? parts.join("  ·  ") : "aucun compte";
+  if (!it.accounts.length) return "aucun compte";
+  return it.accounts.map((a) => `${PLATFORM_SHORT[a.platform] ?? a.platform} · ${a.name}`).join("  ·  ");
 }
 
-function BotPill({ bot }: { bot: NonNullable<OverviewItem["bot"]> }) {
+function BotPill({ bot }: { bot: OverviewBot }) {
   if (!bot.enabled) return <Pill tone="red" className="!text-[10px] !px-1.5">inactif</Pill>;
   if (bot.accessCount === 0) return <Pill tone="amber" className="!text-[10px] !px-1.5">aucun accès</Pill>;
   return <Pill tone="emerald" className="!text-[10px] !px-1.5">{bot.accessCount} accès</Pill>;
@@ -67,6 +74,7 @@ export function BotsPanel() {
   const isAdmin = session?.baseRole === "admin";
   const [items, setItems] = useState<OverviewItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -81,7 +89,9 @@ export function BotsPanel() {
   }, []);
 
   const activeBotId = pathname.startsWith("/bot/") ? pathname.slice("/bot/".length).split("/")[0] : null;
-  const groups = items ? groupItems(items) : [];
+  const q = fold(query.trim());
+  const shown = (items ?? []).filter((it) => !q || [it.name, ...it.accounts.flatMap((a) => [a.name, a.accountId]), ...it.bots.map((b) => b.dashboardName)].some((s) => fold(s).includes(q)));
+  const groups = groupItems(shown);
 
   return (
     <aside className="w-64 shrink-0 bg-gray-950 border-r border-gray-800 flex flex-col min-h-0">
@@ -93,8 +103,17 @@ export function BotsPanel() {
           <span className="text-sm font-semibold text-white">Assistants clients</span>
         </div>
         <p className="text-[11px] text-gray-500 mt-1.5 leading-snug">
-          Vue staff : les clients ne voient que leur assistant.
+          Vue staff : tous les clients de l&apos;agence. Les clients ne voient que leur assistant.
         </p>
+        <label className="mt-2 flex items-center gap-1.5 rounded-lg border border-gray-800 bg-gray-900 px-2 py-1">
+          <Search className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={items ? `Chercher parmi ${items.length} clients` : "Chercher un client"}
+            className="bg-transparent text-xs text-white outline-none flex-1 min-w-0"
+          />
+        </label>
       </div>
 
       <div className="flex-1 overflow-y-auto py-2">
@@ -107,6 +126,9 @@ export function BotsPanel() {
         {items !== null && items.length === 0 && (
           <p className="text-xs text-gray-500 px-4 py-3">Aucun client dans votre périmètre.</p>
         )}
+        {items !== null && items.length > 0 && shown.length === 0 && (
+          <p className="text-xs text-gray-500 px-4 py-3">Aucun client trouvé.</p>
+        )}
 
         {groups.map((g) => {
           if (g.items.length === 0) return null;
@@ -118,24 +140,25 @@ export function BotsPanel() {
               </div>
               <div className="flex flex-col gap-0.5 px-2">
                 {g.items.map((it) => {
-                  const active = !!it.bot && it.bot.id === activeBotId;
+                  const best = it.bots[0];
+                  const active = it.bots.some((b) => b.id === activeBotId);
                   const rowCls = cn(
                     "block rounded-lg px-2.5 py-2 transition-colors",
                     active ? "bg-violet-500/15 text-white" : "text-gray-400",
-                    it.bot ? "hover:bg-gray-900 hover:text-gray-200" : "",
-                    it.bot && !it.bot.enabled && !active ? "opacity-70" : "",
+                    best ? "hover:bg-gray-900 hover:text-gray-200" : "",
+                    best && !best.enabled && !active ? "opacity-70" : "",
                   );
                   const body = (
                     <>
                       <div className="flex items-center justify-between gap-2">
                         <span className={cn("text-sm truncate", active ? "font-semibold text-white" : "text-gray-200")}>
-                          {it.dashboardName}
+                          {it.name}
                         </span>
-                        {it.bot ? (
-                          <BotPill bot={it.bot} />
+                        {best ? (
+                          <BotPill bot={best} />
                         ) : isAdmin ? (
                           <Link
-                            href={`/admin/bots/${it.dashboardId}`}
+                            href={`/admin/bots?q=${encodeURIComponent(it.name)}`}
                             className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-gray-700 text-gray-300 hover:text-white hover:border-violet-500 transition-colors"
                           >
                             Créer
@@ -145,17 +168,27 @@ export function BotsPanel() {
                         )}
                       </div>
                       <div className="text-[11px] text-gray-500 truncate mt-0.5" title={accountsLine(it)}>
-                        {accountsLine(it)}
+                        {it.dormant ? "sans dépense récente · " : ""}{accountsLine(it)}
                       </div>
                     </>
                   );
-                  return it.bot ? (
-                    <Link key={it.dashboardId} href={`/bot/${it.bot.id}`} className={rowCls} aria-current={active ? "page" : undefined}>
-                      {body}
-                    </Link>
-                  ) : (
-                    <div key={it.dashboardId} className={cn(rowCls, "opacity-60")}>
-                      {body}
+                  if (!best) return <div key={it.key} className={cn(rowCls, "opacity-60")}>{body}</div>;
+                  return (
+                    <div key={it.key}>
+                      <Link href={`/bot/${best.id}`} className={rowCls} aria-current={active && best.id === activeBotId ? "page" : undefined}>
+                        {body}
+                      </Link>
+                      {/* A client with several dashboards may have several bots: each one stays reachable. */}
+                      {it.bots.slice(1).map((b) => (
+                        <Link
+                          key={b.id}
+                          href={`/bot/${b.id}`}
+                          className={cn("ml-3 flex items-center justify-between gap-2 rounded-md px-2 py-1 text-[11px] hover:bg-gray-900", b.id === activeBotId ? "text-white" : "text-gray-500")}
+                        >
+                          <span className="truncate">{b.dashboardName}</span>
+                          <BotPill bot={b} />
+                        </Link>
+                      ))}
                     </div>
                   );
                 })}

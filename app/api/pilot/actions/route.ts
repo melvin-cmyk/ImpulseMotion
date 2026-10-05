@@ -1,8 +1,8 @@
 /**
  * GET  /api/pilot/actions?clientId=…  → the journal of the client (every client in scope without it)
- * POST /api/pilot/actions             → { clientId, accountId, requests, why?, goal? }
+ * POST /api/pilot/actions             → { clientId, accountId, platform?, requests, why?, goal? }
  *        prepares the preview: each change checked against Meta now, saved
- *        as a draft. Nothing is sent to Meta here (lib/pilot/service.ts).
+ *        as a draft. Nothing is sent to the platform here (lib/pilot/service.ts).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
   const result = await prepareAction(guard.session, {
     alertClientId: typeof body.clientId === "string" ? body.clientId : "",
     accountId: typeof body.accountId === "string" ? body.accountId : "",
+    platform: typeof body.platform === "string" ? body.platform : "meta",
     requests: body.requests, why: body.why, goal: body.goal,
   });
   if (!result.ok) return NextResponse.json({ error: result.error, errors: result.errors }, { status: result.status });

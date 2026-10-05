@@ -7,7 +7,7 @@ export interface PilotClient {
   id: string;
   name: string;
   dormant: boolean;
-  accounts: Array<{ platform: string; accountId: string; name?: string; currency?: string }>;
+  accounts: Array<{ platform: "meta" | "google"; accountId: string; name?: string; currency?: string }>;
 }
 
 /** A row of the account tree, as /api/pilot/structure sends it. */
@@ -22,6 +22,10 @@ export interface TreeRow {
   endTime: string | null;
   bidAmount: number | null;
   bidStrategy: string | null;
+  /** Why the budget cannot be changed here (a shared Google Ads budget). */
+  budgetLock?: string | null;
+  /** Why the end date cannot be changed here. */
+  endTimeLock?: string | null;
   parentId: string | null;
   parentName: string;
   spend7d: number;

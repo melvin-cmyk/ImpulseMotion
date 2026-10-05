@@ -10,7 +10,7 @@
 import { useState } from "react";
 import { CheckCircle2, Loader2, RotateCcw, Undo2 } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { goalText } from "@/lib/pilot/ops";
+import { PLATFORM_FR, goalText } from "@/lib/pilot/ops";
 import { OperationLines } from "@/components/pilot/change-panel";
 import { readJson, type PilotActionView } from "@/components/pilot/model";
 
@@ -65,7 +65,7 @@ export function PilotJournal({ actions, loading, showClient, onUndo, onChanged }
               <span className="text-gray-200 font-medium">{a.createdByName}</span>
               <span>· {when(a.executedAt ?? a.createdAt)}</span>
               {showClient && <span>· {a.clientName}</span>}
-              <span>· Meta « {a.accountName || a.accountId} »</span>
+              <span>· {PLATFORM_FR[a.platform] ?? a.platform} « {a.accountName || a.accountId} »</span>
               <Pill tone={s.tone} className="text-[10px]">{s.text}</Pill>
               {a.undoOfId && <Pill tone="violet" className="text-[10px]">annulation</Pill>}
               {a.undoneById && <Pill tone="default" className="text-[10px]">annulée depuis</Pill>}

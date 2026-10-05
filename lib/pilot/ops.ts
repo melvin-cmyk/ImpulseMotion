@@ -11,10 +11,18 @@
  * more than 50 % or by more than 300 (account currency) a day, a whole
  * campaign stopped, any deletion.
  *
+ * Platforms: Meta and Google Ads. The same three levels are used for both
+ * (campaign, adset, ad); on Google Ads an « adset » is an ad group, and its
+ * ads are not changed from here. What a platform cannot change on an object
+ * is said by the object itself (budgetLock, endTimeLock), read by the adapter.
+ *
  * Pure: no network, no database.
  */
 
-export type PilotPlatform = "meta";
+export const PILOT_PLATFORMS = ["meta", "google"] as const;
+export type PilotPlatform = (typeof PILOT_PLATFORMS)[number];
+export const isPilotPlatform = (v: unknown): v is PilotPlatform => v === "meta" || v === "google";
+export const PLATFORM_FR: Record<string, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
 export type PilotObjectType = "campaign" | "adset" | "ad";
 export type PilotStatus = "ACTIVE" | "PAUSED" | "DELETED";
 
@@ -53,6 +61,10 @@ export interface PilotObjectState {
   endTime: string | null;
   bidAmount: number | null;
   parentName: string;
+  /** Why the budget of this object cannot be changed here (a shared Google Ads budget); null when it can. */
+  budgetLock?: string | null;
+  /** Why the end date of this object cannot be changed here; null when it can. */
+  endTimeLock?: string | null;
 }
 
 export type PilotValue = string | number | null;
@@ -81,7 +93,14 @@ const ZERO_DECIMAL = new Set(["JPY", "KRW", "CLP", "COP", "CRC", "HUF", "ISK", "
 export const currencyOffset = (currency: string) => (ZERO_DECIMAL.has(currency.toUpperCase()) ? 1 : 100);
 
 export const OBJECT_FR: Record<PilotObjectType, string> = { campaign: "Campagne", adset: "Ensemble de publicités", ad: "Annonce" };
+const OBJECT_FR_GOOGLE: Record<PilotObjectType, string> = { campaign: "Campagne", adset: "Groupe d'annonces", ad: "Annonce" };
 const OBJECT_FR_LOWER: Record<PilotObjectType, string> = { campaign: "la campagne", adset: "l'ensemble de publicités", ad: "l'annonce" };
+const OBJECT_FR_LOWER_GOOGLE: Record<PilotObjectType, string> = { campaign: "la campagne", adset: "le groupe d'annonces", ad: "l'annonce" };
+
+/** « Campagne », « Ensemble de publicités » (Meta) or « Groupe d'annonces » (Google Ads). */
+export const objectLabel = (platform: string, type: string) =>
+  (platform === "google" ? OBJECT_FR_GOOGLE : OBJECT_FR)[type as PilotObjectType] ?? type;
+const objectLower = (platform: string, type: PilotObjectType) => (platform === "google" ? OBJECT_FR_LOWER_GOOGLE : OBJECT_FR_LOWER)[type];
 const STATUS_FR: Record<string, string> = { ACTIVE: "active", PAUSED: "en pause", DELETED: "supprimée", ARCHIVED: "archivée" };
 
 export const statusText = (status: string) => STATUS_FR[status] ?? status.toLowerCase();
@@ -148,10 +167,11 @@ export function doubleReason(op: { objectType: string; field: string; before: Pi
  * The change asked, against the object as it is now. Refused (with the reason,
  * in French) when it would do nothing, or cannot be done on this object.
  */
-export function prepareOperation(req: PilotRequest, state: PilotObjectState, currency: string, now: Date = new Date()): Prepared {
+export function prepareOperation(req: PilotRequest, state: PilotObjectState, currency: string, now: Date = new Date(), platform: PilotPlatform = "meta"): Prepared {
   const base = { kind: req.kind, objectType: req.objectType, objectId: req.objectId, objectName: state.name, parentName: state.parentName };
-  const label = `${OBJECT_FR_LOWER[req.objectType]} « ${state.name} »`;
-  if (state.type !== req.objectType) return { ok: false, error: `L'objet ${req.objectId} n'est pas ${OBJECT_FR_LOWER[req.objectType].replace(/ «.*$/, "")} : rechargez la page.` };
+  const label = `${objectLower(platform, req.objectType)} « ${state.name} »`;
+  if (state.type !== req.objectType) return { ok: false, error: `L'objet ${req.objectId} n'est pas ${objectLower(platform, req.objectType)} : rechargez la page.` };
+  if (platform === "google" && req.objectType === "ad") return { ok: false, error: "Les annonces Google Ads ne se modifient pas encore ici : changez leur groupe d'annonces ou leur campagne." };
   if (state.status === "DELETED" || state.status === "ARCHIVED") return { ok: false, error: `${label} est ${statusText(state.status)} : elle ne peut plus être modifiée.` };
   const offset = currencyOffset(currency);
 
@@ -166,6 +186,7 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
     case "set_daily_budget":
     case "set_lifetime_budget": {
       if (req.objectType === "ad") return { ok: false, error: "Une annonce n'a pas de budget : changez celui de son ensemble ou de sa campagne." };
+      if (state.budgetLock) return { ok: false, error: `${label} : ${state.budgetLock}` };
       const daily = req.kind === "set_daily_budget";
       const before = daily ? state.dailyBudget : state.lifetimeBudget;
       if (!before) {
@@ -186,6 +207,7 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
     }
     case "set_end_time": {
       if (req.objectType === "ad") return { ok: false, error: "Une annonce n'a pas de date de fin : changez celle de son ensemble." };
+      if (state.endTimeLock) return { ok: false, error: `${label} : ${state.endTimeLock}` };
       const when = new Date(String(req.value));
       if (Number.isNaN(when.getTime())) return { ok: false, error: `Date de fin invalide pour ${label}.` };
       if (when.getTime() <= now.getTime() + 60 * 60 * 1000) return { ok: false, error: `La date de fin de ${label} doit être dans plus d'une heure.` };
@@ -194,7 +216,7 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
       return { ok: true, op: { ...base, field: req.objectType === "campaign" ? "stop_time" : "end_time", before: state.endTime, after, double: null, irreversible: false } };
     }
     case "set_bid_amount": {
-      if (req.objectType !== "adset") return { ok: false, error: "L'enchère se règle sur un ensemble de publicités." };
+      if (req.objectType !== "adset") return { ok: false, error: `L'enchère se règle sur ${platform === "google" ? "un groupe d'annonces" : "un ensemble de publicités"}.` };
       if (!state.bidAmount) return { ok: false, error: `${label} n'a pas d'enchère manuelle (stratégie automatique) : rien à changer ici.` };
       const amount = amountOf(req.value);
       if (amount === null) return { ok: false, error: `Montant d'enchère invalide pour ${label}.` };
@@ -281,9 +303,10 @@ const FIELD_FR: Record<string, string> = {
 export function describeOperation(
   op: { kind: string; objectType: string; objectName: string; parentName?: string; field: string; before: PilotValue; after: PilotValue },
   currency: string,
+  platform: string = "meta",
 ): string {
   const icon = op.kind === "set_status" ? (op.after === "PAUSED" ? "⏸" : op.after === "ACTIVE" ? "▶️" : "🗑") : ICON[op.kind as PilotKind] ?? "•";
-  const object = `${OBJECT_FR[op.objectType as PilotObjectType] ?? op.objectType} « ${op.objectName} »${op.parentName ? ` (${op.parentName})` : ""}`;
+  const object = `${objectLabel(platform, op.objectType)} « ${op.objectName} »${op.parentName ? ` (${op.parentName})` : ""}`;
   return `${icon} ${object} — ${FIELD_FR[op.field] ?? op.field} : ${valueText(op.field, op.before, currency)} → ${valueText(op.field, op.after, currency)}`;
 }
 

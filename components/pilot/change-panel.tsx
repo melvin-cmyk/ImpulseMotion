@@ -1,21 +1,22 @@
 "use client";
 
 /**
- * The changes chosen in the tree, then their preview, then what Meta did.
+ * The changes chosen in the tree (or proposed by the AI), then their preview,
+ * then what the platform (Meta or Google Ads) did.
  *
  *   1. list   — what will be asked, why, the goal, the HQ folder;
  *   2. preview — each change as the server read it on Meta now (before → after),
  *                with what asks for a second confirmation and what cannot be undone;
  *   3. result — each change applied, refused or unknown, and the HQ entry.
  *
- * Nothing reaches Meta before « Envoyer à Meta » on the preview, and a preview
+ * Nothing reaches the platform before « Envoyer à … » on the preview, and a preview
  * that asks for it needs the second confirmation ticked first.
  */
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Send, Trash2, X, XCircle } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { GOAL_METRICS, GOAL_METRIC_FR, type GoalMetric } from "@/lib/pilot/ops";
+import { GOAL_METRICS, GOAL_METRIC_FR, PLATFORM_FR, type GoalMetric } from "@/lib/pilot/ops";
 import { readJson, type PendingChange, type PilotActionView } from "@/components/pilot/model";
 
 const OP_STATUS: Record<string, { text: string; tone: "emerald" | "red" | "amber" | "default" }> = {
@@ -63,10 +64,11 @@ function folderMismatch(clientName: string, slug: string, name: string | undefin
   return ![...client].some((w) => folder.has(w));
 }
 
-export function ChangePanel({ clientId, clientName, accountId, writesOpen, hqDefault, pending, onRemove, onClear, preview, onPreview, onSent }: {
+export function ChangePanel({ clientId, clientName, accountId, platform, writesOpen, hqDefault, pending, onRemove, onClear, preview, onPreview, onSent }: {
   clientId: string;
   clientName: string;
   accountId: string;
+  platform: "meta" | "google";
   /** PILOT_WRITES: closed during the trial, the preview still works. */
   writesOpen: boolean;
   hqDefault: string | null;
@@ -104,7 +106,8 @@ export function ChangePanel({ clientId, clientName, accountId, writesOpen, hqDef
     setConfirmDouble(false);
     setErrors([]);
     setResult(null);
-    if (preview.undoOfId) setWhy(preview.why);
+    // An undo or a proposal of the AI brings its own reason.
+    if (preview.why) setWhy(preview.why);
     if (preview.hqProject) setHqProject(preview.hqProject);
   }, [preview]);
 
@@ -118,7 +121,7 @@ export function ChangePanel({ clientId, clientName, accountId, writesOpen, hqDef
       const res = await fetch("/api/pilot/actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, accountId, requests: pending.map(({ kind, objectType, objectId, value }) => ({ kind, objectType, objectId, value })), why, goal }),
+        body: JSON.stringify({ clientId, accountId, platform, requests: pending.map(({ kind, objectType, objectId, value }) => ({ kind, objectType, objectId, value })), why, goal }),
       });
       const j = await readJson<{ action?: PilotActionView }>(res);
       if (!res.ok || !j.action) { setErrors(j.errors?.length ? j.errors : [j.error ?? `Erreur ${res.status}`]); return; }
@@ -206,7 +209,7 @@ export function ChangePanel({ clientId, clientName, accountId, writesOpen, hqDef
           <h3 className="text-sm font-semibold text-white">{preview.undoOfId ? "Aperçu de l'annulation" : "Aperçu"} — rien n&apos;est encore envoyé</h3>
           {expires && <span className="text-[11px] text-gray-500">valable jusqu&apos;à {expires}</span>}
         </div>
-        <p className="text-xs text-gray-400">Valeurs lues sur Meta à l&apos;instant, compte « {preview.accountName || preview.accountId} » de {preview.clientName}.</p>
+        <p className="text-xs text-gray-400">Valeurs lues sur {PLATFORM_FR[preview.platform] ?? preview.platform} à l&apos;instant, compte « {preview.accountName || preview.accountId} » de {preview.clientName}.</p>
         <OperationLines action={preview} showStatus={false} />
         {reasonFields}
         {preview.needsDouble && (
@@ -224,11 +227,11 @@ export function ChangePanel({ clientId, clientName, accountId, writesOpen, hqDef
           <button type="button" onClick={() => void send()} disabled={!writesOpen || busy !== null || !whyOk || !hqOk || (preview.needsDouble && !confirmDouble)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-sm text-white font-medium">
             {busy === "send" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Envoyer à Meta ({preview.operations.length})
+            Envoyer à {PLATFORM_FR[preview.platform] ?? preview.platform} ({preview.operations.length})
           </button>
           <button type="button" onClick={() => void dropPreview()} disabled={busy !== null} className="px-3 py-2 rounded-lg text-sm text-gray-300 hover:text-white">Revenir</button>
         </div>
-        {!writesOpen && <p className="text-xs text-amber-300">Page en essai : l&apos;aperçu fonctionne, l&apos;envoi vers Meta n&apos;est pas encore ouvert.</p>}
+        {!writesOpen && <p className="text-xs text-amber-300">L&apos;aperçu fonctionne, mais l&apos;envoi vers {PLATFORM_FR[preview.platform] ?? preview.platform} n&apos;est pas encore ouvert.</p>}
         {(!whyOk || !hqOk) && <p className="text-xs text-gray-500">{!whyOk ? "Dites pourquoi en quelques mots. " : ""}{!hqOk ? "Choisissez le dossier HQ." : ""}</p>}
       </div>
     );
@@ -241,7 +244,7 @@ export function ChangePanel({ clientId, clientName, accountId, writesOpen, hqDef
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-white flex items-center gap-1.5">
               {result.status === "done" ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <XCircle className="w-4 h-4 text-amber-400" />}
-              {result.status === "done" ? "Envoyé à Meta" : result.status === "failed" ? "Rien n'a été appliqué" : "Envoyé en partie"}
+              {result.status === "done" ? `Envoyé à ${PLATFORM_FR[result.platform] ?? result.platform}` : result.status === "failed" ? "Rien n'a été appliqué" : "Envoyé en partie"}
             </p>
             <button type="button" onClick={() => setResult(null)} className="text-gray-500 hover:text-white" aria-label="Fermer"><X className="w-4 h-4" /></button>
           </div>
@@ -256,7 +259,7 @@ export function ChangePanel({ clientId, clientName, accountId, writesOpen, hqDef
         {pending.length > 0 && <button type="button" onClick={onClear} className="text-xs text-gray-500 hover:text-white">Tout retirer</button>}
       </div>
       {pending.length === 0 ? (
-        <p className="text-sm text-gray-500">Choisissez « Modifier » sur une campagne, un ensemble ou une annonce. Rien n&apos;est envoyé avant l&apos;aperçu et votre confirmation.</p>
+        <p className="text-sm text-gray-500">Choisissez « Modifier » sur une campagne, un ensemble ou une annonce, ou demandez à l&apos;IA. Rien n&apos;est envoyé avant l&apos;aperçu et votre confirmation.</p>
       ) : (
         <>
           <ul className="space-y-1.5">

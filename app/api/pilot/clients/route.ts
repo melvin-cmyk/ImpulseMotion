@@ -1,6 +1,7 @@
 /**
- * GET /api/pilot/clients — the clients whose Meta accounts the person may
- * change from Pilotage (staff, accounts of their scope).
+ * GET /api/pilot/clients — every client whose Meta or Google Ads accounts the
+ * person may change from Pilotage (staff, accounts of their scope), dormant
+ * ones included: a client with no recent spend is often the one to restart.
  */
 
 import { NextResponse } from "next/server";
@@ -16,7 +17,7 @@ export async function GET() {
     const clients = await loadAlertClients(scope);
     return NextResponse.json({
       clients: clients
-        .map((c) => ({ id: c.id, name: c.name, dormant: c.dormant, accounts: c.accounts.filter((a) => a.platform === "meta" && platformAccountInScope(scope, "meta", a.accountId)) }))
+        .map((c) => ({ id: c.id, name: c.name, dormant: c.dormant, accounts: c.accounts.filter((a) => (a.platform === "meta" || a.platform === "google") && platformAccountInScope(scope, a.platform, a.accountId)) }))
         .filter((c) => c.accounts.length),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {

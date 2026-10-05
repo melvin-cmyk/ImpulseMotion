@@ -10,14 +10,16 @@
  *
  * Disabled bots are invisible to clients. Staff in scope may still open one
  * (loadBotFor → "mode test"), and the staff panel (listBotOverviewFor) lists
- * every client of the scope, with or without a bot, so a consultant can tell
- * which assistant they are on and whether clients can see it.
+ * every client of the agency in the scope (AlertClient, as /admin/bots), with
+ * or without a dashboard or a bot, so a consultant can tell which assistant
+ * they are on and whether clients can see it.
  */
 
 import { prisma } from "@/lib/prisma";
 import { isStaff } from "@/lib/auth-helpers";
 import { parseSources, type BotSummary } from "@/lib/bot-types";
-import { dashboardInScope, dashboardWhere, getAccountScope } from "@/lib/scope";
+import { dashboardInScope, dashboardWhere, getAccountScope, googleInScope, metaInScope, platformAccountInScope, type AccountScope } from "@/lib/scope";
+import { loadBotClients, type BotClientList, type BotDashboard as BotClientDashboard } from "@/lib/bot-clients";
 
 export type BotSession = { userId: string; role?: string | null };
 
@@ -76,41 +78,67 @@ export async function listBotsFor(session: BotSession): Promise<BotSummary[]> {
   }));
 }
 
-/** One row of the staff panel on /bot: a client (= dashboard) and its bot, if any. */
+/** A bot as the staff panel of /bot shows it. */
+export type BotOverviewBot = { id: string; name: string; enabled: boolean; accessCount: number; dashboardId: string; dashboardName: string };
+
+/**
+ * One row of the staff panel on /bot: a client of the agency (AlertClient, the
+ * same list as /admin/bots — every client, with or without a dashboard) and
+ * the bots of its dashboards. A dashboard that no known client claims is a row
+ * of its own (`clientId` null), so that no bot ever vanishes from the panel.
+ */
 export type BotOverviewItem = {
-  dashboardId: string;
-  dashboardName: string;
-  metaAccountId: string | null;
-  googleCustomerId: string | null;
-  bot: { id: string; name: string; enabled: boolean; accessCount: number } | null;
+  key: string;
+  clientId: string | null;
+  name: string;
+  /** No account spent anything over the last ten days. */
+  dormant: boolean;
+  accounts: Array<{ platform: "meta" | "google"; accountId: string; name: string }>;
+  /** Best first: reachable by clients, then enabled, then the rest. */
+  bots: BotOverviewBot[];
 };
+
+const botRank = (b: BotOverviewBot) => (b.enabled && b.accessCount > 0 ? 0 : b.enabled ? 1 : 2);
+
+/** Pure: the panel rows, from the list of /admin/bots, cut to the session's scope. */
+export function buildBotOverview(list: BotClientList, scope: AccountScope): BotOverviewItem[] {
+  const boardInScope = (d: BotClientDashboard) =>
+    scope.all || metaInScope(scope, d.metaAccountId) || googleInScope(scope, d.googleCustomerId);
+  const botsOf = (dashboards: BotClientDashboard[]): BotOverviewBot[] =>
+    dashboards
+      .filter((d) => d.bot && boardInScope(d))
+      .map((d) => ({ id: d.bot!.id, name: d.bot!.name, enabled: d.bot!.enabled, accessCount: d.bot!.accessCount, dashboardId: d.id, dashboardName: d.name }))
+      .sort((a, b) => botRank(a) - botRank(b) || a.dashboardName.localeCompare(b.dashboardName, "fr"));
+
+  const items: BotOverviewItem[] = [];
+  for (const c of list.clients) {
+    const accounts = c.accounts.filter((a) => platformAccountInScope(scope, a.platform, a.accountId));
+    if (!accounts.length) continue;
+    items.push({
+      key: c.id, clientId: c.id, name: c.name, dormant: c.dormant,
+      accounts: accounts.map((a) => ({ platform: a.platform, accountId: a.accountId, name: a.name })),
+      bots: botsOf(c.dashboards),
+    });
+  }
+  for (const d of list.orphans) {
+    if (!d.bot || !boardInScope(d)) continue;
+    const accounts: BotOverviewItem["accounts"] = [];
+    if (d.metaAccountId) accounts.push({ platform: "meta", accountId: d.metaAccountId, name: d.metaAccountId });
+    if (d.googleCustomerId) accounts.push({ platform: "google", accountId: d.googleCustomerId, name: d.googleCustomerId });
+    items.push({ key: `dashboard:${d.id}`, clientId: null, name: d.name, dormant: false, accounts, bots: botsOf([d]) });
+  }
+  return items.sort((a, b) => a.name.localeCompare(b.name, "fr") || a.key.localeCompare(b.key));
+}
 
 /**
  * Every client in the staff session's scope, ordered by name, with the state of
- * its bot: enabled + accessCount tell whether clients can actually reach it.
+ * its bots: enabled + accessCount tell whether clients can actually reach them.
  * Staff only (the caller guards); a client session gets an empty list.
  */
 export async function listBotOverviewFor(session: BotSession): Promise<BotOverviewItem[]> {
   if (!isStaff(session)) return [];
-  const scope = await getAccountScope(session);
-  const dashboards = await prisma.dashboard.findMany({
-    where: scope.all ? {} : dashboardWhere(scope),
-    select: {
-      id: true,
-      name: true,
-      metaAccountId: true,
-      googleCustomerId: true,
-      bot: { select: { id: true, name: true, enabled: true, _count: { select: { accesses: true } } } },
-    },
-    orderBy: { name: "asc" },
-  });
-  return dashboards.map((d) => ({
-    dashboardId: d.id,
-    dashboardName: d.name,
-    metaAccountId: d.metaAccountId,
-    googleCustomerId: d.googleCustomerId,
-    bot: d.bot ? { id: d.bot.id, name: d.bot.name, enabled: d.bot.enabled, accessCount: d.bot._count.accesses } : null,
-  }));
+  const [scope, list] = await Promise.all([getAccountScope(session), loadBotClients()]);
+  return buildBotOverview(list, scope);
 }
 
 export type LoadBotResult =

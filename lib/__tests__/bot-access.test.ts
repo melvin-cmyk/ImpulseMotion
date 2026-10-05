@@ -22,7 +22,8 @@ vi.mock("@/lib/auth-helpers", () => ({
   isStaff: (s: { role?: string | null } | null | undefined) => s?.role === "admin" || s?.role === "consultant",
 }));
 
-import { listBotsFor, listBotOverviewFor, loadBotFor, countEnabledBotAccess } from "@/lib/bot-access";
+import { buildBotOverview, listBotsFor, listBotOverviewFor, loadBotFor, countEnabledBotAccess } from "@/lib/bot-access";
+import { buildBotClients } from "@/lib/bot-clients";
 
 const BOT = {
   id: "bot1",
@@ -132,32 +133,43 @@ describe("loadBotFor", () => {
   });
 });
 
+describe("buildBotOverview", () => {
+  const bot = (id: string, enabled: boolean, accessCount: number) => ({
+    id, enabled, name: "Assistant", clientKey: id, sourcesJson: null, accessCount, lastIngestAt: null, lastIngestRows: null,
+  });
+  const LIST = buildBotClients({
+    clients: [
+      { id: "c1", name: "LPEV", dormant: false, accounts: [{ platform: "meta", accountId: "act_1", name: "LPEV FR" }] },
+      // No dashboard at all: it is listed all the same (it was missing before).
+      { id: "c2", name: "Decathlon Travel", dormant: true, accounts: [{ platform: "google", accountId: "123-456-7890", name: "Decathlon Travel" }, { platform: "meta", accountId: "act_9", name: "DT" }] },
+    ],
+    dashboards: [
+      { id: "d1", name: "LPEV", metaAccountId: "act_1", googleCustomerId: null, ownerEmail: null, createdAt: "2026-01-01", bot: bot("b1", false, 0) },
+      { id: "d1b", name: "LPEV bis", metaAccountId: "act_1", googleCustomerId: null, ownerEmail: null, createdAt: "2026-02-01", bot: bot("b2", true, 2) },
+      { id: "d3", name: "Orphelin", metaAccountId: "act_77", googleCustomerId: null, ownerEmail: null, createdAt: "2026-01-01", bot: bot("b3", true, 0) },
+      { id: "d4", name: "Orphelin sans bot", metaAccountId: "act_78", googleCustomerId: null, ownerEmail: null, createdAt: "2026-01-01", bot: null },
+    ],
+  });
+
+  it("admin → tous les clients, avec ou sans dashboard, le meilleur bot d'abord, et les bots orphelins", () => {
+    const items = buildBotOverview(LIST, { all: true });
+    expect(items.map((i) => i.name)).toEqual(["Decathlon Travel", "LPEV", "Orphelin"]);
+    const dt = items[0];
+    expect(dt).toMatchObject({ clientId: "c2", dormant: true, bots: [] });
+    expect(dt.accounts.map((a) => a.platform).sort()).toEqual(["google", "meta"]);
+    expect(items[1].bots.map((b) => b.id)).toEqual(["b2", "b1"]);
+    expect(items[2]).toMatchObject({ clientId: null, key: "dashboard:d3", bots: [{ id: "b3" }] });
+  });
+
+  it("consultant → seulement les clients et les bots de son périmètre", () => {
+    const scope = { all: false as const, meta: new Set(["9"]), google: new Set<string>(), tiktok: new Set<string>() };
+    const items = buildBotOverview(LIST, scope);
+    expect(items.map((i) => i.name)).toEqual(["Decathlon Travel"]);
+    expect(items[0].accounts).toEqual([{ platform: "meta", accountId: "9", name: "DT" }]);
+  });
+});
+
 describe("listBotOverviewFor", () => {
-  const ROWS = [
-    { id: "d1", name: "LPEV", metaAccountId: "act_1", googleCustomerId: null, bot: { id: "b1", name: "Assistant", enabled: true, _count: { accesses: 2 } } },
-    { id: "d2", name: "Sans bot", metaAccountId: null, googleCustomerId: "123", bot: null },
-    { id: "d3", name: "Inactif", metaAccountId: "act_2", googleCustomerId: null, bot: { id: "b3", name: "Bot", enabled: false, _count: { accesses: 0 } } },
-  ];
-
-  it("admin → tous les dashboards, bot ou non, avec le nombre d'accès", async () => {
-    dashboardFindMany.mockResolvedValue(ROWS);
-    const items = await listBotOverviewFor({ userId: "u1", role: "admin" });
-    const call = dashboardFindMany.mock.calls[0][0];
-    expect(call.where).toEqual({});
-    expect(call.orderBy).toEqual({ name: "asc" });
-    expect(items).toEqual([
-      { dashboardId: "d1", dashboardName: "LPEV", metaAccountId: "act_1", googleCustomerId: null, bot: { id: "b1", name: "Assistant", enabled: true, accessCount: 2 } },
-      { dashboardId: "d2", dashboardName: "Sans bot", metaAccountId: null, googleCustomerId: "123", bot: null },
-      { dashboardId: "d3", dashboardName: "Inactif", metaAccountId: "act_2", googleCustomerId: null, bot: { id: "b3", name: "Bot", enabled: false, accessCount: 0 } },
-    ]);
-  });
-
-  it("consultant → seulement les clients de son périmètre", async () => {
-    dashboardFindMany.mockResolvedValue([]);
-    await listBotOverviewFor({ userId: "u1", role: "consultant" });
-    expect(dashboardFindMany.mock.calls[0][0].where).toEqual({ OR: [{ metaAccountId: { in: ["1", "act_1"] } }] });
-  });
-
   it("client → liste vide, sans requête", async () => {
     expect(await listBotOverviewFor({ userId: "u2", role: "client" })).toEqual([]);
     expect(dashboardFindMany).not.toHaveBeenCalled();

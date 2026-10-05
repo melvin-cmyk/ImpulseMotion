@@ -5,9 +5,7 @@
  * Pure.
  */
 
-import { describeOperation, goalText, type PilotGoal, type PilotValue } from "@/lib/pilot/ops";
-
-const PLATFORM_FR: Record<string, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
+import { PLATFORM_FR, describeOperation, goalText, type PilotGoal, type PilotValue } from "@/lib/pilot/ops";
 
 const OUTCOME_FR: Record<string, string> = {
   done: "✅ appliqué",
@@ -46,7 +44,7 @@ export function buildHqEntry(input: HqEntryInput): string {
   const platform = PLATFORM_FR[input.platform] ?? input.platform;
   const lines = input.operations.map((op) => {
     const outcome = OUTCOME_FR[op.status] ?? op.status;
-    return `- ${describeOperation(op, input.currency)} — ${outcome}${op.error && op.status !== "done" ? ` (${op.error})` : ""}`;
+    return `- ${describeOperation(op, input.currency, input.platform)} — ${outcome}${op.error && op.status !== "done" ? ` (${op.error})` : ""}`;
   });
   const goal = goalText(input.goal);
   return [

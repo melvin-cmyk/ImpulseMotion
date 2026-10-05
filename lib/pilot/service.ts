@@ -14,18 +14,18 @@
  *   undo     a new draft that puts back what was applied (not a deletion).
  *
  * Access: staff (requireStaff in the routes), on the accounts of their scope.
+ * Platforms: Meta and Google Ads, through lib/pilot/adapters.ts.
  */
 
 import { prisma } from "@/lib/prisma";
 import { getAccountScope, platformAccountInScope } from "@/lib/scope";
 import { parseAlertAccounts } from "@/lib/auto-alerts/clients";
-import { metaAccountDigits } from "@/lib/routines/accounts";
 import { mintWriteGuard, revokeWriteGuard } from "@/lib/routines/write-guard";
 import { HQ_PROJECT_RE, appendHqJournal, listHqProjects } from "@/lib/hq-journal";
-import { readAccountCurrency, readObject, writeField } from "@/lib/pilot/meta";
+import { pilotAdapter, type PilotAdapter } from "@/lib/pilot/adapters";
 import { buildHqEntry, hqEntrySlug } from "@/lib/pilot/hq-entry";
 import {
-  PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, describeOperation, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
+  PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
   sameValue, stateValue, type PilotGoal, type PilotObjectState, type PilotRequest, type PilotValue, type PreparedOperation,
 } from "@/lib/pilot/ops";
 
@@ -41,15 +41,17 @@ const parse = (json: string | null | undefined): PilotValue => {
 
 // ── Client and account ────────────────────────────────────────────────────
 
-export async function resolveAccount(session: PilotSession, alertClientId: string, accountId: string) {
+export async function resolveAccount(session: PilotSession, alertClientId: string, accountId: string, platform: string = "meta") {
+  const adapter = pilotAdapter(platform);
+  if (!adapter) return { ok: false, status: 400, error: "Plateforme inconnue." } as Fail;
   const client = await prisma.alertClient.findUnique({ where: { id: alertClientId } });
   if (!client || client.gone) return { ok: false, status: 404, error: "Client introuvable." } as Fail;
-  const digits = metaAccountDigits(accountId);
-  const account = parseAlertAccounts(client.accountsJson).find((a) => a.platform === "meta" && metaAccountDigits(a.accountId) === digits);
-  if (!digits || !account) return { ok: false, status: 404, error: "Ce compte Meta n'est pas rattaché à ce client." } as Fail;
+  const digits = adapter.accountKey(accountId);
+  const account = parseAlertAccounts(client.accountsJson).find((a) => a.platform === adapter.platform && adapter.accountKey(a.accountId) === digits);
+  if (!digits || !account) return { ok: false, status: 404, error: `Ce compte ${adapter.name} n'est pas rattaché à ce client.` } as Fail;
   const scope = await getAccountScope(session);
-  if (!platformAccountInScope(scope, "meta", account.accountId)) return { ok: false, status: 403, error: "Vous n'avez pas accès à ce compte." } as Fail;
-  return { ok: true as const, client, account: { ...account, digits } };
+  if (!platformAccountInScope(scope, adapter.platform, account.accountId)) return { ok: false, status: 403, error: "Vous n'avez pas accès à ce compte." } as Fail;
+  return { ok: true as const, client, adapter, account: { ...account, digits } };
 }
 
 /** The HQ folder of the client: chosen in Pilotage before, else the one of its dashboard. */
@@ -78,7 +80,7 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
 // ── Prepare ───────────────────────────────────────────────────────────────
 
 export async function prepareAction(session: PilotSession, input: {
-  alertClientId: string; accountId: string; requests: unknown; why?: unknown; goal?: unknown; undoOfId?: string | null;
+  alertClientId: string; accountId: string; platform?: string; requests: unknown; why?: unknown; goal?: unknown; undoOfId?: string | null;
 }): Promise<{ ok: true; action: PilotActionView } | Fail> {
   const raw = Array.isArray(input.requests) ? input.requests : [];
   if (!raw.length) return { ok: false, status: 400, error: "Aucune modification demandée." };
@@ -87,21 +89,21 @@ export async function prepareAction(session: PilotSession, input: {
   if (requests.some((r) => !r)) return { ok: false, status: 400, error: "Une modification demandée est illisible : rechargez la page." };
   const list = requests as PilotRequest[];
 
-  const resolved = await resolveAccount(session, input.alertClientId, input.accountId);
+  const resolved = await resolveAccount(session, input.alertClientId, input.accountId, input.platform ?? "meta");
   if (!resolved.ok) return resolved;
-  const { client, account } = resolved;
+  const { client, account, adapter } = resolved;
 
-  // Each object read once, as Meta holds it now; the currency too (budgets are in its minor units).
+  // Each object read once, as the platform holds it now; the currency too (budgets are in its minor units).
   const objects = [...new Map(list.map((r) => [r.objectId, r.objectType])).entries()];
   let states: Map<string, PilotObjectState | null>;
   let currency: string;
   try {
-    currency = await readAccountCurrency(account.digits);
-    const read = await mapLimit(objects, READ_CONCURRENCY, async ([id, type]) => [id, await readObject(id, type)] as const);
+    currency = await adapter.readCurrency(account.digits);
+    const read = await mapLimit(objects, READ_CONCURRENCY, async ([id, type]) => [id, await adapter.readObject(account.digits, id, type, currency)] as const);
     states = new Map(read);
   } catch (e) {
     console.error("[pilot] read before preview failed", e);
-    return { ok: false, status: 503, error: "Meta ne répond pas pour le moment (ou limite d'appels atteinte) : rien n'a été préparé. Réessayez dans quelques minutes." };
+    return { ok: false, status: 503, error: `${adapter.name} ne répond pas pour le moment (ou limite d'appels atteinte) : rien n'a été préparé. Réessayez dans quelques minutes.` };
   }
 
   const errors: string[] = [];
@@ -109,9 +111,9 @@ export async function prepareAction(session: PilotSession, input: {
   const seen = new Set<string>();
   for (const req of list) {
     const state = states.get(req.objectId);
-    if (!state) { errors.push(`L'objet ${req.objectId} est introuvable sur Meta (supprimé, ou hors de notre accès).`); continue; }
+    if (!state) { errors.push(`L'objet ${req.objectId} est introuvable sur ${adapter.name} (supprimé, ou hors de notre accès).`); continue; }
     if (state.accountId !== account.digits) { errors.push(`« ${state.name} » n'appartient pas au compte ${account.name}.`); continue; }
-    const prepared = prepareOperation(req, state, currency);
+    const prepared = prepareOperation(req, state, currency, new Date(), adapter.platform);
     if (!prepared.ok) { errors.push(prepared.error); continue; }
     const key = `${prepared.op.objectId}:${prepared.op.field}`;
     if (seen.has(key)) { errors.push(`Deux changements du même réglage sur « ${state.name} » : gardez-en un seul.`); continue; }
@@ -128,7 +130,7 @@ export async function prepareAction(session: PilotSession, input: {
   const goal = readGoal(input.goal);
   const action = await prisma.pilotAction.create({
     data: {
-      alertClientId: client.id, clientName: client.name, platform: "meta",
+      alertClientId: client.id, clientName: client.name, platform: adapter.platform,
       accountId: account.digits, accountName: account.name ?? "", currency,
       createdById: session.userId, createdByName: author.name, createdByEmail: author.email,
       why: typeof input.why === "string" ? input.why.trim().slice(0, 2000) : "",
@@ -150,8 +152,12 @@ export async function prepareAction(session: PilotSession, input: {
 
 // ── Execute ───────────────────────────────────────────────────────────────
 
-/** Live writes are closed until PILOT_WRITES=1 (trial on a test account first, then Melvin opens them). */
-export const pilotWritesOpen = () => process.env.PILOT_WRITES === "1";
+/**
+ * Live writes are closed until PILOT_WRITES=1 (trial on a test account first,
+ * then Melvin opens them); Google Ads also needs PILOT_GOOGLE_WRITES=1 and its
+ * n8n flow (lib/pilot/google.ts).
+ */
+export const pilotWritesOpen = (platform: string = "meta") => pilotAdapter(platform)?.writesOpen() ?? false;
 
 /** A send still `running` after this long was cut short (function killed, timeout): it is closed as such. */
 const STALE_RUNNING_MS = 10 * 60 * 1000;
@@ -159,9 +165,9 @@ const STALE_RUNNING_MS = 10 * 60 * 1000;
 export async function executeAction(session: PilotSession, id: string, input: {
   why?: unknown; goal?: unknown; hqProject?: unknown; confirmDouble?: unknown;
 }, now: Date = new Date()): Promise<{ ok: true; action: PilotActionView } | Fail> {
-  if (!pilotWritesOpen()) return { ok: false, status: 403, error: "L'envoi vers Meta n'est pas encore ouvert : la page est en essai." };
   const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
   if (!action || action.createdById !== session.userId) return { ok: false, status: 404, error: "Modification introuvable." };
+  if (!pilotWritesOpen(action.platform)) return { ok: false, status: 403, error: `L'envoi vers ${PLATFORM_FR[action.platform] ?? action.platform} n'est pas encore ouvert : la page est en essai.` };
   if (action.status !== "draft") return { ok: false, status: 409, error: "Cette modification a déjà été envoyée." };
   if (now.getTime() - action.createdAt.getTime() > PILOT_DRAFT_TTL_MS) {
     await prisma.pilotAction.updateMany({ where: { id, status: "draft" }, data: { status: "expired" } });
@@ -175,7 +181,7 @@ export async function executeAction(session: PilotSession, id: string, input: {
 
   // The account may have left the person's scope since the preview.
   if (!action.alertClientId) return { ok: false, status: 404, error: "Client introuvable." };
-  const resolved = await resolveAccount(session, action.alertClientId, action.accountId);
+  const resolved = await resolveAccount(session, action.alertClientId, action.accountId, action.platform);
   if (!resolved.ok) return resolved;
   // A folder other than the client's known one must exist in HQ: a typo never receives a client's changes.
   const known = await hqProjectOf(resolved.client);
@@ -194,7 +200,7 @@ export async function executeAction(session: PilotSession, id: string, input: {
   if (claimed.count !== 1) return { ok: false, status: 409, error: "Cette modification est déjà en cours d'envoi." };
 
   try {
-    await sendOperations(action.id, action.accountId, action.operations);
+    await sendOperations(resolved.adapter, action.id, action.accountId, action.currency, action.operations);
   } catch (e) {
     // Whatever stopped the loop, what is left was not sent, or its outcome is unknown.
     console.error("[pilot] send interrupted", action.id, e);
@@ -206,7 +212,8 @@ export async function executeAction(session: PilotSession, id: string, input: {
 
 type OpRow = { id: string; objectId: string; objectType: string; field: string; beforeJson: string; afterJson: string };
 
-async function sendOperations(actionId: string, accountId: string, operations: OpRow[]) {
+async function sendOperations(adapter: PilotAdapter, actionId: string, accountId: string, currency: string, operations: OpRow[]) {
+  const name = adapter.name;
   const guard = mintWriteGuard("live", actionId);
   let stopped = false;
   try {
@@ -216,29 +223,31 @@ async function sendOperations(actionId: string, accountId: string, operations: O
       const after = parse(op.afterJson);
       let current: PilotObjectState | null;
       try {
-        current = await readObject(op.objectId, op.objectType as PilotObjectState["type"]);
+        current = await adapter.readObject(accountId, op.objectId, op.objectType as PilotObjectState["type"], currency);
       } catch {
-        await setOp(op.id, { status: "failed", error: "Meta ne répond pas (ou limite d'appels atteinte) : rien n'a été envoyé pour ce changement." });
+        await setOp(op.id, { status: "failed", error: `${name} ne répond pas (ou limite d'appels atteinte) : rien n'a été envoyé pour ce changement.` });
         continue;
       }
-      if (!current || current.accountId !== accountId) { await setOp(op.id, { status: "failed", error: "Objet introuvable sur Meta : rien n'a été envoyé." }); continue; }
+      if (!current || current.accountId !== accountId) { await setOp(op.id, { status: "failed", error: `Objet introuvable sur ${name} : rien n'a été envoyé.` }); continue; }
       const held = stateValue(current, op.field);
-      if (sameValue(op.field, held, after)) { await setOp(op.id, { status: "unchanged", readBackJson: JSON.stringify(held), error: "Déjà à cette valeur sur Meta : rien à envoyer." }); continue; }
+      if (sameValue(op.field, held, after)) { await setOp(op.id, { status: "unchanged", readBackJson: JSON.stringify(held), error: `Déjà à cette valeur sur ${name} : rien à envoyer.` }); continue; }
       if (!sameValue(op.field, held, before)) {
         await setOp(op.id, { status: "conflict", readBackJson: JSON.stringify(held), error: `La valeur a changé depuis l'aperçu (${describeValue(op.field, held)}) : rien n'a été envoyé.` });
         continue;
       }
-      const outcome = await writeField(guard, op.objectId, op.field, after as string | number);
+      const outcome = await adapter.writeField(guard, accountId, op.objectId, op.objectType as PilotObjectState["type"], op.field, after as string | number, currency);
       if (outcome.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", error: outcome.error }); continue; }
       if (outcome.kind === "refused") { await setOp(op.id, { status: "failed", error: outcome.error }); continue; }
-      // Read back: what Meta holds now is what the journal says.
+      // Read back: what the platform holds now is what the journal says.
       let check: PilotObjectState | null = null;
-      try { check = await readObject(op.objectId, op.objectType as PilotObjectState["type"]); } catch { check = null; }
+      try { check = await adapter.readObject(accountId, op.objectId, op.objectType as PilotObjectState["type"], currency); } catch { check = null; }
+      // A removed Google Ads object is no longer listed: gone is what was asked.
+      if (!check && after === "DELETED") { await setOp(op.id, { status: "done", readBackJson: JSON.stringify("DELETED"), error: null }); continue; }
       const readBack = check ? stateValue(check, op.field) : null;
       if (check && !sameValue(op.field, readBack, after)) {
         // Not what was asked: the account is not in the state the rest of the action was prepared for.
         stopped = true;
-        await setOp(op.id, { status: "uncertain", readBackJson: JSON.stringify(readBack), error: "Meta a accepté, mais la relecture donne une autre valeur : vérifiez dans le Gestionnaire de publicités." });
+        await setOp(op.id, { status: "uncertain", readBackJson: JSON.stringify(readBack), error: `${name} a accepté, mais la relecture donne une autre valeur : vérifiez dans ${adapter.platform === "google" ? "Google Ads" : "le Gestionnaire de publicités"}.` });
         continue;
       }
       await setOp(op.id, { status: "done", readBackJson: check ? JSON.stringify(readBack) : null, error: check ? null : "Envoyé ; la relecture a échoué." });
@@ -334,9 +343,9 @@ export async function writeHq(id: string): Promise<{ ok: boolean; error?: string
 }
 
 export async function retryHq(session: PilotSession, id: string): Promise<{ ok: true; action: PilotActionView } | Fail> {
-  const action = await prisma.pilotAction.findUnique({ where: { id }, select: { alertClientId: true, accountId: true, hqWrittenAt: true, executedAt: true, status: true } });
+  const action = await prisma.pilotAction.findUnique({ where: { id }, select: { alertClientId: true, accountId: true, platform: true, hqWrittenAt: true, executedAt: true, status: true } });
   if (!action?.alertClientId || !action.executedAt) return { ok: false, status: 404, error: "Modification introuvable." };
-  const resolved = await resolveAccount(session, action.alertClientId, action.accountId);
+  const resolved = await resolveAccount(session, action.alertClientId, action.accountId, action.platform);
   if (!resolved.ok) return resolved;
   if (action.status === "running") return { ok: false, status: 409, error: "L'envoi est encore en cours." };
   if (action.hqWrittenAt) return { ok: true, action: await loadView(id, session.userId) };
@@ -353,20 +362,22 @@ export async function prepareUndo(session: PilotSession, id: string, now: Date =
   if (action.undoneById) return { ok: false, status: 409, error: "Cette modification a déjà été annulée." };
   if (action.status !== "done" && action.status !== "partial") return { ok: false, status: 409, error: "Seule une modification envoyée peut être annulée." };
   const applied = action.operations.filter((o) => o.status === "done");
+  const adapter = pilotAdapter(action.platform);
+  if (!adapter) return { ok: false, status: 400, error: "Plateforme inconnue." };
 
   // Put back only what still holds the value this action wrote: a later change (here or in Ads Manager) is never overwritten.
   let currents: Array<PilotObjectState | null>;
   try {
-    currents = await mapLimit(applied, READ_CONCURRENCY, (o) => readObject(o.objectId, o.objectType as PilotObjectState["type"]));
+    currents = await mapLimit(applied, READ_CONCURRENCY, (o) => adapter.readObject(action.accountId, o.objectId, o.objectType as PilotObjectState["type"], action.currency));
   } catch {
-    return { ok: false, status: 503, error: "Meta ne répond pas pour le moment : réessayez dans quelques minutes." };
+    return { ok: false, status: 503, error: `${adapter.name} ne répond pas pour le moment : réessayez dans quelques minutes.` };
   }
   const requests: PilotRequest[] = [];
   const left: string[] = [];
   applied.forEach((o, i) => {
     const before = parse(o.beforeJson);
     const after = parse(o.afterJson);
-    const line = describeOperation({ ...o, before, after }, action.currency);
+    const line = describeOperation({ ...o, before, after }, action.currency, action.platform);
     const current = currents[i];
     if (!current) { left.push(`${line} (objet introuvable)`); return; }
     const held = stateValue(current, o.field);
@@ -379,7 +390,7 @@ export async function prepareUndo(session: PilotSession, id: string, now: Date =
   if (!requests.length) return { ok: false, status: 409, error: "Rien ne peut être remis en place automatiquement.", errors: left };
   const date = (action.executedAt ?? action.createdAt).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" });
   return prepareAction(session, {
-    alertClientId: action.alertClientId, accountId: action.accountId, requests,
+    alertClientId: action.alertClientId, accountId: action.accountId, platform: action.platform, requests,
     why: `Annulation de la modification du ${date} (${action.createdByName}).${left.length ? ` Non remis en place : ${left.join(" ; ")}.` : ""}`,
     goal: { metric: null, target: null, note: "" }, undoOfId: action.id,
   });
@@ -413,7 +424,7 @@ export function toActionView(a: ActionRow, viewerId: string): PilotActionView {
     return {
       id: o.id, kind: o.kind, objectType: o.objectType, objectId: o.objectId, objectName: o.objectName, parentName: o.parentName,
       field: o.field, before, after, readBack: parse(o.readBackJson), status: o.status, error: o.error,
-      line: describeOperation({ ...o, before, after }, a.currency),
+      line: describeOperation({ ...o, before, after }, a.currency, a.platform),
       double, irreversible: after === "DELETED",
     };
   });

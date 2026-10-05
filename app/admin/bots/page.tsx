@@ -142,6 +142,12 @@ export default function AdminBotsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // « Créer » from the panel of /bot arrives with ?q=<client>: show that client, active or dormant.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) { setQuery(q); setActivity("all"); }
+  }, []);
+
   useEffect(() => {
     fetch("/api/admin/bots")
       .then(async (res) => {

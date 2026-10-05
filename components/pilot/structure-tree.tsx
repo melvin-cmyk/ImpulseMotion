@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * The account as Meta holds it: campaigns, their ad sets, and the ads of an ad
- * set once opened. Each row offers the changes that make sense for it; a
+ * The account as the platform holds it: campaigns, their ad sets (ad groups on
+ * Google Ads), and — on Meta — the ads of an ad set once opened. Each row offers the changes that make sense for it; a
  * change chosen goes to the panel, nothing is sent from here.
  */
 
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Pencil, Search } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { OBJECT_FR, currencyOffset, dateText, money, statusText, type PilotKind } from "@/lib/pilot/ops";
+import { currencyOffset, dateText, money, objectLabel, statusText, type PilotKind } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
 
 type Editor = { row: TreeRow; kind: PilotKind; value: string } | null;
@@ -28,9 +28,9 @@ function choices(row: TreeRow): Array<{ kind: PilotKind; label: string; value: s
   const out: Array<{ kind: PilotKind; label: string; value: string }> = [];
   if (row.status === "ACTIVE") out.push({ kind: "set_status", label: "Mettre en pause", value: "PAUSED" });
   if (row.status === "PAUSED") out.push({ kind: "set_status", label: "Activer", value: "ACTIVE" });
-  if (row.dailyBudget) out.push({ kind: "set_daily_budget", label: "Budget journalier", value: "" });
-  if (row.lifetimeBudget) out.push({ kind: "set_lifetime_budget", label: "Budget total", value: "" });
-  if (row.type !== "ad") out.push({ kind: "set_end_time", label: "Date de fin", value: "" });
+  if (row.dailyBudget && !row.budgetLock) out.push({ kind: "set_daily_budget", label: "Budget journalier", value: "" });
+  if (row.lifetimeBudget && !row.budgetLock) out.push({ kind: "set_lifetime_budget", label: "Budget total", value: "" });
+  if (row.type !== "ad" && !row.endTimeLock) out.push({ kind: "set_end_time", label: "Date de fin", value: "" });
   if (row.type === "adset" && row.bidAmount) out.push({ kind: "set_bid_amount", label: "Enchère", value: "" });
   out.push({ kind: "rename", label: "Renommer", value: "" });
   out.push({ kind: "set_status", label: "Supprimer", value: "DELETED" });
@@ -53,8 +53,8 @@ function initialValue(row: TreeRow, kind: PilotKind, currency: string): string {
   }
 }
 
-function pendingLabel(row: TreeRow, kind: PilotKind, value: string, currency: string): string {
-  const object = `${OBJECT_FR[row.type]} « ${row.name} »`;
+function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: string, currency: string): string {
+  const object = `${objectLabel(platform, row.type)} « ${row.name} »`;
   const unit = currencyOffset(currency);
   switch (kind) {
     case "set_status": return `${object} : ${value === "DELETED" ? "supprimer" : value === "PAUSED" ? "mettre en pause" : "activer"}`;
@@ -66,9 +66,10 @@ function pendingLabel(row: TreeRow, kind: PilotKind, value: string, currency: st
   }
 }
 
-export function StructureTree({ clientId, accountId, currency, campaigns, adsets, pending, onAdd }: {
+export function StructureTree({ clientId, accountId, platform, currency, campaigns, adsets, pending, onAdd }: {
   clientId: string;
   accountId: string;
+  platform: "meta" | "google";
   currency: string;
   campaigns: TreeRow[];
   adsets: TreeRow[];
@@ -101,7 +102,7 @@ export function StructureTree({ clientId, accountId, currency, campaigns, adsets
     if (!next || Array.isArray(ads[id])) return;
     setAds((a) => ({ ...a, [id]: "loading" }));
     try {
-      const res = await fetch(`/api/pilot/structure?clientId=${encodeURIComponent(clientId)}&accountId=${encodeURIComponent(accountId)}&adsetId=${encodeURIComponent(id)}`);
+      const res = await fetch(`/api/pilot/structure?clientId=${encodeURIComponent(clientId)}&accountId=${encodeURIComponent(accountId)}&platform=${platform}&adsetId=${encodeURIComponent(id)}`);
       const j = await readJson<{ ads?: TreeRow[] }>(res);
       setAds((a) => ({ ...a, [id]: res.ok && j.ads ? j.ads : { error: j.error ?? `Erreur ${res.status}` } }));
     } catch (e) {
@@ -112,7 +113,7 @@ export function StructureTree({ clientId, accountId, currency, campaigns, adsets
   function choose(row: TreeRow, kind: PilotKind, value: string) {
     setMenu(null);
     if (kind === "set_status") {
-      onAdd({ kind, objectType: row.type, objectId: row.id, value, label: pendingLabel(row, kind, value, currency) });
+      onAdd({ kind, objectType: row.type, objectId: row.id, value, label: pendingLabel(platform, row, kind, value, currency) });
       return;
     }
     setEditor({ row, kind, value: initialValue(row, kind, currency) });
@@ -122,7 +123,7 @@ export function StructureTree({ clientId, accountId, currency, campaigns, adsets
     if (!editor || !editor.value.trim()) return;
     const { row, kind } = editor;
     const value = kind === "set_end_time" ? new Date(editor.value).toISOString() : editor.value.trim();
-    onAdd({ kind, objectType: row.type, objectId: row.id, value: kind === "rename" || kind === "set_end_time" ? value : Number(value.replace(",", ".")), label: pendingLabel(row, kind, editor.value, currency) });
+    onAdd({ kind, objectType: row.type, objectId: row.id, value: kind === "rename" || kind === "set_end_time" ? value : Number(value.replace(",", ".")), label: pendingLabel(platform, row, kind, editor.value, currency) });
     setEditor(null);
   }
 
@@ -137,11 +138,11 @@ export function StructureTree({ clientId, accountId, currency, campaigns, adsets
               {open[row.id] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           ) : <span className="w-4" />}
-          <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? "Ens." : "Annonce"}</span>
+          <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "google" ? "Groupe" : "Ens.") : "Annonce"}</span>
           <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
           {hasPending && <Pill tone="violet" className="text-[10px]">à envoyer</Pill>}
           {statusPill(row)}
-          <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline">{budget}</span>
+          <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
           <span className="text-xs text-gray-500 w-20 text-right hidden md:inline" title="Dépense des 7 derniers jours">{money(Math.round(row.spend7d * (currencyOffset(currency))), currency)}</span>
           <div className="relative">
             <button type="button" onClick={() => setMenu(menu === row.id ? null : row.id)} className="text-xs flex items-center gap-1 px-2 py-1 rounded-md text-gray-300 hover:text-white hover:bg-gray-800">
@@ -179,7 +180,7 @@ export function StructureTree({ clientId, accountId, currency, campaigns, adsets
             <button type="button" onClick={() => setEditor(null)} className="px-2 py-1 text-gray-400 hover:text-white">Annuler</button>
           </form>
         )}
-        {expandable && open[row.id] && row.type === "campaign" && (adsetsOf.get(row.id) ?? []).filter(visible).map((a) => renderRow(a, depth + 1, true))}
+        {expandable && open[row.id] && row.type === "campaign" && (adsetsOf.get(row.id) ?? []).filter(visible).map((a) => renderRow(a, depth + 1, platform === "meta"))}
         {expandable && open[row.id] && row.type === "adset" && (() => {
           const list = ads[row.id];
           if (list === "loading" || list === undefined) return <p className="text-xs text-gray-500 py-1 flex items-center gap-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}><Loader2 className="w-3 h-3 animate-spin" /> Lecture des annonces…</p>;
@@ -196,7 +197,7 @@ export function StructureTree({ clientId, accountId, currency, campaigns, adsets
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <label className="flex items-center gap-2 flex-1 min-w-[12rem] bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5">
           <Search className="w-3.5 h-3.5 text-gray-500" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Chercher une campagne ou un ensemble" className="bg-transparent text-sm text-white outline-none flex-1" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={platform === "google" ? "Chercher une campagne ou un groupe d'annonces" : "Chercher une campagne ou un ensemble"} className="bg-transparent text-sm text-white outline-none flex-1" />
         </label>
         <label className="flex items-center gap-2 text-xs text-gray-400">
           <input type="checkbox" checked={hidePaused} onChange={(e) => setHidePaused(e.target.checked)} /> Actifs seulement
