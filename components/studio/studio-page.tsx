@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clapperboard, Download, ImageIcon, ImagePlus, Loader2, RotateCcw, Trash2, Wand2, X } from "lucide-react";
+import { Clapperboard, Download, ImageIcon, ImagePlus, Loader2, RotateCcw, Send, Trash2, Wand2, X } from "lucide-react";
 import { Card, PageHeader, Pill, Section } from "@/components/ui/surface";
 import { prepareImage } from "@/lib/ai-chat-shared";
 
@@ -309,6 +309,7 @@ export function StudioPage() {
               </p>
               <div className="flex flex-wrap gap-2">
                 {open.downloadUrl && <a href={open.downloadUrl} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm"><Download className="w-4 h-4" /> Télécharger</a>}
+                {open.kind === "image" && open.status === "completed" && <a href={`/pilotage?studioAsset=${open.id}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-500/60 text-violet-200 hover:text-white text-sm"><Send className="w-4 h-4" /> Pousser sur Meta</a>}
                 {open.kind === "image" && open.status === "completed" && <button type="button" onClick={() => animate(open)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 text-gray-200 hover:text-white text-sm"><Clapperboard className="w-4 h-4" /> Animer en vidéo</button>}
                 <button type="button" onClick={() => reuse(open)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 text-gray-200 hover:text-white text-sm"><RotateCcw className="w-4 h-4" /> Réutiliser le texte</button>
                 {open.mine && <button type="button" onClick={() => void remove(open)} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-red-300 hover:text-red-200 text-sm"><Trash2 className="w-4 h-4" /> Retirer</button>}

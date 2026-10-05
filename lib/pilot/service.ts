@@ -23,10 +23,11 @@ import { parseAlertAccounts } from "@/lib/auto-alerts/clients";
 import { mintWriteGuard, revokeWriteGuard } from "@/lib/routines/write-guard";
 import { HQ_PROJECT_RE, appendHqJournal, listHqProjects } from "@/lib/hq-journal";
 import { pilotAdapter, type PilotAdapter } from "@/lib/pilot/adapters";
+import { checkNewAd, createNewAd } from "@/lib/pilot/new-ad";
 import { buildHqEntry, hqEntrySlug } from "@/lib/pilot/hq-entry";
 import { IMPACT_HORIZONS, IMPACT_SETTLE_DAYS, addDays, impactWindows } from "@/lib/pilot/impact";
 import {
-  PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
+  PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, readNewAd, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
   sameValue, stateValue, type PilotGoal, type PilotObjectState, type PilotRequest, type PilotValue, type PreparedOperation,
 } from "@/lib/pilot/ops";
 
@@ -116,6 +117,15 @@ export async function prepareAction(session: PilotSession, input: {
     if (state.accountId !== account.digits) { errors.push(`« ${state.name} » n'appartient pas au compte ${account.name}.`); continue; }
     const prepared = prepareOperation(req, state, currency, new Date(), adapter.platform);
     if (!prepared.ok) { errors.push(prepared.error); continue; }
+    if (prepared.op.field === "new_ad") {
+      // The ad set, its campaign, the Page and every field, checked on Meta now; the campaign is kept for the send.
+      const read = readNewAd(prepared.op.after);
+      const checked = read.ok ? await checkNewAd(account.digits, req.objectId, read.spec) : read;
+      if (!checked.ok) { errors.push(`« ${state.name} » : ${checked.error}`); continue; }
+      prepared.op.after = JSON.stringify(checked.spec);
+      ops.push(prepared.op);
+      continue;
+    }
     const key = `${prepared.op.objectId}:${prepared.op.field}`;
     if (seen.has(key)) { errors.push(`Deux changements du même réglage sur « ${state.name} » : gardez-en un seul.`); continue; }
     seen.add(key);
@@ -222,6 +232,16 @@ async function sendOperations(adapter: PilotAdapter, actionId: string, accountId
       if (stopped) { await setOp(op.id, { status: "skipped", error: "Non envoyé : une modification précédente a une issue inconnue." }); continue; }
       const before = parse(op.beforeJson);
       const after = parse(op.afterJson);
+      if (op.field === "new_ad") {
+        // A creation: nothing to compare with, the ad set is checked again by createPausedAd.
+        const read = readNewAd(after);
+        if (!read.ok) { await setOp(op.id, { status: "failed", error: read.error }); continue; }
+        const created = await createNewAd(guard, accountId, op.objectId, read.spec);
+        if (created.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", error: created.error }); continue; }
+        if (created.kind === "refused") { await setOp(op.id, { status: "failed", error: created.error }); continue; }
+        await setOp(op.id, { status: "done", readBackJson: JSON.stringify(created.adId ?? null), error: null });
+        continue;
+      }
       let current: PilotObjectState | null;
       try {
         current = await adapter.readObject(accountId, op.objectId, op.objectType as PilotObjectState["type"], currency);
@@ -380,13 +400,14 @@ export async function prepareUndo(session: PilotSession, id: string, now: Date =
     const before = parse(o.beforeJson);
     const after = parse(o.afterJson);
     const line = describeOperation({ ...o, before, after }, action.currency, action.platform);
+    if (o.field === "new_ad") { left.push(`${line} (ne peut pas être remis : publicité créée en pause, à supprimer depuis l'arbre si besoin)`); return; }
     const current = currents[i];
     if (!current) { left.push(`${line} (objet introuvable)`); return; }
     const held = stateValue(current, o.field);
     if (!sameValue(o.field, held, after)) { left.push(`${line} (modifié depuis : ${describeValue(o.field, held)})`); return; }
     const inverse = inverseRequest({ kind: o.kind, objectType: o.objectType, objectId: o.objectId, field: o.field, before, after }, action.currency);
     const pastDate = (o.field === "end_time" || o.field === "stop_time") && before !== null && new Date(String(before)).getTime() <= now.getTime() + 60 * 60 * 1000;
-    if (!inverse || pastDate) { left.push(`${line} (ne peut pas être remis : ${after === "DELETED" ? "suppression" : before === null ? "il n'y avait pas de date" : "date d'origine passée"})`); return; }
+    if (!inverse || pastDate) { left.push(`${line} (ne peut pas être remis : ${o.field === "new_ad" ? "publicité créée en pause, à supprimer depuis l'arbre si besoin" : after === "DELETED" ? "suppression" : before === null ? "il n'y avait pas de date" : "date d'origine passée"})`); return; }
     requests.push(inverse);
   });
   if (!requests.length) return { ok: false, status: 409, error: "Rien ne peut être remis en place automatiquement.", errors: left };

@@ -14,6 +14,7 @@ import { StructureTree } from "@/components/pilot/structure-tree";
 import { ChangePanel } from "@/components/pilot/change-panel";
 import { PilotJournal } from "@/components/pilot/journal";
 import { PilotAssistant } from "@/components/pilot/assistant-panel";
+import type { StudioPick } from "@/components/pilot/new-ad-form";
 import { PLATFORM_FR } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type PilotActionView, type PilotClient, type TreeRow } from "@/components/pilot/model";
 
@@ -37,6 +38,16 @@ export function PilotPage() {
   const [client, setClient] = useState<PilotClient | null>(null);
   const [account, setAccount] = useState<AccountRef | null>(null);
   const modifyRef = useRef<HTMLDivElement>(null);
+  // « Pousser sur Meta » from the Studio créa: /pilotage?studioAsset=<id> — the visual waits for an ad set.
+  const [studioPick, setStudioPick] = useState<StudioPick | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("studioAsset");
+    if (!id) return;
+    fetch(`/api/studio/assets/${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null)).then((j) => {
+      const a = j?.asset;
+      if (a?.kind === "image" && a.url) setStudioPick({ id: a.id, url: a.url, prompt: a.prompt, clientId: a.clientId ?? null });
+    }).catch(() => {});
+  }, []);
   const [structure, setStructure] = useState<Structure | null>(null);
   const [structureError, setStructureError] = useState<string | null>(null);
   const [loadingStructure, setLoadingStructure] = useState(false);
@@ -72,6 +83,15 @@ export function PilotPage() {
       if (seq === structureSeq.current) setLoadingStructure(false);
     }
   }, []);
+
+  // The visual's client is opened at once when it is known.
+  const autoPicked = useRef(false);
+  useEffect(() => {
+    if (autoPicked.current || !studioPick?.clientId || !clients) return;
+    const c = clients.find((x) => x.id === studioPick.clientId && x.accounts.some((a) => a.platform === "meta"));
+    if (c) { autoPicked.current = true; pick(c); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studioPick, clients]);
 
   const loadJournal = useCallback(async (clientId: string) => {
     setLoadingJournal(true);
@@ -149,6 +169,16 @@ export function PilotPage() {
         subtitle="Modifiez les comptes Meta et Google Ads de vos clients, à la main ou en parlant à l'IA. Chaque changement est montré avant d'être envoyé, puis consigné dans le dossier HQ du client avec votre nom."
       />
 
+      {studioPick && (
+        <div className="flex items-center gap-3 rounded-xl border border-violet-500/40 bg-violet-500/5 p-3">
+          <img src={studioPick.url} alt="" className="w-14 h-14 rounded object-cover" />
+          <p className="text-sm text-gray-200 flex-1">
+            Visuel du Studio prêt à pousser sur Meta : choisissez le compte Meta, puis « Modifier » → « Nouvelle publicité » sur l&apos;ensemble de publicités voulu.
+          </p>
+          <button type="button" onClick={() => setStudioPick(null)} className="text-xs text-gray-400 hover:text-white">Ignorer</button>
+        </div>
+      )}
+
       <Card padded>
         {client ? (
           <div className="flex flex-wrap items-center gap-3">
@@ -220,6 +250,7 @@ export function PilotPage() {
                   adsets={structure.adsets}
                   pending={pending}
                   onAdd={add}
+                  studioPick={studioPick}
                 />
               </>
             )}

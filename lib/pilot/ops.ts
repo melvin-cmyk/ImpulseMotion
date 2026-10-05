@@ -26,7 +26,7 @@ export const PLATFORM_FR: Record<string, string> = { meta: "Meta", google: "Goog
 export type PilotObjectType = "campaign" | "adset" | "ad";
 export type PilotStatus = "ACTIVE" | "PAUSED" | "DELETED";
 
-export const PILOT_KINDS = ["set_status", "set_daily_budget", "set_lifetime_budget", "set_end_time", "set_bid_amount", "rename"] as const;
+export const PILOT_KINDS = ["set_status", "set_daily_budget", "set_lifetime_budget", "set_end_time", "set_bid_amount", "rename", "create_ad"] as const;
 export type PilotKind = (typeof PILOT_KINDS)[number];
 
 /** At most this many changes in one action: each is read, written and read again. */
@@ -36,6 +36,58 @@ export const PILOT_DRAFT_TTL_MS = 30 * 60 * 1000;
 /** Raise of a budget that asks for a second confirmation. */
 export const DOUBLE_RAISE_RATIO = 1.5;
 export const DOUBLE_RAISE_ABSOLUTE = 300;
+
+/**
+ * A new Meta ad (kind "create_ad", on an ad set): an image ad, created PAUSED
+ * by lib/meta-write.ts createPausedAd. Checked again on the server (Page,
+ * Instagram account, campaign of the ad set) before the preview.
+ */
+export interface NewAdSpec {
+  name: string;
+  primaryText: string;
+  headline?: string;
+  description?: string;
+  linkUrl: string;
+  callToAction?: string;
+  /** Public https URL Meta downloads the image from. */
+  imageUrl: string;
+  pageId: string;
+  instagramUserId?: string;
+  /** The Studio créa visual, when the image comes from there. */
+  studioAssetId?: string;
+  /** Filled by the server at the preview: the campaign of the ad set. */
+  campaignId?: string;
+}
+
+const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+$/, "").slice(0, max) : "");
+const httpsOk = (v: string) => /^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/|$|\?)/i.test(v);
+
+/** Reads a NewAdSpec from the value of a request (JSON); the reason in French when it is not one. */
+export function readNewAd(value: unknown): { ok: true; spec: NewAdSpec } | { ok: false; error: string } {
+  let raw: Record<string, unknown>;
+  try { raw = typeof value === "string" ? JSON.parse(value) : (value as Record<string, unknown>); } catch { return { ok: false, error: "Publicité illisible." }; }
+  if (!raw || typeof raw !== "object") return { ok: false, error: "Publicité illisible." };
+  const spec: NewAdSpec = {
+    name: str(raw.name, 255).trim(),
+    primaryText: str(raw.primaryText, 2000).trim(),
+    headline: str(raw.headline, 255).trim() || undefined,
+    description: str(raw.description, 255).trim() || undefined,
+    linkUrl: str(raw.linkUrl, 2000).trim(),
+    callToAction: str(raw.callToAction, 40).trim() || undefined,
+    imageUrl: str(raw.imageUrl, 2000).trim(),
+    pageId: str(raw.pageId, 30).trim(),
+    instagramUserId: str(raw.instagramUserId, 30).trim() || undefined,
+    studioAssetId: str(raw.studioAssetId, 40).trim() || undefined,
+    campaignId: str(raw.campaignId, 30).trim() || undefined,
+  };
+  if (!spec.name) return { ok: false, error: "Donnez un nom à la publicité." };
+  if (!spec.primaryText) return { ok: false, error: "Le texte principal de la publicité est vide." };
+  if (!httpsOk(spec.linkUrl)) return { ok: false, error: "Le lien de la publicité doit commencer par https://." };
+  if (!httpsOk(spec.imageUrl)) return { ok: false, error: "Choisissez une image (Studio créa ou image envoyée)." };
+  if (!/^\d{5,25}$/.test(spec.pageId)) return { ok: false, error: "Choisissez la Page Facebook de la publicité." };
+  if (spec.instagramUserId && !/^\d{5,25}$/.test(spec.instagramUserId)) return { ok: false, error: "Compte Instagram invalide." };
+  return { ok: true, spec };
+}
 
 export interface PilotRequest {
   kind: PilotKind;
@@ -224,6 +276,14 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
       if (after === state.bidAmount) return { ok: false, error: `${label} a déjà cette enchère.` };
       return { ok: true, op: { ...base, field: "bid_amount", before: state.bidAmount, after, double: null, irreversible: false } };
     }
+    case "create_ad": {
+      if (platform !== "meta") return { ok: false, error: "La création de publicité n'existe que pour Meta pour le moment." };
+      if (req.objectType !== "adset") return { ok: false, error: "Une publicité se crée dans un ensemble de publicités." };
+      const read = readNewAd(req.value);
+      if (!read.ok) return { ok: false, error: read.error };
+      // Created PAUSED: nothing is spent before the consultant activates it, so no second confirmation.
+      return { ok: true, op: { ...base, field: "new_ad", before: null, after: JSON.stringify(read.spec), double: null, irreversible: false } };
+    }
     case "rename": {
       const name = String(req.value).replace(/\s+/g, " ").trim();
       if (!name || name.length > 400) return { ok: false, error: `Nom invalide pour ${label}.` };
@@ -257,7 +317,8 @@ export function sameValue(field: string, a: PilotValue, b: PilotValue): boolean 
 
 /** The request that puts an operation back; null when nothing can (a deletion, a date that did not exist). */
 export function inverseRequest(op: { kind: string; objectType: string; objectId: string; field: string; before: PilotValue; after: PilotValue }, currency: string): PilotRequest | null {
-  if (op.before === null || op.after === "DELETED") return null;
+  // A new ad is not « put back »: it is created paused, and deleted from the tree if it must go.
+  if (op.field === "new_ad" || op.before === null || op.after === "DELETED") return null;
   const kind = op.kind as PilotKind;
   const objectType = op.objectType as PilotObjectType;
   if (op.field === "daily_budget" || op.field === "lifetime_budget" || op.field === "bid_amount") {
@@ -273,9 +334,17 @@ const ICON: Record<PilotKind, string> = {
   set_end_time: "📅",
   set_bid_amount: "🎯",
   rename: "✏️",
+  create_ad: "🆕",
 };
 
+/** The name of the new ad of a "new_ad" operation. */
+export function newAdName(value: PilotValue): string {
+  const read = readNewAd(value);
+  return read.ok ? read.spec.name : "publicité";
+}
+
 function valueText(field: string, value: PilotValue, currency: string): string {
+  if (field === "new_ad") return value === null ? "—" : `« ${newAdName(value)} » (créée en pause)`;
   if (value === null) return field === "end_time" || field === "stop_time" ? "aucune" : "—";
   switch (field) {
     case "status": return statusText(String(value));
@@ -297,6 +366,7 @@ const FIELD_FR: Record<string, string> = {
   stop_time: "date de fin",
   bid_amount: "enchère",
   name: "nom",
+  new_ad: "nouvelle publicité",
 };
 
 /** One line, the same in the preview, the journal and HQ: what, on which object, before → after. */
@@ -307,6 +377,7 @@ export function describeOperation(
 ): string {
   const icon = op.kind === "set_status" ? (op.after === "PAUSED" ? "⏸" : op.after === "ACTIVE" ? "▶️" : "🗑") : ICON[op.kind as PilotKind] ?? "•";
   const object = `${objectLabel(platform, op.objectType)} « ${op.objectName} »${op.parentName ? ` (${op.parentName})` : ""}`;
+  if (op.field === "new_ad") return `${icon} ${object} — nouvelle publicité ${valueText(op.field, op.after, currency)}`;
   return `${icon} ${object} — ${FIELD_FR[op.field] ?? op.field} : ${valueText(op.field, op.before, currency)} → ${valueText(op.field, op.after, currency)}`;
 }
 

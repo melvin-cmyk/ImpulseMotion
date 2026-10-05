@@ -9,8 +9,9 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Pencil, Search } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { currencyOffset, dateText, money, objectLabel, statusText, type PilotKind } from "@/lib/pilot/ops";
+import { currencyOffset, dateText, money, newAdName, objectLabel, statusText, type PilotKind } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
+import { NewAdForm, type StudioPick } from "@/components/pilot/new-ad-form";
 
 type Editor = { row: TreeRow; kind: PilotKind; value: string } | null;
 
@@ -24,8 +25,9 @@ function statusPill(row: TreeRow) {
 }
 
 /** The changes offered on a row, in the order of the menu. */
-function choices(row: TreeRow): Array<{ kind: PilotKind; label: string; value: string }> {
+function choices(row: TreeRow, platform: string = "meta"): Array<{ kind: PilotKind; label: string; value: string }> {
   const out: Array<{ kind: PilotKind; label: string; value: string }> = [];
+  if (row.type === "adset" && platform === "meta") out.push({ kind: "create_ad", label: "Nouvelle publicité", value: "" });
   if (row.status === "ACTIVE") out.push({ kind: "set_status", label: "Mettre en pause", value: "PAUSED" });
   if (row.status === "PAUSED") out.push({ kind: "set_status", label: "Activer", value: "ACTIVE" });
   if (row.dailyBudget && !row.budgetLock) out.push({ kind: "set_daily_budget", label: "Budget journalier", value: "" });
@@ -63,10 +65,11 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
     case "set_bid_amount": return `${object} : enchère ${money(row.bidAmount, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "set_end_time": return `${object} : date de fin ${dateText(row.endTime)} → ${dateText(new Date(value).toISOString())}`;
     case "rename": return `${object} : renommer en « ${value} »`;
+    case "create_ad": return `${object} : nouvelle publicité « ${newAdName(value)} » (créée en pause)`;
   }
 }
 
-export function StructureTree({ clientId, accountId, platform, currency, campaigns, adsets, pending, onAdd }: {
+export function StructureTree({ clientId, accountId, platform, currency, campaigns, adsets, pending, onAdd, studioPick = null }: {
   clientId: string;
   accountId: string;
   platform: "meta" | "google";
@@ -75,7 +78,10 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
   adsets: TreeRow[];
   pending: PendingChange[];
   onAdd: (change: PendingChange) => void;
+  /** A Studio visual to place (« Pousser sur Meta »): preselected in « Nouvelle publicité ». */
+  studioPick?: StudioPick | null;
 }) {
+  const [newAdFor, setNewAdFor] = useState<TreeRow | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [ads, setAds] = useState<Record<string, TreeRow[] | "loading" | { error: string }>>({});
   const [editor, setEditor] = useState<Editor>(null);
@@ -112,6 +118,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
 
   function choose(row: TreeRow, kind: PilotKind, value: string) {
     setMenu(null);
+    if (kind === "create_ad") { setNewAdFor(row); return; }
     if (kind === "set_status") {
       onAdd({ kind, objectType: row.type, objectId: row.id, value, label: pendingLabel(platform, row, kind, value, currency) });
       return;
@@ -150,7 +157,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
             </button>
             {menu === row.id && (
               <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1">
-                {choices(row).map((c) => {
+                {choices(row, platform).map((c) => {
                   const taken = pendingKeys.has(changeKey({ objectId: row.id, kind: c.kind }));
                   return (
                     <button key={`${c.kind}-${c.value}`} type="button" disabled={taken} onClick={() => choose(row, c.kind, c.value)}
@@ -165,7 +172,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
         </div>
         {editor && editor.row.id === row.id && (
           <form onSubmit={(e) => { e.preventDefault(); submitEditor(); }} className="flex flex-wrap items-center gap-2 py-2 pr-2 text-xs" style={{ paddingLeft: 30 + depth * 18 }}>
-            <span className="text-gray-400">{choices(row).find((c) => c.kind === editor.kind)?.label} :</span>
+            <span className="text-gray-400">{choices(row, platform).find((c) => c.kind === editor.kind)?.label} :</span>
             <input
               autoFocus
               type={editor.kind === "set_end_time" ? "datetime-local" : editor.kind === "rename" ? "text" : "number"}
@@ -194,6 +201,16 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
 
   return (
     <div>
+      {newAdFor && (
+        <NewAdForm
+          clientId={clientId}
+          accountId={accountId}
+          adsetName={newAdFor.name}
+          preset={studioPick}
+          onCancel={() => setNewAdFor(null)}
+          onDone={(spec, label) => { onAdd({ kind: "create_ad", objectType: "adset", objectId: newAdFor.id, value: JSON.stringify(spec), label }); setNewAdFor(null); }}
+        />
+      )}
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <label className="flex items-center gap-2 flex-1 min-w-[12rem] bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5">
           <Search className="w-3.5 h-3.5 text-gray-500" />

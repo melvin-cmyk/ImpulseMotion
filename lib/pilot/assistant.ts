@@ -84,6 +84,7 @@ const KIND_DOCS: Record<(typeof PILOT_KINDS)[number], string> = {
   set_end_time: `"value" : date de fin ISO 8601 avec fuseau (2026-10-31T23:59:00+01:00), plus d'une heure dans le futur. Meta seulement`,
   set_bid_amount: `"value" : la nouvelle enchère en unités de la devise. Seulement sur un ensemble / groupe d'annonces qui a déjà une enchère manuelle dans le contexte`,
   rename: `"value" : le nouveau nom`,
+  create_ad: `NE LE PROPOSE JAMAIS dans un bloc : une nouvelle publicité se crée depuis le formulaire « Nouvelle publicité » d'un ensemble (image du Studio créa, textes, Page). Si le consultant le demande, propose-lui des textes (texte principal, titre, bouton) qu'il collera dans ce formulaire`,
 };
 
 export function buildPilotSystemPrompt(clientName: string, author: string | null): string {
@@ -242,6 +243,7 @@ function readProposal(raw: unknown): ExtractedProposal {
   for (const item of list) {
     const req = readRequest(item);
     if (!req) return { ok: false, error: "Un changement de la proposition est illisible." };
+    if (req.kind === "create_ad") return { ok: false, error: "Une nouvelle publicité se crée depuis le formulaire « Nouvelle publicité » de l'ensemble, pas par l'IA." };
     requests.push(req);
     const label = item && typeof item === "object" && typeof (item as Record<string, unknown>).label === "string" ? String((item as Record<string, unknown>).label).trim().slice(0, 300) : "";
     labels.push(label);
