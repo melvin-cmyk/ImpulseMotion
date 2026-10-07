@@ -25,7 +25,7 @@ import { extractRows } from "@/lib/dashboard-widgets";
 import { parseAlertAccounts } from "@/lib/auto-alerts/clients";
 import { metaAccountDigits } from "@/lib/routines/accounts";
 import { normGoogle } from "@/lib/portfolio";
-import { fromGoogleChangeEvent, fromMetaActivity, type ChangeDraft, type GoogleChangeRow, type MetaActivity } from "@/lib/pilot/changes";
+import { fromGoogleChangeEvent, fromMetaActivity, safeText, type ChangeDraft, type GoogleChangeRow, type MetaActivity } from "@/lib/pilot/changes";
 
 /** A first read goes back this far (Google keeps 30 days; Meta more, but the recent weeks are what matters). */
 export const LOOKBACK_DAYS = 28;
@@ -36,6 +36,7 @@ const GOOGLE_MAX_ROWS = 3000;
 /** A Pilotage operation sent within this long of a logged change, on the same object, is that change. */
 const MATCH_WINDOW_MS = 30 * 60 * 1000;
 const GAQL_TIMEOUT_MS = 40_000;
+const WRITE_BATCH = 200;
 
 export interface SyncOutcome { platform: string; accountId: string; read: number; written: number; error: string | null; truncated: boolean }
 
@@ -101,20 +102,21 @@ async function writeDrafts(account: Account, drafts: ChangeDraft[]): Promise<num
   const existing = new Set((await prisma.platformChange.findMany({ where: { externalId: { in: drafts.map((d) => d.externalId) } }, select: { externalId: true } })).map((r) => r.externalId));
   const fresh = drafts.filter((d) => !existing.has(d.externalId));
   if (!fresh.length) return 0;
-  await prisma.platformChange.createMany({
-    data: fresh.map((d) => {
-      const actionId = matched.get(d.externalId) ?? null;
-      return {
-        platform: d.platform, accountId: d.accountId, alertClientId: account.alertClientId, currency: d.currency,
-        externalId: d.externalId, at: d.at, actorName: d.actorName, actorEmail: d.actorEmail, via: d.via,
-        source: actionId ? "impulsemotion" : d.source, pilotActionId: actionId,
-        objectType: d.objectType, objectId: d.objectId, objectName: d.objectName, eventType: d.eventType, field: d.field,
-        beforeJson: JSON.stringify(d.before), afterJson: JSON.stringify(d.after), line: d.line, significant: d.significant,
-        rawJson: JSON.stringify(d.raw).slice(0, 4000),
-      };
-    }),
-    skipDuplicates: true,
+  // Every text cleaned (no NUL, no half emoji) and the raw payload cut on whole characters: one bad row never loses the batch.
+  const rows = fresh.map((d) => {
+    const actionId = matched.get(d.externalId) ?? null;
+    return {
+      platform: d.platform, accountId: d.accountId, alertClientId: account.alertClientId, currency: d.currency,
+      externalId: d.externalId, at: d.at, actorName: safeText(d.actorName, 200), actorEmail: d.actorEmail ? safeText(d.actorEmail, 200) : null, via: safeText(d.via, 200),
+      source: actionId ? "impulsemotion" : d.source, pilotActionId: actionId,
+      objectType: d.objectType, objectId: d.objectId, objectName: safeText(d.objectName, 400), eventType: safeText(d.eventType, 200), field: d.field,
+      beforeJson: safeText(JSON.stringify(d.before)), afterJson: safeText(JSON.stringify(d.after)), line: safeText(d.line, 1000), significant: d.significant,
+      rawJson: safeText(JSON.stringify(d.raw), 4000),
+    };
   });
+  for (let i = 0; i < rows.length; i += WRITE_BATCH) {
+    await prisma.platformChange.createMany({ data: rows.slice(i, i + WRITE_BATCH), skipDuplicates: true });
+  }
   return fresh.length;
 }
 

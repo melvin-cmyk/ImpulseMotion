@@ -84,10 +84,20 @@ const ICON: Record<ChangeField, string> = {
   schedule: "📅", optimization: "⚙️", spend_cap: "💶", creative: "🖼", keyword: "🔑", settings: "⚙️", created: "🆕", deleted: "🗑", other: "•",
 };
 
-const short = (v: unknown, max = 160): string => {
+/**
+ * Text as the database takes it: no NUL, no half of a surrogate pair (an
+ * emoji cut in two by a fixed-length slice makes the whole batch unreadable
+ * for the query engine), cut on whole code points.
+ */
+export function safeText(v: unknown, max = 100_000): string {
   const s = typeof v === "string" ? v : v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
-  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
-};
+  const clean = s.replace(/\u0000/g, "").replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "").replace(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "$1");
+  if (clean.length <= max) return clean;
+  const points = Array.from(clean);
+  return `${points.slice(0, Math.max(0, max - 1)).join("")}…`;
+}
+
+const short = (v: unknown, max = 160): string => safeText(v, max);
 
 /** The value as the line says it: a budget as money, a status in French, a date in Paris time, the rest as it is. */
 export function changeValueText(field: ChangeField, value: PilotValue, currency: string): string {
@@ -100,6 +110,7 @@ export function changeValueText(field: ChangeField, value: PilotValue, currency:
     case "bid": return typeof value === "number" ? money(value, currency) : String(value);
     case "status": return String(value) === "PENDING_REVIEW" ? "en attente d'examen" : statusText(String(value));
     case "name": return `« ${value} »`;
+    case "creative": return /https?:\/\//.test(String(value)) ? "visuel modifié" : short(value, 120);
     default: return short(value, 120);
   }
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fromMetaActivity, fromGoogleChangeEvent, groupSessions, describeChange, metaActivityId, SIGNIFICANT_FIELDS } from "@/lib/pilot/changes";
+import { fromMetaActivity, fromGoogleChangeEvent, groupSessions, describeChange, metaActivityId, safeText, SIGNIFICANT_FIELDS } from "@/lib/pilot/changes";
 
 const own = new Set(["impulsemcplimite"]);
 
@@ -121,5 +121,18 @@ describe("sessions et libellés", () => {
   it("décrit un changement sans valeurs par son seul réglage", () => {
     expect(describeChange({ platform: "meta", objectType: "adset", objectName: "X", field: "targeting", before: null, after: null, currency: "EUR", eventType: "update_ad_set_target_spec" })).toBe("🎯 Ensemble de publicités « X » — ciblage");
     expect(describeChange({ platform: "google", objectType: "adset", objectName: "G", field: "created", before: null, after: null, currency: "EUR", eventType: "x" })).toBe("🆕 Groupe d'annonces « G » — créé(e)");
+  });
+});
+
+describe("textes pour la base", () => {
+  it("coupe sur des caractères entiers, retire un demi-emoji et le caractère nul", () => {
+    const emoji = "Promo 🎉 d'été";
+    expect(safeText(emoji, 8)).toBe("Promo 🎉…");
+    // A slice that cut the emoji in two leaves a lone surrogate: gone.
+    expect(safeText(emoji.slice(0, 7))).toBe("Promo ");
+    expect(safeText("a\u0000b")).toBe("ab");
+    expect(safeText({ a: "🎉" }, 1000)).toBe('{"a":"🎉"}');
+    const long = "é".repeat(5000);
+    expect(safeText(long, 4000).length).toBe(4000);
   });
 });
