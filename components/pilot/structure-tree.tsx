@@ -12,6 +12,7 @@ import { Pill } from "@/components/ui/surface";
 import { KEYWORD_MATCH_TYPES, MATCH_FR, copyName, currencyOffset, dateText, money, newAdName, newKeywordText, objectLabel, statusText, strategyText, type KeywordMatchType, type PilotKind } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
 import { NewAdForm, type StudioPick } from "@/components/pilot/new-ad-form";
+import { TargetingForm } from "@/components/pilot/targeting-form";
 
 type Editor = { row: TreeRow; kind: PilotKind; value: string; matchType?: KeywordMatchType } | null;
 
@@ -36,7 +37,7 @@ function choices(row: TreeRow, platform: string = "meta"): Array<{ kind: PilotKi
     out.push({ kind: "set_status", label: "Supprimer", value: "DELETED" });
     return out;
   }
-  if (row.type === "adset" && platform === "meta") out.push({ kind: "create_ad", label: "Nouvelle publicité", value: "" });
+  if (row.type === "adset" && platform === "meta") { out.push({ kind: "create_ad", label: "Nouvelle publicité", value: "" }); out.push({ kind: "set_targeting", label: "Ciblage (âge, pays, audiences, placements)", value: "" }); }
   if (row.type === "adset" && platform === "google") out.push({ kind: "add_keyword", label: "Ajouter un mot-clé", value: "" });
   if (row.type === "campaign" && platform === "google") out.push({ kind: "add_negative_keyword", label: "Ajouter un mot-clé négatif", value: "" });
   if (row.status === "ACTIVE") out.push({ kind: "set_status", label: "Mettre en pause", value: "PAUSED" });
@@ -105,6 +106,7 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
     case "duplicate": return `${object} : dupliquer en « ${copyName(value)} » (créée en pause)`;
     case "add_keyword": return `${object} : ajouter le mot-clé ${newKeywordText(value)}`;
     case "add_negative_keyword": return `${object} : ajouter le mot-clé négatif ${newKeywordText(value)}`;
+    case "set_targeting": return `${object} : ciblage modifié`;
   }
 }
 
@@ -123,6 +125,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
   studioPick?: StudioPick | null;
 }) {
   const [newAdFor, setNewAdFor] = useState<TreeRow | null>(null);
+  const [targetingFor, setTargetingFor] = useState<TreeRow | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [ads, setAds] = useState<Record<string, TreeRow[] | "loading" | { error: string }>>({});
   const [editor, setEditor] = useState<Editor>(null);
@@ -165,6 +168,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
   function choose(row: TreeRow, kind: PilotKind, value: string) {
     setMenu(null);
     if (kind === "create_ad") { setNewAdFor(row); return; }
+    if (kind === "set_targeting") { setTargetingFor(row); return; }
     if (kind === "set_status" || kind === "set_bid_strategy") {
       onAdd({ kind, objectType: row.type, objectId: row.id, value, label: pendingLabel(platform, row, kind, value, currency) });
       return;
@@ -266,6 +270,16 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
           preset={studioPick}
           onCancel={() => setNewAdFor(null)}
           onDone={(spec, label) => { onAdd({ kind: "create_ad", objectType: "adset", objectId: newAdFor.id, value: JSON.stringify(spec), label }); setNewAdFor(null); }}
+        />
+      )}
+      {targetingFor && (
+        <TargetingForm
+          clientId={clientId}
+          accountId={accountId}
+          adsetId={targetingFor.id}
+          adsetName={targetingFor.name}
+          onCancel={() => setTargetingFor(null)}
+          onDone={(json, label) => { onAdd({ kind: "set_targeting", objectType: "adset", objectId: targetingFor.id, value: json, label }); setTargetingFor(null); }}
         />
       )}
       <div className="flex flex-wrap items-center gap-3 mb-3">

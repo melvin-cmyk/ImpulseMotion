@@ -19,6 +19,8 @@
  * Pure: no network, no database.
  */
 
+import { canonicalTargeting, readTargeting, targetingDiff, type Targeting } from "@/lib/pilot/targeting";
+
 export const PILOT_PLATFORMS = ["meta", "google"] as const;
 export type PilotPlatform = (typeof PILOT_PLATFORMS)[number];
 export const isPilotPlatform = (v: unknown): v is PilotPlatform => v === "meta" || v === "google";
@@ -32,7 +34,7 @@ export type PilotStatus = "ACTIVE" | "PAUSED" | "DELETED";
 
 export const PILOT_KINDS = [
   "set_status", "set_daily_budget", "set_lifetime_budget", "set_end_time", "set_start_time", "set_bid_amount", "set_target_cpa", "set_target_roas",
-  "set_bid_strategy", "set_spend_cap", "rename", "create_ad", "duplicate", "add_keyword", "add_negative_keyword",
+  "set_bid_strategy", "set_spend_cap", "rename", "create_ad", "duplicate", "add_keyword", "add_negative_keyword", "set_targeting",
 ] as const;
 export type PilotKind = (typeof PILOT_KINDS)[number];
 
@@ -167,6 +169,8 @@ export interface PilotObjectState {
   strategyLock?: string | null;
   /** A negative keyword (Google Ads, on a campaign): only removed, never paused nor bid on. */
   negative?: boolean;
+  /** Meta ad set: the targeting spec as JSON, read when the object is read alone. */
+  targeting?: string | null;
   parentName: string;
   /** Why the budget of this object cannot be changed here (a shared Google Ads budget); null when it can. */
   budgetLock?: string | null;
@@ -349,6 +353,14 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
       if (after === state.bidAmount) return { ok: false, error: `${label} a déjà cette enchère.` };
       return { ok: true, op: { ...base, field: "bid_amount", before: state.bidAmount, after, double: null, irreversible: false } };
     }
+    case "set_targeting": {
+      if (platform !== "meta" || req.objectType !== "adset") return { ok: false, error: "Le ciblage se règle sur un ensemble de publicités Meta." };
+      const read = readTargeting(req.value);
+      if (!read.ok) return { ok: false, error: `${label} : ${read.error}` };
+      const after = JSON.stringify(read.targeting);
+      if (state.targeting && canonicalTargeting(state.targeting) === canonicalTargeting(after)) return { ok: false, error: `${label} a déjà ce ciblage.` };
+      return { ok: true, op: { ...base, field: "targeting", before: state.targeting ?? null, after, double: null, irreversible: false } };
+    }
     case "add_keyword":
     case "add_negative_keyword": {
       const negative = req.kind === "add_negative_keyword";
@@ -456,6 +468,7 @@ export function stateValue(state: PilotObjectState, field: string): PilotValue {
     case "target_roas": return state.targetRoas ?? null;
     case "bid_strategy": return state.bidStrategy ?? null;
     case "spend_cap": return state.spendCap ?? null;
+    case "targeting": return state.targeting ?? null;
     case "name": return state.name;
     default: return null;
   }
@@ -465,6 +478,7 @@ export function stateValue(state: PilotObjectState, field: string): PilotValue {
 export function sameValue(field: string, a: PilotValue, b: PilotValue): boolean {
   if (a === null || b === null) return a === b;
   if (field === "end_time" || field === "stop_time" || field === "start_time") return new Date(String(a)).getTime() === new Date(String(b)).getTime();
+  if (field === "targeting") return canonicalTargeting(a) === canonicalTargeting(b);
   if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
   return a === b;
 }
@@ -499,7 +513,10 @@ const ICON: Record<PilotKind, string> = {
   duplicate: "📋",
   add_keyword: "🔑",
   add_negative_keyword: "🚫",
+  set_targeting: "🎯",
 };
+
+const parseTargeting = (v: PilotValue): Targeting | null => { try { const t = JSON.parse(String(v ?? "null")); return t && typeof t === "object" ? t : null; } catch { return null; } };
 
 /** The text of a keyword of a "new_keyword" / "new_negative" operation. */
 export function newKeywordText(value: PilotValue): string {
@@ -531,6 +548,7 @@ function valueText(field: string, value: PilotValue, currency: string): string {
   if (field === "new_ad") return value === null ? "—" : `« ${newAdName(value)} » (créée en pause)`;
   if (field === "copy") return value === null ? "—" : `« ${copyName(value)} » (créée en pause)`;
   if (field === "new_keyword" || field === "new_negative") return value === null ? "—" : newKeywordText(value);
+  if (field === "targeting") return value === null ? "—" : "ciblage";
   if (value === null) return field === "end_time" || field === "stop_time" || field === "end_date" || field === "start_time" || field === "start_date" || field === "spend_cap" ? "aucune" : "—";
   switch (field) {
     case "status": return statusText(String(value));
@@ -574,6 +592,7 @@ const FIELD_FR: Record<string, string> = {
   copy: "copie",
   new_keyword: "nouveau mot-clé",
   new_negative: "nouveau mot-clé négatif",
+  targeting: "ciblage",
 };
 
 /** One line, the same in the preview, the journal and HQ: what, on which object, before → after. */
@@ -586,6 +605,11 @@ export function describeOperation(
   const object = `${objectLabel(platform, op.objectType)} « ${op.objectName} »${op.parentName ? ` (${op.parentName})` : ""}`;
   if (op.field === "new_ad") return `${icon} ${object} — nouvelle publicité ${valueText(op.field, op.after, currency)}`;
   if (op.field === "copy") return `${icon} ${object} — dupliqué en ${valueText(op.field, op.after, currency)}`;
+  if (op.field === "targeting") {
+    const after = parseTargeting(op.after);
+    const lines = after ? targetingDiff(parseTargeting(op.before), after) : ["ciblage modifié"];
+    return `${icon} ${object} — ciblage : ${lines.join(" ; ")}`;
+  }
   if (op.field === "new_keyword") return `${icon} ${object} — mot-clé ajouté ${valueText(op.field, op.after, currency)}`;
   if (op.field === "new_negative") return `${icon} ${object} — mot-clé négatif ajouté ${valueText(op.field, op.after, currency)}`;
   return `${icon} ${object} — ${FIELD_FR[op.field] ?? op.field} : ${valueText(op.field, op.before, currency)} → ${valueText(op.field, op.after, currency)}`;

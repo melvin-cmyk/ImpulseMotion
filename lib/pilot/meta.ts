@@ -18,7 +18,7 @@ const LIVE_STATUSES = JSON.stringify([{ field: "effective_status", operator: "NO
 
 const FIELDS: Record<Exclude<PilotObjectType, "keyword">, string> = {
   campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,spend_cap,bid_strategy,bid_amount,bid_constraints",
-  adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,campaign{name}",
+  adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,targeting,campaign{name}",
   ad: "id,account_id,name,status,effective_status,adset{name}",
 };
 /** Meta's « no cap » marker on spend_cap. */
@@ -27,7 +27,7 @@ const NO_SPEND_CAP = 922337203685478;
 type Raw = Record<string, unknown> & {
   id: string; name?: string; status?: string; effective_status?: string; account_id?: string;
   daily_budget?: string; lifetime_budget?: string; stop_time?: string; end_time?: string; start_time?: string; bid_amount?: number | string;
-  spend_cap?: string | number; bid_strategy?: string; bid_constraints?: { roas_average_floor?: number | string }; campaign_id?: string; adset_id?: string;
+  spend_cap?: string | number; bid_strategy?: string; bid_constraints?: { roas_average_floor?: number | string }; targeting?: Record<string, unknown>; campaign_id?: string; adset_id?: string;
   campaign?: { name?: string }; adset?: { name?: string };
   insights?: { data?: Array<{ spend?: string }> };
 };
@@ -56,6 +56,7 @@ export function toState(raw: Raw, type: Exclude<PilotObjectType, "keyword">): Pi
     targetRoas: type !== "ad" && raw.bid_strategy === "LOWEST_COST_WITH_MIN_ROAS" && num(raw.bid_constraints?.roas_average_floor) ? Math.round(Number(raw.bid_constraints!.roas_average_floor) / 100) / 100 : null,
     spendCap: type === "campaign" && num(raw.spend_cap) && Number(raw.spend_cap) < NO_SPEND_CAP ? num(raw.spend_cap) : null,
     strategyLock: null,
+    targeting: type === "adset" && raw.targeting && typeof raw.targeting === "object" ? JSON.stringify(raw.targeting) : null,
     parentName: type === "adset" ? raw.campaign?.name ?? "" : type === "ad" ? raw.adset?.name ?? "" : "",
   };
 }
@@ -79,7 +80,8 @@ export async function readStructure(accountId: string): Promise<{ campaigns: Str
   const token = getMetaSystemToken();
   const [campaigns, adsets] = await Promise.all([
     metaGraphGetAll<Raw>(`/act_${digits}/campaigns`, token, { fields: `${FIELDS.campaign},${SPEND_7D}`, filtering: LIVE_STATUSES, limit: "200" }, 1000),
-    metaGraphGetAll<Raw>(`/act_${digits}/adsets`, token, { fields: `${FIELDS.adset},campaign_id,${SPEND_7D}`, filtering: LIVE_STATUSES, limit: "200" }, 2000),
+    // The targeting spec is heavy: read on the single object (readObject), not on the whole tree.
+    metaGraphGetAll<Raw>(`/act_${digits}/adsets`, token, { fields: `${FIELDS.adset.replace(",targeting", "")},campaign_id,${SPEND_7D}`, filtering: LIVE_STATUSES, limit: "200" }, 2000),
   ]);
   return {
     campaigns: campaigns.data.map((r) => row(r, "campaign", null)),
@@ -131,7 +133,7 @@ export function metaFieldsFor(field: string, value: string | number): Record<str
     case "cost_cap": return { bid_strategy: "COST_CAP", bid_amount: String(value) };
     case "roas_floor": return { bid_strategy: "LOWEST_COST_WITH_MIN_ROAS", bid_constraints: JSON.stringify({ roas_average_floor: Math.round(Number(value) * 10000) }) };
     case "bid_strategy": return { bid_strategy: String(value) };
-    case "status": case "daily_budget": case "lifetime_budget": case "bid_amount": case "end_time": case "stop_time": case "start_time": case "name": case "spend_cap":
+    case "status": case "daily_budget": case "lifetime_budget": case "bid_amount": case "end_time": case "stop_time": case "start_time": case "name": case "spend_cap": case "targeting":
       return { [field]: String(value) };
     default: return null;
   }
@@ -175,4 +177,18 @@ export async function copyObject(guard: WriteGuard, objectId: string, type: Pilo
     const message = (e instanceof Error ? e.message : String(e)).replace(/access_token=[^\s&"']+/gi, "access_token=[masqué]");
     return { kind: "refused", error: `Refusé par Meta : ${String(message).slice(0, 300)}` };
   }
+}
+
+/** The custom audiences of the account (for the targeting editor): id, name, kind, size, usable or not. */
+export async function readCustomAudiences(accountId: string): Promise<Array<{ id: string; name: string; subtype: string; size: number | null; ready: boolean }>> {
+  const digits = metaAccountDigits(accountId);
+  if (!digits) throw new Error("Compte Meta invalide");
+  const res = await metaGraphGetAll<{ id: string; name?: string; subtype?: string; approximate_count_lower_bound?: number; delivery_status?: { code?: number } }>(
+    `/act_${digits}/customaudiences`, getMetaSystemToken(), { fields: "id,name,subtype,approximate_count_lower_bound,delivery_status", limit: "200" }, 1000,
+  );
+  return res.data.map((a) => ({
+    id: String(a.id), name: String(a.name ?? a.id), subtype: String(a.subtype ?? ""),
+    size: typeof a.approximate_count_lower_bound === "number" && a.approximate_count_lower_bound >= 0 ? a.approximate_count_lower_bound : null,
+    ready: a.delivery_status?.code === 200 || a.delivery_status === undefined,
+  })).sort((a, b) => a.name.localeCompare(b.name, "fr"));
 }

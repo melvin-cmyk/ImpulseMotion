@@ -99,6 +99,7 @@ const KIND_DOCS: Record<(typeof PILOT_KINDS)[number], string> = {
   duplicate: `"value" : {"name":"<nom de la copie>"} — copie en pause d'une campagne (avec ses ensembles et annonces), d'un ensemble ou d'une annonce. Meta seulement`,
   add_keyword: `"value" : {"text":"<mot-clé>","matchType":"EXACT|PHRASE|BROAD"} — sur un groupe d'annonces (objectType "adset"). Google Ads seulement`,
   add_negative_keyword: `"value" : {"text":"<mot-clé>","matchType":"EXACT|PHRASE|BROAD"} — mot-clé négatif sur une campagne (objectType "campaign"). Google Ads seulement`,
+  set_targeting: `NE LE PROPOSE JAMAIS dans un bloc : le ciblage d'un ensemble Meta (âge, genre, pays, audiences, placements, Advantage+) se règle depuis l'éditeur « Ciblage » de l'ensemble, qui montre le ciblage actuel. Si le consultant le demande, dis-lui quoi changer et où`,
 };
 
 export function buildPilotSystemPrompt(clientName: string, author: string | null): string {
