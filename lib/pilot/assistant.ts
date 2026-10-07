@@ -51,6 +51,12 @@ export interface ContextObject {
   lifetimeBudget: number | null;
   bidAmount: number | null;
   bidStrategy: string | null;
+  /** Cost per result aimed at (minor units) and ROAS aimed at (ratio), when the strategy has one. */
+  targetCpa?: number | null;
+  targetRoas?: number | null;
+  spendCap?: number | null;
+  startTime?: string | null;
+  endTime?: string | null;
   budgetLock: string | null;
   parentId: string | null;
   spend7d: number;
@@ -81,10 +87,16 @@ const KIND_DOCS: Record<(typeof PILOT_KINDS)[number], string> = {
   set_status: `"value" : "ACTIVE" (activer), "PAUSED" (mettre en pause) ou "DELETED" (supprimer — définitif, à ne proposer que sur demande explicite)`,
   set_daily_budget: `"value" : le nouveau budget JOURNALIER en unités de la devise du compte (50 = 50 €/jour). Seulement sur l'objet qui porte un budget journalier dans le contexte (campagne ou ensemble), jamais sur un budget marqué « partagé »`,
   set_lifetime_budget: `"value" : le nouveau budget TOTAL en unités de la devise. Seulement sur un objet qui a déjà un budget total`,
-  set_end_time: `"value" : date de fin ISO 8601 avec fuseau (2026-10-31T23:59:00+01:00), plus d'une heure dans le futur. Meta seulement`,
+  set_end_time: `"value" : date de fin ISO 8601 avec fuseau (2026-10-31T23:59:00+01:00), plus d'une heure dans le futur. Meta : campagne ou ensemble ; Google Ads : campagne seulement (le jour compte)`,
+  set_start_time: `"value" : date de début ISO 8601 avec fuseau, dans le futur. Meta : campagne ou ensemble ; Google Ads : campagne pas encore commencée`,
   set_bid_amount: `"value" : la nouvelle enchère en unités de la devise. Seulement sur un ensemble / groupe d'annonces qui a déjà une enchère manuelle dans le contexte`,
+  set_target_cpa: `"value" : le coût par résultat visé en unités de la devise. Meta : sur l'objet qui porte la stratégie d'enchère (bidStrategy non nul), passe en « cost cap » ; Google Ads : campagne en Maximiser les conversions ou CPA cible (targetCpa ou bidStrategy dans le contexte)`,
+  set_target_roas: `"value" : le ROAS visé en multiplicateur (3 = 300 %). Meta : ROAS minimum sur l'objet qui porte la stratégie ; Google Ads : campagne en Maximiser la valeur de conversion ou ROAS cible`,
+  set_bid_strategy: `"value" : "AUTO" seulement — retour à l'enchère automatique (coût le plus bas, sans plafond). Meta seulement, sur l'objet qui porte la stratégie`,
+  set_spend_cap: `"value" : le plafond de dépense total de la campagne en unités de la devise (100 au moins). Meta, campagne seulement`,
   rename: `"value" : le nouveau nom`,
   create_ad: `NE LE PROPOSE JAMAIS dans un bloc : une nouvelle publicité se crée depuis le formulaire « Nouvelle publicité » d'un ensemble (image du Studio créa, textes, Page). Si le consultant le demande, propose-lui des textes (texte principal, titre, bouton) qu'il collera dans ce formulaire`,
+  duplicate: `"value" : {"name":"<nom de la copie>"} — copie en pause d'une campagne (avec ses ensembles et annonces), d'un ensemble ou d'une annonce. Meta seulement`,
 };
 
 export function buildPilotSystemPrompt(clientName: string, author: string | null): string {
@@ -136,7 +148,9 @@ function objectLine(platform: PilotPlatform, o: ContextObject, type: "campaign" 
   if (o.dailyBudget) bits.push(`budget ${money(o.dailyBudget, currency)}/jour${o.budgetLock ? " (partagé, non modifiable ici)" : ""}`);
   else if (o.lifetimeBudget) bits.push(`budget total ${money(o.lifetimeBudget, currency)}${o.budgetLock ? " (partagé, non modifiable ici)" : ""}`);
   if (o.bidAmount) bits.push(`enchère manuelle ${money(o.bidAmount, currency)}`);
-  else if (o.bidStrategy) bits.push(`enchères ${o.bidStrategy.toLowerCase().replace(/_/g, " ")}`);
+  else if (o.bidStrategy) bits.push(`enchères ${o.bidStrategy.toLowerCase().replace(/_/g, " ")}${o.targetCpa ? `, cible ${money(o.targetCpa, currency)}` : ""}${o.targetRoas ? `, ROAS cible ${o.targetRoas}×` : ""}`);
+  if (o.spendCap) bits.push(`plafond ${money(o.spendCap, currency)}`);
+  if (o.startTime || o.endTime) bits.push(`du ${o.startTime ? o.startTime.slice(0, 10) : "—"} au ${o.endTime ? o.endTime.slice(0, 10) : "—"}`);
   if (o.last7) bits.push(`7 j : ${metricsText(o.last7, currency)}${o.prev7 ? ` (7 j d'avant : ${metricsText(o.prev7, currency)})` : ""}`);
   else bits.push(`dépense 7 j ${n0(o.spend7d)} ${currency}`);
   return bits.join(" · ");

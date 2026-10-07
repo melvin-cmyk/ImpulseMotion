@@ -7,7 +7,7 @@
  * another account than the one of the action is refused, whatever the page sent.
  */
 
-import { getMetaSystemToken, metaGraphGetAll, metaGraphGetOnce, metaGraphUpdate, isMetaWriteUncertain } from "@/lib/meta-api";
+import { getMetaSystemToken, metaGraphGetAll, metaGraphGetOnce, metaGraphUpdate, metaGraphUpdateFields, metaGraphCopy, isMetaWriteUncertain } from "@/lib/meta-api";
 import { isMetaApiError } from "@/lib/meta-errors";
 import { metaAccountDigits } from "@/lib/routines/accounts";
 import type { WriteGuard } from "@/lib/routines/types";
@@ -17,15 +17,17 @@ const SPEND_7D = "insights.date_preset(last_7d){spend}";
 const LIVE_STATUSES = JSON.stringify([{ field: "effective_status", operator: "NOT_IN", value: ["DELETED", "ARCHIVED"] }]);
 
 const FIELDS: Record<PilotObjectType, string> = {
-  campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,stop_time,bid_strategy",
-  adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,end_time,bid_amount,bid_strategy,campaign{name}",
+  campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,spend_cap,bid_strategy,bid_amount,bid_constraints",
+  adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,campaign{name}",
   ad: "id,account_id,name,status,effective_status,adset{name}",
 };
+/** Meta's « no cap » marker on spend_cap. */
+const NO_SPEND_CAP = 922337203685478;
 
 type Raw = Record<string, unknown> & {
   id: string; name?: string; status?: string; effective_status?: string; account_id?: string;
-  daily_budget?: string; lifetime_budget?: string; stop_time?: string; end_time?: string; bid_amount?: number | string;
-  bid_strategy?: string; campaign_id?: string; adset_id?: string;
+  daily_budget?: string; lifetime_budget?: string; stop_time?: string; end_time?: string; start_time?: string; bid_amount?: number | string;
+  spend_cap?: string | number; bid_strategy?: string; bid_constraints?: { roas_average_floor?: number | string }; campaign_id?: string; adset_id?: string;
   campaign?: { name?: string }; adset?: { name?: string };
   insights?: { data?: Array<{ spend?: string }> };
 };
@@ -46,7 +48,14 @@ export function toState(raw: Raw, type: PilotObjectType): PilotObjectState {
     dailyBudget: num(raw.daily_budget),
     lifetimeBudget: num(raw.lifetime_budget),
     endTime: (type === "campaign" ? raw.stop_time : raw.end_time) || null,
+    startTime: type === "ad" ? null : raw.start_time || null,
     bidAmount: type === "adset" ? num(raw.bid_amount) : null,
+    bidStrategy: type === "ad" ? null : raw.bid_strategy ?? null,
+    // The cap is the bid under COST_CAP; the floor is bid_constraints under MIN_ROAS, ×10 000 at Meta.
+    targetCpa: type !== "ad" && raw.bid_strategy === "COST_CAP" ? num(raw.bid_amount) : null,
+    targetRoas: type !== "ad" && raw.bid_strategy === "LOWEST_COST_WITH_MIN_ROAS" && num(raw.bid_constraints?.roas_average_floor) ? Math.round(Number(raw.bid_constraints!.roas_average_floor) / 100) / 100 : null,
+    spendCap: type === "campaign" && num(raw.spend_cap) && Number(raw.spend_cap) < NO_SPEND_CAP ? num(raw.spend_cap) : null,
+    strategyLock: null,
     parentName: type === "adset" ? raw.campaign?.name ?? "" : type === "ad" ? raw.adset?.name ?? "" : "",
   };
 }
@@ -115,13 +124,53 @@ export type WriteOutcome =
   | { kind: "refused"; error: string }
   | { kind: "uncertain"; error: string };
 
+/** What a Pilotage field writes on Meta: one Graph field, or the strategy and its cap together. */
+export function metaFieldsFor(field: string, value: string | number): Record<string, string> | null {
+  switch (field) {
+    case "cost_cap": return { bid_strategy: "COST_CAP", bid_amount: String(value) };
+    case "roas_floor": return { bid_strategy: "LOWEST_COST_WITH_MIN_ROAS", bid_constraints: JSON.stringify({ roas_average_floor: Math.round(Number(value) * 10000) }) };
+    case "bid_strategy": return { bid_strategy: String(value) };
+    case "status": case "daily_budget": case "lifetime_budget": case "bid_amount": case "end_time": case "stop_time": case "start_time": case "name": case "spend_cap":
+      return { [field]: String(value) };
+    default: return null;
+  }
+}
+
 /** One field written on one object. Never throws: the outcome says what happened. */
 export async function writeField(guard: WriteGuard, objectId: string, field: string, value: string | number): Promise<WriteOutcome> {
   try {
-    await metaGraphUpdate(guard, objectId, field, String(value), getMetaSystemToken());
+    const fields = metaFieldsFor(field, value);
+    if (!fields) return { kind: "refused", error: "Ce changement ne peut pas être envoyé à Meta depuis ImpulseMotion." };
+    const keys = Object.keys(fields);
+    if (keys.length === 1) await metaGraphUpdate(guard, objectId, keys[0], fields[keys[0]], getMetaSystemToken());
+    else await metaGraphUpdateFields(guard, objectId, fields, getMetaSystemToken());
     return { kind: "done" };
   } catch (e) {
     if (isMetaWriteUncertain(e)) return { kind: "uncertain", error: "Meta n'a pas répondu à temps : la modification a peut-être été appliquée. Vérifiez dans le Gestionnaire de publicités avant de recommencer." };
+    const message = (e instanceof Error ? e.message : String(e)).replace(/access_token=[^\s&"']+/gi, "access_token=[masqué]");
+    return { kind: "refused", error: `Refusé par Meta : ${String(message).slice(0, 300)}` };
+  }
+}
+
+/**
+ * A copy of a campaign, an ad set or an ad: everything below it too, PAUSED,
+ * renamed with the suffix that makes the name asked. Never throws.
+ */
+export async function copyObject(guard: WriteGuard, objectId: string, type: PilotObjectType, currentName: string, newName: string): Promise<WriteOutcome & { copiedId?: string }> {
+  // Meta renames by suffix only: the suffix is what the new name adds after the current one, else the whole name after a separator.
+  const suffix = newName.startsWith(currentName) && newName.length > currentName.length ? newName.slice(currentName.length) : ` — ${newName}`;
+  const fields: Record<string, string> = {
+    deep_copy: type === "ad" ? "false" : "true",
+    status_option: "PAUSED",
+    rename_options: JSON.stringify({ rename_strategy: "ONLY_TOP_LEVEL_RENAME", rename_suffix: suffix.slice(0, 80).replace(/["\\]/g, "") }),
+  };
+  try {
+    const res = await metaGraphCopy(guard, objectId, fields, getMetaSystemToken());
+    const copiedId = res.copied_campaign_id ?? res.copied_adset_id ?? res.copied_ad_id ?? res.ad_object_ids?.find((o) => o.source_id === objectId)?.copied_id ?? null;
+    if (!copiedId || !/^\d{5,25}$/.test(String(copiedId))) return { kind: "uncertain", error: "Meta a répondu sans identifiant de copie : vérifiez dans le Gestionnaire de publicités avant de recommencer." };
+    return { kind: "done", copiedId: String(copiedId) };
+  } catch (e) {
+    if (isMetaWriteUncertain(e)) return { kind: "uncertain", error: "Meta n'a pas répondu à temps : la copie a peut-être été créée. Vérifiez dans le Gestionnaire de publicités avant de recommencer." };
     const message = (e instanceof Error ? e.message : String(e)).replace(/access_token=[^\s&"']+/gi, "access_token=[masqué]");
     return { kind: "refused", error: `Refusé par Meta : ${String(message).slice(0, 300)}` };
   }

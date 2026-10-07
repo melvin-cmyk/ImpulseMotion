@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Pencil, Search } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { currencyOffset, dateText, money, newAdName, objectLabel, statusText, type PilotKind } from "@/lib/pilot/ops";
+import { copyName, currencyOffset, dateText, money, newAdName, objectLabel, statusText, strategyText, type PilotKind } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
 import { NewAdForm, type StudioPick } from "@/components/pilot/new-ad-form";
 
@@ -33,11 +33,28 @@ function choices(row: TreeRow, platform: string = "meta"): Array<{ kind: PilotKi
   if (row.dailyBudget && !row.budgetLock) out.push({ kind: "set_daily_budget", label: "Budget journalier", value: "" });
   if (row.lifetimeBudget && !row.budgetLock) out.push({ kind: "set_lifetime_budget", label: "Budget total", value: "" });
   if (row.type !== "ad" && !row.endTimeLock) out.push({ kind: "set_end_time", label: "Date de fin", value: "" });
+  if (row.type !== "ad" && !(platform === "google" && row.type === "adset")) out.push({ kind: "set_start_time", label: "Date de début", value: "" });
+  if (row.type === "campaign" && platform === "meta") out.push({ kind: "set_spend_cap", label: "Plafond de dépense", value: "" });
   if (row.type === "adset" && row.bidAmount) out.push({ kind: "set_bid_amount", label: "Enchère", value: "" });
+  const carriesStrategy = row.type !== "ad" && !row.strategyLock && (platform === "google" ? row.type === "campaign" : !!row.bidStrategy);
+  if (carriesStrategy) {
+    out.push({ kind: "set_target_cpa", label: platform === "google" ? "CPA cible" : "Coût cible (cost cap)", value: "" });
+    out.push({ kind: "set_target_roas", label: platform === "google" ? "ROAS cible" : "ROAS minimum", value: "" });
+    if (platform === "meta" && row.bidStrategy !== "LOWEST_COST_WITHOUT_CAP") out.push({ kind: "set_bid_strategy", label: "Enchère automatique (sans plafond)", value: "AUTO" });
+  }
   out.push({ kind: "rename", label: "Renommer", value: "" });
+  if (platform === "meta") out.push({ kind: "duplicate", label: "Dupliquer (en pause)", value: "" });
   out.push({ kind: "set_status", label: "Supprimer", value: "DELETED" });
   return out;
 }
+
+const localDateTime = (iso: string | null | undefined, fallbackDays: number) => {
+  const d = iso ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T09:00:00` : iso) : new Date(Date.now() + fallbackDays * 86_400_000);
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+};
+const DATE_KINDS = new Set<PilotKind>(["set_end_time", "set_start_time"]);
+const TEXT_KINDS = new Set<PilotKind>(["rename", "duplicate"]);
 
 function initialValue(row: TreeRow, kind: PilotKind, currency: string): string {
   const unit = currencyOffset(currency);
@@ -45,12 +62,13 @@ function initialValue(row: TreeRow, kind: PilotKind, currency: string): string {
     case "set_daily_budget": return row.dailyBudget ? String(row.dailyBudget / unit) : "";
     case "set_lifetime_budget": return row.lifetimeBudget ? String(row.lifetimeBudget / unit) : "";
     case "set_bid_amount": return row.bidAmount ? String(row.bidAmount / unit) : "";
-    case "set_end_time": {
-      const d = row.endTime ? new Date(row.endTime) : new Date(Date.now() + 7 * 86_400_000);
-      const local = new Date(d.getTime() - d.getTimezoneOffset() * 60_000);
-      return local.toISOString().slice(0, 16);
-    }
+    case "set_target_cpa": return row.targetCpa ? String(row.targetCpa / unit) : "";
+    case "set_target_roas": return row.targetRoas ? String(row.targetRoas) : "";
+    case "set_spend_cap": return row.spendCap ? String(row.spendCap / unit) : "";
+    case "set_end_time": return localDateTime(row.endTime, 7);
+    case "set_start_time": return localDateTime(row.startTime, 1);
     case "rename": return row.name;
+    case "duplicate": return `${row.name} — copie`;
     default: return "";
   }
 }
@@ -64,8 +82,14 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
     case "set_lifetime_budget": return `${object} : budget total ${money(row.lifetimeBudget, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "set_bid_amount": return `${object} : enchère ${money(row.bidAmount, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "set_end_time": return `${object} : date de fin ${dateText(row.endTime)} → ${dateText(new Date(value).toISOString())}`;
+    case "set_start_time": return `${object} : date de début ${dateText(row.startTime)} → ${dateText(new Date(value).toISOString())}`;
+    case "set_target_cpa": return `${object} : ${platform === "google" ? "CPA cible" : "coût cible"} ${money(row.targetCpa ?? null, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
+    case "set_target_roas": return `${object} : ${platform === "google" ? "ROAS cible" : "ROAS minimum"} ${row.targetRoas ? `${row.targetRoas}×` : "—"} → ${value.replace(",", ".")}×`;
+    case "set_bid_strategy": return `${object} : ${row.bidStrategy ? strategyText(row.bidStrategy) : "enchère"} → enchère automatique`;
+    case "set_spend_cap": return `${object} : plafond de dépense ${money(row.spendCap ?? null, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "rename": return `${object} : renommer en « ${value} »`;
     case "create_ad": return `${object} : nouvelle publicité « ${newAdName(value)} » (créée en pause)`;
+    case "duplicate": return `${object} : dupliquer en « ${copyName(value)} » (créée en pause)`;
   }
 }
 
@@ -119,7 +143,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
   function choose(row: TreeRow, kind: PilotKind, value: string) {
     setMenu(null);
     if (kind === "create_ad") { setNewAdFor(row); return; }
-    if (kind === "set_status") {
+    if (kind === "set_status" || kind === "set_bid_strategy") {
       onAdd({ kind, objectType: row.type, objectId: row.id, value, label: pendingLabel(platform, row, kind, value, currency) });
       return;
     }
@@ -129,8 +153,9 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
   function submitEditor() {
     if (!editor || !editor.value.trim()) return;
     const { row, kind } = editor;
-    const value = kind === "set_end_time" ? new Date(editor.value).toISOString() : editor.value.trim();
-    onAdd({ kind, objectType: row.type, objectId: row.id, value: kind === "rename" || kind === "set_end_time" ? value : Number(value.replace(",", ".")), label: pendingLabel(platform, row, kind, editor.value, currency) });
+    const text = editor.value.trim();
+    const value = DATE_KINDS.has(kind) ? new Date(text).toISOString() : kind === "duplicate" ? JSON.stringify({ name: text }) : text;
+    onAdd({ kind, objectType: row.type, objectId: row.id, value: TEXT_KINDS.has(kind) || DATE_KINDS.has(kind) ? value : Number(value.replace(",", ".")), label: pendingLabel(platform, row, kind, kind === "duplicate" ? value : editor.value, currency) });
     setEditor(null);
   }
 
@@ -175,14 +200,17 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
             <span className="text-gray-400">{choices(row, platform).find((c) => c.kind === editor.kind)?.label} :</span>
             <input
               autoFocus
-              type={editor.kind === "set_end_time" ? "datetime-local" : editor.kind === "rename" ? "text" : "number"}
-              step={editor.kind === "set_end_time" || editor.kind === "rename" ? undefined : "0.01"}
-              min={editor.kind === "set_end_time" || editor.kind === "rename" ? undefined : "1"}
+              type={DATE_KINDS.has(editor.kind) ? "datetime-local" : TEXT_KINDS.has(editor.kind) ? "text" : "number"}
+              step={DATE_KINDS.has(editor.kind) || TEXT_KINDS.has(editor.kind) ? undefined : "0.01"}
+              min={DATE_KINDS.has(editor.kind) || TEXT_KINDS.has(editor.kind) ? undefined : editor.kind === "set_target_roas" ? "0.1" : "1"}
               value={editor.value}
               onChange={(e) => setEditor({ ...editor, value: e.target.value })}
-              className={`bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white ${editor.kind === "rename" ? "flex-1 min-w-[12rem]" : "w-40"}`}
+              className={`bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white ${TEXT_KINDS.has(editor.kind) ? "flex-1 min-w-[12rem]" : "w-40"}`}
             />
-            {editor.kind !== "rename" && editor.kind !== "set_end_time" && <span className="text-gray-500">{currency}{editor.kind === "set_daily_budget" ? " / jour" : ""}</span>}
+            {!TEXT_KINDS.has(editor.kind) && !DATE_KINDS.has(editor.kind) && (
+              <span className="text-gray-500">{editor.kind === "set_target_roas" ? "× (3 = 300 %)" : `${currency}${editor.kind === "set_daily_budget" ? " / jour" : ""}`}</span>
+            )}
+            {editor.kind === "duplicate" && <span className="text-gray-500">copie en pause{row.type === "ad" ? "" : ", avec tout ce qu'elle contient"}</span>}
             <button type="submit" className="px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-500 text-white">Ajouter</button>
             <button type="button" onClick={() => setEditor(null)} className="px-2 py-1 text-gray-400 hover:text-white">Annuler</button>
           </form>

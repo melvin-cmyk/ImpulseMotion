@@ -20,8 +20,14 @@ export interface TreeRow {
   dailyBudget: number | null;
   lifetimeBudget: number | null;
   endTime: string | null;
+  startTime?: string | null;
   bidAmount: number | null;
   bidStrategy: string | null;
+  targetCpa?: number | null;
+  targetRoas?: number | null;
+  spendCap?: number | null;
+  /** Why the bidding targets cannot be changed here. */
+  strategyLock?: string | null;
   /** Why the budget cannot be changed here (a shared Google Ads budget). */
   budgetLock?: string | null;
   /** Why the end date cannot be changed here. */

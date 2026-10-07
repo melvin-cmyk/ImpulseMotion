@@ -7,7 +7,7 @@
 
 import { metaAccountDigits } from "@/lib/routines/accounts";
 import type { WriteGuard } from "@/lib/routines/types";
-import { readAccountCurrency, readAds, readObject, readStructure, writeField, type StructureRow, type WriteOutcome } from "@/lib/pilot/meta";
+import { copyObject, readAccountCurrency, readAds, readObject, readStructure, writeField, type StructureRow, type WriteOutcome } from "@/lib/pilot/meta";
 import { googleCustomerDigits, googleWritesOpen, readGoogleCurrency, readGoogleObject, readGoogleStructure, writeGoogleField } from "@/lib/pilot/google";
 import type { PilotObjectState, PilotObjectType, PilotPlatform } from "@/lib/pilot/ops";
 
@@ -24,6 +24,8 @@ export interface PilotAdapter {
   readCurrency(account: string): Promise<string>;
   readObject(account: string, objectId: string, type: PilotObjectType, currency: string): Promise<PilotObjectState | null>;
   writeField(guard: WriteGuard, account: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string): Promise<WriteOutcome>;
+  /** A paused copy of an object under a new name; null when the platform has no such thing here. */
+  copyObject: ((guard: WriteGuard, account: string, objectId: string, type: PilotObjectType, currentName: string, newName: string) => Promise<WriteOutcome & { copiedId?: string }>) | null;
   writesOpen(): boolean;
 }
 
@@ -36,6 +38,7 @@ const meta: PilotAdapter = {
   readCurrency: (account) => readAccountCurrency(account),
   readObject: (_account, objectId, type) => readObject(objectId, type),
   writeField: (guard, _account, objectId, _type, field, value) => writeField(guard, objectId, field, value),
+  copyObject: (guard, _account, objectId, type, currentName, newName) => copyObject(guard, objectId, type, currentName, newName),
   writesOpen: () => process.env.PILOT_WRITES === "1",
 };
 
@@ -52,6 +55,7 @@ const google: PilotAdapter = {
   readObject: (account, objectId, type, currency) => readGoogleObject(account, objectId, type, currency),
   // The guard is minted for every send; Google writes go through the n8n flow, which has no guard of its own.
   writeField: (_guard, account, objectId, type, field, value, currency) => writeGoogleField(account, objectId, type, field, value, currency),
+  copyObject: null,
   writesOpen: googleWritesOpen,
 };
 

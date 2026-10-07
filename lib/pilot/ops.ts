@@ -26,7 +26,10 @@ export const PLATFORM_FR: Record<string, string> = { meta: "Meta", google: "Goog
 export type PilotObjectType = "campaign" | "adset" | "ad";
 export type PilotStatus = "ACTIVE" | "PAUSED" | "DELETED";
 
-export const PILOT_KINDS = ["set_status", "set_daily_budget", "set_lifetime_budget", "set_end_time", "set_bid_amount", "rename", "create_ad"] as const;
+export const PILOT_KINDS = [
+  "set_status", "set_daily_budget", "set_lifetime_budget", "set_end_time", "set_start_time", "set_bid_amount", "set_target_cpa", "set_target_roas",
+  "set_bid_strategy", "set_spend_cap", "rename", "create_ad", "duplicate",
+] as const;
 export type PilotKind = (typeof PILOT_KINDS)[number];
 
 /** At most this many changes in one action: each is read, written and read again. */
@@ -97,6 +100,21 @@ export interface PilotRequest {
   value: string | number;
 }
 
+/**
+ * A copy of a campaign, an ad set or an ad (kind "duplicate", Meta): created
+ * PAUSED with everything below it, under a new name.
+ */
+export interface CopySpec { name: string }
+
+export function readCopy(value: unknown): { ok: true; spec: CopySpec } | { ok: false; error: string } {
+  let raw: Record<string, unknown>;
+  try { raw = typeof value === "string" ? JSON.parse(value) : (value as Record<string, unknown>); } catch { return { ok: false, error: "Copie illisible." }; }
+  if (!raw || typeof raw !== "object") return { ok: false, error: "Copie illisible." };
+  const name = str(raw.name, 400).replace(/\s+/g, " ").trim();
+  if (!name) return { ok: false, error: "Donnez un nom à la copie." };
+  return { ok: true, spec: { name } };
+}
+
 /** An object as the platform holds it now. Amounts in minor units. */
 export interface PilotObjectState {
   id: string;
@@ -109,9 +127,21 @@ export interface PilotObjectState {
   effectiveStatus: string;
   dailyBudget: number | null;
   lifetimeBudget: number | null;
-  /** Campaign: stop_time; ad set: end_time. */
+  /** Campaign: stop_time; ad set: end_time. Google Ads: the end date (YYYY-MM-DD). */
   endTime: string | null;
+  /** Meta: start_time; Google Ads: the start date (YYYY-MM-DD). */
+  startTime?: string | null;
   bidAmount: number | null;
+  /** Meta: LOWEST_COST_WITHOUT_CAP | LOWEST_COST_WITH_BID_CAP | COST_CAP | LOWEST_COST_WITH_MIN_ROAS, on the object that carries it; Google: the bidding strategy type. */
+  bidStrategy?: string | null;
+  /** Cost per result aimed at (Meta: bid_amount under COST_CAP; Google: target CPA), minor units. */
+  targetCpa?: number | null;
+  /** ROAS aimed at (Meta: ROAS floor; Google: target ROAS), as a ratio (3.5 = 350 %). */
+  targetRoas?: number | null;
+  /** Meta campaign: spend_cap, minor units. */
+  spendCap?: number | null;
+  /** Why the bidding targets of this object cannot be changed here; null when they can. */
+  strategyLock?: string | null;
   parentName: string;
   /** Why the budget of this object cannot be changed here (a shared Google Ads budget); null when it can. */
   budgetLock?: string | null;
@@ -175,6 +205,9 @@ export function dateText(iso: string | null | undefined): string {
 }
 
 const isId = (id: unknown): id is string => typeof id === "string" && /^\d{5,25}$/.test(id);
+
+/** YYYY-MM-DD of an instant in Paris (Google Ads dates are days). */
+export const parisDayOf = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
 /** Reads a request sent by the page; null when it is not one. */
 export function readRequest(raw: unknown): PilotRequest | null {
@@ -263,6 +296,12 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
       const when = new Date(String(req.value));
       if (Number.isNaN(when.getTime())) return { ok: false, error: `Date de fin invalide pour ${label}.` };
       if (when.getTime() <= now.getTime() + 60 * 60 * 1000) return { ok: false, error: `La date de fin de ${label} doit être dans plus d'une heure.` };
+      if (platform === "google") {
+        const day = parisDayOf(when);
+        if (state.endTime === day) return { ok: false, error: `${label} a déjà cette date de fin.` };
+        if (state.startTime && day < state.startTime) return { ok: false, error: `La date de fin de ${label} est avant sa date de début (${state.startTime}).` };
+        return { ok: true, op: { ...base, field: "end_date", before: state.endTime, after: day, double: null, irreversible: false } };
+      }
       const after = when.toISOString();
       if (state.endTime && new Date(state.endTime).getTime() === when.getTime()) return { ok: false, error: `${label} a déjà cette date de fin.` };
       return { ok: true, op: { ...base, field: req.objectType === "campaign" ? "stop_time" : "end_time", before: state.endTime, after, double: null, irreversible: false } };
@@ -284,6 +323,69 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
       // Created PAUSED: nothing is spent before the consultant activates it, so no second confirmation.
       return { ok: true, op: { ...base, field: "new_ad", before: null, after: JSON.stringify(read.spec), double: null, irreversible: false } };
     }
+    case "set_start_time": {
+      if (req.objectType === "ad") return { ok: false, error: "Une annonce n'a pas de date de début : changez celle de son ensemble." };
+      if (platform === "google" && req.objectType === "adset") return { ok: false, error: "Un groupe d'annonces n'a pas de date de début : changez celle de sa campagne." };
+      const when = new Date(String(req.value));
+      if (Number.isNaN(when.getTime())) return { ok: false, error: `Date de début invalide pour ${label}.` };
+      if (when.getTime() <= now.getTime() + 60 * 60 * 1000) return { ok: false, error: `La date de début de ${label} doit être dans plus d'une heure.` };
+      if (platform === "google") {
+        const day = parisDayOf(when);
+        if (state.startTime && state.startTime <= parisDayOf(now)) return { ok: false, error: `${label} a déjà commencé : Google Ads ne change plus sa date de début.` };
+        if (state.startTime === day) return { ok: false, error: `${label} a déjà cette date de début.` };
+        return { ok: true, op: { ...base, field: "start_date", before: state.startTime ?? null, after: day, double: null, irreversible: false } };
+      }
+      const after = when.toISOString();
+      if (state.startTime && new Date(state.startTime).getTime() === when.getTime()) return { ok: false, error: `${label} a déjà cette date de début.` };
+      return { ok: true, op: { ...base, field: "start_time", before: state.startTime ?? null, after, double: null, irreversible: false } };
+    }
+    case "set_spend_cap": {
+      if (platform !== "meta" || req.objectType !== "campaign") return { ok: false, error: "Le plafond de dépense se règle sur une campagne Meta." };
+      const amount = amountOf(req.value);
+      if (amount === null) return { ok: false, error: `Plafond invalide pour ${label}.` };
+      const after = Math.round(amount * offset);
+      if (after < offset * 100) return { ok: false, error: `Plafond trop faible pour ${label} (100 ${currency} au moins).` };
+      if (after === (state.spendCap ?? null)) return { ok: false, error: `${label} a déjà ce plafond.` };
+      return { ok: true, op: { ...base, field: "spend_cap", before: state.spendCap ?? null, after, double: null, irreversible: false } };
+    }
+    case "set_target_cpa": {
+      if (req.objectType === "ad") return { ok: false, error: "Le coût cible se règle sur une campagne ou un ensemble, pas sur une annonce." };
+      if (state.strategyLock) return { ok: false, error: `${label} : ${state.strategyLock}` };
+      if (platform === "meta" && !state.bidStrategy) return { ok: false, error: `${label} ne porte pas la stratégie d'enchère (elle est sur ${req.objectType === "adset" ? "sa campagne, budget centralisé" : "ses ensembles"}).` };
+      const amount = amountOf(req.value);
+      if (amount === null) return { ok: false, error: `Coût cible invalide pour ${label}.` };
+      const after = Math.round(amount * offset);
+      if (after < 1) return { ok: false, error: `Coût cible trop faible pour ${label}.` };
+      if (after === (state.targetCpa ?? null)) return { ok: false, error: `${label} a déjà ce coût cible.` };
+      return { ok: true, op: { ...base, field: platform === "google" ? "target_cpa" : "cost_cap", before: state.targetCpa ?? null, after, double: null, irreversible: false } };
+    }
+    case "set_target_roas": {
+      if (req.objectType === "ad") return { ok: false, error: "Le ROAS cible se règle sur une campagne ou un ensemble, pas sur une annonce." };
+      if (state.strategyLock) return { ok: false, error: `${label} : ${state.strategyLock}` };
+      if (platform === "meta" && !state.bidStrategy) return { ok: false, error: `${label} ne porte pas la stratégie d'enchère (elle est sur ${req.objectType === "adset" ? "sa campagne, budget centralisé" : "ses ensembles"}).` };
+      const ratio = amountOf(req.value);
+      if (ratio === null || ratio > 1000) return { ok: false, error: `ROAS cible invalide pour ${label} (un multiplicateur : 3 = 300 %).` };
+      const after = Math.round(ratio * 100) / 100;
+      if (after === (state.targetRoas ?? null)) return { ok: false, error: `${label} a déjà ce ROAS cible.` };
+      return { ok: true, op: { ...base, field: platform === "google" ? "target_roas" : "roas_floor", before: state.targetRoas ?? null, after, double: null, irreversible: false } };
+    }
+    case "set_bid_strategy": {
+      if (platform !== "meta") return { ok: false, error: "La stratégie d'enchère Google Ads se change dans Google Ads pour le moment." };
+      if (req.objectType === "ad") return { ok: false, error: "La stratégie d'enchère se règle sur une campagne ou un ensemble." };
+      if (!state.bidStrategy) return { ok: false, error: `${label} ne porte pas la stratégie d'enchère.` };
+      const value = String(req.value).toUpperCase() === "AUTO" ? "LOWEST_COST_WITHOUT_CAP" : String(req.value).toUpperCase();
+      if (value !== "LOWEST_COST_WITHOUT_CAP") return { ok: false, error: "Seul le retour à l'enchère automatique (« AUTO ») se fait ici : un plafond se règle par le coût cible ou le ROAS cible." };
+      if (value === state.bidStrategy) return { ok: false, error: `${label} est déjà en enchère automatique.` };
+      return { ok: true, op: { ...base, field: "bid_strategy", before: state.bidStrategy, after: value, double: null, irreversible: false } };
+    }
+    case "duplicate": {
+      if (platform !== "meta") return { ok: false, error: "La duplication n'existe que pour Meta pour le moment." };
+      const read = readCopy(req.value);
+      if (!read.ok) return { ok: false, error: read.error };
+      if (read.spec.name === state.name) return { ok: false, error: `Donnez un autre nom que « ${state.name} » à la copie.` };
+      // Created PAUSED: nothing is spent before the consultant activates it.
+      return { ok: true, op: { ...base, field: "copy", before: null, after: JSON.stringify(read.spec), double: null, irreversible: false } };
+    }
     case "rename": {
       const name = String(req.value).replace(/\s+/g, " ").trim();
       if (!name || name.length > 400) return { ok: false, error: `Nom invalide pour ${label}.` };
@@ -300,8 +402,17 @@ export function stateValue(state: PilotObjectState, field: string): PilotValue {
     case "daily_budget": return state.dailyBudget;
     case "lifetime_budget": return state.lifetimeBudget;
     case "end_time":
-    case "stop_time": return state.endTime;
+    case "stop_time":
+    case "end_date": return state.endTime;
+    case "start_time":
+    case "start_date": return state.startTime ?? null;
     case "bid_amount": return state.bidAmount;
+    case "cost_cap":
+    case "target_cpa": return state.targetCpa ?? null;
+    case "roas_floor":
+    case "target_roas": return state.targetRoas ?? null;
+    case "bid_strategy": return state.bidStrategy ?? null;
+    case "spend_cap": return state.spendCap ?? null;
     case "name": return state.name;
     default: return null;
   }
@@ -310,7 +421,7 @@ export function stateValue(state: PilotObjectState, field: string): PilotValue {
 /** The same value for the platform: dates compared as instants, the rest as they are. */
 export function sameValue(field: string, a: PilotValue, b: PilotValue): boolean {
   if (a === null || b === null) return a === b;
-  if (field === "end_time" || field === "stop_time") return new Date(String(a)).getTime() === new Date(String(b)).getTime();
+  if (field === "end_time" || field === "stop_time" || field === "start_time") return new Date(String(a)).getTime() === new Date(String(b)).getTime();
   if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
   return a === b;
 }
@@ -318,12 +429,14 @@ export function sameValue(field: string, a: PilotValue, b: PilotValue): boolean 
 /** The request that puts an operation back; null when nothing can (a deletion, a date that did not exist). */
 export function inverseRequest(op: { kind: string; objectType: string; objectId: string; field: string; before: PilotValue; after: PilotValue }, currency: string): PilotRequest | null {
   // A new ad is not « put back »: it is created paused, and deleted from the tree if it must go.
-  if (op.field === "new_ad" || op.before === null || op.after === "DELETED") return null;
+  if (op.field === "new_ad" || op.field === "copy" || op.before === null || op.after === "DELETED") return null;
   const kind = op.kind as PilotKind;
   const objectType = op.objectType as PilotObjectType;
-  if (op.field === "daily_budget" || op.field === "lifetime_budget" || op.field === "bid_amount") {
+  if (op.field === "daily_budget" || op.field === "lifetime_budget" || op.field === "bid_amount" || op.field === "cost_cap" || op.field === "target_cpa" || op.field === "spend_cap") {
     return { kind, objectType, objectId: op.objectId, value: Number(op.before) / currencyOffset(currency) };
   }
+  // Putting a cap back after a return to automatic bidding is a cost cap again (same object, same value).
+  if (op.field === "bid_strategy") return op.before === "LOWEST_COST_WITHOUT_CAP" ? { kind: "set_bid_strategy", objectType, objectId: op.objectId, value: "AUTO" } : null;
   return { kind, objectType, objectId: op.objectId, value: op.before };
 }
 
@@ -332,10 +445,30 @@ const ICON: Record<PilotKind, string> = {
   set_daily_budget: "💶",
   set_lifetime_budget: "💶",
   set_end_time: "📅",
+  set_start_time: "📅",
   set_bid_amount: "🎯",
+  set_target_cpa: "🎯",
+  set_target_roas: "🎯",
+  set_bid_strategy: "🎯",
+  set_spend_cap: "💶",
   rename: "✏️",
   create_ad: "🆕",
+  duplicate: "📋",
 };
+
+/** The name of the copy of a "copy" operation. */
+export function copyName(value: PilotValue): string {
+  const read = readCopy(value);
+  return read.ok ? read.spec.name : "copie";
+}
+
+const STRATEGY_FR: Record<string, string> = {
+  LOWEST_COST_WITHOUT_CAP: "enchère automatique",
+  LOWEST_COST_WITH_BID_CAP: "plafond d'enchère",
+  COST_CAP: "coût cible",
+  LOWEST_COST_WITH_MIN_ROAS: "ROAS minimum",
+};
+export const strategyText = (v: string) => STRATEGY_FR[v] ?? v.toLowerCase().replace(/_/g, " ");
 
 /** The name of the new ad of a "new_ad" operation. */
 export function newAdName(value: PilotValue): string {
@@ -345,14 +478,24 @@ export function newAdName(value: PilotValue): string {
 
 function valueText(field: string, value: PilotValue, currency: string): string {
   if (field === "new_ad") return value === null ? "—" : `« ${newAdName(value)} » (créée en pause)`;
-  if (value === null) return field === "end_time" || field === "stop_time" ? "aucune" : "—";
+  if (field === "copy") return value === null ? "—" : `« ${copyName(value)} » (créée en pause)`;
+  if (value === null) return field === "end_time" || field === "stop_time" || field === "end_date" || field === "start_time" || field === "start_date" || field === "spend_cap" ? "aucune" : "—";
   switch (field) {
     case "status": return statusText(String(value));
     case "daily_budget": return `${money(Number(value), currency)}/jour`;
     case "lifetime_budget":
-    case "bid_amount": return money(Number(value), currency);
+    case "bid_amount":
+    case "cost_cap":
+    case "target_cpa":
+    case "spend_cap": return money(Number(value), currency);
+    case "roas_floor":
+    case "target_roas": return `${Number(value)}×`;
+    case "bid_strategy": return strategyText(String(value));
     case "end_time":
-    case "stop_time": return dateText(String(value));
+    case "stop_time":
+    case "start_time": return dateText(String(value));
+    case "end_date":
+    case "start_date": return `${String(value).slice(8, 10)}/${String(value).slice(5, 7)}/${String(value).slice(0, 4)}`;
     case "name": return `« ${value} »`;
     default: return String(value);
   }
@@ -364,9 +507,19 @@ const FIELD_FR: Record<string, string> = {
   lifetime_budget: "budget total",
   end_time: "date de fin",
   stop_time: "date de fin",
+  end_date: "date de fin",
+  start_time: "date de début",
+  start_date: "date de début",
   bid_amount: "enchère",
+  cost_cap: "coût cible (cost cap)",
+  target_cpa: "CPA cible",
+  roas_floor: "ROAS minimum",
+  target_roas: "ROAS cible",
+  bid_strategy: "stratégie d'enchère",
+  spend_cap: "plafond de dépense",
   name: "nom",
   new_ad: "nouvelle publicité",
+  copy: "copie",
 };
 
 /** One line, the same in the preview, the journal and HQ: what, on which object, before → after. */
@@ -378,6 +531,7 @@ export function describeOperation(
   const icon = op.kind === "set_status" ? (op.after === "PAUSED" ? "⏸" : op.after === "ACTIVE" ? "▶️" : "🗑") : ICON[op.kind as PilotKind] ?? "•";
   const object = `${objectLabel(platform, op.objectType)} « ${op.objectName} »${op.parentName ? ` (${op.parentName})` : ""}`;
   if (op.field === "new_ad") return `${icon} ${object} — nouvelle publicité ${valueText(op.field, op.after, currency)}`;
+  if (op.field === "copy") return `${icon} ${object} — dupliqué en ${valueText(op.field, op.after, currency)}`;
   return `${icon} ${object} — ${FIELD_FR[op.field] ?? op.field} : ${valueText(op.field, op.before, currency)} → ${valueText(op.field, op.after, currency)}`;
 }
 

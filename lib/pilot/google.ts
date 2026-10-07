@@ -19,8 +19,11 @@
  *   budget amount_micros         → minor units of the currency (as Meta)
  *   cpc_bid_micros               → bidAmount, only under manual CPC bidding
  * A budget shared between campaigns is not changed from here (budgetLock):
- * the change would move other campaigns too. The end date is left to Google
- * Ads for now (endTimeLock).
+ * the change would move other campaigns too. Campaign dates (start_date,
+ * end_date, days) and the targets of the bidding strategy (target CPA under
+ * MAXIMIZE_CONVERSIONS / TARGET_CPA, target ROAS under MAXIMIZE_CONVERSION_VALUE /
+ * TARGET_ROAS) are written on the campaign; a strategy without a target is
+ * changed in Google Ads first (strategyLock).
  */
 
 import { relayDirectTool } from "@/lib/relay-tool";
@@ -32,7 +35,11 @@ import type { StructureRow, WriteOutcome } from "@/lib/pilot/meta";
 const GAQL_TIMEOUT_MS = 25_000;
 const WRITE_TIMEOUT_MS = 30_000;
 const STRUCTURE_LIMIT = 2000;
-export const GOOGLE_END_TIME_LOCK = "la date de fin d'une campagne Google Ads se règle dans Google Ads pour le moment.";
+export const GOOGLE_END_TIME_LOCK = "un groupe d'annonces n'a pas de date de fin : changez celle de sa campagne.";
+export const GOOGLE_STRATEGY_LOCK = (strategy: string) => `sa stratégie d'enchère (${strategy.toLowerCase().replace(/_/g, " ")}) n'a pas de cible : changez-la d'abord dans Google Ads.`;
+/** Google's « no end date ». */
+const GOOGLE_NO_END = "2037-12-30";
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const GOOGLE_SHARED_BUDGET_LOCK = "ce budget est partagé avec d'autres campagnes Google Ads : le changer ici les modifierait toutes. Changez-le dans Google Ads.";
 
 type Row = Record<string, unknown>;
@@ -85,16 +92,30 @@ export function minorToMicros(minor: number, currency: string): number {
 }
 
 const CAMPAIGN_FIELDS = `campaign.id, campaign.name, campaign.status, campaign.primary_status, campaign.bidding_strategy_type,
+  campaign.start_date, campaign.end_date,
+  campaign.maximize_conversions.target_cpa_micros, campaign.target_cpa.target_cpa_micros,
+  campaign.maximize_conversion_value.target_roas, campaign.target_roas.target_roas,
   campaign_budget.resource_name, campaign_budget.amount_micros, campaign_budget.total_amount_micros,
   campaign_budget.explicitly_shared, campaign_budget.reference_count`;
+
+/** Where Google holds the target of each strategy (GAQL field → mutate mask). */
+const TARGET_CPA_MASK: Record<string, string> = { MAXIMIZE_CONVERSIONS: "maximize_conversions.target_cpa_micros", TARGET_CPA: "target_cpa.target_cpa_micros" };
+const TARGET_ROAS_MASK: Record<string, string> = { MAXIMIZE_CONVERSION_VALUE: "maximize_conversion_value.target_roas", TARGET_ROAS: "target_roas.target_roas" };
 const ADGROUP_FIELDS = `ad_group.id, ad_group.name, ad_group.status, ad_group.primary_status, ad_group.cpc_bid_micros,
   campaign.id, campaign.name, campaign.bidding_strategy_type`;
 
-function campaignState(row: Row, customer: string, currency: string): PilotObjectState & { budgetResource: string | null; bidStrategy: string | null } {
+function campaignState(row: Row, customer: string, currency: string): PilotObjectState & { budgetResource: string | null } {
   const c = obj(row.campaign);
   const b = obj(field(row, "campaignBudget"));
   const status = STATUS[str(c.status)] ?? str(c.status);
   const shared = field(b, "explicitlyShared") === true || Number(field(b, "referenceCount") ?? 1) > 1;
+  const strategy = str(field(c, "biddingStrategyType")) || null;
+  const endDate = str(field(c, "endDate"));
+  const startDate = str(field(c, "startDate"));
+  const cpaMicros = microsNum(field(obj(field(c, "maximizeConversions")), "targetCpaMicros")) ?? microsNum(field(obj(field(c, "targetCpa")), "targetCpaMicros"));
+  const roasRaw = field(obj(field(c, "maximizeConversionValue")), "targetRoas") ?? field(obj(field(c, "targetRoas")), "targetRoas");
+  const roas = typeof roasRaw === "number" ? roasRaw : typeof roasRaw === "string" && roasRaw ? Number(roasRaw) : NaN;
+  const hasTargets = !!strategy && (strategy in TARGET_CPA_MASK || strategy in TARGET_ROAS_MASK);
   return {
     id: str(c.id),
     type: "campaign",
@@ -104,17 +125,22 @@ function campaignState(row: Row, customer: string, currency: string): PilotObjec
     effectiveStatus: effective(str(field(c, "primaryStatus")), status),
     dailyBudget: microsToMinor(microsNum(field(b, "amountMicros")), currency),
     lifetimeBudget: microsToMinor(microsNum(field(b, "totalAmountMicros")), currency),
-    endTime: null,
+    endTime: DAY_RE.test(endDate) && endDate !== GOOGLE_NO_END ? endDate : null,
+    startTime: DAY_RE.test(startDate) ? startDate : null,
     bidAmount: null,
+    bidStrategy: strategy,
+    targetCpa: microsToMinor(cpaMicros, currency),
+    targetRoas: Number.isFinite(roas) && roas > 0 ? Math.round(roas * 100) / 100 : null,
+    spendCap: null,
+    strategyLock: hasTargets ? null : GOOGLE_STRATEGY_LOCK(strategy ?? "inconnue"),
     parentName: "",
     budgetLock: shared ? GOOGLE_SHARED_BUDGET_LOCK : null,
-    endTimeLock: GOOGLE_END_TIME_LOCK,
+    endTimeLock: null,
     budgetResource: str(field(b, "resourceName")) || null,
-    bidStrategy: str(field(c, "biddingStrategyType")) || null,
   };
 }
 
-function adGroupState(row: Row, customer: string, currency: string): PilotObjectState & { campaignId: string; bidStrategy: string | null } {
+function adGroupState(row: Row, customer: string, currency: string): PilotObjectState & { campaignId: string; bidStrategyType: string | null } {
   const g = obj(field(row, "adGroup"));
   const c = obj(row.campaign);
   const status = STATUS[str(g.status)] ?? str(g.status);
@@ -130,11 +156,18 @@ function adGroupState(row: Row, customer: string, currency: string): PilotObject
     lifetimeBudget: null,
     endTime: null,
     bidAmount: strategy && MANUAL_CPC.has(strategy) ? microsToMinor(microsNum(field(g, "cpcBidMicros")), currency) : null,
+    startTime: null,
+    // The ad group inherits the campaign's strategy: targets are set on the campaign here.
+    bidStrategy: null,
+    targetCpa: null,
+    targetRoas: null,
+    spendCap: null,
+    strategyLock: "les cibles d'enchère Google Ads se règlent sur la campagne.",
     parentName: str(c.name),
     budgetLock: null,
     endTimeLock: GOOGLE_END_TIME_LOCK,
     campaignId: str(c.id),
-    bidStrategy: strategy,
+    bidStrategyType: strategy,
   };
 }
 
@@ -174,12 +207,12 @@ export async function readGoogleStructure(customerId: string, knownCurrency?: st
   const gs = spendById(adGroupSpend, "adGroup");
   return {
     campaigns: campaigns.map((r) => {
-      const { budgetResource: _b, bidStrategy, ...state } = campaignState(r, customer, currency);
-      return { ...state, parentId: null, bidStrategy, spend7d: cs.get(state.id) ?? 0 };
+      const { budgetResource: _b, ...state } = campaignState(r, customer, currency);
+      return { ...state, parentId: null, bidStrategy: state.bidStrategy ?? null, spend7d: cs.get(state.id) ?? 0 };
     }),
     adsets: adGroups.map((r) => {
-      const { campaignId, bidStrategy, ...state } = adGroupState(r, customer, currency);
-      return { ...state, parentId: campaignId || null, bidStrategy, spend7d: gs.get(state.id) ?? 0 };
+      const { campaignId, bidStrategyType, ...state } = adGroupState(r, customer, currency);
+      return { ...state, parentId: campaignId || null, bidStrategy: bidStrategyType, spend7d: gs.get(state.id) ?? 0 };
     }),
     truncated: campaigns.length >= STRUCTURE_LIMIT || adGroups.length >= STRUCTURE_LIMIT,
     currency,
@@ -197,12 +230,12 @@ export async function readGoogleObject(customerId: string, objectId: string, typ
   if (type === "campaign") {
     const rows = await gaql(customer, `SELECT ${CAMPAIGN_FIELDS} FROM campaign WHERE campaign.id = ${objectId}`);
     if (!rows[0]) return null;
-    const { budgetResource: _b, bidStrategy: _s, ...state } = campaignState(rows[0], customer, cur);
+    const { budgetResource: _b, ...state } = campaignState(rows[0], customer, cur);
     return state;
   }
   const rows = await gaql(customer, `SELECT ${ADGROUP_FIELDS} FROM ad_group WHERE ad_group.id = ${objectId}`);
   if (!rows[0]) return null;
-  const { campaignId: _c, bidStrategy: _s, ...state } = adGroupState(rows[0], customer, cur);
+  const { campaignId: _c, bidStrategyType: _s, ...state } = adGroupState(rows[0], customer, cur);
   return state;
 }
 
@@ -232,11 +265,29 @@ export interface GoogleMutation {
  * the object; null when the field is not written on Google Ads from here.
  * Pure except for the budget, whose resource is read on the campaign.
  */
-export function googleMutation(customer: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string, budgetResource?: string | null): GoogleMutation | null {
+export function googleMutation(customer: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string, budgetResource?: string | null, strategy?: string | null): GoogleMutation | null {
   const resource = type === "campaign" ? "campaigns" : type === "adset" ? "adGroups" : null;
   if (!resource) return null;
   const name = `customers/${customer}/${resource}/${objectId}`;
   switch (field) {
+    case "start_date":
+    case "end_date": {
+      if (type !== "campaign" || !DAY_RE.test(String(value))) return null;
+      const key = field === "start_date" ? "startDate" : "endDate";
+      return { resource, operation: { update: { resourceName: name, [key]: String(value) }, updateMask: field } };
+    }
+    case "target_cpa": {
+      const mask = type === "campaign" && strategy ? TARGET_CPA_MASK[strategy] : null;
+      if (!mask) return null;
+      const [group, leaf] = mask.split(".").map((part) => part.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()));
+      return { resource, operation: { update: { resourceName: name, [group]: { [leaf]: String(minorToMicros(Number(value), currency)) } }, updateMask: mask } };
+    }
+    case "target_roas": {
+      const mask = type === "campaign" && strategy ? TARGET_ROAS_MASK[strategy] : null;
+      if (!mask) return null;
+      const [group, leaf] = mask.split(".").map((part) => part.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()));
+      return { resource, operation: { update: { resourceName: name, [group]: { [leaf]: Number(value) } }, updateMask: mask } };
+    }
     case "status": {
       if (value === "DELETED") return { resource, operation: { remove: name } };
       const status = TO_GOOGLE_STATUS[String(value)];
@@ -276,7 +327,16 @@ export async function writeGoogleField(customerId: string, objectId: string, typ
       return { kind: "refused", error: "Google Ads ne répond pas : rien n'a été envoyé pour ce changement." };
     }
   }
-  const mutation = googleMutation(customer, objectId, type, field, value, currency, budgetResource);
+  let strategy: string | null = null;
+  if (field === "target_cpa" || field === "target_roas") {
+    try {
+      const rows = await gaql(customer, `SELECT campaign.id, campaign.bidding_strategy_type FROM campaign WHERE campaign.id = ${objectId}`);
+      strategy = str(field_(obj(rows[0]?.campaign), "biddingStrategyType")) || null;
+    } catch {
+      return { kind: "refused", error: "Google Ads ne répond pas : rien n'a été envoyé pour ce changement." };
+    }
+  }
+  const mutation = googleMutation(customer, objectId, type, field, value, currency, budgetResource, strategy);
   if (!mutation) return { kind: "refused", error: "Ce changement ne peut pas être envoyé à Google Ads depuis ImpulseMotion." };
 
   let res: Response;

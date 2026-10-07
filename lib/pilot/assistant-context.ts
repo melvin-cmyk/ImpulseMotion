@@ -26,6 +26,7 @@ function toObject(r: StructureRow, perf?: { current: ComputedMetrics; previous: 
   return {
     id: r.id, name: r.name, status: r.status, effectiveStatus: r.effectiveStatus,
     dailyBudget: r.dailyBudget, lifetimeBudget: r.lifetimeBudget, bidAmount: r.bidAmount, bidStrategy: r.bidStrategy,
+    targetCpa: r.targetCpa ?? null, targetRoas: r.targetRoas ?? null, spendCap: r.spendCap ?? null, startTime: r.startTime ?? null, endTime: r.endTime,
     budgetLock: r.budgetLock ?? null, parentId: r.parentId, spend7d: r.spend7d,
     last7: metrics(perf?.current), prev7: metrics(perf?.previous),
   };

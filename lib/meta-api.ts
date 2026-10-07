@@ -514,10 +514,77 @@ const UPDATE_FIELDS: Record<string, (value: string) => boolean> = {
   daily_budget: (v) => /^[1-9]\d{0,12}$/.test(v),
   lifetime_budget: (v) => /^[1-9]\d{0,12}$/.test(v),
   bid_amount: (v) => /^[1-9]\d{0,12}$/.test(v),
+  spend_cap: (v) => /^[1-9]\d{0,12}$/.test(v),
   end_time: (v) => !Number.isNaN(Date.parse(v)),
   stop_time: (v) => !Number.isNaN(Date.parse(v)),
+  start_time: (v) => !Number.isNaN(Date.parse(v)),
   name: (v) => v.trim().length > 0 && v.length <= 400,
+  bid_strategy: (v) => ["LOWEST_COST_WITHOUT_CAP", "LOWEST_COST_WITH_BID_CAP", "COST_CAP", "LOWEST_COST_WITH_MIN_ROAS"].includes(v),
+  // {"roas_average_floor": 10000} = a floor of 1.0×, as Meta counts it (×10 000).
+  bid_constraints: (v) => /^\{"roas_average_floor":[1-9]\d{0,7}\}$/.test(v),
 };
+
+/** What a copy (POST /{id}/copies) may carry. */
+const COPY_FIELDS: Record<string, (value: string) => boolean> = {
+  deep_copy: (v) => v === "true" || v === "false",
+  status_option: (v) => v === "PAUSED",
+  rename_options: (v) => /^\{"rename_strategy":"(DEEP_RENAME|ONLY_TOP_LEVEL_RENAME)","rename_suffix":"[^"\\]{1,80}"\}$/.test(v),
+};
+
+/**
+ * POST /{objectId} with several fields at once (a strategy and its cap are one
+ * write for Meta). Every field goes through the same check as metaGraphUpdate.
+ */
+export async function metaGraphUpdateFields(
+  guard: WriteGuard,
+  objectId: string,
+  fields: Record<string, string>,
+  accessToken: string,
+): Promise<{ success?: boolean }> {
+  assertWriteGuard(guard);
+  if (!/^\d{5,25}$/.test(objectId)) throw new Error("Écriture refusée : identifiant d'objet invalide");
+  const entries = Object.entries(fields);
+  if (!entries.length || entries.length > 3) throw new Error("Écriture refusée : nombre de champs invalide");
+  for (const [field, value] of entries) {
+    const check = Object.prototype.hasOwnProperty.call(UPDATE_FIELDS, field) ? UPDATE_FIELDS[field] : null;
+    if (!check) throw new Error(`Écriture refusée : champ « ${field} » non autorisé`);
+    if (typeof value !== "string" || !check(value)) throw new Error(`Écriture refusée : valeur invalide pour « ${field} »`);
+  }
+  const bodyFor = (token: string) => {
+    const body = new URLSearchParams();
+    for (const [field, value] of entries) body.set(field, value);
+    body.set("access_token", token);
+    return body;
+  };
+  return postOnceWithFailover<{ success?: boolean }>(`/${objectId}`, accessToken, bodyFor, entries.map(([f]) => f).join("+"));
+}
+
+/**
+ * POST /{objectId}/copies: a copy of a campaign, an ad set or an ad, always
+ * PAUSED, under a new name. Meta answers with the ids of what it created.
+ */
+export async function metaGraphCopy(
+  guard: WriteGuard,
+  objectId: string,
+  fields: Record<string, string>,
+  accessToken: string,
+): Promise<{ copied_campaign_id?: string; copied_adset_id?: string; copied_ad_id?: string; ad_object_ids?: Array<{ ad_object_type?: string; source_id?: string; copied_id?: string }> }> {
+  assertWriteGuard(guard);
+  if (!/^\d{5,25}$/.test(objectId)) throw new Error("Écriture refusée : identifiant d'objet invalide");
+  for (const [field, value] of Object.entries(fields)) {
+    const check = Object.prototype.hasOwnProperty.call(COPY_FIELDS, field) ? COPY_FIELDS[field] : null;
+    if (!check) throw new Error(`Écriture refusée : paramètre de copie « ${field} » non autorisé`);
+    if (typeof value !== "string" || !check(value)) throw new Error(`Écriture refusée : valeur invalide pour « ${field} »`);
+  }
+  if (fields.status_option !== "PAUSED") throw new Error("Écriture refusée : une copie est toujours créée en pause");
+  const bodyFor = (token: string) => {
+    const body = new URLSearchParams();
+    for (const [field, value] of Object.entries(fields)) body.set(field, value);
+    body.set("access_token", token);
+    return body;
+  };
+  return postOnceWithFailover(`/${objectId}/copies`, accessToken, bodyFor, "copy");
+}
 
 /**
  * POST /{objectId} with one field (Pilotage, lib/pilot/meta.ts). Requires the

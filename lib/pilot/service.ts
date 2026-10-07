@@ -27,7 +27,7 @@ import { checkNewAd, createNewAd } from "@/lib/pilot/new-ad";
 import { buildHqEntry, hqEntrySlug } from "@/lib/pilot/hq-entry";
 import { IMPACT_HORIZONS, IMPACT_SETTLE_DAYS, addDays, impactWindows } from "@/lib/pilot/impact";
 import {
-  PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, readNewAd, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
+  PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, readCopy, readNewAd, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
   sameValue, stateValue, type PilotGoal, type PilotObjectState, type PilotRequest, type PilotValue, type PreparedOperation,
 } from "@/lib/pilot/ops";
 
@@ -117,6 +117,7 @@ export async function prepareAction(session: PilotSession, input: {
     if (state.accountId !== account.digits) { errors.push(`« ${state.name} » n'appartient pas au compte ${account.name}.`); continue; }
     const prepared = prepareOperation(req, state, currency, new Date(), adapter.platform);
     if (!prepared.ok) { errors.push(prepared.error); continue; }
+    if (prepared.op.field === "copy") { ops.push(prepared.op); continue; }
     if (prepared.op.field === "new_ad") {
       // The ad set, its campaign, the Page and every field, checked on Meta now; the campaign is kept for the send.
       const read = readNewAd(prepared.op.after);
@@ -246,6 +247,20 @@ async function sendOperations(adapter: PilotAdapter, actionId: string, accountId
         if (created.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", error: created.error }); continue; }
         if (created.kind === "refused") { await setOp(op.id, { status: "failed", error: created.error }); continue; }
         await setOp(op.id, { status: "done", readBackJson: JSON.stringify(created.adId ?? null), error: null });
+        continue;
+      }
+      if (op.field === "copy") {
+        // A copy: the object is read now (its name is what Meta suffixes), then copied paused.
+        const read = readCopy(after);
+        if (!read.ok) { await setOp(op.id, { status: "failed", error: read.error }); continue; }
+        if (!adapter.copyObject) { await setOp(op.id, { status: "failed", error: `${name} ne duplique pas depuis ImpulseMotion.` }); continue; }
+        let current: PilotObjectState | null;
+        try { current = await adapter.readObject(accountId, op.objectId, op.objectType as PilotObjectState["type"], currency); } catch { current = null; }
+        if (!current || current.accountId !== accountId) { await setOp(op.id, { status: "failed", error: `Objet introuvable sur ${name} : rien n'a été envoyé.` }); continue; }
+        const copied = await adapter.copyObject(guard, accountId, op.objectId, op.objectType as PilotObjectState["type"], current.name, read.spec.name);
+        if (copied.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", error: copied.error }); continue; }
+        if (copied.kind === "refused") { await setOp(op.id, { status: "failed", error: copied.error }); continue; }
+        await setOp(op.id, { status: "done", readBackJson: JSON.stringify(copied.copiedId ?? null), error: null });
         continue;
       }
       let current: PilotObjectState | null;
@@ -407,6 +422,7 @@ export async function prepareUndo(session: PilotSession, id: string, now: Date =
     const after = parse(o.afterJson);
     const line = describeOperation({ ...o, before, after }, action.currency, action.platform);
     if (o.field === "new_ad") { left.push(`${line} (ne peut pas être remis : publicité créée en pause, à supprimer depuis l'arbre si besoin)`); return; }
+    if (o.field === "copy") { left.push(`${line} (ne peut pas être remis : copie créée en pause, à supprimer depuis l'arbre si besoin)`); return; }
     const current = currents[i];
     if (!current) { left.push(`${line} (objet introuvable)`); return; }
     const held = stateValue(current, o.field);
