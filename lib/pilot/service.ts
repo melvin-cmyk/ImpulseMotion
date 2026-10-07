@@ -25,6 +25,7 @@ import { HQ_PROJECT_RE, appendHqJournal, listHqProjects } from "@/lib/hq-journal
 import { pilotAdapter, type PilotAdapter } from "@/lib/pilot/adapters";
 import { checkNewAd, createNewAd } from "@/lib/pilot/new-ad";
 import { buildHqEntry, hqEntrySlug } from "@/lib/pilot/hq-entry";
+import { readMetaAdTexts, readRsa } from "@/lib/pilot/creative";
 import { IMPACT_HORIZONS, IMPACT_SETTLE_DAYS, addDays, impactWindows } from "@/lib/pilot/impact";
 import {
   PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, readCopy, readKeyword, readNewAd, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
@@ -117,7 +118,7 @@ export async function prepareAction(session: PilotSession, input: {
     if (state.accountId !== account.digits) { errors.push(`« ${state.name} » n'appartient pas au compte ${account.name}.`); continue; }
     const prepared = prepareOperation(req, state, currency, new Date(), adapter.platform);
     if (!prepared.ok) { errors.push(prepared.error); continue; }
-    if (prepared.op.field === "copy" || prepared.op.field === "new_keyword" || prepared.op.field === "new_negative") { ops.push(prepared.op); continue; }
+    if (prepared.op.field === "copy" || prepared.op.field === "new_keyword" || prepared.op.field === "new_negative" || prepared.op.field === "ad_texts" || prepared.op.field === "rsa") { ops.push(prepared.op); continue; }
     if (prepared.op.field === "new_ad") {
       // The ad set, its campaign, the Page and every field, checked on Meta now; the campaign is kept for the send.
       const read = readNewAd(prepared.op.after);
@@ -247,6 +248,32 @@ async function sendOperations(adapter: PilotAdapter, actionId: string, accountId
         if (created.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", error: created.error }); continue; }
         if (created.kind === "refused") { await setOp(op.id, { status: "failed", error: created.error }); continue; }
         await setOp(op.id, { status: "done", readBackJson: JSON.stringify(created.adId ?? null), error: null });
+        continue;
+      }
+      if (op.field === "ad_texts") {
+        const read = readMetaAdTexts(after);
+        if (!read.ok) { await setOp(op.id, { status: "failed", error: read.error }); continue; }
+        if (!adapter.rewriteAdTexts) { await setOp(op.id, { status: "failed", error: `${name} ne réécrit pas les textes depuis ImpulseMotion.` }); continue; }
+        // The creative shown must still be the one of the preview: a creative changed meanwhile is not overwritten.
+        let current: PilotObjectState | null;
+        try { current = await adapter.readObject(accountId, op.objectId, "ad", currency); } catch { current = null; }
+        const beforeId = (() => { try { return String(JSON.parse(String(before))?.creativeId ?? ""); } catch { return ""; } })();
+        if (!current || current.accountId !== accountId) { await setOp(op.id, { status: "failed", error: `Annonce introuvable sur ${name} : rien n'a été envoyé.` }); continue; }
+        if (beforeId && current.creativeId && current.creativeId !== beforeId) { await setOp(op.id, { status: "conflict", readBackJson: JSON.stringify(current.creativeId), error: "La créa de l'annonce a changé depuis l'aperçu : rien n'a été envoyé." }); continue; }
+        const done = await adapter.rewriteAdTexts(guard, accountId, op.objectId, read.texts);
+        if (done.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", readBackJson: JSON.stringify(done.creativeId ?? null), error: done.error }); continue; }
+        if (done.kind === "refused") { await setOp(op.id, { status: "failed", readBackJson: JSON.stringify(done.creativeId ?? null), error: done.error }); continue; }
+        await setOp(op.id, { status: "done", readBackJson: JSON.stringify(done.creativeId ?? null), error: null });
+        continue;
+      }
+      if (op.field === "rsa") {
+        const read = readRsa(after);
+        if (!read.ok) { await setOp(op.id, { status: "failed", error: read.error }); continue; }
+        if (!adapter.replaceRsa) { await setOp(op.id, { status: "failed", error: `${name} n'a pas d'annonces responsives.` }); continue; }
+        const done = await adapter.replaceRsa(guard, accountId, op.objectId, read.spec);
+        if (done.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", readBackJson: JSON.stringify(done.createdId ?? null), error: done.error }); continue; }
+        if (done.kind === "refused") { await setOp(op.id, { status: "failed", error: done.error }); continue; }
+        await setOp(op.id, { status: "done", readBackJson: JSON.stringify(done.createdId ?? null), error: done.oldPaused === false ? "Nouvelle annonce créée ; l'ancienne était déjà en pause." : null });
         continue;
       }
       if (op.field === "new_keyword" || op.field === "new_negative") {
@@ -434,6 +461,18 @@ export async function prepareUndo(session: PilotSession, id: string, now: Date =
     if (o.field === "new_ad") { left.push(`${line} (ne peut pas être remis : publicité créée en pause, à supprimer depuis l'arbre si besoin)`); return; }
     if (o.field === "copy") { left.push(`${line} (ne peut pas être remis : copie créée en pause, à supprimer depuis l'arbre si besoin)`); return; }
     if (o.field === "new_keyword" || o.field === "new_negative") { left.push(`${line} (ne peut pas être remis : mot-clé ajouté, à supprimer depuis l'arbre si besoin)`); return; }
+    if (o.field === "rsa") { left.push(`${line} (ne peut pas être remis automatiquement : réactivez l'ancienne annonce et mettez la nouvelle en pause depuis l'arbre)`); return; }
+    if (o.field === "ad_texts") {
+      // Put back = the old creative, if the ad still shows the one this action created.
+      const current = currents[i];
+      const created = parse(o.readBackJson);
+      if (!current) { left.push(`${line} (annonce introuvable)`); return; }
+      if (created && current.creativeId && String(created) !== current.creativeId) { left.push(`${line} (la créa a changé depuis : ${current.creativeId})`); return; }
+      const inverse = inverseRequest({ kind: o.kind, objectType: o.objectType, objectId: o.objectId, field: o.field, before, after }, action.currency);
+      if (!inverse) { left.push(`${line} (créa d'origine inconnue)`); return; }
+      requests.push(inverse);
+      return;
+    }
     const current = currents[i];
     if (!current) { left.push(`${line} (objet introuvable)`); return; }
     const held = stateValue(current, o.field);

@@ -13,6 +13,8 @@ import { KEYWORD_MATCH_TYPES, MATCH_FR, copyName, currencyOffset, dateText, mone
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
 import { NewAdForm, type StudioPick } from "@/components/pilot/new-ad-form";
 import { TargetingForm } from "@/components/pilot/targeting-form";
+import { MetaAdTextsForm, RsaTextsForm } from "@/components/pilot/ad-texts-form";
+import type { RsaSpec } from "@/lib/pilot/creative";
 
 type Editor = { row: TreeRow; kind: PilotKind; value: string; matchType?: KeywordMatchType } | null;
 
@@ -44,7 +46,12 @@ function choices(row: TreeRow, platform: string = "meta"): Array<{ kind: PilotKi
   if (row.status === "PAUSED") out.push({ kind: "set_status", label: "Activer", value: "ACTIVE" });
   if (row.dailyBudget && !row.budgetLock) out.push({ kind: "set_daily_budget", label: "Budget journalier", value: "" });
   if (row.lifetimeBudget && !row.budgetLock) out.push({ kind: "set_lifetime_budget", label: "Budget total", value: "" });
-  if (row.type === "ad") { out.push({ kind: "rename", label: "Renommer", value: "" }); if (platform === "meta") out.push({ kind: "duplicate", label: "Dupliquer (en pause)", value: "" }); out.push({ kind: "set_status", label: "Supprimer", value: "DELETED" }); return out; }
+  if (row.type === "ad") {
+    if (platform === "meta") { out.push({ kind: "set_ad_texts", label: "Textes (nouvelle créa, même visuel)", value: "" }); out.push({ kind: "rename", label: "Renommer", value: "" }); out.push({ kind: "duplicate", label: "Dupliquer (en pause)", value: "" }); }
+    if (platform === "google" && row.rsa) out.push({ kind: "set_rsa_texts", label: "Textes (nouvelle version)", value: "" });
+    out.push({ kind: "set_status", label: "Supprimer", value: "DELETED" });
+    return out;
+  }
   if (!row.endTimeLock) out.push({ kind: "set_end_time", label: "Date de fin", value: "" });
   if (!(platform === "google" && row.type === "adset")) out.push({ kind: "set_start_time", label: "Date de début", value: "" });
   if (row.type === "campaign" && platform === "meta") out.push({ kind: "set_spend_cap", label: "Plafond de dépense", value: "" });
@@ -107,6 +114,9 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
     case "add_keyword": return `${object} : ajouter le mot-clé ${newKeywordText(value)}`;
     case "add_negative_keyword": return `${object} : ajouter le mot-clé négatif ${newKeywordText(value)}`;
     case "set_targeting": return `${object} : ciblage modifié`;
+    case "set_ad_texts": return `${object} : nouveaux textes`;
+    case "set_ad_creative": return `${object} : créa ${value}`;
+    case "set_rsa_texts": return `${object} : nouvelle version`;
   }
 }
 
@@ -126,6 +136,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
 }) {
   const [newAdFor, setNewAdFor] = useState<TreeRow | null>(null);
   const [targetingFor, setTargetingFor] = useState<TreeRow | null>(null);
+  const [textsFor, setTextsFor] = useState<TreeRow | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [ads, setAds] = useState<Record<string, TreeRow[] | "loading" | { error: string }>>({});
   const [editor, setEditor] = useState<Editor>(null);
@@ -169,6 +180,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
     setMenu(null);
     if (kind === "create_ad") { setNewAdFor(row); return; }
     if (kind === "set_targeting") { setTargetingFor(row); return; }
+    if (kind === "set_ad_texts" || kind === "set_rsa_texts") { setTextsFor(row); return; }
     if (kind === "set_status" || kind === "set_bid_strategy") {
       onAdd({ kind, objectType: row.type, objectId: row.id, value, label: pendingLabel(platform, row, kind, value, currency) });
       return;
@@ -271,6 +283,14 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
           onCancel={() => setNewAdFor(null)}
           onDone={(spec, label) => { onAdd({ kind: "create_ad", objectType: "adset", objectId: newAdFor.id, value: JSON.stringify(spec), label }); setNewAdFor(null); }}
         />
+      )}
+      {textsFor && platform === "meta" && (
+        <MetaAdTextsForm clientId={clientId} accountId={accountId} adId={textsFor.id} adName={textsFor.name} onCancel={() => setTextsFor(null)}
+          onDone={(json, label) => { onAdd({ kind: "set_ad_texts", objectType: "ad", objectId: textsFor.id, value: json, label }); setTextsFor(null); }} />
+      )}
+      {textsFor && platform === "google" && textsFor.rsa && (
+        <RsaTextsForm adName={textsFor.name} current={JSON.parse(textsFor.rsa) as RsaSpec} onCancel={() => setTextsFor(null)}
+          onDone={(json, label) => { onAdd({ kind: "set_rsa_texts", objectType: "ad", objectId: textsFor.id, value: json, label }); setTextsFor(null); }} />
       )}
       {targetingFor && (
         <TargetingForm

@@ -30,6 +30,7 @@ import { relayDirectTool } from "@/lib/relay-tool";
 import { extractRows } from "@/lib/dashboard-widgets";
 import { normGoogle } from "@/lib/portfolio";
 import { currencyOffset, keywordText, type KeywordMatchType, type KeywordSpec, type PilotObjectState, type PilotObjectType } from "@/lib/pilot/ops";
+import { readRsaFromAd, rsaCreateAd, rsaSummary, type RsaSpec } from "@/lib/pilot/creative";
 import type { StructureRow, WriteOutcome } from "@/lib/pilot/meta";
 
 const GAQL_TIMEOUT_MS = 25_000;
@@ -221,6 +222,45 @@ function negativeState(row: Row, customer: string): PilotObjectState & { campaig
   };
 }
 
+const AD_FIELDS = `ad_group_ad.ad.id, ad_group_ad.ad.name, ad_group_ad.status, ad_group_ad.ad.type, ad_group_ad.ad.final_urls,
+  ad_group_ad.ad.responsive_search_ad.headlines, ad_group_ad.ad.responsive_search_ad.descriptions, ad_group_ad.ad.responsive_search_ad.path1, ad_group_ad.ad.responsive_search_ad.path2,
+  ad_group_ad.policy_summary.approval_status, ad_group.id, ad_group.name`;
+const ADS_LIMIT = 200;
+const AD_TYPE_FR: Record<string, string> = { RESPONSIVE_SEARCH_AD: "annonce responsive", EXPANDED_TEXT_AD: "annonce textuelle", RESPONSIVE_DISPLAY_AD: "annonce display responsive", VIDEO_RESPONSIVE_AD: "annonce vidéo", SHOPPING_PRODUCT_AD: "annonce Shopping", APP_AD: "annonce appli", CALL_AD: "annonce appel", IMAGE_AD: "annonce image", DEMAND_GEN_MULTI_ASSET_AD: "annonce Demand Gen", DEMAND_GEN_VIDEO_RESPONSIVE_AD: "annonce Demand Gen vidéo", DEMAND_GEN_CAROUSEL_AD: "carrousel Demand Gen" };
+
+function adState(row: Row, customer: string): PilotObjectState & { adGroupId: string } {
+  const aga = obj(field(row, "adGroupAd"));
+  const ad = obj(aga.ad);
+  const g = obj(field(row, "adGroup"));
+  const status = STATUS[str(aga.status)] ?? str(aga.status);
+  const type = str(ad.type);
+  const rsa = type === "RESPONSIVE_SEARCH_AD" ? readRsaFromAd(ad) : null;
+  const approval = str(field(obj(field(aga, "policySummary")), "approvalStatus"));
+  const name = str(ad.name) || (rsa ? `${rsa.headlines[0]?.text ?? "annonce"} — ${rsaSummary(rsa)}` : AD_TYPE_FR[type] ?? type.toLowerCase().replace(/_/g, " "));
+  return {
+    id: str(ad.id),
+    type: "ad",
+    accountId: customer,
+    name,
+    status,
+    effectiveStatus: approval === "DISAPPROVED" ? "DISAPPROVED" : status,
+    dailyBudget: null, lifetimeBudget: null, endTime: null, startTime: null, bidAmount: null,
+    bidStrategy: null, targetCpa: null, targetRoas: null, spendCap: null, strategyLock: null,
+    rsa: rsa ? JSON.stringify(rsa) : null,
+    parentName: str(g.name),
+    budgetLock: null, endTimeLock: null,
+    adGroupId: str(g.id),
+  };
+}
+
+/** The ads of an ad group (not removed), as rows of the tree; a responsive search ad carries its texts. */
+export async function readGoogleAds(customerId: string, adGroupId: string): Promise<StructureRow[]> {
+  const customer = googleCustomerDigits(customerId);
+  if (!customer || !isId(adGroupId)) throw new Error("Groupe d'annonces invalide");
+  const rows = await gaql(customer, `SELECT ${AD_FIELDS} FROM ad_group_ad WHERE ad_group.id = ${adGroupId} AND ad_group_ad.status != 'REMOVED' LIMIT ${ADS_LIMIT}`);
+  return rows.map((r) => { const { adGroupId: parent, ...state } = adState(r, customer); return { ...state, parentId: parent, bidStrategy: null, spend7d: 0 }; });
+}
+
 /** The keywords of an ad group (not removed), as rows of the tree. */
 export async function readGoogleKeywords(customerId: string, adGroupId: string, currency: string): Promise<StructureRow[]> {
   const customer = googleCustomerDigits(customerId);
@@ -293,9 +333,15 @@ const isId = (id: string) => /^\d{1,25}$/.test(id);
 /** One object as Google holds it now, in this customer; null when the customer has no such object. */
 export async function readGoogleObject(customerId: string, objectId: string, type: PilotObjectType, currency?: string): Promise<PilotObjectState | null> {
   const customer = googleCustomerDigits(customerId);
-  if (type === "ad") throw new Error("Les annonces Google Ads ne se modifient pas encore ici.");
   if (!customer) return null;
   const cur = currency ?? (await readGoogleCurrency(customer));
+  if (type === "ad") {
+    if (!isId(objectId)) return null;
+    const rows = await gaql(customer, `SELECT ${AD_FIELDS} FROM ad_group_ad WHERE ad_group_ad.ad.id = ${objectId} AND ad_group_ad.status != 'REMOVED'`);
+    if (!rows[0]) return null;
+    const { adGroupId: _g, ...state } = adState(rows[0], customer);
+    return state;
+  }
   if (type === "keyword") {
     const m = /^(\d{1,25})~(\d{1,25})$/.exec(objectId);
     if (!m) return null;
@@ -336,7 +382,7 @@ export const googleWritesOpen = () => process.env.PILOT_GOOGLE_WRITES === "1" &&
 
 /** One mutate operation, as the n8n flow forwards it to Google Ads. */
 export interface GoogleMutation {
-  resource: "campaigns" | "adGroups" | "campaignBudgets" | "adGroupCriteria" | "campaignCriteria";
+  resource: "campaigns" | "adGroups" | "campaignBudgets" | "adGroupCriteria" | "campaignCriteria" | "adGroupAds";
   operation: { update: Record<string, unknown>; updateMask: string } | { remove: string } | { create: Record<string, unknown> };
 }
 
@@ -352,7 +398,14 @@ export function googleKeywordCreation(customer: string, parentId: string, spec: 
  * the object; null when the field is not written on Google Ads from here.
  * Pure except for the budget, whose resource is read on the campaign.
  */
-export function googleMutation(customer: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string, budgetResource?: string | null, strategy?: string | null, negative = false): GoogleMutation | null {
+export function googleMutation(customer: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string, budgetResource?: string | null, strategy?: string | null, negative = false, adGroupAdName?: string | null): GoogleMutation | null {
+  if (type === "ad") {
+    // An ad is named by its ad group and its id: the ad group is read with the ad (adGroupAdName).
+    if (!adGroupAdName) return null;
+    if (field === "status" && value === "DELETED") return { resource: "adGroupAds", operation: { remove: adGroupAdName } };
+    if (field === "status") { const status = TO_GOOGLE_STATUS[String(value)]; return status ? { resource: "adGroupAds", operation: { update: { resourceName: adGroupAdName, status }, updateMask: "status" } } : null; }
+    return null;
+  }
   if (type === "keyword") {
     const m = /^(\d{1,25})~(\d{1,25})$/.exec(objectId);
     if (!m) return null;
@@ -435,6 +488,16 @@ export async function writeGoogleField(customerId: string, objectId: string, typ
       return { kind: "refused", error: "Google Ads ne répond pas : rien n'a été envoyé pour ce changement." };
     }
   }
+  let adGroupAdName: string | null = null;
+  if (type === "ad") {
+    try {
+      const rows = await gaql(customer, `SELECT ad_group_ad.resource_name, ad_group_ad.ad.id FROM ad_group_ad WHERE ad_group_ad.ad.id = ${objectId} AND ad_group_ad.status != 'REMOVED'`);
+      adGroupAdName = str(field_(obj(field_(rows[0], "adGroupAd")), "resourceName")) || null;
+      if (!adGroupAdName) return { kind: "refused", error: "Annonce introuvable sur Google Ads : rien n'a été envoyé." };
+    } catch {
+      return { kind: "refused", error: "Google Ads ne répond pas : rien n'a été envoyé pour ce changement." };
+    }
+  }
   let negative = false;
   if (type === "keyword") {
     try {
@@ -445,7 +508,7 @@ export async function writeGoogleField(customerId: string, objectId: string, typ
       return { kind: "refused", error: "Google Ads ne répond pas : rien n'a été envoyé pour ce changement." };
     }
   }
-  const mutation = googleMutation(customer, objectId, type, field, value, currency, budgetResource, strategy, negative);
+  const mutation = googleMutation(customer, objectId, type, field, value, currency, budgetResource, strategy, negative, adGroupAdName);
   if (!mutation) return { kind: "refused", error: "Ce changement ne peut pas être envoyé à Google Ads depuis ImpulseMotion." };
   return postGoogleMutation(hook, customer, mutation);
 }
@@ -459,6 +522,38 @@ export async function createGoogleKeyword(customerId: string, parentId: string, 
   if (out.kind !== "done") return out;
   const created = out.resultName ? out.resultName.split("/").pop() ?? "" : "";
   return { kind: "done", createdId: /^\d{1,25}~\d{1,25}$/.test(created) ? created : undefined };
+}
+
+/** The mutate that creates a responsive search ad in an ad group (same status as the one it replaces). */
+export function googleRsaCreation(customer: string, adGroupId: string, spec: RsaSpec, status: "ENABLED" | "PAUSED"): GoogleMutation {
+  return { resource: "adGroupAds", operation: { create: { adGroup: `customers/${customer}/adGroups/${adGroupId}`, status, ad: rsaCreateAd(spec) } } };
+}
+
+/**
+ * A new version of a responsive search ad: created in the ad group of the old
+ * one (same status), then the old one paused. Never throws; `createdId` is the
+ * new ad; `oldPaused` says whether the old one was paused.
+ */
+export async function replaceGoogleRsa(customerId: string, oldAdId: string, spec: RsaSpec): Promise<WriteOutcome & { createdId?: string; oldPaused?: boolean }> {
+  const hook = googleWriteHook();
+  const customer = googleCustomerDigits(customerId);
+  if (!hook || !customer || !isId(oldAdId)) return { kind: "refused", error: "L'envoi vers Google Ads n'est pas configuré." };
+  let old: { name: string; adGroupId: string; status: string };
+  try {
+    const rows = await gaql(customer, `SELECT ad_group_ad.resource_name, ad_group_ad.status, ad_group.id FROM ad_group_ad WHERE ad_group_ad.ad.id = ${oldAdId} AND ad_group_ad.status != 'REMOVED'`);
+    const aga = obj(field_(rows[0], "adGroupAd"));
+    old = { name: str(field_(aga, "resourceName")), adGroupId: str(obj(field_(rows[0], "adGroup")).id), status: str(aga.status) };
+    if (!old.name || !isId(old.adGroupId)) return { kind: "refused", error: "Annonce introuvable sur Google Ads : rien n'a été envoyé." };
+  } catch {
+    return { kind: "refused", error: "Google Ads ne répond pas : rien n'a été envoyé pour ce changement." };
+  }
+  const created = await postGoogleMutation(hook, customer, googleRsaCreation(customer, old.adGroupId, spec, old.status === "PAUSED" ? "PAUSED" : "ENABLED"));
+  if (created.kind !== "done") return created;
+  const createdId = created.resultName ? created.resultName.split("~").pop() ?? "" : "";
+  if (old.status !== "ENABLED") return { kind: "done", createdId, oldPaused: false };
+  const paused = await postGoogleMutation(hook, customer, { resource: "adGroupAds", operation: { update: { resourceName: old.name, status: "PAUSED" }, updateMask: "status" } });
+  if (paused.kind !== "done") return { kind: "uncertain", createdId, oldPaused: false, error: `La nouvelle annonce ${createdId || ""} est créée mais l'ancienne n'a pas été mise en pause (${paused.error}) : les deux diffusent. Mettez l'ancienne en pause depuis l'arbre.` };
+  return { kind: "done", createdId, oldPaused: true };
 }
 
 async function postGoogleMutation(hook: { url: string; secret: string }, customer: string, mutation: GoogleMutation): Promise<WriteOutcome & { resultName?: string }> {

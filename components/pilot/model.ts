@@ -30,6 +30,10 @@ export interface TreeRow {
   strategyLock?: string | null;
   /** A negative keyword (Google Ads, under its campaign). */
   negative?: boolean;
+  /** Google ad: its responsive search ad as JSON (null for other ad types). */
+  rsa?: string | null;
+  /** Meta ad: the creative shown (read with the ad). */
+  creativeId?: string | null;
   /** Why the budget cannot be changed here (a shared Google Ads budget). */
   budgetLock?: string | null;
   /** Why the end date cannot be changed here. */

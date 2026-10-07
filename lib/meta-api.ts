@@ -523,6 +523,7 @@ const UPDATE_FIELDS: Record<string, (value: string) => boolean> = {
   // {"roas_average_floor": 10000} = a floor of 1.0×, as Meta counts it (×10 000).
   bid_constraints: (v) => /^\{"roas_average_floor":[1-9]\d{0,7}\}$/.test(v),
   // The whole targeting spec of an ad set, checked by lib/pilot/targeting.ts before the preview; here: a JSON object of a sane size.
+  creative: (v) => /^\{"creative_id":"\d{5,25}"\}$/.test(v),
   targeting: (v) => { if (v.length > 30_000) return false; try { const t = JSON.parse(v); return !!t && typeof t === "object" && !Array.isArray(t) && !!t.geo_locations; } catch { return false; } },
 };
 

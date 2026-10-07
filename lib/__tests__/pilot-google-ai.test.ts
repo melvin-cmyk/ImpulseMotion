@@ -48,8 +48,10 @@ describe("Google Ads — conversions et opérations", () => {
     expect(shared).toEqual({ ok: false, error: "la campagne « Search Marque » : budget partagé." });
     const end = prepareOperation({ kind: "set_end_time", objectType: "campaign", objectId: "111", value: "2027-01-01T00:00:00Z" }, campaign(), "EUR", new Date(), "google");
     expect(end.ok).toBe(false);
+    // A Google ad is paused / activated / removed from here; nothing else (its texts make a new ad).
     const ad = prepareOperation({ kind: "set_status", objectType: "ad", objectId: "111", value: "PAUSED" }, { ...campaign(), type: "ad" }, "EUR", new Date(), "google");
-    expect(ad.ok).toBe(false);
+    expect(ad.ok).toBe(true);
+    expect(prepareOperation({ kind: "rename", objectType: "ad", objectId: "111", value: "x" }, { ...campaign(), type: "ad" }, "EUR", new Date(), "google").ok).toBe(false);
     const ok = prepareOperation({ kind: "set_daily_budget", objectType: "campaign", objectId: "111", value: 60 }, campaign(), "EUR", new Date(), "google");
     expect(ok).toMatchObject({ ok: true, op: { field: "daily_budget", before: 5000, after: 6000, double: null } });
     expect(describeOperation({ kind: "set_status", objectType: "adset", objectName: "Groupe A", field: "status", before: "ACTIVE", after: "PAUSED" }, "EUR", "google")).toContain("Groupe d'annonces « Groupe A »");

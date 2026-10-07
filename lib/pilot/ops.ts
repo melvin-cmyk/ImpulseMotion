@@ -20,6 +20,7 @@
  */
 
 import { canonicalTargeting, readTargeting, targetingDiff, type Targeting } from "@/lib/pilot/targeting";
+import { metaTextsDiff, readMetaAdTexts, readRsa, rsaDiff, rsaSummary, type MetaAdTexts, type RsaSpec } from "@/lib/pilot/creative";
 
 export const PILOT_PLATFORMS = ["meta", "google"] as const;
 export type PilotPlatform = (typeof PILOT_PLATFORMS)[number];
@@ -35,6 +36,7 @@ export type PilotStatus = "ACTIVE" | "PAUSED" | "DELETED";
 export const PILOT_KINDS = [
   "set_status", "set_daily_budget", "set_lifetime_budget", "set_end_time", "set_start_time", "set_bid_amount", "set_target_cpa", "set_target_roas",
   "set_bid_strategy", "set_spend_cap", "rename", "create_ad", "duplicate", "add_keyword", "add_negative_keyword", "set_targeting",
+  "set_ad_texts", "set_ad_creative", "set_rsa_texts",
 ] as const;
 export type PilotKind = (typeof PILOT_KINDS)[number];
 
@@ -171,6 +173,11 @@ export interface PilotObjectState {
   negative?: boolean;
   /** Meta ad set: the targeting spec as JSON, read when the object is read alone. */
   targeting?: string | null;
+  /** Meta ad: the creative it shows, and its texts as JSON (null when not an image/video link ad). */
+  creativeId?: string | null;
+  adTexts?: string | null;
+  /** Google ad: the responsive search ad as JSON (null when another ad type). */
+  rsa?: string | null;
   parentName: string;
   /** Why the budget of this object cannot be changed here (a shared Google Ads budget); null when it can. */
   budgetLock?: string | null;
@@ -288,7 +295,7 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
   const base = { kind: req.kind, objectType: req.objectType, objectId: req.objectId, objectName: state.name, parentName: state.parentName };
   const label = `${objectLower(platform, req.objectType)} « ${state.name} »`;
   if (state.type !== req.objectType) return { ok: false, error: `L'objet ${req.objectId} n'est pas ${objectLower(platform, req.objectType)} : rechargez la page.` };
-  if (platform === "google" && req.objectType === "ad") return { ok: false, error: "Les annonces Google Ads ne se modifient pas encore ici : changez leur groupe d'annonces ou leur campagne." };
+  if (platform === "google" && req.objectType === "ad" && req.kind !== "set_status" && req.kind !== "set_rsa_texts") return { ok: false, error: "Une annonce Google Ads se met en pause, s'active, se supprime ou reçoit de nouveaux textes (nouvelle version) : rien d'autre ici." };
   if (req.objectType === "keyword") {
     if (platform !== "google") return { ok: false, error: "Les mots-clés n'existent que sur Google Ads." };
     if (req.kind !== "set_status" && req.kind !== "set_bid_amount") return { ok: false, error: `Un mot-clé se met en pause, s'active, change d'enchère ou se supprime : rien d'autre.` };
@@ -352,6 +359,33 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
       const after = Math.round(amount * offset);
       if (after === state.bidAmount) return { ok: false, error: `${label} a déjà cette enchère.` };
       return { ok: true, op: { ...base, field: "bid_amount", before: state.bidAmount, after, double: null, irreversible: false } };
+    }
+    case "set_ad_texts": {
+      if (platform !== "meta" || req.objectType !== "ad") return { ok: false, error: "Les textes se changent sur une annonce Meta." };
+      if (!state.adTexts || !state.creativeId) return { ok: false, error: `${label} n'est pas une annonce image ou vidéo avec un lien : ses textes se changent dans le Gestionnaire de publicités.` };
+      const read = readMetaAdTexts(req.value);
+      if (!read.ok) return { ok: false, error: `${label} : ${read.error}` };
+      const current = JSON.parse(state.adTexts) as MetaAdTexts;
+      const texts = { ...read.texts, kind: current.kind };
+      if (!metaTextsDiff(current, texts).length) return { ok: false, error: `${label} a déjà ces textes.` };
+      // Before: the creative shown now (its id puts it back); after: the texts asked.
+      return { ok: true, op: { ...base, field: "ad_texts", before: JSON.stringify({ creativeId: state.creativeId, ...current }), after: JSON.stringify(texts), double: null, irreversible: false } };
+    }
+    case "set_ad_creative": {
+      if (platform !== "meta" || req.objectType !== "ad") return { ok: false, error: "Une créa se remet sur une annonce Meta." };
+      const id = String(req.value).trim();
+      if (!/^\d{5,25}$/.test(id)) return { ok: false, error: `Créa invalide pour ${label}.` };
+      if (id === state.creativeId) return { ok: false, error: `${label} montre déjà cette créa.` };
+      return { ok: true, op: { ...base, field: "creative", before: state.creativeId ?? null, after: id, double: null, irreversible: false } };
+    }
+    case "set_rsa_texts": {
+      if (platform !== "google" || req.objectType !== "ad") return { ok: false, error: "Les textes se changent sur une annonce Google Ads." };
+      if (!state.rsa) return { ok: false, error: `${label} n'est pas une annonce responsive sur le Réseau de Recherche : elle se modifie dans Google Ads.` };
+      const read = readRsa(req.value);
+      if (!read.ok) return { ok: false, error: `${label} : ${read.error}` };
+      const current = JSON.parse(state.rsa) as RsaSpec;
+      if (!rsaDiff(current, read.spec).length) return { ok: false, error: `${label} a déjà ces textes.` };
+      return { ok: true, op: { ...base, field: "rsa", before: state.rsa, after: JSON.stringify(read.spec), double: null, irreversible: false } };
     }
     case "set_targeting": {
       if (platform !== "meta" || req.objectType !== "adset") return { ok: false, error: "Le ciblage se règle sur un ensemble de publicités Meta." };
@@ -469,6 +503,7 @@ export function stateValue(state: PilotObjectState, field: string): PilotValue {
     case "bid_strategy": return state.bidStrategy ?? null;
     case "spend_cap": return state.spendCap ?? null;
     case "targeting": return state.targeting ?? null;
+    case "creative": return state.creativeId ?? null;
     case "name": return state.name;
     default: return null;
   }
@@ -486,7 +521,9 @@ export function sameValue(field: string, a: PilotValue, b: PilotValue): boolean 
 /** The request that puts an operation back; null when nothing can (a deletion, a date that did not exist). */
 export function inverseRequest(op: { kind: string; objectType: string; objectId: string; field: string; before: PilotValue; after: PilotValue }, currency: string): PilotRequest | null {
   // A new ad is not « put back »: it is created paused, and deleted from the tree if it must go.
-  if (op.field === "new_ad" || op.field === "copy" || op.field === "new_keyword" || op.field === "new_negative" || op.before === null || op.after === "DELETED") return null;
+  if (op.field === "new_ad" || op.field === "copy" || op.field === "new_keyword" || op.field === "new_negative" || op.field === "rsa" || op.before === null || op.after === "DELETED") return null;
+  // New texts made a new creative: putting the old creative back is one write.
+  if (op.field === "ad_texts") { try { const b = JSON.parse(String(op.before)); return /^\d{5,25}$/.test(String(b?.creativeId)) ? { kind: "set_ad_creative", objectType: "ad", objectId: op.objectId, value: String(b.creativeId) } : null; } catch { return null; } }
   const kind = op.kind as PilotKind;
   const objectType = op.objectType as PilotObjectType;
   if (op.field === "daily_budget" || op.field === "lifetime_budget" || op.field === "bid_amount" || op.field === "cost_cap" || op.field === "target_cpa" || op.field === "spend_cap") {
@@ -514,7 +551,11 @@ const ICON: Record<PilotKind, string> = {
   add_keyword: "🔑",
   add_negative_keyword: "🚫",
   set_targeting: "🎯",
+  set_ad_texts: "✍️",
+  set_ad_creative: "🖼",
+  set_rsa_texts: "✍️",
 };
+const parseJson = <T,>(v: PilotValue): T | null => { try { const t = JSON.parse(String(v ?? "null")); return t && typeof t === "object" ? (t as T) : null; } catch { return null; } };
 
 const parseTargeting = (v: PilotValue): Targeting | null => { try { const t = JSON.parse(String(v ?? "null")); return t && typeof t === "object" ? t : null; } catch { return null; } };
 
@@ -549,6 +590,8 @@ function valueText(field: string, value: PilotValue, currency: string): string {
   if (field === "copy") return value === null ? "—" : `« ${copyName(value)} » (créée en pause)`;
   if (field === "new_keyword" || field === "new_negative") return value === null ? "—" : newKeywordText(value);
   if (field === "targeting") return value === null ? "—" : "ciblage";
+  if (field === "creative") return value === null ? "—" : `créa #${value}`;
+  if (field === "rsa") { const r = parseJson<RsaSpec>(value); return r ? rsaSummary(r) : "—"; }
   if (value === null) return field === "end_time" || field === "stop_time" || field === "end_date" || field === "start_time" || field === "start_date" || field === "spend_cap" ? "aucune" : "—";
   switch (field) {
     case "status": return statusText(String(value));
@@ -593,6 +636,9 @@ const FIELD_FR: Record<string, string> = {
   new_keyword: "nouveau mot-clé",
   new_negative: "nouveau mot-clé négatif",
   targeting: "ciblage",
+  ad_texts: "textes",
+  creative: "créa",
+  rsa: "annonce responsive",
 };
 
 /** One line, the same in the preview, the journal and HQ: what, on which object, before → after. */
@@ -609,6 +655,16 @@ export function describeOperation(
     const after = parseTargeting(op.after);
     const lines = after ? targetingDiff(parseTargeting(op.before), after) : ["ciblage modifié"];
     return `${icon} ${object} — ciblage : ${lines.join(" ; ")}`;
+  }
+  if (op.field === "ad_texts") {
+    const after = parseJson<MetaAdTexts>(op.after);
+    const lines = after ? metaTextsDiff(parseJson<MetaAdTexts>(op.before), after) : ["textes modifiés"];
+    return `${icon} ${object} — nouveaux textes (nouvelle créa) : ${lines.join(" ; ")}`;
+  }
+  if (op.field === "rsa") {
+    const after = parseJson<RsaSpec>(op.after);
+    const lines = after ? rsaDiff(parseJson<RsaSpec>(op.before), after) : ["textes modifiés"];
+    return `${icon} ${object} — nouvelle version de l'annonce (l'ancienne mise en pause) : ${lines.join(" ; ")}`;
   }
   if (op.field === "new_keyword") return `${icon} ${object} — mot-clé ajouté ${valueText(op.field, op.after, currency)}`;
   if (op.field === "new_negative") return `${icon} ${object} — mot-clé négatif ajouté ${valueText(op.field, op.after, currency)}`;

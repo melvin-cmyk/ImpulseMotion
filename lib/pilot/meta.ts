@@ -10,6 +10,8 @@
 import { getMetaSystemToken, metaGraphGetAll, metaGraphGetOnce, metaGraphUpdate, metaGraphUpdateFields, metaGraphCopy, isMetaWriteUncertain } from "@/lib/meta-api";
 import { isMetaApiError } from "@/lib/meta-errors";
 import { metaAccountDigits } from "@/lib/routines/accounts";
+import { metaGraphPost } from "@/lib/meta-api";
+import { metaStoryWithTexts, readMetaCreative, type MetaAdCreative, type MetaAdTexts } from "@/lib/pilot/creative";
 import type { WriteGuard } from "@/lib/routines/types";
 import type { PilotObjectState, PilotObjectType } from "@/lib/pilot/ops";
 
@@ -19,7 +21,7 @@ const LIVE_STATUSES = JSON.stringify([{ field: "effective_status", operator: "NO
 const FIELDS: Record<Exclude<PilotObjectType, "keyword">, string> = {
   campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,spend_cap,bid_strategy,bid_amount,bid_constraints",
   adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,targeting,campaign{name}",
-  ad: "id,account_id,name,status,effective_status,adset{name}",
+  ad: "id,account_id,name,status,effective_status,adset{name},creative{id,name,object_story_spec}",
 };
 /** Meta's « no cap » marker on spend_cap. */
 const NO_SPEND_CAP = 922337203685478;
@@ -29,6 +31,7 @@ type Raw = Record<string, unknown> & {
   daily_budget?: string; lifetime_budget?: string; stop_time?: string; end_time?: string; start_time?: string; bid_amount?: number | string;
   spend_cap?: string | number; bid_strategy?: string; bid_constraints?: { roas_average_floor?: number | string }; targeting?: Record<string, unknown>; campaign_id?: string; adset_id?: string;
   campaign?: { name?: string }; adset?: { name?: string };
+  creative?: { id?: string; name?: string; object_story_spec?: Record<string, unknown> };
   insights?: { data?: Array<{ spend?: string }> };
 };
 
@@ -36,6 +39,14 @@ const num = (v: unknown): number | null => {
   const n = typeof v === "number" ? v : typeof v === "string" && v ? Number(v) : NaN;
   return Number.isFinite(n) && n > 0 ? n : null;
 };
+
+/** The editable texts of an ad's creative as JSON; null when the creative is not an image/video link ad. */
+function adTextsJson(creative: Raw["creative"]): string | null {
+  const c = readMetaCreative(creative as Parameters<typeof readMetaCreative>[0]);
+  if (!c) return null;
+  const texts: MetaAdTexts = { kind: c.kind, primaryText: c.primaryText, headline: c.headline, description: c.description, linkUrl: c.linkUrl, callToAction: c.callToAction };
+  return JSON.stringify(texts);
+}
 
 export function toState(raw: Raw, type: Exclude<PilotObjectType, "keyword">): PilotObjectState {
   return {
@@ -57,6 +68,8 @@ export function toState(raw: Raw, type: Exclude<PilotObjectType, "keyword">): Pi
     spendCap: type === "campaign" && num(raw.spend_cap) && Number(raw.spend_cap) < NO_SPEND_CAP ? num(raw.spend_cap) : null,
     strategyLock: null,
     targeting: type === "adset" && raw.targeting && typeof raw.targeting === "object" ? JSON.stringify(raw.targeting) : null,
+    creativeId: type === "ad" && raw.creative?.id ? String(raw.creative.id) : null,
+    adTexts: type === "ad" ? adTextsJson(raw.creative) : null,
     parentName: type === "adset" ? raw.campaign?.name ?? "" : type === "ad" ? raw.adset?.name ?? "" : "",
   };
 }
@@ -93,7 +106,7 @@ export async function readStructure(accountId: string): Promise<{ campaigns: Str
 /** The ads of one ad set (read when it is opened). */
 export async function readAds(adsetId: string): Promise<StructureRow[]> {
   if (!/^\d{5,25}$/.test(adsetId)) throw new Error("Ensemble de publicités invalide");
-  const ads = await metaGraphGetAll<Raw>(`/${adsetId}/ads`, getMetaSystemToken(), { fields: `${FIELDS.ad},${SPEND_7D}`, filtering: LIVE_STATUSES, limit: "200" }, 500);
+  const ads = await metaGraphGetAll<Raw>(`/${adsetId}/ads`, getMetaSystemToken(), { fields: `${FIELDS.ad},${SPEND_7D}`, filtering: LIVE_STATUSES, limit: "100" }, 500);
   return ads.data.map((r) => row(r, "ad", adsetId));
 }
 
@@ -135,6 +148,7 @@ export function metaFieldsFor(field: string, value: string | number): Record<str
     case "bid_strategy": return { bid_strategy: String(value) };
     case "status": case "daily_budget": case "lifetime_budget": case "bid_amount": case "end_time": case "stop_time": case "start_time": case "name": case "spend_cap": case "targeting":
       return { [field]: String(value) };
+    case "creative": return { creative: JSON.stringify({ creative_id: String(value) }) };
     default: return null;
   }
 }
@@ -191,4 +205,39 @@ export async function readCustomAudiences(accountId: string): Promise<Array<{ id
     size: typeof a.approximate_count_lower_bound === "number" && a.approximate_count_lower_bound >= 0 ? a.approximate_count_lower_bound : null,
     ready: a.delivery_status?.code === 200 || a.delivery_status === undefined,
   })).sort((a, b) => a.name.localeCompare(b.name, "fr"));
+}
+
+/** The creative an ad shows now, with everything the new one keeps; null when the ad is not an image/video link ad. */
+export async function readAdCreative(adId: string): Promise<{ adName: string; accountId: string; creative: MetaAdCreative | null } | null> {
+  if (!/^\d{5,25}$/.test(adId)) throw new Error("Annonce invalide");
+  const raw = await metaGraphGetOnce<Raw>(`/${adId}`, getMetaSystemToken(), { fields: "id,account_id,name,creative{id,name,object_story_spec}" });
+  if (!raw?.id) return null;
+  return { adName: String(raw.name ?? ""), accountId: metaAccountDigits(raw.account_id) ?? "", creative: readMetaCreative(raw.creative as Parameters<typeof readMetaCreative>[0]) };
+}
+
+/**
+ * A new creative with the texts asked (same Page, image or video, link), then
+ * the ad switched to it. Never throws; `creativeId` when the creative exists
+ * (the switch may still have failed: said in the outcome).
+ */
+export async function rewriteAdTexts(guard: WriteGuard, accountId: string, adId: string, texts: MetaAdTexts): Promise<WriteOutcome & { creativeId?: string }> {
+  const read = await readAdCreative(adId).catch(() => null);
+  if (!read || read.accountId !== accountId) return { kind: "refused", error: "Annonce introuvable sur Meta : rien n'a été envoyé." };
+  if (!read.creative) return { kind: "refused", error: "Cette annonce n'est pas une annonce image ou vidéo avec un lien : ses textes se changent dans le Gestionnaire de publicités." };
+  const story = metaStoryWithTexts(read.creative, { ...texts, kind: read.creative.kind });
+  let creativeId: string;
+  try {
+    const res = await metaGraphPost<{ id?: string }>(guard, { kind: "adcreative", accountId }, getMetaSystemToken(), {
+      name: `${read.creative.creativeName || read.adName} — ${new Date().toISOString().slice(0, 10)}`.slice(0, 255),
+      object_story_spec: JSON.stringify(story),
+    });
+    creativeId = String(res?.id ?? "");
+  } catch (e) {
+    if (isMetaWriteUncertain(e)) return { kind: "uncertain", error: "Meta n'a pas répondu à temps : la nouvelle créa a peut-être été créée (l'annonce n'a pas changé). Vérifiez dans le Gestionnaire avant de recommencer." };
+    return { kind: "refused", error: `Refusé par Meta (création de la créa) : ${(e instanceof Error ? e.message : String(e)).replace(/access_token=[^\s&"']+/gi, "access_token=[masqué]").slice(0, 300)}` };
+  }
+  if (!/^\d{5,25}$/.test(creativeId)) return { kind: "uncertain", error: "Meta a répondu sans identifiant de créa : vérifiez dans le Gestionnaire de publicités avant de recommencer." };
+  const switched = await writeField(guard, adId, "creative", creativeId);
+  if (switched.kind !== "done") return { ...switched, creativeId, error: `${switched.error} (la nouvelle créa ${creativeId} existe, l'annonce montre encore l'ancienne)` };
+  return { kind: "done", creativeId };
 }

@@ -7,9 +7,10 @@
 
 import { metaAccountDigits } from "@/lib/routines/accounts";
 import type { WriteGuard } from "@/lib/routines/types";
-import { copyObject, readAccountCurrency, readAds, readObject, readStructure, writeField, type StructureRow, type WriteOutcome } from "@/lib/pilot/meta";
-import { createGoogleKeyword, googleCustomerDigits, googleWritesOpen, readGoogleCurrency, readGoogleKeywords, readGoogleObject, readGoogleStructure, writeGoogleField } from "@/lib/pilot/google";
+import { copyObject, readAccountCurrency, readAds, readObject, readStructure, rewriteAdTexts, writeField, type StructureRow, type WriteOutcome } from "@/lib/pilot/meta";
+import { createGoogleKeyword, googleCustomerDigits, googleWritesOpen, readGoogleAds, readGoogleCurrency, readGoogleKeywords, readGoogleObject, readGoogleStructure, replaceGoogleRsa, writeGoogleField } from "@/lib/pilot/google";
 import type { KeywordSpec, PilotObjectState, PilotObjectType, PilotPlatform } from "@/lib/pilot/ops";
+import type { MetaAdTexts, RsaSpec } from "@/lib/pilot/creative";
 
 export interface PilotAdapter {
   platform: PilotPlatform;
@@ -23,6 +24,10 @@ export interface PilotAdapter {
   readAds: ((account: string, adsetId: string, currency: string) => Promise<StructureRow[]>) | null;
   /** A keyword added in an ad group (or negative on a campaign); null when the platform has no keywords. */
   createKeyword: ((guard: WriteGuard, account: string, parentId: string, spec: KeywordSpec, negative: boolean) => Promise<WriteOutcome & { createdId?: string }>) | null;
+  /** Meta: new texts = a new creative the ad is switched to. */
+  rewriteAdTexts: ((guard: WriteGuard, account: string, adId: string, texts: MetaAdTexts) => Promise<WriteOutcome & { creativeId?: string }>) | null;
+  /** Google Ads: new texts = a new responsive search ad, the old one paused. */
+  replaceRsa: ((guard: WriteGuard, account: string, adId: string, spec: RsaSpec) => Promise<WriteOutcome & { createdId?: string; oldPaused?: boolean }>) | null;
   readCurrency(account: string): Promise<string>;
   readObject(account: string, objectId: string, type: PilotObjectType, currency: string): Promise<PilotObjectState | null>;
   writeField(guard: WriteGuard, account: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string): Promise<WriteOutcome>;
@@ -42,6 +47,8 @@ const meta: PilotAdapter = {
   writeField: (guard, _account, objectId, _type, field, value) => writeField(guard, objectId, field, value),
   copyObject: (guard, _account, objectId, type, currentName, newName) => copyObject(guard, objectId, type, currentName, newName),
   createKeyword: null,
+  rewriteAdTexts: (guard, account, adId, texts) => rewriteAdTexts(guard, account, adId, texts),
+  replaceRsa: null,
   writesOpen: () => process.env.PILOT_WRITES === "1",
 };
 
@@ -53,7 +60,8 @@ const google: PilotAdapter = {
     const { campaigns, adsets, negatives, truncated } = await readGoogleStructure(account, currency);
     return { campaigns, adsets, negatives, truncated };
   },
-  readAds: (account, adGroupId, currency) => readGoogleKeywords(account, adGroupId, currency),
+  // What an ad group holds: its keywords, then its ads.
+  readAds: async (account, adGroupId, currency) => [...(await readGoogleKeywords(account, adGroupId, currency)), ...(await readGoogleAds(account, adGroupId))],
   readCurrency: readGoogleCurrency,
   readObject: (account, objectId, type, currency) => readGoogleObject(account, objectId, type, currency),
   // The guard is minted for every send; Google writes go through the n8n flow, which has no guard of its own.
@@ -61,6 +69,8 @@ const google: PilotAdapter = {
   copyObject: null,
   // The guard is minted for every send; the n8n flow has its own secret.
   createKeyword: (_guard, account, parentId, spec, negative) => createGoogleKeyword(account, parentId, spec, negative),
+  rewriteAdTexts: null,
+  replaceRsa: (_guard, account, adId, spec) => replaceGoogleRsa(account, adId, spec),
   writesOpen: googleWritesOpen,
 };
 
