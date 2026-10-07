@@ -87,6 +87,10 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
   const [hqProject, setHqProject] = useState(hqDefault ?? "");
   const [projects, setProjects] = useState<Array<{ slug: string; name: string }> | null>(null);
   const [confirmDouble, setConfirmDouble] = useState(false);
+  // Planned send: the cron sends at `scheduledAt` as the preparer; `revertAt` puts it back then.
+  const [planning, setPlanning] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [revertAt, setRevertAt] = useState("");
   const [busy, setBusy] = useState<"prepare" | "send" | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [result, setResult] = useState<PilotActionView | null>(null);
@@ -153,6 +157,30 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
       onSent(j.action);
     } catch (e) {
       setErrors([`La réponse n'est pas arrivée (${e instanceof Error ? e.message : String(e)}) : rechargez la page et regardez le journal avant de recommencer.`]);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function schedule() {
+    if (!preview) return;
+    setBusy("send");
+    setErrors([]);
+    try {
+      const res = await fetch(`/api/pilot/actions/${preview.id}/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ why, goal: preview.undoOfId ? preview.goal : goal, hqProject, confirmDouble, scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null, revertAt: revertAt ? new Date(revertAt).toISOString() : null }),
+      });
+      const j = await readJson<{ action?: PilotActionView }>(res);
+      if (!res.ok || !j.action) { setErrors([j.error ?? `Erreur ${res.status}`]); return; }
+      setResult(j.action);
+      onPreview(null);
+      if (!preview.undoOfId) onClear();
+      setWhy(""); setMetric(""); setTarget(""); setNote(""); setPlanning(false); setScheduledAt(""); setRevertAt("");
+      onSent(j.action);
+    } catch (e) {
+      setErrors([e instanceof Error ? e.message : String(e)]);
     } finally {
       setBusy(null);
     }
@@ -229,8 +257,24 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
             {busy === "send" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             Envoyer à {PLATFORM_FR[preview.platform] ?? preview.platform} ({preview.operations.length})
           </button>
+          <button type="button" onClick={() => setPlanning(!planning)} disabled={!writesOpen || busy !== null} className={`px-3 py-2 rounded-lg text-sm border ${planning ? "border-violet-500 text-white" : "border-gray-700 text-gray-300 hover:text-white"} disabled:opacity-40`}>Planifier…</button>
           <button type="button" onClick={() => void dropPreview()} disabled={busy !== null} className="px-3 py-2 rounded-lg text-sm text-gray-300 hover:text-white">Revenir</button>
         </div>
+        {planning && (
+          <div className="rounded-lg border border-violet-500/40 bg-violet-500/5 p-3 space-y-2 text-xs">
+            <label className="flex flex-wrap items-center gap-2 text-gray-300">Envoyer le
+              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white" />
+            </label>
+            <label className="flex flex-wrap items-center gap-2 text-gray-300">Remettre en arrière le
+              <input type="datetime-local" value={revertAt} onChange={(e) => setRevertAt(e.target.value)} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white" />
+              <span className="text-gray-500">(facultatif : les valeurs d&apos;avant sont remises à cette date, sauf créations et suppressions)</span>
+            </label>
+            <p className="text-gray-500">Envoi à l&apos;heure près, par ImpulseMotion, en votre nom ; vous pourrez annuler depuis le journal tant que ce n&apos;est pas parti.</p>
+            <button type="button" onClick={() => void schedule()} disabled={!scheduledAt || busy !== null || !whyOk || !hqOk || (preview.needsDouble && !confirmDouble)} className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40">
+              {busy === "send" ? "…" : `Programmer l'envoi (${preview.operations.length})`}
+            </button>
+          </div>
+        )}
         {!writesOpen && <p className="text-xs text-amber-300">L&apos;aperçu fonctionne, mais l&apos;envoi vers {PLATFORM_FR[preview.platform] ?? preview.platform} n&apos;est pas encore ouvert.</p>}
         {(!whyOk || !hqOk) && <p className="text-xs text-gray-500">{!whyOk ? "Dites pourquoi en quelques mots. " : ""}{!hqOk ? "Choisissez le dossier HQ." : ""}</p>}
       </div>

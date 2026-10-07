@@ -21,6 +21,7 @@ import { prisma } from "@/lib/prisma";
 import { getAccountScope, platformAccountInScope } from "@/lib/scope";
 import { parseAlertAccounts } from "@/lib/auto-alerts/clients";
 import { mintWriteGuard, revokeWriteGuard } from "@/lib/routines/write-guard";
+import type { WriteGuard } from "@/lib/routines/types";
 import { HQ_PROJECT_RE, appendHqJournal, listHqProjects } from "@/lib/hq-journal";
 import { pilotAdapter, type PilotAdapter } from "@/lib/pilot/adapters";
 import { checkNewAd, createNewAd } from "@/lib/pilot/new-ad";
@@ -175,14 +176,19 @@ export const pilotWritesOpen = (platform: string = "meta") => pilotAdapter(platf
 /** A send still `running` after this long was cut short (function killed, timeout): it is closed as such. */
 const STALE_RUNNING_MS = 10 * 60 * 1000;
 
+export interface ExecuteOptions {
+  /** A scheduled send (status « scheduled », no preview age limit) or a rule's send: run by the cron as the person who prepared it. */
+  scheduled?: boolean;
+}
+
 export async function executeAction(session: PilotSession, id: string, input: {
   why?: unknown; goal?: unknown; hqProject?: unknown; confirmDouble?: unknown;
-}, now: Date = new Date()): Promise<{ ok: true; action: PilotActionView } | Fail> {
+}, now: Date = new Date(), opts: ExecuteOptions = {}): Promise<{ ok: true; action: PilotActionView } | Fail> {
   const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
   if (!action || action.createdById !== session.userId) return { ok: false, status: 404, error: "Modification introuvable." };
   if (!pilotWritesOpen(action.platform)) return { ok: false, status: 403, error: `L'envoi vers ${PLATFORM_FR[action.platform] ?? action.platform} n'est pas encore ouvert : la page est en essai.` };
-  if (action.status !== "draft") return { ok: false, status: 409, error: "Cette modification a déjà été envoyée." };
-  if (now.getTime() - action.createdAt.getTime() > PILOT_DRAFT_TTL_MS) {
+  if (action.status !== (opts.scheduled ? "scheduled" : "draft")) return { ok: false, status: 409, error: action.status === "scheduled" ? "Cette modification est programmée : annulez la programmation pour l'envoyer maintenant." : "Cette modification a déjà été envoyée." };
+  if (!opts.scheduled && now.getTime() - action.createdAt.getTime() > PILOT_DRAFT_TTL_MS) {
     await prisma.pilotAction.updateMany({ where: { id, status: "draft" }, data: { status: "expired" } });
     return { ok: false, status: 409, error: "L'aperçu a plus de 30 minutes : préparez-le à nouveau, le compte a pu changer." };
   }
@@ -207,7 +213,7 @@ export async function executeAction(session: PilotSession, id: string, input: {
   // Claimed once: a second click, or a second tab, finds it running.
   const goal: PilotGoal = input.goal === undefined ? readGoal(JSON.parse(action.goalJson || "{}")) : readGoal(input.goal);
   const claimed = await prisma.pilotAction.updateMany({
-    where: { id, status: "draft" },
+    where: { id, status: opts.scheduled ? "scheduled" : "draft" },
     data: { status: "running", why, goalJson: JSON.stringify(goal), hqProject, executedAt: now },
   });
   if (claimed.count !== 1) return { ok: false, status: 409, error: "Cette modification est déjà en cours d'envoi." };
@@ -504,6 +510,7 @@ export interface PilotActionView {
   createdByName: string; createdByEmail: string | null; mine: boolean; status: string; why: string; goal: PilotGoal;
   needsDouble: boolean; doubleReasons: string[]; hqProject: string | null; hqWrittenAt: string | null; hqError: string | null;
   undoOfId: string | null; undoneById: string | null; executedAt: string | null; createdAt: string; expiresAt: string | null;
+  scheduledAt: string | null; revertAt: string | null; revertedAt: string | null; ruleId: string | null;
   operations: PilotOperationView[];
   /** J+7 and J+14 analyses (lib/pilot/impact-run.ts), computed or not yet. */
   impacts: PilotImpactView[];
@@ -562,6 +569,7 @@ export function toActionView(a: ActionRow, viewerId: string): PilotActionView {
     hqProject: a.hqProject, hqWrittenAt: a.hqWrittenAt?.toISOString() ?? null, hqError: a.hqError,
     undoOfId: a.undoOfId, undoneById: a.undoneById, executedAt: a.executedAt?.toISOString() ?? null, createdAt: a.createdAt.toISOString(),
     expiresAt: a.status === "draft" ? new Date(a.createdAt.getTime() + PILOT_DRAFT_TTL_MS).toISOString() : null,
+    scheduledAt: a.scheduledAt?.toISOString() ?? null, revertAt: a.revertAt?.toISOString() ?? null, revertedAt: a.revertedAt?.toISOString() ?? null, ruleId: a.ruleId,
     operations: ops,
     impacts: impactViews(a),
   };
@@ -587,4 +595,95 @@ export async function listActions(session: PilotSession, opts: { alertClientId?:
     include: { operations: { orderBy: { position: "asc" } }, impacts: true },
   });
   return rows.filter((r) => platformAccountInScope(scope, r.platform, r.accountId)).slice(0, Math.min(opts.take ?? 50, 200)).map((r) => toActionView(r, session.userId));
+}
+
+/** A guard for a side effect of Pilotage (a rule's Slack word): minted here, as every guard is, revoked after. */
+export async function withPilotGuard<T>(key: string, fn: (guard: WriteGuard) => Promise<T>): Promise<T> {
+  const guard = mintWriteGuard("live", key);
+  try { return await fn(guard); } finally { revokeWriteGuard(guard); }
+}
+
+// ── Scheduled sends and automatic reverts ─────────────────────────────────
+
+/** A send can be planned this far ahead; a revert this long after the send. */
+const SCHEDULE_MAX_DAYS = 60;
+
+/**
+ * The preview is kept and sent later by the cron (status « scheduled »), as
+ * the person who prepared it, with the reason, the folder and the second
+ * confirmation given now. `revertAt`: the cron then puts it back at that time.
+ */
+export async function scheduleAction(session: PilotSession, id: string, input: {
+  why?: unknown; goal?: unknown; hqProject?: unknown; confirmDouble?: unknown; scheduledAt?: unknown; revertAt?: unknown;
+}, now: Date = new Date()): Promise<{ ok: true; action: PilotActionView } | Fail> {
+  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
+  if (!action || action.createdById !== session.userId) return { ok: false, status: 404, error: "Modification introuvable." };
+  if (action.status !== "draft") return { ok: false, status: 409, error: "Seul un aperçu non envoyé se programme." };
+  if (!pilotWritesOpen(action.platform)) return { ok: false, status: 403, error: `L'envoi vers ${PLATFORM_FR[action.platform] ?? action.platform} n'est pas encore ouvert.` };
+  const scheduledAt = input.scheduledAt ? new Date(String(input.scheduledAt)) : null;
+  const revertAt = input.revertAt ? new Date(String(input.revertAt)) : null;
+  if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) return { ok: false, status: 400, error: "Date d'envoi invalide." };
+  if (scheduledAt.getTime() < now.getTime() + 5 * 60 * 1000) return { ok: false, status: 400, error: "L'envoi programmé doit être dans plus de cinq minutes (sinon envoyez maintenant)." };
+  if (scheduledAt.getTime() > now.getTime() + SCHEDULE_MAX_DAYS * 86_400_000) return { ok: false, status: 400, error: `L'envoi se programme ${SCHEDULE_MAX_DAYS} jours à l'avance au plus.` };
+  if (revertAt && (Number.isNaN(revertAt.getTime()) || revertAt.getTime() <= scheduledAt.getTime() + 30 * 60 * 1000)) return { ok: false, status: 400, error: "Le retour en arrière doit être au moins trente minutes après l'envoi." };
+  if (revertAt && revertAt.getTime() > scheduledAt.getTime() + SCHEDULE_MAX_DAYS * 86_400_000) return { ok: false, status: 400, error: `Le retour en arrière se programme ${SCHEDULE_MAX_DAYS} jours après l'envoi au plus.` };
+  if (revertAt && action.operations.some((o) => o.field === "new_ad" || o.field === "copy" || o.field === "rsa" || o.field === "new_keyword" || o.field === "new_negative" || JSON.parse(o.afterJson) === "DELETED")) return { ok: false, status: 400, error: "Une création ou une suppression ne se remet pas en arrière automatiquement : programmez l'envoi sans retour." };
+  const why = typeof input.why === "string" ? input.why.trim().slice(0, 2000) : action.why;
+  if (why.length < 3) return { ok: false, status: 400, error: "Dites en quelques mots pourquoi vous faites cette modification : c'est ce qui sera écrit dans HQ." };
+  const hqProject = typeof input.hqProject === "string" && input.hqProject ? input.hqProject : action.hqProject;
+  if (!hqProject || !HQ_PROJECT_RE.test(hqProject)) return { ok: false, status: 400, error: "Choisissez le dossier HQ du client." };
+  if (action.needsDouble && input.confirmDouble !== true) return { ok: false, status: 409, error: "Cette modification demande une seconde confirmation." };
+  if (!action.alertClientId) return { ok: false, status: 404, error: "Client introuvable." };
+  const resolved = await resolveAccount(session, action.alertClientId, action.accountId, action.platform);
+  if (!resolved.ok) return resolved;
+  const goal: PilotGoal = input.goal === undefined ? readGoal(JSON.parse(action.goalJson || "{}")) : readGoal(input.goal);
+  const claimed = await prisma.pilotAction.updateMany({ where: { id, status: "draft" }, data: { status: "scheduled", why, goalJson: JSON.stringify(goal), hqProject, scheduledAt, revertAt } });
+  if (claimed.count !== 1) return { ok: false, status: 409, error: "Cette modification n'est plus un aperçu." };
+  return { ok: true, action: await loadView(id, session.userId) };
+}
+
+export async function cancelSchedule(session: PilotSession, id: string): Promise<{ ok: true; action: PilotActionView } | Fail> {
+  const action = await prisma.pilotAction.findUnique({ where: { id }, select: { createdById: true, status: true, revertAt: true, revertedAt: true } });
+  if (!action || action.createdById !== session.userId) return { ok: false, status: 404, error: "Modification introuvable." };
+  if (action.status === "scheduled") {
+    await prisma.pilotAction.updateMany({ where: { id, status: "scheduled" }, data: { status: "cancelled" } });
+    return { ok: true, action: await loadView(id, session.userId) };
+  }
+  // A sent action waiting for its automatic revert: the revert alone is cancelled.
+  if ((action.status === "done" || action.status === "partial") && action.revertAt && !action.revertedAt) {
+    await prisma.pilotAction.update({ where: { id }, data: { revertAt: null } });
+    return { ok: true, action: await loadView(id, session.userId) };
+  }
+  return { ok: false, status: 409, error: "Rien à annuler sur cette modification." };
+}
+
+export interface ScheduledPassSummary { sent: number; reverted: number; failed: number; left: number }
+
+/** The cron: sends what is due, puts back what is due, as the people who prepared them. */
+export async function runScheduledActions(now: Date = new Date(), budgetMs = 120_000): Promise<ScheduledPassSummary> {
+  const started = Date.now();
+  const summary: ScheduledPassSummary = { sent: 0, reverted: 0, failed: 0, left: 0 };
+  const due = await prisma.pilotAction.findMany({ where: { status: "scheduled", scheduledAt: { lte: now } }, orderBy: { scheduledAt: "asc" }, take: 20, select: { id: true, createdById: true, why: true, hqProject: true, scheduledAt: true } });
+  for (const [i, a] of due.entries()) {
+    if (Date.now() - started > budgetMs) { summary.left += due.length - i; break; }
+    // Too late by more than a day (cron down): not sent blindly, the consultant is told through the journal.
+    if (a.scheduledAt && now.getTime() - a.scheduledAt.getTime() > 86_400_000) {
+      await prisma.pilotAction.update({ where: { id: a.id }, data: { status: "cancelled", hqError: "Envoi programmé manqué de plus d'un jour : non envoyé." } });
+      summary.failed++;
+      continue;
+    }
+    const out = await executeAction({ userId: a.createdById }, a.id, { why: a.why, hqProject: a.hqProject, confirmDouble: true }, now, { scheduled: true });
+    if (out.ok) summary.sent++; else { summary.failed++; await prisma.pilotAction.updateMany({ where: { id: a.id, status: "scheduled" }, data: { status: "cancelled", hqError: `Envoi programmé refusé : ${out.error}` } }); }
+  }
+  const reverts = await prisma.pilotAction.findMany({ where: { status: { in: ["done", "partial"] }, revertAt: { lte: now }, revertedAt: null, undoneById: null }, orderBy: { revertAt: "asc" }, take: 20, select: { id: true, createdById: true, hqProject: true } });
+  for (const [i, a] of reverts.entries()) {
+    if (Date.now() - started > budgetMs) { summary.left += reverts.length - i; break; }
+    const session = { userId: a.createdById };
+    const undo = await prepareUndo(session, a.id, now);
+    if (!undo.ok) { summary.failed++; await prisma.pilotAction.update({ where: { id: a.id }, data: { revertedAt: now, hqError: `Retour programmé impossible : ${undo.error}${undo.errors?.length ? ` (${undo.errors.join(" ; ")})` : ""}` } }); continue; }
+    const sent = await executeAction(session, undo.action.id, { why: `${undo.action.why} Retour programmé.`, hqProject: a.hqProject, confirmDouble: true }, now);
+    await prisma.pilotAction.update({ where: { id: a.id }, data: { revertedAt: now, ...(sent.ok ? {} : { hqError: `Retour programmé refusé : ${sent.error}` }) } });
+    if (sent.ok) summary.reverted++; else summary.failed++;
+  }
+  return summary;
 }

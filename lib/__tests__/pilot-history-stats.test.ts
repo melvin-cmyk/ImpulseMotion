@@ -11,7 +11,7 @@ const change = (over: Partial<PlatformChangeView>): PlatformChangeView => ({
 const action = (over: Partial<PilotActionView>): PilotActionView => ({
   id: "a1", alertClientId: "k", clientName: "Client", platform: "meta", accountId: "1", accountName: "Compte", currency: "EUR", createdByName: "Marina", createdByEmail: null, mine: false,
   status: "done", why: "test", goal: { metric: null, target: null, note: "" }, needsDouble: false, doubleReasons: [], hqProject: null, hqWrittenAt: null, hqError: null, undoOfId: null, undoneById: null,
-  executedAt: "2026-10-02T10:46:00.000Z", createdAt: "2026-10-02T10:46:00.000Z", expiresAt: null,
+  executedAt: "2026-10-02T10:46:00.000Z", createdAt: "2026-10-02T10:46:00.000Z", expiresAt: null, scheduledAt: null, revertAt: null, revertedAt: null, ruleId: null,
   operations: [{ id: "o1", kind: "set_daily_budget", objectType: "adset", objectId: "2", objectName: "Ensemble B", parentName: "", field: "daily_budget", before: 1000, after: 1200, readBack: 1200, status: "done", error: null, line: "💶 …", double: null, irreversible: false }],
   impacts: [{ horizon: 7, status: "done", verdict: "improved", summary: "", computedAt: null, dueOn: null, hqWritten: false, result: null }], ...over,
 });

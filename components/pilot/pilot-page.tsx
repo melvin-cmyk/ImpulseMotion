@@ -15,6 +15,7 @@ import { ChangePanel } from "@/components/pilot/change-panel";
 import { HistoryPanel } from "@/components/pilot/history-panel";
 import { SearchTermsPanel } from "@/components/pilot/search-terms-panel";
 import { CreativesPanel } from "@/components/pilot/creatives-panel";
+import { RulesPanel } from "@/components/pilot/rules-panel";
 import type { HistoryView, PlatformChangeView } from "@/lib/pilot/history";
 import { PilotAssistant } from "@/components/pilot/assistant-panel";
 import type { StudioPick } from "@/components/pilot/new-ad-form";
@@ -358,6 +359,12 @@ export function PilotPage() {
       {client && account && account.platform === "google" && structure && (
         <Section title="Termes de recherche">
           <SearchTermsPanel key={`${client.id}:${refKey(account)}`} clientId={client.id} accountId={account.accountId} currency={structure.account.currency} onAdd={(c) => { add(c); setTimeout(() => modifyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} />
+        </Section>
+      )}
+
+      {client && (
+        <Section title="Règles automatiques">
+          <RulesPanel client={client} account={account} campaigns={structure?.campaigns ?? []} adsets={structure?.adsets ?? []} />
         </Section>
       )}
 

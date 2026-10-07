@@ -27,6 +27,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { closeInterruptedRuns, runLocked } from "@/lib/routines/engine";
 import { dueRoutineIds } from "@/lib/routines/store";
 import { MIN_START_MS, RUN_BUDGET_MS } from "@/lib/routines/types";
+import { runScheduledActions } from "@/lib/pilot/service";
+import { runPilotRules } from "@/lib/pilot/rules";
 
 export const maxDuration = 300;
 
@@ -50,6 +52,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ stopped: true, due: 0, ran: 0, runs: [] });
   }
   const deadlineAt = Date.now() + RUN_BUDGET_MS;
+  // Pilotage first, briefly: the sends programmed for this hour and their automatic reverts (every hour),
+  // then the automatic rules (once a day each, at the 07:00 UTC firing). Never more than a minute each.
+  const pilot: Record<string, unknown> = {};
+  if (process.env.PILOT_SCHEDULE_CRON?.trim().toLowerCase() !== "off") {
+    try { pilot.scheduled = await runScheduledActions(new Date(), 60_000); } catch (e) { console.error("[cron/routines] pilot scheduled", e instanceof Error ? e.message : e); }
+    if (new Date().getUTCHours() === 7) {
+      try { pilot.rules = await runPilotRules(new Date(), 90_000); } catch (e) { console.error("[cron/routines] pilot rules", e instanceof Error ? e.message : e); }
+    }
+  }
   let interrupted = 0;
   /** Runs that never started (database lost right after the lock), traced by this firing. */
   let traced = 0;
@@ -79,7 +90,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
+  return NextResponse.json({ pilot, ...({
     due: ids.length,
     ran: runs.filter((r) => r.outcome === "ran").length,
     missed: runs.filter((r) => r.outcome === "missed").length,
@@ -89,7 +100,7 @@ export async function GET(req: NextRequest) {
     traced,
     timedOut: deferred > 0,
     runs,
-  });
+  }) });
 }
 
 export async function POST(req: NextRequest) {

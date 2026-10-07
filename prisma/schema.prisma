@@ -798,8 +798,15 @@ model PilotAction {
   /// Name (or email) of the person, as written in HQ.
   createdByName  String
   createdByEmail String?
-  /// draft | running | done | partial | failed | undone | expired
+  /// draft | scheduled | running | done | partial | failed | undone | expired | cancelled
   status         String           @default("draft")
+  /// Sent at this time by the cron instead of now (status scheduled until then).
+  scheduledAt    DateTime?
+  /// Put back automatically at this time (an undo prepared and sent by the cron).
+  revertAt       DateTime?
+  revertedAt     DateTime?
+  /// The automatic rule that sent it, when one did.
+  ruleId         String?
   why            String           @default("") @db.Text
   /// {"metric":"cpa","target":45,"note":"…"} — what the change should move.
   goalJson       String           @default("{}") @db.Text
@@ -821,6 +828,53 @@ model PilotAction {
   @@index([alertClientId, createdAt])
   @@index([accountId, createdAt])
   @@index([createdById, createdAt])
+}
+
+/// An automatic rule of Pilotage: « when <metric> of <object> over <days> days
+/// is <op> <threshold>, do <action> », evaluated daily by the cron, acting
+/// through the same path as a consultant (preview, send, journal, HQ, J+7/J+14).
+model PilotRule {
+  id            String    @id @default(cuid())
+  alertClientId String
+  clientName    String
+  /// meta | google
+  platform      String
+  accountId     String
+  accountName   String    @default("")
+  currency      String    @default("EUR")
+  createdById   String
+  createdByName String
+  name          String
+  enabled       Boolean   @default(true)
+  /// campaign | adset
+  objectType    String
+  /// One object, or null = every object of that type on the account.
+  objectId      String?
+  objectName    String?
+  /// cpa | roas | spend | conversions | ctr | cpc
+  metric        String
+  /// gt | lt
+  op            String
+  threshold     Float
+  /// Window of full days: 1 | 7 | 14 | 30
+  days          Int       @default(7)
+  /// Below this many conversions on the window, a CPA/ROAS rule does not fire.
+  minConversions Int      @default(5)
+  /// pause | budget_pct | notify
+  action        String
+  /// budget_pct: the change in % (−20 = −20 %).
+  actionValue   Float?
+  cooldownDays  Int       @default(3)
+  /// Slack channel told when the rule fires (optional).
+  notifyChannel String?
+  lastCheckedAt DateTime?
+  lastFiredAt   DateTime?
+  lastResult    String?   @db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([enabled, platform, accountId])
+  @@index([alertClientId])
 }
 
 /// One field of one object changed by a PilotAction, with its value before and after.

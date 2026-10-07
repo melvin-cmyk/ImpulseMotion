@@ -21,6 +21,8 @@ const STATUS: Record<string, { text: string; tone: "emerald" | "red" | "amber" |
   failed: { text: "non appliquée", tone: "red" },
   running: { text: "en cours", tone: "violet" },
   draft: { text: "aperçu non envoyé", tone: "default" },
+  scheduled: { text: "programmée", tone: "violet" },
+  cancelled: { text: "annulée avant envoi", tone: "default" },
 };
 
 const when = (iso: string) => new Date(iso).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -35,7 +37,7 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function post(path: "undo" | "hq") {
+  async function post(path: "undo" | "hq" | "unschedule") {
     setBusy(path);
     setError(null);
     try {
@@ -64,6 +66,10 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
         <Pill tone={s.tone} className="text-[10px]">{s.text}</Pill>
         {a.undoOfId && <Pill tone="violet" className="text-[10px]">annulation</Pill>}
         {a.undoneById && <Pill tone="default" className="text-[10px]">annulée depuis</Pill>}
+        {a.ruleId && <Pill tone="amber" className="text-[10px]">règle automatique</Pill>}
+        {a.status === "scheduled" && a.scheduledAt && <span className="text-violet-200">envoi le {when(a.scheduledAt)}</span>}
+        {a.revertAt && !a.revertedAt && <span className="text-violet-200">retour en arrière le {when(a.revertAt)}</span>}
+        {a.revertedAt && <span>retour fait le {when(a.revertedAt)}</span>}
       </div>
       <OperationLines action={a} showStatus />
       <p className="text-xs text-gray-400"><span className="text-gray-500">Pourquoi :</span> {a.why || "—"}{goal ? <> · <span className="text-gray-500">Objectif :</span> {goal}</> : null}</p>
@@ -79,6 +85,11 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
               </button>
             </>
             : null}
+        {a.mine && (a.status === "scheduled" || (a.revertAt && !a.revertedAt && (a.status === "done" || a.status === "partial"))) && (
+          <button type="button" disabled={busy !== null} onClick={() => { if (window.confirm(a.status === "scheduled" ? "Annuler cet envoi programmé ?" : "Annuler le retour en arrière programmé ?")) void post("unschedule"); }} className="flex items-center gap-1 text-amber-300 hover:text-white disabled:opacity-40">
+            {busy === "unschedule" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} {a.status === "scheduled" ? "Annuler l'envoi programmé" : "Annuler le retour programmé"}
+          </button>
+        )}
         {undoable && (
           <button type="button" disabled={busy !== null} onClick={() => void post("undo")} className="flex items-center gap-1 text-gray-300 hover:text-white disabled:opacity-40">
             {busy === "undo" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />} Annuler cette modification
