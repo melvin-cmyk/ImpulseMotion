@@ -161,6 +161,14 @@ export function renderDataForPrompt(d: ReportData): string {
     lines.push(d.hqContext.brief);
   }
 
+  if (d.actions?.length) {
+    lines.push("\nACTIONS MENÉES PAR L'AGENCE SUR LA PÉRIODE (depuis ImpulseMotion, journal du pilotage ; « bilan » = effet mesuré à J+7 ou J+14 quand il existe) :");
+    for (const a of d.actions) {
+      lines.push(`- ${a.at} · ${a.author} · ${a.platform} « ${a.account} » — pourquoi : ${a.why || "non précisé"}${a.verdict ? ` — bilan ${a.verdict}` : ""}`);
+      for (const l of a.lines) lines.push(`    · ${l}`);
+    }
+  }
+
   if (d.previousReport) {
     lines.push(`\nNEXT STEPS DU RAPPORT PRÉCÉDENT (${d.previousReport.periodSince} → ${d.previousReport.periodUntil}) :`);
     for (const s of d.previousReport.nextSteps) lines.push(`- [${s.done ? "fait" : "à faire"}] ${s.title} — ${s.detail}`);
@@ -217,6 +225,8 @@ RÈGLES DE FOND
 FORMAT DE SORTIE (Markdown strict, dans cet ordre, titres de niveau 2 exactement comme ci-dessous)
 ## Synthèse
 3 à 5 puces : la lecture globale en une phrase chacune (résultat, principal levier, principal risque, tendance).
+## Ce que nous avons fait
+Seulement si le snapshot contient un bloc « ACTIONS MENÉES PAR L'AGENCE » : les actions menées sur la période, formulées pour le client (ce qui a été changé, pourquoi, et l'effet mesuré quand un bilan existe), regroupées par intention plutôt que listées une à une ; sans identifiants techniques. Sans ce bloc, omets entièrement la section.
 ## Performance globale
 KPIs clés vs période de comparaison, par plateforme si plusieurs. Un tableau Markdown (métrique | valeur | précédent | delta) puis 2-4 phrases d'analyse.
 ## Campagnes

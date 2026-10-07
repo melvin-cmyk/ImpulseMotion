@@ -13,6 +13,8 @@ import { Card, PageHeader, Section } from "@/components/ui/surface";
 import { StructureTree } from "@/components/pilot/structure-tree";
 import { ChangePanel } from "@/components/pilot/change-panel";
 import { HistoryPanel } from "@/components/pilot/history-panel";
+import { SearchTermsPanel } from "@/components/pilot/search-terms-panel";
+import { CreativesPanel } from "@/components/pilot/creatives-panel";
 import type { HistoryView, PlatformChangeView } from "@/lib/pilot/history";
 import { PilotAssistant } from "@/components/pilot/assistant-panel";
 import type { StudioPick } from "@/components/pilot/new-ad-form";
@@ -345,6 +347,18 @@ export function PilotPage() {
             </Section>
           </div>
         </div>
+      )}
+
+      {client && account && account.platform === "meta" && structure && (
+        <Section title="Créas">
+          <CreativesPanel key={`${client.id}:${refKey(account)}`} clientId={client.id} accountId={account.accountId} currency={structure.account.currency} onAdd={(c) => { add(c); setTimeout(() => modifyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} />
+        </Section>
+      )}
+
+      {client && account && account.platform === "google" && structure && (
+        <Section title="Termes de recherche">
+          <SearchTermsPanel key={`${client.id}:${refKey(account)}`} clientId={client.id} accountId={account.accountId} currency={structure.account.currency} onAdd={(c) => { add(c); setTimeout(() => modifyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} />
+        </Section>
       )}
 
       {client && (

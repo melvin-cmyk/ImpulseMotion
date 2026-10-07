@@ -136,6 +136,8 @@ export interface ReportData {
   pacing: PacingResult | null;
   alerts: Array<{ metric: string; value: number; threshold: number; message: string; triggeredAt: string; acknowledged: boolean }>;
   previousReport: { id: string; periodSince: string; periodUntil: string; nextSteps: ReportNextStep[] } | null;
+  /** What the agency changed on the accounts over the period, from Pilotage (absent on snapshots taken before). */
+  actions?: Array<{ at: string; author: string; platform: string; account: string; lines: string[]; why: string; verdict: string | null }>;
   crm?: ReportCrm;
   /** What HQ (agency memory) knows about the client — objectives, KPI cible,
    *  seasonality, decisions, tests. Absent when HQ had no folder or was down. */
@@ -350,6 +352,9 @@ export async function collectReportData(
     previousReport = { id: prev.id, periodSince: prev.periodSince, periodUntil: prev.periodUntil, nextSteps: steps };
   }
 
+  // What the agency did on the period: the changes sent from Pilotage on the accounts of the client.
+  const actions = await collectPilotActions(binding, since, until).catch((e) => { warnings.push(`actions: ${e instanceof Error ? e.message : String(e)}`); return [] as NonNullable<ReportData["actions"]>; });
+
   let crm: ReportCrm | undefined;
   if (hasHubspot) {
     const funnel = dataOf<CrmFunnelData>("crm:funnel");
@@ -367,6 +372,7 @@ export async function collectReportData(
       platforms,
     },
     period: { since, until },
+    ...(actions.length ? { actions } : {}),
     compare: effectiveCompare ? { since: effectiveCompare.since, until: effectiveCompare.until, kind: effectiveCompare.kind } : null,
     currency: pickReportCurrency(kpis, pacing, crm),
     kpis,
@@ -456,4 +462,31 @@ export function periodLabel(since: string, until: string): string {
     return m.charAt(0).toUpperCase() + m.slice(1);
   }
   return `${f(since)} → ${f(until)}`;
+}
+
+/** The actions sent from Pilotage on the client's accounts between `since` and `until` (days, inclusive), newest first. */
+async function collectPilotActions(binding: { metaAccountId: string | null; googleCustomerId: string | null; tiktokAdvertiserIds: string[] }, since: string, until: string): Promise<NonNullable<ReportData["actions"]>> {
+  const accounts: string[] = [];
+  if (binding.metaAccountId) accounts.push(binding.metaAccountId.replace(/^act_/, ""));
+  if (binding.googleCustomerId) accounts.push(binding.googleCustomerId.replace(/-/g, ""));
+  accounts.push(...binding.tiktokAdvertiserIds);
+  if (!accounts.length) return [];
+  const rows = await prisma.pilotAction.findMany({
+    where: { accountId: { in: accounts }, status: { in: ["done", "partial"] }, executedAt: { gte: new Date(`${since}T00:00:00Z`), lt: new Date(`${until}T23:59:59Z`) } },
+    include: { operations: { orderBy: { position: "asc" } }, impacts: true },
+    orderBy: { executedAt: "desc" },
+    take: 40,
+  });
+  const { describeOperation } = await import("@/lib/pilot/ops");
+  const { VERDICT_FR } = await import("@/lib/pilot/impact");
+  const parse = (json: string | null) => { try { const v = JSON.parse(json ?? "null"); return typeof v === "string" || typeof v === "number" ? v : null; } catch { return null; } };
+  return rows.map((a) => {
+    const last = [...a.impacts].sort((x, y) => y.horizon - x.horizon).find((i) => i.status === "done");
+    return {
+      at: a.executedAt!.toISOString().slice(0, 10), author: a.createdByName, platform: a.platform, account: a.accountName || a.accountId,
+      lines: a.operations.filter((o) => o.status === "done").map((o) => describeOperation({ ...o, before: parse(o.beforeJson), after: parse(o.afterJson) }, a.currency, a.platform)),
+      why: a.undoOfId ? `Annulation : ${a.why}` : a.why,
+      verdict: last ? `J+${last.horizon} ${VERDICT_FR[last.verdict as keyof typeof VERDICT_FR] ?? last.verdict}` : null,
+    };
+  }).filter((a) => a.lines.length);
 }
