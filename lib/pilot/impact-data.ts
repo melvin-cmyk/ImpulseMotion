@@ -10,6 +10,7 @@ import { getAccountProfileSettings } from "@/lib/account-settings";
 import { relayDirectTool } from "@/lib/relay-tool";
 import { extractRows } from "@/lib/dashboard-widgets";
 import type { Metrics, Range } from "@/lib/pilot/impact";
+import { fetchTikTokCampaigns, fetchTikTokTotals, type TikTokStats } from "@/lib/tiktok-data";
 
 type Insight = {
   spend?: string; impressions?: string; clicks?: string;
@@ -85,4 +86,19 @@ export async function googleObjectMetrics(customer: string, objectId: string, ob
 export async function googleAccountMetrics(customer: string, range: Range): Promise<Metrics> {
   if (!dateRe.test(range.since) || !dateRe.test(range.until)) throw new Error("Période invalide");
   return googleSum(await gaql(customer, `SELECT ${G_METRICS} FROM customer WHERE segments.date BETWEEN '${range.since}' AND '${range.until}'`));
+}
+
+const tiktokMetrics = (t: TikTokStats): Metrics => ({ spend: t.spend, conversions: t.conversions, revenue: t.purchaseValue > 0 ? t.purchaseValue : null, clicks: t.clicks, impressions: t.impressions });
+
+/** TikTok: the campaign's row of the campaign report over the range (ad groups and ads are not judged alone yet). */
+export async function tiktokObjectMetrics(advertiserId: string, objectId: string, objectType: string, range: Range): Promise<Metrics> {
+  if (!dateRe.test(range.since) || !dateRe.test(range.until)) throw new Error("Période invalide");
+  if (objectType !== "campaign") throw new Error("Niveau non lu sur TikTok Ads");
+  const row = (await fetchTikTokCampaigns(advertiserId, range.since, range.until)).find((c) => c.id === objectId);
+  return row ? tiktokMetrics(row) : { spend: 0, conversions: 0, revenue: null, clicks: 0, impressions: 0 };
+}
+
+export async function tiktokAccountMetrics(advertiserId: string, range: Range): Promise<Metrics> {
+  if (!dateRe.test(range.since) || !dateRe.test(range.until)) throw new Error("Période invalide");
+  return tiktokMetrics(await fetchTikTokTotals(advertiserId, range.since, range.until));
 }

@@ -2,7 +2,7 @@
  * Pilotage — one door per platform. The service (lib/pilot/service.ts) reads
  * and writes through these, never through a platform module directly, so a
  * change is checked, sent, read back, journalled and undone the same way on
- * Meta and on Google Ads.
+ * Meta, Google Ads and TikTok Ads.
  */
 
 import { metaAccountDigits } from "@/lib/routines/accounts";
@@ -11,6 +11,7 @@ import { copyObject, readAccountCurrency, readAds, readObject, readStructure, re
 import { createGoogleKeyword, googleCustomerDigits, googleWritesOpen, readGoogleAds, readGoogleCurrency, readGoogleKeywords, readGoogleObject, readGoogleStructure, replaceGoogleRsa, writeGoogleField } from "@/lib/pilot/google";
 import type { KeywordSpec, PilotObjectState, PilotObjectType, PilotPlatform } from "@/lib/pilot/ops";
 import type { MetaAdTexts, RsaSpec } from "@/lib/pilot/creative";
+import { readTikTokAds, readTikTokCurrency, readTikTokObject, readTikTokStructure, tiktokAdvertiserDigits, tiktokWritesOpen, writeTikTokField } from "@/lib/pilot/tiktok";
 
 export interface PilotAdapter {
   platform: PilotPlatform;
@@ -74,8 +75,25 @@ const google: PilotAdapter = {
   writesOpen: googleWritesOpen,
 };
 
-export const PILOT_ADAPTERS: Record<PilotPlatform, PilotAdapter> = { meta, google };
+const tiktok: PilotAdapter = {
+  platform: "tiktok",
+  name: "TikTok Ads",
+  accountKey: tiktokAdvertiserDigits,
+  readStructure: (account, currency) => readTikTokStructure(account, currency),
+  readAds: (account, adGroupId) => readTikTokAds(account, adGroupId),
+  readCurrency: readTikTokCurrency,
+  readObject: (account, objectId, type, currency) => readTikTokObject(account, objectId, type, currency),
+  // The guard is minted for every send; TikTok writes go through the n8n flow, which has its own secret.
+  writeField: (_guard, account, objectId, type, field, value, currency) => writeTikTokField(account, objectId, type, field, value, currency),
+  copyObject: null,
+  createKeyword: null,
+  rewriteAdTexts: null,
+  replaceRsa: null,
+  writesOpen: tiktokWritesOpen,
+};
+
+export const PILOT_ADAPTERS: Record<PilotPlatform, PilotAdapter> = { meta, google, tiktok };
 
 export function pilotAdapter(platform: string | null | undefined): PilotAdapter | null {
-  return platform === "meta" || platform === "google" ? PILOT_ADAPTERS[platform] : null;
+  return platform === "meta" || platform === "google" || platform === "tiktok" ? PILOT_ADAPTERS[platform] : null;
 }

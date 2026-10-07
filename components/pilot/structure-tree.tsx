@@ -53,10 +53,10 @@ function choices(row: TreeRow, platform: string = "meta"): Array<{ kind: PilotKi
     return out;
   }
   if (!row.endTimeLock) out.push({ kind: "set_end_time", label: "Date de fin", value: "" });
-  if (!(platform === "google" && row.type === "adset")) out.push({ kind: "set_start_time", label: "Date de début", value: "" });
+  if (!(platform === "google" && row.type === "adset") && platform !== "tiktok") out.push({ kind: "set_start_time", label: "Date de début", value: "" });
   if (row.type === "campaign" && platform === "meta") out.push({ kind: "set_spend_cap", label: "Plafond de dépense", value: "" });
   if (row.type === "adset" && row.bidAmount) out.push({ kind: "set_bid_amount", label: "Enchère", value: "" });
-  const carriesStrategy = !row.strategyLock && (platform === "google" ? row.type === "campaign" : !!row.bidStrategy);
+  const carriesStrategy = platform !== "tiktok" && !row.strategyLock && (platform === "google" ? row.type === "campaign" : !!row.bidStrategy);
   if (carriesStrategy) {
     out.push({ kind: "set_target_cpa", label: platform === "google" ? "CPA cible" : "Coût cible (cost cap)", value: "" });
     out.push({ kind: "set_target_roas", label: platform === "google" ? "ROAS cible" : "ROAS minimum", value: "" });
@@ -123,7 +123,7 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
 export function StructureTree({ clientId, accountId, platform, currency, campaigns, adsets, negatives = [], pending, onAdd, studioPick = null }: {
   clientId: string;
   accountId: string;
-  platform: "meta" | "google";
+  platform: "meta" | "google" | "tiktok";
   currency: string;
   campaigns: TreeRow[];
   adsets: TreeRow[];
@@ -208,7 +208,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
               {open[row.id] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           ) : <span className="w-4" />}
-          <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "google" ? "Groupe" : "Ens.") : row.type === "keyword" ? (row.negative ? "Négatif" : "Mot-clé") : "Annonce"}</span>
+          <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "meta" ? "Ens." : "Groupe") : row.type === "keyword" ? (row.negative ? "Négatif" : "Mot-clé") : "Annonce"}</span>
           <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
           {hasPending && <Pill tone="violet" className="text-[10px]">à envoyer</Pill>}
           {statusPill(row)}
@@ -262,7 +262,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
         {expandable && open[row.id] && row.type === "campaign" && (negativesOf.get(row.id) ?? []).filter((n) => !hidePaused || pendingIds.has(n.id)).map((n) => renderRow(n, depth + 1, false))}
         {expandable && open[row.id] && row.type === "adset" && (() => {
           const list = ads[row.id];
-          const what = platform === "google" ? "mots-clés" : "annonces";
+          const what = platform === "google" ? "mots-clés et annonces" : "annonces";
           if (list === "loading" || list === undefined) return <p className="text-xs text-gray-500 py-1 flex items-center gap-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}><Loader2 className="w-3 h-3 animate-spin" /> Lecture des {what}…</p>;
           if (!Array.isArray(list)) return <p className="text-xs text-red-300 py-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}>{list.error}</p>;
           if (!list.length) return <p className="text-xs text-gray-500 py-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}>{platform === "google" ? "Aucun mot-clé." : "Aucune annonce."}</p>;
@@ -305,7 +305,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <label className="flex items-center gap-2 flex-1 min-w-[12rem] bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5">
           <Search className="w-3.5 h-3.5 text-gray-500" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={platform === "google" ? "Chercher une campagne ou un groupe d'annonces" : "Chercher une campagne ou un ensemble"} className="bg-transparent text-sm text-white outline-none flex-1" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={platform === "meta" ? "Chercher une campagne ou un ensemble" : "Chercher une campagne ou un groupe d'annonces"} className="bg-transparent text-sm text-white outline-none flex-1" />
         </label>
         <label className="flex items-center gap-2 text-xs text-gray-400">
           <input type="checkbox" checked={hidePaused} onChange={(e) => setHidePaused(e.target.checked)} /> Actifs seulement

@@ -42,7 +42,7 @@ export async function readContextAccount(
     const [currency, perf] = await within(Promise.all([
       adapter.readCurrency(key),
       // Results are a plus: an account whose figures cannot be read is still shown with its structure.
-      (account.platform === "meta" ? fetchEntityMetrics(key, "campaign", "7d") : fetchGoogleEntityMetrics(key, "campaign", "7d"))
+      (account.platform === "meta" ? fetchEntityMetrics(key, "campaign", "7d") : account.platform === "google" ? fetchGoogleEntityMetrics(key, "campaign", "7d") : Promise.resolve({ entities: [] as Awaited<ReturnType<typeof fetchEntityMetrics>>["entities"] }))
         .then((r) => r.entities)
         .catch((e) => { console.error("[pilot-ai] figures unreadable", account.platform, key, e); return []; }),
     ]), READ_TIMEOUT_MS);

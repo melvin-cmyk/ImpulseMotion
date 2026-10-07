@@ -11,6 +11,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { clientHistory, HISTORY_DAYS_DEFAULT } from "@/lib/pilot/history";
 import { metaAccountDigits } from "@/lib/routines/accounts";
 import { normGoogle } from "@/lib/portfolio";
+import { normalizeAdvertiserId } from "@/lib/tiktok-accounts";
 
 export const maxDuration = 60;
 
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
   if (!clientId) return NextResponse.json({ error: "Client manquant." }, { status: 400 });
   const platform = q.get("platform");
   const rawAccount = q.get("accountId") ?? "";
-  const accountId = platform === "meta" ? metaAccountDigits(rawAccount) : platform === "google" ? normGoogle(rawAccount) : null;
+  const accountId = platform === "meta" ? metaAccountDigits(rawAccount) : platform === "google" ? normGoogle(rawAccount) : platform === "tiktok" ? normalizeAdvertiserId(rawAccount) : null;
   const focus = platform && accountId ? { platform, accountId } : null;
   const days = Number(q.get("days")) || HISTORY_DAYS_DEFAULT;
   try {

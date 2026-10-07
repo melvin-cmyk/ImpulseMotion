@@ -17,7 +17,7 @@ export async function GET() {
     const clients = await loadAlertClients(scope);
     return NextResponse.json({
       clients: clients
-        .map((c) => ({ id: c.id, name: c.name, dormant: c.dormant, accounts: c.accounts.filter((a) => (a.platform === "meta" || a.platform === "google") && platformAccountInScope(scope, a.platform, a.accountId)) }))
+        .map((c) => ({ id: c.id, name: c.name, dormant: c.dormant, accounts: c.accounts.filter((a) => (a.platform === "meta" || a.platform === "google" || a.platform === "tiktok") && platformAccountInScope(scope, a.platform, a.accountId)) }))
         .filter((c) => c.accounts.length),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {

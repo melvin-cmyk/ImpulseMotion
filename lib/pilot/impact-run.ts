@@ -23,7 +23,7 @@ import {
   type ImpactResult, type Metrics, type ObjectImpact,
 } from "@/lib/pilot/impact";
 import { SOURCE_FR } from "@/lib/pilot/changes";
-import { googleAccountMetrics, googleObjectMetrics, metaAccountMetrics, metaObjectMetrics } from "@/lib/pilot/impact-data";
+import { googleAccountMetrics, googleObjectMetrics, metaAccountMetrics, metaObjectMetrics, tiktokAccountMetrics, tiktokObjectMetrics } from "@/lib/pilot/impact-data";
 
 const MAX_PER_PASS = 20;
 const MAX_CHANGES_PER_PASS = 30;
@@ -83,7 +83,7 @@ export async function computeSubjectImpact(subject: ImpactSubject, horizon: numb
   const objects: ObjectImpact[] = [];
   for (const o of subject.objects) {
     if (!/^\d{1,25}(~\d{1,25})?$/.test(o.objectId) || !["campaign", "adset", "ad", "keyword"].includes(o.objectType)) continue;
-    const read = (r: typeof before) => tryRead(() => (meta ? metaObjectMetrics(subject.accountId, o.objectId, r) : googleObjectMetrics(subject.accountId, o.objectId, o.objectType, r)));
+    const read = (r: typeof before) => tryRead(() => (meta ? metaObjectMetrics(subject.accountId, o.objectId, r) : subject.platform === "tiktok" ? tiktokObjectMetrics(subject.accountId, o.objectId, o.objectType, r) : googleObjectMetrics(subject.accountId, o.objectId, o.objectType, r)));
     const [b, a] = [await read(before), await read(after)];
     const parentType = names.get(o.parentName);
     objects.push({
@@ -92,7 +92,7 @@ export async function computeSubjectImpact(subject: ImpactSubject, horizon: numb
       insideChanged: !!o.parentName && !!parentType && parentType !== o.objectType,
     });
   }
-  const readAccount = (r: typeof before) => tryRead(() => (meta ? metaAccountMetrics(subject.accountId, r) : googleAccountMetrics(subject.accountId, r)));
+  const readAccount = (r: typeof before) => tryRead(() => (meta ? metaAccountMetrics(subject.accountId, r) : subject.platform === "tiktok" ? tiktokAccountMetrics(subject.accountId, r) : googleAccountMetrics(subject.accountId, r)));
   const [ab, aa] = [await readAccount(before), await readAccount(after)];
   return { horizon, before, after, currency: subject.currency, objects, account: { before: ab.m, after: aa.m, error: ab.error ?? aa.error } };
 }

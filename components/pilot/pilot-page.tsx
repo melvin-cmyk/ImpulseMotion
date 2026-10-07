@@ -22,9 +22,9 @@ import { changeKey, readJson, type PendingChange, type PilotActionView, type Pil
 import { readPilotLink, type PilotLink } from "@/lib/pilot/deep-link";
 
 const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-const digitsOf = (platform: string, id: string) => (platform === "meta" ? id.replace(/^act_/, "") : id.replace(/-/g, "")).replace(/^0+/, "").trim();
+const digitsOf = (platform: string, id: string) => (platform === "meta" ? id.replace(/^act_/, "") : platform === "google" ? id.replace(/-/g, "").replace(/^0+/, "") : id).trim();
 
-type Platform = "meta" | "google";
+type Platform = "meta" | "google" | "tiktok";
 type AccountRef = { platform: Platform; accountId: string };
 const refKey = (a: AccountRef | null) => (a ? `${a.platform}:${a.accountId}` : "");
 
@@ -32,7 +32,7 @@ type Structure = { campaigns: TreeRow[]; adsets: TreeRow[]; negatives?: TreeRow[
 
 function accountsSummary(c: PilotClient): string {
   const n = (p: Platform) => c.accounts.filter((a) => a.platform === p).length;
-  return (["meta", "google"] as const).filter((p) => n(p)).map((p) => `${n(p)} ${PLATFORM_FR[p]}`).join(" + ");
+  return (["meta", "google", "tiktok"] as const).filter((p) => n(p)).map((p) => `${n(p)} ${PLATFORM_FR[p]}`).join(" + ");
 }
 
 export function PilotPage() {
@@ -231,7 +231,7 @@ export function PilotPage() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
       <PageHeader
         title="Pilotage"
-        subtitle="Modifiez les comptes Meta et Google Ads de vos clients, à la main ou en parlant à l'IA. Chaque changement est montré avant d'être envoyé, puis consigné dans le dossier HQ du client avec votre nom."
+        subtitle="Modifiez les comptes Meta, Google Ads et TikTok Ads de vos clients, à la main ou en parlant à l'IA. Chaque changement est montré avant d'être envoyé, puis consigné dans le dossier HQ du client avec votre nom."
       />
 
       {studioPick && (
@@ -266,7 +266,7 @@ export function PilotPage() {
             </label>
             {clients && (
               <div className="flex flex-wrap items-center gap-2 mt-3 text-xs">
-                {([["", "Tous"], ["meta", "Avec Meta"], ["google", "Avec Google Ads"]] as const).map(([k, l]) => (
+                {([["", "Tous"], ["meta", "Avec Meta"], ["google", "Avec Google Ads"], ["tiktok", "Avec TikTok"]] as const).map(([k, l]) => (
                   <button key={k} type="button" onClick={() => setPlatformFilter(k)} className={`px-2.5 py-1 rounded-md border ${platformFilter === k ? "border-violet-500 text-white" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
                 ))}
                 <span className="text-gray-500 ml-1">{found.length} client{found.length > 1 ? "s" : ""}</span>

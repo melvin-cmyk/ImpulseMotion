@@ -22,9 +22,11 @@
 import { canonicalTargeting, readTargeting, targetingDiff, type Targeting } from "@/lib/pilot/targeting";
 import { metaTextsDiff, readMetaAdTexts, readRsa, rsaDiff, rsaSummary, type MetaAdTexts, type RsaSpec } from "@/lib/pilot/creative";
 
-export const PILOT_PLATFORMS = ["meta", "google"] as const;
+export const PILOT_PLATFORMS = ["meta", "google", "tiktok"] as const;
 export type PilotPlatform = (typeof PILOT_PLATFORMS)[number];
-export const isPilotPlatform = (v: unknown): v is PilotPlatform => v === "meta" || v === "google";
+export const isPilotPlatform = (v: unknown): v is PilotPlatform => v === "meta" || v === "google" || v === "tiktok";
+/** What TikTok Ads takes from here: status, budgets, name, the end date and the bid of an ad group. */
+const TIKTOK_KINDS = new Set<string>(["set_status", "set_daily_budget", "set_lifetime_budget", "rename", "set_end_time", "set_bid_amount"]);
 export const PLATFORM_FR: Record<string, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
 /** Google Ads also has keywords: under an ad group (objectId « adGroupId~criterionId »), or negative under a campaign (« campaignId~criterionId »). */
 export type PilotObjectType = "campaign" | "adset" | "ad" | "keyword";
@@ -217,8 +219,8 @@ const OBJECT_FR_LOWER_GOOGLE: Record<PilotObjectType, string> = { campaign: "la 
 
 /** « Campagne », « Ensemble de publicités » (Meta) or « Groupe d'annonces » (Google Ads). */
 export const objectLabel = (platform: string, type: string) =>
-  (platform === "google" ? OBJECT_FR_GOOGLE : OBJECT_FR)[type as PilotObjectType] ?? type;
-const objectLower = (platform: string, type: PilotObjectType) => (platform === "google" ? OBJECT_FR_LOWER_GOOGLE : OBJECT_FR_LOWER)[type];
+  (platform === "google" || platform === "tiktok" ? OBJECT_FR_GOOGLE : OBJECT_FR)[type as PilotObjectType] ?? type;
+const objectLower = (platform: string, type: PilotObjectType) => (platform === "google" || platform === "tiktok" ? OBJECT_FR_LOWER_GOOGLE : OBJECT_FR_LOWER)[type];
 const STATUS_FR: Record<string, string> = { ACTIVE: "active", PAUSED: "en pause", DELETED: "supprimée", ARCHIVED: "archivée" };
 
 export const statusText = (status: string) => STATUS_FR[status] ?? status.toLowerCase();
@@ -295,6 +297,8 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
   const base = { kind: req.kind, objectType: req.objectType, objectId: req.objectId, objectName: state.name, parentName: state.parentName };
   const label = `${objectLower(platform, req.objectType)} « ${state.name} »`;
   if (state.type !== req.objectType) return { ok: false, error: `L'objet ${req.objectId} n'est pas ${objectLower(platform, req.objectType)} : rechargez la page.` };
+  if (platform === "tiktok" && !TIKTOK_KINDS.has(req.kind)) return { ok: false, error: `Sur TikTok Ads, ${label} se met en pause, s'active, se supprime, change de budget, de nom${req.objectType === "adset" ? ", de date de fin ou d'enchère" : ""} : rien d'autre ici pour le moment.` };
+  if (platform === "tiktok" && req.objectType === "ad" && req.kind !== "set_status") return { ok: false, error: "Une annonce TikTok se met en pause, s'active ou se supprime : rien d'autre ici." };
   if (platform === "google" && req.objectType === "ad" && req.kind !== "set_status" && req.kind !== "set_rsa_texts") return { ok: false, error: "Une annonce Google Ads se met en pause, s'active, se supprime ou reçoit de nouveaux textes (nouvelle version) : rien d'autre ici." };
   if (req.objectType === "keyword") {
     if (platform !== "google") return { ok: false, error: "Les mots-clés n'existent que sur Google Ads." };
@@ -340,6 +344,12 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
       const when = new Date(String(req.value));
       if (Number.isNaN(when.getTime())) return { ok: false, error: `Date de fin invalide pour ${label}.` };
       if (when.getTime() <= now.getTime() + 60 * 60 * 1000) return { ok: false, error: `La date de fin de ${label} doit être dans plus d'une heure.` };
+      if (platform === "tiktok") {
+        if (req.objectType !== "adset") return { ok: false, error: "La date de fin TikTok se règle sur le groupe d'annonces." };
+        const after = `${parisDayOf(when)} 23:59:59`;
+        if (state.endTime === after) return { ok: false, error: `${label} a déjà cette date de fin.` };
+        return { ok: true, op: { ...base, field: "end_time", before: state.endTime, after, double: null, irreversible: false } };
+      }
       if (platform === "google") {
         const day = parisDayOf(when);
         if (state.endTime === day) return { ok: false, error: `${label} a déjà cette date de fin.` };
@@ -512,7 +522,11 @@ export function stateValue(state: PilotObjectState, field: string): PilotValue {
 /** The same value for the platform: dates compared as instants, the rest as they are. */
 export function sameValue(field: string, a: PilotValue, b: PilotValue): boolean {
   if (a === null || b === null) return a === b;
-  if (field === "end_time" || field === "stop_time" || field === "start_time") return new Date(String(a)).getTime() === new Date(String(b)).getTime();
+  if (field === "end_time" || field === "stop_time" || field === "start_time") {
+    // TikTok gives « YYYY-MM-DD HH:MM:SS » (no zone): compared as text, like for like.
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(String(a)) || /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(String(b))) return String(a) === String(b);
+    return new Date(String(a)).getTime() === new Date(String(b)).getTime();
+  }
   if (field === "targeting") return canonicalTargeting(a) === canonicalTargeting(b);
   if (typeof a === "number" || typeof b === "number") return Number(a) === Number(b);
   return a === b;
@@ -606,7 +620,7 @@ function valueText(field: string, value: PilotValue, currency: string): string {
     case "bid_strategy": return strategyText(String(value));
     case "end_time":
     case "stop_time":
-    case "start_time": return dateText(String(value));
+    case "start_time": return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(String(value)) ? `${String(value).slice(8, 10)}/${String(value).slice(5, 7)}/${String(value).slice(0, 4)} ${String(value).slice(11, 16)}` : dateText(String(value));
     case "end_date":
     case "start_date": return `${String(value).slice(8, 10)}/${String(value).slice(5, 7)}/${String(value).slice(0, 4)}`;
     case "name": return `« ${value} »`;

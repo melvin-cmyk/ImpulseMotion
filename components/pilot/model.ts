@@ -7,7 +7,7 @@ export interface PilotClient {
   id: string;
   name: string;
   dormant: boolean;
-  accounts: Array<{ platform: "meta" | "google"; accountId: string; name?: string; currency?: string }>;
+  accounts: Array<{ platform: "meta" | "google" | "tiktok"; accountId: string; name?: string; currency?: string }>;
 }
 
 /** A row of the account tree, as /api/pilot/structure sends it. */

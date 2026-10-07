@@ -18,6 +18,8 @@ import { HQ_PROJECT_RE, appendHqJournal } from "@/lib/hq-journal";
 import { parisDay, addDays, impactWindows, IMPACT_HORIZONS, IMPACT_SETTLE_DAYS } from "@/lib/pilot/impact";
 import { SOURCE_FR, type ChangeSource } from "@/lib/pilot/changes";
 import { clientAccounts, syncClientOnDemand, type SyncOutcome } from "@/lib/pilot/changes-ingest";
+import { fetchTikTokDaily } from "@/lib/tiktok-data";
+import { normalizeAdvertiserId } from "@/lib/tiktok-accounts";
 import { listActions, type PilotActionView, type PilotImpactView, type PilotSession } from "@/lib/pilot/service";
 import type { PilotValue } from "@/lib/pilot/ops";
 
@@ -132,7 +134,9 @@ export async function dailySeries(platform: string, accountId: string, currency:
   const until = parisDay(now);
   const since = addDays(until, -(days - 1));
   try {
-    const points = platform === "meta" ? await metaDaily(accountId, since, until) : await googleDaily(accountId, since, until);
+    const points = platform === "meta" ? await metaDaily(accountId, since, until) : platform === "tiktok"
+      ? (await fetchTikTokDaily(accountId, since, until)).map((d) => ({ day: d.date, spend: d.spend, conversions: d.conversions, revenue: d.purchaseValue > 0 ? d.purchaseValue : null }))
+      : await googleDaily(accountId, since, until);
     return { platform, accountId, currency, days, points: fillDays(points, since, until), error: null };
   } catch (e) {
     return { platform, accountId, currency, days, points: [], error: (e instanceof Error ? e.message : String(e)).slice(0, 200) };
@@ -153,7 +157,10 @@ export async function clientHistory(session: PilotSession, input: {
   const scope = await getAccountScope(session);
   const clients = await prisma.alertClient.findMany({ where: { id: { in: input.alertClientIds }, gone: false }, select: { id: true, accountsJson: true } });
   const accounts = clients.flatMap(clientAccounts).filter((a) => platformAccountInScope(scope, a.platform, a.accountId));
-  const focus = input.focus && accounts.find((a) => a.platform === input.focus!.platform && a.accountId === input.focus!.accountId) ? input.focus : null;
+  // TikTok has no change log to read, but its curve is drawn like the others.
+  const tiktokAccounts = clients.flatMap((c) => { try { return (JSON.parse(c.accountsJson || "[]") as Array<{ platform?: string; accountId?: string; currency?: string }>).filter((a) => a.platform === "tiktok").map((a) => ({ platform: "tiktok" as const, accountId: normalizeAdvertiserId(a.accountId) ?? "", currency: a.currency ?? "EUR" })).filter((a) => a.accountId && platformAccountInScope(scope, "tiktok", a.accountId)); } catch { return []; } });
+  const focusable = [...accounts, ...tiktokAccounts];
+  const focus = input.focus && focusable.find((a) => a.platform === input.focus!.platform && a.accountId === input.focus!.accountId) ? input.focus : null;
 
   let synced: SyncOutcome[] = [];
   if (input.refresh) {
@@ -170,7 +177,7 @@ export async function clientHistory(session: PilotSession, input: {
       include: { impacts: true }, orderBy: { at: "desc" }, take: CHANGES_MAX,
     }) : Promise.resolve([]),
     accounts.length ? prisma.platformChangeSync.findMany({ where: { OR: accounts.map((a) => ({ platform: a.platform, accountId: a.accountId })) } }) : Promise.resolve([]),
-    focus ? dailySeries(focus.platform, focus.accountId, accounts.find((a) => a.platform === focus.platform && a.accountId === focus.accountId)?.currency ?? "EUR", days, now) : Promise.resolve(null),
+    focus ? dailySeries(focus.platform, focus.accountId, focusable.find((a) => a.platform === focus.platform && a.accountId === focus.accountId)?.currency ?? "EUR", days, now) : Promise.resolve(null),
   ]);
   return {
     actions: actionsLists.flat().filter((a) => a.status !== "draft" && a.status !== "expired" || a.mine).sort((a, b) => (b.executedAt ?? b.createdAt).localeCompare(a.executedAt ?? a.createdAt)),

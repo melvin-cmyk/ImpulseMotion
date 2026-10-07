@@ -68,7 +68,7 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
   clientId: string;
   clientName: string;
   accountId: string;
-  platform: "meta" | "google";
+  platform: "meta" | "google" | "tiktok";
   /** PILOT_WRITES: closed during the trial, the preview still works. */
   writesOpen: boolean;
   hqDefault: string | null;
