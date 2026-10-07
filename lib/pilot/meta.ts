@@ -19,7 +19,8 @@ const SPEND_7D = "insights.date_preset(last_7d){spend}";
 const LIVE_STATUSES = JSON.stringify([{ field: "effective_status", operator: "NOT_IN", value: ["DELETED", "ARCHIVED"] }]);
 
 const FIELDS: Record<Exclude<PilotObjectType, "keyword">, string> = {
-  campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,spend_cap,bid_strategy,bid_amount,bid_constraints",
+  // bid_constraints is not a campaign field at Meta (the ROAS floor is read on the ad set).
+  campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,spend_cap,bid_strategy,bid_amount",
   adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,targeting,campaign{name}",
   ad: "id,account_id,name,status,effective_status,adset{name},creative{id,name,object_story_spec}",
 };
