@@ -10,6 +10,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { agencyChangesToActions, agencyMatcher, type AgencyChange, type ReportAction } from "@/lib/pilot/agency";
 import {
   resolveBinding,
   resolveWidgets,
@@ -137,7 +138,8 @@ export interface ReportData {
   alerts: Array<{ metric: string; value: number; threshold: number; message: string; triggeredAt: string; acknowledged: boolean }>;
   previousReport: { id: string; periodSince: string; periodUntil: string; nextSteps: ReportNextStep[] } | null;
   /** What the agency changed on the accounts over the period, from Pilotage (absent on snapshots taken before). */
-  actions?: Array<{ at: string; author: string; platform: string; account: string; lines: string[]; why: string; verdict: string | null }>;
+  /** What the agency did on the period: Pilotage actions, and changes made directly on the platforms by someone at the agency (see lib/pilot/agency.ts). */
+  actions?: ReportAction[];
   crm?: ReportCrm;
   /** What HQ (agency memory) knows about the client — objectives, KPI cible,
    *  seasonality, decisions, tests. Absent when HQ had no folder or was down. */
@@ -353,7 +355,7 @@ export async function collectReportData(
   }
 
   // What the agency did on the period: the changes sent from Pilotage on the accounts of the client.
-  const actions = await collectPilotActions(binding, since, until).catch((e) => { warnings.push(`actions: ${e instanceof Error ? e.message : String(e)}`); return [] as NonNullable<ReportData["actions"]>; });
+  const actions = await collectPilotActions(binding, since, until).catch((e) => { warnings.push(`actions: ${e instanceof Error ? e.message : String(e)}`); return [] as ReportAction[]; });
 
   let crm: ReportCrm | undefined;
   if (hasHubspot) {
@@ -465,28 +467,56 @@ export function periodLabel(since: string, until: string): string {
 }
 
 /** The actions sent from Pilotage on the client's accounts between `since` and `until` (days, inclusive), newest first. */
-async function collectPilotActions(binding: { metaAccountId: string | null; googleCustomerId: string | null; tiktokAdvertiserIds: string[] }, since: string, until: string): Promise<NonNullable<ReportData["actions"]>> {
+async function collectPilotActions(binding: { metaAccountId: string | null; googleCustomerId: string | null; tiktokAdvertiserIds: string[] }, since: string, until: string): Promise<ReportAction[]> {
   const accounts: string[] = [];
   if (binding.metaAccountId) accounts.push(binding.metaAccountId.replace(/^act_/, ""));
   if (binding.googleCustomerId) accounts.push(binding.googleCustomerId.replace(/-/g, ""));
   accounts.push(...binding.tiktokAdvertiserIds);
   if (!accounts.length) return [];
-  const rows = await prisma.pilotAction.findMany({
-    where: { accountId: { in: accounts }, status: { in: ["done", "partial"] }, executedAt: { gte: new Date(`${since}T00:00:00Z`), lt: new Date(`${until}T23:59:59Z`) } },
-    include: { operations: { orderBy: { position: "asc" } }, impacts: true },
-    orderBy: { executedAt: "desc" },
-    take: 40,
-  });
+  const from = new Date(`${since}T00:00:00Z`), to = new Date(`${until}T23:59:59Z`);
+  const [rows, changes, staff] = await Promise.all([
+    prisma.pilotAction.findMany({
+      where: { accountId: { in: accounts }, status: { in: ["done", "partial"] }, executedAt: { gte: from, lt: to } },
+      include: { operations: { orderBy: { position: "asc" } }, impacts: true },
+      orderBy: { executedAt: "desc" },
+      take: 40,
+    }),
+    // Changes made directly on Meta / Google (not through Pilotage): kept when someone at the agency made them.
+    prisma.platformChange.findMany({
+      where: { accountId: { in: accounts }, source: "external", pilotActionId: null, at: { gte: from, lt: to } },
+      include: { impacts: { where: { status: "done" } } },
+      orderBy: { at: "desc" },
+      take: 1500,
+    }),
+    prisma.user.findMany({ where: { role: { in: ["admin", "consultant"] } }, select: { name: true, email: true } }),
+  ]);
   const { describeOperation } = await import("@/lib/pilot/ops");
   const { VERDICT_FR } = await import("@/lib/pilot/impact");
   const parse = (json: string | null) => { try { const v = JSON.parse(json ?? "null"); return typeof v === "string" || typeof v === "number" ? v : null; } catch { return null; } };
-  return rows.map((a) => {
+  const fromPilot: ReportAction[] = rows.map((a) => {
     const last = [...a.impacts].sort((x, y) => y.horizon - x.horizon).find((i) => i.status === "done");
     return {
-      at: a.executedAt!.toISOString().slice(0, 10), author: a.createdByName, platform: a.platform, account: a.accountName || a.accountId,
+      at: a.executedAt!.toISOString().slice(0, 10), author: a.createdByName, platform: a.platform, account: a.accountName || a.accountId, origin: "pilotage" as const,
       lines: a.operations.filter((o) => o.status === "done").map((o) => describeOperation({ ...o, before: parse(o.beforeJson), after: parse(o.afterJson) }, a.currency, a.platform)),
       why: a.undoOfId ? `Annulation : ${a.why}` : a.why,
       verdict: last ? `J+${last.horizon} ${VERDICT_FR[last.verdict as keyof typeof VERDICT_FR] ?? last.verdict}` : null,
+      effect: last?.summary || null,
     };
   }).filter((a) => a.lines.length);
+
+  const isAgency = agencyMatcher(staff);
+  const names = new Map<string, string>();
+  if (binding.metaAccountId) names.set(binding.metaAccountId.replace(/^act_/, ""), "Meta");
+  if (binding.googleCustomerId) names.set(binding.googleCustomerId.replace(/-/g, ""), "Google Ads");
+  const agency: AgencyChange[] = changes.filter((c) => isAgency(c.actorName, c.actorEmail)).map((c) => {
+    const judged = [...c.impacts].sort((x, y) => y.horizon - x.horizon)[0];
+    return {
+      id: c.id, platform: c.platform, accountId: c.accountId, actorName: c.actorName, source: c.source, at: c.at, pilotActionId: c.pilotActionId,
+      objectType: c.objectType, objectName: c.objectName, field: c.field, line: c.line, note: c.note, significant: c.significant,
+      accountName: names.get(c.accountId) ?? null,
+      impact: judged ? { horizon: judged.horizon, verdict: judged.verdict, summary: judged.summary } : null,
+    };
+  });
+  const fromPlatforms = agencyChangesToActions(agency, VERDICT_FR);
+  return [...fromPilot, ...fromPlatforms].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).slice(0, 40);
 }
