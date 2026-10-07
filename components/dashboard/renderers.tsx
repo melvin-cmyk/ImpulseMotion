@@ -12,7 +12,12 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 import { Card, Pill } from "@/components/ui/surface";
+import { createContext, useContext } from "react";
 import type { ResolvedWidget } from "@/lib/dashboard-types";
+import { buildPilotHref, platformOfAccountId } from "@/lib/pilot/deep-link";
+
+/** True when the viewer is staff: the widgets then link to /pilotage (a client never sees those links). */
+export const PilotLinksContext = createContext(false);
 import { fmtMetric, fmtMoney, fmtNumber, fmtPct, fmtRoas } from "@/components/portfolio/format";
 import {
   CrmCampaignTable, CrmDiagnosticBlock, CrmFreshness, CrmLevelBadge, CrmPartialBanner, CrmSkeleton, CrmSourceTable, roasTone,
@@ -229,6 +234,12 @@ function TimeseriesWidget({ widget }: { widget: ResolvedWidget }) {
 
 function TableWidget({ widget }: { widget: ResolvedWidget }) {
   const d = widget.data as TableData;
+  const pilotLinks = useContext(PilotLinksContext);
+  const linkable = pilotLinks && d.kind === "campaigns" && (d.source === "meta" || d.source === "google") && !!d.accountId;
+  const pilotHref = (row: Record<string, unknown>, action: "pause" | "activate" | null) =>
+    linkable && typeof row.id === "string" && row.id
+      ? buildPilotHref({ platform: d.source as "meta" | "google", account: d.accountId!, object: { type: "campaign", id: row.id }, do: action })
+      : null;
   if (!d.rows?.length) return <div className="text-sm text-gray-500 py-4">{emptyMessage(d)}</div>;
   const spendCol = (label: string) => ({ key: "spend", label, fmt: (v: unknown) => fmtMoney(Number(v), d.currency, { digits: 0 }) });
   const clicksCol = { key: "clicks", label: "Clics", fmt: (v: unknown) => fmtNumber(Number(v)) };
@@ -263,6 +274,7 @@ function TableWidget({ widget }: { widget: ResolvedWidget }) {
             {cols.map((c, i) => (
               <th key={c.key} className={`py-2 px-1 font-medium ${i === 0 ? "text-left" : "text-right"}`}>{c.label}</th>
             ))}
+            {linkable && <th className="py-2 px-1 font-medium text-right" aria-label="Pilotage" />}
           </tr>
         </thead>
         <tbody>
@@ -281,6 +293,17 @@ function TableWidget({ widget }: { widget: ResolvedWidget }) {
                     {c.fmt ? c.fmt(row[c.key]) : String(row[c.key] ?? "—")}
                   </td>
                 ))}
+                {linkable && (
+                  <td className="py-2 px-1 text-right whitespace-nowrap">
+                    {pilotHref(row, null) ? (
+                      <span className="inline-flex items-center gap-2 text-[11px]">
+                        <a href={pilotHref(row, burning ? "pause" : null)!} className="text-violet-300 hover:text-white" title={burning ? "Mettre en pause dans le Pilotage" : "Modifier dans le Pilotage"}>
+                          {burning ? "Pause ↗" : "Modifier ↗"}
+                        </a>
+                      </span>
+                    ) : null}
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -540,6 +563,7 @@ function relativeDateFr(iso: string): string {
 
 function AlertsWidget({ widget }: { widget: ResolvedWidget }) {
   const d = widget.data as AlertsData | undefined;
+  const pilotLinks = useContext(PilotLinksContext);
   if (!d?.events?.length) {
     return <div className="text-sm text-emerald-400/80 py-4">Aucune alerte récente ✓</div>;
   }
@@ -556,6 +580,9 @@ function AlertsWidget({ widget }: { widget: ResolvedWidget }) {
             <div className="text-[11px] text-gray-500 mt-0.5 tabular-nums">
               {relativeDateFr(e.triggeredAt)} · {KPI_LABELS[e.metric] ?? e.metric} {fmtMetric(e.metric, e.value, d.currency)}
               <span className="text-gray-600"> vs seuil {fmtMetric(e.metric, e.threshold, d.currency)}</span>
+              {pilotLinks && e.accountId && (platformOfAccountId(e.accountId) === "meta" || platformOfAccountId(e.accountId) === "google") && (
+                <> · <a href={buildPilotHref({ platform: platformOfAccountId(e.accountId) as "meta" | "google", account: e.accountId })} className="text-violet-300 hover:text-white">Pilotage ↗</a></>
+              )}
             </div>
           </div>
         </li>

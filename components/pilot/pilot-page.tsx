@@ -19,8 +19,10 @@ import { PilotAssistant } from "@/components/pilot/assistant-panel";
 import type { StudioPick } from "@/components/pilot/new-ad-form";
 import { PLATFORM_FR } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type PilotActionView, type PilotClient, type TreeRow } from "@/components/pilot/model";
+import { readPilotLink, type PilotLink } from "@/lib/pilot/deep-link";
 
 const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const digitsOf = (platform: string, id: string) => (platform === "meta" ? id.replace(/^act_/, "") : id.replace(/-/g, "")).replace(/^0+/, "").trim();
 
 type Platform = "meta" | "google";
 type AccountRef = { platform: Platform; accountId: string };
@@ -50,6 +52,9 @@ export function PilotPage() {
       if (a?.kind === "image" && a.url) setStudioPick({ id: a.id, url: a.url, prompt: a.prompt, clientId: a.clientId ?? null });
     }).catch(() => {});
   }, []);
+  // /pilotage?client=…&platform=…&account=…&object=…&do=…&prompt=…&step=…&preview=… (lib/pilot/deep-link.ts)
+  const [link] = useState<PilotLink>(() => (typeof window === "undefined" ? {} : readPilotLink(window.location.search)));
+  const linkUsed = useRef({ client: false, object: false, preview: false });
   const [structure, setStructure] = useState<Structure | null>(null);
   const [structureError, setStructureError] = useState<string | null>(null);
   const [loadingStructure, setLoadingStructure] = useState(false);
@@ -102,6 +107,46 @@ export function PilotPage() {
 
   // The history of the client: actions, the platforms' logs (read now when stale), the curve of the account shown.
   const historySeq = useRef(0);
+  // The client of the link is opened at once (by id, else by one of its accounts).
+  useEffect(() => {
+    if (linkUsed.current.client || !clients) return;
+    linkUsed.current.client = true;
+    const byId = link.client ? clients.find((x) => x.id === link.client) : null;
+    const byAccount = !byId && link.platform && link.account
+      ? clients.find((x) => x.accounts.some((a) => a.platform === link.platform && digitsOf(a.platform, a.accountId) === digitsOf(link.platform!, link.account!)))
+      : null;
+    const c = byId ?? byAccount;
+    if (!c) return;
+    const wanted = link.platform && link.account ? c.accounts.find((a) => a.platform === link.platform && digitsOf(a.platform, a.accountId) === digitsOf(link.platform!, link.account!)) : null;
+    pick(c, wanted ? { platform: wanted.platform, accountId: wanted.accountId } : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clients]);
+
+  // The object of the link, once the account is read: shown, and its change put in « Modifier » (not sent).
+  useEffect(() => {
+    if (linkUsed.current.object || !structure || !link.object || !account) return;
+    linkUsed.current.object = true;
+    const row = (link.object.type === "campaign" ? structure.campaigns : link.object.type === "adset" ? structure.adsets : []).find((r) => r.id === link.object!.id);
+    const label = row ? `${link.object.type === "campaign" ? "Campagne" : "Ensemble"} « ${row.name} »` : `${link.object.type} ${link.object.id}`;
+    if (link.do === "pause" || link.do === "activate") {
+      add({ kind: "set_status", objectType: link.object.type, objectId: link.object.id, value: link.do === "pause" ? "PAUSED" : "ACTIVE", label: `${label} → ${link.do === "pause" ? "en pause" : "active"}` });
+    } else if (link.do === "budget" && link.value && row) {
+      add({ kind: row.lifetimeBudget && !row.dailyBudget ? "set_lifetime_budget" : "set_daily_budget", objectType: link.object.type, objectId: link.object.id, value: link.value, label: `${label} → budget ${link.value}` });
+    }
+    setTimeout(() => document.getElementById(`pilot-object-${link.object!.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structure]);
+
+  // A prepared action named by the link (an undo from the dashboard): opened as the preview.
+  useEffect(() => {
+    if (linkUsed.current.preview || !link.preview || !journal.length) return;
+    const a = journal.find((x) => x.id === link.preview && x.status === "draft" && x.mine);
+    if (!a) return;
+    linkUsed.current.preview = true;
+    takePrepared(a);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journal]);
+
   const loadJournal = useCallback(async (clientId: string, ref: AccountRef | null, days = historyDays, refresh = true) => {
     const seq = ++historySeq.current;
     setLoadingJournal(true);
@@ -123,14 +168,14 @@ export function PilotPage() {
     }
   }, [historyDays]);
 
-  function pick(c: PilotClient) {
+  function pick(c: PilotClient, wanted: AccountRef | null = null) {
     setClient(c);
     setQuery("");
     setPending([]);
     setPreview(null);
     setStructure(null);
-    // Meta first, as before; a client with Google Ads only opens on Google.
-    const first = c.accounts.find((a) => a.platform === "meta") ?? c.accounts[0];
+    // The account asked, else Meta first; a client with Google Ads only opens on Google.
+    const first = (wanted && c.accounts.find((a) => a.platform === wanted.platform && a.accountId === wanted.accountId)) ?? c.accounts.find((a) => a.platform === "meta") ?? c.accounts[0];
     const ref = first ? { platform: first.platform, accountId: first.accountId } : null;
     setAccount(ref);
     if (ref) void loadStructure(c.id, ref);
@@ -248,7 +293,7 @@ export function PilotPage() {
 
       {client && (
         <Section title="Parler à l'IA">
-          <PilotAssistant client={client} focus={account} onPrepared={takePrepared} />
+          <PilotAssistant client={client} focus={account} onPrepared={takePrepared} initialPrompt={link.prompt ?? null} />
         </Section>
       )}
 
@@ -289,9 +334,13 @@ export function PilotPage() {
                 onClear={() => setPending([])}
                 preview={preview}
                 onPreview={setPreview}
-                onSent={() => {
+                onSent={(sent) => {
                   void loadJournal(client.id, account);
                   void loadStructure(client.id, account);
+                  // Opened from a report's next step: the step is ticked, with the action that did it.
+                  if (link.step && sent && (sent.status === "done" || sent.status === "partial")) {
+                    void fetch(`/api/reports/${link.step.reportId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stepDone: { id: link.step.stepId, done: true, pilotActionId: sent.id } }) }).catch(() => {});
+                  }
                 }}
               />
             </Section>

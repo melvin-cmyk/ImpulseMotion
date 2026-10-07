@@ -102,10 +102,13 @@ export function NextStepsList({
   steps,
   variant = "app",
   onToggle,
+  pilotHref,
 }: {
   steps: ReportNextStep[];
   variant?: ReportVariant;
   onToggle?: (id: string, done: boolean) => void;
+  /** The /pilotage link that prepares this step on the client's account (staff, app view); null = no link. */
+  pilotHref?: (step: ReportNextStep) => string | null;
 }) {
   const print = variant === "print";
   if (!steps.length) {
@@ -159,6 +162,15 @@ export function NextStepsList({
               )}
             </div>
             {s.detail && <p className={cn("text-xs mt-1 leading-relaxed", print ? "text-neutral-700" : "text-gray-400")}>{s.detail}</p>}
+            {!print && pilotHref && (() => {
+              const href = pilotHref(s);
+              if (!href) return null;
+              return (
+                <a href={href} className="inline-flex items-center gap-1 mt-1.5 text-xs text-violet-300 hover:text-white">
+                  {s.done && s.pilotActionId ? "Fait depuis le Pilotage · revoir →" : "Faire dans le Pilotage →"}
+                </a>
+              );
+            })()}
           </div>
         </li>
       ))}

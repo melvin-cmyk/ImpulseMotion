@@ -1,6 +1,6 @@
 /**
  * GET    /api/reports/[id]  → staff: full report (content, data snapshot, next steps, chat)
- * PATCH  /api/reports/[id]  → staff: { title?, nextSteps?, appendMd?, chat? }
+ * PATCH  /api/reports/[id]  → staff: { title?, nextSteps?, stepDone?: { id, done, pilotActionId? }, appendMd?, chat? }
  * DELETE /api/reports/[id]  → staff
  */
 
@@ -46,10 +46,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         title: s.title.trim().slice(0, 200),
         detail: typeof s.detail === "string" ? s.detail.trim().slice(0, 1000) : "",
         priority: ["high", "medium", "low"].includes(String(s.priority)) ? s.priority : "medium",
-        platform: ["meta", "google", "global"].includes(String(s.platform)) ? s.platform : "global",
+        platform: ["meta", "google", "tiktok", "global", "crm"].includes(String(s.platform)) ? s.platform : "global",
         done: !!s.done,
+        ...(typeof (s as ReportNextStep & { pilotActionId?: unknown }).pilotActionId === "string" ? { pilotActionId: String((s as ReportNextStep & { pilotActionId?: string }).pilotActionId).slice(0, 40) } : {}),
       }));
     data.nextStepsJson = JSON.stringify(steps);
+  }
+
+  // One step ticked (or unticked) by Pilotage once a change was sent: { stepDone: { id, done, pilotActionId? } }.
+  if (body.stepDone && typeof body.stepDone === "object" && typeof body.stepDone.id === "string") {
+    let steps: ReportNextStep[] = [];
+    try { steps = JSON.parse(existing.nextStepsJson || "[]"); } catch { steps = []; }
+    const done = body.stepDone.done !== false;
+    const pilotActionId = typeof body.stepDone.pilotActionId === "string" ? body.stepDone.pilotActionId.slice(0, 40) : undefined;
+    data.nextStepsJson = JSON.stringify(steps.map((s) => (s.id === body.stepDone.id ? { ...s, done, ...(pilotActionId ? { pilotActionId } : {}) } : s)));
   }
 
   if (typeof body.appendMd === "string" && body.appendMd.trim()) {

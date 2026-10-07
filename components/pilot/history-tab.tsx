@@ -16,11 +16,12 @@ import { Card, Pill } from "@/components/ui/surface";
 import { HistoryTimeline, type SourceFilter } from "@/components/pilot/timeline";
 import { ChangeChart, marksOf } from "@/components/pilot/change-chart";
 import { PLATFORM_FR } from "@/lib/pilot/ops";
+import { buildPilotHref } from "@/lib/pilot/deep-link";
 import { VERDICT_FR, type Verdict } from "@/lib/pilot/impact";
 import type { HistoryView, PlatformChangeView } from "@/lib/pilot/history";
 import type { PilotActionView } from "@/lib/pilot/service";
 
-type Data = HistoryView & { clients: Array<{ id: string; name: string }>; hqProject: string | null };
+type Data = HistoryView & { clients: Array<{ id: string; name: string }>; hqProject: string | null; forDays: number };
 
 export function PilotHistoryTab({ dashboardId }: { dashboardId: string }) {
   const [data, setData] = useState<Data | null>(null);
@@ -30,10 +31,9 @@ export function PilotHistoryTab({ dashboardId }: { dashboardId: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    setData(null);
     fetch(`/api/dashboards/${dashboardId}/pilot-history?days=${days}`)
       .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error ?? `Erreur ${r.status}`); return j; })
-      .then((j) => { if (!cancelled) setData(j); })
+      .then((j) => { if (!cancelled) setData({ ...j, forDays: days }); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
   }, [dashboardId, days]);
@@ -53,7 +53,7 @@ export function PilotHistoryTab({ dashboardId }: { dashboardId: string }) {
   const external = (data?.changes ?? []).filter((c) => !(c.pilotActionId && data?.actions.some((a) => a.id === c.pilotActionId)));
 
   if (error) return <p className="text-sm text-red-300">{error}</p>;
-  if (!data) return <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture de l&apos;historique (journaux des plateformes compris)…</p>;
+  if (!data || data.forDays !== days) return <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture de l&apos;historique (journaux des plateformes compris)…</p>;
 
   return (
     <div className="space-y-4">
@@ -103,7 +103,8 @@ export function PilotHistoryTab({ dashboardId }: { dashboardId: string }) {
           filter={filter}
           showClient={data.clients.length > 1}
           clientNames={clientNames}
-          onUndo={() => { window.location.href = "/pilotage"; }}
+          // The undo is prepared (a draft of the viewer): opened in /pilotage on the client, as the preview.
+          onUndo={(draft) => { window.location.href = buildPilotHref({ client: draft.alertClientId, platform: draft.platform as "meta" | "google", account: draft.accountId, preview: draft.id }); }}
           onActionChanged={(a: PilotActionView) => setData((d) => d && { ...d, actions: d.actions.map((x) => (x.id === a.id ? a : x)) })}
           onChangeChanged={(c: PlatformChangeView) => setData((d) => d && { ...d, changes: d.changes.map((x) => (x.id === c.id ? c : x)) })}
         />

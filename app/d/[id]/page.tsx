@@ -15,7 +15,7 @@ import {
   DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { WidgetBody, WidgetFrame } from "@/components/dashboard/renderers";
+import { PilotLinksContext, WidgetBody, WidgetFrame } from "@/components/dashboard/renderers";
 import { WidgetForm, DashboardSettingsForm, EditControls, InlineWidgetEditor, SortableWidgetFrame } from "@/components/dashboard/editor";
 import { CopilotPanel } from "@/components/dashboard/copilot";
 import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
@@ -450,6 +450,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
         (() => {
           const editing = isStaff && editMode && !!payload;
           const grid = (
+            <PilotLinksContext.Provider value={isStaff}>
             <div className={`grid grid-cols-6 gap-4 ${loading ? "opacity-60" : ""}`}>
               {widgets.map((w) => {
                 if (!editing || !payload) {
@@ -494,6 +495,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
                 </div>
               )}
             </div>
+            </PilotLinksContext.Provider>
           );
           if (!editing) return grid;
           return (

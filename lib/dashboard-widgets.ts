@@ -706,6 +706,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
     return {
       kind,
       source,
+      accountId: ctx.binding.metaAccountId,
       truncated: paged.truncated,
       fetchedAt,
       ...(currency ? { currency } : {}),
@@ -717,6 +718,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
           const rev = computeRevenue(r, ctx.aov, ctx.conversionEvent);
           const purchases = purchasesFor(r, ctx.conversionEvent);
           return {
+            id: r.campaign_id ? String(r.campaign_id) : undefined,
             name: String(r.campaign_name ?? `Campagne ${i + 1}`),
             spend: Math.round(spend),
             clicks: Math.round(toNum(r.clicks)),
@@ -733,6 +735,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
     return {
       kind,
       source,
+      accountId: ctx.binding.googleCustomerId,
       ...(ctx.currency ? { currency: ctx.currency } : {}),
       rows: rows.slice(0, limit).map((row, i) => {
         const c = (row.campaign as Record<string, unknown>) ?? row;
@@ -740,6 +743,7 @@ async function resolveTable(cfg: Record<string, unknown>, ctx: ResolveContext) {
         const spend = costFrom(m);
         const revenue = toNum(m.conversionsValue ?? m.conversions_value ?? m.revenue);
         return {
+          id: c.id !== undefined && c.id !== null ? String(c.id) : undefined,
           name: String(c.name ?? c.campaign_name ?? `Campagne ${i + 1}`),
           spend: Math.round(spend),
           clicks: Math.round(toNum(m.clicks)),
@@ -1180,6 +1184,7 @@ async function resolveAlerts(cfg: Record<string, unknown>, ctx: ResolveContext) 
   return {
     events: events.map((e) => ({
       id: e.id,
+      accountId: e.clientId,
       metric: e.metric,
       value: e.value,
       threshold: e.threshold,

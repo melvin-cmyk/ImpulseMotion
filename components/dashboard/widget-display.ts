@@ -59,6 +59,10 @@ export interface TimeseriesData extends WidgetFlags {
 
 export interface TableData extends WidgetFlags {
   kind: string;
+  /** meta | google | tiktok — the platform of the rows (campaign rows carry their `id` for the Pilotage link). */
+  source?: string;
+  /** The account the rows come from, as the platform names it. */
+  accountId?: string;
   rows: Array<Record<string, unknown>>;
 }
 
@@ -103,6 +107,8 @@ export interface AlertsData extends WidgetFlags {
   events: Array<{
     id: string; metric: string; value: number; threshold: number;
     message: string; acknowledged: boolean; triggeredAt: string;
+    /** The account the alert fired on (act_… Meta, customer id Google, advertiser id TikTok). */
+    accountId?: string;
   }>;
 }
 

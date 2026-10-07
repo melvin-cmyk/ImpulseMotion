@@ -324,7 +324,7 @@ export async function runAutoAlerts(opts: RunOptions = {}): Promise<RunResult> {
       reading = read?.text ?? null;
     }
     const link = c.dashboardId ? `${appUrl()}/portfolio/${c.dashboardId}` : `${appUrl()}/admin/auto-alerts`;
-    run.text = buildDigest({ clientName: c.name, plan, reading, link, stillOpen: plan.touch.length });
+    run.text = buildDigest({ clientName: c.name, plan, reading, link, pilotLink: `${appUrl()}/pilotage?client=${encodeURIComponent(c.id)}`, stillOpen: plan.touch.length });
     try {
       await postDigest(p.target, run.text, { id: c.id, name: c.name });
       await markNotified(plan, announcedIds, now);

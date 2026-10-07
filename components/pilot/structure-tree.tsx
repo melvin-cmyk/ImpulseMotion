@@ -138,7 +138,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
     const hasPending = pendingIds.has(row.id);
     const budget = row.dailyBudget ? `${money(row.dailyBudget, currency)}/j` : row.lifetimeBudget ? `${money(row.lifetimeBudget, currency)} total` : "";
     return (
-      <div key={row.id}>
+      <div key={row.id} id={`pilot-object-${row.id}`}>
         <div className={`group flex items-center gap-2 py-1.5 pr-2 rounded-lg hover:bg-gray-800/40 ${hasPending ? "bg-violet-500/5" : ""}`} style={{ paddingLeft: 8 + depth * 18 }}>
           {expandable ? (
             <button type="button" onClick={() => (row.type === "campaign" ? setOpen((o) => ({ ...o, [row.id]: !o[row.id] })) : void toggleAdset(row.id))} className="text-gray-500 hover:text-white" aria-label={open[row.id] ? "Replier" : "Déplier"}>

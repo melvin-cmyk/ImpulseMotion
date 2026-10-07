@@ -8,6 +8,7 @@ import { Card, Pill } from "@/components/ui/surface";
 import { KpiStrip, ReportMarkdown, NextStepsList, TopCreativesStrip } from "@/components/reports/report-view";
 import { ReportChat, type ChatMessage } from "@/components/reports/report-chat";
 import type { ReportData, ReportNextStep } from "@/lib/report-data";
+import { buildPilotHref, stepPrompt } from "@/lib/pilot/deep-link";
 
 interface FullReport {
   id: string;
@@ -195,7 +196,15 @@ export default function ReportPage() {
               <h2 className="text-base font-semibold text-white">Next steps</h2>
               <span className="text-xs text-gray-500 tabular-nums">{report.nextSteps.filter((s) => s.done).length}/{report.nextSteps.length} faits</span>
             </div>
-            <NextStepsList steps={report.nextSteps} onToggle={toggleStep} />
+            <NextStepsList
+              steps={report.nextSteps}
+              onToggle={toggleStep}
+              pilotHref={(s) => {
+                const account = s.platform === "meta" ? report.dashboard.metaAccountId : s.platform === "google" ? report.dashboard.googleCustomerId : null;
+                if (!account || (s.platform !== "meta" && s.platform !== "google")) return null;
+                return buildPilotHref({ platform: s.platform, account, prompt: stepPrompt(s), step: { reportId: report.id, stepId: s.id } });
+              }}
+            />
           </section>
         </>
       )}

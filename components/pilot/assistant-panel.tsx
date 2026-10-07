@@ -91,14 +91,16 @@ function ProposalCard({ proposal, client, onPrepared }: { proposal: PilotProposa
   );
 }
 
-export function PilotAssistant({ client, focus, onPrepared }: {
+export function PilotAssistant({ client, focus, onPrepared, initialPrompt = null }: {
   client: PilotClient;
   /** The account open on the page: read first by the AI. */
   focus: { platform: string; accountId: string } | null;
+  /** A question put in the box when the page opens from a link (a report's next step): sent by the consultant, never alone. */
+  initialPrompt?: string | null;
   onPrepared: (action: PilotActionView) => void;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialPrompt ?? "");
   const [streamText, setStreamText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

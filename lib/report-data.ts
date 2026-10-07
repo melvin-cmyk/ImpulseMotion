@@ -79,6 +79,8 @@ export interface ReportNextStep {
   /** crm = attribution / CRM setup action (HubSpot, UTM…) */
   platform?: "meta" | "google" | "tiktok" | "global" | "crm";
   done: boolean;
+  /** The Pilotage action that did it, when it was done from there. */
+  pilotActionId?: string;
 }
 
 /** CRM / real business section (HubSpot) — present only when the client has a HubSpot source that resolved. */

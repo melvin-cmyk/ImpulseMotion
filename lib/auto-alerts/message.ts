@@ -20,6 +20,8 @@ export interface DigestInput {
   plan: Plan;
   reading?: string | null;
   link: string;
+  /** The /pilotage link on the client, to act at once; omitted when there is none. */
+  pilotLink?: string | null;
   /** Problems already announced and still open, for context. */
   stillOpen: number;
 }
@@ -42,7 +44,7 @@ export function buildDigest(d: DigestInput): string {
     if (r.say) lines.push(`:white_check_mark: Résolu : ${r.incident.title}`);
   }
   const tail = d.stillOpen > 0 ? ` · ${d.stillOpen} autre${d.stillOpen > 1 ? "s" : ""} point${d.stillOpen > 1 ? "s" : ""} toujours en cours` : "";
-  lines.push(`<${d.link}|Ouvrir dans ImpulseMotion>${tail}`);
+  lines.push(`<${d.link}|Ouvrir dans ImpulseMotion>${d.pilotLink ? ` · <${d.pilotLink}|Modifier dans le Pilotage>` : ""}${tail}`);
   return lines.join("\n");
 }
 
