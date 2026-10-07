@@ -12,8 +12,7 @@ import { Loader2, RefreshCw, Search } from "lucide-react";
 import { Card, PageHeader, Section } from "@/components/ui/surface";
 import { StructureTree } from "@/components/pilot/structure-tree";
 import { ChangePanel } from "@/components/pilot/change-panel";
-import { HistoryTimeline, type SourceFilter } from "@/components/pilot/timeline";
-import { ChangeChart, marksOf } from "@/components/pilot/change-chart";
+import { HistoryPanel } from "@/components/pilot/history-panel";
 import type { HistoryView, PlatformChangeView } from "@/lib/pilot/history";
 import { PilotAssistant } from "@/components/pilot/assistant-panel";
 import type { StudioPick } from "@/components/pilot/new-ad-form";
@@ -66,7 +65,6 @@ export function PilotPage() {
   const [syncInfo, setSyncInfo] = useState<HistoryView["sync"]>([]);
   const [loadingJournal, setLoadingJournal] = useState(false);
   const [historyDays, setHistoryDays] = useState(60);
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
   useEffect(() => {
     fetch("/api/pilot/clients")
@@ -350,52 +348,21 @@ export function PilotPage() {
       )}
 
       {client && (
-        <Section
-          title="Historique & impact"
-          action={(
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {([["all", "Tout"], ["impulsemotion", "ImpulseMotion"], ["external", "Hors ImpulseMotion"], ["automated", "Automatique"]] as Array<[SourceFilter, string]>).map(([k, l]) => (
-                <button key={k} type="button" onClick={() => setSourceFilter(k)} className={`px-2 py-1 rounded-md border ${sourceFilter === k ? "border-violet-500 text-white" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
-              ))}
-              <select value={historyDays} onChange={(e) => { const d = Number(e.target.value); setHistoryDays(d); void loadJournal(client.id, account, d, false); }} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-gray-200">
-                {[14, 30, 60, 90, 120].map((d) => <option key={d} value={d}>{d} jours</option>)}
-              </select>
-              <button type="button" onClick={() => void loadJournal(client.id, account)} className="text-gray-400 hover:text-white flex items-center gap-1">
-                <RefreshCw className={`w-3.5 h-3.5 ${loadingJournal ? "animate-spin" : ""}`} /> Relire les journaux
-              </button>
-            </div>
-          )}
-        >
-          <div className="space-y-4">
-            {series && account && (
-              <div>
-                <p className="text-xs text-gray-500 mb-1">{PLATFORM_FR[account.platform]} · compte « {structure?.account.name || account.accountId} » — dépense et CPA par jour, avec chaque modification marquée.</p>
-                {series.error ? <p className="text-xs text-amber-300">Courbe indisponible : {series.error}</p> : (
-                  <ChangeChart
-                    points={series.points}
-                    currency={series.currency}
-                    marks={marksOf([
-                      ...journal.filter((a) => a.executedAt && a.platform === series.platform && a.accountId === series.accountId).map((a) => ({ at: a.executedAt!, source: "impulsemotion" as const, text: `${a.createdByName} : ${a.operations.map((o) => o.line).join(" ; ")}` })),
-                      ...changes.filter((c) => c.platform === series.platform && c.accountId === series.accountId && !(c.pilotActionId && journal.some((a) => a.id === c.pilotActionId))).map((c) => ({ at: c.at, source: c.source, text: `${c.actorName} : ${c.line}` })),
-                    ])}
-                  />
-                )}
-              </div>
-            )}
-            {syncInfo.some((s) => s.lastError) && (
-              <p className="text-xs text-amber-300">{syncInfo.filter((s) => s.lastError).map((s) => `${PLATFORM_FR[s.platform]} ${s.accountId} : ${s.lastError}`).join(" · ")}</p>
-            )}
-            {!syncInfo.length && !loadingJournal && <p className="text-xs text-gray-500">Les journaux des plateformes n&apos;ont pas encore été lus pour ce client.</p>}
-            <HistoryTimeline
-              actions={journal}
-              changes={changes}
-              loading={loadingJournal}
-              filter={sourceFilter}
-              onUndo={(draft) => { setPreview(draft); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-              onActionChanged={(a) => setJournal((list) => list.map((x) => (x.id === a.id ? a : x)))}
-              onChangeChanged={(c) => setChanges((list) => list.map((x) => (x.id === c.id ? c : x)))}
-            />
-          </div>
+        <Section title="Historique & impact">
+          <HistoryPanel
+            actions={journal}
+            changes={changes}
+            series={series}
+            sync={syncInfo}
+            loading={loadingJournal}
+            days={historyDays}
+            onDays={(d) => { setHistoryDays(d); void loadJournal(client.id, account, d, false); }}
+            onReload={() => void loadJournal(client.id, account)}
+            accountName={structure?.account.name ?? null}
+            onUndo={(draft) => { setPreview(draft); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+            onActionChanged={(a) => setJournal((list) => list.map((x) => (x.id === a.id ? a : x)))}
+            onChangeChanged={(c) => setChanges((list) => list.map((x) => (x.id === c.id ? c : x)))}
+          />
         </Section>
       )}
     </div>
