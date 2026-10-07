@@ -150,11 +150,11 @@ function SessionCard({ changes, showClient, clientName, onChanged }: { changes: 
       {judged.map((c) => (
         <div key={c.id} className="space-y-1 pl-5">
           {changes.length > 1 && <p className="text-[11px] text-gray-500">Bilan de : {c.line}</p>}
-          <ImpactCards impacts={c.impacts} platform={c.platform} />
+          <ImpactCards impacts={c.impacts} platform={c.platform} subject={{ kind: "change", id: c.id }} />
         </div>
       ))}
       {!judged.length && changes.some((c) => c.impacts.length) && (
-        <div className="pl-5"><ImpactCards impacts={changes.find((c) => c.impacts.length)!.impacts} platform={head.platform} /></div>
+        <div className="pl-5"><ImpactCards impacts={changes.find((c) => c.impacts.length)!.impacts} platform={head.platform} subject={{ kind: "change", id: changes.find((c) => c.impacts.length)!.id }} /></div>
       )}
     </li>
   );

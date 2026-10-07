@@ -19,8 +19,8 @@ import { prisma } from "@/lib/prisma";
 import { appendHqJournal, HQ_PROJECT_RE } from "@/lib/hq-journal";
 import { describeOperation, readGoal, type PilotGoal } from "@/lib/pilot/ops";
 import {
-  IMPACT_HORIZONS, impactDue, parisDay, impactHqEntry, impactHqSlug, impactSummary, impactWindows,
-  type ImpactResult, type Metrics, type ObjectImpact,
+  IMPACT_HORIZONS, impactDue, parisDay, impactHqEntry, impactHqSlug, impactSummary, impactWindows, impactWindowsNow,
+  type ImpactResult, type Metrics, type ObjectImpact, type Range,
 } from "@/lib/pilot/impact";
 import { SOURCE_FR } from "@/lib/pilot/changes";
 import { googleAccountMetrics, googleObjectMetrics, metaAccountMetrics, metaObjectMetrics, tiktokAccountMetrics, tiktokObjectMetrics } from "@/lib/pilot/impact-data";
@@ -75,9 +75,9 @@ export function actionSubject(action: ActionRow): ImpactSubject {
   };
 }
 
-/** The figures of every changed object and of the account, before and after. */
-export async function computeSubjectImpact(subject: ImpactSubject, horizon: number): Promise<ImpactResult> {
-  const { before, after } = impactWindows(subject.executedAt, horizon);
+/** The figures of every changed object and of the account, before and after. `windows` overrides the N-days windows (provisional analysis). */
+export async function computeSubjectImpact(subject: ImpactSubject, horizon: number, windows?: { before: Range; after: Range }): Promise<ImpactResult> {
+  const { before, after } = windows ?? impactWindows(subject.executedAt, horizon);
   const names = new Map(subject.objects.map((o) => [o.name, o.objectType]));
   const meta = subject.platform === "meta";
   const objects: ObjectImpact[] = [];
@@ -297,4 +297,30 @@ async function runChangeImpacts(now: Date, started: number, summary: ImpactPassS
       summary.failed++;
     }
   }
+}
+
+// ── Provisional analysis, asked now ──────────────────────────────────────
+
+export type ImpactNow = { ok: true; horizon: number; result: ImpactResult; verdict: string; summary: string; provisional: boolean } | { ok: false; status: number; error: string };
+
+/** The effect of an action or a platform change as of yesterday: nothing stored, nothing written in HQ. */
+export async function impactNow(subject: { kind: "action" | "change"; id: string }, now: Date = new Date()): Promise<ImpactNow> {
+  let s: ImpactSubject; let goal: PilotGoal = NO_GOAL;
+  if (subject.kind === "action") {
+    const action = await prisma.pilotAction.findUnique({ where: { id: subject.id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
+    if (!action || !action.executedAt || (action.status !== "done" && action.status !== "partial")) return { ok: false, status: 404, error: "Modification introuvable ou pas encore envoyée." };
+    s = actionSubject(action);
+    goal = readGoal(JSON.parse(action.goalJson || "{}"));
+  } else {
+    const change = await prisma.platformChange.findUnique({ where: { id: subject.id } });
+    if (!change) return { ok: false, status: 404, error: "Modification introuvable." };
+    const siblings = await prisma.platformChange.findMany({ where: { accountId: change.accountId, platform: change.platform, objectId: change.objectId, at: { gte: new Date(change.at.getTime() - 86_400_000), lte: change.at } }, orderBy: { at: "asc" } });
+    s = changeSubject(change, siblings.length ? siblings : [change]);
+  }
+  const windows = impactWindowsNow(s.executedAt, now);
+  if (!windows) return { ok: false, status: 409, error: "Trop tôt : il faut au moins une journée complète après la modification (demain)." };
+  const result = await computeSubjectImpact(s, windows.horizon, windows);
+  if (!result.objects.some((o) => o.before || o.after) && !result.account.before && !result.account.after) return { ok: false, status: 503, error: result.objects[0]?.error ?? result.account.error ?? "La plateforme ne répond pas pour le moment." };
+  const { verdict, summary } = impactSummary(result, goal, s.platform);
+  return { ok: true, horizon: windows.horizon, result, verdict, summary: summary.replace(/^Bilan à J\+(\d+)/, "Effet à J+$1 (provisoire)"), provisional: windows.horizon < 7 };
 }

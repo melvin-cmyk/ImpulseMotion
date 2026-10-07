@@ -43,7 +43,7 @@ export const PILOT_KINDS = [
 export type PilotKind = (typeof PILOT_KINDS)[number];
 
 /** At most this many changes in one action: each is read, written and read again. */
-export const PILOT_MAX_OPERATIONS = 25;
+export const PILOT_MAX_OPERATIONS = 50;
 /** A preview older than this is prepared again: the account may have moved meanwhile. */
 export const PILOT_DRAFT_TTL_MS = 30 * 60 * 1000;
 /** Raise of a budget that asks for a second confirmation. */

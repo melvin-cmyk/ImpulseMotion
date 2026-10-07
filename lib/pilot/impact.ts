@@ -90,6 +90,20 @@ export function impactWindows(executedAt: Date, horizon: number): { before: Rang
   };
 }
 
+/**
+ * The windows of a provisional analysis made now: every full day after the
+ * change up to yesterday (at most 14), against as many days before. Null
+ * when no full day has passed yet.
+ */
+export function impactWindowsNow(executedAt: Date, now: Date, max = 14): { horizon: number; before: Range; after: Range } | null {
+  const day = parisDay(executedAt);
+  const yesterday = addDays(parisDay(now), -1);
+  const first = addDays(day, 1);
+  if (yesterday < first) return null;
+  const n = Math.min(max, Math.round((Date.parse(`${yesterday}T12:00:00Z`) - Date.parse(`${first}T12:00:00Z`)) / 86_400_000) + 1);
+  return { horizon: n, before: { since: addDays(day, -n), until: addDays(day, -1) }, after: { since: first, until: addDays(first, n - 1) } };
+}
+
 /** True when the window after the change is complete and settled. */
 export function impactDue(executedAt: Date, horizon: number, now: Date): boolean {
   const { after } = impactWindows(executedAt, horizon);

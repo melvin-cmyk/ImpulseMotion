@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  impactWindows, impactDue, verdictOf, impactSummary, changedTotal, impactHqEntry, impactHqSlug, type ImpactResult, type Metrics,
+  impactWindows, impactWindowsNow, impactDue, verdictOf, impactSummary, changedTotal, impactHqEntry, impactHqSlug, type ImpactResult, type Metrics,
 } from "@/lib/pilot/impact";
 
 const m = (spend: number, conversions: number, revenue: number | null = null): Metrics => ({ spend, conversions, revenue, clicks: 100, impressions: 10_000 });
@@ -19,6 +19,13 @@ describe("bilan du pilotage — périodes", () => {
     });
     // 1er octobre 23 h 30 UTC = 2 octobre à Paris.
     expect(impactWindows(new Date("2026-10-01T23:30:00Z"), 14).after).toEqual({ since: "2026-10-03", until: "2026-10-16" });
+  });
+
+  it("effet maintenant : les jours pleins jusqu'à hier, autant avant, 14 au plus, rien le jour même", () => {
+    const at = new Date("2026-10-01T10:00:00Z");
+    expect(impactWindowsNow(at, new Date("2026-10-02T09:00:00Z"))).toBeNull();
+    expect(impactWindowsNow(at, new Date("2026-10-04T09:00:00Z"))).toEqual({ horizon: 2, before: { since: "2026-09-29", until: "2026-09-30" }, after: { since: "2026-10-02", until: "2026-10-03" } });
+    expect(impactWindowsNow(at, new Date("2026-11-01T09:00:00Z"))?.horizon).toBe(14);
   });
 
   it("dû un jour après la fin de la période d'après (conversions tardives)", () => {

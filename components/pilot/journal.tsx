@@ -67,7 +67,7 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
       </div>
       <OperationLines action={a} showStatus />
       <p className="text-xs text-gray-400"><span className="text-gray-500">Pourquoi :</span> {a.why || "—"}{goal ? <> · <span className="text-gray-500">Objectif :</span> {goal}</> : null}</p>
-      <ImpactCards impacts={a.impacts ?? []} platform={a.platform} />
+      <ImpactCards impacts={a.impacts ?? []} platform={a.platform} subject={(a.status === "done" || a.status === "partial") && !a.undoOfId ? { kind: "action", id: a.id } : undefined} />
       <div className="flex flex-wrap items-center gap-3 text-xs">
         {a.hqWrittenAt
           ? <span className="text-emerald-300/80 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Consigné dans HQ (projects/{a.hqProject})</span>

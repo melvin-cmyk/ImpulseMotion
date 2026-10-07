@@ -333,7 +333,9 @@ function googleValue(field: ChangeField, raw: unknown, currency: string): PilotV
   }
   if (field === "status" && typeof raw === "string") return GOOGLE_STATUS[raw] ?? raw;
   if (typeof raw === "number" || typeof raw === "string") return raw;
-  return short(raw, 200);
+  // An empty object (Google gives no detail for an asset change) says nothing: the line names the setting only.
+  const text = short(raw, 200);
+  return text === "{}" || text === "[]" ? null : text;
 }
 
 export interface GoogleChangeRow {

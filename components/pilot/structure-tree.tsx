@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, Pencil, Search } from "lucide-react";
+import { ChevronDown, ChevronRight, CheckSquare, Loader2, Pencil, Search, Square } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import { KEYWORD_MATCH_TYPES, MATCH_FR, copyName, currencyOffset, dateText, money, newAdName, newKeywordText, objectLabel, statusText, strategyText, type KeywordMatchType, type PilotKind } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
@@ -137,6 +137,53 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
   const [newAdFor, setNewAdFor] = useState<TreeRow | null>(null);
   const [targetingFor, setTargetingFor] = useState<TreeRow | null>(null);
   const [textsFor, setTextsFor] = useState<TreeRow | null>(null);
+  // Rows ticked for a grouped change (pause, budget ±x %, end date, delete): the same change on each.
+  const [selected, setSelected] = useState<Map<string, TreeRow>>(new Map());
+  const [bulk, setBulk] = useState<{ kind: "budget_pct" | "budget_set" | "set_end_time"; value: string } | null>(null);
+  const toggleSelect = (row: TreeRow) => setSelected((m) => { const n = new Map(m); if (n.has(row.id)) n.delete(row.id); else n.set(row.id, row); return n; });
+
+  /** The same change on every ticked row that can take it; the rows that cannot are said. */
+  function applyBulk(kind: PilotKind, valueOf: (row: TreeRow) => string | number | null, label: (row: TreeRow, value: string | number) => string) {
+    const skipped: string[] = [];
+    let added = 0;
+    for (const row of selected.values()) {
+      const value = valueOf(row);
+      if (value === null) { skipped.push(row.name); continue; }
+      onAdd({ kind, objectType: row.type, objectId: row.id, value, label: label(row, value) });
+      added++;
+    }
+    setBulk(null);
+    if (added) setSelected(new Map());
+    if (skipped.length) window.alert(`${added} modification(s) ajoutée(s). Sans effet sur : ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? "…" : ""} (pas de budget à ce niveau, verrouillé, ou déjà dans cet état).`);
+  }
+
+  function bulkStatus(status: "ACTIVE" | "PAUSED" | "DELETED") {
+    applyBulk("set_status", (row) => (row.status === status || (row.negative && status !== "DELETED") ? null : status), (row) => pendingLabel(platform, row, "set_status", status, currency));
+  }
+
+  function bulkBudget(mode: "budget_pct" | "budget_set", raw: string) {
+    const n = Number(raw.replace(",", "."));
+    if (!Number.isFinite(n) || (mode === "budget_set" && n <= 0)) return;
+    const unit = currencyOffset(currency);
+    for (const kind of ["set_daily_budget", "set_lifetime_budget"] as const) {
+      const field = kind === "set_daily_budget" ? "dailyBudget" : "lifetimeBudget";
+      const rows = [...selected.values()].filter((r) => r[field] && !r.budgetLock);
+      if (!rows.length) continue;
+      const only = new Map(rows.map((r) => [r.id, r]));
+      const valueOf = (row: TreeRow) => {
+        const current = row[field]!;
+        const next = mode === "budget_pct" ? Math.round(current * (1 + n / 100)) : Math.round(n * unit);
+        if (next < unit || next === current) return null;
+        return Math.round((next / unit) * 100) / 100;
+      };
+      for (const row of only.values()) {
+        const value = valueOf(row);
+        if (value !== null) onAdd({ kind, objectType: row.type, objectId: row.id, value, label: pendingLabel(platform, row, kind, String(value), currency) });
+      }
+    }
+    setBulk(null);
+    setSelected(new Map());
+  }
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [ads, setAds] = useState<Record<string, TreeRow[] | "loading" | { error: string }>>({});
   const [editor, setEditor] = useState<Editor>(null);
@@ -203,6 +250,9 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
     return (
       <div key={row.id} id={`pilot-object-${row.id}`}>
         <div className={`group flex items-center gap-2 py-1.5 pr-2 rounded-lg hover:bg-gray-800/40 ${hasPending ? "bg-violet-500/5" : ""}`} style={{ paddingLeft: 8 + depth * 18 }}>
+          <button type="button" onClick={() => toggleSelect(row)} className={`shrink-0 ${selected.has(row.id) ? "text-violet-300" : "text-gray-600 hover:text-gray-300"}`} aria-label={selected.has(row.id) ? "Retirer de la sélection" : "Sélectionner"} title="Sélectionner pour une modification groupée">
+            {selected.has(row.id) ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+          </button>
           {expandable ? (
             <button type="button" onClick={() => (row.type === "campaign" ? setOpen((o) => ({ ...o, [row.id]: !o[row.id] })) : void toggleAdset(row.id))} className="text-gray-500 hover:text-white" aria-label={open[row.id] ? "Replier" : "Déplier"}>
               {open[row.id] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -311,8 +361,32 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
           <input type="checkbox" checked={hidePaused} onChange={(e) => setHidePaused(e.target.checked)} /> Actifs seulement
         </label>
       </div>
+      {selected.size > 0 && (
+        <div className="mb-3 rounded-xl border border-violet-500/40 bg-violet-500/5 px-3 py-2 space-y-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-white font-semibold">{selected.size} sélectionné{selected.size > 1 ? "s" : ""}</span>
+            <span className="text-gray-500">— appliquer à tous :</span>
+            <button type="button" onClick={() => bulkStatus("PAUSED")} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Mettre en pause</button>
+            <button type="button" onClick={() => bulkStatus("ACTIVE")} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Activer</button>
+            <button type="button" onClick={() => setBulk({ kind: "budget_pct", value: "-20" })} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Budget ± %</button>
+            <button type="button" onClick={() => setBulk({ kind: "budget_set", value: "" })} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Budget =</button>
+            {platform !== "google" && <button type="button" onClick={() => setBulk({ kind: "set_end_time", value: localDateTime(null, 7) })} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Date de fin</button>}
+            <button type="button" onClick={() => { if (window.confirm(`Supprimer ${selected.size} objet(s) ? Chaque suppression demandera une seconde confirmation à l'envoi.`)) bulkStatus("DELETED"); }} className="px-2 py-1 rounded-md border border-red-900 text-red-300 hover:border-red-500">Supprimer</button>
+            <button type="button" onClick={() => setSelected(new Map())} className="ml-auto text-gray-400 hover:text-white">Tout désélectionner</button>
+          </div>
+          {bulk && (
+            <form onSubmit={(e) => { e.preventDefault(); if (bulk.kind === "set_end_time") applyBulk("set_end_time", (row) => (row.type === "ad" || row.endTimeLock ? null : new Date(bulk.value).toISOString()), (row, v) => pendingLabel(platform, row, "set_end_time", String(v), currency)); else bulkBudget(bulk.kind, bulk.value); }} className="flex flex-wrap items-center gap-2">
+              <span className="text-gray-400">{bulk.kind === "budget_pct" ? "Budget : variation en % (−20 = baisse de 20 %)" : bulk.kind === "budget_set" ? `Budget : nouveau montant en ${currency}` : "Date de fin"}</span>
+              <input autoFocus type={bulk.kind === "set_end_time" ? "datetime-local" : "number"} step={bulk.kind === "set_end_time" ? undefined : "0.01"} value={bulk.value} onChange={(e) => setBulk({ ...bulk, value: e.target.value })} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white w-44" />
+              <button type="submit" className="px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-500 text-white">Appliquer à la sélection</button>
+              <button type="button" onClick={() => setBulk(null)} className="text-gray-400 hover:text-white">Annuler</button>
+              <span className="text-gray-500">Les budgets journaliers et totaux sont traités chacun à leur niveau ; les objets sans budget sont ignorés.</span>
+            </form>
+          )}
+        </div>
+      )}
       <div className="flex items-center gap-2 px-2 pb-1 text-[10px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
-        <span className="flex-1 pl-20">Nom</span>
+        <span className="flex-1 pl-24">Nom</span>
         <span className="w-24 text-right hidden sm:inline">Budget</span>
         <span className="w-20 text-right hidden md:inline">Dépense 7 j</span>
         <span className="w-20" />
