@@ -857,7 +857,10 @@ model PilotOperation {
 /// cron /api/cron/pilot-impact without any AI, then written in the client's HQ.
 model PilotImpact {
   id          String      @id @default(cuid())
-  actionId    String
+  /// The Pilotage action judged — or null when `changeId` names a change read on the platform.
+  actionId    String?
+  /// A change made outside Pilotage (PlatformChange) judged the same way.
+  changeId    String?
   /// 7 | 14
   horizon     Int
   /// done | skipped | failed
@@ -874,10 +877,81 @@ model PilotImpact {
   hqError     String?     @db.Text
   computedAt  DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
-  action      PilotAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  action      PilotAction?    @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  change      PlatformChange? @relation(fields: [changeId], references: [id], onDelete: Cascade)
 
   @@unique([actionId, horizon])
+  @@unique([changeId, horizon])
   @@index([status, computedAt])
+}
+
+/// A change made on an ad account as the platform's own log tells it (Meta
+/// « activities », Google Ads « change_event »): from Pilotage or not, by whom,
+/// through what, with the value before and after when the platform gives them.
+/// Read by lib/pilot/changes-ingest.ts; judged at J+7 / J+14 like an action.
+model PlatformChange {
+  id            String        @id @default(cuid())
+  /// meta | google
+  platform      String
+  /// Account id as digits.
+  accountId     String
+  alertClientId String?
+  currency      String        @default("EUR")
+  /// Stable id at the platform (Google: change event + field; Meta: a hash of the activity).
+  externalId    String        @unique
+  at            DateTime
+  actorName     String        @default("")
+  actorEmail    String?
+  /// Through what the change came (Meta application name, Google client type), in French.
+  via           String        @default("")
+  /// impulsemotion | external | automated
+  source        String        @default("external")
+  /// The Pilotage action this change belongs to, when it is one of ours.
+  pilotActionId String?
+  /// campaign | adset | ad | account | other
+  objectType    String
+  objectId      String        @default("")
+  objectName    String        @default("")
+  /// Platform event (Meta event_type, Google resource type + changed field).
+  eventType     String
+  /// daily_budget | lifetime_budget | budget | status | name | bid | bid_strategy | targeting | schedule | optimization | spend_cap | creative | keyword | settings | created | deleted | other
+  field         String
+  beforeJson    String        @default("null") @db.Text
+  afterJson     String        @default("null") @db.Text
+  /// One line in French, the same in the page and in HQ.
+  line          String        @default("") @db.Text
+  /// Worth a J+7 / J+14 analysis (budget, status, bid, targeting…), not a rename.
+  significant   Boolean       @default(false)
+  /// What the platform gave (extra_data / old & new resource), for the detail.
+  rawJson       String        @default("{}") @db.Text
+  /// Why it was done, written afterwards by a consultant (then in HQ).
+  note          String        @default("") @db.Text
+  noteById      String?
+  noteByName    String?
+  noteAt        DateTime?
+  hqProject     String?
+  hqWrittenAt   DateTime?
+  hqError       String?       @db.Text
+  createdAt     DateTime      @default(now())
+  impacts       PilotImpact[]
+
+  @@index([accountId, at])
+  @@index([alertClientId, at])
+  @@index([pilotActionId])
+  @@index([significant, source, at])
+}
+
+/// Up to when the platform's log of an account has been read.
+model PlatformChangeSync {
+  id        String    @id @default(cuid())
+  platform  String
+  accountId String
+  syncedTo  DateTime?
+  lastRunAt DateTime?
+  lastError String?   @db.Text
+  updatedAt DateTime  @updatedAt
+
+  @@unique([platform, accountId])
 }
 
 /// An image or a video generated in the Studio créa (Agnes AI, through the relay: server/agnes.mjs).

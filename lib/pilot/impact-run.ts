@@ -7,18 +7,26 @@
  * An action put back (undone) before the end of the window is not judged: its
  * effect is no longer on the account. An undo itself is not judged either.
  * A pass is capped in time and in number; what is left waits for the next day.
+ *
+ * Changes made outside Pilotage (PlatformChange, read by changes-ingest.ts) are
+ * judged the same way, after the actions: the significant ones only, one per
+ * object and day (the last of the day carries the analysis). Their HQ entry is
+ * written when a consultant explained the change, or when the verdict is
+ * clear (improved / worse): HQ keeps what matters, not every tweak.
  */
 
 import { prisma } from "@/lib/prisma";
 import { appendHqJournal, HQ_PROJECT_RE } from "@/lib/hq-journal";
-import { describeOperation, readGoal } from "@/lib/pilot/ops";
+import { describeOperation, readGoal, type PilotGoal } from "@/lib/pilot/ops";
 import {
   IMPACT_HORIZONS, impactDue, parisDay, impactHqEntry, impactHqSlug, impactSummary, impactWindows,
   type ImpactResult, type Metrics, type ObjectImpact,
 } from "@/lib/pilot/impact";
+import { SOURCE_FR } from "@/lib/pilot/changes";
 import { googleAccountMetrics, googleObjectMetrics, metaAccountMetrics, metaObjectMetrics } from "@/lib/pilot/impact-data";
 
 const MAX_PER_PASS = 20;
+const MAX_CHANGES_PER_PASS = 30;
 const PASS_BUDGET_MS = 240_000;
 const MAX_ATTEMPTS = 3;
 /** Older actions are not looked at any more (J+14 + settling + some days of retries). */
@@ -45,37 +53,58 @@ async function tryRead(fn: () => Promise<Metrics>): Promise<{ m: Metrics | null;
   try { return { m: await fn(), error: null }; } catch (e) { return { m: null, error: (e instanceof Error ? e.message : String(e)).slice(0, 200) }; }
 }
 
-/** The figures of every changed object and of the account, before and after. */
-export async function computeImpact(action: ActionRow, horizon: number): Promise<ImpactResult> {
-  const { before, after } = impactWindows(action.executedAt!, horizon);
+/** What is judged: an action of Pilotage, or a change read on the platform. */
+export interface ImpactSubject {
+  platform: string;
+  accountId: string;
+  currency: string;
+  executedAt: Date;
+  objects: Array<{ objectId: string; objectType: string; name: string; parentName: string; changes: string[] }>;
+}
+
+export function actionSubject(action: ActionRow): ImpactSubject {
   const done = action.operations.filter((o) => o.status === "done");
   const byObject = new Map<string, typeof done>();
   for (const o of done) byObject.set(o.objectId, [...(byObject.get(o.objectId) ?? []), o]);
-  const names = new Map([...byObject.values()].map((ops) => [ops[0].objectName, ops[0].objectType]));
+  return {
+    platform: action.platform, accountId: action.accountId, currency: action.currency, executedAt: action.executedAt!,
+    objects: [...byObject.values()].map((ops) => ({
+      objectId: ops[0].objectId, objectType: ops[0].objectType, name: ops[0].objectName, parentName: ops[0].parentName,
+      changes: ops.map((x) => describeOperation({ ...x, before: parse(x.beforeJson), after: parse(x.afterJson) }, action.currency, action.platform)),
+    })),
+  };
+}
 
-  const meta = action.platform === "meta";
+/** The figures of every changed object and of the account, before and after. */
+export async function computeSubjectImpact(subject: ImpactSubject, horizon: number): Promise<ImpactResult> {
+  const { before, after } = impactWindows(subject.executedAt, horizon);
+  const names = new Map(subject.objects.map((o) => [o.name, o.objectType]));
+  const meta = subject.platform === "meta";
   const objects: ObjectImpact[] = [];
-  for (const [objectId, ops] of byObject) {
-    const o = ops[0];
-    const read = (r: typeof before) => tryRead(() => (meta ? metaObjectMetrics(action.accountId, objectId, r) : googleObjectMetrics(action.accountId, objectId, o.objectType, r)));
+  for (const o of subject.objects) {
+    if (!/^\d{1,25}$/.test(o.objectId) || !["campaign", "adset", "ad"].includes(o.objectType)) continue;
+    const read = (r: typeof before) => tryRead(() => (meta ? metaObjectMetrics(subject.accountId, o.objectId, r) : googleObjectMetrics(subject.accountId, o.objectId, o.objectType, r)));
     const [b, a] = [await read(before), await read(after)];
     const parentType = names.get(o.parentName);
     objects.push({
-      objectId, objectType: o.objectType, name: o.objectName,
-      changes: ops.map((x) => describeOperation({ ...x, before: parse(x.beforeJson), after: parse(x.afterJson) }, action.currency, action.platform)),
+      objectId: o.objectId, objectType: o.objectType, name: o.name, changes: o.changes,
       before: b.m, after: a.m, error: b.error ?? a.error,
       insideChanged: !!o.parentName && !!parentType && parentType !== o.objectType,
     });
   }
-  const readAccount = (r: typeof before) => tryRead(() => (meta ? metaAccountMetrics(action.accountId, r) : googleAccountMetrics(action.accountId, r)));
+  const readAccount = (r: typeof before) => tryRead(() => (meta ? metaAccountMetrics(subject.accountId, r) : googleAccountMetrics(subject.accountId, r)));
   const [ab, aa] = [await readAccount(before), await readAccount(after)];
-  return { horizon, before, after, currency: action.currency, objects, account: { before: ab.m, after: aa.m, error: ab.error ?? aa.error } };
+  return { horizon, before, after, currency: subject.currency, objects, account: { before: ab.m, after: aa.m, error: ab.error ?? aa.error } };
 }
 
+export const computeImpact = (action: ActionRow, horizon: number) => computeSubjectImpact(actionSubject(action), horizon);
+
 async function writeImpactHq(impactId: string): Promise<void> {
-  const impact = await prisma.pilotImpact.findUnique({ where: { id: impactId }, include: { action: { include: { operations: { orderBy: { position: "asc" } } } } } });
+  const impact = await prisma.pilotImpact.findUnique({ where: { id: impactId }, include: { action: { include: { operations: { orderBy: { position: "asc" } } } }, change: true } });
   if (!impact || impact.hqWrittenAt || impact.status !== "done") return;
+  if (impact.change) return writeChangeImpactHq(impact.id, impact.change, impact.horizon, impact.resultJson, impact.summary);
   const action = impact.action;
+  if (!action) return;
   if (!action.hqProject || !HQ_PROJECT_RE.test(action.hqProject)) {
     await prisma.pilotImpact.update({ where: { id: impactId }, data: { hqError: "Pas de dossier HQ pour ce client." } });
     return;
@@ -143,6 +172,8 @@ export async function runPilotImpacts(now: Date = new Date()): Promise<ImpactPas
     }
   }
 
+  await runChangeImpacts(now, started, summary);
+
   // HQ entries that could not be written (HQ down): tried again.
   const unwritten = await prisma.pilotImpact.findMany({ where: { status: "done", hqWrittenAt: null, NOT: { hqError: "Pas de dossier HQ pour ce client." } }, select: { id: true }, take: 10 });
   for (const { id } of unwritten) {
@@ -151,4 +182,119 @@ export async function runPilotImpacts(now: Date = new Date()): Promise<ImpactPas
   }
   summary.hqWritten = await prisma.pilotImpact.count({ where: { hqWrittenAt: { gte: new Date(started) } } });
   return summary;
+}
+
+// ── Changes made outside Pilotage ─────────────────────────────────────────
+
+type ChangeRow = NonNullable<Awaited<ReturnType<typeof prisma.platformChange.findUnique>>>;
+
+const NO_GOAL: PilotGoal = { metric: null, target: null, note: "" };
+
+function changeSubject(c: ChangeRow, siblings: ChangeRow[]): ImpactSubject {
+  return {
+    platform: c.platform, accountId: c.accountId, currency: c.currency, executedAt: c.at,
+    objects: [{ objectId: c.objectId, objectType: c.objectType, name: c.objectName, parentName: "", changes: siblings.map((x) => x.line) }],
+  };
+}
+
+/** The account-level client name, as the page shows it. */
+async function changeContext(c: ChangeRow): Promise<{ clientName: string; accountName: string; hqProject: string | null }> {
+  if (!c.alertClientId) return { clientName: "", accountName: "", hqProject: null };
+  const client = await prisma.alertClient.findUnique({ where: { id: c.alertClientId }, select: { name: true, accountsJson: true, hqSlug: true, dashboardId: true } });
+  if (!client) return { clientName: "", accountName: "", hqProject: null };
+  let hqProject = client.hqSlug;
+  if (!hqProject && client.dashboardId) hqProject = (await prisma.dashboard.findUnique({ where: { id: client.dashboardId }, select: { hqSlug: true } }))?.hqSlug ?? null;
+  let accountName = "";
+  try {
+    const list = JSON.parse(client.accountsJson || "[]") as Array<{ platform?: string; accountId?: string; name?: string }>;
+    accountName = list.find((a) => a.platform === c.platform && String(a.accountId ?? "").replace(/^act_/, "").replace(/-/g, "") === c.accountId)?.name ?? "";
+  } catch { /* no name */ }
+  return { clientName: client.name, accountName, hqProject };
+}
+
+async function writeChangeImpactHq(impactId: string, change: ChangeRow, horizon: number, resultJson: string, summary: string): Promise<void> {
+  const impact = await prisma.pilotImpact.findUnique({ where: { id: impactId }, select: { verdict: true, hqWrittenAt: true } });
+  if (!impact || impact.hqWrittenAt) return;
+  // HQ keeps what matters: a change a consultant explained, or one whose effect is clear.
+  if (!change.note && impact.verdict !== "improved" && impact.verdict !== "worse") {
+    await prisma.pilotImpact.update({ where: { id: impactId }, data: { hqError: "Non consigné dans HQ : modification hors ImpulseMotion sans explication ni effet net." } });
+    return;
+  }
+  const ctx = await changeContext(change);
+  const hqProject = change.hqProject ?? ctx.hqProject;
+  if (!hqProject || !HQ_PROJECT_RE.test(hqProject)) {
+    await prisma.pilotImpact.update({ where: { id: impactId }, data: { hqError: "Pas de dossier HQ pour ce client." } });
+    return;
+  }
+  const siblings = await prisma.platformChange.findMany({ where: { accountId: change.accountId, platform: change.platform, objectId: change.objectId, significant: true, at: { gte: new Date(change.at.getTime() - 86_400_000), lte: change.at } }, orderBy: { at: "asc" } });
+  const result = JSON.parse(resultJson) as ImpactResult;
+  const content = impactHqEntry({
+    actionId: change.id, clientName: ctx.clientName, platform: change.platform, accountName: ctx.accountName, accountId: change.accountId,
+    authorName: `${change.actorName} (${SOURCE_FR[change.source as keyof typeof SOURCE_FR] ?? change.source}, via ${change.via})`, executedAt: change.at,
+    why: change.note ? `${change.note} (expliqué par ${change.noteByName ?? "un consultant"})` : "non précisé — modification faite hors ImpulseMotion",
+    goal: NO_GOAL, changes: siblings.length ? siblings.map((x) => x.line) : [change.line], result, summary, external: true,
+  });
+  const written = await appendHqJournal({ project: hqProject, slug: impactHqSlug(change.id, horizon, change.at), content });
+  await prisma.pilotImpact.update({ where: { id: impactId }, data: written.ok ? { hqWrittenAt: new Date(), hqError: null } : { hqError: written.error } });
+}
+
+/** The significant changes made outside Pilotage, due for an analysis: the last of each object and day carries it. */
+async function runChangeImpacts(now: Date, started: number, summary: ImpactPassSummary): Promise<void> {
+  const rows = await prisma.platformChange.findMany({
+    where: {
+      significant: true, pilotActionId: null, source: { not: "impulsemotion" },
+      objectType: { in: ["campaign", "adset", "ad"] },
+      at: { gte: new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000), lte: new Date(now.getTime() - 7 * 86_400_000) },
+    },
+    include: { impacts: true },
+    orderBy: { at: "asc" },
+    take: 1000,
+  });
+  // One analysis per object and day: the last change of the day; the others point to it.
+  const lastOfDay = new Map<string, (typeof rows)[number]>();
+  for (const r of rows) {
+    const key = `${r.platform}:${r.accountId}:${r.objectId}:${parisDay(r.at)}`;
+    const held = lastOfDay.get(key);
+    if (!held || held.at < r.at) lastOfDay.set(key, r);
+  }
+  const todo: Array<{ change: (typeof rows)[number]; horizon: number; carrier: (typeof rows)[number] }> = [];
+  for (const r of rows) {
+    const carrier = lastOfDay.get(`${r.platform}:${r.accountId}:${r.objectId}:${parisDay(r.at)}`)!;
+    for (const horizon of IMPACT_HORIZONS) {
+      const existing = r.impacts.find((i) => i.horizon === horizon);
+      if (existing && (existing.status !== "failed" || existing.attempts >= MAX_ATTEMPTS)) continue;
+      if (impactDue(r.at, horizon, now)) todo.push({ change: r, horizon, carrier });
+    }
+  }
+  summary.looked += todo.length;
+  let computed = 0;
+  for (const [i, { change, horizon, carrier }] of todo.entries()) {
+    if (computed >= MAX_CHANGES_PER_PASS || Date.now() - started > PASS_BUDGET_MS) { summary.left += todo.length - i; break; }
+    const attempts = (change.impacts.find((x) => x.horizon === horizon)?.attempts ?? 0) + 1;
+    const key = { changeId_horizon: { changeId: change.id, horizon } };
+    if (carrier.id !== change.id) {
+      const text = `Analysé avec la dernière modification du même jour sur cet objet (${carrier.at.toLocaleTimeString("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" })}).`;
+      await prisma.pilotImpact.upsert({ where: key, create: { changeId: change.id, horizon, status: "skipped", verdict: "skipped", summary: text, attempts }, update: { status: "skipped", verdict: "skipped", summary: text, attempts } });
+      summary.skipped++;
+      continue;
+    }
+    try {
+      const siblings = rows.filter((x) => x.platform === change.platform && x.accountId === change.accountId && x.objectId === change.objectId && parisDay(x.at) === parisDay(change.at));
+      const result = await computeSubjectImpact(changeSubject(change, siblings), horizon);
+      if (!result.objects.some((o) => o.before || o.after) && !result.account.before && !result.account.after) throw new Error(result.objects[0]?.error ?? result.account.error ?? "plateforme illisible");
+      const { verdict, summary: text } = impactSummary(result, NO_GOAL, change.platform);
+      const row = await prisma.pilotImpact.upsert({
+        where: key,
+        create: { changeId: change.id, horizon, status: "done", verdict, summary: text, resultJson: JSON.stringify(result), attempts, computedAt: now },
+        update: { status: "done", verdict, summary: text, resultJson: JSON.stringify(result), attempts, error: null, computedAt: now },
+      });
+      computed++;
+      summary.computed++;
+      await writeChangeImpactHq(row.id, change, horizon, row.resultJson, row.summary).catch((e) => console.error("[pilot-impact] HQ of a change not written", e));
+    } catch (e) {
+      const error = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+      await prisma.pilotImpact.upsert({ where: key, create: { changeId: change.id, horizon, status: "failed", error, attempts }, update: { status: "failed", error, attempts } });
+      summary.failed++;
+    }
+  }
 }

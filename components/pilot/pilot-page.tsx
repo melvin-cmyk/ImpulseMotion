@@ -12,7 +12,9 @@ import { Loader2, RefreshCw, Search } from "lucide-react";
 import { Card, PageHeader, Section } from "@/components/ui/surface";
 import { StructureTree } from "@/components/pilot/structure-tree";
 import { ChangePanel } from "@/components/pilot/change-panel";
-import { PilotJournal } from "@/components/pilot/journal";
+import { HistoryTimeline, type SourceFilter } from "@/components/pilot/timeline";
+import { ChangeChart, marksOf } from "@/components/pilot/change-chart";
+import type { HistoryView, PlatformChangeView } from "@/lib/pilot/history";
 import { PilotAssistant } from "@/components/pilot/assistant-panel";
 import type { StudioPick } from "@/components/pilot/new-ad-form";
 import { PLATFORM_FR } from "@/lib/pilot/ops";
@@ -54,7 +56,12 @@ export function PilotPage() {
   const [pending, setPending] = useState<PendingChange[]>([]);
   const [preview, setPreview] = useState<PilotActionView | null>(null);
   const [journal, setJournal] = useState<PilotActionView[]>([]);
+  const [changes, setChanges] = useState<PlatformChangeView[]>([]);
+  const [series, setSeries] = useState<HistoryView["series"]>(null);
+  const [syncInfo, setSyncInfo] = useState<HistoryView["sync"]>([]);
   const [loadingJournal, setLoadingJournal] = useState(false);
+  const [historyDays, setHistoryDays] = useState(60);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
 
   useEffect(() => {
     fetch("/api/pilot/clients")
@@ -93,16 +100,28 @@ export function PilotPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studioPick, clients]);
 
-  const loadJournal = useCallback(async (clientId: string) => {
+  // The history of the client: actions, the platforms' logs (read now when stale), the curve of the account shown.
+  const historySeq = useRef(0);
+  const loadJournal = useCallback(async (clientId: string, ref: AccountRef | null, days = historyDays, refresh = true) => {
+    const seq = ++historySeq.current;
     setLoadingJournal(true);
     try {
-      const res = await fetch(`/api/pilot/actions?clientId=${encodeURIComponent(clientId)}`);
-      const j = await readJson<{ actions?: PilotActionView[] }>(res);
-      if (res.ok) setJournal(j.actions ?? []);
+      const q = new URLSearchParams({ clientId, days: String(days) });
+      if (ref) { q.set("platform", ref.platform); q.set("accountId", ref.accountId); }
+      if (refresh) q.set("refresh", "1");
+      const res = await fetch(`/api/pilot/history?${q}`);
+      const j = await readJson<HistoryView>(res);
+      if (seq !== historySeq.current) return;
+      if (res.ok) {
+        setJournal(j.actions ?? []);
+        setChanges(j.changes ?? []);
+        setSeries(j.series ?? null);
+        setSyncInfo(j.sync ?? []);
+      }
     } finally {
-      setLoadingJournal(false);
+      if (seq === historySeq.current) setLoadingJournal(false);
     }
-  }, []);
+  }, [historyDays]);
 
   function pick(c: PilotClient) {
     setClient(c);
@@ -115,7 +134,7 @@ export function PilotPage() {
     const ref = first ? { platform: first.platform, accountId: first.accountId } : null;
     setAccount(ref);
     if (ref) void loadStructure(c.id, ref);
-    void loadJournal(c.id);
+    void loadJournal(c.id, ref);
   }
 
   function pickAccount(key: string) {
@@ -128,6 +147,7 @@ export function PilotPage() {
     setPreview(null);
     setStructure(null);
     void loadStructure(client.id, ref);
+    void loadJournal(client.id, ref, historyDays, false);
   }
 
   /** A proposal of the AI, prepared: its account is shown, and its preview waits in « Modifier ». */
@@ -270,7 +290,7 @@ export function PilotPage() {
                 preview={preview}
                 onPreview={setPreview}
                 onSent={() => {
-                  void loadJournal(client.id);
+                  void loadJournal(client.id, account);
                   void loadStructure(client.id, account);
                 }}
               />
@@ -280,13 +300,52 @@ export function PilotPage() {
       )}
 
       {client && (
-        <Section title="Journal des modifications">
-          <PilotJournal
-            actions={journal}
-            loading={loadingJournal}
-            onUndo={(draft) => { setPreview(draft); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-            onChanged={(a) => setJournal((list) => list.map((x) => (x.id === a.id ? a : x)))}
-          />
+        <Section
+          title="Historique & impact"
+          action={(
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {([["all", "Tout"], ["impulsemotion", "ImpulseMotion"], ["external", "Hors ImpulseMotion"], ["automated", "Automatique"]] as Array<[SourceFilter, string]>).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setSourceFilter(k)} className={`px-2 py-1 rounded-md border ${sourceFilter === k ? "border-violet-500 text-white" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
+              ))}
+              <select value={historyDays} onChange={(e) => { const d = Number(e.target.value); setHistoryDays(d); void loadJournal(client.id, account, d, false); }} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-gray-200">
+                {[14, 30, 60, 90, 120].map((d) => <option key={d} value={d}>{d} jours</option>)}
+              </select>
+              <button type="button" onClick={() => void loadJournal(client.id, account)} className="text-gray-400 hover:text-white flex items-center gap-1">
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingJournal ? "animate-spin" : ""}`} /> Relire les journaux
+              </button>
+            </div>
+          )}
+        >
+          <div className="space-y-4">
+            {series && account && (
+              <div>
+                <p className="text-xs text-gray-500 mb-1">{PLATFORM_FR[account.platform]} · compte « {structure?.account.name || account.accountId} » — dépense et CPA par jour, avec chaque modification marquée.</p>
+                {series.error ? <p className="text-xs text-amber-300">Courbe indisponible : {series.error}</p> : (
+                  <ChangeChart
+                    points={series.points}
+                    currency={series.currency}
+                    marks={marksOf([
+                      ...journal.filter((a) => a.executedAt && a.platform === series.platform && a.accountId === series.accountId).map((a) => ({ at: a.executedAt!, source: "impulsemotion" as const, text: `${a.createdByName} : ${a.operations.map((o) => o.line).join(" ; ")}` })),
+                      ...changes.filter((c) => c.platform === series.platform && c.accountId === series.accountId && !(c.pilotActionId && journal.some((a) => a.id === c.pilotActionId))).map((c) => ({ at: c.at, source: c.source, text: `${c.actorName} : ${c.line}` })),
+                    ])}
+                  />
+                )}
+              </div>
+            )}
+            {syncInfo.some((s) => s.lastError) && (
+              <p className="text-xs text-amber-300">{syncInfo.filter((s) => s.lastError).map((s) => `${PLATFORM_FR[s.platform]} ${s.accountId} : ${s.lastError}`).join(" · ")}</p>
+            )}
+            {!syncInfo.length && !loadingJournal && <p className="text-xs text-gray-500">Les journaux des plateformes n&apos;ont pas encore été lus pour ce client.</p>}
+            <HistoryTimeline
+              actions={journal}
+              changes={changes}
+              loading={loadingJournal}
+              filter={sourceFilter}
+              onUndo={(draft) => { setPreview(draft); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+              onActionChanged={(a) => setJournal((list) => list.map((x) => (x.id === a.id ? a : x)))}
+              onChangeChanged={(c) => setChanges((list) => list.map((x) => (x.id === c.id ? c : x)))}
+            />
+          </div>
         </Section>
       )}
     </div>

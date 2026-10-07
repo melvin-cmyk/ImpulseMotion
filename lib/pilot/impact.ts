@@ -249,6 +249,8 @@ export function impactHqEntry(input: {
   actionId: string; clientName: string; platform: string; accountName: string; accountId: string;
   authorName: string; executedAt: Date; why: string; goal: PilotGoal; changes: string[];
   result: ImpactResult; summary: string;
+  /** A change read on the platform (not sent from Pilotage). */
+  external?: boolean;
 }): string {
   const platform = PLATFORM_FR[input.platform] ?? input.platform;
   const when = input.executedAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -256,9 +258,9 @@ export function impactHqEntry(input: {
   const objects = input.result.objects.map((o) =>
     `- ${objectLabel(input.platform, o.objectType)} « ${o.name} » : ${o.error ? `illisible (${o.error})` : figuresLine(o.before, o.after, input.result.currency)}`);
   return [
-    `## Bilan à J+${input.result.horizon} d'une modification ${platform} — ${input.clientName}`,
+    `## Bilan à J+${input.result.horizon} d'une modification ${platform}${input.external ? " hors ImpulseMotion" : ""} — ${input.clientName}`,
     "",
-    `Modification faite par ${input.authorName} le ${when} sur le compte ${platform} « ${input.accountName || input.accountId} » (${input.accountId}).`,
+    `Modification faite par ${input.authorName} le ${when} sur le compte ${platform} « ${input.accountName || input.accountId} » (${input.accountId})${input.external ? ", lue dans le journal de la plateforme" : ""}.`,
     `**Ce qui avait été fait** :`,
     ...input.changes.map((c) => `- ${c}`),
     `**Pourquoi** : ${input.why || "non précisé"}${goal ? ` — **Objectif** : ${goal}` : ""}`,
@@ -270,7 +272,7 @@ export function impactHqEntry(input: {
     ...objects,
     "",
     "---",
-    `_Calculé automatiquement par ImpulseMotion (sans IA), action ${input.actionId}._`,
+    `_Calculé automatiquement par ImpulseMotion (sans IA), ${input.external ? "modification" : "action"} ${input.actionId}._`,
   ].join("\n");
 }
 
