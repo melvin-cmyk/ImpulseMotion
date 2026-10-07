@@ -23,12 +23,16 @@ export const PILOT_PLATFORMS = ["meta", "google"] as const;
 export type PilotPlatform = (typeof PILOT_PLATFORMS)[number];
 export const isPilotPlatform = (v: unknown): v is PilotPlatform => v === "meta" || v === "google";
 export const PLATFORM_FR: Record<string, string> = { meta: "Meta", google: "Google Ads", tiktok: "TikTok Ads" };
-export type PilotObjectType = "campaign" | "adset" | "ad";
+/** Google Ads also has keywords: under an ad group (objectId « adGroupId~criterionId »), or negative under a campaign (« campaignId~criterionId »). */
+export type PilotObjectType = "campaign" | "adset" | "ad" | "keyword";
+export const KEYWORD_MATCH_TYPES = ["EXACT", "PHRASE", "BROAD"] as const;
+export type KeywordMatchType = (typeof KEYWORD_MATCH_TYPES)[number];
+export const MATCH_FR: Record<KeywordMatchType, string> = { EXACT: "exact", PHRASE: "expression", BROAD: "large" };
 export type PilotStatus = "ACTIVE" | "PAUSED" | "DELETED";
 
 export const PILOT_KINDS = [
   "set_status", "set_daily_budget", "set_lifetime_budget", "set_end_time", "set_start_time", "set_bid_amount", "set_target_cpa", "set_target_roas",
-  "set_bid_strategy", "set_spend_cap", "rename", "create_ad", "duplicate",
+  "set_bid_strategy", "set_spend_cap", "rename", "create_ad", "duplicate", "add_keyword", "add_negative_keyword",
 ] as const;
 export type PilotKind = (typeof PILOT_KINDS)[number];
 
@@ -115,6 +119,25 @@ export function readCopy(value: unknown): { ok: true; spec: CopySpec } | { ok: f
   return { ok: true, spec: { name } };
 }
 
+/** A keyword to add (kind "add_keyword" on an ad group, "add_negative_keyword" on a campaign — Google Ads). */
+export interface KeywordSpec { text: string; matchType: KeywordMatchType }
+
+export function readKeyword(value: unknown): { ok: true; spec: KeywordSpec } | { ok: false; error: string } {
+  let raw: Record<string, unknown>;
+  try { raw = typeof value === "string" ? JSON.parse(value) : (value as Record<string, unknown>); } catch { return { ok: false, error: "Mot-clé illisible." }; }
+  if (!raw || typeof raw !== "object") return { ok: false, error: "Mot-clé illisible." };
+  const text = str(raw.text, 80).replace(/\s+/g, " ").trim().toLowerCase();
+  const matchType = String(raw.matchType ?? "").toUpperCase() as KeywordMatchType;
+  if (!text || text.length < 2) return { ok: false, error: "Le mot-clé est vide." };
+  if (/[!@%,*"'()<>\[\]{}|\\]/.test(text)) return { ok: false, error: `Le mot-clé « ${text} » contient un caractère que Google Ads refuse.` };
+  if (text.split(" ").length > 10) return { ok: false, error: "Un mot-clé a dix mots au plus." };
+  if (!KEYWORD_MATCH_TYPES.includes(matchType)) return { ok: false, error: "Type de correspondance inconnu (exact, expression ou large)." };
+  return { ok: true, spec: { text, matchType } };
+}
+
+/** « chaussures running » [expression] — the same in the tree, the preview and HQ. */
+export const keywordText = (spec: KeywordSpec) => `« ${spec.text} » [${MATCH_FR[spec.matchType]}]`;
+
 /** An object as the platform holds it now. Amounts in minor units. */
 export interface PilotObjectState {
   id: string;
@@ -142,6 +165,8 @@ export interface PilotObjectState {
   spendCap?: number | null;
   /** Why the bidding targets of this object cannot be changed here; null when they can. */
   strategyLock?: string | null;
+  /** A negative keyword (Google Ads, on a campaign): only removed, never paused nor bid on. */
+  negative?: boolean;
   parentName: string;
   /** Why the budget of this object cannot be changed here (a shared Google Ads budget); null when it can. */
   budgetLock?: string | null;
@@ -174,10 +199,10 @@ const ZERO_DECIMAL = new Set(["JPY", "KRW", "CLP", "COP", "CRC", "HUF", "ISK", "
 /** Minor units per unit of the currency, as Meta counts budgets and bids. */
 export const currencyOffset = (currency: string) => (ZERO_DECIMAL.has(currency.toUpperCase()) ? 1 : 100);
 
-export const OBJECT_FR: Record<PilotObjectType, string> = { campaign: "Campagne", adset: "Ensemble de publicités", ad: "Annonce" };
-const OBJECT_FR_GOOGLE: Record<PilotObjectType, string> = { campaign: "Campagne", adset: "Groupe d'annonces", ad: "Annonce" };
-const OBJECT_FR_LOWER: Record<PilotObjectType, string> = { campaign: "la campagne", adset: "l'ensemble de publicités", ad: "l'annonce" };
-const OBJECT_FR_LOWER_GOOGLE: Record<PilotObjectType, string> = { campaign: "la campagne", adset: "le groupe d'annonces", ad: "l'annonce" };
+export const OBJECT_FR: Record<PilotObjectType, string> = { campaign: "Campagne", adset: "Ensemble de publicités", ad: "Annonce", keyword: "Mot-clé" };
+const OBJECT_FR_GOOGLE: Record<PilotObjectType, string> = { campaign: "Campagne", adset: "Groupe d'annonces", ad: "Annonce", keyword: "Mot-clé" };
+const OBJECT_FR_LOWER: Record<PilotObjectType, string> = { campaign: "la campagne", adset: "l'ensemble de publicités", ad: "l'annonce", keyword: "le mot-clé" };
+const OBJECT_FR_LOWER_GOOGLE: Record<PilotObjectType, string> = { campaign: "la campagne", adset: "le groupe d'annonces", ad: "l'annonce", keyword: "le mot-clé" };
 
 /** « Campagne », « Ensemble de publicités » (Meta) or « Groupe d'annonces » (Google Ads). */
 export const objectLabel = (platform: string, type: string) =>
@@ -205,6 +230,8 @@ export function dateText(iso: string | null | undefined): string {
 }
 
 const isId = (id: unknown): id is string => typeof id === "string" && /^\d{5,25}$/.test(id);
+/** A keyword is named by its ad group (or campaign, negative) and its criterion: « 123~456 ». */
+export const isKeywordId = (id: unknown): id is string => typeof id === "string" && /^\d{1,25}~\d{1,25}$/.test(id);
 
 /** YYYY-MM-DD of an instant in Paris (Google Ads dates are days). */
 export const parisDayOf = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -214,10 +241,11 @@ export function readRequest(raw: unknown): PilotRequest | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   if (!PILOT_KINDS.includes(r.kind as PilotKind)) return null;
-  if (r.objectType !== "campaign" && r.objectType !== "adset" && r.objectType !== "ad") return null;
-  if (!isId(r.objectId)) return null;
+  const objectType = r.objectType as PilotObjectType;
+  if (objectType !== "campaign" && objectType !== "adset" && objectType !== "ad" && objectType !== "keyword") return null;
+  if (objectType === "keyword" ? !isKeywordId(r.objectId) : !isId(r.objectId)) return null;
   if (typeof r.value !== "string" && typeof r.value !== "number") return null;
-  return { kind: r.kind as PilotKind, objectType: r.objectType, objectId: r.objectId, value: r.value };
+  return { kind: r.kind as PilotKind, objectType, objectId: r.objectId as string, value: r.value };
 }
 
 function amountOf(value: string | number): number | null {
@@ -257,6 +285,11 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
   const label = `${objectLower(platform, req.objectType)} « ${state.name} »`;
   if (state.type !== req.objectType) return { ok: false, error: `L'objet ${req.objectId} n'est pas ${objectLower(platform, req.objectType)} : rechargez la page.` };
   if (platform === "google" && req.objectType === "ad") return { ok: false, error: "Les annonces Google Ads ne se modifient pas encore ici : changez leur groupe d'annonces ou leur campagne." };
+  if (req.objectType === "keyword") {
+    if (platform !== "google") return { ok: false, error: "Les mots-clés n'existent que sur Google Ads." };
+    if (req.kind !== "set_status" && req.kind !== "set_bid_amount") return { ok: false, error: `Un mot-clé se met en pause, s'active, change d'enchère ou se supprime : rien d'autre.` };
+    if (state.negative && (req.kind !== "set_status" || String(req.value).toUpperCase() !== "DELETED")) return { ok: false, error: `${label} est un mot-clé négatif : il se supprime, c'est tout.` };
+  }
   if (state.status === "DELETED" || state.status === "ARCHIVED") return { ok: false, error: `${label} est ${statusText(state.status)} : elle ne peut plus être modifiée.` };
   const offset = currencyOffset(currency);
 
@@ -307,13 +340,23 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
       return { ok: true, op: { ...base, field: req.objectType === "campaign" ? "stop_time" : "end_time", before: state.endTime, after, double: null, irreversible: false } };
     }
     case "set_bid_amount": {
-      if (req.objectType !== "adset") return { ok: false, error: `L'enchère se règle sur ${platform === "google" ? "un groupe d'annonces" : "un ensemble de publicités"}.` };
-      if (!state.bidAmount) return { ok: false, error: `${label} n'a pas d'enchère manuelle (stratégie automatique) : rien à changer ici.` };
+      if (req.objectType !== "adset" && req.objectType !== "keyword") return { ok: false, error: `L'enchère se règle sur ${platform === "google" ? "un groupe d'annonces ou un mot-clé" : "un ensemble de publicités"}.` };
+      if (!state.bidAmount && req.objectType !== "keyword") return { ok: false, error: `${label} n'a pas d'enchère manuelle (stratégie automatique) : rien à changer ici.` };
+      if (state.strategyLock && req.objectType === "keyword") return { ok: false, error: `${label} : ${state.strategyLock}` };
       const amount = amountOf(req.value);
       if (amount === null) return { ok: false, error: `Montant d'enchère invalide pour ${label}.` };
       const after = Math.round(amount * offset);
       if (after === state.bidAmount) return { ok: false, error: `${label} a déjà cette enchère.` };
       return { ok: true, op: { ...base, field: "bid_amount", before: state.bidAmount, after, double: null, irreversible: false } };
+    }
+    case "add_keyword":
+    case "add_negative_keyword": {
+      const negative = req.kind === "add_negative_keyword";
+      if (platform !== "google") return { ok: false, error: "Les mots-clés n'existent que sur Google Ads." };
+      if (negative ? req.objectType !== "campaign" : req.objectType !== "adset") return { ok: false, error: negative ? "Un mot-clé négatif s'ajoute sur une campagne." : "Un mot-clé s'ajoute dans un groupe d'annonces." };
+      const read = readKeyword(req.value);
+      if (!read.ok) return { ok: false, error: read.error };
+      return { ok: true, op: { ...base, field: negative ? "new_negative" : "new_keyword", before: null, after: JSON.stringify(read.spec), double: null, irreversible: false } };
     }
     case "create_ad": {
       if (platform !== "meta") return { ok: false, error: "La création de publicité n'existe que pour Meta pour le moment." };
@@ -429,7 +472,7 @@ export function sameValue(field: string, a: PilotValue, b: PilotValue): boolean 
 /** The request that puts an operation back; null when nothing can (a deletion, a date that did not exist). */
 export function inverseRequest(op: { kind: string; objectType: string; objectId: string; field: string; before: PilotValue; after: PilotValue }, currency: string): PilotRequest | null {
   // A new ad is not « put back »: it is created paused, and deleted from the tree if it must go.
-  if (op.field === "new_ad" || op.field === "copy" || op.before === null || op.after === "DELETED") return null;
+  if (op.field === "new_ad" || op.field === "copy" || op.field === "new_keyword" || op.field === "new_negative" || op.before === null || op.after === "DELETED") return null;
   const kind = op.kind as PilotKind;
   const objectType = op.objectType as PilotObjectType;
   if (op.field === "daily_budget" || op.field === "lifetime_budget" || op.field === "bid_amount" || op.field === "cost_cap" || op.field === "target_cpa" || op.field === "spend_cap") {
@@ -454,7 +497,15 @@ const ICON: Record<PilotKind, string> = {
   rename: "✏️",
   create_ad: "🆕",
   duplicate: "📋",
+  add_keyword: "🔑",
+  add_negative_keyword: "🚫",
 };
+
+/** The text of a keyword of a "new_keyword" / "new_negative" operation. */
+export function newKeywordText(value: PilotValue): string {
+  const read = readKeyword(value);
+  return read.ok ? keywordText(read.spec) : "mot-clé";
+}
 
 /** The name of the copy of a "copy" operation. */
 export function copyName(value: PilotValue): string {
@@ -479,6 +530,7 @@ export function newAdName(value: PilotValue): string {
 function valueText(field: string, value: PilotValue, currency: string): string {
   if (field === "new_ad") return value === null ? "—" : `« ${newAdName(value)} » (créée en pause)`;
   if (field === "copy") return value === null ? "—" : `« ${copyName(value)} » (créée en pause)`;
+  if (field === "new_keyword" || field === "new_negative") return value === null ? "—" : newKeywordText(value);
   if (value === null) return field === "end_time" || field === "stop_time" || field === "end_date" || field === "start_time" || field === "start_date" || field === "spend_cap" ? "aucune" : "—";
   switch (field) {
     case "status": return statusText(String(value));
@@ -520,6 +572,8 @@ const FIELD_FR: Record<string, string> = {
   name: "nom",
   new_ad: "nouvelle publicité",
   copy: "copie",
+  new_keyword: "nouveau mot-clé",
+  new_negative: "nouveau mot-clé négatif",
 };
 
 /** One line, the same in the preview, the journal and HQ: what, on which object, before → after. */
@@ -532,6 +586,8 @@ export function describeOperation(
   const object = `${objectLabel(platform, op.objectType)} « ${op.objectName} »${op.parentName ? ` (${op.parentName})` : ""}`;
   if (op.field === "new_ad") return `${icon} ${object} — nouvelle publicité ${valueText(op.field, op.after, currency)}`;
   if (op.field === "copy") return `${icon} ${object} — dupliqué en ${valueText(op.field, op.after, currency)}`;
+  if (op.field === "new_keyword") return `${icon} ${object} — mot-clé ajouté ${valueText(op.field, op.after, currency)}`;
+  if (op.field === "new_negative") return `${icon} ${object} — mot-clé négatif ajouté ${valueText(op.field, op.after, currency)}`;
   return `${icon} ${object} — ${FIELD_FR[op.field] ?? op.field} : ${valueText(op.field, op.before, currency)} → ${valueText(op.field, op.after, currency)}`;
 }
 

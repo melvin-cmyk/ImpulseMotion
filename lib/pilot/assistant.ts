@@ -97,6 +97,8 @@ const KIND_DOCS: Record<(typeof PILOT_KINDS)[number], string> = {
   rename: `"value" : le nouveau nom`,
   create_ad: `NE LE PROPOSE JAMAIS dans un bloc : une nouvelle publicité se crée depuis le formulaire « Nouvelle publicité » d'un ensemble (image du Studio créa, textes, Page). Si le consultant le demande, propose-lui des textes (texte principal, titre, bouton) qu'il collera dans ce formulaire`,
   duplicate: `"value" : {"name":"<nom de la copie>"} — copie en pause d'une campagne (avec ses ensembles et annonces), d'un ensemble ou d'une annonce. Meta seulement`,
+  add_keyword: `"value" : {"text":"<mot-clé>","matchType":"EXACT|PHRASE|BROAD"} — sur un groupe d'annonces (objectType "adset"). Google Ads seulement`,
+  add_negative_keyword: `"value" : {"text":"<mot-clé>","matchType":"EXACT|PHRASE|BROAD"} — mot-clé négatif sur une campagne (objectType "campaign"). Google Ads seulement`,
 };
 
 export function buildPilotSystemPrompt(clientName: string, author: string | null): string {

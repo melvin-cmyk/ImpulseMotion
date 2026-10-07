@@ -82,7 +82,7 @@ export async function computeSubjectImpact(subject: ImpactSubject, horizon: numb
   const meta = subject.platform === "meta";
   const objects: ObjectImpact[] = [];
   for (const o of subject.objects) {
-    if (!/^\d{1,25}$/.test(o.objectId) || !["campaign", "adset", "ad"].includes(o.objectType)) continue;
+    if (!/^\d{1,25}(~\d{1,25})?$/.test(o.objectId) || !["campaign", "adset", "ad", "keyword"].includes(o.objectType)) continue;
     const read = (r: typeof before) => tryRead(() => (meta ? metaObjectMetrics(subject.accountId, o.objectId, r) : googleObjectMetrics(subject.accountId, o.objectId, o.objectType, r)));
     const [b, a] = [await read(before), await read(after)];
     const parentType = names.get(o.parentName);

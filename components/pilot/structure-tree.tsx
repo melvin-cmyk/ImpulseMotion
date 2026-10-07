@@ -9,15 +9,16 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Pencil, Search } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { copyName, currencyOffset, dateText, money, newAdName, objectLabel, statusText, strategyText, type PilotKind } from "@/lib/pilot/ops";
+import { KEYWORD_MATCH_TYPES, MATCH_FR, copyName, currencyOffset, dateText, money, newAdName, newKeywordText, objectLabel, statusText, strategyText, type KeywordMatchType, type PilotKind } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
 import { NewAdForm, type StudioPick } from "@/components/pilot/new-ad-form";
 
-type Editor = { row: TreeRow; kind: PilotKind; value: string } | null;
+type Editor = { row: TreeRow; kind: PilotKind; value: string; matchType?: KeywordMatchType } | null;
 
 const ACTIVE_TONE: Record<string, "emerald" | "amber" | "default" | "red"> = { ACTIVE: "emerald", PAUSED: "amber" };
 
 function statusPill(row: TreeRow) {
+  if (row.negative) return <Pill tone="red" className="text-[10px] normal-case">négatif</Pill>;
   const eff = row.effectiveStatus || row.status;
   const tone = ACTIVE_TONE[eff] ?? (eff.includes("PAUSED") ? "amber" : eff.includes("DISAPPROVED") || eff.includes("ISSUES") ? "red" : "default");
   const text = eff === row.status ? statusText(eff) : eff.toLowerCase().replace(/_/g, " ");
@@ -27,16 +28,27 @@ function statusPill(row: TreeRow) {
 /** The changes offered on a row, in the order of the menu. */
 function choices(row: TreeRow, platform: string = "meta"): Array<{ kind: PilotKind; label: string; value: string }> {
   const out: Array<{ kind: PilotKind; label: string; value: string }> = [];
+  if (row.type === "keyword") {
+    if (row.negative) return [{ kind: "set_status", label: "Supprimer ce mot-clé négatif", value: "DELETED" }];
+    if (row.status === "ACTIVE") out.push({ kind: "set_status", label: "Mettre en pause", value: "PAUSED" });
+    if (row.status === "PAUSED") out.push({ kind: "set_status", label: "Activer", value: "ACTIVE" });
+    if (!row.strategyLock) out.push({ kind: "set_bid_amount", label: "Enchère (CPC max)", value: "" });
+    out.push({ kind: "set_status", label: "Supprimer", value: "DELETED" });
+    return out;
+  }
   if (row.type === "adset" && platform === "meta") out.push({ kind: "create_ad", label: "Nouvelle publicité", value: "" });
+  if (row.type === "adset" && platform === "google") out.push({ kind: "add_keyword", label: "Ajouter un mot-clé", value: "" });
+  if (row.type === "campaign" && platform === "google") out.push({ kind: "add_negative_keyword", label: "Ajouter un mot-clé négatif", value: "" });
   if (row.status === "ACTIVE") out.push({ kind: "set_status", label: "Mettre en pause", value: "PAUSED" });
   if (row.status === "PAUSED") out.push({ kind: "set_status", label: "Activer", value: "ACTIVE" });
   if (row.dailyBudget && !row.budgetLock) out.push({ kind: "set_daily_budget", label: "Budget journalier", value: "" });
   if (row.lifetimeBudget && !row.budgetLock) out.push({ kind: "set_lifetime_budget", label: "Budget total", value: "" });
-  if (row.type !== "ad" && !row.endTimeLock) out.push({ kind: "set_end_time", label: "Date de fin", value: "" });
-  if (row.type !== "ad" && !(platform === "google" && row.type === "adset")) out.push({ kind: "set_start_time", label: "Date de début", value: "" });
+  if (row.type === "ad") { out.push({ kind: "rename", label: "Renommer", value: "" }); if (platform === "meta") out.push({ kind: "duplicate", label: "Dupliquer (en pause)", value: "" }); out.push({ kind: "set_status", label: "Supprimer", value: "DELETED" }); return out; }
+  if (!row.endTimeLock) out.push({ kind: "set_end_time", label: "Date de fin", value: "" });
+  if (!(platform === "google" && row.type === "adset")) out.push({ kind: "set_start_time", label: "Date de début", value: "" });
   if (row.type === "campaign" && platform === "meta") out.push({ kind: "set_spend_cap", label: "Plafond de dépense", value: "" });
   if (row.type === "adset" && row.bidAmount) out.push({ kind: "set_bid_amount", label: "Enchère", value: "" });
-  const carriesStrategy = row.type !== "ad" && !row.strategyLock && (platform === "google" ? row.type === "campaign" : !!row.bidStrategy);
+  const carriesStrategy = !row.strategyLock && (platform === "google" ? row.type === "campaign" : !!row.bidStrategy);
   if (carriesStrategy) {
     out.push({ kind: "set_target_cpa", label: platform === "google" ? "CPA cible" : "Coût cible (cost cap)", value: "" });
     out.push({ kind: "set_target_roas", label: platform === "google" ? "ROAS cible" : "ROAS minimum", value: "" });
@@ -54,7 +66,8 @@ const localDateTime = (iso: string | null | undefined, fallbackDays: number) => 
   return local.toISOString().slice(0, 16);
 };
 const DATE_KINDS = new Set<PilotKind>(["set_end_time", "set_start_time"]);
-const TEXT_KINDS = new Set<PilotKind>(["rename", "duplicate"]);
+const TEXT_KINDS = new Set<PilotKind>(["rename", "duplicate", "add_keyword", "add_negative_keyword"]);
+const KEYWORD_KINDS = new Set<PilotKind>(["add_keyword", "add_negative_keyword"]);
 
 function initialValue(row: TreeRow, kind: PilotKind, currency: string): string {
   const unit = currencyOffset(currency);
@@ -80,7 +93,7 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
     case "set_status": return `${object} : ${value === "DELETED" ? "supprimer" : value === "PAUSED" ? "mettre en pause" : "activer"}`;
     case "set_daily_budget": return `${object} : budget journalier ${money(row.dailyBudget, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "set_lifetime_budget": return `${object} : budget total ${money(row.lifetimeBudget, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
-    case "set_bid_amount": return `${object} : enchère ${money(row.bidAmount, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
+    case "set_bid_amount": return `${object} : ${row.type === "keyword" ? "CPC max" : "enchère"} ${money(row.bidAmount, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "set_end_time": return `${object} : date de fin ${dateText(row.endTime)} → ${dateText(new Date(value).toISOString())}`;
     case "set_start_time": return `${object} : date de début ${dateText(row.startTime)} → ${dateText(new Date(value).toISOString())}`;
     case "set_target_cpa": return `${object} : ${platform === "google" ? "CPA cible" : "coût cible"} ${money(row.targetCpa ?? null, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
@@ -90,16 +103,20 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
     case "rename": return `${object} : renommer en « ${value} »`;
     case "create_ad": return `${object} : nouvelle publicité « ${newAdName(value)} » (créée en pause)`;
     case "duplicate": return `${object} : dupliquer en « ${copyName(value)} » (créée en pause)`;
+    case "add_keyword": return `${object} : ajouter le mot-clé ${newKeywordText(value)}`;
+    case "add_negative_keyword": return `${object} : ajouter le mot-clé négatif ${newKeywordText(value)}`;
   }
 }
 
-export function StructureTree({ clientId, accountId, platform, currency, campaigns, adsets, pending, onAdd, studioPick = null }: {
+export function StructureTree({ clientId, accountId, platform, currency, campaigns, adsets, negatives = [], pending, onAdd, studioPick = null }: {
   clientId: string;
   accountId: string;
   platform: "meta" | "google";
   currency: string;
   campaigns: TreeRow[];
   adsets: TreeRow[];
+  /** Google Ads: negative keywords, under their campaign. */
+  negatives?: TreeRow[];
   pending: PendingChange[];
   onAdd: (change: PendingChange) => void;
   /** A Studio visual to place (« Pousser sur Meta »): preselected in « Nouvelle publicité ». */
@@ -123,6 +140,11 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
     return map;
   }, [adsets]);
 
+  const negativesOf = useMemo(() => {
+    const m = new Map<string, TreeRow[]>();
+    for (const n of negatives) if (n.parentId) m.set(n.parentId, [...(m.get(n.parentId) ?? []), n]);
+    return m;
+  }, [negatives]);
   const visible = (r: TreeRow) => !hidePaused || r.effectiveStatus === "ACTIVE" || pendingIds.has(r.id);
   const shownCampaigns = campaigns.filter((c) => visible(c) && (!q || c.name.toLowerCase().includes(q) || (adsetsOf.get(c.id) ?? []).some((a) => a.name.toLowerCase().includes(q))));
 
@@ -132,7 +154,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
     if (!next || Array.isArray(ads[id])) return;
     setAds((a) => ({ ...a, [id]: "loading" }));
     try {
-      const res = await fetch(`/api/pilot/structure?clientId=${encodeURIComponent(clientId)}&accountId=${encodeURIComponent(accountId)}&platform=${platform}&adsetId=${encodeURIComponent(id)}`);
+      const res = await fetch(`/api/pilot/structure?clientId=${encodeURIComponent(clientId)}&accountId=${encodeURIComponent(accountId)}&platform=${platform}&adsetId=${encodeURIComponent(id)}&currency=${encodeURIComponent(currency)}`);
       const j = await readJson<{ ads?: TreeRow[] }>(res);
       setAds((a) => ({ ...a, [id]: res.ok && j.ads ? j.ads : { error: j.error ?? `Erreur ${res.status}` } }));
     } catch (e) {
@@ -147,15 +169,15 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
       onAdd({ kind, objectType: row.type, objectId: row.id, value, label: pendingLabel(platform, row, kind, value, currency) });
       return;
     }
-    setEditor({ row, kind, value: initialValue(row, kind, currency) });
+    setEditor({ row, kind, value: initialValue(row, kind, currency), matchType: KEYWORD_KINDS.has(kind) ? "PHRASE" : undefined });
   }
 
   function submitEditor() {
     if (!editor || !editor.value.trim()) return;
     const { row, kind } = editor;
     const text = editor.value.trim();
-    const value = DATE_KINDS.has(kind) ? new Date(text).toISOString() : kind === "duplicate" ? JSON.stringify({ name: text }) : text;
-    onAdd({ kind, objectType: row.type, objectId: row.id, value: TEXT_KINDS.has(kind) || DATE_KINDS.has(kind) ? value : Number(value.replace(",", ".")), label: pendingLabel(platform, row, kind, kind === "duplicate" ? value : editor.value, currency) });
+    const value = DATE_KINDS.has(kind) ? new Date(text).toISOString() : kind === "duplicate" ? JSON.stringify({ name: text }) : KEYWORD_KINDS.has(kind) ? JSON.stringify({ text, matchType: editor.matchType ?? "PHRASE" }) : text;
+    onAdd({ kind, objectType: row.type, objectId: row.id, value: TEXT_KINDS.has(kind) || DATE_KINDS.has(kind) ? value : Number(value.replace(",", ".")), label: pendingLabel(platform, row, kind, kind === "duplicate" || KEYWORD_KINDS.has(kind) ? value : editor.value, currency) });
     setEditor(null);
   }
 
@@ -170,11 +192,11 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
               {open[row.id] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           ) : <span className="w-4" />}
-          <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "google" ? "Groupe" : "Ens.") : "Annonce"}</span>
+          <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "google" ? "Groupe" : "Ens.") : row.type === "keyword" ? (row.negative ? "Négatif" : "Mot-clé") : "Annonce"}</span>
           <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
           {hasPending && <Pill tone="violet" className="text-[10px]">à envoyer</Pill>}
           {statusPill(row)}
-          <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
+          <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{row.type === "keyword" && row.bidAmount ? `CPC ${money(row.bidAmount, currency)}` : budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
           <span className="text-xs text-gray-500 w-20 text-right hidden md:inline" title="Dépense des 7 derniers jours">{money(Math.round(row.spend7d * (currencyOffset(currency))), currency)}</span>
           <div className="relative">
             <button type="button" onClick={() => setMenu(menu === row.id ? null : row.id)} className="text-xs flex items-center gap-1 px-2 py-1 rounded-md text-gray-300 hover:text-white hover:bg-gray-800">
@@ -211,16 +233,23 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
               <span className="text-gray-500">{editor.kind === "set_target_roas" ? "× (3 = 300 %)" : `${currency}${editor.kind === "set_daily_budget" ? " / jour" : ""}`}</span>
             )}
             {editor.kind === "duplicate" && <span className="text-gray-500">copie en pause{row.type === "ad" ? "" : ", avec tout ce qu'elle contient"}</span>}
+            {KEYWORD_KINDS.has(editor.kind) && (
+              <select value={editor.matchType ?? "PHRASE"} onChange={(e) => setEditor({ ...editor, matchType: e.target.value as KeywordMatchType })} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white">
+                {KEYWORD_MATCH_TYPES.map((m) => <option key={m} value={m}>{MATCH_FR[m]}</option>)}
+              </select>
+            )}
             <button type="submit" className="px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-500 text-white">Ajouter</button>
             <button type="button" onClick={() => setEditor(null)} className="px-2 py-1 text-gray-400 hover:text-white">Annuler</button>
           </form>
         )}
-        {expandable && open[row.id] && row.type === "campaign" && (adsetsOf.get(row.id) ?? []).filter(visible).map((a) => renderRow(a, depth + 1, platform === "meta"))}
+        {expandable && open[row.id] && row.type === "campaign" && (adsetsOf.get(row.id) ?? []).filter(visible).map((a) => renderRow(a, depth + 1, true))}
+        {expandable && open[row.id] && row.type === "campaign" && (negativesOf.get(row.id) ?? []).filter((n) => !hidePaused || pendingIds.has(n.id)).map((n) => renderRow(n, depth + 1, false))}
         {expandable && open[row.id] && row.type === "adset" && (() => {
           const list = ads[row.id];
-          if (list === "loading" || list === undefined) return <p className="text-xs text-gray-500 py-1 flex items-center gap-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}><Loader2 className="w-3 h-3 animate-spin" /> Lecture des annonces…</p>;
+          const what = platform === "google" ? "mots-clés" : "annonces";
+          if (list === "loading" || list === undefined) return <p className="text-xs text-gray-500 py-1 flex items-center gap-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}><Loader2 className="w-3 h-3 animate-spin" /> Lecture des {what}…</p>;
           if (!Array.isArray(list)) return <p className="text-xs text-red-300 py-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}>{list.error}</p>;
-          if (!list.length) return <p className="text-xs text-gray-500 py-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}>Aucune annonce.</p>;
+          if (!list.length) return <p className="text-xs text-gray-500 py-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}>{platform === "google" ? "Aucun mot-clé." : "Aucune annonce."}</p>;
           return list.filter(visible).map((ad) => renderRow(ad, depth + 1, false));
         })()}
       </div>

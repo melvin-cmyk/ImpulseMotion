@@ -1,6 +1,6 @@
 /**
  * GET /api/pilot/structure?clientId=…&accountId=…&platform=meta|google            → campaigns and ad sets (ad groups)
- * GET /api/pilot/structure?clientId=…&accountId=…&platform=meta&adsetId=…         → the ads of one ad set (Meta)
+ * GET /api/pilot/structure?clientId=…&accountId=…&platform=…&adsetId=…[&currency=] → the ads of one ad set (Meta) or the keywords of one ad group (Google Ads)
  * Read on the platform now (staff, account of the client and of the person's scope),
  * with the client's HQ folder, where the changes will be written.
  */
@@ -23,7 +23,8 @@ export async function GET(req: NextRequest) {
     const adsetId = q.get("adsetId");
     if (adsetId) {
       if (!adapter.readAds) return NextResponse.json({ ads: [] }, { headers });
-      return NextResponse.json({ ads: await adapter.readAds(account.digits, adsetId) }, { headers });
+      const currency = q.get("currency") && /^[A-Z]{3}$/.test(q.get("currency")!) ? q.get("currency")! : await adapter.readCurrency(account.digits);
+      return NextResponse.json({ ads: await adapter.readAds(account.digits, adsetId, currency) }, { headers });
     }
     const currency = await adapter.readCurrency(account.digits);
     const structure = await adapter.readStructure(account.digits, currency);

@@ -28,6 +28,8 @@ export interface TreeRow {
   spendCap?: number | null;
   /** Why the bidding targets cannot be changed here. */
   strategyLock?: string | null;
+  /** A negative keyword (Google Ads, under its campaign). */
+  negative?: boolean;
   /** Why the budget cannot be changed here (a shared Google Ads budget). */
   budgetLock?: string | null;
   /** Why the end date cannot be changed here. */

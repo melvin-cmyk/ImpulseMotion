@@ -19,8 +19,8 @@
  *   budget amount_micros         → minor units of the currency (as Meta)
  *   cpc_bid_micros               → bidAmount, only under manual CPC bidding
  * A budget shared between campaigns is not changed from here (budgetLock):
- * the change would move other campaigns too. Campaign dates (start_date,
- * end_date, days) and the targets of the bidding strategy (target CPA under
+ * the change would move other campaigns too. Campaign dates (v23
+ * start_date_time / end_date_time, handled as days here) and the targets of the bidding strategy (target CPA under
  * MAXIMIZE_CONVERSIONS / TARGET_CPA, target ROAS under MAXIMIZE_CONVERSION_VALUE /
  * TARGET_ROAS) are written on the campaign; a strategy without a target is
  * changed in Google Ads first (strategyLock).
@@ -29,7 +29,7 @@
 import { relayDirectTool } from "@/lib/relay-tool";
 import { extractRows } from "@/lib/dashboard-widgets";
 import { normGoogle } from "@/lib/portfolio";
-import { currencyOffset, type PilotObjectState, type PilotObjectType } from "@/lib/pilot/ops";
+import { currencyOffset, keywordText, type KeywordMatchType, type KeywordSpec, type PilotObjectState, type PilotObjectType } from "@/lib/pilot/ops";
 import type { StructureRow, WriteOutcome } from "@/lib/pilot/meta";
 
 const GAQL_TIMEOUT_MS = 25_000;
@@ -92,7 +92,7 @@ export function minorToMicros(minor: number, currency: string): number {
 }
 
 const CAMPAIGN_FIELDS = `campaign.id, campaign.name, campaign.status, campaign.primary_status, campaign.bidding_strategy_type,
-  campaign.start_date, campaign.end_date,
+  campaign.start_date_time, campaign.end_date_time,
   campaign.maximize_conversions.target_cpa_micros, campaign.target_cpa.target_cpa_micros,
   campaign.maximize_conversion_value.target_roas, campaign.target_roas.target_roas,
   campaign_budget.resource_name, campaign_budget.amount_micros, campaign_budget.total_amount_micros,
@@ -110,8 +110,9 @@ function campaignState(row: Row, customer: string, currency: string): PilotObjec
   const status = STATUS[str(c.status)] ?? str(c.status);
   const shared = field(b, "explicitlyShared") === true || Number(field(b, "referenceCount") ?? 1) > 1;
   const strategy = str(field(c, "biddingStrategyType")) || null;
-  const endDate = str(field(c, "endDate"));
-  const startDate = str(field(c, "startDate"));
+  // v23: « yyyy-MM-dd HH:mm:ss » in the customer's time zone; the day is what Pilotage shows and writes.
+  const endDate = str(field(c, "endDateTime")).slice(0, 10);
+  const startDate = str(field(c, "startDateTime")).slice(0, 10);
   const cpaMicros = microsNum(field(obj(field(c, "maximizeConversions")), "targetCpaMicros")) ?? microsNum(field(obj(field(c, "targetCpa")), "targetCpaMicros"));
   const roasRaw = field(obj(field(c, "maximizeConversionValue")), "targetRoas") ?? field(obj(field(c, "targetRoas")), "targetRoas");
   const roas = typeof roasRaw === "number" ? roasRaw : typeof roasRaw === "string" && roasRaw ? Number(roasRaw) : NaN;
@@ -171,6 +172,71 @@ function adGroupState(row: Row, customer: string, currency: string): PilotObject
   };
 }
 
+const KEYWORD_FIELDS = `ad_group_criterion.criterion_id, ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type, ad_group_criterion.status,
+  ad_group_criterion.negative, ad_group_criterion.cpc_bid_micros, ad_group_criterion.effective_cpc_bid_micros, ad_group.id, ad_group.name, campaign.bidding_strategy_type`;
+const NEGATIVE_FIELDS = `campaign_criterion.criterion_id, campaign_criterion.keyword.text, campaign_criterion.keyword.match_type, campaign_criterion.negative, campaign.id, campaign.name`;
+const KEYWORDS_LIMIT = 500;
+
+function keywordState(row: Row, customer: string, currency: string): PilotObjectState & { adGroupId: string } {
+  const crit = obj(field(row, "adGroupCriterion"));
+  const kw = obj(crit.keyword);
+  const g = obj(field(row, "adGroup"));
+  const status = STATUS[str(crit.status)] ?? str(crit.status);
+  const strategy = str(field(obj(row.campaign), "biddingStrategyType"));
+  const manual = MANUAL_CPC.has(strategy);
+  return {
+    id: `${str(g.id)}~${str(field(crit, "criterionId"))}`,
+    type: "keyword",
+    accountId: customer,
+    name: keywordText({ text: str(kw.text), matchType: (str(field(kw, "matchType")) || "BROAD") as KeywordMatchType }),
+    status,
+    effectiveStatus: status,
+    dailyBudget: null, lifetimeBudget: null, endTime: null, startTime: null,
+    bidAmount: manual ? microsToMinor(microsNum(field(crit, "cpcBidMicros")), currency) : null,
+    bidStrategy: null, targetCpa: null, targetRoas: null, spendCap: null,
+    strategyLock: manual ? null : `l'enchère d'un mot-clé ne compte qu'en CPC manuel (la campagne est en ${strategy.toLowerCase().replace(/_/g, " ")}).`,
+    negative: field(crit, "negative") === true,
+    parentName: str(g.name),
+    budgetLock: null, endTimeLock: null,
+    adGroupId: str(g.id),
+  };
+}
+
+function negativeState(row: Row, customer: string): PilotObjectState & { campaignId: string } {
+  const crit = obj(field(row, "campaignCriterion"));
+  const kw = obj(crit.keyword);
+  const c = obj(row.campaign);
+  return {
+    id: `${str(c.id)}~${str(field(crit, "criterionId"))}`,
+    type: "keyword",
+    accountId: customer,
+    name: keywordText({ text: str(kw.text), matchType: (str(field(kw, "matchType")) || "BROAD") as KeywordMatchType }),
+    status: "ACTIVE", effectiveStatus: "NEGATIVE",
+    dailyBudget: null, lifetimeBudget: null, endTime: null, startTime: null, bidAmount: null,
+    bidStrategy: null, targetCpa: null, targetRoas: null, spendCap: null, strategyLock: "un mot-clé négatif n'a pas d'enchère.",
+    negative: true,
+    parentName: str(c.name),
+    budgetLock: null, endTimeLock: null,
+    campaignId: str(c.id),
+  };
+}
+
+/** The keywords of an ad group (not removed), as rows of the tree. */
+export async function readGoogleKeywords(customerId: string, adGroupId: string, currency: string): Promise<StructureRow[]> {
+  const customer = googleCustomerDigits(customerId);
+  if (!customer || !isId(adGroupId)) throw new Error("Groupe d'annonces invalide");
+  const rows = await gaql(customer, `SELECT ${KEYWORD_FIELDS} FROM ad_group_criterion WHERE ad_group.id = ${adGroupId} AND ad_group_criterion.type = KEYWORD AND ad_group_criterion.status != 'REMOVED' ORDER BY ad_group_criterion.keyword.text LIMIT ${KEYWORDS_LIMIT}`);
+  return rows.map((r) => { const { adGroupId: parent, ...state } = keywordState(r, customer, currency); return { ...state, parentId: parent, bidStrategy: null, spend7d: 0 }; });
+}
+
+/** The negative keywords of every campaign of the customer (not the shared lists), as rows under their campaign. */
+export async function readGoogleNegatives(customerId: string): Promise<StructureRow[]> {
+  const customer = googleCustomerDigits(customerId);
+  if (!customer) throw new Error("Compte Google Ads invalide");
+  const rows = await gaql(customer, `SELECT ${NEGATIVE_FIELDS} FROM campaign_criterion WHERE campaign_criterion.type = KEYWORD AND campaign_criterion.negative = TRUE AND campaign.status != 'REMOVED' ORDER BY campaign.id LIMIT ${STRUCTURE_LIMIT}`);
+  return rows.map((r) => { const { campaignId, ...state } = negativeState(r, customer); return { ...state, parentId: campaignId, bidStrategy: null, spend7d: 0 }; });
+}
+
 /** The currency of the customer: budgets are written in its units. */
 export async function readGoogleCurrency(customerId: string): Promise<string> {
   const customer = googleCustomerDigits(customerId);
@@ -193,15 +259,17 @@ function spendById(rows: Row[], key: "campaign" | "adGroup"): Map<string, number
 }
 
 /** Campaigns and ad groups that are not removed. */
-export async function readGoogleStructure(customerId: string, knownCurrency?: string): Promise<{ campaigns: StructureRow[]; adsets: StructureRow[]; truncated: boolean; currency: string }> {
+export async function readGoogleStructure(customerId: string, knownCurrency?: string): Promise<{ campaigns: StructureRow[]; adsets: StructureRow[]; negatives: StructureRow[]; truncated: boolean; currency: string }> {
   const customer = googleCustomerDigits(customerId);
   if (!customer) throw new Error("Compte Google Ads invalide");
   const currency = knownCurrency ?? (await readGoogleCurrency(customer));
-  const [campaigns, adGroups, campaignSpend, adGroupSpend] = await Promise.all([
+  const [campaigns, adGroups, campaignSpend, adGroupSpend, negatives] = await Promise.all([
     gaql(customer, `SELECT ${CAMPAIGN_FIELDS} FROM campaign WHERE campaign.status != 'REMOVED' ORDER BY campaign.name LIMIT ${STRUCTURE_LIMIT}`),
     gaql(customer, `SELECT ${ADGROUP_FIELDS} FROM ad_group WHERE ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED' ORDER BY ad_group.name LIMIT ${STRUCTURE_LIMIT}`),
     gaql(customer, `SELECT campaign.id, metrics.cost_micros FROM campaign WHERE segments.date DURING LAST_7_DAYS AND metrics.cost_micros > 0`),
     gaql(customer, `SELECT ad_group.id, metrics.cost_micros FROM ad_group WHERE segments.date DURING LAST_7_DAYS AND metrics.cost_micros > 0`),
+    // Negatives are a plus: a read that fails leaves the tree without them, never without the campaigns.
+    readGoogleNegatives(customer).catch((e) => { console.error("[pilot] negatives unreadable", e); return [] as StructureRow[]; }),
   ]);
   const cs = spendById(campaignSpend, "campaign");
   const gs = spendById(adGroupSpend, "adGroup");
@@ -214,6 +282,7 @@ export async function readGoogleStructure(customerId: string, knownCurrency?: st
       const { campaignId, bidStrategyType, ...state } = adGroupState(r, customer, currency);
       return { ...state, parentId: campaignId || null, bidStrategy: bidStrategyType, spend7d: gs.get(state.id) ?? 0 };
     }),
+    negatives,
     truncated: campaigns.length >= STRUCTURE_LIMIT || adGroups.length >= STRUCTURE_LIMIT,
     currency,
   };
@@ -225,8 +294,19 @@ const isId = (id: string) => /^\d{1,25}$/.test(id);
 export async function readGoogleObject(customerId: string, objectId: string, type: PilotObjectType, currency?: string): Promise<PilotObjectState | null> {
   const customer = googleCustomerDigits(customerId);
   if (type === "ad") throw new Error("Les annonces Google Ads ne se modifient pas encore ici.");
-  if (!customer || !isId(objectId)) return null;
+  if (!customer) return null;
   const cur = currency ?? (await readGoogleCurrency(customer));
+  if (type === "keyword") {
+    const m = /^(\d{1,25})~(\d{1,25})$/.exec(objectId);
+    if (!m) return null;
+    // Under an ad group first; else a negative keyword of a campaign.
+    const kw = await gaql(customer, `SELECT ${KEYWORD_FIELDS} FROM ad_group_criterion WHERE ad_group.id = ${m[1]} AND ad_group_criterion.criterion_id = ${m[2]} AND ad_group_criterion.status != 'REMOVED'`);
+    if (kw[0]) { const { adGroupId: _g, ...state } = keywordState(kw[0], customer, cur); return state; }
+    const neg = await gaql(customer, `SELECT ${NEGATIVE_FIELDS} FROM campaign_criterion WHERE campaign.id = ${m[1]} AND campaign_criterion.criterion_id = ${m[2]} AND campaign_criterion.negative = TRUE`);
+    if (neg[0]) { const { campaignId: _c, ...state } = negativeState(neg[0], customer); return state; }
+    return null;
+  }
+  if (!isId(objectId)) return null;
   if (type === "campaign") {
     const rows = await gaql(customer, `SELECT ${CAMPAIGN_FIELDS} FROM campaign WHERE campaign.id = ${objectId}`);
     if (!rows[0]) return null;
@@ -256,8 +336,15 @@ export const googleWritesOpen = () => process.env.PILOT_GOOGLE_WRITES === "1" &&
 
 /** One mutate operation, as the n8n flow forwards it to Google Ads. */
 export interface GoogleMutation {
-  resource: "campaigns" | "adGroups" | "campaignBudgets";
-  operation: { update: Record<string, unknown>; updateMask: string } | { remove: string };
+  resource: "campaigns" | "adGroups" | "campaignBudgets" | "adGroupCriteria" | "campaignCriteria";
+  operation: { update: Record<string, unknown>; updateMask: string } | { remove: string } | { create: Record<string, unknown> };
+}
+
+/** The mutate that adds a keyword in an ad group (ENABLED), or a negative keyword on a campaign. */
+export function googleKeywordCreation(customer: string, parentId: string, spec: KeywordSpec, negative: boolean): GoogleMutation {
+  return negative
+    ? { resource: "campaignCriteria", operation: { create: { campaign: `customers/${customer}/campaigns/${parentId}`, negative: true, keyword: { text: spec.text, matchType: spec.matchType } } } }
+    : { resource: "adGroupCriteria", operation: { create: { adGroup: `customers/${customer}/adGroups/${parentId}`, status: "ENABLED", keyword: { text: spec.text, matchType: spec.matchType } } } };
 }
 
 /**
@@ -265,16 +352,28 @@ export interface GoogleMutation {
  * the object; null when the field is not written on Google Ads from here.
  * Pure except for the budget, whose resource is read on the campaign.
  */
-export function googleMutation(customer: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string, budgetResource?: string | null, strategy?: string | null): GoogleMutation | null {
+export function googleMutation(customer: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string, budgetResource?: string | null, strategy?: string | null, negative = false): GoogleMutation | null {
+  if (type === "keyword") {
+    const m = /^(\d{1,25})~(\d{1,25})$/.exec(objectId);
+    if (!m) return null;
+    const resource = negative ? "campaignCriteria" : "adGroupCriteria";
+    const name = `customers/${customer}/${resource}/${m[1]}~${m[2]}`;
+    if (field === "status" && value === "DELETED") return { resource, operation: { remove: name } };
+    if (negative) return null;
+    if (field === "status") { const status = TO_GOOGLE_STATUS[String(value)]; return status ? { resource, operation: { update: { resourceName: name, status }, updateMask: "status" } } : null; }
+    if (field === "bid_amount") return { resource, operation: { update: { resourceName: name, cpcBidMicros: String(minorToMicros(Number(value), currency)) }, updateMask: "cpc_bid_micros" } };
+    return null;
+  }
   const resource = type === "campaign" ? "campaigns" : type === "adset" ? "adGroups" : null;
   if (!resource) return null;
   const name = `customers/${customer}/${resource}/${objectId}`;
   switch (field) {
     case "start_date":
     case "end_date": {
+      // v23 writes a date-time: the whole day (00:00:00 to start, 23:59:59 to end).
       if (type !== "campaign" || !DAY_RE.test(String(value))) return null;
-      const key = field === "start_date" ? "startDate" : "endDate";
-      return { resource, operation: { update: { resourceName: name, [key]: String(value) }, updateMask: field } };
+      const key = field === "start_date" ? "startDateTime" : "endDateTime";
+      return { resource, operation: { update: { resourceName: name, [key]: `${value} ${field === "start_date" ? "00:00:00" : "23:59:59"}` }, updateMask: `${field}_time` } };
     }
     case "target_cpa": {
       const mask = type === "campaign" && strategy ? TARGET_CPA_MASK[strategy] : null;
@@ -336,9 +435,33 @@ export async function writeGoogleField(customerId: string, objectId: string, typ
       return { kind: "refused", error: "Google Ads ne répond pas : rien n'a été envoyé pour ce changement." };
     }
   }
-  const mutation = googleMutation(customer, objectId, type, field, value, currency, budgetResource, strategy);
+  let negative = false;
+  if (type === "keyword") {
+    try {
+      const current = await readGoogleObject(customer, objectId, "keyword", currency);
+      if (!current) return { kind: "refused", error: "Mot-clé introuvable sur Google Ads : rien n'a été envoyé." };
+      negative = !!current.negative;
+    } catch {
+      return { kind: "refused", error: "Google Ads ne répond pas : rien n'a été envoyé pour ce changement." };
+    }
+  }
+  const mutation = googleMutation(customer, objectId, type, field, value, currency, budgetResource, strategy, negative);
   if (!mutation) return { kind: "refused", error: "Ce changement ne peut pas être envoyé à Google Ads depuis ImpulseMotion." };
+  return postGoogleMutation(hook, customer, mutation);
+}
 
+/** A keyword added in an ad group, or a negative keyword on a campaign. Never throws; `createdId` is the criterion as Google names it. */
+export async function createGoogleKeyword(customerId: string, parentId: string, spec: KeywordSpec, negative: boolean): Promise<WriteOutcome & { createdId?: string }> {
+  const hook = googleWriteHook();
+  const customer = googleCustomerDigits(customerId);
+  if (!hook || !customer || !isId(parentId)) return { kind: "refused", error: "L'envoi vers Google Ads n'est pas configuré." };
+  const out = await postGoogleMutation(hook, customer, googleKeywordCreation(customer, parentId, spec, negative));
+  if (out.kind !== "done") return out;
+  const created = out.resultName ? out.resultName.split("/").pop() ?? "" : "";
+  return { kind: "done", createdId: /^\d{1,25}~\d{1,25}$/.test(created) ? created : undefined };
+}
+
+async function postGoogleMutation(hook: { url: string; secret: string }, customer: string, mutation: GoogleMutation): Promise<WriteOutcome & { resultName?: string }> {
   let res: Response;
   try {
     res = await fetch(hook.url, {
@@ -350,8 +473,8 @@ export async function writeGoogleField(customerId: string, objectId: string, typ
   } catch {
     return { kind: "uncertain", error: "Google Ads n'a pas répondu à temps : la modification a peut-être été appliquée. Vérifiez dans Google Ads avant de recommencer." };
   }
-  const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; googleStatus?: number | null } | null;
-  if (res.ok && body?.ok) return { kind: "done" };
+  const body = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; googleStatus?: number | null; result?: Array<{ resourceName?: string }> } | null;
+  if (res.ok && body?.ok) return { kind: "done", resultName: body.result?.[0]?.resourceName };
   // Refused for sure: the flow refused the request (400/401), or Google answered 4xx.
   const googleStatus = typeof body?.googleStatus === "number" ? body.googleStatus : null;
   const refused = body && ((res.status >= 400 && res.status < 500) || (googleStatus !== null && googleStatus >= 400 && googleStatus < 500));

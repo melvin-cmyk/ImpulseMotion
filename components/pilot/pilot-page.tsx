@@ -28,7 +28,7 @@ type Platform = "meta" | "google";
 type AccountRef = { platform: Platform; accountId: string };
 const refKey = (a: AccountRef | null) => (a ? `${a.platform}:${a.accountId}` : "");
 
-type Structure = { campaigns: TreeRow[]; adsets: TreeRow[]; truncated: boolean; account: { id: string; name: string; currency: string }; hqProject: string | null; writesOpen: boolean };
+type Structure = { campaigns: TreeRow[]; adsets: TreeRow[]; negatives?: TreeRow[]; truncated: boolean; account: { id: string; name: string; currency: string }; hqProject: string | null; writesOpen: boolean };
 
 function accountsSummary(c: PilotClient): string {
   const n = (p: Platform) => c.accounts.filter((a) => a.platform === p).length;
@@ -313,6 +313,7 @@ export function PilotPage() {
                   currency={structure.account.currency}
                   campaigns={structure.campaigns}
                   adsets={structure.adsets}
+                  negatives={structure.negatives ?? []}
                   pending={pending}
                   onAdd={add}
                   studioPick={studioPick}

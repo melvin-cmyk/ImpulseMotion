@@ -8,8 +8,8 @@
 import { metaAccountDigits } from "@/lib/routines/accounts";
 import type { WriteGuard } from "@/lib/routines/types";
 import { copyObject, readAccountCurrency, readAds, readObject, readStructure, writeField, type StructureRow, type WriteOutcome } from "@/lib/pilot/meta";
-import { googleCustomerDigits, googleWritesOpen, readGoogleCurrency, readGoogleObject, readGoogleStructure, writeGoogleField } from "@/lib/pilot/google";
-import type { PilotObjectState, PilotObjectType, PilotPlatform } from "@/lib/pilot/ops";
+import { createGoogleKeyword, googleCustomerDigits, googleWritesOpen, readGoogleCurrency, readGoogleKeywords, readGoogleObject, readGoogleStructure, writeGoogleField } from "@/lib/pilot/google";
+import type { KeywordSpec, PilotObjectState, PilotObjectType, PilotPlatform } from "@/lib/pilot/ops";
 
 export interface PilotAdapter {
   platform: PilotPlatform;
@@ -17,10 +17,12 @@ export interface PilotAdapter {
   name: string;
   /** The account id as the platform's calls take it; null when it is not one. */
   accountKey(accountId: string): string | null;
-  /** `currency` when already read: Google needs it to convert budgets. */
-  readStructure(account: string, currency?: string): Promise<{ campaigns: StructureRow[]; adsets: StructureRow[]; truncated: boolean }>;
-  /** The ads of an ad set, read when it is opened; null when the platform has no such level here. */
-  readAds: ((account: string, adsetId: string) => Promise<StructureRow[]>) | null;
+  /** `currency` when already read: Google needs it to convert budgets. `negatives`: Google's negative keywords, under their campaign. */
+  readStructure(account: string, currency?: string): Promise<{ campaigns: StructureRow[]; adsets: StructureRow[]; negatives?: StructureRow[]; truncated: boolean }>;
+  /** What an ad set (ad group) holds, read when it is opened: Meta its ads, Google Ads its keywords; null when nothing. */
+  readAds: ((account: string, adsetId: string, currency: string) => Promise<StructureRow[]>) | null;
+  /** A keyword added in an ad group (or negative on a campaign); null when the platform has no keywords. */
+  createKeyword: ((guard: WriteGuard, account: string, parentId: string, spec: KeywordSpec, negative: boolean) => Promise<WriteOutcome & { createdId?: string }>) | null;
   readCurrency(account: string): Promise<string>;
   readObject(account: string, objectId: string, type: PilotObjectType, currency: string): Promise<PilotObjectState | null>;
   writeField(guard: WriteGuard, account: string, objectId: string, type: PilotObjectType, field: string, value: string | number, currency: string): Promise<WriteOutcome>;
@@ -39,6 +41,7 @@ const meta: PilotAdapter = {
   readObject: (_account, objectId, type) => readObject(objectId, type),
   writeField: (guard, _account, objectId, _type, field, value) => writeField(guard, objectId, field, value),
   copyObject: (guard, _account, objectId, type, currentName, newName) => copyObject(guard, objectId, type, currentName, newName),
+  createKeyword: null,
   writesOpen: () => process.env.PILOT_WRITES === "1",
 };
 
@@ -47,15 +50,17 @@ const google: PilotAdapter = {
   name: "Google Ads",
   accountKey: googleCustomerDigits,
   readStructure: async (account, currency) => {
-    const { campaigns, adsets, truncated } = await readGoogleStructure(account, currency);
-    return { campaigns, adsets, truncated };
+    const { campaigns, adsets, negatives, truncated } = await readGoogleStructure(account, currency);
+    return { campaigns, adsets, negatives, truncated };
   },
-  readAds: null,
+  readAds: (account, adGroupId, currency) => readGoogleKeywords(account, adGroupId, currency),
   readCurrency: readGoogleCurrency,
   readObject: (account, objectId, type, currency) => readGoogleObject(account, objectId, type, currency),
   // The guard is minted for every send; Google writes go through the n8n flow, which has no guard of its own.
   writeField: (_guard, account, objectId, type, field, value, currency) => writeGoogleField(account, objectId, type, field, value, currency),
   copyObject: null,
+  // The guard is minted for every send; the n8n flow has its own secret.
+  createKeyword: (_guard, account, parentId, spec, negative) => createGoogleKeyword(account, parentId, spec, negative),
   writesOpen: googleWritesOpen,
 };
 

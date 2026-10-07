@@ -69,7 +69,13 @@ const G_METRICS = "metrics.cost_micros, metrics.conversions, metrics.conversions
 const dateRe = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function googleObjectMetrics(customer: string, objectId: string, objectType: string, range: Range): Promise<Metrics> {
-  if (!/^\d{1,25}$/.test(objectId) || !dateRe.test(range.since) || !dateRe.test(range.until)) throw new Error("Objet Google Ads invalide");
+  if (!dateRe.test(range.since) || !dateRe.test(range.until)) throw new Error("Période invalide");
+  if (objectType === "keyword") {
+    const m = /^(\d{1,25})~(\d{1,25})$/.exec(objectId);
+    if (!m) throw new Error("Mot-clé Google Ads invalide");
+    return googleSum(await gaql(customer, `SELECT ad_group_criterion.criterion_id, ${G_METRICS} FROM keyword_view WHERE ad_group.id = ${m[1]} AND ad_group_criterion.criterion_id = ${m[2]} AND segments.date BETWEEN '${range.since}' AND '${range.until}'`));
+  }
+  if (!/^\d{1,25}$/.test(objectId)) throw new Error("Objet Google Ads invalide");
   const from = objectType === "campaign" ? "campaign" : objectType === "adset" ? "ad_group" : null;
   if (!from) throw new Error("Niveau non lu sur Google Ads");
   const rows = await gaql(customer, `SELECT ${from}.id, ${G_METRICS} FROM ${from} WHERE ${from}.id = ${objectId} AND segments.date BETWEEN '${range.since}' AND '${range.until}'`);

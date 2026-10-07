@@ -66,7 +66,7 @@ describe("pilotage v2 — enchères et plafonds", () => {
     });
     expect(googleMutation("6823803493", "21025591832", "campaign", "target_cpa", 4000, "EUR", null, "MANUAL_CPC")).toBeNull();
     expect(googleMutation("6823803493", "21025591832", "campaign", "end_date", "2026-12-31", "EUR")).toEqual({
-      resource: "campaigns", operation: { update: { resourceName: "customers/6823803493/campaigns/21025591832", endDate: "2026-12-31" }, updateMask: "end_date" },
+      resource: "campaigns", operation: { update: { resourceName: "customers/6823803493/campaigns/21025591832", endDateTime: "2026-12-31 23:59:59" }, updateMask: "end_date_time" },
     });
     const locked = prepareOperation({ kind: "set_target_roas", objectType: "campaign", objectId: "21025591832", value: 3 }, google({ strategyLock: "sa stratégie n'a pas de cible." }), "EUR", NOW, "google");
     expect(locked).toEqual({ ok: false, error: "la campagne « Search Marque » : sa stratégie n'a pas de cible." });

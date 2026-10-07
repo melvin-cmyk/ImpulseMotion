@@ -16,7 +16,7 @@ import type { PilotObjectState, PilotObjectType } from "@/lib/pilot/ops";
 const SPEND_7D = "insights.date_preset(last_7d){spend}";
 const LIVE_STATUSES = JSON.stringify([{ field: "effective_status", operator: "NOT_IN", value: ["DELETED", "ARCHIVED"] }]);
 
-const FIELDS: Record<PilotObjectType, string> = {
+const FIELDS: Record<Exclude<PilotObjectType, "keyword">, string> = {
   campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,spend_cap,bid_strategy,bid_amount,bid_constraints",
   adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,campaign{name}",
   ad: "id,account_id,name,status,effective_status,adset{name}",
@@ -37,7 +37,7 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
-export function toState(raw: Raw, type: PilotObjectType): PilotObjectState {
+export function toState(raw: Raw, type: Exclude<PilotObjectType, "keyword">): PilotObjectState {
   return {
     id: String(raw.id),
     type,
@@ -68,7 +68,7 @@ export interface StructureRow extends PilotObjectState {
 
 const spendOf = (raw: Raw) => Number(raw.insights?.data?.[0]?.spend ?? 0) || 0;
 
-function row(raw: Raw, type: PilotObjectType, parentId: string | null): StructureRow {
+function row(raw: Raw, type: Exclude<PilotObjectType, "keyword">, parentId: string | null): StructureRow {
   return { ...toState(raw, type), parentId, bidStrategy: raw.bid_strategy ?? null, spend7d: spendOf(raw) };
 }
 
@@ -101,6 +101,7 @@ export async function readAds(adsetId: string): Promise<StructureRow[]> {
  * say nothing of the object.
  */
 export async function readObject(objectId: string, type: PilotObjectType): Promise<PilotObjectState | null> {
+  if (type === "keyword") return null;
   try {
     const raw = await metaGraphGetOnce<Raw>(`/${objectId}`, getMetaSystemToken(), { fields: FIELDS[type] });
     return raw && raw.id ? toState(raw, type) : null;
