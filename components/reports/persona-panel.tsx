@@ -126,8 +126,8 @@ export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
     const markdown = editing?.markdown ?? data.draft?.markdown ?? data.hq?.body ?? "";
     if (markdown.trim().length < 200) { setError("Rien à écrire : générez un brouillon d'abord."); return; }
     const question = statut === "confirme"
-      ? "Confirmer ces personas et les écrire dans HQ avec votre nom ? Ils serviront de base aux rapports, briefs et wordings de ce client."
-      : "Enregistrer ce texte dans HQ en statut « à confirmer » ?";
+      ? `Confirmer ces personas et les écrire dans la fiche HQ du client (projects/${data.slug}/brain/recherche/personas.md) avec votre nom ?\n\nÀ partir de là, les rapports IA, les briefs et les wordings de ce client s'appuieront dessus. Vous pourrez toujours corriger ensuite.`
+      : `Déposer ce texte dans la fiche HQ du client (projects/${data.slug}/brain/recherche/personas.md) en statut « à confirmer » ?\n\nL'équipe le verra dans HQ, mais aucun livrable ne s'appuiera dessus tant qu'il n'est pas confirmé.`;
     if (!window.confirm(question)) return;
     setWriting(statut);
     setError(null);
@@ -145,7 +145,9 @@ export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
       if (!r.ok) throw new Error(j.error ?? `Erreur ${r.status}`);
       setEditing(null);
       setData((d) => (d ? { ...d, hq: j.hq, draft: null } : d));
-      setNotice(statut === "confirme" ? "Personas confirmés et écrits dans HQ." : "Enregistré dans HQ, en attente de confirmation.");
+      setNotice(statut === "confirme"
+        ? `Personas confirmés et écrits dans la fiche HQ du client (projects/${data.slug}/brain/recherche/personas.md). Les prochains rapports IA en tiendront compte.`
+        : `Déposé dans la fiche HQ du client en statut « à confirmer » (projects/${data.slug}/brain/recherche/personas.md).`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -178,13 +180,23 @@ export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
           {hq?.stale && <Pill tone="amber">À rafraîchir (plus de {data.refreshDays} j)</Pill>}
           <span className="text-xs text-gray-500">
             {data.slug
-              ? <>Fichier HQ <code className="text-gray-400">projects/{data.slug}/brain/recherche/personas.md</code>{hq?.frontmatter.maj ? <>, mis à jour le {fmtDate(hq.frontmatter.maj)}</> : null}{hq?.frontmatter.confirme_par ? <>, confirmé par {hq.frontmatter.confirme_par}</> : null}.</>
-              : <>Aucun dossier HQ rattaché : <Link href={`/portfolio/${dashboardId}`} className="text-violet-300 hover:text-white">renseigner le slug HQ dans la fiche client</Link> pour lire et écrire les personas.</>}
+              ? <>Fiche client HQ : <code className="text-gray-400">projects/{data.slug}/brain/recherche/personas.md</code>{hq?.frontmatter.maj ? <>, mise à jour le {fmtDate(hq.frontmatter.maj)}</> : null}{hq?.frontmatter.confirme_par ? <>, confirmée par {hq.frontmatter.confirme_par}</> : null}.</>
+              : <>Aucune fiche HQ rattachée : <Link href={`/portfolio/${dashboardId}`} className="text-violet-300 hover:text-white">renseigner le slug HQ dans la fiche client</Link> pour lire et écrire les personas.</>}
           </span>
         </div>
-        <p className="text-xs text-gray-500 mt-2">
-          Méthode HQ (skills client-brain et analyse-avatar) : les personas se déduisent de ce que les clients disent. Déposez des avis, l&apos;IA dérive 5 à 7 avatars priorisés et la matrice persona × message × preuve × objection, vous corrigez et confirmez. Sans avis, l&apos;IA n&apos;écrit que des hypothèses marquées comme telles.
-        </p>
+        <div className="mt-3 rounded-xl border border-violet-900/40 bg-violet-500/5 px-4 py-3 text-xs text-gray-300 space-y-2">
+          <div className="text-white font-semibold">Ce qui se passe ici, et où ça va</div>
+          <p>
+            Ce que vous validez ici <span className="text-white">entre dans la fiche HQ du client</span> (le « cerveau client » de l&apos;agence), pas seulement dans ImpulseMotion. C&apos;est le même fichier que lisent ensuite les rapports IA, les skills de wording et de briefs créa, et vos collègues dans HQ.
+          </p>
+          <ol className="list-decimal pl-5 space-y-1">
+            <li><span className="text-white">Vous déposez des avis clients</span> (Trustpilot, Google, SAV…). Sans avis, l&apos;IA ne produit que des hypothèses, marquées comme telles : c&apos;est la règle HQ, un persona se déduit de ce que les clients disent.</li>
+            <li><span className="text-white">L&apos;IA rédige un brouillon</span> (5 à 7 avatars priorisés, angles, hooks, matrice de messages). Le brouillon reste dans ImpulseMotion : HQ n&apos;est pas touché.</li>
+            <li><span className="text-white">Vous relisez et corrigez.</span> « Enregistrer dans HQ (à confirmer) » dépose le texte dans la fiche avec le statut <em>à confirmer</em> : visible par l&apos;équipe, mais aucun livrable ne s&apos;appuie dessus.</li>
+            <li><span className="text-white">« Confirmer et écrire dans HQ »</span> passe la fiche en <em>confirmé</em> avec votre nom. À partir de là, les rapports IA et les outils de rédaction s&apos;en servent comme référence. Vous pouvez toujours corriger ensuite ; HQ garde l&apos;historique.</li>
+          </ol>
+          <p className="text-gray-500">Rien n&apos;est écrit dans HQ sans un clic explicite de votre part, et jamais par-dessus une modification faite entre-temps dans HQ (la page vous demande alors de relire).</p>
+        </div>
         {data.warning && <p className="text-xs text-amber-300 mt-2">{data.warning}</p>}
       </Card>
 
