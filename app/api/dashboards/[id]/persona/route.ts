@@ -106,7 +106,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: `HQ inaccessible (${e instanceof Error ? e.message : String(e)})` }, { status: 502 });
   }
   if (current && current.etag && current.etag !== etag) {
-    return NextResponse.json({ error: "Le fichier a changé dans HQ depuis votre lecture. Rechargez l'onglet, puis réessayez.", conflict: true, hq: current }, { status: 409 });
+    return NextResponse.json({ error: "Le fichier a changé dans HQ depuis votre lecture. Rechargez la page, puis réessayez.", conflict: true, hq: current }, { status: 409 });
   }
 
   const draftKind = g.dashboard.personaDraft?.kind ?? "persona";

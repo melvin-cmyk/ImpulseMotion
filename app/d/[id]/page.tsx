@@ -22,7 +22,6 @@ import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
 import { DEFAULT_PAGE_ID, type DashboardPageInfo, type ResolvedWidget } from "@/lib/dashboard-types";
 import { PageForm, PageTabs } from "@/components/dashboard/pages";
 import { PilotHistoryTab } from "@/components/pilot/history-tab";
-import { PersonaTab } from "@/components/dashboard/persona-tab";
 import { describeRange, lastFullDays, prevRange } from "@/lib/date-ranges";
 
 interface DashboardPayload {
@@ -76,8 +75,6 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   const pageParam = searchParams.get("page") ?? "";
   // Staff tab « Historique & impact » (changes made from Pilotage and their J+7 / J+14 analyses): not a page of widgets.
   const [showHistory, setShowHistory] = useState(() => searchParams.get("tab") === "history");
-  // Staff tab « Persona » (the client's personas in HQ, written the HQ way): not a page of widgets either.
-  const [showPersona, setShowPersona] = useState(() => searchParams.get("tab") === "persona");
   const cmpSince = searchParams.get("cmpSince") ?? "";
   const cmpUntil = searchParams.get("cmpUntil") ?? "";
   const isCmpCustom = compareMode === "custom" && DATE_RE.test(cmpSince) && DATE_RE.test(cmpUntil) && cmpSince <= cmpUntil;
@@ -386,11 +383,8 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
           pages={pages}
           activePageId={activePageId}
           editing={isStaff && editMode}
-          onSelect={(pid) => { setShowHistory(false); setShowPersona(false); navigate({ page: pid }); }}
-          extraTabs={isStaff ? [
-            { id: "history", label: "Historique & impact", active: showHistory, onSelect: () => { setShowHistory(true); setShowPersona(false); setEditMode(false); } },
-            { id: "persona", label: "Persona", active: showPersona, onSelect: () => { setShowPersona(true); setShowHistory(false); setEditMode(false); } },
-          ] : []}
+          onSelect={(pid) => { setShowHistory(false); navigate({ page: pid }); }}
+          extraTabs={isStaff ? [{ id: "history", label: "Historique & impact", active: showHistory, onSelect: () => { setShowHistory(true); setEditMode(false); } }] : []}
           onAdd={() => { setShowPageForm(true); setShowAdd(false); setEditingWidget(null); setShowSettings(false); }}
           onRename={renamePage}
           onDelete={deletePage}
@@ -446,8 +440,6 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
 
       {isStaff && showHistory ? (
         <PilotHistoryTab dashboardId={id} />
-      ) : isStaff && showPersona ? (
-        <PersonaTab dashboardId={id} />
       ) : loading && !payload ? (
         <div className="grid grid-cols-6 gap-4">
           {[...Array(6)].map((_, i) => (

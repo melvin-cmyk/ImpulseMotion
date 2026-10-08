@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Onglet « Persona » of a client's dashboard (staff only): the personas the
- * agency memory (HQ) holds for this client — projects/{slug}/brain/recherche/personas.md —
+ * Rubrique « Persona » of the Rapports IA space (staff only): the personas the
+ * agency memory (HQ) holds for a client — projects/{slug}/brain/recherche/personas.md —
  * and the way to build them the HQ way: the consultant gives the customers'
  * words (reviews), the AI derives 5 to 7 prioritised avatars and the message
  * matrix (grid of HQ's skill analyse-avatar), the consultant corrects and
@@ -38,7 +38,7 @@ function fmtDate(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("fr-FR");
 }
 
-export function PersonaTab({ dashboardId }: { dashboardId: string }) {
+export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

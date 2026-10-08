@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileText, Plus, Loader2, Bot, Clock } from "lucide-react";
+import { FileText, Plus, Loader2, Bot, Clock, Users, BarChart3 } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { NewReportForm, type ReportClient } from "@/components/reports/new-report-form";
+import { PersonaPanel } from "@/components/reports/persona-panel";
 import { ACL_CHANGED_EVENT } from "@/lib/acl-version";
 
 interface ReportRow {
@@ -44,7 +45,10 @@ export default function ReportsPage() {
   const [reports, setReports] = useState<ReportRow[] | null>(null);
   const [clients, setClients] = useState<ReportClient[]>([]);
   const [filter, setFilter] = useState<string>(params.get("dashboardId") ?? "");
-  const [showNew, setShowNew] = useState(params.get("new") === "1");
+  const [showNew, setShowNew] = useState(params.get("new") === "1" || params.get("new") === "persona");
+  // Rubrique of « Nouveau rapport » : a performance report, or the client's personas (HQ).
+  const [newKind, setNewKind] = useState<"report" | "persona">(params.get("new") === "persona" ? "persona" : "report");
+  const [personaClientId, setPersonaClientId] = useState<string>(params.get("dashboardId") ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -98,16 +102,55 @@ export default function ReportsPage() {
 
       {showNew && (
         <Card padded>
-          <h2 className="text-sm font-semibold text-white mb-3">Générer un rapport</h2>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <h2 className="text-sm font-semibold text-white">Nouveau rapport</h2>
+            <div className="inline-flex rounded-lg border border-gray-800 bg-gray-950 p-0.5">
+              {([
+                { key: "report", label: "Rapport de performance", icon: BarChart3 },
+                { key: "persona", label: "Persona", icon: Users },
+              ] as const).map((k) => (
+                <button
+                  key={k.key}
+                  type="button"
+                  onClick={() => setNewKind(k.key)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${newKind === k.key ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"}`}
+                >
+                  <k.icon className="w-3.5 h-3.5" /> {k.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-500">
+              {newKind === "report"
+                ? "Synthèse, analyse et next steps sur une période, à partir des données Meta, Google et TikTok Ads."
+                : "Les personas du client tels qu'HQ les documente : lecture, rédaction par l'IA à partir des avis clients, confirmation puis écriture dans HQ."}
+            </span>
+          </div>
           {clients.length === 0 ? (
             <p className="text-sm text-gray-500">Aucun client (dashboard) disponible. Créez d&apos;abord un dashboard client dans <Link href="/d" className="text-violet-400">Dashboards clients</Link>.</p>
-          ) : (
+          ) : newKind === "report" ? (
             <NewReportForm
               clients={clients}
               defaultClientId={filter || undefined}
               onCreated={(id) => router.push(`/reports/${id}`)}
               onCancel={() => setShowNew(false)}
             />
+          ) : (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Client</label>
+                <select
+                  value={personaClientId || filter || clients[0]?.id || ""}
+                  onChange={(e) => setPersonaClientId(e.target.value)}
+                  className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
+                >
+                  {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              {(personaClientId || filter || clients[0]?.id) && (
+                <PersonaPanel key={personaClientId || filter || clients[0].id} dashboardId={personaClientId || filter || clients[0].id} />
+              )}
+              <button type="button" onClick={() => setShowNew(false)} className="px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white">Fermer</button>
+            </div>
           )}
         </Card>
       )}
