@@ -14,6 +14,7 @@ import { CheckCircle2, Database, Loader2, Plus, Trash2, XCircle } from "lucide-r
 import { Pill, Section } from "@/components/ui/surface";
 import type { DashboardSourceRef } from "@/lib/sources";
 import type { TikTokAdvertiser } from "@/lib/tiktok-accounts";
+import type { MerchantAccount } from "@/lib/merchant-center";
 
 type Toast = { message: string; tone: "error" | "ok" };
 type TestResult =
@@ -23,8 +24,8 @@ type TikTokCheck =
   | { ok: true; advertiser: TikTokAdvertiser; alreadyOn: string[] }
   | { ok: false; error: string };
 
-const KIND_LABEL: Record<DashboardSourceRef["kind"], string> = { meta: "Meta Ads", google: "Google Ads", hubspot: "HubSpot", tiktok: "TikTok Ads" };
-const KIND_TONE: Record<DashboardSourceRef["kind"], "blue" | "emerald" | "amber" | "violet"> = { meta: "blue", google: "emerald", hubspot: "amber", tiktok: "violet" };
+const KIND_LABEL: Record<DashboardSourceRef["kind"], string> = { meta: "Meta Ads", google: "Google Ads", hubspot: "HubSpot", tiktok: "TikTok Ads", merchant: "Merchant" };
+const KIND_TONE: Record<DashboardSourceRef["kind"], "blue" | "emerald" | "amber" | "violet"> = { meta: "blue", google: "emerald", hubspot: "amber", tiktok: "violet", merchant: "emerald" };
 const STATUS: Record<DashboardSourceRef["status"], { label: string; tone: "emerald" | "red" | "default" }> = {
   active: { label: "Active", tone: "emerald" },
   error: { label: "Erreur", tone: "red" },
@@ -63,6 +64,13 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
   const [tiktokCheck, setTikTokCheck] = useState<TikTokCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [attaching, setAttaching] = useState(false);
+  // Merchant Center: the account is picked in the list the agency's Google account reads.
+  const [showMerchant, setShowMerchant] = useState(false);
+  const [merchantAccounts, setMerchantAccounts] = useState<MerchantAccount[] | null>(null);
+  const [merchantLoading, setMerchantLoading] = useState(false);
+  const [merchantError, setMerchantError] = useState<string | null>(null);
+  const [merchantChoice, setMerchantChoice] = useState("");
+  const [merchantAttaching, setMerchantAttaching] = useState(false);
 
   const notify = useCallback((t: Toast) => { if (onToast) onToast(t); else if (t.tone === "error") setError(t.message); }, [onToast]);
 
@@ -131,6 +139,52 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
 
   function resetTikTok() { setShowTikTok(false); setAdvertiserId(""); setTikTokCheck(null); }
 
+  function resetMerchant() { setShowMerchant(false); setMerchantChoice(""); setMerchantError(null); }
+
+  async function openMerchant() {
+    setShowMerchant(true);
+    if (merchantAccounts) return;
+    setMerchantLoading(true);
+    setMerchantError(null);
+    try {
+      const res = await fetch("/api/merchant/accounts");
+      if (!res.ok) throw new Error(await readError(res));
+      const json = await res.json() as { accounts: MerchantAccount[] };
+      setMerchantAccounts(json.accounts);
+    } catch (e) {
+      setMerchantError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setMerchantLoading(false);
+    }
+  }
+
+  async function attachMerchant() {
+    const account = merchantAccounts?.find((a) => a.id === merchantChoice);
+    if (!account) return;
+    setMerchantAttaching(true);
+    try {
+      // Two calls, like TikTok: the server re-reads the agency's list and names the account itself.
+      const check = await fetch(`/api/dashboards/${dashboardId}/sources`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "merchant", accountId: account.id }),
+      });
+      if (!check.ok) throw new Error(await readError(check));
+      const { check: info } = await check.json() as { check: { account: MerchantAccount; alreadyOn: string[] } };
+      if (info.alreadyOn.length && !window.confirm(`Ce compte Merchant Center est déjà rattaché à ${info.alreadyOn.map((n) => `« ${n} »`).join(", ")}. Le rattacher aussi à ce client ?`)) return;
+      const res = await fetch(`/api/dashboards/${dashboardId}/sources`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "merchant", accountId: account.id, confirm: true }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const json = await res.json() as { source: DashboardSourceRef };
+      notify({ message: `Compte Merchant Center « ${json.source.label ?? json.source.externalId} » rattaché à ce client : ses diagnostics et sa performance Shopping entrent dans les rapports et l'IA`, tone: "ok" });
+      resetMerchant();
+      await load();
+    } catch (e) {
+      notify({ message: `Impossible de rattacher le compte Merchant Center : ${e instanceof Error ? e.message : "erreur"}`, tone: "error" });
+    } finally {
+      setMerchantAttaching(false);
+    }
+  }
+
   async function checkTikTok() {
     const id = advertiserId.trim();
     if (!id) { notify({ message: "Saisissez l'identifiant du compte TikTok Ads", tone: "error" }); return; }
@@ -175,6 +229,8 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
     const name = `${KIND_LABEL[s.kind]} ${s.label ? `« ${s.label} » ` : ""}(${s.externalId})`;
     const consequence = s.kind === "tiktok"
       ? "L'IA de ce client ne lira plus ce compte."
+      : s.kind === "merchant"
+      ? "Les rapports et l'IA de ce client ne liront plus ce Merchant Center."
       : "Le token sera effacé ; les widgets CRM de ce client n'auront plus de données.";
     if (!window.confirm(`Supprimer la source ${name} ?\n${consequence}`)) return;
     setRemoving(s.id);
@@ -202,6 +258,9 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
         <div className="flex items-center justify-end gap-2 flex-wrap">
           <button type="button" className={btn} disabled={showTikTok} onClick={() => setShowTikTok(true)}>
             <Plus className="w-3.5 h-3.5" /> Ajouter TikTok Ads
+          </button>
+          <button type="button" className={btn} disabled={showMerchant} onClick={() => void openMerchant()}>
+            <Plus className="w-3.5 h-3.5" /> Ajouter Merchant Center
           </button>
           <button type="button" className={btn} disabled={!canAdd} onClick={() => setShowForm(true)} title={secretsConfigured ? undefined : "SOURCE_SECRETS_KEY non configurée"}>
             <Plus className="w-3.5 h-3.5" /> {hasHubspot ? "Remplacer le token HubSpot" : "Ajouter HubSpot"}
@@ -233,7 +292,12 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
                     {s.label ? <>{s.label} <span className="text-gray-500">· {s.externalId}</span></> : s.externalId}
                   </div>
                   <div className="text-[11px] text-gray-500 truncate">
-                    {s.legacy ? "Lié sur le dashboard (lecture seule ici)" : s.kind === "tiktok" ? (
+                    {s.legacy ? "Lié sur le dashboard (lecture seule ici)" : s.kind === "merchant" ? (
+                      <>
+                        Rapports et IA de ce client{typeof s.config.homePage === "string" && s.config.homePage ? ` · ${s.config.homePage}` : ""}
+                        {s.lastError && <span className="text-red-400"> · {s.lastError}</span>}
+                      </>
+                    ) : s.kind === "tiktok" ? (
                       <>
                         Lu par l&apos;IA de ce client{details ? ` · ${details}` : ""}
                         {s.lastError && <span className="text-red-400"> · {s.lastError}</span>}
@@ -322,6 +386,38 @@ export function SourcesPanel({ dashboardId, onToast }: { dashboardId: string; on
               {attaching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Rattacher ce compte
             </button>
             <button type="button" className="text-xs text-gray-500 hover:text-white" onClick={resetTikTok} disabled={attaching}>Annuler</button>
+          </div>
+        </form>
+      )}
+
+      {showMerchant && (
+        <form className="border-t border-gray-800 px-4 py-3 space-y-2" onSubmit={(e) => { e.preventDefault(); void attachMerchant(); }}>
+          <div className="text-xs text-gray-400">
+            <strong className="text-gray-300">Compte Google Merchant Center</strong> du client, parmi ceux partagés avec le compte Google de l&apos;agence. Un compte absent de la liste n&apos;est pas encore partagé : demandez l&apos;accès au client dans Merchant Center (Paramètres → Personnes et accès), puis rechargez la liste.
+          </div>
+          {merchantLoading ? (
+            <div className="text-xs text-gray-500 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Lecture des comptes Merchant Center…</div>
+          ) : merchantError ? (
+            <div className="text-xs text-red-400 flex items-center gap-1.5"><XCircle className="w-3.5 h-3.5" /> {merchantError}</div>
+          ) : (
+            <select value={merchantChoice} onChange={(e) => setMerchantChoice(e.target.value)} disabled={merchantAttaching} aria-label="Compte Merchant Center" className={`${field} sm:max-w-md`}>
+              <option value="">— choisir un compte ({merchantAccounts?.length ?? 0}) —</option>
+              {(merchantAccounts ?? []).map((a) => (
+                <option key={a.id} value={a.id}>{a.name} · {a.id}{a.homePage ? ` · ${a.homePage.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "")}` : ""}</option>
+              ))}
+            </select>
+          )}
+          {merchantChoice && sources?.some((s) => s.kind === "merchant" && s.externalId === merchantChoice) && (
+            <div className="text-xs text-gray-400">Ce compte est déjà rattaché à ce client : son nom sera simplement mis à jour.</div>
+          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="submit" className={btnPrimary} disabled={merchantAttaching || merchantLoading || !merchantChoice}>
+              {merchantAttaching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} Rattacher ce compte
+            </button>
+            <button type="button" className={btn} disabled={merchantLoading || merchantAttaching} onClick={() => { setMerchantAccounts(null); void (async () => { setMerchantLoading(true); setMerchantError(null); try { const res = await fetch("/api/merchant/accounts?refresh=1"); if (!res.ok) throw new Error(await readError(res)); setMerchantAccounts(((await res.json()) as { accounts: MerchantAccount[] }).accounts); } catch (e) { setMerchantError(e instanceof Error ? e.message : "Erreur"); } finally { setMerchantLoading(false); } })(); }}>
+              Recharger la liste
+            </button>
+            <button type="button" className="text-xs text-gray-500 hover:text-white" onClick={resetMerchant} disabled={merchantAttaching}>Annuler</button>
           </div>
         </form>
       )}

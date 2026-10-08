@@ -6,12 +6,14 @@
  *    with lib/secrets.ts. The encrypted secret is NEVER part of a DashboardSourceRef.
  *  - tiktok: rows in DashboardSource too (externalId = advertiser id), no secret —
  *    written by lib/tiktok-accounts.ts once TikTok has confirmed the account.
+ *  - merchant: Google Merchant Center account (externalId = account id), no
+ *    secret — written by lib/merchant-center.ts from the agency's account list.
  */
 
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret } from "@/lib/secrets";
 
-export type SourceKind = "meta" | "google" | "hubspot" | "tiktok";
+export type SourceKind = "meta" | "google" | "hubspot" | "tiktok" | "merchant";
 export type SourceStatus = "active" | "error" | "disabled";
 
 export interface DashboardSourceRef {

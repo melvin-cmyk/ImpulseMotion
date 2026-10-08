@@ -14,7 +14,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { relayStream, teeRelayStream, type RelayMessage } from "@/lib/relay-chat";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
-import { TIKTOK_SERVER } from "@/lib/mcp-whitelist";
+import { MERCHANT_SERVER, TIKTOK_SERVER } from "@/lib/mcp-whitelist";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { renderDataForPrompt } from "@/lib/report-generate";
 import type { ReportData } from "@/lib/report-data";
@@ -65,11 +65,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     ? [`TIKTOK ADS : ${tiktokIds.length > 1 ? "les comptes" : "le compte"} TikTok Ads du client (advertiser_id ${tiktokIds.join(", ")}) ${tiktokIds.length > 1 ? "sont" : "est"} dans le snapshot (KPIs, vue par plateforme, tendances, campagnes TikTok). Pour un détail absent du snapshot (groupe d'annonces, annonce, autre période), utilise les ${tools}. Ses conversions et sa valeur d'achat suivent l'attribution de TikTok.`]
     : [`TIKTOK ADS : ce client a aussi ${tiktokIds.length > 1 ? "des comptes" : "un compte"} TikTok Ads (advertiser_id ${tiktokIds.join(", ")}) : ce rapport a été généré sans ses chiffres, ils ne sont pas dans ce snapshot. Ne l'interroge que si on te le demande (${tools}). Ses conversions sont attribuées par TikTok : ne les additionne pas à celles de Meta et Google comme des ventes distinctes.`];
 
+  const merchantBlocks = data?.merchant ?? [];
+  const merchantLine = !merchantBlocks.length ? [] : [`MERCHANT CENTER : ${merchantBlocks.length > 1 ? "les comptes" : "le compte"} Merchant Center du client (account_id ${merchantBlocks.map((m) => m.accountId).join(", ")}) ${merchantBlocks.length > 1 ? "sont" : "est"} dans le snapshot (diagnostics, statuts produits, performance Shopping, top produits). Pour un détail absent (un produit, un flux, une autre période), utilise les outils mcp__mcp-merchant-center__* (search_reports en MCQL, get_account_issues, list_data_sources, get_product). Ses clics et conversions suivent l'attribution de Merchant Center : ne les additionne pas à Google Ads.`];
   const systemPrompt = [
     "Tu es le consultant média senior d'Impulse Analytics qui a rédigé le rapport ci-dessous. Tu réponds aux questions d'un collègue consultant sur ce rapport et ce client.",
     "RÈGLES : réponds d'abord à partir du SNAPSHOT et du RAPPORT ci-dessous (ce sont les chiffres de référence, figés). N'invente jamais un chiffre. Si la question demande une donnée absente du snapshot (autre période, niveau adset, détail d'une créa), tu peux utiliser les outils Meta/Google Ads disponibles — dis-le explicitement quand tu le fais et reste dans le périmètre du client.",
     "Français, concis, concret, pas d'emoji. Utilise des puces ou un petit tableau Markdown quand c'est plus lisible. Quand on te demande une action, formule-la à l'impératif avec la justification chiffrée.",
     ...tiktokLine,
+    ...merchantLine,
     "",
     `TITRE : ${report.title}`,
     ...(report.instructions ? ["", "=== CONSIGNES INITIALES DU CONSULTANT ===", report.instructions] : []),
@@ -92,7 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     effort: STAFF_CHAT_PROFILE.effort,
     // TikTok only when an advertiser is attached to this client: without an
     // id in the scope the relay drops the server.
-    allowedServers: ["meta-ads-impulse", "mcp-google-ads", TIKTOK_SERVER],
+    allowedServers: ["meta-ads-impulse", "mcp-google-ads", TIKTOK_SERVER, ...(merchantLine.length ? [MERCHANT_SERVER] : [])],
     accountScope: {
       meta: report.dashboard.metaAccountId ? [report.dashboard.metaAccountId] : [],
       google: report.dashboard.googleCustomerId ? [report.dashboard.googleCustomerId] : [],

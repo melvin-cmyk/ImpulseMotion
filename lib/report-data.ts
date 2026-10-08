@@ -9,6 +9,7 @@
  * next steps so the AI can follow up on them.
  */
 
+import { collectDashboardMerchant, type MerchantReport } from "@/lib/merchant-center";
 import { prisma } from "@/lib/prisma";
 import { agencyChangesToActions, agencyMatcher, type AgencyChange, type ReportAction } from "@/lib/pilot/agency";
 import {
@@ -137,6 +138,8 @@ export interface ReportData {
   pacing: PacingResult | null;
   alerts: Array<{ metric: string; value: number; threshold: number; message: string; triggeredAt: string; acknowledged: boolean }>;
   previousReport: { id: string; periodSince: string; periodUntil: string; nextSteps: ReportNextStep[] } | null;
+  /** Google Merchant Center of the client (accounts attached as sources): issues, product statuses, Shopping performance. Absent without an account. */
+  merchant?: MerchantReport[];
   /** What the agency changed on the accounts over the period, from Pilotage (absent on snapshots taken before). */
   /** What the agency did on the period: Pilotage actions, and changes made directly on the platforms by someone at the agency (see lib/pilot/agency.ts). */
   actions?: ReportAction[];
@@ -357,6 +360,9 @@ export async function collectReportData(
   // What the agency did on the period: the changes sent from Pilotage on the accounts of the client.
   const actions = await collectPilotActions(binding, since, until).catch((e) => { warnings.push(`actions: ${e instanceof Error ? e.message : String(e)}`); return [] as ReportAction[]; });
 
+  // Merchant Center accounts attached to the client: issues, product statuses, Shopping performance (no AI).
+  const merchant = await collectDashboardMerchant(dashboard.id, since, until).catch((e) => { warnings.push(`merchant center: ${e instanceof Error ? e.message : String(e)}`); return [] as MerchantReport[]; });
+
   let crm: ReportCrm | undefined;
   if (hasHubspot) {
     const funnel = dataOf<CrmFunnelData>("crm:funnel");
@@ -375,6 +381,7 @@ export async function collectReportData(
     },
     period: { since, until },
     ...(actions.length ? { actions } : {}),
+    ...(merchant.length ? { merchant } : {}),
     compare: effectiveCompare ? { since: effectiveCompare.since, until: effectiveCompare.until, kind: effectiveCompare.kind } : null,
     currency: pickReportCurrency(kpis, pacing, crm),
     kpis,

@@ -18,6 +18,7 @@ import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
 import { SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
+import { prisma as db } from "@/lib/prisma";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { teeRelayStream, type RelayEffort, type RelayModel } from "@/lib/relay-chat";
 import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay-attachments";
@@ -139,9 +140,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const binding = await resolveBinding(dashboard.userId, dashboard);
   // TikTok advertisers attached to this client (none → the relay drops the server).
   const tiktokIds = await getDashboardTikTokIds(dashboard.id);
+  // Merchant Center accounts attached to this client (staff surface: the server is always open to staff).
+  const merchantAccounts = (await db.dashboardSource.findMany({ where: { dashboardId: dashboard.id, kind: "merchant", status: { not: "disabled" } }, select: { externalId: true, label: true }, orderBy: { createdAt: "asc" } }))
+    .map((r) => ({ id: r.externalId, name: r.label }));
   // The dashboard as it is now. It travels in `turnContext` when the relay
   // takes it, in the system prompt otherwise (a relay not restarted yet).
-  const state = buildCopilotTurnContext({ ...dashboard, tiktokAdvertiserIds: tiktokIds, widgets: dashboard.widgets, pages: dashboard.pages });
+  const state = buildCopilotTurnContext({ ...dashboard, tiktokAdvertiserIds: tiktokIds, merchantAccounts, widgets: dashboard.widgets, pages: dashboard.pages });
   const systemPromptFor = (inlineState: string | null) => buildCopilotSystemPrompt(
     dashboard,
     dashboard.user.name ?? dashboard.user.email ?? "client",

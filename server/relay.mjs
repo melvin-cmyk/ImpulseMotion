@@ -423,6 +423,15 @@ const NOTION_SERVER = "notion";
 // seul jeton pour tous les annonceurs de l'agence. Toujours derrière le proxy
 // de périmètre, qui complète aussi les arguments des rapports.
 const TIKTOK_SERVER = "mcp-tiktok-ads";
+// Google Merchant Center : serveur MCP n8n (« MCP Google Merchant Center »),
+// compte Google de l'agence, lecture seule (register_gcp_developer, une
+// écriture d'administration, reste fermé). Staff uniquement, comme Notion :
+// un seul accès lit tous les comptes Merchant de l'agence.
+const MERCHANT_SERVER = "mcp-merchant-center";
+const MERCHANT_READ_TOOLS = [
+  "list_merchant_accounts", "list_subaccounts", "list_products", "get_product",
+  "get_account_issues", "list_data_sources", "search_reports",
+];
 // Performance seulement : ce qu'un bot client peut lire.
 const TIKTOK_CLIENT_TOOLS = [
   "get_advertiser_info", "get_campaigns", "get_adgroups", "get_ads",
@@ -454,6 +463,7 @@ const ALLOWED_MCP_SERVERS = new Set([
   CLIENT_DATA_SERVER,
   HQ_SERVER,
   NOTION_SERVER,
+  MERCHANT_SERVER,
 ]);
 
 // Per-server explicit tool allowlist for the CHAT (handleChat). Servers absent
@@ -481,6 +491,7 @@ const SERVER_TOOL_ALLOWLIST = {
   // Liste fermée : un outil ajouté plus tard dans n8n reste fermé tant qu'il
   // n'est pas nommé ici. Un bot client reçoit TIKTOK_CLIENT_TOOLS (chatToolsOf).
   [TIKTOK_SERVER]: TIKTOK_STAFF_TOOLS,
+  [MERCHANT_SERVER]: MERCHANT_READ_TOOLS,
 };
 
 /** Tools of a server open to this chat: fewer for a client bot where it matters. */
@@ -515,6 +526,9 @@ const DIRECT_TOOL_ALLOWLIST = {
   // one advertiser named), see tiktokDirectInput.
   // get_adgroups / get_ads: the structure of an advertiser for Pilotage (lib/pilot/tiktok.ts), read only.
   [TIKTOK_SERVER]: ["get_advertiser_info", "get_campaigns", "get_adgroups", "get_ads", "get_report_integrated", "list_business_centers", "list_bc_advertisers"],
+  // Merchant Center (lib/merchant-center.ts) : liste des comptes pour le
+  // rattachement, puis diagnostics, statuts et performance produits des rapports.
+  [MERCHANT_SERVER]: ["list_merchant_accounts", "list_subaccounts", "get_account_issues", "list_data_sources", "search_reports", "list_products"],
 };
 
 /** "<server>.<tool>" → null when /api/tool may call it, the reason otherwise. */
@@ -933,6 +947,11 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     servers = servers.filter((s) => s !== NOTION_SERVER);
     console.error("[chat] notion refusé — requête de bot client");
   }
+  // Merchant Center: staff only too (one access reads every merchant of the agency).
+  if (servers.includes(MERCHANT_SERVER) && clientBot) {
+    servers = servers.filter((s) => s !== MERCHANT_SERVER);
+    console.error("[chat] merchant center refusé — requête de bot client");
+  }
 
   // Every chat goes through a generated config: scopes are pinned in the
   // environment of stdio servers, never left to the prompt.
@@ -1059,7 +1078,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
+  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.

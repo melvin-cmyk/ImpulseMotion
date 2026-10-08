@@ -78,8 +78,18 @@ export const NOTION_SERVER = "notion" as const;
  */
 export const TIKTOK_SERVER = "mcp-tiktok-ads" as const;
 
+/**
+ * Google Merchant Center, par le serveur MCP n8n « MCP Google Merchant Center »
+ * (compte Google de l'agence, lecture seule : comptes, produits et statuts,
+ * diagnostics, flux, rapports MCQL). Un seul accès lit tous les comptes
+ * Merchant de l'agence : staff uniquement, jamais un bot client (le relay le
+ * refuse). Un client y est rattaché par une source « merchant » de son
+ * dashboard (lib/merchant-center.ts), lue par les rapports et le copilote.
+ */
+export const MERCHANT_SERVER = "mcp-merchant-center" as const;
+
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
-export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, TIKTOK_SERVER, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER, NOTION_SERVER] as const;
+export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, TIKTOK_SERVER, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER, NOTION_SERVER, MERCHANT_SERVER] as const;
 
 /** Serveur MCP stdio des données e-commerce (server/mcp-client-data.mjs), scoped par le relay. */
 export const CLIENT_DATA_SERVER = "client-data" as const;

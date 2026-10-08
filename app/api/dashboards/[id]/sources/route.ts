@@ -23,6 +23,7 @@ import { listSources, upsertHubspotSource, type HubspotSourceConfig } from "@/li
 import { testHubspotConnection } from "@/lib/hubspot/client";
 import { dashboardsWithAdvertiser } from "@/lib/tiktok-accounts";
 import { bindTikTokAdvertiser, checkTikTokBinding } from "@/lib/tiktok-binding";
+import { attachMerchantAccount, checkMerchantAccount, dashboardsWithMerchant } from "@/lib/merchant-center";
 import { getAccountScope } from "@/lib/scope";
 
 export const maxDuration = 30;
@@ -53,7 +54,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
   if (body.kind === "tiktok") return attachTikTok(guard.session, id, body);
-  if (body.kind !== "hubspot") return NextResponse.json({ error: "kind doit être \"hubspot\" ou \"tiktok\"" }, { status: 400 });
+  if (body.kind === "merchant") return attachMerchant(id, body);
+  if (body.kind !== "hubspot") return NextResponse.json({ error: "kind doit être \"hubspot\", \"tiktok\" ou \"merchant\"" }, { status: 400 });
   const token = typeof body.token === "string" ? body.token.trim() : "";
   let portalId = typeof body.portalId === "string" ? body.portalId.trim() : "";
   const label = typeof body.label === "string" ? body.label : undefined;
@@ -86,6 +88,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 /** TikTok: a first call shows who the advertiser is, a confirmed second call stores it. */
+/**
+ * Merchant Center: the account must be one the agency's Google account reads
+ * (list_merchant_accounts); what is stored is Google's name for it. Staff only
+ * (the route already is): no per-user scope exists for Merchant accounts.
+ */
+async function attachMerchant(dashboardId: string, body: Record<string, unknown>) {
+  const checked = await checkMerchantAccount(body.accountId);
+  if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400 });
+  try {
+    const check = { account: checked.account, alreadyOn: await dashboardsWithMerchant(checked.account.id, dashboardId) };
+    if (body.confirm !== true) return NextResponse.json({ check }, { status: 200, headers: NO_STORE });
+    const stored = await attachMerchantAccount(dashboardId, checked.account);
+    const source = (await listSources(dashboardId)).find((s) => s.id === stored.id);
+    if (!source) throw new Error("Compte Merchant Center rattaché mais introuvable à la relecture");
+    return NextResponse.json({ source, check }, { status: 200, headers: NO_STORE });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  }
+}
+
 async function attachTikTok(session: { userId: string; role?: string | null }, dashboardId: string, body: Record<string, unknown>) {
   // Asked again on the confirmed call: what is stored is TikTok's answer, never a name sent by the browser.
   const checked = await checkTikTokBinding(body.advertiserId, await getAccountScope(session));

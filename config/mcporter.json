@@ -11,6 +11,9 @@
     },
     "mcp-tiktok-ads": {
       "baseUrl": "https://impulseai.app.n8n.cloud/mcp/tiktok-ads-mcp-v2/sse"
+    },
+    "mcp-merchant-center": {
+      "baseUrl": "https://impulseai.app.n8n.cloud/mcp/merchant-center-mcp"
     }
   },
   "imports": []

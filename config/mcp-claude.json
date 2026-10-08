@@ -23,6 +23,10 @@
     "mcp-tiktok-ads": {
       "type": "sse",
       "url": "https://impulseai.app.n8n.cloud/mcp/tiktok-ads-mcp-v2/sse"
+    },
+    "mcp-merchant-center": {
+      "type": "http",
+      "url": "https://impulseai.app.n8n.cloud/mcp/merchant-center-mcp"
     }
   }
 }

@@ -7,6 +7,7 @@
  * section headings plus one ```nextsteps JSON fence, parsed leniently.
  */
 
+import { renderMerchantForPrompt } from "@/lib/merchant-center";
 import { prisma } from "@/lib/prisma";
 import { relayComplete, extractFence, parseLooseJson } from "@/lib/relay-chat";
 import { collectReportData, periodLabel, type ReportData, type ReportKpi, type ReportNextStep } from "@/lib/report-data";
@@ -155,6 +156,7 @@ export function renderDataForPrompt(d: ReportData): string {
   }
 
   if (d.crm) lines.push(...renderCrmForPrompt(d.crm));
+  if (d.merchant?.length) lines.push(...renderMerchantForPrompt(d.merchant));
 
   if (d.hqContext) {
     lines.push(`\nCONTEXTE AGENCE (HQ — dossier projects/${d.hqContext.slug}, lu le ${d.hqContext.fetchedAt.slice(0, 10)}) :`);
@@ -263,6 +265,16 @@ Ajoute, entre « Budget & alertes » et « Suivi des actions précédentes », u
 - Un ratio « n/a » signifie que le dénominateur ou la dépense manque : ne le remplace jamais par 0.
 Dans le bloc nextsteps, lorsque le niveau d'attribution est inférieur à 2, inclus au moins une action d'attribution (platform "crm") reprenant une recommandation du diagnostic (ex. faire poser utm_campaign sur les annonces, créer la propriété HubSpot). La valeur "platform" accepte aussi "crm".`;
 
+/** Appended only when the snapshot carries a Merchant Center block. */
+export const REPORT_MERCHANT_PROMPT = `
+SECTION MERCHANT CENTER (le snapshot contient un bloc « MERCHANT CENTER »)
+Ajoute, entre « Audience & diffusion » et « Budget & alertes », une section :
+## Merchant Center & flux produits
+- État du catalogue : produits approuvés, avec limitation, refusés, en attente ; ce que ça représente et ce qui bloque la diffusion Shopping. Un chiffre « sur les 1 000 premiers » est une lecture partielle : dis-le.
+- Problèmes signalés par Google : les nommer, par gravité, avec le nombre de produits touchés, et dire en une phrase ce qu'il faut corriger (flux, attributs, site). Aucun problème signalé = le dire en une phrase.
+- Performance Shopping (clics, impressions, CTR, conversions attribuées par Merchant Center) et les produits qui portent les clics ; ces chiffres suivent l'attribution de Merchant Center et ne s'additionnent pas à ceux de Google Ads.
+Dans le bloc nextsteps, si des produits sont refusés ou si Google signale une erreur, inclus une action de correction du flux (platform "google").`;
+
 /** Appended when the snapshot carries the HQ brief of the client. */
 export const REPORT_HQ_PROMPT = `
 CONTEXTE AGENCE (le snapshot contient un bloc « CONTEXTE AGENCE (HQ) » : ce que l'agence sait déjà du client)
@@ -274,6 +286,7 @@ CONTEXTE AGENCE (le snapshot contient un bloc « CONTEXTE AGENCE (HQ) » : ce qu
 export function buildReportSystemPrompt(data: ReportData): string {
   let prompt = REPORT_SYSTEM_PROMPT;
   if (data.crm) prompt += "\n" + REPORT_CRM_PROMPT;
+  if (data.merchant?.length) prompt += "\n" + REPORT_MERCHANT_PROMPT;
   if (data.hqContext) prompt += "\n" + REPORT_HQ_PROMPT;
   return prompt;
 }
