@@ -24,6 +24,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             {isRealAdmin && <AdminNavLink href="/admin">Utilisateurs</AdminNavLink>}
             {isRealAdmin && <AdminNavLink href="/admin/bots">Bots clients</AdminNavLink>}
             {isAdmin && <AdminNavLink href="/admin/usage">Consommation IA</AdminNavLink>}
+            {isAdmin && <AdminNavLink href="/admin/hq">HQ</AdminNavLink>}
             <AdminNavLink href="/reports">Rapports IA</AdminNavLink>
             <AdminNavLink href="/admin/alerts/assistant">Alertes</AdminNavLink>
             <AdminNavLink href="/admin/auto-alerts">Alertes automatiques</AdminNavLink>

@@ -28,8 +28,17 @@ import { timingSafeEqual } from "node:crypto";
 let hqProjectsCache = null;
 
 // Fichiers d'un dossier client HQ que l'app peut lire en direct : projects/{slug}/…
-// (jamais settings/, secrets ni un chemin remontant).
-const HQ_PROJECT_FILE_RE = /^projects\/[a-z0-9][a-z0-9-]{0,79}(\/[A-Za-z0-9._-]{1,80}){1,6}$/;
+// et le registre clients.yaml (jamais settings/, secrets ni un chemin remontant).
+const HQ_PROJECT_FILE_RE = /^(projects\/[a-z0-9][a-z0-9-]{0,79}(\/[A-Za-z0-9._-]{1,80}){1,6}|clients\.yaml)$/;
+
+/** « (customer_id=…) » / « (account_id=…) » for the tool log: the account targeted, nothing else. */
+function toolTarget(tool, input) {
+  try {
+    const raw = input && typeof input.input === "string" ? JSON.parse(input.input) : input;
+    const id = raw?.customer_id ?? raw?.customerId ?? raw?.account_id ?? raw?.accountId ?? raw?.advertiser_id;
+    return id ? ` (${raw.customer_id || raw.customerId ? "customer_id" : raw.advertiser_id ? "advertiser_id" : "account_id"}=${String(id).slice(0, 40)})` : "";
+  } catch { return ""; }
+}
 
 function parseHqJson(raw) {
   try { return JSON.parse(raw); } catch { return null; }
@@ -1582,7 +1591,9 @@ const server = http.createServer(async (req, res) => {
           } catch {
             // mcporter prints JS-notation (not JSON) when the tool itself errors
             toolError = stdout.slice(0, 500);
-            console.error(`[tool] ${body.tool} attempt ${attempt} failed: ${toolError.slice(0, 200)}`);
+            console.error(`[tool] ${body.tool} attempt ${attempt} failed: ${toolError.slice(0, 200)}${toolTarget(body.tool, toolInput)}`);
+            // A refused access will not change on retry: answer at once.
+            if (/does not have permission|Forbidden|PERMISSION_DENIED|USER_PERMISSION_DENIED/i.test(toolError)) break;
           }
         }
         res.writeHead(502, { "Content-Type": "application/json" });

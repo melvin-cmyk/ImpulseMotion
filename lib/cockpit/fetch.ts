@@ -37,12 +37,20 @@ export async function listMetaAccounts(): Promise<AvailableAccount[]> {
 
 type GaqlPage = { results?: Array<{ customerClient?: { id?: string; descriptiveName?: string; currencyCode?: string; manager?: boolean; status?: string } }> };
 
+/**
+ * Top-level customers the agency login lists but cannot read (a manager
+ * account shared without access): querying them only fills the relay log
+ * with « The caller does not have permission ». Comma-separated ids.
+ * 6928213043 = seen refused at every cockpit run since 2026-10-02.
+ */
+const GOOGLE_UNREADABLE_TOPS = new Set((process.env.GOOGLE_UNREADABLE_CUSTOMERS ?? "6928213043").split(",").map((s) => s.trim()).filter(Boolean));
+
 export async function listGoogleAccounts(): Promise<AvailableAccount[]> {
   return cached("cockpit:google-accounts", async () => {
     const list = await relayDirectTool("mcp-google-ads.List_Customers", {}, 30_000);
     const names = (Array.isArray(list) ? list : [list]).flatMap((l) => ((l as { resourceNames?: string[] })?.resourceNames ?? []));
     const out = new Map<string, AvailableAccount>();
-    for (const top of names.map((r) => r.replace(/^customers\//, "")).filter(Boolean)) {
+    for (const top of names.map((r) => r.replace(/^customers\//, "")).filter((id) => id && !GOOGLE_UNREADABLE_TOPS.has(id))) {
       try {
         const raw = await relayDirectTool("mcp-google-ads.Custom_GAQL_Query", {
           customer_id: top,
