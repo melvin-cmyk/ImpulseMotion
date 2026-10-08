@@ -45,6 +45,7 @@ const FEATURE_LABEL: Record<string, string> = {
   routine_ai_step: "Routines (synthèse IA à l'exécution)",
   client_alert_compose: "Alertes (création avec l'IA)",
   pilot_assistant: "Pilotage (modifications avec l'IA)",
+  persona: "Personas client (HQ)",
 };
 type ProfileUsage = Totals & {
   key: string;

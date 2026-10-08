@@ -27,6 +27,24 @@ import * as agnes from "./agnes.mjs";
 import { timingSafeEqual } from "node:crypto";
 let hqProjectsCache = null;
 
+// Fichiers d'un dossier client HQ que l'app peut lire en direct : projects/{slug}/…
+// (jamais settings/, secrets ni un chemin remontant).
+const HQ_PROJECT_FILE_RE = /^projects\/[a-z0-9][a-z0-9-]{0,79}(\/[A-Za-z0-9._-]{1,80}){1,6}$/;
+
+function parseHqJson(raw) {
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+/** hq_files_read answers with JSON ({content}) or the raw text, depending on the bridge version. */
+function hqFileText(raw) {
+  const parsed = parseHqJson(raw);
+  if (parsed && typeof parsed === "object") {
+    if (typeof parsed.content === "string") return parsed.content;
+    if (typeof parsed.text === "string") return parsed.text;
+  }
+  return String(raw ?? "");
+}
+
 const execFileAsync = promisify(execFile);
 
 const PORT = process.env.RELAY_PORT || 3457;
@@ -1749,6 +1767,87 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ ok: true, result: text.slice(0, 500) }));
       } catch (e) {
         console.error("[hq] journal échec:", e.message);
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    // Lecture déterministe d'un fichier d'un dossier client HQ (projects/…),
+    // depuis le code de l'app, jamais depuis le modèle : contenu + ETag.
+    if (url.pathname === "/api/hq/file" && req.method === "GET") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const path = url.searchParams.get("path") || "";
+      if (!HQ_PROJECT_FILE_RE.test(path)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "chemin HQ non autorisé (projects/{slug}/… attendu)" }));
+        return;
+      }
+      const company = process.env.HQ_COMPANY || "impulse-analytics";
+      try {
+        const stat = parseHqJson(await hqToolCall("hq_files_stat", { company, path }));
+        if (!stat || stat.found === false) {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ found: false }));
+          return;
+        }
+        const content = hqFileText(await hqToolCall("hq_files_read", { company, path }));
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ found: true, path, content, etag: stat.etag ?? null, lastModified: stat.lastModified ?? null, size: stat.size ?? content.length }));
+      } catch (e) {
+        console.error("[hq] lecture échec:", path, e.message);
+        res.writeHead(502, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    // Écriture du persona d'un client dans HQ (le seul fichier que l'app écrit
+    // en place) : création si absent, sinon mise à jour sous verrou ETag, pour
+    // ne jamais écraser ce qu'un consultant a changé dans HQ entre-temps.
+    if (url.pathname === "/api/hq/persona" && req.method === "PUT") {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const body = await readBody(req);
+      const project = typeof body?.project === "string" && /^[a-z0-9][a-z0-9-]{0,79}$/.test(body.project) ? body.project : null;
+      const content = typeof body?.content === "string" ? body.content.slice(0, 120_000) : "";
+      const etag = typeof body?.etag === "string" && body.etag ? body.etag : null;
+      if (!project || !content.trim()) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "project et content requis" }));
+        return;
+      }
+      const company = process.env.HQ_COMPANY || "impulse-analytics";
+      const path = `projects/${project}/brain/recherche/personas.md`;
+      try {
+        const stat = parseHqJson(await hqToolCall("hq_files_stat", { company, path }));
+        const exists = !!stat && stat.found !== false;
+        if (exists && !etag) {
+          res.writeHead(409, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Le fichier existe déjà dans HQ : relisez-le avant d'écrire.", etag: stat.etag ?? null }));
+          return;
+        }
+        if (exists && stat.etag && stat.etag !== etag) {
+          res.writeHead(409, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Le fichier a changé dans HQ depuis votre lecture : relisez-le puis réessayez.", etag: stat.etag }));
+          return;
+        }
+        const result = exists
+          ? await hqToolCall("hq_files_update", { company, path, content, expectedEtag: etag })
+          : await hqToolCall("hq_files_create", { company, path, content });
+        const after = parseHqJson(await hqToolCall("hq_files_stat", { company, path }));
+        console.log(`[hq] persona ${company}/${project} ${exists ? "mis à jour" : "créé"} (${content.length} car.)`);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, created: !exists, etag: after?.etag ?? null, result: String(result).slice(0, 300) }));
+      } catch (e) {
+        console.error("[hq] persona échec:", project, e.message);
         res.writeHead(502, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: e.message }));
       }

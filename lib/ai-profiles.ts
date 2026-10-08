@@ -57,4 +57,7 @@ export const ROUTINE_COMPOSE_PROFILE: AiProfile = fromEnv("AI_ROUTINE_MODEL", "A
 export const CLIENT_ALERT_COMPOSE_PROFILE: AiProfile = fromEnv("AI_ALERT_MODEL", "AI_ALERT_EFFORT", { model: "sonnet", effort: "medium", maxTurns: 2 });
 
 /** Pilotage assistant: no tool, the client's accounts and figures are in the message; its proposals go through the preview (app/api/pilot/assistant). */
+/** Personas of a client (lib/hq-persona.ts): one long answer, no tools. */
+export const PERSONA_PROFILE: AiProfile = fromEnv("AI_PERSONA_MODEL", "AI_PERSONA_EFFORT", { model: "opus", effort: "medium", maxTurns: 1 });
+
 export const PILOT_ASSISTANT_PROFILE: AiProfile = fromEnv("AI_PILOT_MODEL", "AI_PILOT_EFFORT", { model: "opus", effort: "low", maxTurns: 2 });

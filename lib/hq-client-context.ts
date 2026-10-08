@@ -68,7 +68,7 @@ PROCÉDURE (pas d'exploration au-delà)
    - si un slug est fourni (SLUG HQ), utilise-le tel quel ;
    - sinon lis le fichier "clients.yaml" (hq_files_read) : la clé de la section "clients" dont "nom" correspond au client, ou dont le dossier projects/{slug}/client.yaml porte le même account_id Meta / customer_id Google que ceux fournis. En cas de doute, hq_files_list sur "projects".
 2. Lire, avec hq_files_read, ces fichiers de projects/{slug}/ — ignore silencieusement ceux qui n'existent pas, ne cherche rien d'autre :
-   client.yaml, README.md, contexte.md, historique.md, brain/strategie/strategie.md, brain/analyse/tests.md, brain/equipe/interlocuteurs.md
+   client.yaml, README.md, contexte.md, historique.md, brain/strategie/strategie.md, brain/analyse/tests.md, brain/equipe/interlocuteurs.md, brain/recherche/personas.md
 3. Répondre UNIQUEMENT par un bloc \`\`\`json (aucun texte autour) :
 {"found": true, "slug": "…", "sources": ["projects/…/client.yaml", …], "brief": "…"}
 ou, si aucun dossier ne correspond : {"found": false, "reason": "…"}
@@ -86,6 +86,8 @@ Décisions structurantes datées, les plus récentes d'abord (10 max).
 Hypothèses, variantes, résultats, décisions du journal de tests (les plus récents, 8 max).
 ### Règles & points d'attention
 Règles non négociables du compte, anomalies connues (ex. fuseau horaire du compte, accès partiel), exclusions.
+### Personas
+Seulement si brain/recherche/personas.md existe ET porte « statut: confirme » dans son frontmatter : une ligne par persona (nom, qui c'est, message principal), dans l'ordre de priorité, 7 max. Un fichier « a_confirmer » ou « brouillon » = section omise.
 
 RÈGLES
 - Uniquement ce que disent les fichiers : n'invente rien, ne complète pas avec des généralités. Une valeur absente = ne pas la mentionner.

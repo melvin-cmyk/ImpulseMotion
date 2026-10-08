@@ -231,9 +231,29 @@ model Dashboard {
   reports          ClientReport[]
   sources          DashboardSource[]
   bot              ClientBot?
+  personaDraft     PersonaDraft?
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+/// Persona draft of a client, written by the AI from the client's reviews,
+/// ads and HQ folder, kept here until a consultant confirms it: only then is it
+/// written to HQ (projects/{hqSlug}/brain/recherche/personas.md), the single
+/// source of truth. One draft per dashboard; a new generation replaces it.
+model PersonaDraft {
+  id          String   @id @default(cuid())
+  dashboardId String   @unique
+  /// Markdown body (without the HQ frontmatter, added at write time).
+  markdown    String   @db.Text
+  /// What the AI was given: {"reviews": chars, "reviewsSource": "…", "ads": n, "hqFiles": [...], "notes": "…"}
+  inputsJson  String   @default("{}") @db.Text
+  /// "hypothese" when no customer reviews were available (HQ rule: never a persona without reviews).
+  kind        String   @default("persona")
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 }
 
 /// A client of the automatic alerting (lib/auto-alerts/clients.ts): every ad
