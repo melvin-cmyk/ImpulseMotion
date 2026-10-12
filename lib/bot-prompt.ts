@@ -42,10 +42,22 @@ export interface BotDataCoverage {
   statuses?: Record<string, number> | null;
 }
 
+/** Mirror of `DatasetSummary` in lib/client-datasets.ts (kept loose on purpose). */
+export interface BotDatasetInfo {
+  datasetKey: string;
+  name: string;
+  description?: string | null;
+  rowCount: number;
+  columns?: Array<{ name: string; type?: string | null }> | null;
+  loadedAt?: Date | string | null;
+}
+
 export interface BuildBotPromptInput {
   bot: BotPromptBot;
   dashboard: BotPromptDashboard;
   coverage?: BotDataCoverage | null;
+  /** Data files loaded for this client (lib/client-datasets.ts). None → the source is not offered, even when ticked. */
+  datasets?: BotDatasetInfo[] | null;
   /** TikTok advertisers attached to the dashboard (lib/tiktok-accounts.ts). None → TikTok is not offered, even when ticked. */
   tiktokAdvertiserIds?: string[] | null;
   /** Injected for tests; defaults to now. */
@@ -187,7 +199,22 @@ function coverageLines(coverage: BotDataCoverage | null | undefined): string[] {
   return lines;
 }
 
-function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | undefined, tiktokIds: string[]): string {
+function datasetLines(datasets: BotDatasetInfo[]): string[] {
+  const lines: string[] = [];
+  for (const d of datasets.slice(0, 20)) {
+    const cols = (d.columns ?? []).slice(0, 25).map((c) => (c.type && c.type !== "text" ? `${c.name} (${c.type})` : c.name)).join(", ");
+    const loaded = ymd(d.loadedAt);
+    lines.push(
+      `  - « ${d.name} » (clé ${d.datasetKey}, ${fmtInt(d.rowCount)} lignes${loaded ? `, chargé le ${loaded}` : ""})` +
+        (d.description?.trim() ? ` : ${d.description.trim()}` : "") +
+        (cols ? `. Colonnes : ${cols}.` : "."),
+    );
+  }
+  if (datasets.length > 20) lines.push(`  - … et ${fmtInt(datasets.length - 20)} autres jeux (data_datasets les liste tous).`);
+  return lines;
+}
+
+function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | undefined, tiktokIds: string[], datasets: BotDatasetInfo[]): string {
   const lines: string[] = ["SOURCES DISPONIBLES"];
   let n = 0;
 
@@ -234,6 +261,15 @@ function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | un
       ...coverageLines(coverage),
     );
   }
+  if (sources.files && datasets.length) {
+    n++;
+    lines.push(
+      `${n}. Fichiers de données déposés par l'équipe Impulse Analytics — outils data_datasets (liste et colonnes) et data_dataset_query (lignes, filtres, regroupements, sommes).`,
+      "  Ce sont des extraits fournis par le client ou l'agence (ventes, stocks, CRM, objectifs…) : fie-toi à la description de chaque jeu pour savoir ce qu'il contient, et aux types de colonnes pour agréger (number) ou filtrer par période (date). Désigne chaque jeu par son nom, jamais par sa clé technique.",
+      "  Une photo à la date de chargement : si la question dépasse la période couverte, dis-le. Un résultat annoncé tronqué ne donne pas un total : agrège ou pagine.",
+      ...datasetLines(datasets),
+    );
+  }
 
   if (n === 0) {
     lines.push(
@@ -254,6 +290,7 @@ export function buildBotSystemPrompt(input: BuildBotPromptInput): string {
   const sources = input.bot.sources ?? parseSources(input.bot.sourcesJson);
   // Ticked AND attached: a source with no advertiser behind it is not announced.
   const tiktokIds = sources.tiktok ? (input.tiktokAdvertiserIds ?? []).filter(Boolean) : [];
+  const datasets = sources.files ? (input.datasets ?? []).filter((d) => d && d.rowCount > 0) : [];
   const botName = input.bot.name.trim() || "Assistant";
   const dashboardName = input.dashboard.name.trim() || "votre marque";
 
@@ -264,7 +301,7 @@ export function buildBotSystemPrompt(input: BuildBotPromptInput): string {
     dataRulesBlock(),
     methodBlock(),
     contextBlock(input.bot.businessContext ?? ""),
-    sourcesBlock(sources, input.coverage, tiktokIds),
+    sourcesBlock(sources, input.coverage, tiktokIds, datasets),
     // Last on purpose: the date changes daily and the coverage on every
     // ingest — keeping them at the tail leaves the rest as a stable prefix
     // for the provider's prompt cache.
@@ -283,6 +320,7 @@ export function suggestionsForSources(sources: BotSources): string[] {
   if (sources.google) out.push("Quel est le coût par conversion de mes campagnes Google Ads ce mois-ci ?");
   if (sources.tiktok) out.push("Quelles campagnes TikTok ont le mieux fonctionné sur les 7 derniers jours ?");
   if (sources.ga4PropertyId) out.push("Quelles sont mes principales sources de trafic sur les 30 derniers jours ?");
+  if (sources.files) out.push("Que contiennent les fichiers de données partagés avec vous ?");
   if (sources.data) out.push("Quelle part de mes commandes vient de nouveaux clients ?");
   if (sources.meta && sources.google) out.push("Compare la dépense et les conversions Meta et Google Ads cette semaine.");
   if (out.length === 0) {

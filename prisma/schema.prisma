@@ -456,8 +456,10 @@ model ClientBot {
   clientKey       String            @unique
   /// Admin-written business context injected into the system prompt
   businessContext String            @default("") @db.Text
-  /// JSON { meta: boolean, google: boolean, ga4PropertyId?: string, data: boolean }
+  /// JSON { meta: boolean, google: boolean, tiktok?: boolean, ga4PropertyId?: string, data: boolean, files?: boolean }
   sourcesJson     String            @default("{}") @db.Text
+  /// Google Drive folder (data@ Drive) whose CSV / XLSX / Sheets n8n loads into client_data.datasets
+  driveFolderId   String?           @unique
   /// sha256 of the bearer token n8n uses on POST /api/ingest/* — never stored in clear
   ingestTokenHash String?
   lastIngestAt    DateTime?

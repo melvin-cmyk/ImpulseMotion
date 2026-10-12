@@ -664,7 +664,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false }) {
+function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -719,7 +719,9 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
       mcpServers[name] = {
         command: "node",
         args: [CLIENT_DATA_MCP_SCRIPT],
-        env: { CLIENT_KEY: clientKey, DATA_DATABASE_URL: dataUrl },
+        // Tool families the bot may use (orders = e-commerce warehouse, datasets =
+        // files of its Drive folder); the server exposes only those.
+        env: { CLIENT_KEY: clientKey, DATA_DATABASE_URL: dataUrl, ...(dataTools ? { CLIENT_DATA_TOOLS: dataTools } : {}) },
       };
       kept.push(name);
       continue;
@@ -921,6 +923,11 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     dataScope && typeof dataScope === "object" && typeof dataScope.ga4PropertyId === "string" && dataScope.ga4PropertyId.trim()
       ? dataScope.ga4PropertyId.trim().slice(0, 64)
       : null;
+  // Closed list of client-data tool families; absent → the server's default (both).
+  const dataTools =
+    dataScope && typeof dataScope === "object" && Array.isArray(dataScope.tools)
+      ? dataScope.tools.filter((t) => t === "orders" || t === "datasets").join(",") || null
+      : null;
   // HQ carries the agency owner's identity: never for a client bot (dataScope,
   // or an explicit `provider: "bedrock"` caller). A staff chat pushed onto
   // Bedrock by the quota fallback keeps HQ, through the host's local "hq"
@@ -982,7 +989,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       catch (err) { gwsAuthState = { error: err.message }; }
     }
   }
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, workspaceDir, gwsAuthState, clientBot });
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, workspaceDir, gwsAuthState, clientBot, dataTools });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -1016,7 +1023,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   // scope fingerprint is unchanged, and which is not being restarted (a
   // single-message thread = "nouvelle conversation"). Anything else starts a
   // fresh session, replaying whatever history the caller sent.
-  const fingerprint = scopeFingerprint({ servers, toolPatterns, accountScope: accountScope ?? null, clientKey, ga4PropertyId, useBedrock, model });
+  const fingerprint = scopeFingerprint({ servers, toolPatterns, accountScope: accountScope ?? null, clientKey, ga4PropertyId, dataTools, useBedrock, model });
   const existing = sessionKey ? sessions[sessionKey] : null;
   const canResume = !!existing && messages.length > 1 && existing.fingerprint === fingerprint && fs.existsSync(transcriptPath(existing.id));
   if (sessionKey && existing && !canResume) forgetSession(sessionKey);

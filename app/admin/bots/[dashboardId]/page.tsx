@@ -4,7 +4,15 @@ import { useEffect, useState, useCallback, use } from "react";
 import Link from "next/link";
 import { Card, Pill } from "@/components/ui/surface";
 
-type BotSources = { meta?: boolean; google?: boolean; tiktok?: boolean; ga4PropertyId?: string; data?: boolean };
+type BotSources = {
+  meta?: boolean;
+  google?: boolean;
+  tiktok?: boolean;
+  ga4PropertyId?: string;
+  data?: boolean;
+  /** Fichiers CSV / Excel / Sheets déposés dans le dossier Drive du client. */
+  files?: boolean;
+};
 type Dashboard = {
   id: string;
   name: string;
@@ -21,6 +29,8 @@ type Bot = {
   clientKey: string;
   businessContext: string;
   sources: BotSources;
+  /** Identifiant du dossier Google Drive où le consultant dépose les fichiers de données. */
+  driveFolderId: string | null;
   lastIngestAt: string | null;
   lastIngestRows: number | null;
   updatedAt: string;
@@ -40,6 +50,22 @@ type FormState = {
   clientKey: string;
   businessContext: string;
   sources: BotSources;
+  /** Lien ou identifiant du dossier Drive (normalisé en identifiant par l'API). */
+  driveFolderId: string;
+};
+
+type DatasetColumn = { name: string; type: "text" | "number" | "date"; sample?: string | null };
+type DatasetSummary = {
+  clientKey: string;
+  datasetKey: string;
+  name: string;
+  description: string | null;
+  columns: DatasetColumn[];
+  rowCount: number;
+  source: { driveFileId?: string; fileName?: string; mimeType?: string; modifiedTime?: string; folderId?: string };
+  lastError: string | null;
+  loadedAt: string | null;
+  updatedAt: string | null;
 };
 
 const inputCls =
@@ -71,6 +97,7 @@ function formToState(bot: Bot | null, dashboard: Dashboard, suggestedClientKey: 
       businessContext: bot.businessContext,
       // Sans compte TikTok rattaché, le bot ne lit rien de TikTok : la case s'affiche décochée.
       sources: { ...bot.sources, tiktok: Boolean(bot.sources.tiktok) && dashboard.tiktokAccounts > 0 },
+      driveFolderId: bot.driveFolderId ?? "",
     };
   }
   return {
@@ -83,7 +110,21 @@ function formToState(bot: Bot | null, dashboard: Dashboard, suggestedClientKey: 
       google: Boolean(dashboard.googleCustomerId),
       data: false,
     },
+    driveFolderId: "",
   };
+}
+
+const COLUMN_TYPE_LABEL: Record<DatasetColumn["type"], string | null> = { text: null, number: "nombre", date: "date" };
+
+/** Résumé lisible des colonnes : « ca (nombre), magasin, semaine (date) +3 ». */
+function summarizeColumns(columns: DatasetColumn[], max = 8): string {
+  if (!columns.length) return "—";
+  const shown = columns.slice(0, max).map((c) => {
+    const t = COLUMN_TYPE_LABEL[c.type];
+    return t ? `${c.name} (${t})` : c.name;
+  });
+  const rest = columns.length - shown.length;
+  return rest > 0 ? `${shown.join(", ")} +${rest}` : shown.join(", ");
 }
 
 function CopyButton({ value, label = "Copier" }: { value: string; label?: string }) {
@@ -123,6 +164,10 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
   const [accessError, setAccessError] = useState<string | null>(null);
   const [lastGranted, setLastGranted] = useState<{ email: string; password?: string; created: boolean } | null>(null);
 
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [folderStatus, setFolderStatus] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [datasetsRefresh, setDatasetsRefresh] = useState(0);
+
   const [tokenBusy, setTokenBusy] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [issuedToken, setIssuedToken] = useState<{ token: string; ingestUrl: string } | null>(null);
@@ -159,6 +204,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
         clientKey: form.clientKey,
         businessContext: form.businessContext,
         sources: form.sources,
+        driveFolderId: form.driveFolderId,
       }),
     });
     const json = await res.json().catch(() => ({}));
@@ -174,6 +220,31 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
         : prev,
     );
     setForm(formToState(json.bot, data!.dashboard, json.bot.clientKey));
+  }
+
+  /** Enregistre seulement le dossier Drive (la section est hors du formulaire principal). */
+  async function saveFolder() {
+    if (!form) return;
+    setFolderBusy(true);
+    setFolderStatus(null);
+    const res = await fetch(`/api/admin/bots/${dashboardId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ driveFolderId: form.driveFolderId.trim() }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setFolderBusy(false);
+    if (!res.ok) {
+      setFolderStatus({ tone: "error", text: json.error || "Enregistrement échoué" });
+      return;
+    }
+    const nextBot = json.bot as Bot;
+    setFolderStatus({ tone: "ok", text: nextBot.driveFolderId ? "Dossier enregistré" : "Dossier retiré" });
+    setData((prev) =>
+      prev ? { ...prev, bot: nextBot, accesses: json.accesses, ingestConfigured: json.ingestConfigured } : prev,
+    );
+    setForm((prev) => (prev ? { ...prev, driveFolderId: nextBot.driveFolderId ?? "" } : prev));
+    setDatasetsRefresh((n) => n + 1);
   }
 
   async function grantAccess(e: React.FormEvent) {
@@ -348,6 +419,17 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                   onChange={(v) => setForm({ ...form, sources: { ...sources, data: v } })}
                   label="Données e-commerce"
                   hint="Commandes réelles (entrepôt client_data, alimenté par n8n)"
+                />
+                <SourceToggle
+                  checked={Boolean(sources.files)}
+                  onChange={(v) => setForm({ ...form, sources: { ...sources, files: v } })}
+                  label="Fichiers de données (Drive)"
+                  hint={
+                    form.driveFolderId.trim()
+                      ? "Fichiers CSV / Excel / Google Sheets du dossier Drive du client"
+                      : "Indiquez d'abord le dossier Drive du client, ci-dessous"
+                  }
+                  disabled={!form.driveFolderId.trim()}
                 />
                 <label className="flex flex-col gap-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2">
                   <span className="text-sm text-white">GA4</span>
@@ -531,6 +613,244 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
           </div>
         )}
       </section>
+
+      <section>
+        <h2 className={sectionTitleCls}>Fichiers de données (Google Drive)</h2>
+        {!bot ? (
+          <p className="text-sm text-gray-500">Créez le bot pour lui rattacher un dossier Drive.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <Card padded className="!p-4">
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Déposez des fichiers <span className="text-gray-200">CSV, Excel ou Google Sheets</span> dans le dossier Drive du
+                client (Drive de <code className="text-gray-200">data@impulse-analytics.com</code>) : n8n les récupère sous
+                une quinzaine de minutes. Première ligne = en-têtes de colonnes, un seul sujet par fichier ; le nom du fichier
+                devient le nom du jeu de données. Un fichier redéposé sous le même nom remplace la version précédente (200 000
+                lignes maximum par fichier). Le bot ne lit ces fichiers que si la source « Fichiers de données (Drive) » est
+                cochée ci-dessus.
+              </p>
+            </Card>
+
+            <Card padded>
+              <div className="flex flex-col gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-gray-400">Dossier Drive du client</span>
+                  <input
+                    type="text"
+                    value={form.driveFolderId}
+                    onChange={(e) => {
+                      setFolderStatus(null);
+                      setForm({ ...form, driveFolderId: e.target.value });
+                    }}
+                    className={`${inputCls} font-mono text-xs`}
+                    placeholder="Lien du dossier ou identifiant Drive"
+                  />
+                  <span className="text-[11px] text-gray-500">
+                    Collez le lien du dossier (…/drive/folders/ID). Le dossier doit être dans le Drive de
+                    data@impulse-analytics.com ou partagé avec cette adresse. Vide = aucun dossier.
+                  </span>
+                </label>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={saveFolder}
+                    disabled={folderBusy || form.driveFolderId.trim() === (bot.driveFolderId ?? "")}
+                    className={secondaryBtnCls}
+                  >
+                    {folderBusy ? "Enregistrement…" : "Enregistrer le dossier"}
+                  </button>
+                  {bot.driveFolderId && (
+                    <a
+                      href={`https://drive.google.com/drive/folders/${bot.driveFolderId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-violet-300 hover:text-violet-200 underline"
+                    >
+                      Ouvrir dans Drive
+                    </a>
+                  )}
+                  {folderStatus && (
+                    <span className={`text-xs ${folderStatus.tone === "ok" ? "text-emerald-400" : "text-red-400"}`}>
+                      {folderStatus.text}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            <DriveDatasets dashboardId={dashboardId} hasFolder={Boolean(bot.driveFolderId)} refreshKey={datasetsRefresh} />
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/** Liste des jeux de données chargés depuis le dossier Drive, avec description éditable et retrait. */
+function DriveDatasets({ dashboardId, hasFolder, refreshKey }: { dashboardId: string; hasFolder: boolean; refreshKey: number }) {
+  const [datasets, setDatasets] = useState<DatasetSummary[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [rowStatus, setRowStatus] = useState<{ key: string; tone: "ok" | "error"; text: string } | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setWarning(null);
+    try {
+      const res = await fetch(`/api/admin/bots/${dashboardId}/datasets`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(json.error || "Impossible de lire l'entrepôt de données");
+        setDatasets([]);
+        return;
+      }
+      const list = (json.datasets ?? []) as DatasetSummary[];
+      setDatasets(list);
+      if (json.warning) setWarning(String(json.warning));
+      // Les brouillons de description repartent de la valeur enregistrée.
+      setDrafts(Object.fromEntries(list.map((d) => [d.datasetKey, d.description ?? ""])));
+    } catch {
+      setError("Impossible de joindre l'API");
+      setDatasets([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [dashboardId]);
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
+
+  async function saveDescription(ds: DatasetSummary) {
+    setBusyKey(ds.datasetKey);
+    setRowStatus(null);
+    const res = await fetch(`/api/admin/bots/${dashboardId}/datasets`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ datasetKey: ds.datasetKey, description: drafts[ds.datasetKey] ?? "" }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setBusyKey(null);
+    if (!res.ok) {
+      setRowStatus({ key: ds.datasetKey, tone: "error", text: json.error || "Enregistrement échoué" });
+      return;
+    }
+    setRowStatus({ key: ds.datasetKey, tone: "ok", text: "Description enregistrée" });
+    setDatasets((prev) =>
+      prev ? prev.map((d) => (d.datasetKey === ds.datasetKey ? { ...d, description: drafts[ds.datasetKey] ?? "" } : d)) : prev,
+    );
+  }
+
+  async function remove(ds: DatasetSummary) {
+    if (!confirm(`Retirer « ${ds.name} » ? Le fichier reste dans Drive et sera rechargé s'il est modifié.`)) return;
+    setBusyKey(ds.datasetKey);
+    setRowStatus(null);
+    const res = await fetch(`/api/admin/bots/${dashboardId}/datasets`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ datasetKey: ds.datasetKey }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setBusyKey(null);
+    if (!res.ok) {
+      setRowStatus({ key: ds.datasetKey, tone: "error", text: json.error || "Retrait échoué" });
+      return;
+    }
+    load();
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-gray-400">
+          Fichiers chargés{datasets && datasets.length > 0 ? ` (${datasets.length})` : ""}
+        </span>
+        <button type="button" onClick={load} disabled={loading} className={`${secondaryBtnCls} !px-3 !py-1 text-xs`}>
+          {loading ? "Chargement…" : "Rafraîchir"}
+        </button>
+      </div>
+
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {warning && <p className="text-xs text-amber-300">{warning}</p>}
+
+      {loading && datasets === null ? (
+        <p className="text-sm text-gray-500">Chargement des fichiers…</p>
+      ) : !datasets || datasets.length === 0 ? (
+        !error && (
+          <p className="text-sm text-gray-500">
+            Aucun fichier chargé pour l&apos;instant.{!hasFolder && " Indiquez le dossier Drive ci-dessus."}
+          </p>
+        )
+      ) : (
+        datasets.map((ds) => {
+          const busy = busyKey === ds.datasetKey;
+          const status = rowStatus?.key === ds.datasetKey ? rowStatus : null;
+          const dirty = (drafts[ds.datasetKey] ?? "") !== (ds.description ?? "");
+          return (
+            <Card key={ds.datasetKey} padded className="!p-3 flex flex-col gap-2">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <div className="text-sm text-white font-medium truncate">{ds.name}</div>
+                  <div className="text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
+                    <span>{ds.rowCount.toLocaleString("fr-FR")} lignes</span>
+                    <span>·</span>
+                    <span>chargé le {formatDate(ds.loadedAt)}</span>
+                    {ds.source.fileName && (
+                      <>
+                        <span>·</span>
+                        <span className="truncate" title={ds.source.mimeType ?? undefined}>
+                          {ds.source.fileName}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {ds.lastError && <Pill tone="red">Erreur</Pill>}
+                  <button type="button" onClick={() => remove(ds)} disabled={busy} className={dangerBtnCls}>
+                    Retirer
+                  </button>
+                </div>
+              </div>
+
+              {ds.lastError && <p className="text-xs text-red-400 break-words">{ds.lastError}</p>}
+
+              <div className="text-[11px] text-gray-400">
+                <span className="text-gray-600">Colonnes : </span>
+                {summarizeColumns(ds.columns)}
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <textarea
+                  value={drafts[ds.datasetKey] ?? ""}
+                  onChange={(e) => setDrafts({ ...drafts, [ds.datasetKey]: e.target.value })}
+                  rows={2}
+                  maxLength={1000}
+                  className={`${inputCls} text-xs leading-relaxed`}
+                  placeholder="Décrivez ce que contient ce fichier pour le bot : ex. « Ventes par magasin et par semaine, montants HT »"
+                />
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => saveDescription(ds)}
+                    disabled={busy || !dirty}
+                    className={`${secondaryBtnCls} !px-3 !py-1 text-xs`}
+                  >
+                    {busy ? "Enregistrement…" : "Enregistrer"}
+                  </button>
+                  {status && (
+                    <span className={`text-xs ${status.tone === "ok" ? "text-emerald-400" : "text-red-400"}`}>{status.text}</span>
+                  )}
+                </div>
+              </div>
+            </Card>
+          );
+        })
+      )}
     </div>
   );
 }

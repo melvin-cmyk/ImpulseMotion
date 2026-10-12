@@ -22,8 +22,16 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import pg from "pg";
 import { renderValue } from "./mcp-compact-generic.mjs";
+import { buildDatasetQuery, OPERATORS, AGGREGATES, MAX_LIMIT as DATASET_MAX_LIMIT } from "./dataset-query.mjs";
 
 const CLIENT_KEY = process.env.CLIENT_KEY || "";
+// Which tool families to expose: "orders" (e-commerce warehouse) and/or
+// "datasets" (files dropped in the client's Drive folder). The relay derives
+// it from the bot's ticked sources; absent → both (older relay).
+const TOOL_FAMILIES = new Set(
+  (process.env.CLIENT_DATA_TOOLS || "orders,datasets").split(",").map((s) => s.trim()).filter((s) => s === "orders" || s === "datasets"),
+);
+if (!TOOL_FAMILIES.size) TOOL_FAMILIES.add("orders");
 const DATA_DATABASE_URL = process.env.DATA_DATABASE_URL || "";
 if (!/^[a-z0-9][a-z0-9_-]{1,39}$/.test(CLIENT_KEY)) {
   console.error("[mcp-client-data] CLIENT_KEY manquante ou invalide — refus de démarrer");
@@ -114,6 +122,7 @@ const guarded = (fn) => async (args) => {
 // ── Server ──────────────────────────────────────────────────────────────────
 const server = new McpServer({ name: "client-data", version: "1.0.0" });
 
+if (TOOL_FAMILIES.has("orders")) {
 server.registerTool(
   "data_coverage",
   {
@@ -386,6 +395,103 @@ server.registerTool(
     };
   }),
 );
+}
+
+// ── Datasets (fichiers déposés dans le dossier Drive du client) ─────────────
+if (TOOL_FAMILIES.has("datasets")) {
+  async function loadDataset(key) {
+    if (typeof key !== "string" || !key.trim()) throw new Error("dataset : clé manquante (voir data_datasets).");
+    const k = key.trim().toLowerCase();
+    const rows = await q(
+      `SELECT client_key, dataset_key, name, description, columns, row_count, current_load_id, loaded_at, source
+       FROM client_data.datasets WHERE client_key = $1 AND (dataset_key = $2 OR lower(name) = $2) LIMIT 1`,
+      [CLIENT_KEY, k],
+    );
+    if (!rows.length) throw new Error(`Jeu de données inconnu : « ${key} ». Appelle data_datasets pour la liste.`);
+    return rows[0];
+  }
+
+  server.registerTool(
+    "data_datasets",
+    {
+      title: "Jeux de données déposés",
+      description:
+        "Liste des fichiers de données (CSV, Excel, Google Sheets) déposés pour ce client par l'équipe Impulse Analytics : clé du jeu, " +
+        "nom, description, nombre de lignes, colonnes avec leur type (text, number, date) et un exemple de valeur. " +
+        "À appeler avant data_dataset_query pour connaître les colonnes exactes. Aucun paramètre.",
+      inputSchema: {},
+    },
+    guarded(async () => {
+      const rows = await q(
+        `SELECT dataset_key, name, description, columns, row_count, loaded_at
+         FROM client_data.datasets WHERE client_key = $1 AND current_load_id IS NOT NULL ORDER BY name`,
+        [CLIENT_KEY],
+      );
+      return {
+        datasets: rows.map((r) => ({
+          dataset: r.dataset_key,
+          name: r.name,
+          description: r.description || null,
+          rows: int(r.row_count),
+          loaded_at: r.loaded_at ? new Date(r.loaded_at).toISOString().slice(0, 10) : null,
+          columns: (Array.isArray(r.columns) ? r.columns : []).map((c) => ({ name: c.name, type: c.type, sample: c.sample ?? null })),
+        })),
+      };
+    }),
+  );
+
+  const filterShape = z.object({
+    column: z.string().describe("Nom exact d'une colonne (voir data_datasets)."),
+    op: z.enum(OPERATORS).optional().describe("eq (défaut), neq, gt, gte, lt, lte, contains (texte, insensible à la casse), in (liste), is_null, not_null."),
+    value: z.union([z.string(), z.number(), z.array(z.union([z.string(), z.number()]))]).optional().describe("Valeur comparée (liste pour in). Dates en YYYY-MM-DD."),
+  });
+  const aggregateShape = z.object({
+    fn: z.enum(AGGREGATES).describe("count, count_distinct, sum, avg, min, max."),
+    column: z.string().optional().describe("Colonne agrégée (facultative pour count)."),
+  });
+
+  server.registerTool(
+    "data_dataset_query",
+    {
+      title: "Interroger un jeu de données",
+      description:
+        "Lit un jeu de données déposé (voir data_datasets) : lignes brutes (select) ou agrégats (group_by + aggregates : sum, avg, " +
+        "count, count_distinct, min, max) avec filtres (where) et tri (order_by). Les colonnes se désignent par leur nom exact. " +
+        `${DATASET_MAX_LIMIT} lignes au plus par appel (limit, offset pour la suite) ; la réponse indique s'il reste des lignes. ` +
+        "Exemple : {dataset:'ventes-magasins', group_by:['magasin'], aggregates:[{fn:'sum',column:'ca_ht'}], order_by:[{by:'sum_ca_ht',dir:'desc'}]}.",
+      inputSchema: {
+        dataset: z.string().describe("Clé du jeu (data_datasets → dataset)."),
+        select: z.array(z.string()).optional().describe("Colonnes à renvoyer (lignes brutes). Défaut : toutes."),
+        where: z.array(filterShape).optional().describe("Filtres combinés par ET."),
+        group_by: z.array(z.string()).optional().describe("Colonnes de regroupement."),
+        aggregates: z.array(aggregateShape).optional().describe("Agrégats calculés par groupe (ou sur tout le jeu sans group_by)."),
+        order_by: z.array(z.object({ by: z.string(), dir: z.enum(["asc", "desc"]).optional() })).optional()
+          .describe("Tri sur une colonne du résultat (nom de colonne, ou alias d'agrégat « fn_colonne », ex. sum_ca_ht)."),
+        limit: z.number().int().min(1).max(DATASET_MAX_LIMIT).optional().describe(`Lignes renvoyées (défaut 20 brutes / 50 agrégées, max ${DATASET_MAX_LIMIT}).`),
+        offset: z.number().int().min(0).optional().describe("Lignes à sauter (pagination)."),
+      },
+    },
+    guarded(async (args) => {
+      const ds = await loadDataset(args.dataset);
+      const built = buildDatasetQuery(ds, args);
+      const rows = await q(built.text, built.values);
+      const more = rows.length > built.limit;
+      const page = more ? rows.slice(0, built.limit) : rows;
+      return {
+        dataset: ds.dataset_key,
+        name: ds.name,
+        total_rows_in_dataset: int(ds.row_count),
+        aggregated: built.aggregated,
+        returned: page.length,
+        offset: built.offset,
+        more_rows: more,
+        ...(more ? { note: `Résultat tronqué à ${built.limit} lignes : les totaux ci-dessus ne portent que sur ces lignes. Demande la suite avec offset=${built.offset + built.limit}, ou agrège davantage.` } : {}),
+        columns: built.columns,
+        rows: page.map((r) => built.columns.map((c) => (r[c] instanceof Date ? r[c].toISOString().slice(0, 10) : r[c]))),
+      };
+    }),
+  );
+}
 
 // ── Start ───────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();

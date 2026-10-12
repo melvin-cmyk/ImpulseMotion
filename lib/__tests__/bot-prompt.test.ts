@@ -109,6 +109,24 @@ describe("buildBotSystemPrompt — sources conditionnelles", () => {
     expect(p).not.toContain("mcp__meta-ads-impulse");
   });
 
+  it("fichiers déposés : annoncés avec leurs colonnes seulement si un jeu est chargé", () => {
+    const datasets = [
+      { datasetKey: "ventes-magasins", name: "Ventes Magasins", description: "Ventes par magasin et par semaine, montants HT", rowCount: 1250, loadedAt: "2026-10-12T12:00:00Z",
+        columns: [{ name: "Magasin", type: "text" }, { name: "Semaine", type: "date" }, { name: "CA HT", type: "number" }] },
+      { datasetKey: "vide", name: "Vide", rowCount: 0, columns: [] },
+    ];
+    const p = build(JSON.stringify({ files: true }), { datasets });
+    expect(p).toContain("Fichiers de données déposés par l'équipe Impulse Analytics — outils data_datasets");
+    expect(p).toContain("data_dataset_query");
+    expect(p).toMatch(/« Ventes Magasins » \(clé ventes-magasins, 1\s?250 lignes, chargé le 2026-10-12\) : Ventes par magasin et par semaine, montants HT\. Colonnes : Magasin, Semaine \(date\), CA HT \(number\)\./);
+    expect(p).not.toContain("« Vide »");
+    expect(p).not.toContain("data_sales_summary");
+    // cochée sans aucun jeu chargé → pas annoncée
+    const empty = build(JSON.stringify({ files: true }), { datasets: [] });
+    expect(empty).toContain("Aucune source de données n'est branchée");
+    expect(empty).not.toContain("data_datasets");
+  });
+
   it("data avec couverture", () => {
     const p = build(JSON.stringify({ data: true }), {
       coverage: {
@@ -215,6 +233,10 @@ describe("bot-types helpers", () => {
       "meta-ads-impulse", "mcp-google-ads", "mcp-google-analytics", "client-data",
     ]);
     expect(serversForSources({ data: true })).toEqual(["client-data"]);
+    expect(serversForSources({ files: true })).toEqual(["client-data"]);
+    expect(serversForSources({ data: true, files: true })).toEqual(["client-data"]);
+    expect(parseSources(JSON.stringify({ files: true, data: "yes" }))).toEqual({ files: true });
+    expect(JSON.parse(serializeSources({ files: true }))).toEqual({ files: true });
     expect(serversForSources({ tiktok: true })).toEqual(["mcp-tiktok-ads"]);
     expect(serversForSources({ meta: true, google: true, tiktok: true, ga4PropertyId: "1", data: true })).toEqual([
       "meta-ads-impulse", "mcp-google-ads", "mcp-tiktok-ads", "mcp-google-analytics", "client-data",

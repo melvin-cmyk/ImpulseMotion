@@ -9,6 +9,7 @@ import {
   suggestClientKey,
 } from "@/lib/admin-bots";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
+import { parseDriveFolderId } from "@/lib/client-datasets";
 
 type Ctx = { params: Promise<{ dashboardId: string }> };
 
@@ -28,6 +29,7 @@ const botSelect = {
   clientKey: true,
   businessContext: true,
   sourcesJson: true,
+  driveFolderId: true,
   ingestTokenHash: true,
   lastIngestAt: true,
   lastIngestRows: true,
@@ -80,7 +82,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   });
 }
 
-/** Upsert du bot : { enabled?, name?, clientKey?, businessContext?, sources? }. */
+/** Upsert du bot : { enabled?, name?, clientKey?, businessContext?, sources?, driveFolderId? (lien ou identifiant Drive, "" pour retirer) }. */
 export async function PUT(req: Request, { params }: Ctx) {
   const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
@@ -106,6 +108,18 @@ export async function PUT(req: Request, { params }: Ctx) {
   }
   if (body.sources && typeof body.sources === "object") {
     data.sourcesJson = JSON.stringify(sanitizeBotSources(body.sources));
+  }
+  if (typeof body.driveFolderId === "string") {
+    if (!body.driveFolderId.trim()) data.driveFolderId = null;
+    else {
+      const folderId = parseDriveFolderId(body.driveFolderId);
+      if (!folderId) return NextResponse.json({ error: "Dossier Drive illisible : collez le lien du dossier ou son identifiant" }, { status: 400 });
+      const taken = await prisma.clientBot.findUnique({ where: { driveFolderId: folderId }, select: { dashboardId: true } });
+      if (taken && taken.dashboardId !== dashboardId) {
+        return NextResponse.json({ error: "Ce dossier Drive est déjà rattaché à un autre client" }, { status: 409 });
+      }
+      data.driveFolderId = folderId;
+    }
   }
 
   let clientKey: string | undefined;
@@ -136,13 +150,18 @@ export async function PUT(req: Request, { params }: Ctx) {
         clientKey: clientKey ?? (await suggestClientKey(dashboard.name)),
         businessContext: typeof data.businessContext === "string" ? data.businessContext : "",
         sourcesJson: typeof data.sourcesJson === "string" ? data.sourcesJson : "{}",
+        driveFolderId: typeof data.driveFolderId === "string" ? data.driveFolderId : null,
       },
       select: botSelect,
     });
     return NextResponse.json(serializeBot(bot));
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      return NextResponse.json({ error: "clientKey déjà utilisé par un autre client" }, { status: 409 });
+      const target = Array.isArray(e.meta?.target) ? (e.meta.target as string[]).join(",") : String(e.meta?.target ?? "");
+      return NextResponse.json(
+        { error: target.includes("driveFolderId") ? "Ce dossier Drive est déjà rattaché à un autre client" : "clientKey déjà utilisé par un autre client" },
+        { status: 409 },
+      );
     }
     throw e;
   }

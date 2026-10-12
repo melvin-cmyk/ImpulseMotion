@@ -36,6 +36,7 @@ export function sanitizeBotSources(raw: Record<string, unknown>): BotSources {
   if (typeof raw.google === "boolean") out.google = raw.google;
   if (typeof raw.tiktok === "boolean") out.tiktok = raw.tiktok;
   if (typeof raw.data === "boolean") out.data = raw.data;
+  if (typeof raw.files === "boolean") out.files = raw.files;
   if (typeof raw.ga4PropertyId === "string") {
     const id = raw.ga4PropertyId.trim().replace(/^properties\//, "");
     if (id) out.ga4PropertyId = id;

@@ -17,6 +17,8 @@ export interface BotSources {
   ga4PropertyId?: string;
   /** E-commerce warehouse (client_data schema) → MCP server "client-data" */
   data?: boolean;
+  /** Data files (CSV / XLSX / Sheets) dropped in the client's Drive folder → MCP server "client-data" (dataset tools) */
+  files?: boolean;
 }
 
 export interface BotMessage {
@@ -38,6 +40,7 @@ export function parseSources(json: string | null | undefined): BotSources {
   if (o.google === true) out.google = true;
   if (o.tiktok === true) out.tiktok = true;
   if (o.data === true) out.data = true;
+  if (o.files === true) out.files = true;
   if (typeof o.ga4PropertyId === "string") {
     const id = o.ga4PropertyId.trim().replace(/^properties\//, "");
     if (id) out.ga4PropertyId = id;
@@ -52,6 +55,7 @@ export function serializeSources(sources: BotSources | null | undefined): string
   if (sources?.google) out.google = true;
   if (sources?.tiktok) out.tiktok = true;
   if (sources?.data) out.data = true;
+  if (sources?.files) out.files = true;
   const ga4 = sources?.ga4PropertyId?.trim().replace(/^properties\//, "");
   if (ga4) out.ga4PropertyId = ga4;
   return JSON.stringify(out);
@@ -84,7 +88,7 @@ export function serversForSources(sources: BotSources): string[] {
   if (sources.google) servers.push("mcp-google-ads");
   if (sources.tiktok) servers.push("mcp-tiktok-ads");
   if (sources.ga4PropertyId) servers.push("mcp-google-analytics");
-  if (sources.data) servers.push("client-data");
+  if (sources.data || sources.files) servers.push("client-data");
   return servers;
 }
 

@@ -43,6 +43,10 @@ vi.mock("@/lib/ai-usage", () => ({
   recordBotUsage: async () => undefined,
   parseUsageEvent: () => null,
 }));
+let datasets: Array<Record<string, unknown>> = [];
+vi.mock("@/lib/client-datasets", () => ({
+  listDatasets: async () => datasets,
+}));
 vi.mock("@/lib/tiktok-accounts", () => ({
   getDashboardTikTokIds: async (dashboardId: string) => {
     tiktokLookups.push(dashboardId);
@@ -62,6 +66,7 @@ vi.mock("@/lib/relay-chat", async (original) => {
 });
 
 import { POST } from "@/app/api/bot/[botId]/chat/route";
+import { resetBotContextMemos } from "@/lib/bot-context";
 
 /** One turn of the client; returns what the route asked of the relay. */
 async function ask(sources: Record<string, unknown>, body: Record<string, unknown> = {}): Promise<RelayChatBody> {
@@ -81,6 +86,8 @@ const TIKTOK = "mcp-tiktok-ads";
 const IDS = ["7000000000000000001", "7000000000000000002"];
 
 beforeEach(() => {
+  resetBotContextMemos();
+  datasets = [];
   attached = {};
   tiktokLookups.length = 0;
   relayCalls.length = 0;
@@ -104,6 +111,31 @@ describe("POST /api/bot/[botId]/chat — Bedrock pour les clients seulement", ()
       expect(body.clientBot).toBe(true);
       expect(body.accountScope).toEqual({ meta: ["act_1"] });
     }
+  });
+});
+
+describe("POST /api/bot/[botId]/chat — fichiers de données (Drive)", () => {
+  it("asks the client-data server for the dataset tools only, and lists the datasets in the prompt", async () => {
+    datasets = [{ datasetKey: "ventes", name: "Ventes", rowCount: 10, columns: [{ name: "CA", type: "number" }] }];
+    const body = await ask({ files: true });
+    expect(body.allowedServers).toEqual(["client-data"]);
+    expect(body.dataScope).toEqual({ clientKey: "lpev", ga4PropertyId: undefined, tools: ["datasets"] });
+    expect(body.systemPrompt).toContain("data_dataset_query");
+    expect(body.systemPrompt).toContain("« Ventes »");
+    expect(body.systemPrompt).not.toContain("data_sales_summary");
+  });
+
+  it("asks for both families when orders and files are ticked", async () => {
+    datasets = [{ datasetKey: "ventes", name: "Ventes", rowCount: 10, columns: [] }];
+    const body = await ask({ data: true, files: true });
+    expect(body.dataScope?.tools).toEqual(["orders", "datasets"]);
+  });
+
+  it("drops the source for the turn when no dataset is loaded", async () => {
+    const body = await ask({ meta: true, files: true });
+    expect(body.allowedServers).toEqual(["meta-ads-impulse"]);
+    expect(body.dataScope).toBeUndefined();
+    expect(body.systemPrompt).not.toContain("data_datasets");
   });
 });
 

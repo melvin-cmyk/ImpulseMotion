@@ -5,7 +5,7 @@
  * The route owns persistence so the browser never writes messages itself:
  *   1. loads the caller's conversation (owner = session.userId, else 404);
  *   2. builds the system prompt (business context + enabled sources + data
- *      coverage) and calls the relay with MCP servers derived from the sources,
+ *      coverage + loaded datasets, memoised in lib/bot-context.ts) and calls the relay with MCP servers derived from the sources,
  *      account / data scopes derived from the dashboard (server-side scoping:
  *      the model never picks an account or a client_key; the TikTok
  *      advertisers are the ones attached to the dashboard);
@@ -24,7 +24,8 @@ import { prisma } from "@/lib/prisma";
 import { isStaff, requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
 import { parseMessages, parseSources, serializeMessages, serversForSources, type BotMessage } from "@/lib/bot-types";
-import { buildBotSystemPrompt, type BotDataCoverage } from "@/lib/bot-prompt";
+import { buildBotSystemPrompt } from "@/lib/bot-prompt";
+import { loadBotCoverage, loadBotDatasets } from "@/lib/bot-context";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { relayStream, teeRelayStream, type RelayChatBody, type RelayMessage } from "@/lib/relay-chat";
 
@@ -35,37 +36,6 @@ const MAX_MESSAGE_CHARS = 12000;
 const TITLE_CHARS = 60;
 /** Under maxDuration, leaving room for the persistence write after `done`. */
 const BUDGET_MS = 105_000;
-
-/**
- * Data coverage for the prompt. `lib/client-data.ts` (warehouse access) is
- * owned by another part of the codebase and may be absent or unconfigured
- * (no DATA_DATABASE_URL); either way the bot must still answer.
- */
-// The coverage lines change only when the warehouse ingests; re-querying it
-// on every turn (5 s timeout) is wasted latency and busts the prompt prefix.
-const COVERAGE_TTL_MS = 10 * 60 * 1000;
-const coverageMemo = new Map<string, { at: number; value: BotDataCoverage | null }>();
-
-async function loadCoverage(clientKey: string): Promise<BotDataCoverage | null> {
-  const hit = coverageMemo.get(clientKey);
-  if (hit && Date.now() - hit.at < COVERAGE_TTL_MS) return hit.value;
-  const value = await loadCoverageUncached(clientKey);
-  coverageMemo.set(clientKey, { at: Date.now(), value });
-  return value;
-}
-
-async function loadCoverageUncached(clientKey: string): Promise<BotDataCoverage | null> {
-  try {
-    const mod = (await import("@/lib/client-data")) as {
-      getCoverage?: (key: string) => Promise<BotDataCoverage | null>;
-    };
-    if (typeof mod.getCoverage !== "function") return null;
-    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
-    return await Promise.race([mod.getCoverage(clientKey), timeout]);
-  } catch {
-    return null;
-  }
-}
 
 function toRelayMessages(history: BotMessage[]): RelayMessage[] {
   return history
@@ -109,8 +79,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   const userMessage: BotMessage = { role: "user", content: message, at: new Date().toISOString() };
   const thread = [...history, userMessage];
 
-  const coverage = sources.data ? await loadCoverage(bot.clientKey) : null;
-  const systemPrompt = buildBotSystemPrompt({ bot: { ...bot, sources }, dashboard: bot.dashboard, coverage, tiktokAdvertiserIds: tiktokIds });
+  const coverage = sources.data ? await loadBotCoverage(bot.clientKey) : null;
+  // Files: announced only when at least one dataset is loaded (a ticked source
+  // with nothing behind it is dropped for this turn, like TikTok).
+  const datasets = sources.files ? await loadBotDatasets(bot.clientKey) : [];
+  if (!datasets.length) delete sources.files;
+  const systemPrompt = buildBotSystemPrompt({ bot: { ...bot, sources }, dashboard: bot.dashboard, coverage, tiktokAdvertiserIds: tiktokIds, datasets });
 
   const accountScope: NonNullable<RelayChatBody["accountScope"]> = {};
   if (sources.meta && bot.dashboard.metaAccountId) accountScope.meta = [bot.dashboard.metaAccountId];
@@ -131,8 +105,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   // admin trying a bot runs it on the agency's Claude Max accounts (rule of
   // 2026-10-01, Melvin).
   if (!isStaff(guard.session)) relayBody.provider = "bedrock";
-  if (sources.data || sources.ga4PropertyId) {
-    relayBody.dataScope = { clientKey: bot.clientKey, ga4PropertyId: sources.ga4PropertyId };
+  if (sources.data || sources.files || sources.ga4PropertyId) {
+    const tools: Array<"orders" | "datasets"> = [];
+    if (sources.data) tools.push("orders");
+    if (sources.files) tools.push("datasets");
+    relayBody.dataScope = { clientKey: bot.clientKey, ga4PropertyId: sources.ga4PropertyId, ...(tools.length ? { tools } : {}) };
   }
 
   const upstream = await relayStream(relayBody);

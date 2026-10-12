@@ -36,7 +36,7 @@ export interface RelayChatBody {
    * "client-data" côté relay (le LLM ne choisit jamais le client_key) ;
    * `ga4PropertyId` est ajouté aux restrictions de périmètre du prompt.
    */
-  dataScope?: { clientKey: string; ga4PropertyId?: string };
+  dataScope?: { clientKey: string; ga4PropertyId?: string; tools?: Array<"orders" | "datasets"> };
   /** Session budget requested from the relay (ms). Capped server-side. */
   budgetMs?: number;
   /** Inference backend. "bedrock" = the agency's AWS account (EU region),
