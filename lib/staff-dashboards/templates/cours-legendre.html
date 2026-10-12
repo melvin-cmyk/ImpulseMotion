@@ -1,0 +1,837 @@
+<style>
+.cl{font-family:var(--font-anthropic-sans);display:flex;flex-direction:column;gap:var(--cds-gap-lg)}
+.cl-head h1{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);margin:0}
+.cl-take{color:var(--color-fg-muted);font-size:var(--cds-font-size-body);margin:var(--cds-gap-xs) 0 0;max-width:62rem}
+.cl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr));gap:var(--cds-gap-md)}
+.cl-card{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg)}
+.cl-kpi .lab{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cl-kpi .val{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);font-variant-numeric:tabular-nums;margin-top:var(--cds-gap-xs)}
+.cl-kpi .sub{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:var(--cds-gap-xs)}
+.cl-h{font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium);margin:0 0 var(--cds-gap-xs)}
+.cl-note{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin:0 0 var(--cds-gap-md)}
+.cl-alerts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.cl-alerts li{display:flex;gap:var(--cds-gap-sm);align-items:baseline;font-size:var(--cds-font-size-body)}
+.cl-dot{width:.5rem;height:.5rem;border-radius:50%;flex:none;transform:translateY(-.1rem);background:var(--cds-chart-muted)}
+.cl-dot.critique{background:var(--cds-chart-status-critical)}
+.cl-dot.attention{background:var(--color-warn)}
+.cl-dot.info{background:var(--cds-chart-muted)}
+.cl-wrap{overflow-x:auto}
+.cl-t{width:100%;border-collapse:collapse;font-size:var(--cds-font-size-body);font-variant-numeric:tabular-nums}
+.cl-t th{text-align:right;font-weight:var(--cds-font-weight-medium);color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);padding:var(--cds-pad-xs) var(--cds-pad-sm);border-bottom:1px solid var(--color-border-line);white-space:nowrap}
+.cl-t td{text-align:right;padding:var(--cds-pad-xs) var(--cds-pad-sm);border-bottom:1px solid var(--color-border-line);white-space:nowrap}
+.cl-t th:first-child,.cl-t td:first-child{text-align:left}
+.cl-t td.st-bad{color:var(--color-bad)}
+.cl-t td.st-warn{color:var(--color-warn)}
+.cl-t td.st-ok{color:var(--color-ok)}
+.cl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr));gap:var(--cds-gap-md)}
+.cl-chart{position:relative;min-height:12rem}
+.cl-legend{display:flex;gap:var(--cds-gap-md);font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:var(--cds-gap-sm)}
+.cl-legend span{display:inline-flex;align-items:center;gap:var(--cds-gap-xs)}
+.cl-sw{width:.75rem;height:.5rem;border-radius:2px;display:inline-block}
+.cl-tip{position:absolute;background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-xs) var(--cds-pad-sm);font-size:var(--cds-font-size-caption);pointer-events:none;display:none;white-space:nowrap}
+.cl-tip .t{color:var(--cds-text-secondary)}
+.cl-rythme{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:var(--cds-gap-md)}
+.cl-rythme .cl-kpi{display:flex;flex-direction:column;justify-content:space-between}
+.cl-bar{height:.6rem;border-radius:999px;background:var(--cds-chart-grid);margin-top:var(--cds-gap-sm);overflow:hidden}
+.cl-bar > i{display:block;height:100%;border-radius:999px;width:0}
+.cl-bar-legend{display:flex;justify-content:space-between;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:var(--cds-gap-xs);font-variant-numeric:tabular-nums}
+.cl-kpi.warn{box-shadow:inset 0 0 0 2px var(--color-warn)}
+.cl-kpi.warn .val{color:var(--color-warn)}
+.cl-delta{font-size:var(--cds-font-size-caption);margin-top:var(--cds-gap-xs)}
+.cl-toolbar{display:flex;justify-content:space-between;align-items:center;gap:var(--cds-gap-md);flex-wrap:wrap}
+.cl-btn{font:inherit;font-size:var(--cds-font-size-caption);padding:var(--cds-pad-xs) var(--cds-pad-md);border-radius:var(--cds-radius);border:1px solid var(--color-border-line);background:var(--color-panel);color:var(--color-fg);cursor:pointer}
+.cl-btn:hover{border-color:var(--color-fg-muted)}
+.cl-tabs{display:flex;gap:var(--cds-gap-xs);flex-wrap:wrap;margin:var(--cds-gap-sm) 0}
+.cl-tab{font:inherit;font-size:var(--cds-font-size-caption);padding:var(--cds-pad-xs) var(--cds-pad-md);border-radius:999px;border:1px solid var(--color-border-line);background:transparent;color:var(--color-fg-muted);cursor:pointer}
+.cl-tab[aria-selected=true]{background:var(--color-fg);color:var(--color-bg);border-color:var(--color-fg)}
+.cl-t tr.cl-total td{font-weight:var(--cds-font-weight-medium);border-top:2px solid var(--color-border-line)}
+.cl-t td.warn{color:var(--color-warn)}
+.cl-t td.up{color:var(--color-ok)}
+.cl-t td.down{color:var(--color-bad)}
+.cl-mini{display:inline-block;width:3rem;height:.35rem;border-radius:999px;background:var(--cds-chart-grid);margin-left:var(--cds-gap-xs);vertical-align:middle;overflow:hidden}
+.cl-mini > i{display:block;height:100%;border-radius:999px}
+.cl-conseils td:nth-child(2),.cl-conseils td:nth-child(6),.cl-conseils td:nth-child(7){white-space:normal;text-align:left;min-width:14rem}
+.cl-conseils th:nth-child(2),.cl-conseils th:nth-child(6),.cl-conseils th:nth-child(7){text-align:left}
+.cl-conseils td:nth-child(7){font-weight:var(--cds-font-weight-medium)}
+.cl-conseils tr.p1 td:first-child{box-shadow:inset 3px 0 0 var(--cds-chart-status-critical)}
+.cl-conseils tr.p2 td:first-child{box-shadow:inset 3px 0 0 var(--color-warn)}
+.cl-badge{display:inline-block;margin-left:var(--cds-gap-sm);padding:0 var(--cds-pad-sm);border-radius:999px;border:1px solid var(--color-warn);color:var(--color-warn);font-size:var(--cds-font-size-caption);font-weight:400;vertical-align:middle}
+.cl-method{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);line-height:1.5}
+.cl-method p{margin:0 0 var(--cds-gap-xs)}
+[data-dash-source-state=empty]{color:transparent}
+[data-dash-source-state=refreshing]{opacity:.5;transition:opacity var(--cds-dur-slow)}
+.cl-fail{display:flex;align-items:center;justify-content:center;gap:var(--cds-gap-xs);color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);min-height:6rem}
+.cl-fail i{width:.375rem;height:.375rem;border-radius:50%;background:var(--color-bad);display:inline-block}
+</style>
+
+<div class="cl">
+  <header class="cl-head" id="entete">
+    <div class="cl-toolbar"><h1>Cours Legendre – Pilotage budget par verticale</h1><button class="cl-btn" id="btn-refresh" type="button">↻ Mettre à jour les données</button></div>
+    <p class="cl-take dash-skeleton" id="takeaway" data-source="synthese">—</p>
+  </header>
+
+  <section id="rythme">
+    <h2 class="cl-h">Rythme de dépense global <span class="cl-note" style="font-weight:400">· à fin d'hier (<span data-source="rythme" data-row="0" data-field="date_hier">—</span>), Google + Meta + Bing, hors Brand</span></h2>
+    <div class="cl-rythme">
+      <div class="cl-card cl-kpi" style="grid-column:1/-1">
+        <div class="lab">Dépensé depuis le 1er (hors Brand)</div>
+        <div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="cout">—</div>
+        <div class="cl-bar"><i id="bar-cout"></i></div>
+        <div class="cl-bar-legend"><span data-source="rythme" data-row="0" data-field="pct_budget">—</span><span>budget <span data-source="rythme" data-row="0" data-field="budget">—</span></span></div>
+      </div>
+      <div class="cl-card cl-kpi"><div class="lab">Projection fin de mois</div><div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="projection">—</div><div class="sub">Dépensé + rythme d'hier × jours restants</div></div>
+      <div class="cl-card cl-kpi" id="kpi-proj-pct"><div class="lab">Projection en % du budget</div><div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="projection_pct">—</div><div class="sub" data-source="rythme" data-row="0" data-field="lecture">—</div></div>
+      <div class="cl-card cl-kpi"><div class="lab">Dépensé hier</div><div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="hier">—</div><div class="cl-delta" id="delta-hier" data-source="rythme" data-row="0" data-field="var_hier">—</div></div>
+      <div class="cl-card cl-kpi"><div class="lab">Rythme idéal par jour</div><div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="trend_ideal">—</div><div class="cl-delta" id="delta-trend" data-source="rythme" data-row="0" data-field="var_trend">—</div></div>
+    </div>
+    <div class="cl-card" id="rythme-programmes" style="margin-top:var(--cds-gap-md)">
+      <h3 class="cl-h">Par programme</h3>
+      <div class="cl-tabs" role="tablist" id="tabs-levier"></div>
+      <p class="cl-note" id="note-levier"></p>
+      <div class="cl-wrap">
+        <table class="cl-t" id="rythme-table" data-source="rythme_vl" data-row-key="onglet,verticale">
+          <thead><tr>
+            <th data-field="verticale">Programme</th>
+            <th data-field="cout">Dépensé</th>
+            <th data-field="budget">Budget</th>
+            <th data-field="pct_budget">Consommé</th>
+            <th data-field="projection">Projection</th>
+            <th data-field="projection_pct">Projection %</th>
+            <th data-field="hier">Hier</th>
+            <th data-field="var_hier">vs J-2</th>
+            <th data-field="trend_ideal">Rythme idéal/j</th>
+            <th data-field="var_trend">vs hier</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="cl-card" id="lecture-calendrier">
+    <h2 class="cl-h">Lecture du pacing vs calendrier</h2>
+    <p class="cl-note">Un sur- ou sous-pacing n'a pas le même sens selon la date : avant une session (fenêtre de boost), pendant, ou hors fenêtre. Dates et fenêtres : onglet Calendrier du classeur de pilotage.</p>
+    <ul class="cl-alerts dash-skeleton" id="notes-liste" data-source="notes_calendrier" data-row-key="verticale"></ul>
+  </section>
+
+  <section class="cl-card" id="conseils">
+    <h2 class="cl-h">Conseils par campagne</h2>
+    <p class="cl-note">Objectif : dépenser le budget. Cible/jour = reco du programme (tableau Pacing, pondérée par le calendrier) répartie entre ses campagnes selon leur poids sur les 3 derniers jours. Diagnostic Google sur 7 jours (budget, part d'impressions perdue, conversions, CPA cible) ; Meta sur budget et stratégie ; Bing sur le dernier rapport.</p>
+    <div class="cl-wrap">
+      <table class="cl-t cl-conseils" id="conseils-table" data-source="conseils" data-row-key="levier,campagne">
+        <thead><tr>
+          <th data-field="levier">Levier</th>
+          <th data-field="campagne">Campagne</th>
+          <th data-field="depense_jour">Dépense/j (3 j)</th>
+          <th data-field="budget_jour">Budget/j</th>
+          <th data-field="cible_jour">Cible/j</th>
+          <th data-field="diagnostic">Diagnostic</th>
+          <th data-field="conseil">Conseil</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cl-kpis" id="kpis">
+    <div class="cl-card cl-kpi"><div class="lab" data-source="contexte" data-row="0" data-field="libelle_mois">—</div><div class="val dash-skeleton" data-source="synthese" data-row="0" data-field="budget_total">—</div><div class="sub">Budget média du mois (sheet client)</div></div>
+    <div class="cl-card cl-kpi"><div class="lab">Dépensé depuis le 1er (hors Brand)</div><div class="val dash-skeleton" data-source="synthese" data-row="0" data-field="depense_total">—</div><div class="sub"><span data-source="synthese" data-row="0" data-field="pct_conso">—</span> consommé · <span data-source="synthese" data-row="0" data-field="pct_attendu">—</span> du mois écoulé</div></div>
+    <div class="cl-card cl-kpi"><div class="lab">Rythme vs attendu</div><div class="val dash-skeleton" data-source="synthese" data-row="0" data-field="indice_pacing">—</div><div class="sub" data-source="synthese" data-row="0" data-field="statut">—</div></div>
+    <div class="cl-card cl-kpi"><div class="lab">Reste à dépenser</div><div class="val dash-skeleton" data-source="synthese" data-row="0" data-field="reste">—</div><div class="sub"><span data-source="synthese" data-row="0" data-field="reco_jour_total">—</span> / jour reco (toutes verticales)</div></div>
+  </section>
+
+  <section class="cl-card" id="alertes">
+    <h2 class="cl-h">Alertes</h2>
+    <p class="cl-note">Pacing, dérive du split, fenêtres de boost stage et fraîcheur de Bing. Seuils réglables dans l'onglet Paramètres du classeur de pilotage.</p>
+    <ul class="cl-alerts dash-skeleton" id="alertes-liste" data-source="alertes" data-row-key="id"></ul>
+  </section>
+
+  <section class="cl-card" id="pacing">
+    <h2 class="cl-h">Pacing et budget jour recommandé par verticale</h2>
+    <p class="cl-note">« Attendu » = part du budget qui aurait dû être dépensée à date, pondérée par le calendrier (fenêtres de boost stage). Reco/jour = reste ÷ jours pondérés restants, à appliquer dès demain, réparti selon le split cible (SEA = Google + Bing).</p>
+    <div class="cl-wrap">
+      <table class="cl-t" id="pacing-table" data-source="pacing" data-row-key="verticale">
+        <thead><tr>
+          <th data-field="verticale">Verticale</th>
+          <th data-field="budget">Budget mois</th>
+          <th data-field="depense">Dépensé</th>
+          <th data-field="pct_conso">Consommé</th>
+          <th data-field="pct_attendu">Attendu</th>
+          <th data-field="statut">Statut</th>
+          <th data-field="reste">Reste</th>
+          <th data-field="reco_jour">Reco/jour</th>
+          <th data-field="reco_sea">dont SEA</th>
+          <th data-field="reco_meta">dont Meta</th>
+          <th data-field="part_sea_reelle">Part SEA réelle</th>
+          <th data-field="part_sea_cible">Part SEA cible</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="cl-grid">
+    <section class="cl-card" id="graph-pacing">
+      <h2 class="cl-h">Consommé vs attendu</h2>
+      <p class="cl-note">Barre = % du budget du mois dépensé ; trait = % attendu à date.</p>
+      <div class="cl-chart" id="chart-pacing" data-source="pacing"></div>
+      <div class="cl-legend"><span><i class="cl-sw" id="sw-conso"></i>Consommé</span><span><i class="cl-sw" style="background:var(--cds-chart-reference)"></i>Attendu à date</span></div>
+    </section>
+    <section class="cl-card" id="leviers">
+      <h2 class="cl-h">Dépense par levier depuis le 1er</h2>
+      <p class="cl-note">Campagnes rattachées par motif dans leur nom (onglet Config) ; une campagne multi-verticales (« & ») est ventilée par groupe d'annonces.</p>
+      <div class="cl-wrap">
+        <table class="cl-t" id="leviers-table" data-source="leviers" data-row-key="verticale">
+          <thead><tr>
+            <th data-field="verticale">Verticale</th>
+            <th data-field="google">Google</th>
+            <th data-field="bing">Bing</th>
+            <th data-field="meta">Meta</th>
+            <th data-field="total">Total</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <section class="cl-card" id="cpl">
+    <h2 class="cl-h">CPL par verticale <span class="cl-badge">HubSpot à reconnecter</span></h2>
+    <p class="cl-note">CPL Google = dépense Google ÷ (contacts HubSpot Google + appels à partir des annonces, conversion plateforme). CPL Meta = dépense Meta ÷ contacts HubSpot Meta. Les contacts HubSpot et les CPL s'afficheront dès que le connecteur HubSpot sera reconnecté ; les appels Google sont déjà comptés.</p>
+    <div class="cl-wrap">
+      <table class="cl-t" id="cpl-table" data-source="cpl" data-row-key="verticale">
+        <thead><tr>
+          <th data-field="verticale">Verticale</th>
+          <th data-field="depense_google">Dépense Google</th>
+          <th data-field="contacts_google">Contacts HubSpot Google</th>
+          <th data-field="appels_google">Appels Google</th>
+          <th data-field="leads_google">Leads Google</th>
+          <th data-field="cpl_google">CPL Google</th>
+          <th data-field="depense_meta">Dépense Meta</th>
+          <th data-field="contacts_meta">Contacts HubSpot Meta</th>
+          <th data-field="cpl_meta">CPL Meta</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cl-method" id="methode">
+    <p><b>Sources.</b> Budgets : sheet client « depenses média et budget impulse », onglet Budget 26_27. Dépenses Google (compte 238-911-9715) et Meta (595800441007042) en direct ; Bing via le rapport Microsoft Advertising planifié, déposé chaque jour par n8n dans l'onglet Bing_raw du classeur de pilotage.</p>
+    <p><b>Règles.</b> Splits cibles, motifs de campagne, budgets override, calendrier des sessions et seuils : classeur « Cours Legendre – Pilotage budget – Config &amp; Bing ». Brand est une ligne séparée, hors budget et hors totaux : seule sa dépense est affichée. Sur CAD, la reco/jour est plafonnée à ±<span data-source="contexte" data-row="0" data-field="variation_max_cad_pct">—</span> % du rythme actuel pour ne pas déstabiliser l'algo.</p>
+    <p>Données au <span data-source="contexte" data-row="0" data-field="date_ref">—</span> · dernier dépôt Bing : <span data-source="contexte" data-row="0" data-field="bing_maj">—</span></p>
+  </section>
+</div>
+
+<script>
+/* ---------- Loaders ---------- */
+dash.loader('budget_client', { description: "Lignes de l'onglet Google Sheets (lecteur n8n), sans le numéro de ligne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a) || /NodeOperationError/.test(a)) throw new Error(a); a = JSON.parse(a); }
+  if (a && a.success === false) throw new Error(a.error || 'Lecture du sheet refusée');
+  const rows = Array.isArray(a) ? a : (a.rows || []);
+  return rows.map(r => { const { row_number, ...x } = r; return x; });
+}});
+dash.loader('config', { description: "Lignes de l'onglet Google Sheets (lecteur n8n), sans le numéro de ligne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a) || /NodeOperationError/.test(a)) throw new Error(a); a = JSON.parse(a); }
+  if (a && a.success === false) throw new Error(a.error || 'Lecture du sheet refusée');
+  const rows = Array.isArray(a) ? a : (a.rows || []);
+  return rows.map(r => { const { row_number, ...x } = r; return x; });
+}});
+dash.loader('calendrier', { description: "Lignes de l'onglet Google Sheets (lecteur n8n), sans le numéro de ligne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a) || /NodeOperationError/.test(a)) throw new Error(a); a = JSON.parse(a); }
+  if (a && a.success === false) throw new Error(a.error || 'Lecture du sheet refusée');
+  const rows = Array.isArray(a) ? a : (a.rows || []);
+  return rows.map(r => { const { row_number, ...x } = r; return x; });
+}});
+dash.loader('parametres', { description: "Lignes de l'onglet Google Sheets (lecteur n8n), sans le numéro de ligne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a) || /NodeOperationError/.test(a)) throw new Error(a); a = JSON.parse(a); }
+  if (a && a.success === false) throw new Error(a.error || 'Lecture du sheet refusée');
+  const rows = Array.isArray(a) ? a : (a.rows || []);
+  return rows.map(r => { const { row_number, ...x } = r; return x; });
+}});
+dash.loader('bing_raw', { description: "Onglet Bing_raw (alimenté par n8n), sans le numéro de ligne, dépense en nombre.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a) || /NodeOperationError/.test(a)) throw new Error(a); a = JSON.parse(a); }
+  if (a && a.success === false) throw new Error(a.error || 'Lecture du sheet refusée');
+  const rows = Array.isArray(a) ? a : (a.rows || []);
+  return rows.map(r => { const { row_number, ...x } = r; return { ...x, 'Dépense': Number(String(x['Dépense'] ?? '').replace(/[\s €]/g, '').replace(',', '.')) || 0 }; });
+}});
+dash.loader('g_spend', { description: "Résultat GAQL aplati : une ligne par campagne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ campagne: r.campaign.name, statut: r.campaign.status, cost_micros: Number(r.metrics.costMicros || 0), clics: Number(r.metrics.clicks || 0), impressions: Number(r.metrics.impressions || 0) }); }
+  return { columns: ['campagne', 'statut', 'cost_micros', 'clics', 'impressions'], rows };
+}});
+dash.loader('g_spend_ag_mixed', { description: "Résultat GAQL aplati : une ligne par groupe d'annonces des campagnes multi-verticales.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ campagne: r.campaign.name, groupe: r.adGroup.name, cost_micros: Number(r.metrics.costMicros || 0) }); }
+  return { columns: ['campagne', 'groupe', 'cost_micros'], rows };
+}});
+dash.loader('g_calls', { description: "Résultat GAQL aplati : appels à partir des annonces par campagne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ campagne: r.campaign.name, appels: Number(r.metrics.allConversions || 0) }); }
+  return { columns: ['campagne', 'appels'], rows };
+}});
+dash.loader('g_calls_ag_mixed', { description: "Résultat GAQL aplati : appels par groupe d'annonces des campagnes multi-verticales.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ campagne: r.campaign.name, groupe: r.adGroup.name, appels: Number(r.metrics.allConversions || 0) }); }
+  return { columns: ['campagne', 'groupe', 'appels'], rows };
+}});
+dash.loader('meta_spend', { description: "Insights Meta par campagne, dépense en nombre.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  if (a && a.error) throw new Error(a.error.message || JSON.stringify(a.error));
+  const rows = ((a && a.data) || []).map(r => ({ campagne: r.campaign_name, depense: Number(r.spend || 0), date_debut: r.date_start, date_fin: r.date_stop }));
+  return { columns: ['campagne', 'depense', 'date_debut', 'date_fin'], rows };
+}});
+
+/* ---------- Calculs ---------- */
+dash.loader('g_daily_camp', { description: "Résultat GAQL aplati : coût Google par jour et par campagne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ date: r.segments.date, campagne: r.campaign.name, cost_micros: Number(r.metrics.costMicros || 0) }); }
+  return { columns: ['date', 'campagne', 'cost_micros'], rows };
+}});
+dash.loader('g_daily_ag_mixed', { description: "Résultat GAQL aplati : coût Google par jour et par groupe d'annonces des campagnes multi-verticales.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ date: r.segments.date, campagne: r.campaign.name, groupe: r.adGroup.name, cost_micros: Number(r.metrics.costMicros || 0) }); }
+  return { columns: ['date', 'campagne', 'groupe', 'cost_micros'], rows };
+}});
+dash.loader('meta_daily_camp', { description: "Insights Meta par campagne et par jour, dépense en nombre.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  if (a && a.error) throw new Error(a.error.message || JSON.stringify(a.error));
+  const rows = ((a && a.data) || []).map(r => ({ date: r.date_start, campagne: r.campaign_name, depense: Number(r.spend || 0) }));
+  return { columns: ['date', 'campagne', 'depense'], rows };
+}});
+dash.calc('rythme_vl', { inputs: ['g_daily_camp', 'g_daily_ag_mixed', 'meta_daily_camp', 'bing_raw', 'config', 'pacing', 'contexte'], title: 'Rythme par programme et levier',
+  description: "Par onglet (tous leviers, SEA, Google, Bing, Meta) et par programme : dépensé jusqu'à hier, projection = dépensé + dépense d'hier × jours restants, rythme idéal = (budget − dépensé) ÷ jours restants. Budget SEA/Meta = budget du programme × split cible ; pas de budget propre pour Google ou Bing seuls.",
+  fn: (g_daily_camp, g_daily_ag_mixed, meta_daily_camp, bing_raw, config, pacing, contexte) => {
+    const c = contexte[0];
+    const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const rules = config.map(x => ({ v: x['Verticale'], motifs: String(x['Motifs nom de campagne'] || '').split(',').map(m => norm(m).trim()).filter(Boolean) }));
+    const hits = name => { const n = norm(name); return rules.filter(r => r.motifs.some(m => m.length <= 3 ? new RegExp('(^|[^a-z0-9])' + m + '([^a-z0-9]|$)').test(n) : n.includes(m))).map(r => r.v); };
+    const vOf = name => hits(name)[0] || 'Non classé';
+    const day = {}; // levier|verticale|date -> €
+    const add = (l, v, d, x) => { const k = l + '|' + v + '|' + d; day[k] = (day[k] || 0) + x; };
+    const mixed = new Set(g_daily_ag_mixed.map(r => r.campagne));
+    for (const r of g_daily_camp) if (!(mixed.has(r.campagne) && hits(r.campagne).length > 1)) add('Google', vOf(r.campagne), r.date, r.cost_micros / 1e6);
+    for (const r of g_daily_ag_mixed) if (hits(r.campagne).length > 1) add('Google', vOf(r.groupe), r.date, r.cost_micros / 1e6);
+    for (const r of meta_daily_camp) add('Meta', vOf(r.campagne), r.date, r.depense);
+    for (const r of bing_raw) add('Bing', vOf(r['Campagne']), String(r['Date']).slice(0, 10), r['Dépense']);
+    const iso = n => new Date(Date.UTC(c.annee, c.mois - 1, n)).toISOString().slice(0, 10);
+    const restants = c.jours_mois - c.jour + 1;
+    const onglets = { 'Tous leviers': ['Google', 'Bing', 'Meta'], 'SEA (Google + Bing)': ['Google', 'Bing'], 'Google': ['Google'], 'Bing': ['Bing'], 'Meta': ['Meta'] };
+    const sum = (ls, v, d) => ls.reduce((s, l) => s + (day[l + '|' + v + '|' + d] || 0), 0);
+    const r2 = x => x == null ? null : Math.round(x * 100) / 100;
+    const out = [];
+    for (const [onglet, ls] of Object.entries(onglets)) {
+      const lignes = [];
+      for (const p of pacing) {
+        const v = p.verticale;
+        let cout = 0; for (let n = 1; n < c.jour; n++) cout += sum(ls, v, iso(n));
+        const hier = c.jour > 1 ? sum(ls, v, iso(c.jour - 1)) : 0, j2 = c.jour > 2 ? sum(ls, v, iso(c.jour - 2)) : null;
+        const partSea = p.part_sea_cible != null ? Math.max(p.part_sea_cible, p.part_sea_min || 0) : null;
+        const budget = p.budget == null ? null : onglet === 'Tous leviers' ? p.budget : onglet.startsWith('SEA') ? (partSea == null ? null : p.budget * partSea) : onglet === 'Meta' ? (partSea == null ? null : p.budget * (1 - partSea)) : null;
+        if (!cout && !hier && !budget) continue;
+        lignes.push({ onglet, verticale: v, budget, cout, hier, j2 });
+      }
+      const hb = lignes.filter(l => l.verticale !== 'Brand');
+      const tot = { onglet, verticale: 'Total hors Brand', budget: hb.some(l => l.budget != null) ? hb.reduce((s, l) => s + (l.budget || 0), 0) : null, cout: hb.reduce((s, l) => s + l.cout, 0), hier: hb.reduce((s, l) => s + l.hier, 0), j2: c.jour > 2 ? hb.reduce((s, l) => s + (l.j2 || 0), 0) : null };
+      for (const l of lignes.concat([tot])) {
+        const projection = l.cout + l.hier * restants;
+        const trend = l.budget != null ? Math.max(0, l.budget - l.cout) / restants : null;
+        out.push({ cle: onglet + '|' + l.verticale, onglet, verticale: l.verticale, budget: r2(l.budget), cout: r2(l.cout), pct_budget: l.budget ? l.cout / l.budget : null,
+          projection: r2(projection), projection_pct: l.budget ? projection / l.budget : null, hier: r2(l.hier), j2: r2(l.j2), var_hier: l.j2 ? l.hier / l.j2 - 1 : null,
+          trend_ideal: r2(trend), var_trend: trend != null && l.hier ? trend / l.hier - 1 : null });
+      }
+    }
+    return out;
+  } });
+dash.calc('rythme', { inputs: ['rythme_vl', 'contexte'], title: 'Rythme de dépense global',
+  description: "Ligne Total hors Brand de l'onglet Tous leviers : Google + Meta + Bing jusqu'à hier inclus.",
+  fn: (rythme_vl, contexte) => {
+    const t = rythme_vl.find(r => r.onglet === 'Tous leviers' && r.verticale === 'Total hors Brand') || {};
+    const c = contexte[0], hierD = new Date(Date.UTC(c.annee, c.mois - 1, c.jour - 1)).toISOString().slice(0, 10);
+    const pp = t.projection_pct;
+    return [{ ...t, date_hier: hierD.split('-').reverse().join('/'), lecture: pp == null ? '—' : pp < 0.95 ? 'Sous-consommation à ce rythme' : pp > 1.05 ? 'Dépassement à ce rythme' : 'Atterrissage dans le budget' }];
+  } });
+
+dash.calc('contexte', { inputs: ['meta_spend', 'bing_raw', 'parametres'], title: 'Date de référence et seuils',
+  description: "Date des données (fin de la période Meta « ce mois-ci »), seuils de l'onglet Paramètres et fraîcheur de Bing.",
+  fn: (meta_spend, bing_raw, parametres) => {
+    const M = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    let ref = meta_spend.map(r => r.date_fin).filter(Boolean).sort().pop();
+    if (!ref) ref = new Date().toISOString().slice(0, 10);
+    const [y, m, d] = ref.split('-').map(Number);
+    const p = Object.fromEntries(parametres.map(r => [r['Paramètre'], Number(String(r['Valeur']).replace(',', '.'))]));
+    const maj = bing_raw.map(r => r['Mis à jour le']).filter(Boolean).sort().pop() || null;
+    const ageH = maj ? (Date.parse(ref + 'T23:59:59Z') - Date.parse(maj)) / 36e5 : null;
+    return [{ date_ref: ref, annee: y, mois: m, jour: d, jours_mois: new Date(Date.UTC(y, m, 0)).getUTCDate(), libelle_mois: M[m - 1] + ' ' + y,
+      tolerance_pacing_pct: p.tolerance_pacing_pct ?? 10, tolerance_split_pts: p.tolerance_split_pts ?? 10, bing_stale_heures: p.bing_stale_heures ?? 48,
+      variation_max_cad_pct: p.variation_max_cad_pct ?? 10, bing_maj: maj ? maj.slice(0, 16).replace('T', ' ') : 'aucun', bing_age_h: ageH, bing_lignes: bing_raw.length }];
+  } });
+
+dash.calc('depense_vl', { inputs: ['g_spend', 'g_spend_ag_mixed', 'meta_spend', 'bing_raw', 'config', 'contexte'], title: 'Dépense par verticale et levier',
+  description: "Chaque campagne est rattachée à la 1re verticale dont un motif apparaît dans son nom (ordre de l'onglet Config) ; campagne multi-verticales ventilée par groupe d'annonces ; Bing filtré sur le mois en cours.",
+  fn: (g_spend, g_spend_ag_mixed, meta_spend, bing_raw, config, contexte) => {
+    contexte = contexte[0];
+    const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const rules = config.map(c => ({ v: c['Verticale'], motifs: String(c['Motifs nom de campagne'] || '').split(',').map(x => norm(x).trim()).filter(Boolean) }));
+    const hits = name => { const n = norm(name); return rules.filter(r => r.motifs.some(m => m.length <= 3 ? new RegExp('(^|[^a-z0-9])' + m + '([^a-z0-9]|$)').test(n) : n.includes(m))).map(r => r.v); };
+    const vOf = name => hits(name)[0] || 'Non classé';
+    const acc = {};
+    const add = (v, l, x) => { const k = v + '|' + l; acc[k] = acc[k] || { cle: k, verticale: v, levier: l, depense: 0 }; acc[k].depense += x; };
+    const mixed = new Set(g_spend_ag_mixed.map(r => r.campagne));
+    for (const r of g_spend) { if (mixed.has(r.campagne) && hits(r.campagne).length > 1) continue; add(vOf(r.campagne), 'Google', r.cost_micros / 1e6); }
+    for (const r of g_spend_ag_mixed) if (hits(r.campagne).length > 1) add(vOf(r.groupe), 'Google', r.cost_micros / 1e6);
+    const mois = String(contexte.date_ref).slice(0, 7);
+    for (const r of bing_raw) if (String(r['Date']).slice(0, 7) === mois) add(vOf(r['Campagne']), 'Bing', r['Dépense']);
+    for (const r of meta_spend) add(vOf(r.campagne), 'Meta', r.depense);
+    return Object.values(acc).map(r => ({ ...r, depense: Math.round(r.depense * 100) / 100 }));
+  } });
+
+dash.calc('leviers', { inputs: ['depense_vl', 'config'], title: 'Dépense par levier (tableau)',
+  description: "Dépense depuis le 1er, une ligne par verticale, une colonne par levier.",
+  fn: (depense_vl, config) => {
+    const order = config.map(c => c['Verticale']).concat(['Non classé']);
+    const out = {};
+    for (const r of depense_vl) { const o = out[r.verticale] = out[r.verticale] || { verticale: r.verticale, google: 0, bing: 0, meta: 0, total: 0 }; o[r.levier.toLowerCase()] += r.depense; o.total += r.depense; }
+    return order.filter(v => out[v]).map(v => out[v]);
+  } });
+
+dash.calc('appels', { inputs: ['g_calls', 'g_calls_ag_mixed', 'config'], title: 'Appels Google par verticale',
+  description: "Conversion « Appels à partir des annonces » depuis le 1er, rattachée comme la dépense.",
+  fn: (g_calls, g_calls_ag_mixed, config) => {
+    const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const rules = config.map(c => ({ v: c['Verticale'], motifs: String(c['Motifs nom de campagne'] || '').split(',').map(x => norm(x).trim()).filter(Boolean) }));
+    const hits = name => { const n = norm(name); return rules.filter(r => r.motifs.some(m => m.length <= 3 ? new RegExp('(^|[^a-z0-9])' + m + '([^a-z0-9]|$)').test(n) : n.includes(m))).map(r => r.v); };
+    const vOf = name => hits(name)[0] || 'Non classé';
+    const acc = {};
+    for (const r of g_calls) if (hits(r.campagne).length <= 1) acc[vOf(r.campagne)] = (acc[vOf(r.campagne)] || 0) + r.appels;
+    for (const r of g_calls_ag_mixed) if (hits(r.campagne).length > 1) acc[vOf(r.groupe)] = (acc[vOf(r.groupe)] || 0) + r.appels;
+    return config.map(c => c['Verticale']).concat(['Non classé']).filter(v => acc[v] != null).map(v => ({ verticale: v, appels_google: Math.round(acc[v] * 10) / 10 }));
+  } });
+
+dash.calc('pacing', { inputs: ['budget_client', 'config', 'calendrier', 'depense_vl', 'contexte'], title: 'Pacing par verticale',
+  description: "Budget du mois (sheet client ou override), % consommé vs % attendu pondéré par le calendrier, reste et budget jour recommandé réparti selon le split cible.",
+  fn: (budget_client, config, calendrier, depense_vl, contexte) => {
+    contexte = contexte[0];
+    const num = s => { const t = String(s ?? '').replace(/[\s  €]/g, '').replace(',', '.'); if (t === '') return null; const n = Number(t); return isFinite(n) ? n : null; };
+    const strip = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+    const M = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    const label = M[contexte.mois - 1] + ' ' + contexte.annee;
+    const lab = r => String(r['Saisonnalité Activité'] || '').trim();
+    let h = -1, col = null;
+    budget_client.forEach((r, i) => { if (h < 0 && strip(lab(r)).startsWith('budget media en')) for (const [k, v] of Object.entries(r)) if (String(v).trim() === label) { h = i; col = k; } });
+    const budgetOf = name => { if (h < 0 || !name) return null; for (let i = h + 1; i < budget_client.length; i++) { const l = strip(lab(budget_client[i])); if (l === 'total') break; if (l === strip(name)) return num(budget_client[i][col]); } return null; };
+    const D = contexte.jours_mois, J = contexte.jour, tol = contexte.tolerance_pacing_pct / 100, cap = contexte.variation_max_cad_pct / 100;
+    const day = n => Date.UTC(contexte.annee, contexte.mois - 1, n);
+    const poids = (v, n) => { let w = 1, boost = false;
+      for (const c of calendrier.filter(c => c['Verticale'] === v)) { const deb = Date.parse(c['Début'] + 'T00:00:00Z'), fin = Date.parse(c['Fin'] + 'T00:00:00Z'), b = Number(c['Boost (jours avant)'] || 0) * 864e5;
+        if (day(n) >= deb - b && day(n) < deb) { w = Number(String(c['Poids boost']).replace(',', '.')) || 1; boost = true; }
+        else if (!boost && day(n) >= deb && day(n) <= fin) w = Number(String(c['Poids après début']).replace(',', '.')) || 1; }
+      return w; };
+    const rows = [];
+    for (const c of config.map(c => c).concat([{ 'Verticale': 'Non classé' }])) {
+      const v = c['Verticale'];
+      const dep = depense_vl.filter(r => r.verticale === v);
+      const depense = dep.reduce((s, r) => s + r.depense, 0);
+      if (v === 'Non classé' && !depense) continue;
+      const sea = dep.filter(r => r.levier !== 'Meta').reduce((s, r) => s + r.depense, 0);
+      const ov = num(c['Budget override (€)']);
+      const budget = ov ?? budgetOf(c['Ligne budget (sheet client)']);
+      const w = Array.from({ length: D }, (_, i) => poids(v, i + 1));
+      const tot = w.reduce((s, x) => s + x, 0);
+      const fait = w.slice(0, J - 1).reduce((s, x) => s + x, 0) + 0.5 * w[J - 1];
+      const restePoids = tot - fait;
+      const pctAtt = fait / tot;
+      const pctConso = budget ? depense / budget : null;
+      const reste = budget != null ? Math.max(0, budget - depense) : null;
+      let reco = budget != null && restePoids > 0 ? reste / restePoids * (J < D ? w[J] : w[J - 1]) : null;
+      let plafonne = false;
+      const rythme = depense / Math.max(0.5, J - 0.5);
+      if (v === 'CAD' && reco != null && rythme > 0) { const lo = rythme * (1 - cap), hi = rythme * (1 + cap); if (reco < lo || reco > hi) { reco = Math.min(hi, Math.max(lo, reco)); plafonne = true; } }
+      const cible = num(c['Part SEA cible (%)']), mini = num(c['Part SEA min (%)']);
+      const partSea = cible != null ? Math.max(cible, mini ?? 0) / 100 : null;
+      const ratio = pctConso != null && pctAtt > 0 ? pctConso / pctAtt : null;
+      const statut = budget == null ? 'Hors budget' : ratio < 1 - tol ? 'Sous-pacing' : ratio > 1 + tol ? 'Sur-pacing' : 'Dans le rythme';
+      rows.push({ verticale: v, budget, depense: Math.round(depense), pct_conso: pctConso, pct_attendu: budget != null ? pctAtt : null, indice: ratio, statut, reste: reste != null ? Math.round(reste) : null,
+        reco_jour: reco != null ? Math.round(reco) : null, reco_sea: reco != null && partSea != null ? Math.round(reco * partSea) : null, reco_meta: reco != null && partSea != null ? Math.round(reco * (1 - partSea)) : null,
+        part_sea_reelle: depense ? sea / depense : null, part_sea_cible: cible != null ? cible / 100 : null, part_sea_min: mini != null ? mini / 100 : null, plafonne, rythme_jour: Math.round(rythme) });
+    }
+    return rows;
+  } });
+
+dash.calc('synthese', { inputs: ['pacing', 'budget_client', 'contexte'], title: 'Synthèse du mois',
+  description: "Budget total du mois (ligne TOTAL du sheet client), dépense hors Brand, rythme global vs part du mois écoulée.",
+  fn: (pacing, budget_client, contexte) => {
+    contexte = contexte[0];
+    const num = s => { const t = String(s ?? '').replace(/[\s  €]/g, '').replace(',', '.'); if (t === '') return null; const n = Number(t); return isFinite(n) ? n : null; };
+    const strip = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+    const M = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+    const label = M[contexte.mois - 1] + ' ' + contexte.annee;
+    let h = -1, col = null, total = null;
+    budget_client.forEach((r, i) => { if (h < 0 && strip(r['Saisonnalité Activité']).startsWith('budget media en')) for (const [k, v] of Object.entries(r)) if (String(v).trim() === label) { h = i; col = k; } });
+    if (h >= 0) for (let i = h + 1; i < budget_client.length; i++) if (strip(budget_client[i]['Saisonnalité Activité']) === 'total') { total = num(budget_client[i][col]); break; }
+    const budget = total ?? pacing.reduce((s, r) => s + (r.budget || 0), 0);
+    const depense = pacing.filter(r => r.verticale !== 'Brand').reduce((s, r) => s + r.depense, 0);
+    const pctAtt = (contexte.jour - 0.5) / contexte.jours_mois;
+    const pctConso = budget ? depense / budget : null;
+    const indice = pctConso != null ? pctConso / pctAtt : null;
+    const tol = contexte.tolerance_pacing_pct / 100;
+    return [{ budget_total: budget, depense_total: depense, pct_conso: pctConso, pct_attendu: pctAtt, indice_pacing: indice,
+      statut: indice == null ? '—' : indice < 1 - tol ? 'Sous-pacing global' : indice > 1 + tol ? 'Sur-pacing global' : 'Dans le rythme',
+      reste: Math.max(0, budget - depense), reco_jour_total: pacing.reduce((s, r) => s + (r.reco_jour || 0), 0) }];
+  } });
+
+dash.loader('g_diag', { description: "Diagnostic GAQL des campagnes Google actives sur 7 jours : budget, stratégie d'enchères, CPA cible, statut, conversions, part d'impressions perdue (budget / classement).", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) { const c = r.campaign, m = r.metrics || {};
+      const tcpa = (c.maximizeConversions && c.maximizeConversions.targetCpaMicros) || (c.targetCpa && c.targetCpa.targetCpaMicros) || null;
+      rows.push({ campagne: c.name, strategie: c.biddingStrategyType, cpa_cible: tcpa ? Number(tcpa) / 1e6 : null, statut: c.primaryStatus, raisons: (c.primaryStatusReasons || []).join(', '),
+        budget_jour: Number((r.campaignBudget || {}).amountMicros || 0) / 1e6, cout_7j: Number(m.costMicros || 0) / 1e6, conv_7j: Number(m.conversions || 0),
+        is_perdue_budget: m.searchBudgetLostImpressionShare ?? null, is_perdue_classement: m.searchRankLostImpressionShare ?? null }); } }
+  return { columns: ['campagne', 'strategie', 'cpa_cible', 'statut', 'raisons', 'budget_jour', 'cout_7j', 'conv_7j', 'is_perdue_budget', 'is_perdue_classement'], rows };
+}});
+dash.loader('meta_camps', { description: "Campagnes Meta actives : budget quotidien (converti des centimes en €) et stratégie d'enchères.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  if (a && a.error) throw new Error(a.error.message || JSON.stringify(a.error));
+  const rows = ((a && a.data) || []).map(c => ({ campagne: c.name, budget_jour: c.daily_budget ? Number(c.daily_budget) / 100 : null, budget_total: c.lifetime_budget ? Number(c.lifetime_budget) / 100 : null, strategie: c.bid_strategy || '', statut: c.effective_status }));
+  return { columns: ['campagne', 'budget_jour', 'budget_total', 'strategie', 'statut'], rows };
+}});
+dash.calc('conseils', { inputs: ['g_diag', 'meta_camps', 'g_daily_camp', 'g_daily_ag_mixed', 'meta_daily_camp', 'bing_raw', 'config', 'pacing', 'contexte'], title: 'Conseils par campagne',
+  description: "Cible/jour de chaque campagne = reco/jour SEA ou Meta du programme (tableau Pacing) répartie selon le poids de la campagne sur les 3 derniers jours. Diagnostic : budget, part d'impressions perdue (budget vs classement), volume de conversions sur 7 j, stratégie d'enchères. Objectif : dépenser le budget.",
+  fn: (g_diag, meta_camps, g_daily_camp, g_daily_ag_mixed, meta_daily_camp, bing_raw, config, pacing, contexte) => {
+    const c = contexte[0];
+    const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    const rules = config.map(x => ({ v: x['Verticale'], motifs: String(x['Motifs nom de campagne'] || '').split(',').map(m => norm(m).trim()).filter(Boolean) }));
+    const hits = name => { const n = norm(name); return rules.filter(r => r.motifs.some(m => m.length <= 3 ? new RegExp('(^|[^a-z0-9])' + m + '([^a-z0-9]|$)').test(n) : n.includes(m))).map(r => r.v); };
+    const vOf = name => hits(name)[0] || 'Non classé';
+    const iso = n => new Date(Date.UTC(c.annee, c.mois - 1, n)).toISOString().slice(0, 10);
+    const jours = [1, 2, 3].map(k => c.jour - k).filter(n => n >= 1).map(iso);
+    const N = Math.max(1, jours.length);
+    const units = {}; // levier|campagne|verticale -> € moyen/jour (3 derniers jours)
+    const add = (l, camp, v, x) => { const k = l + '|' + camp + '|' + v; units[k] = (units[k] || 0) + x / N; };
+    const mixed = new Set(g_daily_ag_mixed.map(r => r.campagne));
+    for (const r of g_daily_camp) if (jours.includes(r.date) && !(mixed.has(r.campagne) && hits(r.campagne).length > 1)) add('Google', r.campagne, vOf(r.campagne), r.cost_micros / 1e6);
+    for (const r of g_daily_ag_mixed) if (jours.includes(r.date) && hits(r.campagne).length > 1) add('Google', r.campagne, vOf(r.groupe), r.cost_micros / 1e6);
+    for (const r of meta_daily_camp) if (jours.includes(r.date)) add('Meta', r.campagne, vOf(r.campagne), r.depense);
+    const bingDates = [...new Set(bing_raw.map(r => String(r['Date']).slice(0, 10)))].sort().slice(-3);
+    for (const r of bing_raw) if (bingDates.includes(String(r['Date']).slice(0, 10))) add('Bing', r['Campagne'], vOf(r['Campagne']), r['Dépense'] * N / Math.max(1, bingDates.length));
+    for (const m of meta_camps) if (!Object.keys(units).some(k => k.startsWith('Meta|' + m.campagne + '|'))) units['Meta|' + m.campagne + '|' + vOf(m.campagne)] = 0;
+    for (const g of g_diag) if (!Object.keys(units).some(k => k.startsWith('Google|' + g.campagne + '|'))) units['Google|' + g.campagne + '|' + vOf(g.campagne)] = 0;
+    for (const p of pacing) if ((p.reco_meta || 0) > 5 && !Object.keys(units).some(k => k.startsWith('Meta|') && k.endsWith('|' + p.verticale))) units['Meta|Aucune campagne Meta active ' + p.verticale + '|' + p.verticale] = 0;
+    // cible par unité : reco SEA (Google + Bing) ou Meta du programme, au prorata du poids récent
+    const groupe = l => l === 'Meta' ? 'Meta' : 'SEA';
+    const totG = {}; for (const [k, x] of Object.entries(units)) { const [l, , v] = k.split('|'); const g = groupe(l) + '|' + v; totG[g] = (totG[g] || 0) + x; }
+    const nbG = {}; for (const k of Object.keys(units)) { const [l, , v] = k.split('|'); const g = groupe(l) + '|' + v; nbG[g] = (nbG[g] || 0) + 1; }
+    const camp = {};
+    for (const [k, x] of Object.entries(units)) {
+      const [l, nom, v] = k.split('|'); const p = pacing.find(r => r.verticale === v);
+      const reco = !p ? null : groupe(l) === 'Meta' ? p.reco_meta : p.reco_sea;
+      const g = groupe(l) + '|' + v;
+      const cible = reco == null ? x : reco * (totG[g] > 0 ? x / totG[g] : 1 / nbG[g]);
+      const o = camp[l + '|' + nom] = camp[l + '|' + nom] || { levier: l, campagne: nom, programmes: [], actuel: 0, cible: 0 };
+      if (!o.programmes.includes(v)) o.programmes.push(v); o.actuel += x; o.cible += cible;
+    }
+    const r5 = x => Math.round(x / 5) * 5, P = x => Math.round(x * 100) + ' %', E = x => Math.round(x).toLocaleString('fr-FR') + ' €';
+    const out = [];
+    for (const o of Object.values(camp)) {
+      const isCad = o.programmes.includes('CAD'), brand = o.programmes.includes('Brand');
+      let ecart = o.actuel > 0 ? o.cible / o.actuel - 1 : (o.cible > 0 ? 1 : 0);
+      let budget = null, diag = [], conseil = [], prio = 3;
+      if (o.levier === 'Google') {
+        const d = g_diag.find(x => x.campagne === o.campagne) || {};
+        budget = d.budget_jour ?? null;
+        const lb = d.is_perdue_budget || 0, lr = d.is_perdue_classement || 0, conv = d.conv_7j || 0;
+        if (budget) diag.push('dépense ' + P(o.actuel / budget) + ' du budget');
+        if (d.is_perdue_budget != null) diag.push('IS perdue : ' + P(lb) + ' budget, ' + P(lr) + ' classement');
+        diag.push(Math.round(conv) + ' conv. sur 7 j' + (d.cpa_cible ? ', CPA cible ' + E(d.cpa_cible) : ''));
+        if (/LEARNING/.test(d.statut || '')) diag.push('en apprentissage');
+        if (/DISAPPROVED/.test(d.raisons || '')) { conseil.push('Corriger les annonces refusées.'); prio = Math.min(prio, 2); }
+        if (brand) { conseil.push('Brand : hors budget, laisser tourner.' + (lr > 0.2 ? ' ' + P(lr) + ' d\'IS perdue sur le classement : vérifier le CPC max / la qualité.' : '')); }
+        else if (ecart > 0.1) {
+          prio = 1;
+          const cibleBudget = r5(o.cible * 1.2);
+          if (budget && cibleBudget > budget) conseil.push('Limitée par le budget : passer le budget de ' + E(budget) + ' à ' + E(cibleBudget) + '/j.');
+          if (lr >= 0.3) {
+            if (d.cpa_cible && conv < 7) conseil.push('Pas assez de conversions (' + Math.round(conv) + ' en 7 j) pour tenir un CPA cible, et ' + P(lr) + ' d\'IS perdue au classement : passer en Maximiser les conversions sans CPA cible.');
+            else if (d.cpa_cible) conseil.push('Limitée par les enchères (' + P(lr) + ' d\'IS perdue au classement) : relâcher le CPA cible de ' + E(d.cpa_cible) + ' à ' + E(r5(d.cpa_cible * 1.3)) + '.');
+            else conseil.push('Limitée par le classement (' + P(lr) + ' d\'IS perdue) : élargir les mots-clés (requête large / AI Max) et retravailler les annonces.');
+            if (budget && cibleBudget <= budget) conseil.push('Le budget (' + E(budget) + '/j) n\'est pas le frein : l\'augmenter seul ne fera pas dépenser plus.');
+          } else if (budget && cibleBudget <= budget && lb >= 0.1) conseil.push(P(lb) + ' d\'IS perdue sur le budget alors que la campagne ne dépense que ' + P(o.actuel / budget) + ' de son budget : le budget a sans doute été relevé récemment, laisser 2-3 jours avant de retoucher.');
+          if (!conseil.length || (conseil.length === 1 && /refusées/.test(conseil[0]))) conseil.push('Sous la cible sans frein visible : élargir les mots-clés et vérifier les annonces / extensions.');
+          if (/LEARNING/.test(d.statut || '')) conseil.push('En apprentissage : changer par paliers de +20 % max.');
+        } else if (ecart < -0.1) { prio = 2; conseil.push('Au-dessus de la cible : ramener le budget à ' + E(r5(o.cible * 1.1)) + '/j et réallouer le surplus vers la campagne la plus en retard du programme.'); }
+        else conseil.push('Dans la cible : rien à changer.');
+      } else if (o.levier === 'Meta') {
+        const m = meta_camps.find(x => x.campagne === o.campagne);
+        budget = m ? m.budget_jour : null;
+        if (!m) { diag.push('campagne inactive'); if (o.cible > 5) { prio = 1; conseil.push('Aucune campagne Meta active pour ce programme : relancer la campagne pour consommer ~' + E(o.cible) + '/j, ou basculer l\'enveloppe Meta sur Google.'); } else conseil.push('Inactive, rien à consommer.'); }
+        else {
+          diag.push('budget ' + E(budget) + '/j, dépense ' + P(o.actuel / budget) + ' du budget (3 j)' + (m.strategie ? ', ' + m.strategie.toLowerCase().replace('_', ' ') : ''));
+          const pas = isCad ? 0.1 : 0.2;
+          const eff = Math.min(o.actuel, budget);
+          ecart = eff > 0 ? o.cible / eff - 1 : (o.cible > 0 ? 1 : 0);
+          if (ecart > 0.1) {
+            prio = 1;
+            if (o.actuel >= 0.85 * budget) { const plafond = Math.max(budget * (1 + pas), isCad ? 0 : o.actuel); const cb = r5(Math.min(o.cible * 1.05, plafond)); conseil.push('Limitée par le budget : passer le budget de ' + E(budget) + ' à ' + E(cb) + '/j' + (cb < r5(o.cible * 1.05) ? ' (palier, puis recommencer dans 2-3 jours jusqu\'à ~' + E(r5(o.cible)) + '/j)' : '') + '.'); }
+            else conseil.push('Ne dépense pas tout son budget' + (/COST_CAP/.test(m.strategie) ? ' : le cost cap bride la diffusion, le relever de 20 à 30 % ou passer en volume le plus élevé sans plafond' : ' : élargir l\'audience ou ajouter des créas') + '.');
+          } else if (ecart < -0.1) { prio = 2; conseil.push('Au-dessus de la cible : ramener le budget à ' + E(r5(Math.max(o.cible * 1.05, budget * (1 - pas)))) + '/j' + (isCad ? ' (règle ±10 % sur CAD)' : '') + '.'); }
+          else conseil.push('Dans la cible : rien à changer.');
+          if (isCad && Math.abs(ecart) > 0.1) conseil.push('CAD : compte instable, une seule modification par semaine.');
+        }
+      } else {
+        diag.push('dernier rapport Bing');
+        const conv = bing_raw.filter(r => r['Campagne'] === o.campagne).reduce((s, r) => s + Number(r['Conversions'] || 0), 0);
+        diag.push(Math.round(conv) + ' conv. depuis le 1er');
+        if (/tcpa/i.test(o.campagne) && conv < 15) { prio = Math.min(prio, 1); conseil.push('Pas assez de conversions (' + Math.round(conv) + ') pour un tCPA : passer en Maximiser les conversions.'); }
+        if (ecart > 0.1) conseil.push('Sous la cible : monter le budget à ' + E(r5(o.cible * 1.2)) + '/j.');
+        else if (ecart < -0.1) conseil.push('Au-dessus de la cible : ramener le budget à ' + E(r5(o.cible * 1.1)) + '/j.');
+        else if (!conseil.length) conseil.push('Dans la cible.');
+      }
+      out.push({ cle: o.levier + '|' + o.campagne, levier: o.levier, campagne: o.campagne, programmes: o.programmes.join(' + '), depense_jour: Math.round(o.actuel), budget_jour: budget, cible_jour: brand ? null : Math.round(o.cible), ecart: brand ? null : ecart, diagnostic: diag.join(' · '), conseil: conseil.join(' '), priorite: prio });
+    }
+    return out.sort((a, b) => a.priorite - b.priorite || Math.abs(b.ecart || 0) - Math.abs(a.ecart || 0));
+  } });
+
+dash.calc('notes_calendrier', { inputs: ['pacing', 'calendrier', 'contexte'], title: 'Lecture du pacing vs calendrier',
+  description: "Pour chaque programme qui a des sessions dans l'onglet Calendrier : le statut de pacing lu au regard de la date (fenêtre de boost, session commencée, hors fenêtre).",
+  fn: (pacing, calendrier, contexte) => {
+    const c = contexte[0], J = 864e5;
+    const today = Date.UTC(c.annee, c.mois - 1, c.jour);
+    const d = iso => Date.parse(iso + 'T00:00:00Z');
+    const fr = t => new Date(t).toISOString().slice(5, 10).split('-').reverse().join('/');
+    const out = [];
+    for (const p of pacing) {
+      const ev = calendrier.filter(e => e['Verticale'] === p.verticale).map(e => ({ lib: e['Libellé'], deb: d(e['Début']), fin: d(e['Fin']), boost: Number(e['Boost (jours avant)'] || 0) * J })).sort((a, b) => a.deb - b.deb);
+      if (!ev.length) continue;
+      const boost = ev.find(e => today >= e.deb - e.boost && today < e.deb);
+      const enCours = ev.find(e => today >= e.deb && today <= e.fin);
+      const proch = ev.find(e => e.deb > today);
+      const st = p.statut, v = p.verticale;
+      let ton = 'ok', note;
+      if (boost) {
+        const jm = Math.round((boost.deb - today) / J);
+        if (st === 'Sur-pacing') note = `Sur-pacing normal : fenêtre de boost avant ${boost.lib} (début le ${fr(boost.deb)}, J-${jm}). C'est maintenant que les inscriptions se font.`;
+        else if (st === 'Sous-pacing') { ton = 'attention'; note = `Sous-pacing à corriger : on est en pleine fenêtre de boost avant ${boost.lib} (début le ${fr(boost.deb)}, J-${jm}). Les inscriptions se jouent maintenant, le taux de conversion s'effondre après le début de session.`; }
+        else note = `Dans le rythme pendant la fenêtre de boost avant ${boost.lib} (J-${jm}).`;
+        if (enCours) note += ` ${enCours.lib} est en cours (${fr(enCours.deb)}–${fr(enCours.fin)}).`;
+      } else if (enCours) {
+        if (st === 'Sous-pacing') note = `Sous-pacing acceptable : ${enCours.lib} a commencé (${fr(enCours.deb)}–${fr(enCours.fin)}), la conversion chute après le début de session.`;
+        else if (st === 'Sur-pacing') { ton = 'attention'; note = `Sur-pacing à surveiller : ${enCours.lib} a commencé et la conversion chute après le début.` + (proch ? ` Garder du budget pour ${proch.lib} (boost à partir du ${fr(proch.deb - proch.boost)}).` : ''); }
+        else note = `Dans le rythme, ${enCours.lib} en cours.`;
+      } else if (proch) {
+        if (st === 'Sous-pacing') note = `Sous-pacing acceptable : hors fenêtre de boost, prochaine session ${proch.lib} le ${fr(proch.deb)} (boost à partir du ${fr(proch.deb - proch.boost)}).`;
+        else if (st === 'Sur-pacing') { ton = 'attention'; note = `Sur-pacing à surveiller : on est hors fenêtre de boost. Garder du budget pour ${proch.lib} (boost à partir du ${fr(proch.deb - proch.boost)}).`; }
+        else note = `Dans le rythme. Prochaine session ${proch.lib} le ${fr(proch.deb)}, boost à partir du ${fr(proch.deb - proch.boost)}.`;
+      } else { ton = 'attention'; note = `Plus de session au calendrier ce mois-ci : ajouter les prochaines dates dans l'onglet Calendrier pour caler le budget restant.`; }
+      out.push({ verticale: v, statut: st, ton, note });
+    }
+    return out;
+  } });
+
+dash.calc('alertes', { inputs: ['pacing', 'calendrier', 'contexte', 'notes_calendrier'], title: 'Alertes',
+  description: "Statut de pacing hors tolérance, split SEA/Meta hors cible, reco CAD plafonnée, fenêtre de boost active, Bing absent ou périmé, dépense non classée.",
+  fn: (pacing, calendrier, contexte, notes_calendrier) => {
+    contexte = contexte[0];
+    const P = x => Math.round(x * 100) + ' %';
+    const E = x => Math.round(x).toLocaleString('fr-FR') + ' €';
+    const out = [];
+    for (const r of pacing) {
+      if (r.verticale === 'Non classé') { out.push({ id: 'nc', niveau: 'attention', message: 'Dépense non rattachée à une verticale : ' + E(r.depense) + '. Ajouter un motif dans l\'onglet Config.' }); continue; }
+      const nc = notes_calendrier.find(n => n.verticale === r.verticale);
+      if (r.statut === 'Sous-pacing' || r.statut === 'Sur-pacing') out.push({ id: 'pace-' + r.verticale, niveau: nc ? (nc.ton === 'ok' ? 'info' : 'critique') : 'critique', note: nc ? nc.note : '', message: r.verticale + ' : ' + r.statut.toLowerCase() + ', ' + P(r.pct_conso) + ' consommé pour ' + P(r.pct_attendu) + ' attendu. Reco ' + E(r.reco_jour) + '/jour (rythme actuel ' + E(r.rythme_jour) + '/jour).' });
+      if (r.part_sea_reelle != null && r.part_sea_cible != null && Math.abs(r.part_sea_reelle - r.part_sea_cible) * 100 > contexte.tolerance_split_pts) out.push({ id: 'split-' + r.verticale, niveau: 'attention', message: r.verticale + ' : split SEA/Meta à ' + P(r.part_sea_reelle) + ' / ' + P(1 - r.part_sea_reelle) + ' pour une cible ' + P(r.part_sea_cible) + ' / ' + P(1 - r.part_sea_cible) + '.' });
+      if (r.part_sea_min != null && r.part_sea_reelle != null && r.part_sea_reelle < r.part_sea_min) out.push({ id: 'min-' + r.verticale, niveau: 'critique', message: r.verticale + ' : part SEA ' + P(r.part_sea_reelle) + ' sous le minimum de ' + P(r.part_sea_min) + '.' });
+      if (r.plafonne) out.push({ id: 'cap-' + r.verticale, niveau: 'info', message: r.verticale + ' : reco/jour plafonnée à ±' + contexte.variation_max_cad_pct + ' % du rythme actuel pour ne pas déstabiliser l\'algo.' });
+    }
+    const today = Date.UTC(contexte.annee, contexte.mois - 1, contexte.jour);
+    for (const c of calendrier) { const deb = Date.parse(c['Début'] + 'T00:00:00Z'), b = Number(c['Boost (jours avant)'] || 0) * 864e5;
+      if (today >= deb - b && today < deb) out.push({ id: 'boost-' + c['Libellé'], niveau: 'info', message: 'Fenêtre de boost ' + c['Verticale'] + ' active : ' + c['Libellé'] + ' (début le ' + c['Début'].split('-').reverse().join('/') + ', J-' + Math.round((deb - today) / 864e5) + ').' }); }
+    if (!contexte.bing_lignes) out.push({ id: 'bing', niveau: 'attention', message: 'Bing pas encore alimenté : en attente du premier rapport planifié (dépense Bing comptée à 0).' });
+    else if (contexte.bing_age_h > contexte.bing_stale_heures) out.push({ id: 'bing', niveau: 'attention', message: 'Données Bing périmées : dernier dépôt le ' + contexte.bing_maj + '.' });
+    out.forEach(a => { if (a.note) a.message += ' ' + a.note; delete a.note; });
+    const rank = { critique: 0, attention: 1, info: 2 };
+    return out.sort((a, b) => rank[a.niveau] - rank[b.niveau]);
+  } });
+
+dash.calc('cpl', { inputs: ['leviers', 'appels'], title: 'CPL par verticale',
+  description: "Leads Google = contacts HubSpot Google + appels à partir des annonces (conversion plateforme) ; leads Meta = contacts HubSpot Meta. Contacts HubSpot vides tant que le connecteur n'est pas reconnecté.",
+  fn: (leviers, appels) => leviers.map(l => {
+    const ap = (appels.find(a => a.verticale === l.verticale) || {}).appels_google || 0;
+    const contactsGoogle = null, contactsMeta = null;
+    const leadsGoogle = contactsGoogle == null ? null : contactsGoogle + ap;
+    return { verticale: l.verticale, depense_google: l.google, contacts_google: contactsGoogle, appels_google: ap, leads_google: leadsGoogle,
+      cpl_google: leadsGoogle ? l.google / leadsGoogle : null, depense_meta: l.meta, contacts_meta: contactsMeta, cpl_meta: contactsMeta ? l.meta / contactsMeta : null };
+  }) });
+</script>
+
+<script>
+const eur = v => v == null || isNaN(v) ? '—' : new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(v);
+const pct = v => v == null || isNaN(v) ? '—' : new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFractionDigits: 0 }).format(v);
+const fmt = { budget: eur, depense: eur, reste: eur, reco_jour: eur, reco_sea: eur, reco_meta: eur, google: eur, bing: eur, meta: eur, total: eur,
+  pct_conso: pct, pct_attendu: pct, part_sea_reelle: pct, part_sea_cible: pct, appels_google: v => v == null ? '—' : new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(v),
+  depense_google: eur, depense_meta: eur, cpl_google: eur, cpl_meta: eur,
+  contacts_google: v => v == null ? '—' : String(v), contacts_meta: v => v == null ? '—' : String(v), leads_google: v => v == null ? '—' : new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(v) };
+const failed = (el) => { el.classList.remove('dash-skeleton'); el.replaceChildren(); const d = document.createElement('div'); d.className = 'cl-fail'; const i = document.createElement('i'); d.append(i, document.createTextNode('Failed to load')); el.append(d); };
+
+function fillTable(id, src, cols, styler) {
+  const t = document.getElementById(id), tb = t.querySelector('tbody'), s = dash.data(src);
+  tb.replaceChildren();
+  if (s.status !== 'ok') return;
+  for (const r of s.data) {
+    const tr = document.createElement('tr');
+    for (const c of cols) { const td = document.createElement('td'); td.textContent = c === cols[0] ? r[c] : (fmt[c] ? fmt[c](r[c]) : (r[c] ?? '—')); if (styler) styler(td, c, r); tr.append(td); }
+    tb.append(tr);
+  }
+}
+
+function drawChart() {
+  const box = document.getElementById('chart-pacing'), s = dash.data('pacing');
+  box.replaceChildren();
+  document.getElementById('sw-conso').style.background = dash.colors[0];
+  if (s.status === 'error') return failed(box);
+  if (s.status !== 'ok') return;
+  const rows = s.data.filter(r => r.budget != null);
+  const W = Math.max(280, box.clientWidth), rowH = 34, m = { t: 8, r: 48, b: 24, l: 8 };
+  const svg = d3.select(box).append('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${m.t + m.b + rows.length * rowH}`);
+  const probe = svg.append('text').attr('font-size', 12).text(rows.reduce((a, r) => r.verticale.length > a.length ? r.verticale : a, ''));
+  m.l = probe.node().getComputedTextLength() + 14; probe.remove();
+  const maxX = Math.max(1, d3.max(rows, r => Math.max(r.pct_conso || 0, r.pct_attendu || 0)) * 1.05);
+  const x = d3.scaleLinear([0, maxX], [m.l, W - m.r]);
+  const y = d3.scaleBand(rows.map(r => r.verticale), [m.t, m.t + rows.length * rowH]).padding(0.35);
+  svg.append('g').selectAll('line').data(x.ticks(4)).join('line').attr('x1', d => x(d)).attr('x2', d => x(d)).attr('y1', m.t).attr('y2', m.t + rows.length * rowH).attr('stroke', 'var(--cds-chart-grid)');
+  svg.append('g').attr('transform', `translate(0,${m.t + rows.length * rowH})`).call(d3.axisBottom(x).ticks(4).tickFormat(d3.format('.0%')).tickSizeOuter(0)).attr('font-size', null).attr('font-family', null)
+    .call(g => g.selectAll('text').attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)')).call(g => g.select('.domain').attr('stroke', 'var(--cds-chart-axis)')).call(g => g.selectAll('.tick line').remove());
+  svg.append('g').selectAll('text').data(rows).join('text').attr('x', m.l - 10).attr('y', r => y(r.verticale) + y.bandwidth() / 2).attr('dy', '0.35em').attr('text-anchor', 'end').attr('fill', 'var(--color-fg)').style('font-size', 'var(--cds-font-size-caption)').text(r => r.verticale);
+  svg.append('g').selectAll('rect').data(rows).join('rect').attr('x', m.l).attr('y', r => y(r.verticale)).attr('height', y.bandwidth()).attr('rx', 4)
+    .attr('width', r => Math.max(0, x(r.pct_conso || 0) - m.l)).attr('fill', r => r.statut === 'Dans le rythme' ? dash.colors[0] : 'var(--cds-chart-status-critical)')
+    .on('mousemove', (ev, r) => { tip.style.display = 'block'; tip.replaceChildren(); const a = document.createElement('div'); a.className = 't'; a.textContent = r.verticale; const b = document.createElement('div'); b.textContent = `Consommé ${pct(r.pct_conso)} · attendu ${pct(r.pct_attendu)}`; const c = document.createElement('div'); c.textContent = `${eur(r.depense)} sur ${eur(r.budget)}`; tip.append(a, b, c);
+      const [px, py] = d3.pointer(ev, box); tip.style.left = Math.min(px + 12, box.clientWidth - tip.offsetWidth) + 'px'; tip.style.top = (py + 12) + 'px'; })
+    .on('mouseleave', () => { tip.style.display = 'none'; });
+  svg.append('g').selectAll('line').data(rows).join('line').attr('x1', r => x(r.pct_attendu)).attr('x2', r => x(r.pct_attendu)).attr('y1', r => y(r.verticale) - 4).attr('y2', r => y(r.verticale) + y.bandwidth() + 4).attr('stroke', 'var(--cds-chart-reference)').attr('stroke-width', 2);
+  svg.append('g').selectAll('text').data(rows).join('text').attr('x', r => x(r.pct_conso || 0) + 6).attr('y', r => y(r.verticale) + y.bandwidth() / 2).attr('dy', '0.35em').attr('fill', 'var(--color-fg-muted)').style('font-size', 'var(--cds-font-size-caption)').text(r => pct(r.pct_conso));
+  const tip = document.createElement('div'); tip.className = 'cl-tip'; box.append(tip);
+}
+
+dash.onData(() => {
+  const syn = dash.data('synthese'), ctx = dash.data('contexte');
+  document.querySelectorAll('[data-source="synthese"][data-field]').forEach(el => {
+    if (syn.status === 'error') { el.textContent = '—'; el.classList.remove('dash-skeleton'); return; }
+    if (syn.status !== 'ok') return;
+    const f = el.dataset.field, v = syn.data[0][f];
+    el.textContent = f === 'indice_pacing' ? (v == null ? '—' : new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(v * 100) + ' %') : (['pct_conso', 'pct_attendu'].includes(f) ? pct(v) : f === 'statut' ? v : eur(v));
+    el.classList.remove('dash-skeleton');
+  });
+  document.querySelectorAll('[data-source="contexte"][data-field]').forEach(el => { if (ctx.status === 'ok') { const v = ctx.data[0][el.dataset.field]; el.textContent = el.dataset.field === 'date_ref' ? String(v).split('-').reverse().join('/') : String(v); } });
+  const tk = document.getElementById('takeaway');
+  if (syn.status === 'ok' && ctx.status === 'ok') {
+    const s = syn.data[0], p = dash.data('pacing');
+    const worst = p.status === 'ok' ? p.data.filter(r => r.indice != null).sort((a, b) => Math.abs(1 - b.indice) - Math.abs(1 - a.indice))[0] : null;
+    tk.textContent = `Au ${String(ctx.data[0].date_ref).split('-').reverse().join('/')}, ${eur(s.depense_total)} dépensés hors Brand sur ${eur(s.budget_total)} (${pct(s.pct_conso)}) pour ${pct(s.pct_attendu)} du mois écoulé : ${s.statut.toLowerCase()}.` + (worst ? ` Écart le plus fort : ${worst.verticale} (${pct(worst.pct_conso)} consommé vs ${pct(worst.pct_attendu)} attendu).` : '');
+    tk.classList.remove('dash-skeleton');
+  } else if (syn.status === 'error') { tk.textContent = '—'; tk.classList.remove('dash-skeleton'); }
+
+  const al = dash.data('alertes'), ul = document.getElementById('alertes-liste');
+  ul.replaceChildren();
+  if (al.status === 'ok') { ul.classList.remove('dash-skeleton');
+    for (const a of al.data) { const li = document.createElement('li'); li.dataset.key = a.id; const d = document.createElement('i'); d.className = 'cl-dot ' + a.niveau; const t = document.createElement('span'); t.textContent = a.message; li.append(d, t); ul.append(li); }
+    if (!al.data.length) { const li = document.createElement('li'); li.textContent = 'Rien à signaler.'; ul.append(li); } }
+  else if (al.status === 'error') failed(ul);
+
+  fillTable('pacing-table', 'pacing', ['verticale', 'budget', 'depense', 'pct_conso', 'pct_attendu', 'statut', 'reste', 'reco_jour', 'reco_sea', 'reco_meta', 'part_sea_reelle', 'part_sea_cible'],
+    (td, c, r) => { if (c === 'statut') td.className = r.statut === 'Dans le rythme' ? 'st-ok' : r.statut === 'Hors budget' ? '' : 'st-bad'; if (c === 'reco_jour' && r.plafonne) td.title = 'Plafonnée (variation max CAD)'; });
+  fillTable('leviers-table', 'leviers', ['verticale', 'google', 'bing', 'meta', 'total']);
+  fillTable('cpl-table', 'cpl', ['verticale', 'depense_google', 'contacts_google', 'appels_google', 'leads_google', 'cpl_google', 'depense_meta', 'contacts_meta', 'cpl_meta']);
+  drawChart();
+});
+
+const eur2 = v => v == null || isNaN(v) ? '—' : new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+const pct1 = v => v == null || isNaN(v) ? '—' : new Intl.NumberFormat('fr-FR', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v);
+const deltaTxt = (v, ref) => v == null ? '—' : Math.abs(v) < 0.05 ? 'iso vs ' + ref : (v > 0 ? '▲ +' : '▼ ') + pct1(v).replace('-', '−') + ' vs ' + ref;
+document.getElementById('btn-refresh').addEventListener('click', () => {
+  ['g_spend', 'g_spend_ag_mixed', 'g_calls', 'g_calls_ag_mixed', 'g_daily_camp', 'g_daily_ag_mixed', 'g_diag', 'meta_camps', 'meta_spend', 'meta_daily_camp', 'bing_raw', 'budget_client', 'config', 'calendrier', 'parametres'].forEach(id => dash.refresh(id));
+});
+dash.onData(() => {
+  const r = dash.data('rythme');
+  document.querySelectorAll('[data-source="rythme"][data-field]').forEach(el => {
+    if (r.status === 'error') { el.textContent = '—'; el.classList.remove('dash-skeleton'); return; }
+    if (r.status !== 'ok') return;
+    const f = el.dataset.field, v = r.data[0][f];
+    el.textContent = f === 'var_hier' ? deltaTxt(v, 'J-2') : f === 'var_trend' ? deltaTxt(v, 'dépensé hier') : ['pct_budget', 'projection_pct'].includes(f) ? pct1(v) : ['date_hier', 'lecture'].includes(f) ? v : eur2(v);
+    el.classList.remove('dash-skeleton');
+  });
+  const bar = document.getElementById('bar-cout');
+  bar.style.background = dash.colors[0];
+  if (r.status === 'ok') {
+    const d = r.data[0];
+    bar.style.width = Math.min(100, (d.pct_budget || 0) * 100) + '%';
+    document.getElementById('kpi-proj-pct').classList.toggle('warn', d.projection_pct < 0.95 || d.projection_pct > 1.05);
+    document.getElementById('delta-hier').style.color = d.var_hier == null || Math.abs(d.var_hier) < 0.05 ? 'var(--color-fg-muted)' : d.var_hier > 0 ? 'var(--color-ok)' : 'var(--color-bad)';
+    document.getElementById('delta-trend').style.color = 'var(--color-fg-muted)';
+  }
+});
+
+const ONGLETS = ['Tous leviers', 'SEA (Google + Bing)', 'Google', 'Bing', 'Meta'];
+const NOTES = { 'Tous leviers': 'Budget = budget du programme (sheet client).', 'SEA (Google + Bing)': 'Budget SEA = budget du programme × part SEA cible (onglet Config).', 'Google': "Pas de budget propre à Google : le budget est porté par l'onglet SEA.", 'Bing': "Pas de budget propre à Bing : le budget est porté par l'onglet SEA. Données Bing = dernier rapport déposé.", 'Meta': 'Budget Meta = budget du programme × part Meta cible (onglet Config).' };
+let ongletActif = 'Tous leviers';
+const tabsBox = document.getElementById('tabs-levier');
+for (const o of ONGLETS) { const b = document.createElement('button'); b.type = 'button'; b.className = 'cl-tab'; b.setAttribute('role', 'tab'); b.textContent = o; b.addEventListener('click', () => { ongletActif = o; drawRythme(); }); tabsBox.append(b); }
+function drawRythme() {
+  tabsBox.querySelectorAll('.cl-tab').forEach(b => b.setAttribute('aria-selected', String(b.textContent === ongletActif)));
+  document.getElementById('note-levier').textContent = NOTES[ongletActif];
+  const tb = document.querySelector('#rythme-table tbody'), d = dash.data('rythme_vl');
+  tb.replaceChildren();
+  if (d.status !== 'ok') return;
+  for (const r of d.data.filter(x => x.onglet === ongletActif)) {
+    const tr = document.createElement('tr'); tr.dataset.key = encodeURIComponent(r.onglet) + ',' + encodeURIComponent(r.verticale);
+    if (r.verticale === 'Total hors Brand') tr.className = 'cl-total';
+    const cell = (txt, cls) => { const td = document.createElement('td'); td.textContent = txt; if (cls) td.className = cls; tr.append(td); return td; };
+    cell(r.verticale);
+    cell(eur(r.cout));
+    cell(eur(r.budget));
+    const tdp = cell(pct1(r.pct_budget));
+    if (r.pct_budget != null) { const m = document.createElement('span'); m.className = 'cl-mini'; const i = document.createElement('i'); i.style.width = Math.min(100, r.pct_budget * 100) + '%'; i.style.background = dash.colors[0]; m.append(i); tdp.append(m); }
+    cell(eur(r.projection));
+    cell(pct1(r.projection_pct), r.projection_pct != null && (r.projection_pct < 0.95 || r.projection_pct > 1.05) ? 'warn' : '');
+    cell(eur(r.hier));
+    cell(r.var_hier == null ? '—' : Math.abs(r.var_hier) < 0.05 ? 'iso' : (r.var_hier > 0 ? '▲ +' : '▼ ') + pct1(r.var_hier).replace('-', '−'), r.var_hier == null || Math.abs(r.var_hier) < 0.05 ? '' : r.var_hier > 0 ? 'up' : 'down');
+    cell(eur(r.trend_ideal));
+    cell(r.var_trend == null ? '—' : Math.abs(r.var_trend) < 0.05 ? 'iso' : (r.var_trend > 0 ? '+' : '−') + pct1(Math.abs(r.var_trend)));
+    tb.append(tr);
+  }
+}
+dash.onData(drawRythme);
+
+dash.onData(() => {
+  const n = dash.data('notes_calendrier'), ul = document.getElementById('notes-liste');
+  ul.replaceChildren();
+  if (n.status === 'ok') { ul.classList.remove('dash-skeleton');
+    for (const r of n.data) { const li = document.createElement('li'); li.dataset.key = r.verticale; const d = document.createElement('i'); d.className = 'cl-dot ' + (r.ton === 'ok' ? 'info' : 'attention'); const t = document.createElement('span'); const b = document.createElement('b'); b.textContent = r.verticale + ' · ' + r.statut + ' — '; t.append(b, document.createTextNode(r.note)); li.append(d, t); ul.append(li); }
+    if (!n.data.length) { const li = document.createElement('li'); li.textContent = 'Aucune session renseignée dans le calendrier.'; ul.append(li); } }
+  else if (n.status === 'error') failed(ul);
+});
+
+dash.onData(() => {
+  const d = dash.data('conseils'), tb = document.querySelector('#conseils-table tbody');
+  tb.replaceChildren();
+  if (d.status !== 'ok') return;
+  for (const r of d.data) {
+    const tr = document.createElement('tr'); tr.dataset.key = encodeURIComponent(r.levier) + ',' + encodeURIComponent(r.campagne); tr.className = 'p' + r.priorite;
+    const cell = t => { const td = document.createElement('td'); td.textContent = t; tr.append(td); };
+    cell(r.levier); cell(r.campagne + (r.programmes ? ' (' + r.programmes + ')' : '')); cell(eur(r.depense_jour)); cell(eur(r.budget_jour)); cell(eur(r.cible_jour)); cell(r.diagnostic); cell(r.conseil);
+    tb.append(tr);
+  }
+});
+</script>

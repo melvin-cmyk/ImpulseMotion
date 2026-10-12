@@ -11,6 +11,7 @@ import {
   Bot,
   Activity,
   Layers,
+  LayoutDashboard,
   Briefcase,
   ShieldCheck,
   BellRing,
@@ -51,6 +52,13 @@ const NAV_SECTIONS: NavSection[] = [
         icon: Activity,
         label: "Cockpit",
         match: (p) => p === "/" || p === "/cockpit" || p.startsWith("/me/") || p === "/dashboard",
+      },
+      {
+        // Staff only: the section is hidden from clients (app/layout.tsx) and proxy.ts keeps /dashboards out of their prefixes.
+        href: "/dashboards",
+        icon: LayoutDashboard,
+        label: "Mes dashboards",
+        match: (p) => p === "/dashboards" || p.startsWith("/dashboards/"),
       },
       {
         href: "/portfolio",

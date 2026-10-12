@@ -1,0 +1,179 @@
+{
+  "bing_raw": {
+    "title": "Dépense Bing (30 j)",
+    "description": "Dépense Bing par jour et par campagne (rapport Microsoft Advertising déposé par n8n ou importé depuis le chat). Lit l'onglet Bing_raw du classeur de pilotage.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google spreedsheet",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets",
+      "args": { "Document": "1pH2ucwTtj1KGiJQyo7Aw1_StLetIpkePltXo1urbblk", "Sheet": "Bing_raw" }
+    }
+  },
+  "budget_client": {
+    "title": "Budgets mensuels (sheet client)",
+    "description": "Onglet Budget 26_27 du fichier « depenses média et budget impulse » : bloc « Budget media en € pour 2026-2027 », une colonne par mois.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google spreedsheet",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets",
+      "args": { "Document": "1FGHEVdgl91GnmYzi5B_AHropO81qnpXsqzklyp6vsks", "Sheet": "Budget 26_27" }
+    }
+  },
+  "calendrier": {
+    "title": "Calendrier des sessions",
+    "description": "Sessions de stage et webinaires prépa avec fenêtre et poids de boost. Lit l'onglet Calendrier du classeur de pilotage.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google spreedsheet",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets",
+      "args": { "Document": "1pH2ucwTtj1KGiJQyo7Aw1_StLetIpkePltXo1urbblk", "Sheet": "Calendrier" }
+    }
+  },
+  "config": {
+    "title": "Splits cibles et motifs",
+    "description": "Split SEA/Meta cible, motifs de nom de campagne et budget override par verticale. Lit l'onglet Config du classeur de pilotage.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google spreedsheet",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets",
+      "args": { "Document": "1pH2ucwTtj1KGiJQyo7Aw1_StLetIpkePltXo1urbblk", "Sheet": "Config" }
+    }
+  },
+  "g_calls": {
+    "title": "Appels Google par campagne",
+    "description": "Conversion « Appels à partir des annonces » du mois en cours par campagne. Lit la ressource GAQL campaign segmentée par action de conversion.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google ads",
+      "tool": "Custom_GAQL_Query",
+      "args": {
+        "customer_id": "2389119715",
+        "gaql_query": "SELECT campaign.name, segments.conversion_action_name, metrics.all_conversions FROM campaign WHERE segments.date DURING THIS_MONTH AND segments.conversion_action_name LIKE 'Appels%annonces' AND metrics.all_conversions > 0 LIMIT 50"
+      }
+    }
+  },
+  "g_calls_ag_mixed": {
+    "title": "Appels Google multi-verticales",
+    "description": "Appels à partir des annonces par groupe d'annonces pour les campagnes dont le nom contient « & ». Lit la ressource GAQL ad_group.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google ads",
+      "tool": "Custom_GAQL_Query",
+      "args": {
+        "customer_id": "2389119715",
+        "gaql_query": "SELECT campaign.name, ad_group.name, segments.conversion_action_name, metrics.all_conversions FROM ad_group WHERE segments.date DURING THIS_MONTH AND campaign.name LIKE '%&%' AND segments.conversion_action_name LIKE 'Appels%annonces' LIMIT 50"
+      }
+    }
+  },
+  "g_daily_ag_mixed": {
+    "title": "Google multi-verticales par jour",
+    "description": "Coût Google par jour et par groupe d'annonces pour les campagnes dont le nom contient « & ». Lit la ressource GAQL ad_group segmentée par date.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google ads",
+      "tool": "Custom_GAQL_Query",
+      "args": {
+        "customer_id": "2389119715",
+        "gaql_query": "SELECT segments.date, campaign.name, ad_group.name, metrics.cost_micros FROM ad_group WHERE segments.date DURING THIS_MONTH AND campaign.name LIKE '%&%' AND metrics.cost_micros > 0 ORDER BY segments.date LIMIT 1000"
+      }
+    }
+  },
+  "g_daily_camp": {
+    "title": "Google par jour et campagne",
+    "description": "Coût Google Ads (compte 238-911-9715) par jour et par campagne, mois en cours. Lit la ressource GAQL campaign segmentée par date.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google ads",
+      "tool": "Custom_GAQL_Query",
+      "args": {
+        "customer_id": "2389119715",
+        "gaql_query": "SELECT segments.date, campaign.name, metrics.cost_micros FROM campaign WHERE segments.date DURING THIS_MONTH AND metrics.cost_micros > 0 ORDER BY segments.date LIMIT 1000"
+      }
+    }
+  },
+  "g_diag": {
+    "title": "Diagnostic Google (7 j)",
+    "description": "Campagnes Google actives (compte 238-911-9715) sur les 7 derniers jours : budget, stratégie d'enchères, CPA cible, statut, conversions, part d'impressions perdue sur le budget et sur le classement. Lit la ressource GAQL campaign.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google ads",
+      "tool": "Custom_GAQL_Query",
+      "args": {
+        "customer_id": "2389119715",
+        "gaql_query": "SELECT campaign.name, campaign.bidding_strategy_type, campaign.maximize_conversions.target_cpa_micros, campaign.target_cpa.target_cpa_micros, campaign.primary_status, campaign.primary_status_reasons, campaign_budget.amount_micros, metrics.cost_micros, metrics.conversions, metrics.search_budget_lost_impression_share, metrics.search_rank_lost_impression_share FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status = 'ENABLED' AND metrics.cost_micros > 0 LIMIT 50"
+      }
+    }
+  },
+  "g_spend": {
+    "title": "Dépense Google par campagne",
+    "description": "Coût du mois en cours par campagne Google Ads (compte 238-911-9715). Lit la ressource GAQL campaign.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google ads",
+      "tool": "Custom_GAQL_Query",
+      "args": {
+        "customer_id": "2389119715",
+        "gaql_query": "SELECT campaign.name, campaign.status, metrics.cost_micros, metrics.clicks, metrics.impressions FROM campaign WHERE segments.date DURING THIS_MONTH AND metrics.cost_micros > 0 ORDER BY metrics.cost_micros DESC LIMIT 50"
+      }
+    }
+  },
+  "g_spend_ag_mixed": {
+    "title": "Google multi-verticales",
+    "description": "Coût du mois par groupe d'annonces pour les campagnes dont le nom contient « & » (ex. AI Max CAD & Stage). Lit la ressource GAQL ad_group.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google ads",
+      "tool": "Custom_GAQL_Query",
+      "args": {
+        "customer_id": "2389119715",
+        "gaql_query": "SELECT campaign.name, ad_group.name, metrics.cost_micros FROM ad_group WHERE segments.date DURING THIS_MONTH AND campaign.name LIKE '%&%' AND metrics.cost_micros > 0 LIMIT 50"
+      }
+    }
+  },
+  "meta_camps": {
+    "title": "Budgets Meta actifs",
+    "description": "Campagnes Meta actives (compte 595800441007042) : budget quotidien et stratégie d'enchères. Lit la liste des campagnes Meta.",
+    "source": {
+      "kind": "query",
+      "connector": "mcp facebook",
+      "tool": "Get_Campaigns1",
+      "args": {
+        "input": "{\"ad_account_id\":\"act_595800441007042\",\"fields\":\"id,name,status,effective_status,objective,daily_budget,lifetime_budget,bid_strategy\",\"limit\":\"200\",\"filtering\":\"[{\\\"field\\\":\\\"effective_status\\\",\\\"operator\\\":\\\"IN\\\",\\\"value\\\":[\\\"ACTIVE\\\"]}]\"}"
+      }
+    }
+  },
+  "meta_daily_camp": {
+    "title": "Meta par jour et campagne",
+    "description": "Dépense Meta (compte 595800441007042) par jour et par campagne, mois en cours. Lit les insights Meta au niveau campagne, time_increment 1.",
+    "source": {
+      "kind": "query",
+      "connector": "mcp facebook",
+      "tool": "Campaign_Daily_Trend1",
+      "args": {
+        "input": "{\"ad_account_id\":\"act_595800441007042\",\"fields\":\"campaign_name,spend\",\"level\":\"campaign\",\"date_preset\":\"this_month\",\"time_range\":\"\",\"time_increment\":\"1\",\"limit\":\"500\",\"filtering\":\"[]\"}"
+      }
+    }
+  },
+  "meta_spend": {
+    "title": "Dépense Meta par campagne",
+    "description": "Dépense du mois en cours par campagne Meta (compte 595800441007042). Lit les insights Meta au niveau campagne, période this_month.",
+    "source": {
+      "kind": "query",
+      "connector": "mcp facebook",
+      "tool": "Campaign_Performance1",
+      "args": {
+        "input": "{\"ad_account_id\":\"act_595800441007042\",\"fields\":\"campaign_name,spend\",\"level\":\"campaign\",\"date_preset\":\"this_month\",\"time_range\":\"\",\"limit\":\"200\",\"filtering\":\"[]\"}"
+      }
+    }
+  },
+  "parametres": {
+    "title": "Seuils d'alerte",
+    "description": "Tolérances de pacing et de split, fraîcheur Bing, plafond de variation CAD. Lit l'onglet Paramètres du classeur de pilotage.",
+    "source": {
+      "kind": "query",
+      "connector": "n8n google spreedsheet",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets",
+      "args": { "Document": "1pH2ucwTtj1KGiJQyo7Aw1_StLetIpkePltXo1urbblk", "Sheet": "Paramètres" }
+    }
+  }
+}
