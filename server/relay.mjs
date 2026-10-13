@@ -428,6 +428,13 @@ const TIKTOK_SERVER = "mcp-tiktok-ads";
 // écriture d'administration, reste fermé). Staff uniquement, comme Notion :
 // un seul accès lit tous les comptes Merchant de l'agence.
 const MERCHANT_SERVER = "mcp-merchant-center";
+// Magento LPEV : serveur MCP n8n « MCP Magento LPEV » (lecture seule sur l'API
+// REST de la boutique lpev.fr : commandes, produits, codes prescripteurs ;
+// aucune donnée nominative). Un seul client, mais un accès de l'agence :
+// staff uniquement, jamais un bot client (le bot LPEV a son entrepôt
+// client-data). Liste fermée : un outil ajouté dans n8n reste fermé ici.
+const MAGENTO_SERVER = "mcp-magento-lpev";
+const MAGENTO_READ_TOOLS = ["lpev_orders_summary", "lpev_orders_list", "lpev_order_get", "lpev_products_top", "lpev_prescripteurs"];
 // n8n de l'agence : le serveur MCP intégré de l'instance (Settings → MCP access),
 // déclaré par le relay avec un jeton d'accès (N8N_MCP_TOKEN, env du service).
 // Le consultant fait construire ses automatisations par l'IA (import d'un
@@ -479,6 +486,7 @@ const ALLOWED_MCP_SERVERS = new Set([
   HQ_SERVER,
   NOTION_SERVER,
   MERCHANT_SERVER,
+  MAGENTO_SERVER,
   N8N_SERVER,
 ]);
 
@@ -508,6 +516,7 @@ const SERVER_TOOL_ALLOWLIST = {
   // n'est pas nommé ici. Un bot client reçoit TIKTOK_CLIENT_TOOLS (chatToolsOf).
   [TIKTOK_SERVER]: TIKTOK_STAFF_TOOLS,
   [MERCHANT_SERVER]: MERCHANT_READ_TOOLS,
+  [MAGENTO_SERVER]: MAGENTO_READ_TOOLS,
 };
 
 /** Tools of a server open to this chat: fewer for a client bot where it matters. */
@@ -545,6 +554,8 @@ const DIRECT_TOOL_ALLOWLIST = {
   // Merchant Center (lib/merchant-center.ts) : liste des comptes pour le
   // rattachement, puis diagnostics, statuts et performance produits des rapports.
   [MERCHANT_SERVER]: ["list_merchant_accounts", "list_subaccounts", "get_account_issues", "list_data_sources", "search_reports", "list_products"],
+  // Magento LPEV : jeux de données des dashboards du staff (lecture seule).
+  [MAGENTO_SERVER]: MAGENTO_READ_TOOLS,
 };
 
 /** "<server>.<tool>" → null when /api/tool may call it, the reason otherwise. */
@@ -976,6 +987,11 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     servers = servers.filter((s) => s !== MERCHANT_SERVER);
     console.error("[chat] merchant center refusé — requête de bot client");
   }
+  // Magento LPEV: staff only (orders of a client shop, read by the agency's access).
+  if (servers.includes(MAGENTO_SERVER) && clientBot) {
+    servers = servers.filter((s) => s !== MAGENTO_SERVER);
+    console.error("[chat] magento lpev refusé — requête de bot client");
+  }
   // n8n: staff only, and only with the instance token in the service env.
   let n8nToken = null;
   if (servers.includes(N8N_SERVER)) {
@@ -1114,7 +1130,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
+  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${servers.includes(MAGENTO_SERVER) ? " | magento" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.

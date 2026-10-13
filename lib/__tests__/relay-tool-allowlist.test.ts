@@ -35,6 +35,7 @@ const OTHER_READS = [
   "meta-ads-impulse.List_Ad_Accounts1", "meta-ads-impulse.Campaign_Performance1",
   "mcp-google-analytics.run_report", "mcp-google-analytics.list_properties",
   "mcp-google-sheet.Get_row_s_in_sheet_in_Google_Sheets", "mcp-google-sheet.search_sheet",
+  "mcp-magento-lpev.lpev_orders_summary", "mcp-magento-lpev.lpev_order_get",
 ];
 
 const WRITES = [
@@ -49,7 +50,7 @@ const WRITES = [
 const CLOSED = [
   // Chat-only servers, unknown servers, unknown tools, shapes that are not "<server>.<tool>".
   "hq.hq_project_list", "gws.gws_run", "notion.Notion_Create_Page", "sandbox.run_python", "client-data.query",
-  "inconnu.outil", "mcp-google-ads.Outil_Ajoute_Demain", "mcp-google-ads.", "mcp-google-ads", ".Custom_GAQL_Query",
+  "inconnu.outil", "mcp-magento-lpev.lpev_outil_ajoute_demain", "mcp-google-ads.Outil_Ajoute_Demain", "mcp-google-ads.", "mcp-google-ads", ".Custom_GAQL_Query",
   "constructor.Custom_GAQL_Query", "__proto__.x", "mcp-google-ads.Custom_GAQL_Query.Create_Conversion_Action",
   "mcp-google-ads.custom_gaql_query", " mcp-google-ads.Custom_GAQL_Query",
 ];

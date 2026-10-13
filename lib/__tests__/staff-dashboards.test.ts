@@ -30,6 +30,8 @@ describe("connecteurs", () => {
     expect(connectorServer("n8n google spreedsheet")).toBe("mcp-google-sheet");
     expect(connectorServer("Google Sheets")).toBe("mcp-google-sheet");
     expect(connectorServer("tiktok")).toBe("mcp-tiktok-ads");
+    expect(connectorServer("Magento LPEV")).toBe("mcp-magento-lpev");
+    expect(connectorServer("magento")).toBe("mcp-magento-lpev");
     expect(connectorServer("BigQuery")).toBeNull();
   });
 });

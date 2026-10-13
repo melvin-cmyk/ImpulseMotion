@@ -89,6 +89,15 @@ export const TIKTOK_SERVER = "mcp-tiktok-ads" as const;
 export const MERCHANT_SERVER = "mcp-merchant-center" as const;
 
 /**
+ * Magento de LPEV, par le serveur MCP n8n « MCP Magento LPEV » (lecture seule
+ * sur l'API REST de lpev.fr : résumé des commandes, liste, détail d'une
+ * commande, produits les plus vendus, codes prescripteurs ; aucune donnée
+ * nominative). Accès de l'agence : staff uniquement, jamais un bot client (le
+ * relay le refuse ; le bot LPEV lit son propre entrepôt client-data).
+ */
+export const MAGENTO_LPEV_SERVER = "mcp-magento-lpev" as const;
+
+/**
  * n8n de l'agence : le serveur MCP intégré de l'instance, déclaré par le relay
  * avec un jeton d'accès (N8N_MCP_TOKEN dans l'environnement du service). L'IA
  * lit les flux et en construit pour alimenter les dashboards (import d'un
@@ -99,7 +108,7 @@ export const MERCHANT_SERVER = "mcp-merchant-center" as const;
 export const N8N_SERVER = "n8n" as const;
 
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
-export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, TIKTOK_SERVER, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER, NOTION_SERVER, MERCHANT_SERVER] as const;
+export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, TIKTOK_SERVER, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER, NOTION_SERVER, MERCHANT_SERVER, MAGENTO_LPEV_SERVER] as const;
 
 /** Serveur MCP stdio des données e-commerce (server/mcp-client-data.mjs), scoped par le relay. */
 export const CLIENT_DATA_SERVER = "client-data" as const;

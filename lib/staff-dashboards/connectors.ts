@@ -15,6 +15,7 @@ const CONNECTORS: Array<{ match: RegExp; server: string }> = [
   { match: /^(mcp-google-analytics|ga4|google[ -]*analytics|n8n[ -]*ga4)$/i, server: "mcp-google-analytics" },
   { match: /^(mcp-tiktok-ads|tiktok|tiktok[ -]*ads|n8n[ -]*tiktok)$/i, server: "mcp-tiktok-ads" },
   { match: /^(mcp-merchant-center|merchant|merchant[ -]*center)$/i, server: "mcp-merchant-center" },
+  { match: /^(mcp-magento-lpev|magento|magento[ -]*lpev|lpev[ -]*magento|n8n[ -]*magento)$/i, server: "mcp-magento-lpev" },
 ];
 
 export function connectorServer(connector: string): string | null {
@@ -58,5 +59,10 @@ export const DATASET_TOOLS: Array<{ server: string; connector: string; tools: st
     server: "mcp-merchant-center", connector: "merchant",
     tools: ["list_merchant_accounts", "list_subaccounts", "get_account_issues", "list_data_sources", "search_reports", "list_products"],
     args: "search_reports : { account_id, query: \"SELECT … FROM product_performance_view WHERE date BETWEEN '…' AND '…'\" } (MCQL).",
+  },
+  {
+    server: "mcp-magento-lpev", connector: "magento",
+    tools: ["lpev_orders_summary", "lpev_orders_list", "lpev_order_get", "lpev_products_top", "lpev_prescripteurs"],
+    args: "boutique lpev.fr seulement. lpev_orders_summary : { from_date: \"AAAA-MM-JJ\", to_date: \"AAAA-MM-JJ\", status?: \"complete\" } → { orders: { total, valid }, revenue: { valid, avg_order_valid }, by_day: [{ date, orders, revenue }], by_status, by_prescripteur_type, by_payment_method, by_country } ; lpev_products_top et lpev_prescripteurs : { from_date, to_date, limit } ; lpev_orders_list : { from_date, to_date, page, page_size } ; lpev_order_get : { order_id }. Dates UTC, 4 000 commandes au plus par appel.",
   },
 ];
