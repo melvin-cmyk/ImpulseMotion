@@ -65,6 +65,7 @@ async function mintFromEnv() {
   if (!res.ok) throw new Error(`OAuth Google refusé (HTTP ${res.status}) : vérifier les secrets Workspace du coffre.`);
   const j = await res.json().catch(() => ({}));
   if (typeof j.access_token !== "string" || !j.access_token) throw new Error("OAuth Google : jeton d'accès absent de la réponse.");
+  await describeToken(j.access_token);
   return { token: j.access_token, expiresAt: expiry(j.expires_in) };
 }
 
@@ -78,12 +79,41 @@ function grab(text, key) {
   return m ? m[1] : null;
 }
 
+const TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
+
+/**
+ * Asks Google what a freshly minted token is (identity, scopes, lifetime)
+ * so a wrong or dead token is refused here, with a readable journal line,
+ * instead of surfacing as a bare 401 in a consultant's chat. Never logs the
+ * token nor the OAuth client id. Network trouble on this probe is tolerated.
+ */
+async function describeToken(token) {
+  let res;
+  try {
+    res = await fetch(`${TOKENINFO_URL}?access_token=${encodeURIComponent(token)}`, { signal: AbortSignal.timeout(10_000) });
+  } catch (err) {
+    console.warn(`[gws-auth] tokeninfo injoignable (${String(err?.message || err).slice(0, 80)}) : jeton accepté sans contrôle`);
+    return null;
+  }
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Google refuse le jeton minté (tokeninfo ${res.status}${j.error_description ? ` : ${String(j.error_description).slice(0, 120)}` : ""}) : le secret GOOGLE_WORKSPACE/REFRESH_TOKEN du coffre HQ n'est plus bon ou ne correspond pas au client OAuth.`);
+  const scopes = String(j.scope || "").split(/\s+/).filter(Boolean);
+  const info = { email: typeof j.email === "string" ? j.email : null, scopes, expiresIn: Number(j.expires_in) || null };
+  const hasDrive = scopes.some((sc) => /googleapis\.com\/auth\/drive(\.|$)/.test(sc));
+  console.log(`[gws-auth] jeton contrôlé : identité=${info.email || "?"} drive=${hasDrive ? "oui" : "NON"} scopes=${scopes.length} (${scopes.map((sc) => sc.replace(/^https:\/\/www\.googleapis\.com\/auth\//, "")).join(" ").slice(0, 300)})`);
+  if (!hasDrive) throw new Error(`Jeton Google minté sans le périmètre Drive (identité ${info.email || "inconnue"}) : les secrets GOOGLE_WORKSPACE/* du coffre HQ ne sont pas ceux du kit Google Workspace.`);
+  return info;
+}
+
 async function mintFromHq() {
   // The secret names carry a slash, so their env names in the sandbox are not
-  // known in advance: pick each one by suffix, then mint with curl. Only the
-  // short-lived access token comes back in the job output.
+  // known in advance: take the exact name first (slash or underscore form),
+  // and only then a name that ends with the key AND belongs to the Google
+  // Workspace family — never any other connector's CLIENT_ID. The names used
+  // (never the values) are echoed before the token, for the journal.
   const cmd =
-    `set -e; pick() { for n in $(env | cut -d= -f1); do case "$n" in *"$1") printenv "$n"; return 0;; esac; done; echo "secret $1 absent" >&2; exit 3; }; ` +
+    `set -e; pick() { for n in "GOOGLE_WORKSPACE/$1" "GOOGLE_WORKSPACE_$1"; do if printenv "$n" >/dev/null 2>&1; then echo "$n" >&2; printenv "$n"; return 0; fi; done; ` +
+    `for n in $(env | cut -d= -f1); do case "$n" in *GOOGLE_WORKSPACE*"$1") echo "$n" >&2; printenv "$n"; return 0;; esac; done; echo "secret $1 absent" >&2; exit 3; }; ` +
     `CID=$(pick CLIENT_ID); CS=$(pick CLIENT_SECRET); RT=$(pick REFRESH_TOKEN); ` +
     `curl -sS -X POST ${TOKEN_URL} -d grant_type=refresh_token --data-urlencode "client_id=$CID" --data-urlencode "client_secret=$CS" --data-urlencode "refresh_token=$RT"`;
   const started = await hqToolCall("hq_secrets_sandbox", { company: HQ_COMPANY, only: HQ_SECRET_KEYS, command: cmd, maxExecMs: 25_000 });
@@ -98,12 +128,18 @@ async function mintFromHq() {
     const output = typeof st?.output === "string" ? st.output : status;
     const payload = parseJson(output);
     const token = typeof payload?.access_token === "string" ? payload.access_token : grab(output, "access_token");
-    if (token) return { token, expiresAt: expiry(payload?.expires_in ?? grab(output, "expires_in")) };
+    if (token) {
+      const picked = (typeof st?.stderr === "string" ? st.stderr : "").split(/\s+/).filter((n) => /GOOGLE_WORKSPACE/.test(n));
+      if (picked.length) console.log(`[gws-auth] secrets HQ utilisés : ${picked.join(", ")}`);
+      await describeToken(token);
+      return { token, expiresAt: expiry(payload?.expires_in ?? grab(output, "expires_in")) };
+    }
     const state = st?.status || st?.state || grab(status, "status");
     if (state === "failed" || state === "succeeded") {
       // The output may hold an OAuth error body; never a secret, but keep it short.
       const hint = payload?.error ? ` (${payload.error}${payload.error_description ? ` : ${payload.error_description}` : ""})` : "";
-      throw new Error(`HQ sandbox : tâche ${state} sans jeton${hint.slice(0, 200)}`);
+      const stderr = typeof st?.stderr === "string" ? st.stderr.replace(/[A-Za-z0-9_-]{40,}/g, "[…]").slice(0, 160) : "";
+      throw new Error(`HQ sandbox : tâche ${state} sans jeton${hint.slice(0, 200)}${stderr ? ` [${stderr}]` : ""}`);
     }
   }
   throw new Error("HQ sandbox : délai dépassé en attendant le jeton.");
@@ -116,7 +152,17 @@ export async function getAccessToken() {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const next = SOURCE === "hq" ? await mintFromHq() : await mintFromEnv();
+      let next;
+      try {
+        next = SOURCE === "hq" ? await mintFromHq() : await mintFromEnv();
+      } catch (first) {
+        // A token Google itself rejects right after minting (seen on 2026-10-13:
+        // the sandbox answered with a token the Drive API refused) is retried
+        // once before giving up — the next mint usually comes back sound.
+        if (!/jeton minté|sans le périmètre/.test(String(first?.message))) throw first;
+        console.warn(`[gws-auth] ${String(first.message).slice(0, 160)} — nouvelle tentative`);
+        next = SOURCE === "hq" ? await mintFromHq() : await mintFromEnv();
+      }
       cache = next;
       lastFailure = null;
       console.log(`[gws-auth] jeton Google Workspace minté (${SOURCE}), expire ${new Date(next.expiresAt).toISOString()}`);
