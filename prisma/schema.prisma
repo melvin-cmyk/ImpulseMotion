@@ -1098,9 +1098,32 @@ model StaffDashboard {
   updatedAt    DateTime @updatedAt
   owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   threads      StaffDashboardThread[]
+  versions     StaffDashboardVersion[]
 
   @@index([ownerId, updatedAt])
   @@index([shared, updatedAt])
+}
+
+/// Version d'un dashboard du staff : l'état AVANT chaque modification (copilote,
+/// éditeur, restauration), pour revenir en arrière comme sur un artefact Claude.
+model StaffDashboardVersion {
+  id           String         @id @default(cuid())
+  dashboardId  String
+  /// Qui a fait la modification qui a créé cette version (null si inconnu)
+  userId       String?
+  /// "copilot" | "manual" | "restore"
+  origin       String         @default("manual")
+  /// Résumé court de la modification qui a suivi (ex. « Remplacer la page entière »)
+  label        String?
+  title        String
+  description  String?        @db.Text
+  datasetsJson String         @default("{}") @db.Text
+  paramsJson   String         @default("{}") @db.Text
+  html         String         @default("") @db.Text
+  createdAt    DateTime       @default(now())
+  dashboard    StaffDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@index([dashboardId, createdAt])
 }
 
 /// Conversation d'un consultant avec le copilote d'un dashboard du staff

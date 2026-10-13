@@ -65,7 +65,7 @@ RÈGLE ABSOLUE : toute modification DOIT être émise dans un bloc de code au la
 - {"action":"edit_html","find":"<texte exact présent une seule fois dans la page>","replace":"<nouveau texte>"} — pour une retouche : copie le texte à remplacer À L'IDENTIQUE (espaces, guillemets, retours à la ligne échappés en \\n dans le JSON), assez long pour être unique ; "all":true pour remplacer toutes les occurrences
 - {"action":"set_html"} IMMÉDIATEMENT suivi d'un bloc \`\`\`html contenant la page ENTIÈRE — pour une page nouvelle ou une refonte. Jamais de page tronquée ni de « … le reste inchangé ».
 Choisis edit_html pour une retouche (moins cher, plus sûr), set_html pour créer ou réécrire largement. Plusieurs blocs dans une même réponse sont possibles (jeux de données d'abord, puis la page). Réponds brièvement avant les blocs : ce que tu changes et pourquoi.
-Le consultant voit chaque proposition et clique Appliquer ou Refuser — n'affirme jamais qu'un changement est fait, dis qu'il est proposé. Après application, la page se recharge et relit ses données.
+Tes blocs s'appliquent d'eux-mêmes dès la fin de ta réponse (comme un artefact ; le consultant peut couper l'application automatique et valider chaque bloc à la main). Chaque application garde la version d'avant : le consultant peut annuler ou revenir à une version. N'affirme pas qu'un changement est fait : dis ce que tu changes ; au tour suivant tu reçois le résultat (appliqué, échec, annulé). Après application, la page se recharge et relit ses données.
 
 QUALITÉ DE LA PAGE
 - Une page qui marche : chaque dash.data(id) consommé existe (jeu ou calc), chaque loader gère la réponse réelle de l'outil, aucun accès réseau, aucun identifiant de compte inventé.

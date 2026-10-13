@@ -5,10 +5,14 @@
  *
  * L'IA répond en flux et propose des changements en blocs ```action
  * (lib/staff-dashboards/proposals.ts) : titre, jeux de données, paramètres,
- * retouche de la page (edit_html) ou page entière (set_html). Chaque
- * proposition est une carte Appliquer / Refuser ; appliquer = relire le
- * dashboard, calculer le nouvel état, l'envoyer à PUT /api/staff-dashboards/[id]
- * (qui revalide), puis recharger le cadre. L'IA n'écrit jamais rien elle-même.
+ * retouche de la page (edit_html) ou page entière (set_html). Comme sur un
+ * artefact Claude, les propositions d'une réponse s'appliquent d'elles-mêmes
+ * dès la fin de la réponse (réglage « Appliquer automatiquement », sinon cartes
+ * Appliquer / Refuser) : relire le dashboard, calculer le nouvel état, l'envoyer
+ * en UNE écriture à PUT /api/staff-dashboards/[id] (qui revalide et garde
+ * l'état précédent en version), puis recharger le cadre. Un bouton Annuler
+ * revient à la version d'avant ; l'historique liste toutes les versions.
+ * L'IA n'écrit jamais rien elle-même.
  *
  * Fil, statuts des propositions et empreinte de la page vue par l'IA sont
  * persistés (GET/PUT …/assistant) : ils survivent aux rechargements.
@@ -37,10 +41,24 @@ interface Proposal {
   proposal: StaffProposal;
   status: ProposalStatus;
   error?: string;
+  /** Version (état d'avant) créée par l'écriture qui a appliqué cette proposition : « Annuler » y revient. */
+  undoVersionId?: string;
 }
+
+interface Version { id: string; origin: string; label: string | null; createdAt: string; title: string; htmlChars: number; datasetCount: number }
 
 const MAX_THREAD_MESSAGES = 40;
 const PREFS_KEY = "staff-copilot:prefs";
+const AUTO_APPLY_KEY = "staff-copilot:auto-apply";
+
+function loadAutoApply(): boolean {
+  try { return localStorage.getItem(AUTO_APPLY_KEY) !== "0"; } catch { return true; }
+}
+
+function versionWhen(iso: string): string {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+}
 const NOTES_RE = /^\[Résultat des propositions précédentes[^\]]*\]\n\n/;
 
 export function toState(d: DashboardDetail): StaffDashboardState {
@@ -105,13 +123,23 @@ export function StaffCopilotPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
+  const [autoApply, setAutoApply] = useState(true);
+  const [versions, setVersions] = useState<Version[] | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [restoring, setRestoring] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const pendingNotesRef = useRef<string[]>([]);
   const busyRef = useRef(false);
   const seenHashRef = useRef<string | null>(null);
   const dashboardRef = useRef(dashboard);
   dashboardRef.current = dashboard;
+  const autoApplyRef = useRef(true);
+  autoApplyRef.current = autoApply;
+  // applyMany est redéfinie à chaque rendu : passée par ref pour que send() reste stable.
+  const applyManyRef = useRef<(keys: string[], source?: Record<string, Proposal>) => Promise<boolean>>(async () => true);
   const initialSentRef = useRef(false);
+  const messagesRef = useRef<ChatMessage[]>([]);
+  messagesRef.current = messages;
 
   const persist = useCallback((msgs: ChatMessage[], props: Record<string, Proposal>) => {
     const statuses: Record<string, string> = {};
@@ -141,7 +169,12 @@ export function StaffCopilotPanel({
   }, [dashboardId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, streamText]);
-  useEffect(() => { setPrefs(loadPrefs(PREFS_KEY)); }, []);
+  useEffect(() => { setPrefs(loadPrefs(PREFS_KEY)); setAutoApply(loadAutoApply()); }, []);
+
+  function updateAutoApply(v: boolean) {
+    setAutoApply(v);
+    try { localStorage.setItem(AUTO_APPLY_KEY, v ? "1" : "0"); } catch { /* ignoré */ }
+  }
 
   function updatePrefs(patch: Partial<AiPrefs>) {
     setPrefs((prev) => { const next = { ...prev, ...patch }; savePrefs(PREFS_KEY, next); return next; });
@@ -231,6 +264,9 @@ export function StaffCopilotPanel({
         persist(finalMsgs, merged);
         return merged;
       });
+      // Mode artefact : les propositions applicables de la réponse s'appliquent tout de suite, en une écriture.
+      const applicable = Object.values(fresh).filter((p) => p.status === "pending").map((p) => p.key);
+      if (autoApplyRef.current && applicable.length) await applyManyRef.current(applicable, fresh);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setMessages(previous);
@@ -258,45 +294,119 @@ export function StaffCopilotPanel({
     });
   }
 
-  /** Applique une proposition sur l'état COURANT du serveur (pas celui affiché), puis recharge. */
-  async function apply(p: Proposal): Promise<boolean> {
-    updateProposal(p.key, { status: "applying" });
-    const label = proposalLabel(p.proposal);
+  /**
+   * Applique des propositions (dans l'ordre) sur l'état COURANT du serveur, en UNE
+   * écriture : une proposition inapplicable est marquée en échec et les suivantes
+   * continuent sur l'état accumulé. Rend true si tout s'est appliqué.
+   */
+  async function applyMany(keys: string[], source?: Record<string, Proposal>): Promise<boolean> {
+    const pool = source ?? proposals;
+    const todo = keys.map((k) => pool[k]).filter((p): p is Proposal => !!p && p.status === "pending");
+    if (!todo.length) return true;
+    const patch = (key: string, data: Partial<Proposal>) => setProposals((prev) => ({ ...prev, [key]: { ...(prev[key] ?? pool[key]), ...data } }));
+    for (const p of todo) patch(p.key, { status: "applying" });
+    let allOk = true;
+    const outcome: Record<string, Partial<Proposal>> = {};
     try {
       const got = await fetch(`/api/staff-dashboards/${encodeURIComponent(dashboardId)}`);
       const body = await got.json().catch(() => ({}));
       if (!got.ok || !body.dashboard) throw new Error(apiErrorText(body, got.status));
       const before = toState(body.dashboard as DashboardDetail);
-      const after = applyProposal(before, p.proposal);
+      let after = before;
+      const applied: Proposal[] = [];
+      for (const p of todo) {
+        const label = proposalLabel(p.proposal);
+        try {
+          after = applyProposal(after, p.proposal);
+          applied.push(p);
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
+          pendingNotesRef.current.push(`« ${label} » a ÉCHOUÉ : ${message}`);
+          outcome[p.key] = { status: "failed", error: message };
+          allOk = false;
+        }
+      }
       const diff = stateDiff(before, after);
+      let versionId: string | undefined;
       if (Object.keys(diff).length) {
         const res = await fetch(`/api/staff-dashboards/${encodeURIComponent(dashboardId)}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(diff),
+          body: JSON.stringify({ ...diff, origin: "copilot", label: `Copilote : ${applied.map((p) => proposalLabel(p.proposal)).join(" ; ")}`.slice(0, 160) }),
         });
         const rb = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(apiErrorText(rb, res.status));
+        versionId = typeof rb.versionId === "string" ? rb.versionId : undefined;
       }
       // La page appliquée est celle que l'IA a écrite : inutile de la lui renvoyer.
       if (diff.html !== undefined) seenHashRef.current = htmlHash(after.html);
-      pendingNotesRef.current.push(`« ${label} » appliquée`);
-      updateProposal(p.key, { status: "applied" });
-      await onApplied();
-      return true;
+      for (const p of applied) {
+        pendingNotesRef.current.push(`« ${proposalLabel(p.proposal)} » appliquée`);
+        outcome[p.key] = { status: "applied", ...(versionId ? { undoVersionId: versionId } : {}) };
+      }
+      if (applied.length) { setVersions(null); await onApplied(); }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      pendingNotesRef.current.push(`« ${label} » a ÉCHOUÉ : ${message}`);
-      updateProposal(p.key, { status: "failed", error: message });
-      return false;
+      for (const p of todo) if (!outcome[p.key]) {
+        pendingNotesRef.current.push(`« ${proposalLabel(p.proposal)} » a ÉCHOUÉ : ${message}`);
+        outcome[p.key] = { status: "failed", error: message };
+      }
+      allOk = false;
+    }
+    setProposals((prev) => {
+      const merged = { ...prev };
+      for (const [key, data] of Object.entries(outcome)) merged[key] = { ...(merged[key] ?? pool[key]), ...data };
+      persist(messagesRef.current, merged);
+      return merged;
+    });
+    return allOk;
+  }
+
+  applyManyRef.current = applyMany;
+
+  async function apply(p: Proposal): Promise<boolean> {
+    return applyMany([p.key]);
+  }
+
+  async function loadVersions() {
+    try {
+      const res = await fetch(`/api/staff-dashboards/${encodeURIComponent(dashboardId)}/versions`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiErrorText(body, res.status));
+      setVersions(Array.isArray(body.versions) ? body.versions : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function applyAll(keys: string[]) {
-    for (const key of keys) {
-      const p = proposals[key];
-      if (!p || p.status !== "pending") continue;
-      if (!(await apply(p))) break;
+  /** Revient à une version : l'état courant est gardé par le serveur, l'IA devra relire la page. */
+  async function restore(versionId: string, label: string) {
+    if (busyRef.current || restoring) return;
+    setRestoring(versionId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/staff-dashboards/${encodeURIComponent(dashboardId)}/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ versionId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiErrorText(body, res.status));
+      seenHashRef.current = null;
+      pendingNotesRef.current.push(`le consultant est revenu à ${label} (relis la page ci-dessus avant toute retouche)`);
+      setProposals((prev) => {
+        const merged: Record<string, Proposal> = {};
+        for (const [k, p] of Object.entries(prev)) merged[k] = p.undoVersionId === versionId ? { ...p, status: "refused", undoVersionId: undefined } : p;
+        persist(messagesRef.current, merged);
+        return merged;
+      });
+      setVersions(null);
+      if (showHistory) void loadVersions();
+      await onApplied();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRestoring(null);
     }
   }
 
@@ -343,14 +453,19 @@ export function StaffCopilotPanel({
                 </button>
               </div>
             ) : (
-              <div className={`text-[11px] mt-1 ${p.status === "applied" ? "text-emerald-400" : p.status === "failed" ? "text-red-400" : "text-gray-500"}`}>
-                {p.status === "applied" ? "✓ Appliqué — la page a été rechargée" : p.status === "failed" ? `Échec : ${p.error}` : "Refusé"}
+              <div className={`flex flex-wrap items-center gap-2 text-[11px] mt-1 ${p.status === "applied" ? "text-emerald-400" : p.status === "failed" ? "text-red-400" : "text-gray-500"}`}>
+                <span>{p.status === "applied" ? "✓ Appliqué — la page a été rechargée" : p.status === "failed" ? `Échec : ${p.error}` : "Refusé"}</span>
+                {p.status === "applied" && p.undoVersionId && (
+                  <button type="button" disabled={busy || !!restoring} onClick={() => void restore(p.undoVersionId!, "la version d'avant cette modification")} className="underline decoration-dotted text-gray-400 hover:text-white disabled:opacity-50">
+                    {restoring === p.undoVersionId ? "Retour…" : "Annuler"}
+                  </button>
+                )}
               </div>
             )}
           </div>
         ))}
         {pendingKeys.length > 1 && (
-          <button type="button" onClick={() => void applyAll(pendingKeys)} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-700 hover:bg-violet-600 text-white">
+          <button type="button" onClick={() => void applyMany(pendingKeys)} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-700 hover:bg-violet-600 text-white">
             Tout appliquer ({pendingKeys.length}) dans l&apos;ordre
           </button>
         )}
@@ -364,11 +479,37 @@ export function StaffCopilotPanel({
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-bold text-white">Copilote IA</h2>
-            <p className="text-[11px] text-gray-500">Construit et modifie la page — rien n&apos;est appliqué sans validation</p>
+            <p className="text-[11px] text-gray-500">{autoApply ? "Construit et modifie la page directement — chaque version est gardée, Annuler revient en arrière" : "Propose des modifications que vous appliquez ou refusez"}</p>
           </div>
           <button type="button" onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
         </div>
         <ModelPicker prefs={prefs} onChange={updatePrefs} disabled={busy} idPrefix="staff-copilot" />
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <label className="inline-flex items-center gap-1.5 text-gray-400 cursor-pointer select-none">
+            <input type="checkbox" checked={autoApply} onChange={(e) => updateAutoApply(e.target.checked)} className="accent-violet-500" />
+            Appliquer automatiquement
+          </label>
+          <button type="button" onClick={() => { const next = !showHistory; setShowHistory(next); if (next && versions === null) void loadVersions(); }} aria-pressed={showHistory} className="text-gray-400 hover:text-white underline decoration-dotted">
+            Historique des versions
+          </button>
+        </div>
+        {showHistory && (
+          <div className="max-h-48 overflow-y-auto bg-gray-900 border border-gray-800 rounded-lg divide-y divide-gray-800">
+            {versions === null && <p className="px-3 py-2 text-[11px] text-gray-500">Chargement…</p>}
+            {versions !== null && versions.length === 0 && <p className="px-3 py-2 text-[11px] text-gray-500">Aucune version pour l&apos;instant : la première modification en créera une.</p>}
+            {(versions ?? []).map((v) => (
+              <div key={v.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[11px] text-gray-300 truncate" title={v.label ?? undefined}>{versionWhen(v.createdAt)} · {v.origin === "copilot" ? "copilote" : v.origin === "restore" ? "avant retour" : "éditeur"}</div>
+                  <div className="text-[10px] text-gray-500 truncate">{v.label ?? "—"} · {v.datasetCount} source{v.datasetCount > 1 ? "s" : ""}, {v.htmlChars.toLocaleString("fr-FR")} car.</div>
+                </div>
+                <button type="button" disabled={busy || !!restoring} onClick={() => void restore(v.id, `la version du ${versionWhen(v.createdAt)}`)} className="shrink-0 px-2 py-0.5 rounded text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 disabled:opacity-50">
+                  {restoring === v.id ? "Retour…" : "Revenir"}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
@@ -379,7 +520,7 @@ export function StaffCopilotPanel({
               Exemples : « Ajoute un tableau des 10 campagnes les plus dépensières », « Passe les montants en euros », « Ajoute une source Meta sur le compte act_… et une courbe de dépense par jour », « Construis une page de pacing budget pour ce client ».
             </p>
             <p>
-              L&apos;IA lit la page et les sources, teste les requêtes sur les vrais comptes, puis propose des modifications que vous appliquez. Joignez une capture d&apos;écran d&apos;un dashboard à reproduire avec le trombone.
+              L&apos;IA lit la page et les sources, teste les requêtes sur les vrais comptes, puis construit ou modifie la page directement, comme un artefact : chaque version est gardée et « Annuler » revient en arrière. Joignez une capture d&apos;écran d&apos;un dashboard à reproduire avec le trombone.
               Un Google Sheet comme source ? Partagez-le avec <span className="text-gray-300">{sheetsShareEmail}</span> puis donnez le lien et l&apos;onglet.
             </p>
             {driveFolderUrl && (
