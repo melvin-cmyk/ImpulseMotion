@@ -428,6 +428,21 @@ const TIKTOK_SERVER = "mcp-tiktok-ads";
 // écriture d'administration, reste fermé). Staff uniquement, comme Notion :
 // un seul accès lit tous les comptes Merchant de l'agence.
 const MERCHANT_SERVER = "mcp-merchant-center";
+// n8n de l'agence : le serveur MCP intégré de l'instance (Settings → MCP access),
+// déclaré par le relay avec un jeton d'accès (N8N_MCP_TOKEN, env du service).
+// Le consultant fait construire ses automatisations par l'IA (import d'un
+// rapport dans un Google Sheet, export CRM, calcul planifié…) pour alimenter
+// ses dashboards. Un seul accès voit tous les flux de l'agence : staff
+// uniquement, jamais un bot client. Tout est ouvert sauf ce qui casse ou
+// efface l'existant (N8N_DENIED_TOOL_PATTERNS) : dépublier, archiver,
+// supprimer, restaurer une version par-dessus l'actuelle.
+const N8N_SERVER = "n8n";
+const N8N_MCP_URL = process.env.N8N_MCP_URL || "https://impulseai.app.n8n.cloud/mcp-server/http";
+const N8N_MCP_TOKEN = (process.env.N8N_MCP_TOKEN || "").trim();
+const N8N_DENIED_TOOL_PATTERNS = ["unpublish_*", "archive_*", "delete_*", "restore_*", "remove_*"].map((t) => `mcp__${N8N_SERVER}__${t}`);
+function n8nLocalEntry(token) {
+  return { type: "http", url: N8N_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
+}
 const MERCHANT_READ_TOOLS = [
   "list_merchant_accounts", "list_subaccounts", "list_products", "get_product",
   "get_account_issues", "list_data_sources", "search_reports",
@@ -464,6 +479,7 @@ const ALLOWED_MCP_SERVERS = new Set([
   HQ_SERVER,
   NOTION_SERVER,
   MERCHANT_SERVER,
+  N8N_SERVER,
 ]);
 
 // Per-server explicit tool allowlist for the CHAT (handleChat). Servers absent
@@ -664,7 +680,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null }) {
+function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -678,6 +694,7 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
   const mcpServers = {};
   const kept = [];
   if (hqToken) mcpServers[HQ_SERVER] = hqLocalEntry(hqToken);
+  if (n8nToken) { mcpServers[N8N_SERVER] = n8nLocalEntry(n8nToken); kept.push(N8N_SERVER); }
 
   for (const name of servers) {
     if (name === SANDBOX_SERVER) {
@@ -959,6 +976,14 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     servers = servers.filter((s) => s !== MERCHANT_SERVER);
     console.error("[chat] merchant center refusé — requête de bot client");
   }
+  // n8n: staff only, and only with the instance token in the service env.
+  let n8nToken = null;
+  if (servers.includes(N8N_SERVER)) {
+    if (clientBot) console.error("[chat] n8n refusé — requête de bot client");
+    else if (!N8N_MCP_TOKEN) console.error("[chat] n8n indisponible — N8N_MCP_TOKEN absent de l'environnement du relay");
+    else n8nToken = N8N_MCP_TOKEN;
+    servers = servers.filter((s) => s !== N8N_SERVER);
+  }
 
   // Every chat goes through a generated config: scopes are pinned in the
   // environment of stdio servers, never left to the prompt.
@@ -989,7 +1014,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       catch (err) { gwsAuthState = { error: err.message }; }
     }
   }
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, workspaceDir, gwsAuthState, clientBot, dataTools });
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -1002,6 +1027,8 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     return tools ? tools.map((t) => `mcp__${s}__${t}`) : [`mcp__${s}__*`];
   });
   if (useHq) toolPatterns.push(...HQ_READ_TOOLS.map((t) => `${hqToolPrefix}${t}`));
+  // n8n: everything the instance exposes, minus what breaks or erases existing flows (deny wins over allow).
+  const deniedPatterns = n8nToken ? [...N8N_DENIED_TOOL_PATTERNS] : [];
   // Built-ins are denied in --print mode unless allowed explicitly, like MCP tools.
   if (useWeb) toolPatterns.push(...builtinTools.filter((t) => t !== "ToolSearch"));
 
@@ -1017,6 +1044,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     useHq,
     callerTeachesHq: options.hqGuidance === "caller",
     useNotion: servers.includes(NOTION_SERVER),
+    useN8n: !!n8nToken,
   });
 
   // Resume when the caller named a conversation that we already hold, whose
@@ -1081,11 +1109,12 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   ];
   if (toolPatterns.length > 0) {
     args.push("--allowedTools", ...toolPatterns);
+    if (deniedPatterns.length > 0) args.push("--disallowedTools", ...deniedPatterns);
   } else {
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
+  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.

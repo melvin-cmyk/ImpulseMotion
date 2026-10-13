@@ -88,6 +88,16 @@ export const TIKTOK_SERVER = "mcp-tiktok-ads" as const;
  */
 export const MERCHANT_SERVER = "mcp-merchant-center" as const;
 
+/**
+ * n8n de l'agence : le serveur MCP intégré de l'instance, déclaré par le relay
+ * avec un jeton d'accès (N8N_MCP_TOKEN dans l'environnement du service). L'IA
+ * lit les flux et en construit pour alimenter les dashboards (import d'un
+ * rapport dans un Google Sheet, export CRM…) ; dépublier, archiver, supprimer
+ * restent fermés (server/relay.mjs). Staff uniquement, jamais un bot client.
+ * Ouvert au copilote des dashboards du staff, pas à la console /ai.
+ */
+export const N8N_SERVER = "n8n" as const;
+
 /** Serveurs ouverts au staff (admin, consultant) sur l'IA interne. */
 export const STAFF_MCP_SERVERS = [...MCP_SERVER_WHITELIST, TIKTOK_SERVER, HQ_SERVER, SHEETS_SERVER, WEB_SERVER, GWS_SERVER, NOTION_SERVER, MERCHANT_SERVER] as const;
 

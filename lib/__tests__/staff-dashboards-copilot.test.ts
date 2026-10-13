@@ -121,6 +121,8 @@ describe("état court et page", () => {
     expect(staticPart).toContain("Custom_GAQL_Query");
     expect(staticPart).toContain("edit_html");
     expect(staticPart).toContain("dash.onData");
+    expect(staticPart).toContain("mcp__n8n__");
+    expect(staticPart).toContain("publish_workflow");
     expect(staticPart).not.toContain("melvin@");
     expect(dynamicPart).toContain("melvin@impulse-analytics.com");
   });

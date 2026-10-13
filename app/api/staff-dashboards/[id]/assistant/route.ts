@@ -9,14 +9,15 @@
  *        l'IA ne l'a pas encore vue. L'en-tête X-Page-Hash dit quelle version
  *        de la page l'IA connaît après ce tour.
  * Les outils MCP de l'IA sont ceux du staff, sur le périmètre de comptes de la
- * personne (même règle que la console /ai).
+ * personne (même règle que la console /ai), plus le bac à sable et n8n (le
+ * consultant fait construire les automatisations qui alimentent sa page).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { getAllowedAccountIds } from "@/lib/acl";
-import { SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { N8N_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
@@ -156,7 +157,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     account: typeof body.account === "string" && ACCOUNT_RE.test(body.account) && body.account !== "auto" ? body.account : undefined,
     maxTurns: MAX_TURNS,
     budgetMs: BUDGET_MS,
-    allowedServers: [...STAFF_MCP_SERVERS, SANDBOX_SERVER],
+    allowedServers: [...STAFF_MCP_SERVERS, SANDBOX_SERVER, N8N_SERVER],
     accountScope: { meta: metaIds, google: googleIds, tiktok: tiktokIds, unrestricted: guard.session.role === "admin" },
   });
 
