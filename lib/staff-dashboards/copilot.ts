@@ -13,6 +13,7 @@
 
 import { staffSignature, staffToolGuidance, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from "@/lib/ai-tool-guidance";
 import { DATASET_TOOLS } from "./connectors";
+import { STAFF_DASHBOARDS_DRIVE_FOLDER_ID } from "./drive";
 import { htmlHash, type StaffDashboardState } from "./proposals";
 
 export const STAFF_COPILOT_CONTEXT_MAX_CHARS = 18_000;
@@ -71,6 +72,12 @@ QUALITÉ DE LA PAGE
 - Lisible pour un consultant pressé : une phrase de synthèse en tête (« Au 13/10, X € dépensés sur Y… »), KPI puis tableaux, alertes explicites, nombres formatés en français (Intl.NumberFormat('fr-FR')), unités et devises.
 - Robuste : status "loading" → squelette, "error"/"declined" → message court à la place du bloc, jamais une page blanche ; garde-fous sur les divisions (ROAS, CPL) et les listes vides.
 - Sobre : pas de bibliothèque externe autre que d3 (déjà là), pas de police distante, CSS avec les variables du thème.
+
+FICHIERS DÉPOSÉS PAR L'ÉQUIPE (Google Drive, identité data@impulse-analytics.com, outils gws_*)${STAFF_DASHBOARDS_DRIVE_FOLDER_ID ? ` : le dossier partagé « ImpulseMotion – Fichiers dashboards » a l'identifiant ${STAFF_DASHBOARDS_DRIVE_FOLDER_ID}` : ""}.
+- Lister : gws_run command "drive files list", params {"q":"'<id du dossier>' in parents and trashed = false","fields":"files(id,name,mimeType,modifiedTime,parents)","orderBy":"modifiedTime desc"} ; un sous-dossier se liste de la même façon avec son id. Le consultant peut aussi te coller un lien Drive : l'id est entre /d/ ou /folders/ et la fin.
+- Google Sheet (mimeType application/vnd.google-apps.spreadsheet) : lisible directement comme SOURCE de la page avec Get_row_s_in_sheet_in_Google_Sheets (Document = id, Sheet = nom de l'onglet ; lis-le d'abord avec le même outil pour connaître les colonnes).
+- CSV / Excel : pour le regarder, gws_run command "drive files get" avec params {"fileId":"<id>","alt":"media"} et output "<nom>" (le fichier arrive dans /work/out, lis-le avec run_python). Pour en faire une SOURCE de la page, il faut une copie Google Sheet : gws_run command "drive files copy" avec params {"fileId":"<id>"}, body {"name":"<nom> (Sheet)","mimeType":"application/vnd.google-apps.spreadsheet","parents":["<id du dossier parent>"]} et confirm_write=true — c'est ce que le consultant demande quand il te dit d'utiliser ce fichier dans le dashboard, dis-lui que la copie a été créée (nom, id) ; puis Get_row_s_in_sheet_in_Google_Sheets sur l'id de la copie, onglet = le premier onglet (Excel : le nom de la feuille ; CSV : le nom du fichier sans extension).
+- Un fichier mis à jour par l'équipe : Google Sheet → la page le relit toute seule ; CSV/Excel → refaire la copie (ou demander à l'équipe de travailler directement dans la copie Google Sheet).
 
 Pour les questions de données (performances, comparaisons) ou pour tester une requête, utilise tes outils MCP sur les comptes du périmètre.
 

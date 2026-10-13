@@ -9,11 +9,12 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Database, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Database, Loader2, Maximize2, Minimize2, Pencil, RefreshCw, Sparkles, Trash2, Users } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { DashFrame, type DashFrameHandle } from "@/components/staff-dashboards/dash-frame";
 import { StaffCopilotPanel } from "@/components/staff-dashboards/copilot";
 import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
+import { STAFF_DASHBOARDS_DRIVE_FOLDER_URL } from "@/lib/staff-dashboards/drive";
 import {
   FIELD, MONO_FIELD, PRIMARY_BUTTON, SMALL_BUTTON, apiErrorText, dateLabel, ownerLabel, parseJsonField,
   type DashboardDetail, type FrameSource,
@@ -38,6 +39,9 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
   const [showSources, setShowSources] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showCopilot, setShowCopilot] = useState(false);
+  // Plein écran : l'API Fullscreen sur le bloc page + copilote ; à défaut (iOS), un calque fixe.
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [fullscreen, setFullscreen] = useState<"off" | "api" | "overlay">("off");
   // Brief de la création « Décrire à l'IA », déposé par /dashboards/new ; lu une fois.
   const [initialPrompt, setInitialPrompt] = useState<string | null>(null);
   const [busy, setBusy] = useState<"refresh" | "share" | "delete" | "save" | string | null>(null);
@@ -79,6 +83,27 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
       if (new URLSearchParams(window.location.search).get("copilot") === "1") setShowCopilot(true);
     } catch { /* stockage indisponible */ }
   }, [id]);
+
+  useEffect(() => {
+    const onChange = () => { if (!document.fullscreenElement) setFullscreen((f) => (f === "api" ? "off" : f)); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen((f) => (f === "overlay" ? "off" : f)); };
+    document.addEventListener("fullscreenchange", onChange);
+    window.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("fullscreenchange", onChange); window.removeEventListener("keydown", onKey); };
+  }, []);
+
+  async function toggleFullscreen() {
+    if (fullscreen !== "off") {
+      if (fullscreen === "api" && document.fullscreenElement) { try { await document.exitFullscreen(); } catch { /* déjà sorti */ } }
+      setFullscreen("off");
+      return;
+    }
+    const el = stageRef.current;
+    if (el?.requestFullscreen) {
+      try { await el.requestFullscreen({ navigationUI: "hide" }); setFullscreen("api"); return; } catch { /* refusé : calque */ }
+    }
+    setFullscreen("overlay");
+  }
 
   /** Après une proposition appliquée par le copilote : relire, puis recharger le cadre. */
   const reloadAfterApply = useCallback(async () => {
@@ -211,15 +236,6 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className={`p-4 sm:p-6 max-w-[1600px] mx-auto space-y-5 ${showCopilot ? "sm:pr-[460px]" : ""}`}>
-      {dashboard.canEdit && showCopilot && (
-        <StaffCopilotPanel
-          dashboard={dashboard}
-          onApplied={reloadAfterApply}
-          onClose={() => setShowCopilot(false)}
-          initialPrompt={initialPrompt}
-          sheetsShareEmail={SHEETS_SHARE_EMAIL}
-        />
-      )}
       <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white">
         <ArrowLeft className="w-3.5 h-3.5" /> Mes dashboards
       </Link>
@@ -239,6 +255,9 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => void refreshAll()} disabled={!!busy} className={`${SMALL_BUTTON} bg-violet-600 hover:bg-violet-500 text-white`}>
             {spinner("refresh") ?? <RefreshCw className="w-3.5 h-3.5" />} Actualiser les données
+          </button>
+          <button type="button" onClick={() => void toggleFullscreen()} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`} title="Afficher la page seule, en plein écran (Échap pour sortir)">
+            <Maximize2 className="w-3.5 h-3.5" /> Plein écran
           </button>
           <button
             type="button"
@@ -333,20 +352,56 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
         </form>
       )}
 
-      {/* Frame + Sources */}
+      {/* Frame + Sources. Le bloc « stage » (page + copilote) est ce qui passe en plein écran. */}
       <div className={`grid grid-cols-1 gap-5 items-start ${showSources ? "lg:grid-cols-[minmax(0,1fr)_360px]" : ""}`}>
-        <Card className="min-w-0 p-3">
-          <DashFrame
-            key={frameKey}
-            ref={frame}
-            dashboardId={dashboard.id}
-            title={dashboard.title}
-            html={dashboard.html}
-            datasets={dashboard.datasets}
-            params={dashboard.params}
-            onSources={setSources}
-          />
-        </Card>
+        <div
+          ref={stageRef}
+          className={fullscreen === "off"
+            ? "min-w-0"
+            : `bg-gray-950 overflow-y-auto ${fullscreen === "overlay" ? "fixed inset-0 z-50" : "w-full h-full"} ${showCopilot ? "sm:pr-[440px]" : ""}`}
+        >
+          {fullscreen !== "off" && (
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-2 bg-gray-950/95 border-b border-gray-800 text-xs text-gray-300">
+              <span className="font-semibold text-white truncate">{dashboard.title}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button type="button" onClick={() => void refreshAll()} disabled={!!busy} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>
+                  {spinner("refresh") ?? <RefreshCw className="w-3.5 h-3.5" />} Actualiser
+                </button>
+                {dashboard.canEdit && (
+                  <button type="button" onClick={() => setShowCopilot((v) => !v)} className={`${SMALL_BUTTON} ${showCopilot ? "bg-violet-700 text-white" : "bg-gray-800 hover:bg-gray-700 text-violet-200"}`}>
+                    <Sparkles className="w-3.5 h-3.5" /> Copilote
+                  </button>
+                )}
+                <button type="button" onClick={() => void toggleFullscreen()} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>
+                  <Minimize2 className="w-3.5 h-3.5" /> Quitter le plein écran
+                </button>
+              </div>
+            </div>
+          )}
+          <Card className={`min-w-0 ${fullscreen === "off" ? "p-3" : "p-4 border-0 rounded-none bg-transparent max-w-[1800px] mx-auto"}`}>
+            <DashFrame
+              key={frameKey}
+              ref={frame}
+              dashboardId={dashboard.id}
+              title={dashboard.title}
+              html={dashboard.html}
+              datasets={dashboard.datasets}
+              params={dashboard.params}
+              onSources={setSources}
+            />
+          </Card>
+          {dashboard.canEdit && showCopilot && (
+            <StaffCopilotPanel
+              dashboard={dashboard}
+              onApplied={reloadAfterApply}
+              onClose={() => setShowCopilot(false)}
+              initialPrompt={initialPrompt}
+              sheetsShareEmail={SHEETS_SHARE_EMAIL}
+              flush={fullscreen !== "off"}
+              driveFolderUrl={STAFF_DASHBOARDS_DRIVE_FOLDER_URL}
+            />
+          )}
+        </div>
 
         {showSources && (
           <Card className="min-w-0 lg:sticky lg:top-4">

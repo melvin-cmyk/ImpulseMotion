@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ClipboardPaste, LayoutTemplate, Loader2, Sparkles } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui/surface";
 import { FIELD, MONO_FIELD, PRIMARY_BUTTON, SMALL_BUTTON, apiErrorText, parseJsonField, type TemplateInfo } from "@/components/staff-dashboards/model";
+import { STAFF_DASHBOARDS_DRIVE_FOLDER_URL } from "@/lib/staff-dashboards/drive";
 
 type Tab = "ai" | "template" | "import";
 
@@ -158,6 +159,13 @@ export default function NewStaffDashboardPage() {
             <div className="text-xs text-gray-400 leading-relaxed bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
               Décrivez la page comme à un collègue : le client et ses comptes (identifiant Google Ads, act_… Meta, annonceur TikTok), les Google Sheets à lire (lien + onglet, partagés avec data@impulse-analytics.com), les indicateurs, alertes et tableaux attendus.
               Le copilote s&apos;ouvre sur le dashboard, interroge les vraies sources, puis propose les jeux de données et la page : vous appliquez, puis vous itérez avec lui.
+              {STAFF_DASHBOARDS_DRIVE_FOLDER_URL && (
+                <>
+                  {" "}Des fichiers à lui faire lire (CSV, Excel, Sheets) ? Déposez-les dans le{" "}
+                  <a href={STAFF_DASHBOARDS_DRIVE_FOLDER_URL} target="_blank" rel="noreferrer" className="text-violet-300 underline decoration-dotted hover:text-white">dossier Drive des dashboards</a>
+                  {" "}et nommez-les dans le brief.
+                </>
+              )}
             </div>
             <label className="block">
               <span className="text-xs font-medium text-gray-300">Titre <span className="text-red-400">*</span></span>

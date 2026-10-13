@@ -78,7 +78,7 @@ function proposalPreview(p: StaffProposal): string {
 }
 
 export function StaffCopilotPanel({
-  dashboard, onApplied, onClose, initialPrompt, sheetsShareEmail,
+  dashboard, onApplied, onClose, initialPrompt, sheetsShareEmail, flush, driveFolderUrl,
 }: {
   dashboard: DashboardDetail;
   /** Après une proposition appliquée : le parent relit le dashboard et recharge le cadre. */
@@ -87,6 +87,10 @@ export function StaffCopilotPanel({
   /** Brief envoyé tout seul à l'ouverture si le fil est vide (création « Décrire à l'IA »). */
   initialPrompt?: string | null;
   sheetsShareEmail: string;
+  /** Plein écran : plus d'en-tête d'application au-dessus, le panneau part du haut. */
+  flush?: boolean;
+  /** Dossier Drive de dépôt des fichiers pour les dashboards (lien), s'il est configuré. */
+  driveFolderUrl?: string | null;
 }) {
   const dashboardId = dashboard.id;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -355,7 +359,7 @@ export function StaffCopilotPanel({
   }
 
   return (
-    <aside className="fixed right-0 top-12 bottom-0 w-full sm:w-[440px] bg-gray-950 border-l border-gray-800 flex flex-col z-40 shadow-2xl">
+    <aside className={`fixed right-0 ${flush ? "top-0" : "top-12"} bottom-0 w-full sm:w-[440px] bg-gray-950 border-l border-gray-800 flex flex-col z-40 shadow-2xl`}>
       <div className="px-4 py-3 border-b border-gray-800 space-y-2">
         <div className="flex items-center justify-between">
           <div>
@@ -378,6 +382,13 @@ export function StaffCopilotPanel({
               L&apos;IA lit la page et les sources, teste les requêtes sur les vrais comptes, puis propose des modifications que vous appliquez. Joignez une capture d&apos;écran d&apos;un dashboard à reproduire avec le trombone.
               Un Google Sheet comme source ? Partagez-le avec <span className="text-gray-300">{sheetsShareEmail}</span> puis donnez le lien et l&apos;onglet.
             </p>
+            {driveFolderUrl && (
+              <p>
+                Fichiers de l&apos;équipe (CSV, Excel, Sheets) : déposez-les dans le{" "}
+                <a href={driveFolderUrl} target="_blank" rel="noreferrer" className="text-violet-300 underline decoration-dotted hover:text-white">dossier Drive des dashboards</a>
+                {" "}puis dites à l&apos;IA lequel utiliser : elle le lit, et le convertit en Google Sheet pour en faire une source de la page.
+              </p>
+            )}
           </div>
         )}
         {messages.map(renderMessage)}
