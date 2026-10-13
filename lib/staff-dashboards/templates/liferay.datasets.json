@@ -1,0 +1,106 @@
+{
+  "budget_pays": {
+    "title": "Budgets mensuels par marché",
+    "description": "Budget média mensuel par marché (une colonne par mois). Lit l'onglet Pays du suivi budget Liferay.",
+    "source": {
+      "args": {
+        "Document": "1GWsDf0PBnV6Afc2cMpffkN-swmcoJzSEAQ-rzn-ZYGY",
+        "Sheet": "Pays"
+      },
+      "connector": "n8n google spreedsheet",
+      "kind": "query",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets"
+    }
+  },
+  "l_conv": {
+    "title": "Leads du mois par campagne",
+    "description": "Conversions Request for Demo et Contact Sales du mois par campagne. Lit la ressource GAQL campaign segmentée par action de conversion.",
+    "source": {
+      "args": {
+        "customer_id": "9733166788",
+        "gaql_query": "SELECT campaign.name, segments.conversion_action_name, metrics.conversions FROM campaign WHERE segments.date DURING THIS_MONTH AND segments.conversion_action_name IN ('Request for Demo', 'Contact Sales') AND metrics.conversions > 0 LIMIT 1000"
+      },
+      "connector": "n8n google ads",
+      "kind": "query",
+      "tool": "Custom_GAQL_Query"
+    }
+  },
+  "l_daily": {
+    "title": "Dépense par jour et campagne",
+    "description": "Coût par jour et par campagne sur le mois en cours, compte Liferay Global. Lit la ressource GAQL campaign segmentée par date.",
+    "source": {
+      "args": {
+        "customer_id": "9733166788",
+        "gaql_query": "SELECT segments.date, campaign.name, metrics.cost_micros FROM campaign WHERE segments.date DURING THIS_MONTH AND metrics.cost_micros > 0 ORDER BY segments.date LIMIT 2000"
+      },
+      "connector": "n8n google ads",
+      "kind": "query",
+      "tool": "Custom_GAQL_Query"
+    }
+  },
+  "l_diag": {
+    "title": "Diagnostic campagnes (7 j)",
+    "description": "Campagnes actives sur 7 jours : stratégie d'enchères, CPA cible, statut, budget, conversions, part d'impressions perdue (budget / classement). Lit la ressource GAQL campaign.",
+    "source": {
+      "args": {
+        "customer_id": "9733166788",
+        "gaql_query": "SELECT campaign.name, campaign.bidding_strategy_type, campaign.maximize_conversions.target_cpa_micros, campaign.target_cpa.target_cpa_micros, campaign.primary_status, campaign.primary_status_reasons, campaign_budget.amount_micros, metrics.cost_micros, metrics.conversions, metrics.search_budget_lost_impression_share, metrics.search_rank_lost_impression_share FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status = 'ENABLED' AND metrics.cost_micros > 0 LIMIT 200"
+      },
+      "connector": "n8n google ads",
+      "kind": "query",
+      "tool": "Custom_GAQL_Query"
+    }
+  },
+  "l_spend": {
+    "title": "Dépense du mois par campagne",
+    "description": "Coût du mois en cours par campagne, compte Liferay Global (973-316-6788, USD). Lit la ressource GAQL campaign.",
+    "source": {
+      "args": {
+        "customer_id": "9733166788",
+        "gaql_query": "SELECT customer.currency_code, customer.descriptive_name, campaign.name, campaign.status, metrics.cost_micros, metrics.clicks, metrics.impressions FROM campaign WHERE segments.date DURING THIS_MONTH AND metrics.cost_micros > 0 ORDER BY metrics.cost_micros DESC LIMIT 200"
+      },
+      "connector": "n8n google ads",
+      "kind": "query",
+      "tool": "Custom_GAQL_Query"
+    }
+  },
+  "marches": {
+    "title": "Règles par marché",
+    "description": "Codes marché des campagnes et du suivi QMB, région, budget override et CPL cible par marché. Lit l'onglet Marchés du classeur de pilotage.",
+    "source": {
+      "args": {
+        "Document": "1o7-Sw0vd1KIZzDsIzDIvRT7ZTA3Ag9G7kkB9sz8X-VI",
+        "Sheet": "Marchés"
+      },
+      "connector": "n8n google spreedsheet",
+      "kind": "query",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets"
+    }
+  },
+  "parametres": {
+    "title": "Seuils",
+    "description": "Tolérance de pacing, palier de variation des budgets, seuil de conversions pour un CPA cible. Lit l'onglet Paramètres du classeur de pilotage.",
+    "source": {
+      "args": {
+        "Document": "1o7-Sw0vd1KIZzDsIzDIvRT7ZTA3Ag9G7kkB9sz8X-VI",
+        "Sheet": "Paramètres"
+      },
+      "connector": "n8n google spreedsheet",
+      "kind": "query",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets"
+    }
+  },
+  "qmb": {
+    "title": "QMB Sicentric",
+    "description": "Objectifs QMB par marché et trimestre, et journal des QMB convertis avec leur campagne. Lit l'onglet QMB Goals du suivi Sicentric.",
+    "source": {
+      "args": {
+        "Document": "1dh8M7-5u7ikaYEeUFC5ONgrMIzZLVgoqDs4q82Ee0g8",
+        "Sheet": "QMB Goals"
+      },
+      "connector": "n8n google spreedsheet",
+      "kind": "query",
+      "tool": "Get_row_s_in_sheet_in_Google_Sheets"
+    }
+  }
+}

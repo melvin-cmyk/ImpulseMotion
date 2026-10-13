@@ -1097,7 +1097,24 @@ model StaffDashboard {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  threads      StaffDashboardThread[]
 
   @@index([ownerId, updatedAt])
   @@index([shared, updatedAt])
+}
+
+/// Conversation d'un consultant avec le copilote d'un dashboard du staff
+/// (messages + statuts des propositions + empreinte de la page vue par l'IA), une par (dashboard, consultant)
+model StaffDashboardThread {
+  id          String         @id @default(cuid())
+  dashboardId String
+  userId      String
+  /// JSON { messages: [...], proposals: { key: status }, seenHtmlHash: string | null }
+  payload     String         @default("{}") @db.Text
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  dashboard   StaffDashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@unique([dashboardId, userId])
+  @@index([dashboardId, updatedAt])
 }

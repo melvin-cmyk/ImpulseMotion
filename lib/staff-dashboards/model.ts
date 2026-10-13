@@ -9,7 +9,9 @@
 
 import { GENERATED_TEMPLATES } from "./templates/generated";
 
-export const DATASET_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+import { connectorServer, DATASET_ID_RE, PARAM_NAME_RE } from "./connectors";
+
+export { connectorServer, DATASET_ID_RE, PARAM_NAME_RE };
 export const MAX_DATASETS = 40;
 export const MAX_HTML_CHARS = 256 * 1024;
 export const MAX_TITLE_CHARS = 120;
@@ -33,22 +35,6 @@ export interface Dataset {
 export interface DashboardDefinition {
   datasets: Record<string, Dataset>;
   params: Record<string, ParamValue>;
-}
-
-/** Nom libre (ou nom de serveur) → serveur MCP du relay. */
-const CONNECTORS: Array<{ match: RegExp; server: string }> = [
-  { match: /^(mcp-google-ads|google[ -]?ads|n8n[ -]*google[ -]*ads|gads)$/i, server: "mcp-google-ads" },
-  { match: /^(meta-ads-impulse|meta|facebook|mcp[ -]*facebook|meta[ -]*ads|n8n[ -]*meta)$/i, server: "meta-ads-impulse" },
-  { match: /^(mcp-google-sheet|google[ -]*sheets?|n8n[ -]*google[ -]*spre?e?a?dsheets?|sheets?)$/i, server: "mcp-google-sheet" },
-  { match: /^(mcp-google-analytics|ga4|google[ -]*analytics|n8n[ -]*ga4)$/i, server: "mcp-google-analytics" },
-  { match: /^(mcp-tiktok-ads|tiktok|tiktok[ -]*ads|n8n[ -]*tiktok)$/i, server: "mcp-tiktok-ads" },
-  { match: /^(mcp-merchant-center|merchant|merchant[ -]*center)$/i, server: "mcp-merchant-center" },
-];
-
-export function connectorServer(connector: string): string | null {
-  const c = connector.trim().replace(/\s+/g, " ");
-  for (const { match, server } of CONNECTORS) if (match.test(c)) return server;
-  return null;
 }
 
 function text(v: unknown, max = 500): string | undefined {
@@ -89,7 +75,7 @@ export function parseParams(raw: unknown): Record<string, ParamValue> {
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return {};
   const out: Record<string, ParamValue> = {};
   for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k)) continue;
+    if (!PARAM_NAME_RE.test(k)) continue;
     const pv = paramValue(v);
     if (pv !== undefined) out[k] = pv;
   }
@@ -167,6 +153,11 @@ export const TEMPLATES: TemplateInfo[] = [
     key: "cours-legendre",
     title: "Cours Legendre – Pilotage budget par verticale",
     description: "Pacing mensuel Google + Meta + Bing par verticale : rythme de dépense, projection, alertes, conseils par campagne. Budgets et règles dans deux Google Sheets.",
+  },
+  {
+    key: "liferay",
+    title: "Liferay – Pilotage budget par marché",
+    description: "Pacing mensuel Google Ads (USD) par marché : rythme de dépense, projection, alertes, leads et CPL, QMB par trimestre (Sicentric), conseils par campagne. Budgets et règles dans trois Google Sheets.",
   },
 ];
 

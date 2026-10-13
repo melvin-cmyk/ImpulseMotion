@@ -9,9 +9,11 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Database, Loader2, Pencil, RefreshCw, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Database, Loader2, Pencil, RefreshCw, Sparkles, Trash2, Users } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { DashFrame, type DashFrameHandle } from "@/components/staff-dashboards/dash-frame";
+import { StaffCopilotPanel } from "@/components/staff-dashboards/copilot";
+import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
 import {
   FIELD, MONO_FIELD, PRIMARY_BUTTON, SMALL_BUTTON, apiErrorText, dateLabel, ownerLabel, parseJsonField,
   type DashboardDetail, type FrameSource,
@@ -35,6 +37,9 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
   const [sources, setSources] = useState<FrameSource[]>([]);
   const [showSources, setShowSources] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
+  const [showCopilot, setShowCopilot] = useState(false);
+  // Brief de la création « Décrire à l'IA », déposé par /dashboards/new ; lu une fois.
+  const [initialPrompt, setInitialPrompt] = useState<string | null>(null);
   const [busy, setBusy] = useState<"refresh" | "share" | "delete" | "save" | string | null>(null);
   const [notice, setNotice] = useState<{ ok: boolean; text: string; details?: string[] } | null>(null);
 
@@ -64,6 +69,22 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
   useEffect(() => {
     const t = setTimeout(() => { void load(); }, 0);
     return () => clearTimeout(t);
+  }, [load]);
+
+  useEffect(() => {
+    try {
+      const key = `staff-dashboard-brief:${id}`;
+      const brief = sessionStorage.getItem(key);
+      if (brief) { sessionStorage.removeItem(key); setInitialPrompt(brief); setShowCopilot(true); return; }
+      if (new URLSearchParams(window.location.search).get("copilot") === "1") setShowCopilot(true);
+    } catch { /* stockage indisponible */ }
+  }, [id]);
+
+  /** Après une proposition appliquée par le copilote : relire, puis recharger le cadre. */
+  const reloadAfterApply = useCallback(async () => {
+    await load();
+    setSources([]);
+    setFrameKey((k) => k + 1);
   }, [load]);
 
   function openEditor() {
@@ -189,7 +210,16 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
   const spinner = (key: string) => (busy === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null);
 
   return (
-    <div className="p-4 sm:p-6 max-w-[1600px] mx-auto space-y-5">
+    <div className={`p-4 sm:p-6 max-w-[1600px] mx-auto space-y-5 ${showCopilot ? "sm:pr-[460px]" : ""}`}>
+      {dashboard.canEdit && showCopilot && (
+        <StaffCopilotPanel
+          dashboard={dashboard}
+          onApplied={reloadAfterApply}
+          onClose={() => setShowCopilot(false)}
+          initialPrompt={initialPrompt}
+          sheetsShareEmail={SHEETS_SHARE_EMAIL}
+        />
+      )}
       <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white">
         <ArrowLeft className="w-3.5 h-3.5" /> Mes dashboards
       </Link>
@@ -220,6 +250,14 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
           </button>
           {dashboard.canEdit && (
             <>
+              <button
+                type="button"
+                onClick={() => setShowCopilot((v) => !v)}
+                aria-pressed={showCopilot}
+                className={`${SMALL_BUTTON} ${showCopilot ? "bg-violet-700 text-white" : "bg-gray-800 hover:bg-gray-700 text-violet-200"}`}
+              >
+                <Sparkles className="w-3.5 h-3.5" /> Copilote IA
+              </button>
               <button
                 type="button"
                 onClick={() => (showEditor ? setShowEditor(false) : openEditor())}

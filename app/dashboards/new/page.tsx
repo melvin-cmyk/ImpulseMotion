@@ -1,18 +1,21 @@
 "use client";
 
 /**
- * Nouveau dashboard du staff : à partir d'un modèle livré avec l'application,
- * ou collé depuis Claude (jeux de données JSON + paramètres + page HTML).
+ * Nouveau dashboard du staff : décrit à l'IA (le copilote construit la page
+ * à partir du brief), à partir d'un modèle livré avec l'application, ou collé
+ * depuis Claude (jeux de données JSON + paramètres + page HTML).
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ClipboardPaste, LayoutTemplate, Loader2 } from "lucide-react";
+import { ArrowLeft, ClipboardPaste, LayoutTemplate, Loader2, Sparkles } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui/surface";
 import { FIELD, MONO_FIELD, PRIMARY_BUTTON, SMALL_BUTTON, apiErrorText, parseJsonField, type TemplateInfo } from "@/components/staff-dashboards/model";
 
-type Tab = "template" | "import";
+type Tab = "ai" | "template" | "import";
+
+const BRIEF_PLACEHOLDER = `Ex. : Pacing budget Google Ads du client Liferay (compte 973-316-6788, en USD) par marché : dépensé depuis le 1er vs budget du mois (onglet Pays du Google Sheet https://docs.google.com/spreadsheets/d/…), projection fin de mois, alertes de sous/sur-pacing, tableau des campagnes avec budget/jour recommandé.`;
 
 const DATASETS_PLACEHOLDER = `{
   "g_spend": {
@@ -24,7 +27,8 @@ const DATASETS_PLACEHOLDER = `{
 
 export default function NewStaffDashboardPage() {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("template");
+  const [tab, setTab] = useState<Tab>("ai");
+  const [brief, setBrief] = useState("");
   const [templates, setTemplates] = useState<TemplateInfo[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -54,7 +58,7 @@ export default function NewStaffDashboardPage() {
     return () => { cancelled = true; };
   }, []);
 
-  async function create(payload: Record<string, unknown>, key: string) {
+  async function create(payload: Record<string, unknown>, key: string, after?: (id: string) => void) {
     setBusy(key);
     setError(null);
     try {
@@ -70,7 +74,8 @@ export default function NewStaffDashboardPage() {
         return;
       }
       if (typeof body.id !== "string") { setError({ text: "Réponse illisible du serveur", details: [] }); return; }
-      router.push(`/dashboards/${body.id}`);
+      after?.(body.id);
+      router.push(after ? `/dashboards/${body.id}?copilot=1` : `/dashboards/${body.id}`);
     } catch (e) {
       setError({ text: e instanceof Error ? e.message : String(e), details: [] });
     } finally {
@@ -95,7 +100,21 @@ export default function NewStaffDashboardPage() {
     }, "import");
   }
 
+  const canDescribe = !!title.trim() && brief.trim().length >= 10 && !busy;
+
+  function submitDescribe(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canDescribe) return;
+    const text = brief.trim();
+    // Le dashboard naît vide ; le brief part au copilote dès l'ouverture de la page
+    // (sessionStorage : pas d'adresse interminable, lu une seule fois).
+    void create({ title: title.trim(), description: description.trim(), html: "", shared }, "ai", (id) => {
+      try { sessionStorage.setItem(`staff-dashboard-brief:${id}`, text); } catch { /* stockage indisponible */ }
+    });
+  }
+
   const TABS: Array<{ key: Tab; label: string; icon: React.ElementType }> = [
+    { key: "ai", label: "Décrire à l'IA", icon: Sparkles },
     { key: "template", label: "Partir d'un modèle", icon: LayoutTemplate },
     { key: "import", label: "Importer depuis Claude", icon: ClipboardPaste },
   ];
@@ -105,7 +124,7 @@ export default function NewStaffDashboardPage() {
       <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white">
         <ArrowLeft className="w-3.5 h-3.5" /> Mes dashboards
       </Link>
-      <PageHeader title="Nouveau dashboard" subtitle="Un modèle prêt à l'emploi, ou une page construite dans Claude et collée ici." />
+      <PageHeader title="Nouveau dashboard" subtitle="Décrit à l'IA, à partir d'un modèle prêt à l'emploi, ou collé depuis Claude." />
 
       <div role="tablist" aria-label="Mode de création" className="flex gap-1">
         {TABS.map((t) => (
@@ -131,6 +150,39 @@ export default function NewStaffDashboardPage() {
             </ul>
           )}
         </div>
+      )}
+
+      {tab === "ai" && (
+        <form onSubmit={submitDescribe} className="space-y-4">
+          <Card padded className="space-y-4">
+            <div className="text-xs text-gray-400 leading-relaxed bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
+              Décrivez la page comme à un collègue : le client et ses comptes (identifiant Google Ads, act_… Meta, annonceur TikTok), les Google Sheets à lire (lien + onglet, partagés avec data@impulse-analytics.com), les indicateurs, alertes et tableaux attendus.
+              Le copilote s&apos;ouvre sur le dashboard, interroge les vraies sources, puis propose les jeux de données et la page : vous appliquez, puis vous itérez avec lui.
+            </div>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-300">Titre <span className="text-red-400">*</span></span>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={120} className={`${FIELD} mt-1`} placeholder="Liferay – Pilotage budget par marché" />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-300">Description <span className="text-gray-500 font-normal">(facultatif)</span></span>
+              <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} className={`${FIELD} mt-1`} placeholder="Ce que la page montre, pour qui." />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-300">Brief pour l&apos;IA <span className="text-red-400">*</span></span>
+              <textarea value={brief} onChange={(e) => setBrief(e.target.value)} rows={8} maxLength={20000} className={`${FIELD} mt-1 min-h-[160px]`} placeholder={BRIEF_PLACEHOLDER} />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-gray-300 w-fit">
+              <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} className="accent-violet-600" />
+              Partager avec toute l&apos;équipe (lecture)
+            </label>
+          </Card>
+          <div className="flex items-center gap-3">
+            <button type="submit" disabled={!canDescribe} className={PRIMARY_BUTTON}>
+              {busy === "ai" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Créer et ouvrir le copilote
+            </button>
+            {(!title.trim() || brief.trim().length < 10) && <span className="text-xs text-gray-500">Un titre et un brief sont requis.</span>}
+          </div>
+        </form>
       )}
 
       {tab === "template" && (

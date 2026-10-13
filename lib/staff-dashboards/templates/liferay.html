@@ -1,0 +1,556 @@
+<style>
+.cl{font-family:var(--font-anthropic-sans);display:flex;flex-direction:column;gap:var(--cds-gap-lg)}
+.cl-head h1{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);margin:0}
+.cl-take{color:var(--color-fg-muted);font-size:var(--cds-font-size-body);margin:var(--cds-gap-xs) 0 0;max-width:62rem}
+.cl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr));gap:var(--cds-gap-md)}
+.cl-card{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg)}
+.cl-kpi .lab{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.cl-kpi .val{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);font-variant-numeric:tabular-nums;margin-top:var(--cds-gap-xs)}
+.cl-kpi .sub{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:var(--cds-gap-xs)}
+.cl-h{font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium);margin:0 0 var(--cds-gap-xs)}
+.cl-note{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin:0 0 var(--cds-gap-md)}
+.cl-alerts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.cl-alerts li{display:flex;gap:var(--cds-gap-sm);align-items:baseline;font-size:var(--cds-font-size-body)}
+.cl-dot{width:.5rem;height:.5rem;border-radius:50%;flex:none;transform:translateY(-.1rem);background:var(--cds-chart-muted)}
+.cl-dot.critique{background:var(--cds-chart-status-critical)}
+.cl-dot.attention{background:var(--color-warn)}
+.cl-dot.info{background:var(--cds-chart-muted)}
+.cl-wrap{overflow-x:auto}
+.cl-t{width:100%;border-collapse:collapse;font-size:var(--cds-font-size-body);font-variant-numeric:tabular-nums}
+.cl-t th{text-align:right;font-weight:var(--cds-font-weight-medium);color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);padding:var(--cds-pad-xs) var(--cds-pad-sm);border-bottom:1px solid var(--color-border-line);white-space:nowrap}
+.cl-t td{text-align:right;padding:var(--cds-pad-xs) var(--cds-pad-sm);border-bottom:1px solid var(--color-border-line);white-space:nowrap}
+.cl-t th:first-child,.cl-t td:first-child{text-align:left}
+.cl-t td.st-bad{color:var(--color-bad)}
+.cl-t td.st-warn{color:var(--color-warn)}
+.cl-t td.st-ok{color:var(--color-ok)}
+.cl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr));gap:var(--cds-gap-md)}
+.cl-chart{position:relative;min-height:12rem}
+.cl-legend{display:flex;gap:var(--cds-gap-md);font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:var(--cds-gap-sm)}
+.cl-legend span{display:inline-flex;align-items:center;gap:var(--cds-gap-xs)}
+.cl-sw{width:.75rem;height:.5rem;border-radius:2px;display:inline-block}
+.cl-tip{position:absolute;background:var(--cds-surface-popover);border:1px solid var(--cds-border);border-radius:var(--cds-radius);box-shadow:var(--cds-shadow-popover);padding:var(--cds-pad-xs) var(--cds-pad-sm);font-size:var(--cds-font-size-caption);pointer-events:none;display:none;white-space:nowrap}
+.cl-tip .t{color:var(--cds-text-secondary)}
+.cl-rythme{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:var(--cds-gap-md)}
+.cl-rythme .cl-kpi{display:flex;flex-direction:column;justify-content:space-between}
+.cl-bar{height:.6rem;border-radius:999px;background:var(--cds-chart-grid);margin-top:var(--cds-gap-sm);overflow:hidden}
+.cl-bar > i{display:block;height:100%;border-radius:999px;width:0}
+.cl-bar-legend{display:flex;justify-content:space-between;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin-top:var(--cds-gap-xs);font-variant-numeric:tabular-nums}
+.cl-kpi.warn{box-shadow:inset 0 0 0 2px var(--color-warn)}
+.cl-kpi.warn .val{color:var(--color-warn)}
+.cl-delta{font-size:var(--cds-font-size-caption);margin-top:var(--cds-gap-xs)}
+.cl-toolbar{display:flex;justify-content:space-between;align-items:center;gap:var(--cds-gap-md);flex-wrap:wrap}
+.cl-btn{font:inherit;font-size:var(--cds-font-size-caption);padding:var(--cds-pad-xs) var(--cds-pad-md);border-radius:var(--cds-radius);border:1px solid var(--color-border-line);background:var(--color-panel);color:var(--color-fg);cursor:pointer}
+.cl-btn:hover{border-color:var(--color-fg-muted)}
+.cl-tabs{display:flex;gap:var(--cds-gap-xs);flex-wrap:wrap;margin:var(--cds-gap-sm) 0}
+.cl-tab{font:inherit;font-size:var(--cds-font-size-caption);padding:var(--cds-pad-xs) var(--cds-pad-md);border-radius:999px;border:1px solid var(--color-border-line);background:transparent;color:var(--color-fg-muted);cursor:pointer}
+.cl-tab[aria-selected=true]{background:var(--color-fg);color:var(--color-bg);border-color:var(--color-fg)}
+.cl-t tr.cl-total td{font-weight:var(--cds-font-weight-medium);border-top:2px solid var(--color-border-line)}
+.cl-t td.warn{color:var(--color-warn)}
+.cl-t td.up{color:var(--color-ok)}
+.cl-t td.down{color:var(--color-bad)}
+.cl-mini{display:inline-block;width:3rem;height:.35rem;border-radius:999px;background:var(--cds-chart-grid);margin-left:var(--cds-gap-xs);vertical-align:middle;overflow:hidden}
+.cl-mini > i{display:block;height:100%;border-radius:999px}
+.cl-conseils td:nth-child(2),.cl-conseils td:nth-child(6),.cl-conseils td:nth-child(7){white-space:normal;text-align:left;min-width:14rem}
+.cl-conseils th:nth-child(2),.cl-conseils th:nth-child(6),.cl-conseils th:nth-child(7){text-align:left}
+.cl-conseils td:nth-child(7){font-weight:var(--cds-font-weight-medium)}
+.cl-conseils tr.p1 td:first-child{box-shadow:inset 3px 0 0 var(--cds-chart-status-critical)}
+.cl-conseils tr.p2 td:first-child{box-shadow:inset 3px 0 0 var(--color-warn)}
+.cl-log td:nth-child(3){white-space:normal;text-align:left;min-width:14rem}
+.cl-log th:nth-child(3),.cl-log td:nth-child(2),.cl-log th:nth-child(2),.cl-log td:nth-child(4),.cl-log th:nth-child(4){text-align:left}
+#tabs-marche{margin-top:var(--cds-gap-md)}
+.cl-badge{display:inline-block;margin-left:var(--cds-gap-sm);padding:0 var(--cds-pad-sm);border-radius:999px;border:1px solid var(--color-warn);color:var(--color-warn);font-size:var(--cds-font-size-caption);font-weight:400;vertical-align:middle}
+.cl-method{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);line-height:1.5}
+.cl-method p{margin:0 0 var(--cds-gap-xs)}
+[data-dash-source-state=refreshing]{opacity:.5;transition:opacity var(--cds-dur-slow)}
+.cl-fail{display:flex;align-items:center;justify-content:center;gap:var(--cds-gap-xs);color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);min-height:6rem}
+.cl-fail i{width:.375rem;height:.375rem;border-radius:50%;background:var(--color-bad);display:inline-block}
+</style>
+<div class="cl">
+  <header class="cl-head" id="entete">
+    <div class="cl-toolbar"><h1>Liferay – Pilotage budget par marché</h1><button class="cl-btn" id="btn-refresh" type="button">↻ Mettre à jour les données</button></div>
+    <p class="cl-take dash-skeleton" id="takeaway" data-source="synthese">—</p>
+    <div class="cl-tabs" role="tablist" id="tabs-marche" data-source="marches" aria-label="Filtrer par marché"></div>
+  </header>
+
+  <section id="rythme">
+    <h2 class="cl-h">Rythme de dépense global <span class="cl-note" style="font-weight:400">· à fin d'hier (<span data-source="rythme" data-row="0" data-field="date_hier">—</span>), Google Ads, en USD</span></h2>
+    <div class="cl-rythme">
+      <div class="cl-card cl-kpi" style="grid-column:1/-1">
+        <div class="lab">Dépensé depuis le 1er (marchés budgétés)</div>
+        <div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="cout">—</div>
+        <div class="cl-bar"><i id="bar-cout"></i></div>
+        <div class="cl-bar-legend"><span data-source="rythme" data-row="0" data-field="pct_budget">—</span><span>budget du mois <span data-source="rythme" data-row="0" data-field="budget">—</span></span></div>
+      </div>
+      <div class="cl-card cl-kpi"><div class="lab">Projection fin de mois</div><div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="projection">—</div><div class="sub">Dépensé + rythme d'hier × jours restants</div></div>
+      <div class="cl-card cl-kpi" id="kpi-proj-pct"><div class="lab">Projection en % du budget</div><div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="projection_pct">—</div><div class="sub" data-source="rythme" data-row="0" data-field="lecture">—</div></div>
+      <div class="cl-card cl-kpi"><div class="lab">Dépensé hier</div><div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="hier">—</div><div class="cl-delta" id="delta-hier" data-source="rythme" data-row="0" data-field="var_hier">—</div></div>
+      <div class="cl-card cl-kpi"><div class="lab">Rythme idéal par jour</div><div class="val dash-skeleton" data-source="rythme" data-row="0" data-field="trend_ideal">—</div><div class="cl-delta" id="delta-trend" data-source="rythme" data-row="0" data-field="var_trend">—</div></div>
+    </div>
+    <div class="cl-card" id="rythme-marches" style="margin-top:var(--cds-gap-md)">
+      <h3 class="cl-h">Par marché</h3>
+      <div class="cl-tabs" role="tablist" id="tabs-type"></div>
+      <p class="cl-note" id="note-type"></p>
+      <div class="cl-wrap">
+        <table class="cl-t" id="rythme-table" data-source="rythme_m" data-row-key="onglet,marche">
+          <thead><tr>
+            <th data-field="marche">Marché</th>
+            <th data-field="cout">Dépensé</th>
+            <th data-field="budget">Budget</th>
+            <th data-field="pct_budget">Consommé</th>
+            <th data-field="projection">Projection</th>
+            <th data-field="projection_pct">Projection %</th>
+            <th data-field="hier">Hier</th>
+            <th data-field="var_hier">vs J-2</th>
+            <th data-field="trend_ideal">Rythme idéal/j</th>
+            <th data-field="var_trend">vs hier</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="cl-card" id="alertes">
+    <h2 class="cl-h">Alertes</h2>
+    <p class="cl-note">Pacing hors tolérance par marché et dépense non rattachée à un marché budgété. Seuils réglables dans l'onglet Paramètres du classeur de pilotage.</p>
+    <ul class="cl-alerts dash-skeleton" id="alertes-liste" data-source="alertes" data-row-key="id"></ul>
+  </section>
+
+  <section class="cl-card" id="pacing">
+    <h2 class="cl-h">Pacing, leads et budget jour recommandé par marché</h2>
+    <p class="cl-note">Depuis le 1er, journée en cours incluse. « Attendu » = part du mois écoulée. Reco/jour = reste ÷ jours restants. Leads = Request for Demo + Contact Sales (conversions Google Ads).</p>
+    <div class="cl-wrap">
+      <table class="cl-t" id="pacing-table" data-source="pacing" data-row-key="marche">
+        <thead><tr>
+          <th data-field="marche">Marché</th>
+          <th data-field="region">Région</th>
+          <th data-field="budget">Budget mois</th>
+          <th data-field="depense">Dépensé</th>
+          <th data-field="pct_conso">Consommé</th>
+          <th data-field="pct_attendu">Attendu</th>
+          <th data-field="statut">Statut</th>
+          <th data-field="reste">Reste</th>
+          <th data-field="reco_jour">Reco/jour</th>
+          <th data-field="part_brand">Part Brand</th>
+          <th data-field="demos">Demos</th>
+          <th data-field="contacts">Contact sales</th>
+          <th data-field="cpl">CPL</th>
+          <th data-field="cpl_cible">CPL cible</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cl-card" id="qmb">
+    <h2 class="cl-h">QMB par trimestre (Sicentric)</h2>
+    <p class="cl-note">Objectif = « Projected QMBs » de l'onglet QMB Goals. Réalisé = QMB du journal (colonnes Converted Date et Campaign Name), rattachés au marché par le préfixe du nom de campagne (ex. « ME-26-SEM-ALL-HOR-DXP Paid Search » → ME) et au trimestre par la date de conversion.</p>
+    <div class="cl-wrap">
+      <table class="cl-t" id="qmb-table" data-source="qmb_t" data-row-key="marche">
+        <thead><tr>
+          <th data-field="marche">Marché</th>
+          <th data-field="q1_obj">Q1 obj.</th><th data-field="q1_real">Q1 réal.</th>
+          <th data-field="q2_obj">Q2 obj.</th><th data-field="q2_real">Q2 réal.</th>
+          <th data-field="q3_obj">Q3 obj.</th><th data-field="q3_real">Q3 réal.</th>
+          <th data-field="q4_obj">Q4 obj.</th><th data-field="q4_real">Q4 réal.</th>
+          <th data-field="ytd_obj">Année obj.</th><th data-field="ytd_real">Année réal.</th>
+          <th data-field="avancement">Avancement</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <h3 class="cl-h" style="margin-top:var(--cds-gap-md)">Derniers QMB</h3>
+    <div class="cl-wrap">
+      <table class="cl-t cl-log" id="qmb-log" data-source="qmb_log" data-row-key="id">
+        <thead><tr>
+          <th data-field="conversion">Converti le</th>
+          <th data-field="marche">Marché</th>
+          <th data-field="campagne">Campagne</th>
+          <th data-field="terme">Premier terme</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cl-card" id="conseils">
+    <h2 class="cl-h">Conseils par campagne</h2>
+    <p class="cl-note">Objectif : dépenser le budget de chaque marché. Cible/jour = reco du marché répartie entre ses campagnes selon leur poids sur les 3 derniers jours. Diagnostic sur 7 jours : budget, part d'impressions perdue (budget / classement), conversions, stratégie d'enchères.</p>
+    <div class="cl-wrap">
+      <table class="cl-t cl-conseils" id="conseils-table" data-source="conseils" data-row-key="campagne">
+        <thead><tr>
+          <th data-field="marche">Marché</th>
+          <th data-field="campagne">Campagne</th>
+          <th data-field="depense_jour">Dépense/j (3 j)</th>
+          <th data-field="budget_jour">Budget/j</th>
+          <th data-field="cible_jour">Cible/j</th>
+          <th data-field="diagnostic">Diagnostic</th>
+          <th data-field="conseil">Conseil</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cl-method" id="methode">
+    <p><b>Sources.</b> Budgets mensuels : suivi budget Liferay, onglet Pays. Dépenses, budgets de campagne et conversions : compte Google Ads Liferay Global (973-316-6788), en USD. QMB : suivi Sicentric, onglet QMB Goals.</p>
+    <p><b>Règles.</b> Chaque campagne est rattachée au marché dont un code apparaît dans son nom (onglet Marchés du classeur « Liferay – Pilotage budget – Config ») ; « M » = Brand, « HM » = hors marque. Les campagnes sans code listé (JP, AF, CEE…) sont comptées « Hors budget » et exclues des totaux.</p>
+    <p>Données au <span data-source="contexte" data-row="0" data-field="date_ref">—</span>.</p>
+  </section>
+</div>
+
+<script>
+/* ---------- Loaders ---------- */
+const lfParse = (answer) => { let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a) || /NodeOperationError/.test(a)) throw new Error(a); a = JSON.parse(a); } return a; };
+window.lfParse = lfParse;
+dash.loader('budget_pays', { description: "Lignes de l'onglet Pays (lecteur n8n), sans le numéro de ligne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/NodeOperationError|^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  return (Array.isArray(a) ? a : (a.rows || [])).map(r => { const { row_number, ...x } = r; return x; });
+}});
+dash.loader('qmb', { description: "Lignes de l'onglet QMB Goals (lecteur n8n), sans le numéro de ligne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/NodeOperationError|^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  return (Array.isArray(a) ? a : (a.rows || [])).map(r => { const { row_number, ...x } = r; return x; });
+}});
+dash.loader('marches', { description: "Onglet Marchés du classeur de pilotage, sans le numéro de ligne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/NodeOperationError|^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  return (Array.isArray(a) ? a : (a.rows || [])).map(r => { const { row_number, ...x } = r; return x; });
+}});
+dash.loader('parametres', { description: "Onglet Paramètres du classeur de pilotage, sans le numéro de ligne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/NodeOperationError|^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  return (Array.isArray(a) ? a : (a.rows || [])).map(r => { const { row_number, ...x } = r; return x; });
+}});
+dash.loader('l_spend', { description: "Résultat GAQL aplati : coût du mois par campagne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ campagne: r.campaign.name, statut: r.campaign.status, cost_micros: Number(r.metrics.costMicros || 0) }); }
+  return { columns: ['campagne', 'statut', 'cost_micros'], rows };
+}});
+dash.loader('l_daily', { description: "Résultat GAQL aplati : coût par jour et par campagne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ date: r.segments.date, campagne: r.campaign.name, cost_micros: Number(r.metrics.costMicros || 0) }); }
+  return { columns: ['date', 'campagne', 'cost_micros'], rows };
+}});
+dash.loader('l_conv', { description: "Résultat GAQL aplati : conversions Request for Demo et Contact Sales du mois par campagne.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) rows.push({ campagne: r.campaign.name, action: r.segments.conversionActionName, conversions: Number(r.metrics.conversions || 0) }); }
+  return { columns: ['campagne', 'action', 'conversions'], rows };
+}});
+dash.loader('l_diag', { description: "Diagnostic GAQL des campagnes actives sur 7 jours, aplati.", fn: ({ answer }) => {
+  let a = answer; if (typeof a === 'string') { if (/^\s*<?error/i.test(a)) throw new Error(a); a = JSON.parse(a); }
+  const rows = [];
+  for (const p of (Array.isArray(a) ? a : [a])) { if (p && p.error) throw new Error(JSON.stringify(p.error));
+    for (const r of (p && p.results) || []) { const c = r.campaign, m = r.metrics || {};
+      const t = (c.maximizeConversions && c.maximizeConversions.targetCpaMicros) || (c.targetCpa && c.targetCpa.targetCpaMicros) || null;
+      rows.push({ campagne: c.name, strategie: c.biddingStrategyType, cpa_cible: t ? Number(t) / 1e6 : null, statut: c.primaryStatus, raisons: (c.primaryStatusReasons || []).join(', '),
+        budget_jour: Number((r.campaignBudget || {}).amountMicros || 0) / 1e6, cout_7j: Number(m.costMicros || 0) / 1e6, conv_7j: Number(m.conversions || 0),
+        is_perdue_budget: m.searchBudgetLostImpressionShare ?? null, is_perdue_classement: m.searchRankLostImpressionShare ?? null }); } }
+  return { columns: ['campagne', 'strategie', 'cpa_cible', 'statut', 'raisons', 'budget_jour', 'cout_7j', 'conv_7j', 'is_perdue_budget', 'is_perdue_classement'], rows };
+}});
+
+/* ---------- Calculs ---------- */
+dash.calc('contexte', { inputs: ['l_daily', 'parametres'], title: 'Date de référence et seuils',
+  description: "Date des données (dernier jour présent dans Google Ads) et seuils de l'onglet Paramètres.",
+  fn: (l_daily, parametres) => {
+    const M = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+    const ref = l_daily.map(r => r.date).sort().pop() || new Date().toISOString().slice(0, 10);
+    const [y, m, d] = ref.split('-').map(Number);
+    const p = Object.fromEntries(parametres.map(r => [r['Paramètre'], Number(String(r['Valeur']).replace(',', '.'))]));
+    return [{ date_ref: ref.split('-').reverse().join('/'), iso_ref: ref, annee: y, mois: m, jour: d, jours_mois: new Date(Date.UTC(y, m, 0)).getUTCDate(), nom_mois: M[m - 1], trimestre: 'Q' + Math.ceil(m / 3) + ' ' + y,
+      tolerance_pacing_pct: p.tolerance_pacing_pct ?? 10, variation_max_pct: p.variation_max_pct ?? 20, min_conv_tcpa_7j: p.min_conv_tcpa_7j ?? 5 }];
+  } });
+
+dash.calc('pacing', { inputs: ['budget_pays', 'marches', 'l_spend', 'l_conv', 'contexte'], title: 'Pacing par marché',
+  description: "Budget du mois (onglet Pays ou override), dépense et leads depuis le 1er par marché (code marché dans le nom de campagne), % consommé vs part du mois écoulée, reste et reco/jour.",
+  fn: (budget_pays, marches, l_spend, l_conv, contexte) => {
+    const c = contexte[0];
+    const num = s => { const t = String(s ?? '').replace(/[\s $€]/g, '').replace(',', '.'); if (t === '') return null; const n = Number(t); return isFinite(n) ? n : null; };
+    const regles = marches.map(x => ({ m: x['Marché'], codes: String(x['Codes campagne'] || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean) }));
+    const marcheOf = nom => { const t = String(nom).toUpperCase().split(/[^A-Z0-9]+/); const r = regles.find(r => r.codes.some(k => t.includes(k))); return r ? r.m : 'Hors budget'; };
+    const brand = nom => { const t = String(nom).toUpperCase().split(/[^A-Z0-9]+/); return t.includes('HM') ? false : (t.includes('M') || /brand/i.test(nom)); };
+    const out = [];
+    for (const x of marches.concat([{ 'Marché': 'Hors budget' }])) {
+      const m = x['Marché'];
+      const camp = l_spend.filter(r => marcheOf(r.campagne) === m);
+      const depense = camp.reduce((s, r) => s + r.cost_micros / 1e6, 0);
+      if (m === 'Hors budget' && !depense) continue;
+      const depBrand = camp.filter(r => brand(r.campagne)).reduce((s, r) => s + r.cost_micros / 1e6, 0);
+      const conv = l_conv.filter(r => marcheOf(r.campagne) === m);
+      const demos = conv.filter(r => r.action === 'Request for Demo').reduce((s, r) => s + r.conversions, 0);
+      const contacts = conv.filter(r => r.action === 'Contact Sales').reduce((s, r) => s + r.conversions, 0);
+      const ligne = budget_pays.find(r => String(r['Mois'] || '').trim().toLowerCase() === String(m).toLowerCase());
+      const budget = m === 'Hors budget' ? null : (num(x['Budget override ($)']) ?? (ligne ? num(ligne[c.nom_mois]) : null));
+      const pctAtt = (c.jour - 0.5) / c.jours_mois;
+      const pctConso = budget ? depense / budget : null;
+      const ratio = pctConso != null ? pctConso / pctAtt : null, tol = c.tolerance_pacing_pct / 100;
+      const reste = budget != null ? Math.max(0, budget - depense) : null;
+      const leads = demos + contacts;
+      out.push({ marche: m, region: x['Région'] || '—', budget, depense: Math.round(depense), pct_conso: pctConso, pct_attendu: budget != null ? pctAtt : null, indice: ratio,
+        statut: budget == null ? 'Hors budget' : ratio < 1 - tol ? 'Sous-pacing' : ratio > 1 + tol ? 'Sur-pacing' : 'Dans le rythme',
+        reste: reste != null ? Math.round(reste) : null, reco_jour: reste != null ? Math.round(reste / (c.jours_mois - c.jour + 0.5)) : null,
+        rythme_jour: Math.round(depense / Math.max(0.5, c.jour - 0.5)), part_brand: depense ? depBrand / depense : null,
+        demos: Math.round(demos * 10) / 10, contacts: Math.round(contacts * 10) / 10, cpl: leads ? Math.round(depense / leads) : null, cpl_cible: num(x['CPL cible ($)']) });
+    }
+    return out;
+  } });
+
+dash.calc('synthese', { inputs: ['pacing', 'contexte'], title: 'Synthèse du mois',
+  description: "Budget total des marchés budgétés, dépense (hors campagnes hors budget), rythme global vs part du mois écoulée.",
+  fn: (pacing, contexte) => {
+    const c = contexte[0], b = pacing.filter(r => r.budget != null);
+    const budget = b.reduce((s, r) => s + r.budget, 0), depense = b.reduce((s, r) => s + r.depense, 0);
+    const pctAtt = (c.jour - 0.5) / c.jours_mois, pct = budget ? depense / budget : null, ind = pct != null ? pct / pctAtt : null, tol = c.tolerance_pacing_pct / 100;
+    const hb = pacing.find(r => r.marche === 'Hors budget');
+    return [{ budget_total: budget, depense_total: depense, pct_conso: pct, pct_attendu: pctAtt, indice_pacing: ind,
+      statut: ind == null ? '—' : ind < 1 - tol ? 'Sous-pacing global' : ind > 1 + tol ? 'Sur-pacing global' : 'Dans le rythme', hors_budget: hb ? hb.depense : 0 }];
+  } });
+
+dash.calc('rythme_m', { inputs: ['l_daily', 'marches', 'pacing', 'contexte'], title: 'Rythme par marché',
+  description: "Par onglet (tous types, Brand, hors marque) et par marché : dépensé jusqu'à hier, projection = dépensé + dépense d'hier × jours restants, rythme idéal = (budget − dépensé) ÷ jours restants. Budget seulement sur l'onglet tous types.",
+  fn: (l_daily, marches, pacing, contexte) => {
+    const c = contexte[0];
+    const regles = marches.map(x => ({ m: x['Marché'], codes: String(x['Codes campagne'] || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean) }));
+    const marcheOf = nom => { const t = String(nom).toUpperCase().split(/[^A-Z0-9]+/); const r = regles.find(r => r.codes.some(k => t.includes(k))); return r ? r.m : 'Hors budget'; };
+    const brand = nom => { const t = String(nom).toUpperCase().split(/[^A-Z0-9]+/); return t.includes('HM') ? false : (t.includes('M') || /brand/i.test(nom)); };
+    const iso = n => new Date(Date.UTC(c.annee, c.mois - 1, n)).toISOString().slice(0, 10);
+    const restants = c.jours_mois - c.jour + 1;
+    const r2 = x => x == null ? null : Math.round(x * 100) / 100;
+    const out = [];
+    for (const onglet of ['Tous types', 'Brand', 'Hors marque']) {
+      const keep = r => onglet === 'Tous types' || (onglet === 'Brand') === brand(r.campagne);
+      const lignes = [];
+      for (const m of marches.map(x => x['Marché']).concat(['Hors budget'])) {
+        const rows = l_daily.filter(r => keep(r) && marcheOf(r.campagne) === m);
+        const sum = d => rows.filter(r => r.date === d).reduce((s, r) => s + r.cost_micros / 1e6, 0);
+        let cout = 0; for (let n = 1; n < c.jour; n++) cout += sum(iso(n));
+        const hier = c.jour > 1 ? sum(iso(c.jour - 1)) : 0, j2 = c.jour > 2 ? sum(iso(c.jour - 2)) : null;
+        const p = pacing.find(x => x.marche === m);
+        const budget = onglet === 'Tous types' && p ? p.budget : null;
+        if (!cout && !hier && budget == null) continue;
+        lignes.push({ m, budget, cout, hier, j2 });
+      }
+      const bud = lignes.filter(l => l.m !== 'Hors budget');
+      const tot = { m: 'Total', budget: onglet === 'Tous types' ? bud.reduce((s, l) => s + (l.budget || 0), 0) : null, cout: bud.reduce((s, l) => s + l.cout, 0), hier: bud.reduce((s, l) => s + l.hier, 0), j2: c.jour > 2 ? bud.reduce((s, l) => s + (l.j2 || 0), 0) : null };
+      for (const l of lignes.concat([tot])) {
+        const projection = l.cout + l.hier * restants, trend = l.budget != null ? Math.max(0, l.budget - l.cout) / restants : null;
+        out.push({ cle: onglet + '|' + l.m, onglet, marche: l.m, budget: r2(l.budget), cout: r2(l.cout), pct_budget: l.budget ? l.cout / l.budget : null,
+          projection: r2(projection), projection_pct: l.budget ? projection / l.budget : null, hier: r2(l.hier), j2: r2(l.j2), var_hier: l.j2 ? l.hier / l.j2 - 1 : null,
+          trend_ideal: r2(trend), var_trend: trend != null && l.hier ? trend / l.hier - 1 : null });
+      }
+    }
+    return out;
+  } });
+
+dash.calc('rythme', { inputs: ['rythme_m', 'contexte'], title: 'Rythme de dépense global',
+  description: "Ligne Total de l'onglet tous types (marchés budgétés), jusqu'à hier inclus.",
+  fn: (rythme_m, contexte) => {
+    const t = rythme_m.find(r => r.onglet === 'Tous types' && r.marche === 'Total') || {};
+    const c = contexte[0], h = new Date(Date.UTC(c.annee, c.mois - 1, c.jour - 1)).toISOString().slice(0, 10), pp = t.projection_pct;
+    return [{ ...t, date_hier: h.split('-').reverse().join('/'), lecture: pp == null ? '—' : pp < 0.95 ? 'Sous-consommation à ce rythme' : pp > 1.05 ? 'Dépassement à ce rythme' : 'Atterrissage dans le budget' }];
+  } });
+
+dash.calc('alertes', { inputs: ['pacing', 'contexte'], title: 'Alertes',
+  description: "Marchés hors tolérance de pacing et dépense de campagnes non rattachées à un marché budgété.",
+  fn: (pacing, contexte) => {
+    const c = contexte[0], P = x => Math.round(x * 100) + ' %', U = x => Math.round(x).toLocaleString('fr-FR') + ' $';
+    const out = [];
+    for (const r of pacing) {
+      if (r.marche === 'Hors budget') { out.push({ id: 'hb', niveau: 'attention', message: 'Campagnes hors budget (JP, AF, CEE ou sans code marché) : ' + U(r.depense) + ' dépensés ce mois-ci, non comptés dans les totaux.' }); continue; }
+      if (r.statut === 'Sous-pacing' || r.statut === 'Sur-pacing') out.push({ id: 'pace-' + r.marche, niveau: 'critique', message: r.marche + ' : ' + r.statut.toLowerCase() + ', ' + P(r.pct_conso) + ' consommé pour ' + P(r.pct_attendu) + ' attendu. Reco ' + U(r.reco_jour) + '/jour (rythme actuel ' + U(r.rythme_jour) + '/jour).' });
+      if (r.cpl != null && r.cpl_cible != null && r.cpl > r.cpl_cible * 1.2) out.push({ id: 'cpl-' + r.marche, niveau: 'attention', message: r.marche + ' : CPL ' + U(r.cpl) + ' pour une cible de ' + U(r.cpl_cible) + '.' });
+    }
+    const rank = { critique: 0, attention: 1, info: 2 };
+    return out.sort((a, b) => rank[a.niveau] - rank[b.niveau]);
+  } });
+
+dash.calc('qmb_t', { inputs: ['qmb', 'marches', 'contexte'], title: 'QMB par trimestre',
+  description: "Par marché et par trimestre de l'année : objectif (Projected QMBs des blocs de l'onglet QMB Goals) et réalisé (journal : date de conversion → trimestre, préfixe du nom de campagne → marché via les codes QMB de l'onglet Marchés).",
+  fn: (qmb, marches, contexte) => {
+    const an = contexte[0].annee;
+    const mapQ = {}; for (const x of marches) for (const k of String(x['Codes QMB'] || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean)) mapQ[k] = x['Marché'];
+    const obj = {}, real = {}; let label = '';
+    const add = (o, m, q, v) => { o[m] = o[m] || [0, 0, 0, 0]; o[m][q - 1] += v; };
+    for (const r of qmb) {
+      const l = String(r['YTD QMB Data'] || '').trim().toUpperCase();
+      if (l && !l.includes('TOTAL') && !/^Q\d/.test(l)) label = l;
+      const qm = String(r['col_4'] || '').trim().toUpperCase().match(/^Q([1-4]) (\d{4})$/);
+      if (qm && Number(qm[2]) === an && mapQ[label]) add(obj, mapQ[label], Number(qm[1]), Number(r['col_5']) || 0);
+      const d = String(r['Converted Date'] || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      const code = String(r['Campaign Name'] || '').split('-')[0].trim().toUpperCase();
+      if (d && Number(d[3]) === an && mapQ[code]) add(real, mapQ[code], Math.ceil(Number(d[1]) / 3), 1);
+    }
+    const ligne = (m, o, r) => { const yo = o.reduce((s, x) => s + x, 0), yr = r.reduce((s, x) => s + x, 0);
+      return { marche: m, q1_obj: o[0], q1_real: r[0], q2_obj: o[1], q2_real: r[1], q3_obj: o[2], q3_real: r[2], q4_obj: o[3], q4_real: r[3], ytd_obj: yo, ytd_real: yr, avancement: yo ? yr / yo : null }; };
+    const rows = marches.map(x => x['Marché']).filter(m => obj[m] || real[m]).map(m => ligne(m, obj[m] || [0, 0, 0, 0], real[m] || [0, 0, 0, 0]));
+    const t = [0, 1, 2, 3].map(i => rows.reduce((s, r) => s + r['q' + (i + 1) + '_obj'], 0)), tr = [0, 1, 2, 3].map(i => rows.reduce((s, r) => s + r['q' + (i + 1) + '_real'], 0));
+    return rows.concat([ligne('Total', t, tr)]);
+  } });
+
+dash.calc('qmb_log', { inputs: ['qmb', 'marches'], title: 'Derniers QMB',
+  description: "Journal des QMB de l'onglet QMB Goals, du plus récent au plus ancien, avec le marché déduit du préfixe du nom de campagne.",
+  fn: (qmb, marches) => {
+    const mapQ = {}; for (const x of marches) for (const k of String(x['Codes QMB'] || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean)) mapQ[k] = x['Marché'];
+    return qmb.map(r => ({ d: String(r['Converted Date'] || '').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/), r })).filter(x => x.d)
+      .map(({ d, r }, i) => { const code = String(r['Campaign Name'] || '').split('-')[0].trim().toUpperCase();
+        return { id: String(i + 1), iso: d[3] + '-' + d[1].padStart(2, '0') + '-' + d[2].padStart(2, '0'), conversion: d[2].padStart(2, '0') + '/' + d[1].padStart(2, '0') + '/' + d[3],
+          marche: mapQ[code] || code || '—', campagne: r['Campaign Name'], terme: r['First Term'] && r['First Term'] !== '-' ? r['First Term'] : '—' }; })
+      .sort((a, b) => b.iso.localeCompare(a.iso));
+  } });
+
+dash.calc('conseils', { inputs: ['l_diag', 'l_daily', 'marches', 'pacing', 'contexte'], title: 'Conseils par campagne',
+  description: "Cible/jour de chaque campagne = reco/jour du marché répartie selon le poids de la campagne sur les 3 derniers jours. Diagnostic sur 7 jours : budget, part d'impressions perdue (budget vs classement), conversions, stratégie d'enchères.",
+  fn: (l_diag, l_daily, marches, pacing, contexte) => {
+    const c = contexte[0];
+    const regles = marches.map(x => ({ m: x['Marché'], codes: String(x['Codes campagne'] || '').toUpperCase().split(',').map(s => s.trim()).filter(Boolean) }));
+    const marcheOf = nom => { const t = String(nom).toUpperCase().split(/[^A-Z0-9]+/); const r = regles.find(r => r.codes.some(k => t.includes(k))); return r ? r.m : 'Hors budget'; };
+    const iso = n => new Date(Date.UTC(c.annee, c.mois - 1, n)).toISOString().slice(0, 10);
+    const jours = [1, 2, 3].map(k => c.jour - k).filter(n => n >= 1).map(iso), N = Math.max(1, jours.length);
+    const recent = {}; for (const r of l_daily) if (jours.includes(r.date)) recent[r.campagne] = (recent[r.campagne] || 0) + r.cost_micros / 1e6 / N;
+    const totM = {}, nbM = {}; for (const d of l_diag) { const m = marcheOf(d.campagne); totM[m] = (totM[m] || 0) + (recent[d.campagne] || 0); nbM[m] = (nbM[m] || 0) + 1; }
+    const r5 = x => Math.round(x / 5) * 5, P = x => Math.round(x * 100) + ' %', U = x => Math.round(x).toLocaleString('fr-FR') + ' $';
+    const vmax = c.variation_max_pct / 100, minc = c.min_conv_tcpa_7j;
+    const LIB = { TARGET_SPEND: 'Max. clics', MAXIMIZE_CONVERSIONS: 'Max. conversions', TARGET_CPA: 'CPA cible', TARGET_IMPRESSION_SHARE: 'Taux d’impressions cible', MAXIMIZE_CONVERSION_VALUE: 'Max. valeur', MANUAL_CPC: 'CPC manuel' };
+    const out = [];
+    for (const d of l_diag) {
+      const m = marcheOf(d.campagne), p = pacing.find(x => x.marche === m), actuel = recent[d.campagne] || 0, budget = d.budget_jour || null;
+      const cible = p && p.reco_jour != null ? p.reco_jour * (totM[m] > 0 ? actuel / totM[m] : 1 / nbM[m]) : null;
+      const eff = budget ? Math.min(actuel, budget) : actuel;
+      const ecart = cible == null ? null : eff > 0 ? cible / eff - 1 : (cible > 0 ? 1 : 0);
+      const lb = d.is_perdue_budget || 0, lr = d.is_perdue_classement || 0, hasIS = d.is_perdue_classement != null, conv = d.conv_7j || 0, smart = /MAXIMIZE_CONV|TARGET_CPA/.test(d.strategie);
+      const diag = [(LIB[d.strategie] || d.strategie) + (d.cpa_cible ? ' (CPA cible ' + U(d.cpa_cible) + ')' : ''), budget ? 'dépense ' + P(actuel / budget) + ' du budget' : null,
+        hasIS ? 'IS perdue : ' + P(lb) + ' budget, ' + P(lr) + ' classement' : null, Math.round(conv) + ' conv. sur 7 j', /LEARNING/.test(d.statut) ? 'en apprentissage' : null].filter(Boolean);
+      const conseil = []; let prio = 3;
+      if (m === 'Hors budget') conseil.push('Hors budget du suivi : non pilotée ici.');
+      else if (ecart > 0.1) {
+        prio = 1;
+        const cb = r5(cible * 1.2), limiteBudget = lb >= 0.1 || (budget && actuel >= 0.85 * budget);
+        if (budget && cb > budget && (limiteBudget || !hasIS)) { const nb = smart ? r5(Math.min(cb, budget * (1 + vmax))) : cb; conseil.push('Limitée par le budget : passer le budget de ' + U(budget) + ' à ' + U(nb) + '/j' + (nb < cb ? ' (palier de +' + P(vmax) + ', puis recommencer dans 3-4 jours vers ' + U(cb) + ')' : '') + '.'); }
+        if (hasIS && lr >= 0.3) {
+          if (d.strategie === 'MAXIMIZE_CONVERSIONS' && d.cpa_cible && conv < minc) conseil.push('Pas assez de conversions (' + Math.round(conv) + ' en 7 j) pour tenir un CPA cible, et ' + P(lr) + ' d’IS perdue au classement : passer en Maximiser les conversions sans CPA cible.');
+          else if (d.cpa_cible) conseil.push('Limitée par les enchères (' + P(lr) + ' d’IS perdue au classement) : relâcher le CPA cible de ' + U(d.cpa_cible) + ' à ' + U(r5(d.cpa_cible * 1.3)) + '.');
+          else if (d.strategie === 'TARGET_SPEND' || d.strategie === 'TARGET_IMPRESSION_SHARE') conseil.push(P(lr) + ' d’IS perdue au classement : relever le plafond de CPC (ou le retirer) pour gagner des enchères.');
+          else conseil.push(P(lr) + ' d’IS perdue au classement : élargir les mots-clés (requête large / AI Max) et retravailler les annonces.');
+          if (budget && cb <= budget && !limiteBudget) conseil.push('Le budget (' + U(budget) + '/j) n’est pas le frein : l’augmenter seul ne fera pas dépenser plus.');
+        }
+        if (!hasIS && !(budget && cb > budget)) conseil.push('Campagne sans part d’impressions (Demand Gen / Display) : élargir les audiences ou relâcher la cible d’enchères pour gagner en diffusion.');
+        if (!conseil.length) conseil.push('Sous la cible sans frein visible : élargir les mots-clés et vérifier annonces et extensions.');
+        if (/LEARNING/.test(d.statut)) conseil.push('En apprentissage : changer par paliers.');
+      } else if (ecart < -0.1) { prio = 2; conseil.push('Au-dessus de la cible : ramener le budget à ' + U(r5(Math.max(cible * 1.1, 5))) + '/j et réallouer vers la campagne du marché la plus en retard.'); }
+      else if (ecart != null) conseil.push('Dans la cible : rien à changer.');
+      out.push({ campagne: d.campagne, marche: m, depense_jour: Math.round(actuel), budget_jour: budget, cible_jour: cible == null ? null : Math.round(cible), ecart, diagnostic: diag.join(' · '), conseil: conseil.join(' '), priorite: prio });
+    }
+    return out.sort((a, b) => a.priorite - b.priorite || Math.abs(b.ecart || 0) - Math.abs(a.ecart || 0));
+  } });
+
+</script>
+
+<script>
+const usd = v => v == null || isNaN(v) ? '—' : new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v);
+const pct = v => v == null || isNaN(v) ? '—' : new Intl.NumberFormat('fr-FR', { style: 'percent', maximumFractionDigits: 0 }).format(v);
+const pct1 = v => v == null || isNaN(v) ? '—' : new Intl.NumberFormat('fr-FR', { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v);
+const n1 = v => v == null ? '—' : new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(v);
+const deltaTxt = (v, ref) => v == null ? '—' : Math.abs(v) < 0.05 ? 'iso vs ' + ref : (v > 0 ? '▲ +' : '▼ ') + pct1(v).replace('-', '−') + ' vs ' + ref;
+const failed = el => { el.classList.remove('dash-skeleton'); el.replaceChildren(); const d = document.createElement('div'); d.className = 'cl-fail'; const i = document.createElement('i'); d.append(i, document.createTextNode('Failed to load')); el.append(d); };
+document.getElementById('btn-refresh').addEventListener('click', () => ['budget_pays', 'qmb', 'marches', 'parametres', 'l_spend', 'l_daily', 'l_conv', 'l_diag'].forEach(id => dash.refresh(id)));
+
+const TOUS = 'Tous les marchés';
+let marcheActif = TOUS;
+const tabsM = document.getElementById('tabs-marche');
+function drawMarches() {
+  const md = dash.data('marches');
+  const noms = md.status === 'ok' ? [TOUS].concat(md.data.map(r => r['Marché'])) : [TOUS];
+  if (tabsM.childElementCount !== noms.length) {
+    tabsM.replaceChildren();
+    for (const n of noms) { const b = document.createElement('button'); b.type = 'button'; b.className = 'cl-tab'; b.setAttribute('role', 'tab'); b.textContent = n; b.addEventListener('click', () => { marcheActif = n; draw(); }); tabsM.append(b); }
+  }
+  tabsM.querySelectorAll('.cl-tab').forEach(b => b.setAttribute('aria-selected', String(b.textContent === marcheActif)));
+}
+const filtreM = rows => marcheActif === TOUS ? rows : rows.filter(r => r.marche === marcheActif);
+const ONGLETS = ['Tous types', 'Brand', 'Hors marque'];
+const NOTES = { 'Tous types': 'Budget = budget du marché (onglet Pays du suivi budget).', 'Brand': 'Campagnes Brand (« M » dans le nom). Le suivi budget ne sépare pas Brand / hors marque : pas de budget propre ici.', 'Hors marque': 'Campagnes hors marque (« HM » dans le nom). Pas de budget propre : il est porté par l’onglet tous types.' };
+let ongletActif = 'Tous types';
+const tabs = document.getElementById('tabs-type');
+for (const o of ONGLETS) { const b = document.createElement('button'); b.type = 'button'; b.className = 'cl-tab'; b.setAttribute('role', 'tab'); b.textContent = o; b.addEventListener('click', () => { ongletActif = o; draw(); }); tabs.append(b); }
+
+function fill(src, tableId, cols, fmt, rowFn) {
+  const tb = document.querySelector('#' + tableId + ' tbody'), d = dash.data(src);
+  tb.replaceChildren(); if (d.status !== 'ok') return;
+  for (const r of (rowFn ? rowFn(d.data) : d.data)) {
+    const tr = document.createElement('tr');
+    cols.forEach((c, i) => { const td = document.createElement('td'); td.textContent = i === 0 ? r[c] : (fmt[c] ? fmt[c](r[c], r) : (r[c] ?? '—')); tr.append(td); });
+    tb.append(tr);
+  }
+  return tb;
+}
+
+function draw() {
+  drawMarches();
+  const syn = dash.data('synthese'), ctx = dash.data('contexte'), ry0 = dash.data('rythme'), rmAll = dash.data('rythme_m');
+  const parMarche = marcheActif !== TOUS;
+  const rowM = parMarche && rmAll.status === 'ok' ? rmAll.data.find(r => r.onglet === 'Tous types' && r.marche === marcheActif) : null;
+  const ry = parMarche ? { status: rmAll.status, data: rowM ? [{ ...rowM, date_hier: ry0.status === 'ok' ? ry0.data[0].date_hier : '—', lecture: rowM.projection_pct == null ? '—' : rowM.projection_pct < 0.95 ? 'Sous-consommation à ce rythme' : rowM.projection_pct > 1.05 ? 'Dépassement à ce rythme' : 'Atterrissage dans le budget' }] : [{}] } : ry0;
+  document.querySelectorAll('#rythme .cl-rythme [data-field]').forEach(el => {
+    const f = el.dataset.field;
+    if (parMarche && f !== 'lecture') { el.dataset.source = 'rythme_m'; el.dataset.where = 'onglet=Tous%20types&marche=' + encodeURIComponent(marcheActif); el.removeAttribute('data-row'); }
+    else if (parMarche) { el.removeAttribute('data-source'); el.removeAttribute('data-where'); el.removeAttribute('data-row'); }
+    else { el.dataset.source = 'rythme'; el.dataset.row = '0'; el.removeAttribute('data-where'); }
+    if (ry.status === 'error') { el.textContent = '—'; el.classList.remove('dash-skeleton'); return; }
+    if (ry.status !== 'ok') return;
+    const v = ry.data[0][f];
+    el.textContent = f === 'var_hier' ? deltaTxt(v, 'J-2') : f === 'var_trend' ? deltaTxt(v, 'dépensé hier') : ['pct_budget', 'projection_pct'].includes(f) ? pct1(v) : ['date_hier', 'lecture'].includes(f) ? v : usd(v);
+    el.classList.remove('dash-skeleton');
+  });
+  const bar = document.getElementById('bar-cout'); bar.style.background = dash.colors[0];
+  if (ry.status === 'ok') { const d = ry.data[0]; bar.style.width = Math.min(100, (d.pct_budget || 0) * 100) + '%';
+    document.getElementById('kpi-proj-pct').classList.toggle('warn', d.projection_pct < 0.95 || d.projection_pct > 1.05);
+    document.getElementById('delta-hier').style.color = d.var_hier == null || Math.abs(d.var_hier) < 0.05 ? 'var(--color-fg-muted)' : d.var_hier > 0 ? 'var(--color-ok)' : 'var(--color-bad)';
+    document.getElementById('delta-trend').style.color = 'var(--color-fg-muted)'; }
+  document.querySelectorAll('[data-source="contexte"][data-field]').forEach(el => { if (ctx.status === 'ok') el.textContent = String(ctx.data[0][el.dataset.field]); });
+  const tk = document.getElementById('takeaway');
+  const pM = dash.data('pacing');
+  if (parMarche && pM.status === 'ok' && ctx.status === 'ok') { const r = pM.data.find(x => x.marche === marcheActif);
+    tk.textContent = r ? `${marcheActif} au ${ctx.data[0].date_ref} : ${usd(r.depense)} dépensés sur ${usd(r.budget)} (${pct(r.pct_conso)}) pour ${pct(r.pct_attendu)} du mois écoulé, ${r.statut.toLowerCase()}. ${r.demos + r.contacts} lead(s) ce mois-ci${r.cpl ? ', CPL ' + usd(r.cpl) : ''}.` : marcheActif + ' : pas de donnée.';
+    tk.classList.remove('dash-skeleton'); }
+  else if (syn.status === 'ok' && ctx.status === 'ok') { const s = syn.data[0], p = dash.data('pacing');
+    const w = p.status === 'ok' ? p.data.filter(r => r.indice != null).sort((a, b) => Math.abs(1 - b.indice) - Math.abs(1 - a.indice))[0] : null;
+    tk.textContent = `Au ${ctx.data[0].date_ref}, ${usd(s.depense_total)} dépensés sur ${usd(s.budget_total)} (${pct(s.pct_conso)}) pour ${pct(s.pct_attendu)} du mois écoulé : ${s.statut.toLowerCase()}.` + (w ? ` Écart le plus fort : ${w.marche} (${pct(w.pct_conso)} consommé vs ${pct(w.pct_attendu)} attendu).` : '');
+    tk.classList.remove('dash-skeleton'); } else if (syn.status === 'error') { tk.textContent = '—'; tk.classList.remove('dash-skeleton'); }
+
+  tabs.querySelectorAll('.cl-tab').forEach(b => b.setAttribute('aria-selected', String(b.textContent === ongletActif)));
+  document.getElementById('note-type').textContent = NOTES[ongletActif];
+  const rm = dash.data('rythme_m'), tb = document.querySelector('#rythme-table tbody'); tb.replaceChildren();
+  if (rm.status === 'ok') for (const r of rm.data.filter(x => x.onglet === ongletActif && (!parMarche || x.marche === marcheActif))) {
+    const tr = document.createElement('tr'); tr.dataset.key = encodeURIComponent(r.onglet) + ',' + encodeURIComponent(r.marche); if (r.marche === 'Total') tr.className = 'cl-total';
+    const cell = (t, cls) => { const td = document.createElement('td'); td.textContent = t; if (cls) td.className = cls; tr.append(td); return td; };
+    cell(r.marche); cell(usd(r.cout)); cell(usd(r.budget));
+    const tdp = cell(pct1(r.pct_budget));
+    if (r.pct_budget != null) { const m = document.createElement('span'); m.className = 'cl-mini'; const i = document.createElement('i'); i.style.width = Math.min(100, r.pct_budget * 100) + '%'; i.style.background = dash.colors[0]; m.append(i); tdp.append(m); }
+    cell(usd(r.projection)); cell(pct1(r.projection_pct), r.projection_pct != null && (r.projection_pct < 0.95 || r.projection_pct > 1.05) ? 'warn' : '');
+    cell(usd(r.hier)); cell(r.var_hier == null ? '—' : Math.abs(r.var_hier) < 0.05 ? 'iso' : (r.var_hier > 0 ? '▲ +' : '▼ ') + pct1(r.var_hier).replace('-', '−'), r.var_hier == null || Math.abs(r.var_hier) < 0.05 ? '' : r.var_hier > 0 ? 'up' : 'down');
+    cell(usd(r.trend_ideal)); cell(r.var_trend == null ? '—' : Math.abs(r.var_trend) < 0.05 ? 'iso' : (r.var_trend > 0 ? '+' : '−') + pct1(Math.abs(r.var_trend)));
+    tb.append(tr);
+  }
+
+  const al = dash.data('alertes'), ul = document.getElementById('alertes-liste'); ul.replaceChildren();
+  if (al.status === 'ok') { ul.classList.remove('dash-skeleton');
+    for (const a of al.data.filter(a => !parMarche || a.id.endsWith('-' + marcheActif))) { const li = document.createElement('li'); li.dataset.key = a.id; const dt = document.createElement('i'); dt.className = 'cl-dot ' + a.niveau; const t = document.createElement('span'); t.textContent = a.message; li.append(dt, t); ul.append(li); }
+    if (!ul.childElementCount) { const li = document.createElement('li'); li.textContent = 'Rien à signaler.'; ul.append(li); } } else if (al.status === 'error') failed(ul);
+
+  const tp = fill('pacing', 'pacing-table', ['marche', 'region', 'budget', 'depense', 'pct_conso', 'pct_attendu', 'statut', 'reste', 'reco_jour', 'part_brand', 'demos', 'contacts', 'cpl', 'cpl_cible'],
+    { budget: usd, depense: usd, pct_conso: pct, pct_attendu: pct, reste: usd, reco_jour: usd, part_brand: pct, demos: n1, contacts: n1, cpl: usd, cpl_cible: usd }, filtreM);
+  if (tp) [...tp.rows].forEach(tr => { const td = tr.cells[6]; td.className = td.textContent === 'Dans le rythme' ? 'st-ok' : td.textContent === 'Hors budget' ? '' : 'st-bad'; });
+  fill('qmb_t', 'qmb-table', ['marche', 'q1_obj', 'q1_real', 'q2_obj', 'q2_real', 'q3_obj', 'q3_real', 'q4_obj', 'q4_real', 'ytd_obj', 'ytd_real', 'avancement'], { avancement: pct }, rows => parMarche ? rows.filter(r => r.marche === marcheActif) : rows);
+  const ql = dash.data('qmb_log'), qrows = ql.status === 'ok' ? filtreM(ql.data).slice(0, 12) : [];
+  const tl = fill('qmb_log', 'qmb-log', ['conversion', 'marche', 'campagne', 'terme'], {}, () => qrows);
+  if (tl) [...tl.rows].forEach((tr, i) => { tr.dataset.key = qrows[i].id; });
+  const cd = dash.data('conseils'), crows = cd.status === 'ok' ? filtreM(cd.data) : [];
+  const tc = fill('conseils', 'conseils-table', ['marche', 'campagne', 'depense_jour', 'budget_jour', 'cible_jour', 'diagnostic', 'conseil'], { depense_jour: usd, budget_jour: usd, cible_jour: usd }, () => crows);
+  if (tc) [...tc.rows].forEach((tr, i) => { tr.dataset.key = crows[i].campagne; tr.className = 'p' + crows[i].priorite; tr.cells[0].textContent = crows[i].marche; });
+}
+dash.onData(draw);
+
+</script>
