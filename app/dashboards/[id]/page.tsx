@@ -9,7 +9,7 @@
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Database, Loader2, Maximize2, Minimize2, Pencil, RefreshCw, Sparkles, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Database, FolderOpen, Loader2, Maximize2, Minimize2, Pencil, RefreshCw, Sparkles, Trash2, Users } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { DashFrame, type DashFrameHandle } from "@/components/staff-dashboards/dash-frame";
 import { StaffCopilotPanel } from "@/components/staff-dashboards/copilot";
@@ -267,6 +267,11 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
           >
             <Database className="w-3.5 h-3.5" /> Sources {sources.length ? `(${sources.length})` : ""}
           </button>
+          {STAFF_DASHBOARDS_DRIVE_FOLDER_URL && (
+            <a href={STAFF_DASHBOARDS_DRIVE_FOLDER_URL} target="_blank" rel="noreferrer" className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`} title="Dossier Google Drive partagé : déposez-y les fichiers (CSV, Excel, Sheets) que le copilote IA doit lire">
+              <FolderOpen className="w-3.5 h-3.5" /> Fichiers Drive
+            </a>
+          )}
           {dashboard.canEdit && (
             <>
               <button

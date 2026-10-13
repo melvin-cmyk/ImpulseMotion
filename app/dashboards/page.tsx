@@ -7,15 +7,35 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Database, LayoutDashboard, Loader2, Plus, Users } from "lucide-react";
+import { Database, FolderOpen, LayoutDashboard, Loader2, Plus, Users } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
-import { PRIMARY_BUTTON, apiErrorText, dateLabel, ownerLabel, type DashboardListItem } from "@/components/staff-dashboards/model";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON, apiErrorText, dateLabel, ownerLabel, type DashboardListItem } from "@/components/staff-dashboards/model";
+import { STAFF_DASHBOARDS_DRIVE_FOLDER_URL } from "@/lib/staff-dashboards/drive";
 
 function NewButton() {
   return (
     <Link href="/dashboards/new" className={`${PRIMARY_BUTTON} shrink-0`}>
       <Plus className="w-4 h-4" /> Nouveau dashboard
     </Link>
+  );
+}
+
+/** Le dossier Drive où l'équipe dépose les fichiers (CSV, Excel, Sheets) que le copilote lit. */
+function DriveButton() {
+  if (!STAFF_DASHBOARDS_DRIVE_FOLDER_URL) return null;
+  return (
+    <a href={STAFF_DASHBOARDS_DRIVE_FOLDER_URL} target="_blank" rel="noreferrer" className={`${SECONDARY_BUTTON} shrink-0`} title="Dossier Google Drive partagé : déposez-y les fichiers que le copilote IA doit lire">
+      <FolderOpen className="w-4 h-4" /> Fichiers Drive
+    </a>
+  );
+}
+
+function HeaderActions() {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <DriveButton />
+      <NewButton />
+    </span>
   );
 }
 
@@ -49,10 +69,28 @@ export default function StaffDashboardsPage() {
         <PageHeader
           title="Mes dashboards"
           subtitle="Vos pages de pilotage personnelles : une page HTML libre sur les données du relay (Google Ads, Meta, TikTok, Google Sheets…), construite ici ou collée depuis Claude. Jamais visibles des clients."
-          action={<span className="hidden sm:inline-flex"><NewButton /></span>}
+          action={<span className="hidden sm:inline-flex"><HeaderActions /></span>}
         />
-        <span className="sm:hidden"><NewButton /></span>
+        <span className="sm:hidden"><HeaderActions /></span>
       </div>
+
+      {STAFF_DASHBOARDS_DRIVE_FOLDER_URL && (
+        <Card padded className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between bg-gray-950/50">
+          <div className="flex items-start gap-3 min-w-0">
+            <FolderOpen className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white">Fichiers pour les dashboards (Google Drive)</p>
+              <p className="text-xs text-gray-400 mt-0.5 leading-relaxed">
+                Déposez vos CSV, Excel ou Google Sheets dans le dossier partagé « ImpulseMotion – Fichiers dashboards » : le copilote IA
+                les lit quand vous les nommez dans votre demande. Toute l&apos;agence peut y écrire.
+              </p>
+            </div>
+          </div>
+          <a href={STAFF_DASHBOARDS_DRIVE_FOLDER_URL} target="_blank" rel="noreferrer" className={`${SECONDARY_BUTTON} shrink-0`}>
+            <FolderOpen className="w-4 h-4" /> Ouvrir le dossier
+          </a>
+        </Card>
+      )}
 
       {error && (
         <Card padded className="border-red-900/40">
