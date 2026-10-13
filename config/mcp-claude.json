@@ -27,6 +27,10 @@
     "mcp-merchant-center": {
       "type": "http",
       "url": "https://impulseai.app.n8n.cloud/mcp/merchant-center-mcp"
+    },
+    "mcp-magento-lpev": {
+      "type": "http",
+      "url": "https://impulseai.app.n8n.cloud/mcp/magento-lpev-c4e19b7d2f60a8"
     }
   }
 }

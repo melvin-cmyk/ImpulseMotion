@@ -14,6 +14,9 @@
     },
     "mcp-merchant-center": {
       "baseUrl": "https://impulseai.app.n8n.cloud/mcp/merchant-center-mcp"
+    },
+    "mcp-magento-lpev": {
+      "baseUrl": "https://impulseai.app.n8n.cloud/mcp/magento-lpev-c4e19b7d2f60a8"
     }
   },
   "imports": []
