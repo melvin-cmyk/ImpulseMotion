@@ -111,9 +111,14 @@ async function mintFromHq() {
   // and only then a name that ends with the key AND belongs to the Google
   // Workspace family — never any other connector's CLIENT_ID. The names used
   // (never the values) are echoed before the token, for the journal.
+  // The command carries a nonce: HQ hands back the output of an earlier job
+  // for an identical command (seen on 2026-10-13: the same token, expired,
+  // came back for hours). Nothing is written to stderr, which HQ appends to
+  // the output and would break the JSON.
+  const nonce = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const cmd =
-    `set -e; pick() { for n in "GOOGLE_WORKSPACE/$1" "GOOGLE_WORKSPACE_$1"; do if printenv "$n" >/dev/null 2>&1; then echo "$n" >&2; printenv "$n"; return 0; fi; done; ` +
-    `for n in $(env | cut -d= -f1); do case "$n" in *GOOGLE_WORKSPACE*"$1") echo "$n" >&2; printenv "$n"; return 0;; esac; done; echo "secret $1 absent" >&2; exit 3; }; ` +
+    `set -e; : mint-${nonce}; pick() { for n in "GOOGLE_WORKSPACE/$1" "GOOGLE_WORKSPACE_$1"; do if printenv "$n" >/dev/null 2>&1; then printenv "$n"; return 0; fi; done; ` +
+    `for n in $(env | cut -d= -f1); do case "$n" in *GOOGLE_WORKSPACE*"$1") printenv "$n"; return 0;; esac; done; echo "secret $1 absent" >&2; exit 3; }; ` +
     `CID=$(pick CLIENT_ID); CS=$(pick CLIENT_SECRET); RT=$(pick REFRESH_TOKEN); ` +
     `curl -sS -X POST ${TOKEN_URL} -d grant_type=refresh_token --data-urlencode "client_id=$CID" --data-urlencode "client_secret=$CS" --data-urlencode "refresh_token=$RT"`;
   const started = await hqToolCall("hq_secrets_sandbox", { company: HQ_COMPANY, only: HQ_SECRET_KEYS, command: cmd, maxExecMs: 25_000 });
@@ -129,8 +134,10 @@ async function mintFromHq() {
     const payload = parseJson(output);
     const token = typeof payload?.access_token === "string" ? payload.access_token : grab(output, "access_token");
     if (token) {
-      const picked = (typeof st?.stderr === "string" ? st.stderr : "").split(/\s+/).filter((n) => /GOOGLE_WORKSPACE/.test(n));
-      if (picked.length) console.log(`[gws-auth] secrets HQ utilisés : ${picked.join(", ")}`);
+      // Sizes only, never a value: enough to tell a truncated HQ output from a dead secret.
+      console.log(`[gws-auth] sortie HQ : ${output.length} caractères, JSON ${payload ? "lisible" : "ILLISIBLE (jeton extrait par motif)"}, jeton ${token.length} caractères, état ${st?.status || "?"}`);
+      // Structure of an unreadable output, every long value replaced by its length.
+      if (!payload) console.log(`[gws-auth] forme : ${output.replace(/[A-Za-z0-9._\-\/+=]{24,}/g, (m) => `[${m.length}]`).replace(/\s+/g, " ").slice(0, 700)}`);
       await describeToken(token);
       return { token, expiresAt: expiry(payload?.expires_in ?? grab(output, "expires_in")) };
     }
