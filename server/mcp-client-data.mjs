@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
- * MCP stdio "client-data" — données e-commerce d'UN client (entrepôt client_data).
+ * MCP stdio "client-data" — données e-commerce de l'entrepôt client_data.
  *
  * Lancé par le relay (server/relay.mjs) avec, en env :
- *   CLIENT_KEY        — client_key imposé côté serveur (le LLM ne le choisit jamais)
+ *   CLIENT_KEY        — client_key imposé côté serveur (bot client : le LLM ne le choisit jamais)
+ *   CLIENT_KEYS       — liste fermée de clés (staff : la console lit plusieurs clients) ;
+ *                       avec plus d'une clé, chaque outil prend un paramètre `client`
+ *                       restreint à cette liste
  *   DATA_DATABASE_URL — URL Postgres LECTURE SEULE (rôle im_reader)
- * Refuse de démarrer sans ces deux variables.
+ * Refuse de démarrer sans clé ou sans URL.
  *
- * Toutes les requêtes sont paramétrées et filtrent client_key = $CLIENT_KEY.
+ * Toutes les requêtes sont paramétrées et filtrent client_key sur une clé de la liste.
  * Statut "canceled" exclu par défaut (param include_canceled). Montants EUR TTC
  * (grand_total), arrondis à 2 décimales, 200 lignes max par réponse.
  * Les dates sont interprétées en Europe/Paris (bornes incluses).
@@ -24,7 +27,13 @@ import pg from "pg";
 import { renderValue } from "./mcp-compact-generic.mjs";
 import { buildDatasetQuery, OPERATORS, AGGREGATES, MAX_LIMIT as DATASET_MAX_LIMIT } from "./dataset-query.mjs";
 
-const CLIENT_KEY = process.env.CLIENT_KEY || "";
+const KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
+const CLIENT_KEYS = [...new Set(
+  String(process.env.CLIENT_KEYS || process.env.CLIENT_KEY || "").split(",").map((s) => s.trim()).filter(Boolean),
+)];
+// One key: tools stay as the bots know them (no `client` parameter). Several:
+// every tool names the client, restricted to the list pinned by the relay.
+const MULTI = CLIENT_KEYS.length > 1;
 // Which tool families to expose: "orders" (e-commerce warehouse) and/or
 // "datasets" (files dropped in the client's Drive folder). The relay derives
 // it from the bot's ticked sources; absent → both (older relay).
@@ -33,8 +42,8 @@ const TOOL_FAMILIES = new Set(
 );
 if (!TOOL_FAMILIES.size) TOOL_FAMILIES.add("orders");
 const DATA_DATABASE_URL = process.env.DATA_DATABASE_URL || "";
-if (!/^[a-z0-9][a-z0-9_-]{1,39}$/.test(CLIENT_KEY)) {
-  console.error("[mcp-client-data] CLIENT_KEY manquante ou invalide — refus de démarrer");
+if (!CLIENT_KEYS.length || CLIENT_KEYS.some((k) => !KEY_RE.test(k))) {
+  console.error("[mcp-client-data] CLIENT_KEY(S) manquante ou invalide — refus de démarrer");
   process.exit(1);
 }
 if (!DATA_DATABASE_URL) {
@@ -103,8 +112,19 @@ const WHERE = `o.client_key = $1
   AND (o.created_at AT TIME ZONE '${TZ}')::date < $3::date
   AND ($4::boolean OR coalesce(o.status, '') <> 'canceled')`;
 
+/** Clé du client visé par l'appel : la seule clé en mode bot, le paramètre `client` sinon. */
+function clientOf(args) {
+  if (!MULTI) return CLIENT_KEYS[0];
+  const c = typeof args?.client === "string" ? args.client.trim() : "";
+  if (!CLIENT_KEYS.includes(c)) throw new Error(`client : indique l'un de ${CLIENT_KEYS.join(", ")}.`);
+  return c;
+}
+const clientShape = MULTI
+  ? { client: z.enum(CLIENT_KEYS).describe(`Clé du client dont lire les données (${CLIENT_KEYS.join(", ")}).`) }
+  : {};
+
 function baseParams(p, args) {
-  return [CLIENT_KEY, p.from, p.toExclusive, Boolean(args?.include_canceled)];
+  return [clientOf(args), p.from, p.toExclusive, Boolean(args?.include_canceled)];
 }
 
 function ok(payload) {
@@ -130,20 +150,31 @@ server.registerTool(
     description:
       "Période couverte par les commandes e-commerce du client (première et dernière commande), nombre total de commandes, " +
       "répartition par statut et date du dernier chargement. À appeler en premier pour connaître la profondeur d'historique disponible. " +
-      "Devise EUR, montants TTC (grand_total). Aucun paramètre.",
-    inputSchema: {},
+      "Devise EUR, montants TTC (grand_total)." + (MULTI ? " Sans `client`, rend la couverture de chaque client disponible." : " Aucun paramètre."),
+    inputSchema: MULTI ? { client: clientShape.client.optional() } : {},
   },
-  guarded(async () => {
+  guarded(async (args) => {
+    if (MULTI && !(typeof args.client === "string" && args.client.trim())) {
+      const clients = [];
+      for (const key of CLIENT_KEYS) clients.push({ client: key, ...(await coverageOf(key)) });
+      return { clients, currency: "EUR", timezone: TZ, note: "Montants TTC (grand_total). Les commandes annulées sont exclues des chiffres par défaut." };
+    }
+    return coverageOf(clientOf(args));
+  }),
+);
+
+async function coverageOf(clientKey) {
+  {
     const [agg] = await q(
       `SELECT count(*)::int AS orders, min(created_at) AS first_at, max(created_at) AS last_at, max(ingested_at) AS last_ingested,
               sum(grand_total) FILTER (WHERE coalesce(status,'') <> 'canceled') AS revenue
        FROM client_data.orders WHERE client_key = $1`,
-      [CLIENT_KEY],
+      [clientKey],
     );
     const statuses = await q(
       `SELECT coalesce(status, '(inconnu)') AS status, count(*)::int AS n FROM client_data.orders
        WHERE client_key = $1 GROUP BY 1 ORDER BY n DESC LIMIT ${MAX_ROWS}`,
-      [CLIENT_KEY],
+      [clientKey],
     );
     return {
       orders: int(agg?.orders),
@@ -156,8 +187,8 @@ server.registerTool(
       timezone: TZ,
       note: "Montants TTC (grand_total). Les commandes annulées sont exclues des chiffres par défaut.",
     };
-  }),
-);
+  }
+}
 
 server.registerTool(
   "data_sales_summary",
@@ -168,6 +199,7 @@ server.registerTool(
       "(somme de grand_total, EUR TTC), panier moyen (aov), articles vendus, nouveaux clients (première commande dans la période), " +
       "commandes invités. Source de référence pour le CA réel. Commandes annulées exclues par défaut.",
     inputSchema: {
+      ...clientShape,
       ...periodShape,
       granularity: z.enum(["day", "week", "month", "total"]).optional().describe("Granularité (défaut : total)."),
     },
@@ -220,6 +252,7 @@ server.registerTool(
       "Produits les plus vendus sur la période (par chiffre d'affaires TTC des lignes ou par quantité) : sku, nom, quantité, " +
       "CA (EUR TTC), nombre de commandes. Commandes annulées exclues par défaut.",
     inputSchema: {
+      ...clientShape,
       ...periodShape,
       limit: z.number().int().min(1).max(50).optional().describe("Nombre de produits (max 50, défaut 20)."),
       by: z.enum(["revenue", "qty"]).optional().describe("Tri : revenue (défaut) ou qty."),
@@ -252,7 +285,7 @@ server.registerTool(
     description:
       "Répartition des commandes par type de prescripteur (commandes, CA EUR TTC, part en %) sur la période, plus le top 20 " +
       "des codes prescripteurs par CA. Commandes annulées exclues par défaut.",
-    inputSchema: { ...periodShape },
+    inputSchema: { ...clientShape, ...periodShape },
   },
   guarded(async (args) => {
     const p = period(args);
@@ -290,7 +323,7 @@ server.registerTool(
     description:
       "Sur la période : commandes et CA (EUR TTC) des nouveaux clients (première commande dans la période, calculée sur tout " +
       "l'historique), des clients récurrents (déjà commandé avant) et des invités (sans compte). Commandes annulées exclues par défaut.",
-    inputSchema: { ...periodShape },
+    inputSchema: { ...clientShape, ...periodShape },
   },
   guarded(async (args) => {
     const p = period(args);
@@ -336,14 +369,14 @@ server.registerTool(
     description:
       "Nombre de commandes et CA (EUR TTC) par statut Magento (complete, processing, canceled, pending…) sur la période. " +
       "Cet outil inclut toujours les commandes annulées, pour mesurer le taux d'annulation.",
-    inputSchema: { from: periodShape.from, to: periodShape.to },
+    inputSchema: { ...clientShape, from: periodShape.from, to: periodShape.to },
   },
   guarded(async (args) => {
     const p = period(args);
     const rows = await q(
       `SELECT coalesce(o.status, '(inconnu)') AS status, count(*)::int AS orders, sum(o.grand_total) AS revenue
        FROM client_data.orders o WHERE ${WHERE} GROUP BY 1 ORDER BY orders DESC LIMIT ${MAX_ROWS}`,
-      [CLIENT_KEY, p.from, p.toExclusive, true],
+      [clientOf(args), p.from, p.toExclusive, true],
     );
     const total = rows.reduce((s, r) => s + int(r.orders), 0);
     return {
@@ -370,6 +403,7 @@ server.registerTool(
       "shipping_method (livraison), coupon_code (codes promo utilisés), billing_country (pays de facturation), customer_group " +
       "(groupe client). Commandes annulées exclues par défaut. 200 lignes max, triées par CA.",
     inputSchema: {
+      ...clientShape,
       ...periodShape,
       dimension: z.enum(["payment_method", "shipping_method", "coupon_code", "billing_country", "customer_group"]).describe("Dimension de ventilation."),
     },
@@ -399,13 +433,13 @@ server.registerTool(
 
 // ── Datasets (fichiers déposés dans le dossier Drive du client) ─────────────
 if (TOOL_FAMILIES.has("datasets")) {
-  async function loadDataset(key) {
+  async function loadDataset(clientKey, key) {
     if (typeof key !== "string" || !key.trim()) throw new Error("dataset : clé manquante (voir data_datasets).");
     const k = key.trim().toLowerCase();
     const rows = await q(
       `SELECT client_key, dataset_key, name, description, columns, row_count, current_load_id, loaded_at, source
        FROM client_data.datasets WHERE client_key = $1 AND (dataset_key = $2 OR lower(name) = $2) LIMIT 1`,
-      [CLIENT_KEY, k],
+      [clientKey, k],
     );
     if (!rows.length) throw new Error(`Jeu de données inconnu : « ${key} ». Appelle data_datasets pour la liste.`);
     return rows[0];
@@ -418,14 +452,14 @@ if (TOOL_FAMILIES.has("datasets")) {
       description:
         "Liste des fichiers de données (CSV, Excel, Google Sheets) déposés pour ce client par l'équipe Impulse Analytics : clé du jeu, " +
         "nom, description, nombre de lignes, colonnes avec leur type (text, number, date) et un exemple de valeur. " +
-        "À appeler avant data_dataset_query pour connaître les colonnes exactes. Aucun paramètre.",
-      inputSchema: {},
+        "À appeler avant data_dataset_query pour connaître les colonnes exactes." + (MULTI ? "" : " Aucun paramètre."),
+      inputSchema: { ...clientShape },
     },
-    guarded(async () => {
+    guarded(async (args) => {
       const rows = await q(
         `SELECT dataset_key, name, description, columns, row_count, loaded_at
          FROM client_data.datasets WHERE client_key = $1 AND current_load_id IS NOT NULL ORDER BY name`,
-        [CLIENT_KEY],
+        [clientOf(args)],
       );
       return {
         datasets: rows.map((r) => ({
@@ -460,6 +494,7 @@ if (TOOL_FAMILIES.has("datasets")) {
         `${DATASET_MAX_LIMIT} lignes au plus par appel (limit, offset pour la suite) ; la réponse indique s'il reste des lignes. ` +
         "Exemple : {dataset:'ventes-magasins', group_by:['magasin'], aggregates:[{fn:'sum',column:'ca_ht'}], order_by:[{by:'sum_ca_ht',dir:'desc'}]}.",
       inputSchema: {
+        ...clientShape,
         dataset: z.string().describe("Clé du jeu (data_datasets → dataset)."),
         select: z.array(z.string()).optional().describe("Colonnes à renvoyer (lignes brutes). Défaut : toutes."),
         where: z.array(filterShape).optional().describe("Filtres combinés par ET."),
@@ -472,7 +507,7 @@ if (TOOL_FAMILIES.has("datasets")) {
       },
     },
     guarded(async (args) => {
-      const ds = await loadDataset(args.dataset);
+      const ds = await loadDataset(clientOf(args), args.dataset);
       const built = buildDatasetQuery(ds, args);
       const rows = await q(built.text, built.values);
       const more = rows.length > built.limit;
@@ -496,7 +531,7 @@ if (TOOL_FAMILIES.has("datasets")) {
 // ── Start ───────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`[mcp-client-data] prêt (client_key=${CLIENT_KEY})`);
+console.error(`[mcp-client-data] prêt (client_keys=${CLIENT_KEYS.join(",")})`);
 
 const shutdown = () => { pool.end().catch(() => undefined).finally(() => process.exit(0)); };
 process.stdin.on("close", shutdown);

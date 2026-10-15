@@ -16,7 +16,8 @@ import { buildCopilotSystemPrompt, buildCopilotTurnContext, relayTakesTurnContex
 import { resolveBinding } from "@/lib/dashboard-widgets";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
-import { SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { CLIENT_DATA_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { staffDataScopeForDashboard } from "@/lib/staff-data-scope";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { prisma as db } from "@/lib/prisma";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
@@ -161,6 +162,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const model: RelayModel = MODELS.has(body.model) ? body.model : STAFF_CHAT_PROFILE.model;
   const effort: RelayEffort = EFFORTS.has(body.effort) ? body.effort : STAFF_CHAT_PROFILE.effort;
 
+  // This client's e-commerce warehouse, when its bot feeds one (closed key list
+  // pinned by the relay; the staff flag keeps HQ and the web).
+  const dataScope = await staffDataScopeForDashboard(dashboard.id);
+
   const relayBodyFor = (takesTurnContext: boolean) => ({
     // The relay only needs role/content/images; file metadata stays in the thread.
     messages: toRelayMessages(messages),
@@ -179,7 +184,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Staff-only route: ads servers (scoped to this dashboard below), HQ
     // read-only, Sheets, web, and the Python sandbox (workspace = this
     // conversation, see files/[...path]/route.ts for its outputs).
-    allowedServers: [...STAFF_MCP_SERVERS, SANDBOX_SERVER],
+    allowedServers: [...STAFF_MCP_SERVERS, SANDBOX_SERVER, ...(dataScope ? [CLIENT_DATA_SERVER] : [])],
+    ...(dataScope ? { dataScope } : {}),
     accountScope: {
       meta: binding.metaAccountId ? [binding.metaAccountId] : [],
       google: binding.googleCustomerId ? [binding.googleCustomerId] : [],

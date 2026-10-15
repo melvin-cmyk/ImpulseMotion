@@ -4,9 +4,11 @@
  *
  * "client-data" (entrepôt e-commerce des bots clients) n'en fait volontairement
  * PAS partie : ce n'est pas une permission utilisateur mais un périmètre par
- * bot — le relay ne le démarre que si la requête porte `dataScope.clientKey`
- * (voir CLIENT_DATA_SERVER et server/relay.mjs, dont la whitelist est
- * distincte). L'ajouter ici ferait apparaître un choix sans objet dans l'admin.
+ * bot — le relay ne le démarre que si la requête porte un `dataScope` :
+ * la clé du bot client, ou, pour le staff, la liste fermée des clients dont
+ * l'entrepôt est alimenté (lib/staff-data-scope.ts ; voir CLIENT_DATA_SERVER
+ * et server/relay.mjs, dont la whitelist est distincte). L'ajouter ici ferait
+ * apparaître un choix sans objet dans l'admin.
  */
 export const MCP_SERVER_WHITELIST = [
   "meta-ads-impulse",

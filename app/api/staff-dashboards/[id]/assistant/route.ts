@@ -17,7 +17,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { getAllowedAccountIds } from "@/lib/acl";
-import { N8N_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { CLIENT_DATA_SERVER, N8N_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { staffDataScopeForAll } from "@/lib/staff-data-scope";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
@@ -145,6 +146,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const model: RelayModel = MODELS.has(body.model) ? body.model : STAFF_CHAT_PROFILE.model;
   const effort: RelayEffort = EFFORTS.has(body.effort) ? body.effort : STAFF_CHAT_PROFILE.effort;
   const systemPrompt = buildStaffCopilotSystemPrompt(guard.session.user?.email ?? null);
+  // Warehouses of the e-commerce clients (closed key list pinned by the relay).
+  const dataScope = await staffDataScopeForAll();
   const turnContext = buildStaffCopilotTurnContext(state);
 
   const relayBodyFor = (takesTurnContext: boolean) => ({
@@ -157,7 +160,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     account: typeof body.account === "string" && ACCOUNT_RE.test(body.account) && body.account !== "auto" ? body.account : undefined,
     maxTurns: MAX_TURNS,
     budgetMs: BUDGET_MS,
-    allowedServers: [...STAFF_MCP_SERVERS, SANDBOX_SERVER, N8N_SERVER],
+    allowedServers: [...STAFF_MCP_SERVERS, SANDBOX_SERVER, N8N_SERVER, ...(dataScope ? [CLIENT_DATA_SERVER] : [])],
+    ...(dataScope ? { dataScope } : {}),
     accountScope: { meta: metaIds, google: googleIds, tiktok: tiktokIds, unrestricted: guard.session.role === "admin" },
   });
 

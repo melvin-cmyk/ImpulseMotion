@@ -14,7 +14,8 @@
  * Clients: only the servers of their ACL, no HQ, no sandbox, no web.
  */
 
-import { HQ_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { CLIENT_DATA_SERVER, HQ_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { listStaffDataClients, staffDataClientsLine, staffDataScopeForAll } from "@/lib/staff-data-scope";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { teeRelayStream, type RelayChatBody, type RelayEffort, type RelayModel } from "@/lib/relay-chat";
 import { sanitizeThread, toRelayMessages } from "@/lib/relay-attachments";
@@ -56,9 +57,13 @@ export async function POST(req: NextRequest) {
   ]);
 
   const isStaff = guard.session.role === "admin" || guard.session.role === "consultant";
+  // Warehouses the staff may read (e-commerce orders, dropped files), as a
+  // closed list of client keys pinned by the relay.
+  const dataClients = isStaff ? await listStaffDataClients() : [];
+  const dataScope = isStaff ? await staffDataScopeForAll() : undefined;
   const relayBody: RelayChatBody = {
     messages: toRelayMessages(thread),
-    systemPrompt: isStaff ? buildConsoleSystemPrompt(guard.session.user?.email ?? null) : undefined,
+    systemPrompt: isStaff ? buildConsoleSystemPrompt(guard.session.user?.email ?? null, staffDataClientsLine(dataClients)) : undefined,
     // The staff prompt teaches HQ itself (reads, and writes on request).
     hqGuidance: isStaff ? "caller" : undefined,
     sessionKey: conversationId ? `console:${guard.session.userId}:${conversationId}` : undefined,
@@ -71,8 +76,9 @@ export async function POST(req: NextRequest) {
     maxTurns: isStaff ? STAFF_MAX_TURNS : undefined,
     budgetMs: isStaff ? STAFF_BUDGET_MS : undefined,
     allowedServers: isStaff
-      ? [...STAFF_MCP_SERVERS, ...(conversationId ? [SANDBOX_SERVER] : [])]
+      ? [...STAFF_MCP_SERVERS, ...(conversationId ? [SANDBOX_SERVER] : []), ...(dataScope ? [CLIENT_DATA_SERVER] : [])]
       : allowedServers.filter((s) => s !== HQ_SERVER),
+    ...(dataScope ? { dataScope } : {}),
     accountScope: {
       meta: metaIds,
       google: googleIds,

@@ -691,7 +691,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null }) {
+function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -740,7 +740,10 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
     }
     if (name === CLIENT_DATA_SERVER) {
       const dataUrl = process.env.DATA_DATABASE_URL || "";
-      if (!clientKey || !dataUrl) {
+      // A client bot is pinned to its one key; a staff chat to the closed list
+      // of clients whose warehouse is fed (the server then asks `client`).
+      const keys = Array.isArray(clientKeys) && clientKeys.length ? clientKeys : clientKey ? [clientKey] : [];
+      if (!keys.length || !dataUrl) {
         console.error("[chat] client-data désactivé (clientKey ou DATA_DATABASE_URL absent)");
         continue;
       }
@@ -749,7 +752,7 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
         args: [CLIENT_DATA_MCP_SCRIPT],
         // Tool families the bot may use (orders = e-commerce warehouse, datasets =
         // files of its Drive folder); the server exposes only those.
-        env: { CLIENT_KEY: clientKey, DATA_DATABASE_URL: dataUrl, ...(dataTools ? { CLIENT_DATA_TOOLS: dataTools } : {}) },
+        env: { CLIENT_KEY: keys[0], CLIENT_KEYS: keys.join(","), DATA_DATABASE_URL: dataUrl, ...(dataTools ? { CLIENT_DATA_TOOLS: dataTools } : {}) },
       };
       kept.push(name);
       continue;
@@ -790,7 +793,7 @@ function buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId,
   const summary = kept.map((n) => {
     const e = mcpServers[n];
     if (e.args?.[0] === SCOPED_ADS_MCP_SCRIPT) return `${n}[${e.env.SCOPED_ACCOUNTS}]`;
-    if (n === CLIENT_DATA_SERVER) return `${n}[${e.env.CLIENT_KEY}]`;
+    if (n === CLIENT_DATA_SERVER) return `${n}[${e.env.CLIENT_KEYS}]`;
     return `${n}[non restreint]`;
   });
   console.log(`[chat] MCP: ${summary.join(" ") || "(aucun serveur)"}`);
@@ -951,6 +954,12 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     dataScope && typeof dataScope === "object" && typeof dataScope.ga4PropertyId === "string" && dataScope.ga4PropertyId.trim()
       ? dataScope.ga4PropertyId.trim().slice(0, 64)
       : null;
+  // Staff chats (console, copilots) read the warehouses of several clients:
+  // a closed list of keys set by the app, never by the model.
+  const staffData = !!dataScope && typeof dataScope === "object" && dataScope.staff === true;
+  const clientKeys = staffData && Array.isArray(dataScope.clientKeys)
+    ? [...new Set(dataScope.clientKeys.filter((k) => typeof k === "string" && CLIENT_KEY_RE.test(k)))].slice(0, 50)
+    : null;
   // Closed list of client-data tool families; absent → the server's default (both).
   const dataTools =
     dataScope && typeof dataScope === "object" && Array.isArray(dataScope.tools)
@@ -961,7 +970,9 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   // Bedrock by the quota fallback keeps HQ, through the host's local "hq"
   // server instead of the claude.ai connector. Pulled out of `servers` either
   // way — it has no entry in the mcp-config, the CLI gets it from the host.
-  const clientBot = !!dataScope || provider === "bedrock" || options.clientBot === true;
+  // `dataScope.staff` is set by the app's staff-only routes: it keeps HQ,
+  // Notion, Magento and the web while still mounting the warehouse.
+  const clientBot = (!!dataScope && !staffData) || provider === "bedrock" || options.clientBot === true;
   const useWeb = requestedServers.includes(WEB_SERVER) && !clientBot;
   const builtinTools = ["ToolSearch", ...(useWeb ? ["WebFetch", ...(useBedrock ? [] : ["WebSearch"])] : [])];
   let useHq = servers.includes(HQ_SERVER) && !clientBot;
@@ -1030,7 +1041,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       catch (err) { gwsAuthState = { error: err.message }; }
     }
   }
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools });
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, clientKeys, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -1130,7 +1141,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${servers.includes(MAGENTO_SERVER) ? " | magento" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${clientKey && scopedMcp ? ` | client-data=${clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
+  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${servers.includes(MAGENTO_SERVER) ? " | magento" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${scopedMcp && (clientKeys?.length || clientKey) ? ` | client-data=${clientKeys?.length ? clientKeys.join(",") : clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.

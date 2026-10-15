@@ -36,7 +36,11 @@ export interface RelayChatBody {
    * "client-data" côté relay (le LLM ne choisit jamais le client_key) ;
    * `ga4PropertyId` est ajouté aux restrictions de périmètre du prompt.
    */
-  dataScope?: { clientKey: string; ga4PropertyId?: string; tools?: Array<"orders" | "datasets"> };
+  dataScope?:
+    | { clientKey: string; ga4PropertyId?: string; tools?: Array<"orders" | "datasets"> }
+    // Staff chat: the warehouses of several clients (lib/staff-data-scope.ts);
+    // the relay keeps HQ, Notion, Magento and the web for these.
+    | { staff: true; clientKeys: string[]; tools?: Array<"orders" | "datasets"> };
   /** Session budget requested from the relay (ms). Capped server-side. */
   budgetMs?: number;
   /** Inference backend. "bedrock" = the agency's AWS account (EU region),
