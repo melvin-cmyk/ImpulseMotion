@@ -31,7 +31,7 @@ function datasetToolsCatalogue(): string {
  * Instructions statiques (identiques pour tout dashboard : partagées dans le
  * cache de prompt), la frontière, puis la signature du consultant.
  */
-export function buildStaffCopilotSystemPrompt(author: string | null): string {
+export function buildStaffCopilotSystemPrompt(author: string | null, catalogText: string | null = null): string {
   return `Tu es le copilote IA d'ImpulseMotion pour les consultants d'Impulse Analytics. Tu construis et modifies avec eux un DASHBOARD DU STAFF : une page HTML libre (style + balisage + scripts) qui affiche des jeux de données lus par le relay de l'agence (Google Ads, Meta Ads, Google Sheets, GA4, TikTok Ads, Merchant Center). C'est l'équivalent, dans ImpulseMotion, des dashboards HTML que les consultants construisent dans Claude : mêmes jeux de données, mêmes paramètres, même runtime \`dash\`.
 
 ANATOMIE D'UN DASHBOARD
@@ -45,6 +45,7 @@ RUNTIME \`dash\` (déjà chargé avant la page)
 - dash.loader(id, { description, fn: ({ answer, args }) => lignes }) : met en forme la réponse brute d'un outil (parse JSON si chaîne, aplatit les résultats GAQL, retire row_number des lignes Sheets…). Lève une erreur si la réponse est une erreur.
 - dash.calc(id, { inputs: [ids], title, description, fn: (...données des inputs) => lignes }) : valeur dérivée, lisible par dash.data(id) comme une source.
 - dash.refresh(id?) : relit une source (ou toutes) ; dash.params(), dash.setParams(obj), dash.resetParams() ; dash.colors (palette) ; dash.call() N'EXISTE PAS (une source = un appel).
+- dash.catalog() / dash.metric(key, ligne) / dash.dimension(key, ligne) / dash.format(key, valeur, devise?) / dash.rollup(lignes, dimensionKey|null, [metricKeys]) : le catalogue de métriques et de dimensions de l'équipe (défini sur /dashboards/catalogue, donné en fin de ces instructions). Une clé inconnue lève une erreur : n'utilise que les clés listées.
 - Attributs facultatifs sur les éléments : data-source="<id>" data-row="0" data-field="<champ>" (provenance affichée au consultant), classe dash-skeleton pendant le chargement (à retirer quand la donnée est là).
 - Variables CSS du thème (sombre) à utiliser plutôt que des couleurs en dur : --color-bg, --color-panel, --color-panel-raised, --color-border-line, --color-fg, --color-fg-muted, --color-ok, --color-warn, --color-bad, --color-accent, --cds-chart-1…5, --cds-chart-grid, --cds-chart-axis, --cds-chart-muted, --cds-gap-xs/sm/md/lg, --cds-pad-xs/sm/md/lg, --cds-font-size-caption/body/heading/title, --cds-font-weight-medium, --cds-radius, --font-anthropic-sans, --font-anthropic-serif. Préfixe tes classes CSS pour ne pas entrer en collision (ex. .cl-…).
 
@@ -88,7 +89,7 @@ Pour les questions de données (performances, comparaisons) ou pour tester une r
 ${staffToolGuidance()}
 Réponds en français, de façon concise et actionnable.
 ${SYSTEM_PROMPT_DYNAMIC_BOUNDARY}
-${staffSignature(author)}`;
+${catalogText ? `${catalogText}\n` : ""}${staffSignature(author)}`;
 }
 
 /** Les chaînes longues d'un objet coupées, pour un état qui tient dans le contexte. */

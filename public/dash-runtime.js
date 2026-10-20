@@ -12,6 +12,12 @@
  *   dash.params() / setParams(obj) / resetParams()
  *   dash.colors              → palette
  *   dash.setLink(hash)       → ancre dans l'adresse du parent (info seulement)
+ *   dash.catalog()           → { metrics, dimensions } du catalogue de l'équipe (page /dashboards/catalogue)
+ *   dash.metric(key, ligne)  → valeur d'une métrique du catalogue sur une ligne (ou un total)
+ *   dash.dimension(key, l)   → valeur d'une dimension du catalogue pour une ligne
+ *   dash.format(key, v, cur) → la valeur formatée selon la métrique (devise facultative)
+ *   dash.rollup(lignes, dimKey|null, [metricKeys]) → groupes { key, count, fields, metrics }
+ *   (évaluation : public/dash-catalog.js, chargé avant ce runtime)
  *
  * Les données viennent du parent (ImpulseMotion) par postMessage ; la page ne
  * touche jamais au réseau. Messages :
@@ -33,6 +39,10 @@
   var defaults = {};
   var booted = false;
   var dirty = true;
+  var catalog = { metrics: [], dimensions: [] };
+  var C = window.DashCatalog || null;
+  function metricDef(key) { for (var i = 0; i < catalog.metrics.length; i++) if (catalog.metrics[i].key === key) return catalog.metrics[i]; return null; }
+  function dimensionDef(key) { for (var i = 0; i < catalog.dimensions.length; i++) if (catalog.dimensions[i].key === key) return catalog.dimensions[i]; return null; }
 
   function post(msg) { try { window.parent.postMessage(msg, "*"); } catch (e) { /* noop */ } }
 
@@ -177,7 +187,37 @@
     },
     resetParams: function () { params = JSON.parse(JSON.stringify(defaults)); invalidate(); notify(); post({ type: "dash:params", params: dash.params() }); },
     setLink: function (hash) { post({ type: "dash:link", hash: String(hash || "") }); },
-    __boot: function (datasetIds, defaultParams) {
+    catalog: function () { return JSON.parse(JSON.stringify(catalog)); },
+    metric: function (key, row) {
+      var m = metricDef(String(key));
+      if (!m) throw new Error("métrique inconnue du catalogue : " + key);
+      return C ? C.evaluate(m.formula, row) : 0;
+    },
+    dimension: function (key, row) {
+      var d = dimensionDef(String(key));
+      if (!d) throw new Error("dimension inconnue du catalogue : " + key);
+      return C ? C.derive(d, row) : "";
+    },
+    format: function (key, value, currency) {
+      var m = metricDef(String(key));
+      return C ? C.format(m || { format: "number" }, value, currency) : String(value);
+    },
+    rollup: function (rows, dimKey, metricKeys) {
+      var d = dimKey ? dimensionDef(String(dimKey)) : null;
+      if (dimKey && !d) throw new Error("dimension inconnue du catalogue : " + dimKey);
+      var ms = (metricKeys || []).map(function (k) { var m = metricDef(String(k)); if (!m) throw new Error("métrique inconnue du catalogue : " + k); return m; });
+      return C ? C.rollup(rows, d, ms) : [];
+    },
+    /** Le catalogue de l'équipe, posé AVANT la page : ses scripts peuvent appeler dash.metric dès leur chargement. */
+    __catalog: function (teamCatalog) {
+      if (teamCatalog && typeof teamCatalog === "object") {
+        catalog = { metrics: Array.isArray(teamCatalog.metrics) ? teamCatalog.metrics : [], dimensions: Array.isArray(teamCatalog.dimensions) ? teamCatalog.dimensions : [] };
+      }
+      C = window.DashCatalog || C;
+    },
+    __boot: function (datasetIds, defaultParams, teamCatalog) {
+      if (teamCatalog) dash.__catalog(teamCatalog);
+      C = window.DashCatalog || C;
       defaults = defaultParams && typeof defaultParams === "object" ? defaultParams : {};
       params = JSON.parse(JSON.stringify(defaults));
       (datasetIds || []).forEach(function (id) { if (!raw[id]) raw[id] = { status: "loading", answer: null, message: null, at: null, refreshing: false }; });

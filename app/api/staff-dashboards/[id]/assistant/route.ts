@@ -28,6 +28,7 @@ import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay
 import { recordAiUsage } from "@/lib/ai-usage";
 import { parseDatasets, parseParams } from "@/lib/staff-dashboards/model";
 import { buildStaffCopilotSystemPrompt, buildStaffCopilotTurnContext, staffCopilotSessionKey, withPageIfUnseen } from "@/lib/staff-dashboards/copilot";
+import { catalogPromptText, loadStaffCatalog } from "@/lib/staff-dashboards/catalog";
 import type { StaffDashboardState } from "@/lib/staff-dashboards/proposals";
 
 export const maxDuration = 300;
@@ -145,7 +146,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const model: RelayModel = MODELS.has(body.model) ? body.model : STAFF_CHAT_PROFILE.model;
   const effort: RelayEffort = EFFORTS.has(body.effort) ? body.effort : STAFF_CHAT_PROFILE.effort;
-  const systemPrompt = buildStaffCopilotSystemPrompt(guard.session.user?.email ?? null);
+  // The team's catalogue of metrics and dimensions, after the cached static part of the prompt.
+  const catalogText = catalogPromptText(await loadStaffCatalog().catch(() => ({ metrics: [], dimensions: [] })));
+  const systemPrompt = buildStaffCopilotSystemPrompt(guard.session.user?.email ?? null, catalogText);
   // Warehouses of the e-commerce clients (closed key list pinned by the relay).
   const dataScope = await staffDataScopeForAll();
   const turnContext = buildStaffCopilotTurnContext(state);

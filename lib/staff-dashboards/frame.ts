@@ -7,6 +7,7 @@
  */
 
 import type { ParamValue } from "./model";
+import type { FrameCatalog } from "./catalog-types";
 
 export const FRAME_THEME_CSS = `
 :root {
@@ -44,14 +45,17 @@ function escapeScriptJson(v: unknown): string {
 }
 
 /** Le document complet du cadre. `html` est la page du dashboard telle qu'enregistrée (style + markup + scripts). */
-export function buildFrameDocument(html: string, datasetIds: string[], params: Record<string, ParamValue>, origin = ""): string {
+export function buildFrameDocument(html: string, datasetIds: string[], params: Record<string, ParamValue>, origin = "", catalog: FrameCatalog | null = null): string {
   const base = origin.replace(/\/$/, "");
   return [
     "<!doctype html>",
     '<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
     `<style>${FRAME_THEME_CSS}</style>`,
     `<script src="${base}/vendor/d3.v7.min.js"></script>`,
+    `<script src="${base}/dash-catalog.js"></script>`,
     `<script src="${base}/dash-runtime.js"></script>`,
+    // The team's catalogue before the page: its scripts may call dash.metric as they load.
+    `<script>dash.__catalog(${escapeScriptJson(catalog ?? { metrics: [], dimensions: [] })});</script>`,
     "</head><body>",
     `<div id="dash-root">${html}</div>`,
     `<script>dash.__boot(${escapeScriptJson(datasetIds)}, ${escapeScriptJson(params)});</script>`,

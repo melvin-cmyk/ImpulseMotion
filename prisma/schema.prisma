@@ -28,6 +28,8 @@ model User {
   botConversations     BotConversation[]
   consoleConversations ConsoleConversation[]
   staffDashboards      StaffDashboard[]
+  staffMetrics         StaffMetric[]
+  staffDimensions      StaffDimension[]
   /// Slack member the private alerts are sent to (lib/client-alerts/slack-dm.ts):
   /// found by e-mail through n8n, `slackEmail` when it differs from `email`.
   slackUserId          String?
@@ -1168,4 +1170,44 @@ model AiJob {
 
   @@index([userId, status])
   @@index([conversationId, status])
+}
+
+/// Catalogue « Métriques & dimensions » des dashboards du staff (partagé par
+/// toute l'équipe) : une métrique = une formule sur les champs d'une ligne.
+model StaffMetric {
+  id          String   @id @default(cuid())
+  /// a-z, 0-9, _ (unique) — ce que la page écrit : dash.metric("cpa", ligne)
+  key         String   @unique
+  label       String
+  description String   @default("") @db.Text
+  /// any | meta | google | tiktok | ga4 | sheet
+  platform    String   @default("any")
+  formula     String   @db.Text
+  /// number | integer | currency | percent | ratio
+  format      String   @default("number")
+  /// Code devise pour le format currency (sinon celle passée par la page)
+  unit        String?
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+/// Une dimension = un champ lu tel quel, un groupe d'expression régulière, ou un classement par motifs.
+model StaffDimension {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  label       String
+  description String   @default("") @db.Text
+  platform    String   @default("any")
+  /// Chemin du champ source dans une ligne (campaign.name, campaign_name…)
+  field       String
+  /// field | regex | mapping
+  kind        String   @default("field")
+  /// JSON { pattern, flags, group } | { values: [{ match, value, regex? }] } + fallback
+  ruleJson    String   @default("{}") @db.Text
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 }

@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Loader2 } from "lucide-react";
 import { buildFrameDocument } from "@/lib/staff-dashboards/frame";
+import type { FrameCatalog } from "@/lib/staff-dashboards/catalog-types";
 import type { DataResponse, Dataset, FrameSource, ParamValue } from "./model";
 import { apiErrorText } from "./model";
 
@@ -40,6 +41,35 @@ interface Props {
 }
 
 const MIN_HEIGHT = 400;
+
+let catalogCache: FrameCatalog | null = null;
+let catalogPromise: Promise<FrameCatalog> | null = null;
+const EMPTY_CATALOG: FrameCatalog = { metrics: [], dimensions: [] };
+function fetchFrameCatalog(): Promise<FrameCatalog> {
+  if (catalogCache) return Promise.resolve(catalogCache);
+  if (!catalogPromise) {
+    catalogPromise = fetch("/api/staff-dashboards/catalog", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) return EMPTY_CATALOG;
+        const json = (await res.json()) as { metrics?: unknown; dimensions?: unknown };
+        return { metrics: Array.isArray(json.metrics) ? json.metrics : [], dimensions: Array.isArray(json.dimensions) ? json.dimensions : [] } as FrameCatalog;
+      })
+      .catch(() => EMPTY_CATALOG)
+      .then((c) => { catalogCache = c; return c; });
+  }
+  return catalogPromise;
+}
+/** Forgets the cached catalogue (the catalogue page calls it after a change). */
+export function invalidateFrameCatalog() { catalogCache = null; catalogPromise = null; }
+function useFrameCatalog(): FrameCatalog | null {
+  const [catalog, setCatalog] = useState<FrameCatalog | null>(catalogCache);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchFrameCatalog().then((c) => { if (!cancelled) setCatalog(c); });
+    return () => { cancelled = true; };
+  }, []);
+  return catalog;
+}
 
 const noop = () => () => {};
 const readOrigin = () => window.location.origin;
@@ -62,7 +92,9 @@ export function DashFrame({ dashboardId, title, html, datasets, params, onSource
   const onParamsRef = useRef(onParams);
   onParamsRef.current = onParams;
 
-  const srcDoc = useMemo(() => (origin ? buildFrameDocument(html, allIds, params, origin) : ""), [origin, html, allIds, params]);
+  // The team's catalogue (metrics, dimensions) the page may use through dash.metric / dash.dimension.
+  const catalog = useFrameCatalog();
+  const srcDoc = useMemo(() => (origin && catalog ? buildFrameDocument(html, allIds, params, origin, catalog) : ""), [origin, html, allIds, params, catalog]);
 
   /** Lit des jeux puis renvoie dash:data au cadre. Une requête échouée est affichée, le cadre garde l'état précédent. */
   const fetchData = useCallback(async (ids: string[] | null, opts: { refresh?: boolean; params?: Record<string, ParamValue> } = {}) => {

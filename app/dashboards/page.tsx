@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Database, FolderOpen, LayoutDashboard, Loader2, Plus, Users } from "lucide-react";
+import { Database, FolderOpen, LayoutDashboard, Loader2, Plus, Ruler, Users } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON, apiErrorText, dateLabel, ownerLabel, type DashboardListItem } from "@/components/staff-dashboards/model";
 import { STAFF_DASHBOARDS_DRIVE_FOLDER_URL } from "@/lib/staff-dashboards/drive";
@@ -30,9 +30,18 @@ function DriveButton() {
   );
 }
 
+function CatalogButton() {
+  return (
+    <Link href="/dashboards/catalogue" className={`${SECONDARY_BUTTON} shrink-0`} title="Les métriques et dimensions que l'équipe définit pour ses dashboards">
+      <Ruler className="w-4 h-4" /> Métriques &amp; dimensions
+    </Link>
+  );
+}
+
 function HeaderActions() {
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
+      <CatalogButton />
       <DriveButton />
       <NewButton />
     </span>
