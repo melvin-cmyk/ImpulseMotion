@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, Printer, RefreshCw, MessageSquare, Trash2, ExternalLink, Bot } from "lucide-react";
 import { Card, Pill } from "@/components/ui/surface";
-import { KpiStrip, ReportMarkdown, NextStepsList, TopCreativesStrip } from "@/components/reports/report-view";
+import { KpiStrip, ReportMarkdown, NextStepsList, TopCreativesStrip, VideoViewsTable } from "@/components/reports/report-view";
 import { ReportChat, type ChatMessage } from "@/components/reports/report-chat";
 import type { ReportData, ReportNextStep } from "@/lib/report-data";
 import { buildPilotHref, stepPrompt } from "@/lib/pilot/deep-link";
@@ -177,6 +177,7 @@ export default function ReportPage() {
       {report.status === "ready" && (
         <>
           <KpiStrip data={report.data} />
+          <VideoViewsTable data={report.data} />
           <TopCreativesStrip data={report.data} />
           {report.data?.hqContext ? (
             <div className="text-[11px] text-violet-300/80 bg-violet-500/5 border border-violet-900/30 rounded-lg px-3 py-2">

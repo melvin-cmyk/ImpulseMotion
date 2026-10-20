@@ -80,6 +80,63 @@ export function KpiStrip({ data, variant = "app" }: { data: ReportData | null; v
   );
 }
 
+const VIDEO_PLATFORM: Record<string, string> = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" };
+const n0 = (v: number) => Math.round(v).toLocaleString("fr-FR");
+
+/** Video views per platform (accounts on a video-view objective); nothing when no platform counted views. */
+export function VideoViewsTable({ data, variant = "app" }: { data: ReportData | null; variant?: ReportVariant }) {
+  const rows = data?.video ?? [];
+  if (!rows.length) return null;
+  const print = variant === "print";
+  const hasThruplay = rows.some((r) => r.thruplay !== null);
+  const th = cn("text-left font-semibold px-2 py-1.5 text-[10px] uppercase tracking-wider", print ? "text-neutral-500" : "text-gray-500");
+  const td = cn("px-2 py-1.5 tabular-nums", print ? "text-neutral-800" : "text-gray-200");
+  return (
+    <div className={cn("rounded-xl overflow-hidden", print ? "border border-neutral-300 bg-white" : "bg-gray-900 border border-gray-800")}>
+      <div className={cn("px-3 pt-2.5 text-[10px] uppercase tracking-wider font-semibold", print ? "text-neutral-500" : "text-gray-500")}>Vues vidéo</div>
+      <table className="w-full text-xs mt-1">
+        <thead>
+          <tr>
+            <th className={th}>Plateforme</th>
+            <th className={th}>Vues</th>
+            {hasThruplay && <th className={th}>ThruPlay</th>}
+            <th className={th}>25 %</th>
+            <th className={th}>50 %</th>
+            <th className={th}>75 %</th>
+            <th className={th}>100 %</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.platform} className={print ? "border-t border-neutral-200" : "border-t border-gray-800"}>
+              <td className={td}>
+                {VIDEO_PLATFORM[r.platform] ?? r.platform}
+                <span className={cn("ml-1", print ? "text-neutral-500" : "text-gray-500")}>({r.viewsLabel})</span>
+              </td>
+              <td className={td}>
+                {n0(r.views)}
+                {r.viewsDeltaPct !== null && (
+                  <span className={cn("ml-1 text-[10px]", r.viewsDeltaPct >= 0 ? (print ? "text-emerald-700" : "text-emerald-400") : (print ? "text-red-700" : "text-red-400"))}>
+                    {r.viewsDeltaPct > 0 ? "+" : ""}{r.viewsDeltaPct.toFixed(1)} %
+                  </span>
+                )}
+              </td>
+              {hasThruplay && <td className={td}>{r.thruplay === null ? "—" : n0(r.thruplay)}</td>}
+              <td className={td}>{n0(r.p25)}</td>
+              <td className={td}>{n0(r.p50)}</td>
+              <td className={td}>{n0(r.p75)}</td>
+              <td className={td}>{n0(r.p100)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.some((r) => r.platform === "google") && (
+        <div className={cn("px-3 pb-2 text-[10px]", print ? "text-neutral-500" : "text-gray-600")}>Google Ads : quartiles = impressions × taux de visionnage.</div>
+      )}
+    </div>
+  );
+}
+
 export function ReportMarkdown({ content, variant = "app" }: { content: string; variant?: ReportVariant }) {
   return (
     <div

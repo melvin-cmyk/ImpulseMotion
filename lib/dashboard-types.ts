@@ -1,4 +1,5 @@
 import { parseConversionEvent } from "@/lib/meta-actions";
+import { VIDEO_METRICS, VIDEO_METRIC_LABELS } from "@/lib/video-metrics";
 
 /**
  * Client-safe part of the dashboard widget system: types, catalogue and
@@ -9,10 +10,17 @@ import { parseConversionEvent } from "@/lib/meta-actions";
 export const WIDGET_TYPES = ["kpi", "platform_table", "timeseries", "table", "top_creatives", "pacing", "text", "funnel", "demographics", "geo_device", "alerts", "crm_funnel", "crm_attribution", "meta_actions"] as const;
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 
-export const KPI_METRICS = ["spend", "revenue", "roas", "ctr", "cpa", "cpc", "cr", "purchases", "clicks", "impressions"] as const;
+export const KPI_METRICS = ["spend", "revenue", "roas", "ctr", "cpa", "cpc", "cr", "purchases", "clicks", "impressions", ...VIDEO_METRICS] as const;
 export const DEMOGRAPHICS_METRICS = ["spend", "purchases", "clicks"] as const;
 export const GEO_DEVICE_DIMENSIONS = ["device", "country"] as const;
-export const SERIES_METRICS = ["spend", "revenue", "roas", "clicks", "ctr", "cpc", "cr", "purchases"] as const;
+export const SERIES_METRICS = ["spend", "revenue", "roas", "clicks", "ctr", "cpc", "cr", "purchases", ...VIDEO_METRICS] as const;
+
+/** Labels of the widget metrics (editor, KPI cards). */
+export const METRIC_LABELS: Record<string, string> = {
+  spend: "Dépenses", revenue: "Revenu", roas: "ROAS", ctr: "CTR", cpa: "CPA", cpc: "CPC", cr: "Taux de conv.",
+  purchases: "Conversions", clicks: "Clics", impressions: "Impressions",
+  ...VIDEO_METRIC_LABELS,
+};
 export const TABLE_KINDS = ["campaigns", "keywords", "search_terms"] as const;
 export const WIDGET_WIDTHS = ["third", "half", "full"] as const;
 export const META_ACTIONS_MAX = 30;

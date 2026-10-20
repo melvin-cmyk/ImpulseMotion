@@ -13,7 +13,7 @@ import { GripVertical } from "lucide-react";
 import { Card } from "@/components/ui/surface";
 import { WidgetFrame } from "@/components/dashboard/renderers";
 import {
-  WIDGET_TYPES, WIDGET_TYPE_INFO, KPI_METRICS, SERIES_METRICS, TABLE_KINDS, WIDGET_WIDTHS,
+  WIDGET_TYPES, WIDGET_TYPE_INFO, KPI_METRICS, SERIES_METRICS, TABLE_KINDS, WIDGET_WIDTHS, METRIC_LABELS,
   DEMOGRAPHICS_METRICS, GEO_DEVICE_DIMENSIONS, CONVERSION_WIDGET_TYPES, META_ACTIONS_MAX,
   type ResolvedWidget, type WidgetType,
 } from "@/lib/dashboard-types";
@@ -283,7 +283,7 @@ export function WidgetForm({
 
         {(form.type === "kpi" || form.type === "timeseries") && (
           <select value={form.metric} onChange={(e) => set({ metric: e.target.value })} className={inputCls}>
-            {metricOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+            {metricOptions.map((m) => <option key={m} value={m}>{METRIC_LABELS[m] ?? m}</option>)}
           </select>
         )}
         {form.type === "kpi" && (

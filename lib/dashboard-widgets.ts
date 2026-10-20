@@ -72,6 +72,7 @@ export {
   CONVERSION_WIDGET_TYPES, META_ACTIONS_MAX,
 } from "@/lib/dashboard-types";
 export type { WidgetType, ResolvedWidget } from "@/lib/dashboard-types";
+import { VIDEO_METRICS, googleQuartileCount, isVideoMetric, metaActionListValue, type VideoMetric } from "@/lib/video-metrics";
 
 // ── ACL binding ──────────────────────────────────────────────────────────────
 
@@ -238,7 +239,24 @@ export function extractRows(raw: unknown): Array<Record<string, unknown>> {
   throw new Error(`Relay Google Ads: type de réponse inattendu (${typeof raw})`);
 }
 
-interface GoogleTotals { spend: number; clicks: number; impressions: number; conversions: number; revenue: number; currency: string | null }
+interface GoogleTotals { spend: number; clicks: number; impressions: number; conversions: number; revenue: number; currency: string | null; video: Record<VideoMetric, number> }
+
+/** GAQL video metrics: TrueView views (`video_trueview_views` in the API version n8n uses —
+ *  `video_views` is refused, checked 2026-10-20) and the quartile rates (counts = impressions × rate, per row). */
+const GOOGLE_VIDEO_FIELDS = "metrics.video_trueview_views, metrics.video_quartile_p25_rate, metrics.video_quartile_p50_rate, metrics.video_quartile_p75_rate, metrics.video_quartile_p100_rate";
+
+export function googleVideoOf(m: Record<string, unknown>): Record<VideoMetric, number> {
+  const impressions = toNum(m.impressions);
+  return {
+    video_views: toNum(m.videoTrueviewViews ?? m.video_trueview_views ?? m.videoViews ?? m.video_views),
+    video_thruplay: 0,
+    video_p25: googleQuartileCount(m.videoQuartileP25Rate ?? m.video_quartile_p25_rate, impressions),
+    video_p50: googleQuartileCount(m.videoQuartileP50Rate ?? m.video_quartile_p50_rate, impressions),
+    video_p75: googleQuartileCount(m.videoQuartileP75Rate ?? m.video_quartile_p75_rate, impressions),
+    video_p100: googleQuartileCount(m.videoQuartileP100Rate ?? m.video_quartile_p100_rate, impressions),
+  };
+}
+const emptyVideo = (): Record<VideoMetric, number> => ({ video_views: 0, video_thruplay: 0, video_p25: 0, video_p50: 0, video_p75: 0, video_p100: 0 });
 
 async function fetchGoogleCampaignRows(
   customerId: string,
@@ -249,7 +267,7 @@ async function fetchGoogleCampaignRows(
   // its start/end dates (verified: identical totals for any period), which
   // silently broke period selection and previous-period deltas.
   const query = `SELECT campaign.id, campaign.name, customer.currency_code, metrics.cost_micros, metrics.clicks,
-      metrics.impressions, metrics.conversions, metrics.conversions_value
+      metrics.impressions, metrics.conversions, metrics.conversions_value, ${GOOGLE_VIDEO_FIELDS}
     FROM campaign
     WHERE segments.date BETWEEN '${since}' AND '${until}'
     ORDER BY metrics.cost_micros DESC`;
@@ -276,7 +294,7 @@ function googleCurrency(rows: Array<Record<string, unknown>>): string | null {
 }
 
 function googleTotals(rows: Array<Record<string, unknown>>): GoogleTotals {
-  const t: GoogleTotals = { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0, currency: googleCurrency(rows) };
+  const t: GoogleTotals = { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0, currency: googleCurrency(rows), video: emptyVideo() };
   for (const row of rows) {
     const m = (row.metrics as Record<string, unknown>) ?? row;
     t.spend += costFrom(m);
@@ -284,6 +302,8 @@ function googleTotals(rows: Array<Record<string, unknown>>): GoogleTotals {
     t.impressions += toNum(m.impressions);
     t.conversions += toNum(m.conversions ?? m.allConversions);
     t.revenue += toNum(m.conversionsValue ?? m.conversions_value ?? m.revenue);
+    const v = googleVideoOf(m);
+    for (const k of VIDEO_METRICS) t.video[k] += v[k];
   }
   return t;
 }
@@ -371,6 +391,19 @@ export interface KpiResult {
   platforms?: string[];
 }
 
+/** Meta video views: 3-second views are an action type; ThruPlay and the quartiles are their own lists. */
+export function metaVideoValue(insight: MetaAccountInsight, metric: string): number {
+  switch (metric) {
+    case "video_views": return toNum(insight.actions?.find((a) => a.action_type === "video_view")?.value);
+    case "video_thruplay": return metaActionListValue(insight.video_thruplay_watched_actions);
+    case "video_p25": return metaActionListValue(insight.video_p25_watched_actions);
+    case "video_p50": return metaActionListValue(insight.video_p50_watched_actions);
+    case "video_p75": return metaActionListValue(insight.video_p75_watched_actions);
+    case "video_p100": return metaActionListValue(insight.video_p100_watched_actions);
+    default: return 0;
+  }
+}
+
 function metaMetricValue(
   insight: MetaAccountInsight | null,
   metric: string,
@@ -378,6 +411,7 @@ function metaMetricValue(
   conversionEvent = "purchase",
 ): { value: number; estimated: boolean; unavailable?: boolean } {
   if (!insight) return { value: 0, estimated: false };
+  if (isVideoMetric(metric)) return { value: metaVideoValue(insight, metric), estimated: false };
   const spend = toNum(insight.spend);
   const rev = computeRevenue(insight, aov, conversionEvent);
   const purchases = purchasesFor(insight, conversionEvent);
@@ -472,7 +506,7 @@ async function kpiValue(
 
   const metaRev = insight ? computeRevenue(insight, ctx.aov, ctx.conversionEvent) : { revenue: 0, estimated: false, unavailable: false };
   const metaPurchases = insight ? purchasesFor(insight, ctx.conversionEvent) : 0;
-  const g = google ?? { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0, currency: null };
+  const g = google ?? { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0, currency: null, video: emptyVideo() };
   const t = tiktokOk ? tiktok! : null;
 
   const spend = (metaOk ? toNum(insight?.spend) : 0) + (googleOk ? g.spend : 0) + (t?.spend ?? 0);
@@ -482,6 +516,10 @@ async function kpiValue(
   const impressions = (metaOk ? toNum(insight?.impressions) : 0) + (googleOk ? g.impressions : 0) + (t?.impressions ?? 0);
 
   let value = 0;
+  if (isVideoMetric(metric)) {
+    // Each platform's own count (3-s / TrueView / 2-s views; quartiles), summed.
+    value = (metaOk && insight ? metaVideoValue(insight, metric) : 0) + (googleOk ? g.video[metric] : 0) + (t ? tiktokMetric(t, metric) : 0);
+  }
   switch (metric) {
     case "spend": value = spend; break;
     case "revenue": value = revenue; break;
@@ -578,8 +616,11 @@ async function fetchGoogleDailyRows(
   since: string,
   until: string,
 ): Promise<Array<Record<string, unknown>>> {
+  // The quartile rates are not selectable at customer level (checked 2026-10-20):
+  // only the TrueView views come here; the quartiles' daily series is built
+  // from the campaign rows (fetchGoogleDailyVideo).
   const query = `SELECT segments.date, metrics.cost_micros, metrics.clicks, metrics.impressions,
-      metrics.conversions, metrics.conversions_value
+      metrics.conversions, metrics.conversions_value, metrics.video_trueview_views
     FROM customer
     WHERE segments.date BETWEEN '${since}' AND '${until}'
     ORDER BY segments.date`;
@@ -595,12 +636,42 @@ async function fetchGoogleDailyRows(
   );
 }
 
+/** Day-by-day video counts, summed over the campaigns (the quartile rates only exist below customer level). */
+async function fetchGoogleDailyVideo(customerId: string, since: string, until: string): Promise<Array<{ date: string; video: Record<VideoMetric, number> }>> {
+  const query = `SELECT segments.date, campaign.id, metrics.impressions, ${GOOGLE_VIDEO_FIELDS}
+    FROM campaign
+    WHERE segments.date BETWEEN '${since}' AND '${until}' AND metrics.impressions > 0
+    ORDER BY segments.date`;
+  const rows = await cached(
+    `google:daily-video:${customerId}:${since}_${until}`,
+    async () => {
+      const raw = await relayDirectTool("mcp-google-ads.Custom_GAQL_Query", {
+        input: JSON.stringify({ customer_id: customerId, gaql_query: query.replace(/\s+/g, " ") }),
+      }, 20000);
+      return extractRows(raw);
+    },
+    { ttlMs: ttlForRange({ since, until }) },
+  );
+  const byDate = new Map<string, Record<VideoMetric, number>>();
+  for (const row of rows) {
+    const seg = ((row.segments as Record<string, unknown>) ?? row) as Record<string, unknown>;
+    const date = String(seg.date ?? "");
+    if (!date) continue;
+    const acc = byDate.get(date) ?? emptyVideo();
+    const v = googleVideoOf((row.metrics as Record<string, unknown>) ?? row);
+    for (const k of VIDEO_METRICS) acc[k] += v[k];
+    byDate.set(date, acc);
+  }
+  return [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, video]) => ({ date, video }));
+}
+
 function googleDailyMetric(row: Record<string, unknown>, metric: string): number {
   const m = (row.metrics as Record<string, unknown>) ?? row;
   const spend = costFrom(m);
   const revenue = toNum(m.conversionsValue ?? m.conversions_value);
   const clicks = toNum(m.clicks);
   const impressions = toNum(m.impressions);
+  if (isVideoMetric(metric)) return googleVideoOf(m)[metric];
   switch (metric) {
     case "spend": return spend;
     case "revenue": return revenue;
@@ -634,6 +705,10 @@ async function resolveTimeseries(cfg: Record<string, unknown>, ctx: ResolveConte
 
   if (source === "google") {
     if (!ctx.binding.googleCustomerId) throw issue("Aucun compte Google Ads autorisé pour ce dashboard");
+    if (isVideoMetric(metric)) {
+      const days = await fetchGoogleDailyVideo(ctx.binding.googleCustomerId, ctx.since, ctx.until);
+      return { metric, source, points: days.map((d) => ({ date: d.date, value: Math.round(d.video[metric]) })), estimated: false };
+    }
     const rows = await fetchGoogleDailyRows(ctx.binding.googleCustomerId, ctx.since, ctx.until);
     const points = rows.map((row) => {
       const seg = ((row.segments as Record<string, unknown>) ?? row) as Record<string, unknown>;

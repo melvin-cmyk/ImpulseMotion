@@ -83,6 +83,14 @@ export function renderDataForPrompt(d: ReportData): string {
     }
   }
 
+  if (d.video?.length) {
+    lines.push("\nVUES VIDÉO (chaque plateforme compte à sa façon, ne les additionne pas entre elles) :");
+    for (const v of d.video) {
+      const name = PLATFORM_NAMES[v.platform] ?? v.platform;
+      lines.push(`- ${name} : ${v.views.toLocaleString("fr-FR")} ${v.viewsLabel}${v.viewsPrevious !== null ? ` (précédent ${v.viewsPrevious.toLocaleString("fr-FR")}, ${pct(v.viewsDeltaPct)})` : ""}${v.thruplay !== null ? ` · ThruPlay ${v.thruplay.toLocaleString("fr-FR")}` : ""} · vue à 25 % ${v.p25.toLocaleString("fr-FR")} · 50 % ${v.p50.toLocaleString("fr-FR")} · 75 % ${v.p75.toLocaleString("fr-FR")} · 100 % ${v.p100.toLocaleString("fr-FR")}${v.platform === "google" ? " (quartiles = impressions × taux Google)" : ""}`);
+    }
+  }
+
   if (d.funnel) {
     lines.push(`\nENTONNOIR : ${d.funnel.steps.map((s) => `${s.label} ${s.value.toLocaleString("fr-FR")}`).join(" → ")} ; ${d.funnel.rates.map((r) => `${r.label} ${r.pct} %`).join(", ")}`);
   }

@@ -1024,6 +1024,12 @@ export interface MetaAccountInsight {
   action_values?: Array<{ action_type: string; value: string }>;
   purchase_roas?: Array<{ action_type: string; value: string }>;
   cost_per_action_type?: Array<{ action_type: string; value: string }>;
+  /** Video views (3-second views are `actions` of type video_view). */
+  video_thruplay_watched_actions?: Array<{ action_type: string; value: string }>;
+  video_p25_watched_actions?: Array<{ action_type: string; value: string }>;
+  video_p50_watched_actions?: Array<{ action_type: string; value: string }>;
+  video_p75_watched_actions?: Array<{ action_type: string; value: string }>;
+  video_p100_watched_actions?: Array<{ action_type: string; value: string }>;
   date_start: string;
   date_stop: string;
   /** ISO 4217 code from `account_currency` (undefined when Meta returned no row). */
@@ -1031,6 +1037,15 @@ export interface MetaAccountInsight {
   /** false when Meta returned `data: []` for the window → zero-filled row. */
   hasData?: boolean;
 }
+
+/** Video-view fields (accounts on a video-view objective): ThruPlay and the quartiles. */
+const VIDEO_INSIGHT_FIELDS = [
+  "video_thruplay_watched_actions",
+  "video_p25_watched_actions",
+  "video_p50_watched_actions",
+  "video_p75_watched_actions",
+  "video_p100_watched_actions",
+];
 
 const ACCOUNT_INSIGHT_FIELDS = [
   "account_currency",
@@ -1045,6 +1060,7 @@ const ACCOUNT_INSIGHT_FIELDS = [
   "action_values",
   "purchase_roas",
   "cost_per_action_type",
+  ...VIDEO_INSIGHT_FIELDS,
 ].join(",");
 
 type RawAccountInsight = Omit<MetaAccountInsight, "account_id" | "currency" | "hasData"> & {
@@ -1126,6 +1142,7 @@ const CAMPAIGN_INSIGHT_FIELDS = [
   "action_values",
   "purchase_roas",
   "cost_per_action_type",
+  ...VIDEO_INSIGHT_FIELDS,
 ].join(",");
 
 /** Campaign-level insights, paged, with `truncated`. */
@@ -1172,6 +1189,7 @@ const DAILY_INSIGHT_FIELDS = [
   "action_values",
   "purchase_roas",
   "cost_per_action_type",
+  ...VIDEO_INSIGHT_FIELDS,
 ].join(",");
 
 /** Day-by-day account-level insights, paged, with `truncated`. */

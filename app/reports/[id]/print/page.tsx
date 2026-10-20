@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { KpiStrip, ReportMarkdown, NextStepsList, TopCreativesStrip } from "@/components/reports/report-view";
+import { KpiStrip, ReportMarkdown, NextStepsList, TopCreativesStrip, VideoViewsTable } from "@/components/reports/report-view";
 import type { ReportData, ReportNextStep } from "@/lib/report-data";
 
 interface FullReport {
@@ -87,6 +87,7 @@ export default function ReportPrintPage() {
           ) : (
             <>
               <KpiStrip data={report.data} variant="print" />
+              <VideoViewsTable data={report.data} variant="print" />
               <div className="mt-3">
                 <TopCreativesStrip data={report.data} variant="print" />
               </div>

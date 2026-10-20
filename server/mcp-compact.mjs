@@ -56,7 +56,7 @@ const FIELD_DROP_GENERIC = [
 
 // Meta : types d'actions conservés (les autres sont du bruit d'engagement ou
 // des doublons omni_*). cost_per_action_type n'est gardé que pour les conversions.
-const META_ACTION_KEEP = /^(link_click|landing_page_view|purchase|lead|add_to_cart|initiate_checkout|complete_registration|subscribe|schedule|contact|offsite_conversion\.|onsite_conversion\.(lead|purchase|messaging)|custom)/;
+const META_ACTION_KEEP = /^(link_click|landing_page_view|purchase|lead|add_to_cart|initiate_checkout|complete_registration|subscribe|schedule|contact|offsite_conversion\.|onsite_conversion\.(lead|purchase|messaging)|custom|video_view)/;
 const META_CONVERSION_ACTION = /^(purchase|lead|add_to_cart|initiate_checkout|complete_registration|subscribe|schedule|contact|offsite_conversion\.|onsite_conversion\.(lead|purchase|messaging)|custom)/;
 
 const MICROS = /Micros$|^(averageCpc|costPerConversion|averageCpm|costPerAllConversions|averageCost)$/;

@@ -26,7 +26,15 @@ export interface TikTokStats {
   purchases: number;
   /** Their value, in the account currency (total_purchase_value). */
   purchaseValue: number;
+  /** Video plays (video_play_actions). */
   videoViews: number;
+  /** 2-second video views (video_watched_2s). */
+  videoViews2s: number;
+  /** Watched to 25 / 50 / 75 / 100 % (video_views_pXX). */
+  videoP25: number;
+  videoP50: number;
+  videoP75: number;
+  videoP100: number;
 }
 
 export interface TikTokDailyRow extends TikTokStats {
@@ -56,13 +64,18 @@ const METRICS: Record<keyof TikTokStats, string> = {
   purchases: "total_purchase",
   purchaseValue: "total_purchase_value",
   videoViews: "video_play_actions",
+  videoViews2s: "video_watched_2s",
+  videoP25: "video_views_p25",
+  videoP50: "video_views_p50",
+  videoP75: "video_views_p75",
+  videoP100: "video_views_p100",
 };
 const METRIC_NAMES = Object.values(METRICS);
 const MAX_DAYS = 30;
 const MAX_PAGES = 20;
 const TIMEOUT_MS = 30000;
 
-export const emptyTikTokStats = (): TikTokStats => ({ spend: 0, impressions: 0, clicks: 0, conversions: 0, purchases: 0, purchaseValue: 0, videoViews: 0 });
+export const emptyTikTokStats = (): TikTokStats => ({ spend: 0, impressions: 0, clicks: 0, conversions: 0, purchases: 0, purchaseValue: 0, videoViews: 0, videoViews2s: 0, videoP25: 0, videoP50: 0, videoP75: 0, videoP100: 0 });
 
 const num = (v: unknown): number => {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;

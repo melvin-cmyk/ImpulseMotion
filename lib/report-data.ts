@@ -9,6 +9,7 @@
  * next steps so the AI can follow up on them.
  */
 
+import { VIDEO_METRICS, VIDEO_METRIC_LABELS, VIDEO_VIEWS_DEFINITION, videoMetricPlatforms } from "@/lib/video-metrics";
 import { collectDashboardMerchant, type MerchantReport } from "@/lib/merchant-center";
 import { prisma } from "@/lib/prisma";
 import { agencyChangesToActions, agencyMatcher, type AgencyChange, type ReportAction } from "@/lib/pilot/agency";
@@ -134,6 +135,9 @@ export interface ReportData {
   };
   keywords: Array<{ name: string; matchType?: string; spend: number; clicks: number; conversions: number; ctr?: number }>;
   searchTerms: Array<{ name: string; spend: number; clicks: number; conversions: number }>;
+  /** Video views per platform (accounts on a video-view objective); a platform
+   *  is listed when it counted views. Absent on snapshots taken before. */
+  video?: ReportVideoRow[];
   creatives: ReportCreative[];
   pacing: PacingResult | null;
   alerts: Array<{ metric: string; value: number; threshold: number; message: string; triggeredAt: string; acknowledged: boolean }>;
@@ -151,7 +155,24 @@ export interface ReportData {
   generatedAt: string;
 }
 
+export interface ReportVideoRow {
+  platform: "meta" | "google" | "tiktok";
+  /** What `views` counts on this platform (3 s, TrueView, 2 s). */
+  viewsLabel: string;
+  views: number;
+  /** Meta only. */
+  thruplay: number | null;
+  p25: number;
+  p50: number;
+  p75: number;
+  p100: number;
+  /** Previous-period views and their delta (when a comparison was asked). */
+  viewsPrevious: number | null;
+  viewsDeltaPct: number | null;
+}
+
 const KPI_LABELS: Record<string, string> = {
+  ...VIDEO_METRIC_LABELS,
   spend: "Dépenses",
   revenue: "Revenu",
   roas: "ROAS",
@@ -256,6 +277,12 @@ export async function collectReportData(
     widgets.push(w(`kpi:${metric}`, "kpi", { metric, source }));
   }
   widgets.push(w("platforms", "platform_table", {}));
+  // Video views, per platform (each one counts its own thing: 3 s, TrueView, 2 s).
+  for (const platform of platforms) {
+    for (const metric of VIDEO_METRICS) {
+      if (videoMetricPlatforms(metric).includes(platform)) widgets.push(w(`video:${platform}:${metric}`, "kpi", { metric, source: platform }));
+    }
+  }
   if (hasMeta || hasGoogle) widgets.push(w("funnel", "funnel", { source: funnelSource }));
   if (hasMeta) {
     widgets.push(w("daily:metaSpend", "timeseries", { metric: "spend", source: "meta" }));
@@ -321,6 +348,25 @@ export async function collectReportData(
       currency: d.currency,
       unavailable: d.unavailable,
     });
+  }
+
+  const video: ReportVideoRow[] = [];
+  for (const platform of platforms) {
+    const val = (metric: string) => dataOf<{ value: number; previous: number | null; deltaPct: number | null }>(`video:${platform}:${metric}`);
+    const views = val("video_views");
+    const row: ReportVideoRow = {
+      platform,
+      viewsLabel: VIDEO_VIEWS_DEFINITION[platform],
+      views: views?.value ?? 0,
+      thruplay: platform === "meta" ? val("video_thruplay")?.value ?? 0 : null,
+      p25: val("video_p25")?.value ?? 0,
+      p50: val("video_p50")?.value ?? 0,
+      p75: val("video_p75")?.value ?? 0,
+      p100: val("video_p100")?.value ?? 0,
+      viewsPrevious: views?.previous ?? null,
+      viewsDeltaPct: views?.deltaPct ?? null,
+    };
+    if (row.views > 0 || row.p25 > 0 || (row.thruplay ?? 0) > 0) video.push(row);
   }
 
   const series = (id: string) => dataOf<{ points: Array<{ date: string; value: number }> }>(id)?.points;
@@ -404,6 +450,7 @@ export async function collectReportData(
       ...(hasTikTok ? { tiktok: tableRows<{ name: string; spend: number; clicks: number; conversions: number; roas: number }>("campaigns:tiktok") } : {}),
     },
     keywords: tableRows("keywords"),
+    ...(video.length ? { video } : {}),
     searchTerms: tableRows("searchTerms"),
     creatives,
     pacing,

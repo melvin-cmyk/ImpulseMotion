@@ -27,6 +27,8 @@ const BASE_METRICS = [
   // compte ce que total_purchase_value valorise). Constaté le 2026-10-01 sur
   // Jow : complete_payment et son ROAS à 0, total_purchase_value = 696 183 €.
   "total_purchase", "total_purchase_value",
+  // Vues vidéo (comptes en objectif vue vidéo) : lectures, vues 2 s, quartiles.
+  "video_play_actions", "video_watched_2s", "video_views_p25", "video_views_p50", "video_views_p75", "video_views_p100",
 ];
 
 /** Ce que le serveur fixe, par outil de rapport. Une clé absente reste au modèle. */

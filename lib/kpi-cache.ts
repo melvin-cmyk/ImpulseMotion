@@ -18,7 +18,7 @@
 import { prisma } from "@/lib/prisma";
 import { isClosedRange, type DateRange } from "@/lib/date-ranges";
 
-export const CACHE_VERSION = "v3";
+export const CACHE_VERSION = "v4"; // v4 (2026-10-20): video-view fields on Meta / Google / TikTok rows
 
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_EMPTY_TTL_MS = 60 * 1000;

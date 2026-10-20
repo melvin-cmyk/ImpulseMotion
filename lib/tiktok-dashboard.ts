@@ -105,6 +105,12 @@ export function tiktokMetric(s: TikTokStats, metric: string): number {
     case "cpc": return s.clicks > 0 ? s.spend / s.clicks : 0;
     case "cpa": return s.conversions > 0 ? s.spend / s.conversions : 0;
     case "cr": return s.clicks > 0 ? (s.conversions / s.clicks) * 100 : 0;
+    case "video_views": return s.videoViews2s;
+    case "video_thruplay": return 0; // Meta's metric
+    case "video_p25": return s.videoP25;
+    case "video_p50": return s.videoP50;
+    case "video_p75": return s.videoP75;
+    case "video_p100": return s.videoP100;
     default: return 0;
   }
 }

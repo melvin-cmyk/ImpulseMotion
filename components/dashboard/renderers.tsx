@@ -28,12 +28,10 @@ import {
   type AlertsData, type DemographicsData, type MetaActionsData, type FunnelData, type GeoDeviceData, type KpiData,
   type PacingData, type PlatformTableData, type TableData, type TimeseriesData, type TopCreativesData,
 } from "@/components/dashboard/widget-display";
+import { METRIC_LABELS } from "@/lib/dashboard-types";
+import { VIDEO_METRICS, videoMetricNote } from "@/lib/video-metrics";
 
-const KPI_LABELS: Record<string, string> = {
-  spend: "Dépenses", revenue: "Revenu", roas: "ROAS", ctr: "CTR", cpa: "CPA",
-  cpc: "CPC", cr: "Taux de conv.",
-  purchases: "Conversions", clicks: "Clics", impressions: "Impressions",
-};
+const KPI_LABELS: Record<string, string> = METRIC_LABELS;
 
 
 export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
@@ -64,7 +62,7 @@ export function WidgetBody({ widget }: { widget: ResolvedWidget }) {
 }
 
 // Direction that counts as "good" when the metric goes up; spend is neutral.
-const GOOD_WHEN_UP = new Set(["revenue", "roas", "purchases", "clicks", "impressions", "ctr", "cr"]);
+const GOOD_WHEN_UP = new Set(["revenue", "roas", "purchases", "clicks", "impressions", "ctr", "cr", ...VIDEO_METRICS]);
 const GOOD_WHEN_DOWN = new Set(["cpa", "cpc"]);
 
 function deltaColor(metric: string, deltaPct: number): string {
@@ -113,6 +111,9 @@ function KpiWidget({ widget }: { widget: ResolvedWidget }) {
         <div className="text-xs text-gray-500 mt-1">Revenu non tracké et aucun panier moyen configuré</div>
       )}
       {note && <div className="text-xs text-amber-400/90 mt-1" title={d.errors?.join(" · ")}>{note}</div>}
+      {videoMetricNote(d.metric, d.platforms ?? [d.source]) && (
+        <div className="text-[11px] text-gray-600 mt-1">{videoMetricNote(d.metric, d.platforms ?? [d.source])}</div>
+      )}
       <div className="text-xs text-gray-500 mt-1 flex items-center gap-2 flex-wrap">
         <span>
           {KPI_LABELS[d.metric] ?? d.metric}

@@ -1,3 +1,5 @@
+/** Zero stats (the module is mocked below, so its helper is not reachable). */
+const emptyTikTokStats = () => ({ spend: 0, impressions: 0, clicks: 0, conversions: 0, purchases: 0, purchaseValue: 0, videoViews: 0, videoViews2s: 0, videoP25: 0, videoP50: 0, videoP75: 0, videoP100: 0 });
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -99,7 +101,7 @@ function rows(spend: number, conv: number, over: Partial<Record<string, Partial<
   const out: TikTokDailyRow[] = [];
   for (let d = 20; d <= 30; d++) {
     const date = `2026-09-${d}`;
-    const row = { date, spend, impressions: 10_000, clicks: 100, conversions: conv, purchases: conv, purchaseValue: 0, videoViews: 0, ...over[date] };
+    const row = { ...emptyTikTokStats(), date, spend, impressions: 10_000, clicks: 100, conversions: conv, purchases: conv, purchaseValue: 0, ...over[date] };
     // TikTok leaves out the days without anything.
     if (row.spend > 0 || row.conversions > 0) out.push(row);
   }
@@ -252,14 +254,14 @@ describe("règles personnelles — TikTok Ads", () => {
   });
 
   it("les totaux TikTok donnent dépense, CPA, CTR en %, et un ROAS seulement avec une valeur d'achat", () => {
-    const base = { spend: 1000, impressions: 50_000, clicks: 600, conversions: 40, purchases: 30, purchaseValue: 0, videoViews: 0 };
+    const base = { ...emptyTikTokStats(), spend: 1000, impressions: 50_000, clicks: 600, conversions: 40, purchases: 30, purchaseValue: 0 };
     expect(metricsFromTikTok(base)).toEqual({ spend: 1000, roas: 0, cpa: 25, ctr: 1.2, frequency: 0, roasAvailable: false, roasEstimated: false, conversions: 40 });
     expect(metricsFromTikTok({ ...base, purchaseValue: 3500 })).toMatchObject({ roas: 3.5, roasAvailable: true });
     expect(metricsFromTikTok(null).roasAvailable).toBe(false);
   });
 
   it("deux lectures : la fenêtre et la précédente", async () => {
-    h.totals.mockResolvedValue({ spend: 700, impressions: 7000, clicks: 70, conversions: 7, purchases: 0, purchaseValue: 0, videoViews: 0 });
+    h.totals.mockResolvedValue({ ...emptyTikTokStats(), spend: 700, impressions: 7000, clicks: 70, conversions: 7 });
     const m = await fetchTikTokAccountMetrics(TT, "7d");
     expect(h.totals).toHaveBeenCalledTimes(2);
     expect(h.totals.mock.calls.map((c) => c[0])).toEqual([TT, TT]);

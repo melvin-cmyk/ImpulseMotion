@@ -68,7 +68,7 @@ const TT = "7000000000000000001";
 const HEADER = "Client,Team,Country / Region,Platform,Currency,Mois,Budget,Target ROAS,Target CPL";
 const day = (d: number, over: Partial<{ spend: number; conversions: number; purchases: number; purchaseValue: number }> = {}) => ({
   date: `2026-09-${String(d).padStart(2, "0")}`,
-  spend: 100, impressions: 10_000, clicks: 100, conversions: 5, purchases: 0, purchaseValue: 0, videoViews: 0, ...over,
+  spend: 100, impressions: 10_000, clicks: 100, conversions: 5, purchases: 0, purchaseValue: 0, videoViews: 0, videoViews2s: 0, videoP25: 0, videoP50: 0, videoP75: 0, videoP100: 0, ...over,
 });
 const september = (over: Parameters<typeof day>[1] = {}) => Array.from({ length: 30 }, (_, i) => day(i + 1, over));
 
