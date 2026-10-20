@@ -1,7 +1,7 @@
 /**
  * One console conversation of the caller.
  *
- * GET    → its messages
+ * GET    → its messages, and `job` = the detached turn still running on it (or null)
  * PUT    → create or replace it ({ messages }) — the id is the uuid the
  *          console generated; an id owned by someone else answers 404
  * DELETE → remove it
@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-helpers";
 import { CONSOLE_MAX_CONVERSATIONS, conversationTitle, isConversationId, parseStoredMessages, sanitizeConsoleMessages } from "@/lib/console-conversations";
+import { publicJob, runningJobOf } from "@/lib/ai-jobs";
 
 const NOT_FOUND = () => NextResponse.json({ error: "not found" }, { status: 404 });
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -25,7 +26,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!isConversationId(id)) return NOT_FOUND();
   const row = await prisma.consoleConversation.findFirst({ where: { id, userId: guard.session.userId } });
   if (!row) return NOT_FOUND();
-  return NextResponse.json({ id: row.id, title: row.title, updatedAt: row.updatedAt.getTime(), messages: parseStoredMessages(row.messagesJson) }, { headers: NO_STORE });
+  const job = await runningJobOf(row.id, guard.session.userId);
+  return NextResponse.json({ id: row.id, title: row.title, updatedAt: row.updatedAt.getTime(), messages: parseStoredMessages(row.messagesJson), job: job ? publicJob(job) : null }, { headers: NO_STORE });
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

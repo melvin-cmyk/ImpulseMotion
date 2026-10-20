@@ -24,6 +24,7 @@ import { handleSheetsRequest } from "./sheets-direct.mjs";
 import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promptLogExcerpt } from "./relay-prompt.mjs";
 import { accountsOfTikTokCall, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
 import * as agnes from "./agnes.mjs";
+import * as jobs from "./jobs.mjs";
 import { timingSafeEqual } from "node:crypto";
 let hqProjectsCache = null;
 
@@ -371,7 +372,13 @@ const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // fields, announced by /health. The application reads it before relying on a
 // field an older relay would silently ignore (lib/dashboard-copilot.ts), so
 // the relay and the application can be deployed in any order.
-const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist"];
+const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs"];
+// Detached turns (jobs) hold no HTTP response open: they may run longer than
+// a streamed one, up to this cap.
+const DETACHED_MAX_BUDGET_MS = Number(process.env.RELAY_DETACHED_MAX_BUDGET_MS || 15 * 60 * 1000);
+// Where the app is told a job is over (POST /api/ai/jobs/complete, bearer =
+// the shared secret). Unset: the app finds out by reading the job itself.
+const RELAY_APP_URL = process.env.RELAY_APP_URL || "";
 // Agentic loop cap. 15 by default; staff surfaces with the sandbox ask for more.
 const MAX_TURNS_CAP = 40;
 // Pseudo-server "web": not an MCP server but the CLI's built-in WebSearch /
@@ -1250,7 +1257,9 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   // Callers running under a longer serverless budget (report generation,
   // maxDuration 300) may request more, capped by RELAY_CHAT_MAX_BUDGET_MS.
   const DEFAULT_BUDGET_MS = Number(process.env.RELAY_CHAT_BUDGET_MS || 110_000);
-  const MAX_BUDGET_MS = Number(process.env.RELAY_CHAT_MAX_BUDGET_MS || 280_000);
+  // A detached turn (job) is read from its log, not from a response the
+  // app's serverless function holds open: it may run up to DETACHED_MAX_BUDGET_MS.
+  const MAX_BUDGET_MS = options.detached ? DETACHED_MAX_BUDGET_MS : Number(process.env.RELAY_CHAT_MAX_BUDGET_MS || 280_000);
   const requested = Number(budgetMs);
   const SESSION_BUDGET_MS = Number.isFinite(requested) && requested > 0
     ? Math.min(Math.max(requested, 10_000), MAX_BUDGET_MS)
@@ -1554,6 +1563,16 @@ function setCors(req, res) {
 const PREVIOUS_SECRET = process.env.RELAY_SHARED_SECRET_PREVIOUS || "";
 const ACCEPTED_SECRETS = [RELAY_SHARED_SECRET, ...(PREVIOUS_SECRET.length >= 16 ? [PREVIOUS_SECRET] : [])].map((s) => Buffer.from(s));
 
+// A detached turn is over: logged, and the app is told (when RELAY_APP_URL is set).
+const jobFinished = (() => {
+  const notify = jobs.makeFinishedNotifier({ appUrl: RELAY_APP_URL, secret: RELAY_SHARED_SECRET });
+  if (!notify) console.log("[jobs] RELAY_APP_URL absent : l'app relira les tâches elle-même");
+  return (job) => {
+    console.log(`[jobs] ${job.id} ${job.status} en ${Math.round(((job.finishedAt ?? Date.now()) - job.createdAt) / 1000)} s, ${job.text.length} car.${job.error ? ` — ${job.error.slice(0, 120)}` : ""}`);
+    if (notify) void notify(job);
+  };
+})();
+
 function authorized(req) {
   const h = req.headers.authorization || "";
   const m = h.match(/^Bearer\s+(.+)$/i);
@@ -1723,7 +1742,7 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "messages required" }));
         return;
       }
-      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs, body.dataScope, body.provider, {
+      const chatOptions = {
         model: body.model,
         effort: body.effort,
         maxTurns: body.maxTurns,
@@ -1732,10 +1751,79 @@ const server = http.createServer(async (req, res) => {
         clientBot: body.clientBot === true,
         turnContext: body.turnContext,
         hqGuidance: body.hqGuidance,
-      }).catch((err) => {
+      };
+      // Detached turn: the CLI writes into a job log the caller reads back
+      // (GET /api/jobs/:id); the answer here is only the job id. Closing a
+      // reader never stops the turn — only POST /api/jobs/:id/stop does.
+      if (body.detach === true) {
+        const job = jobs.createJob({
+          meta: { sessionKey: typeof body.sessionKey === "string" ? body.sessionKey.slice(0, 200) : null, ...(body.jobMeta && typeof body.jobMeta === "object" ? { app: body.jobMeta } : {}) },
+          onFinished: jobFinished,
+        });
+        res.writeHead(202, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jobId: job.id }));
+        console.log(`[jobs] ${job.id} lancé (${job.meta.sessionKey ?? "sans session"})`);
+        handleChat(body.messages, body.allowedServers, body.accountScope, job.sink, body.systemPrompt, body.budgetMs, body.dataScope, body.provider, { ...chatOptions, detached: true })
+          .catch((err) => {
+            console.error(`[jobs] ${job.id} échec avant lancement:`, err.message || err);
+            failChat(job.sink, "La demande n'a pas pu être lancée (erreur interne du relay). Réessayez ; si l'erreur persiste, prévenez un administrateur.");
+          });
+        return;
+      }
+      handleChat(body.messages, body.allowedServers, body.accountScope, res, body.systemPrompt, body.budgetMs, body.dataScope, body.provider, chatOptions).catch((err) => {
         console.error("[chat] échec avant lancement:", err.message || err);
         failChat(res, "La demande n'a pas pu être lancée (erreur interne du relay). Réessayez ; si l'erreur persiste, prévenez un administrateur.");
       });
+      return;
+    }
+
+    // Detached turns: GET /api/jobs/:id?after=N replays the log past N then
+    // follows it (SSE, same events as /api/chat, each with a `seq`); GET
+    // /api/jobs/:id/state is the summary; POST /api/jobs/:id/stop ends it.
+    const jobMatch = url.pathname.match(/^\/api\/jobs\/([a-f0-9]{32})(?:\/(state|stop))?$/);
+    if (jobMatch) {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const job = jobs.getJob(jobMatch[1]);
+      if (!job) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "job not found" }));
+        return;
+      }
+      const sub = jobMatch[2];
+      if (sub === "state" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+        res.end(JSON.stringify({ job: job.state() }));
+        return;
+      }
+      if (sub === "stop" && req.method === "POST") {
+        const stopped = job.stop();
+        console.log(`[jobs] ${job.id} : arrêt demandé${stopped ? "" : " (déjà terminé)"}`);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, stopped, status: job.status }));
+        return;
+      }
+      if (!sub && req.method === "GET") {
+        const after = Number(url.searchParams.get("after") || 0);
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+        res.flushHeaders?.();
+        res.write(`: job ${job.id} ${job.status}\n\n`);
+        const heartbeat = setInterval(() => { try { res.write(": hb\n\n"); } catch { /* closed */ } }, 15_000);
+        const unsubscribe = job.subscribe(after, (seq, line) => {
+          if (seq === null) { clearInterval(heartbeat); res.end(); return; }
+          res.write(`data: ${line}\n\n`);
+        });
+        res.on("close", () => { clearInterval(heartbeat); unsubscribe(); });
+        return;
+      }
+      res.writeHead(405); res.end();
       return;
     }
 
@@ -2024,7 +2112,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", capabilities: CAPABILITIES }));
+      res.end(JSON.stringify({ status: "ok", capabilities: CAPABILITIES, jobsRunning: jobs.runningJobs().length }));
       return;
     }
 

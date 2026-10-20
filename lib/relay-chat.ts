@@ -262,3 +262,93 @@ export function parseLooseJson<T>(text: string): T | null {
   if (end <= start) return null;
   try { return JSON.parse(cleaned.slice(start, end + 1)) as T; } catch { return null; }
 }
+
+// ── Detached turns (relay jobs) ─────────────────────────────────────────────
+// A turn started with `detach: true` runs in the relay whatever the browser
+// does; the app reads it back by job id (lib/ai-jobs.ts).
+
+export interface RelayJobState {
+  id: string;
+  status: "running" | "done" | "stopped";
+  createdAt: number;
+  finishedAt: number | null;
+  seq: number;
+  text: string;
+  sawDone: boolean;
+  usage: unknown;
+  toolCalls: Array<{ name: string; id: string }>;
+  error: string | null;
+  resumable: boolean;
+}
+
+async function relayJson<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<{ ok: true; status: number; json: T } | { ok: false; status: number; error: string }> {
+  let lastError = "relay unreachable";
+  let lastStatus = 502;
+  for (const url of RELAY_URLS) {
+    const isLocalhost = url.includes("localhost");
+    try {
+      const res = await fetch(`${url}${path}`, {
+        ...init,
+        headers: relayHeaders(),
+        signal: AbortSignal.timeout(isLocalhost ? Math.min(init.timeoutMs ?? 15000, 3000) : init.timeoutMs ?? 15000),
+      });
+      const json = (await res.json().catch(() => ({}))) as T & { error?: string };
+      if (res.ok) return { ok: true, status: res.status, json };
+      // The relay answered: a 404 (job unknown) is an answer, not an outage.
+      if (res.status === 404 || res.status === 400) return { ok: false, status: res.status, error: json.error ?? `relay ${res.status}` };
+      lastStatus = res.status;
+      lastError = json.error ?? `relay ${res.status}`;
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+    }
+  }
+  return { ok: false, status: lastStatus, error: lastError };
+}
+
+/** Starts a detached turn; the relay answers its job id at once. */
+export async function relayDetach(body: RelayChatBody, jobMeta?: Record<string, unknown>): Promise<{ jobId: string } | { error: string }> {
+  const r = await relayJson<{ jobId?: string }>("/api/chat", {
+    method: "POST",
+    body: JSON.stringify({ ...body, detach: true, ...(jobMeta ? { jobMeta } : {}) }),
+    timeoutMs: 20000,
+  });
+  if (!r.ok) return { error: `IA indisponible (${r.error})` };
+  return typeof r.json.jobId === "string" && /^[a-f0-9]{32}$/.test(r.json.jobId) ? { jobId: r.json.jobId } : { error: "IA indisponible (réponse du relay sans identifiant)" };
+}
+
+/** The relay's summary of a job; `missing` when the relay no longer knows it (restart, TTL). */
+export async function relayJobState(jobId: string): Promise<{ state: RelayJobState } | { missing: true } | { error: string }> {
+  const r = await relayJson<{ job?: RelayJobState }>(`/api/jobs/${jobId}/state`, { method: "GET", timeoutMs: 10000 });
+  if (r.ok) return r.json.job ? { state: r.json.job } : { error: "réponse du relay sans état" };
+  return r.status === 404 ? { missing: true } : { error: r.error };
+}
+
+export async function relayJobStop(jobId: string): Promise<{ stopped: boolean; status?: string } | { missing: true } | { error: string }> {
+  const r = await relayJson<{ stopped?: boolean; status?: string }>(`/api/jobs/${jobId}/stop`, { method: "POST", timeoutMs: 10000 });
+  if (r.ok) return { stopped: r.json.stopped === true, status: r.json.status };
+  return r.status === 404 ? { missing: true } : { error: r.error };
+}
+
+/**
+ * The job's SSE (replay past `after`, then live), as the relay sends it, or
+ * null when the relay does not know the job. The body ends when the job does.
+ */
+export async function relayJobEvents(jobId: string, after: number): Promise<Response | null> {
+  for (const url of RELAY_URLS) {
+    const isLocalhost = url.includes("localhost");
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), isLocalhost ? 3000 : 15000);
+      let res: Response;
+      try {
+        res = await fetch(`${url}/api/jobs/${jobId}?after=${Math.max(0, Math.floor(after))}`, { headers: relayHeaders(), signal: ctl.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (res.status === 404) return null;
+      if (!res.ok || !res.body) continue;
+      return res;
+    } catch { /* next url */ }
+  }
+  throw new Error("relay unreachable");
+}

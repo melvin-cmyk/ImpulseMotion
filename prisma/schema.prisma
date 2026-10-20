@@ -243,17 +243,17 @@ model Dashboard {
 /// written to HQ (projects/{hqSlug}/brain/recherche/personas.md), the single
 /// source of truth. One draft per dashboard; a new generation replaces it.
 model PersonaDraft {
-  id          String   @id @default(cuid())
-  dashboardId String   @unique
+  id          String    @id @default(cuid())
+  dashboardId String    @unique
   /// Markdown body (without the HQ frontmatter, added at write time).
-  markdown    String   @db.Text
+  markdown    String    @db.Text
   /// What the AI was given: {"reviews": chars, "reviewsSource": "…", "ads": n, "hqFiles": [...], "notes": "…"}
-  inputsJson  String   @default("{}") @db.Text
+  inputsJson  String    @default("{}") @db.Text
   /// "hypothese" when no customer reviews were available (HQ rule: never a persona without reviews).
-  kind        String   @default("persona")
+  kind        String    @default("persona")
   createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
 }
 
@@ -857,44 +857,44 @@ model PilotAction {
 /// is <op> <threshold>, do <action> », evaluated daily by the cron, acting
 /// through the same path as a consultant (preview, send, journal, HQ, J+7/J+14).
 model PilotRule {
-  id            String    @id @default(cuid())
-  alertClientId String
-  clientName    String
+  id             String    @id @default(cuid())
+  alertClientId  String
+  clientName     String
   /// meta | google
-  platform      String
-  accountId     String
-  accountName   String    @default("")
-  currency      String    @default("EUR")
-  createdById   String
-  createdByName String
-  name          String
-  enabled       Boolean   @default(true)
+  platform       String
+  accountId      String
+  accountName    String    @default("")
+  currency       String    @default("EUR")
+  createdById    String
+  createdByName  String
+  name           String
+  enabled        Boolean   @default(true)
   /// campaign | adset
-  objectType    String
+  objectType     String
   /// One object, or null = every object of that type on the account.
-  objectId      String?
-  objectName    String?
+  objectId       String?
+  objectName     String?
   /// cpa | roas | spend | conversions | ctr | cpc
-  metric        String
+  metric         String
   /// gt | lt
-  op            String
-  threshold     Float
+  op             String
+  threshold      Float
   /// Window of full days: 1 | 7 | 14 | 30
-  days          Int       @default(7)
+  days           Int       @default(7)
   /// Below this many conversions on the window, a CPA/ROAS rule does not fire.
-  minConversions Int      @default(5)
+  minConversions Int       @default(5)
   /// pause | budget_pct | notify
-  action        String
+  action         String
   /// budget_pct: the change in % (−20 = −20 %).
-  actionValue   Float?
-  cooldownDays  Int       @default(3)
+  actionValue    Float?
+  cooldownDays   Int       @default(3)
   /// Slack channel told when the rule fires (optional).
-  notifyChannel String?
-  lastCheckedAt DateTime?
-  lastFiredAt   DateTime?
-  lastResult    String?   @db.Text
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  notifyChannel  String?
+  lastCheckedAt  DateTime?
+  lastFiredAt    DateTime?
+  lastResult     String?   @db.Text
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([enabled, platform, accountId])
   @@index([alertClientId])
@@ -933,7 +933,7 @@ model PilotOperation {
 /// objects and the account, N days before against N days after. Computed by the
 /// cron /api/cron/pilot-impact without any AI, then written in the client's HQ.
 model PilotImpact {
-  id          String      @id @default(cuid())
+  id          String          @id @default(cuid())
   /// The Pilotage action judged — or null when `changeId` names a change read on the platform.
   actionId    String?
   /// A change made outside Pilotage (PlatformChange) judged the same way.
@@ -943,17 +943,17 @@ model PilotImpact {
   /// done | skipped | failed
   status      String
   /// {"before":{since,until},"after":{since,until},"objects":[…],"account":{…}} — see lib/pilot/impact.ts
-  resultJson  String      @default("{}") @db.Text
+  resultJson  String          @default("{}") @db.Text
   /// One paragraph, the same in the page and in HQ.
-  summary     String      @default("") @db.Text
+  summary     String          @default("") @db.Text
   /// improved | worse | mixed | flat | low_volume | skipped
-  verdict     String      @default("")
-  attempts    Int         @default(0)
-  error       String?     @db.Text
+  verdict     String          @default("")
+  attempts    Int             @default(0)
+  error       String?         @db.Text
   hqWrittenAt DateTime?
-  hqError     String?     @db.Text
-  computedAt  DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  hqError     String?         @db.Text
+  computedAt  DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
   action      PilotAction?    @relation(fields: [actionId], references: [id], onDelete: Cascade)
   change      PlatformChange? @relation(fields: [changeId], references: [id], onDelete: Cascade)
 
@@ -1082,21 +1082,21 @@ model LoginThrottle {
 /// Rendue dans un cadre isolé ; jamais visible d'un client. Même modèle que le type
 /// « Dashboard » de Claude : datasets + params + files/index.html.
 model StaffDashboard {
-  id           String   @id @default(cuid())
+  id           String                  @id @default(cuid())
   ownerId      String
   title        String
-  description  String?  @db.Text
+  description  String?                 @db.Text
   /// JSON Record<datasetId, { title, description?, source: { kind: "query", connector, tool, args } }>
-  datasetsJson String   @default("{}") @db.Text
+  datasetsJson String                  @default("{}") @db.Text
   /// JSON Record<paramName, defaultValue>
-  paramsJson   String   @default("{}") @db.Text
+  paramsJson   String                  @default("{}") @db.Text
   /// The page (HTML + <style> + <script>), rendered inside #dash-root of a sandboxed iframe
-  html         String   @default("") @db.Text
+  html         String                  @default("") @db.Text
   /// Visible (read-only) to every staff member
-  shared       Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  owner        User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  shared       Boolean                 @default(false)
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  owner        User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   threads      StaffDashboardThread[]
   versions     StaffDashboardVersion[]
 
@@ -1140,4 +1140,32 @@ model StaffDashboardThread {
 
   @@unique([dashboardId, userId])
   @@index([dashboardId, updatedAt])
+}
+
+/// Detached AI turn (relay job): the answer of an assistant goes on while the
+/// consultant is elsewhere, and is written to its conversation when it ends
+/// (lib/ai-jobs.ts). No foreign keys: the conversation may be deleted
+/// meanwhile, the row then just records a turn that went nowhere.
+model AiJob {
+  /// Relay job id (32 hex chars)
+  id               String    @id
+  userId           String
+  /// "bot" | "console"
+  surface          String
+  conversationId   String
+  botId            String?
+  /// running | done | stopped | failed
+  status           String    @default("running")
+  /// First words of the question, for the lists ("Réponse prête : …")
+  title            String    @default("")
+  /// JSON: the user message to keep with the answer (surface-specific shape)
+  userMessageJson  String    @default("{}") @db.Text
+  /// JSON: UsageContext of the ledger line written at the end
+  usageContextJson String    @default("{}") @db.Text
+  error            String?
+  startedAt        DateTime  @default(now())
+  finishedAt       DateTime?
+
+  @@index([userId, status])
+  @@index([conversationId, status])
 }

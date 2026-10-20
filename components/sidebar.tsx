@@ -22,6 +22,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
+import { useAiJobs } from "@/components/ai-jobs-watcher"
 
 // The rail is split into labeled sections so the boundary is obvious:
 // "Espace interne" = admin & consultants only; "Espace clients" = the exact
@@ -153,6 +154,9 @@ export function Sidebar() {
   const role = session?.role ?? "client"
   const isAdmin = role === "admin"
   const baseRole = session?.baseRole ?? role
+  // Detached AI turns still running, per surface: a count next to the assistants.
+  const { running } = useAiJobs()
+  const runningFor = (href: string) => running.filter((j) => (href === "/ai" ? j.surface === "console" : href === "/bot" ? j.surface === "bot" : false)).length
 
   return (
     <div className="w-52 bg-gray-950 border-r border-gray-800 flex flex-col py-4 px-3 gap-1 shrink-0 overflow-y-auto">
@@ -192,6 +196,15 @@ export function Sidebar() {
                   >
                     <Icon className="w-5 h-5 shrink-0" />
                     <span className="truncate">{label}</span>
+                    {runningFor(href) > 0 && (
+                      <span
+                        title={`${runningFor(href)} réponse${runningFor(href) > 1 ? "s" : ""} en cours`}
+                        className={cn("ml-auto inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full", active ? "bg-white/20 text-white" : "bg-violet-600/20 text-violet-300")}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                        {runningFor(href)}
+                      </span>
+                    )}
                   </Link>
                 )
               })}

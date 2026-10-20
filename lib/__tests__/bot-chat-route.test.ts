@@ -53,17 +53,14 @@ vi.mock("@/lib/tiktok-accounts", () => ({
     return attached[dashboardId] ?? [];
   },
 }));
-vi.mock("@/lib/relay-chat", async (original) => {
-  const real = await original<typeof import("@/lib/relay-chat")>();
-  return {
-    ...real,
-    relayStream: async (body: RelayChatBody) => {
-      relayCalls.push(body);
-      const sse = ['data: {"type":"delta","text":"Bonjour"}', 'data: {"type":"done"}', ""].join("\n\n");
-      return new Response(sse, { status: 200, headers: { "Content-Type": "text/event-stream" } });
-    },
-  };
-});
+// The turn is detached (lib/ai-jobs.ts): the route hands the relay body to
+// startAiJob and stores the user message itself.
+vi.mock("@/lib/ai-jobs", () => ({
+  runningJobOf: async () => null,
+  jobTitle: (t: string) => t.slice(0, 60),
+  appendBotMessages: async (_id: string, messages: unknown[]) => { saved.push({ messages }); },
+  startAiJob: async (input: { relayBody: RelayChatBody }) => { relayCalls.push(input.relayBody); return { jobId: "a".repeat(32) }; },
+}));
 
 import { POST } from "@/app/api/bot/[botId]/chat/route";
 import { resetBotContextMemos } from "@/lib/bot-context";
@@ -76,8 +73,8 @@ async function ask(sources: Record<string, unknown>, body: Record<string, unknow
     body: JSON.stringify({ conversationId: "conv1", message: "Comment vont mes campagnes TikTok ?", ...body }),
   });
   const res = (await POST(req, { params: Promise.resolve({ botId: BOT.id }) }))!;
-  expect(res.status).toBe(200);
-  await res.text();
+  expect(res.status).toBe(202);
+  expect(await res.json()).toEqual({ jobId: "a".repeat(32), conversationId: "conv1" });
   expect(relayCalls).toHaveLength(1);
   return relayCalls[0];
 }
@@ -150,8 +147,9 @@ describe("POST /api/bot/[botId]/chat — TikTok Ads", () => {
     expect(body.systemPrompt).toContain("TikTok Ads — outils mcp__mcp-tiktok-ads__*");
     expect(body.systemPrompt).toContain(IDS.join(", "));
     expect(body.systemPrompt).not.toContain("7999999999999999999");
-    // The turn is stored as usual.
+    // The question is stored at once; the answer joins it when the job ends.
     expect(saved).toHaveLength(1);
+    expect(saved[0].messages).toMatchObject([{ role: "user", content: "Comment vont mes campagnes TikTok ?" }]);
   });
 
   it("asks for nothing when the source is ticked but no account is attached", async () => {

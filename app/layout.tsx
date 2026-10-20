@@ -4,6 +4,7 @@ import "./globals.css";
 import { Sidebar, SecondaryNav } from "@/components/sidebar";
 import { SessionProvider } from "next-auth/react";
 import { AclWatcher } from "@/components/acl-watcher";
+import { AiJobsWatcher } from "@/components/ai-jobs-watcher";
 import { GuideBot } from "@/components/guide-bot";
 import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
@@ -55,6 +56,8 @@ export default async function RootLayout({
       <body className={`${geist.variable} antialiased`}>
         <SessionProvider session={session} refetchInterval={30} refetchOnWindowFocus>
           <AclWatcher />
+          {/* Detached AI turns of the viewer: counts in the nav, a notice when a reply is ready. */}
+          <AiJobsWatcher enabled={showApp}>
           <CreativesProvider>
             {showApp && isClient ? (
               // Client chrome: just their dashboard — no internal nav.
@@ -98,6 +101,7 @@ export default async function RootLayout({
               </div>
             )}
           </CreativesProvider>
+          </AiJobsWatcher>
         </SessionProvider>
       </body>
     </html>

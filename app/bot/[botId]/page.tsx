@@ -7,13 +7,16 @@ import { suggestionsForSources } from "@/lib/bot-prompt";
 import { isStaff } from "@/lib/auth-helpers";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { BotChat } from "@/components/bot/bot-chat";
+import { runningConversationIds } from "@/lib/ai-jobs";
 
 /**
  * /bot/[botId] — the private assistant of one client brand.
  * Works for clients (client chrome) and staff (sidebar chrome) alike.
  */
-export default async function BotPage({ params }: { params: Promise<{ botId: string }> }) {
+export default async function BotPage({ params, searchParams }: { params: Promise<{ botId: string }>; searchParams: Promise<{ c?: string }> }) {
   const { botId } = await params;
+  // ?c=<conversationId>: the thread to open (link of a « réponse prête » notice).
+  const { c: wanted } = await searchParams;
   const session = await auth();
   if (!session?.userId) redirect(`/login?callbackUrl=/bot/${botId}`);
 
@@ -43,6 +46,9 @@ export default async function BotPage({ params }: { params: Promise<{ botId: str
     orderBy: { updatedAt: "desc" },
     take: 50,
   });
+  // Threads on which a reply is still being produced (detached turns).
+  const running = await runningConversationIds(conversations.map((c) => c.id), session.userId);
+  const initialActiveId = wanted && conversations.some((c) => c.id === wanted) ? wanted : null;
 
   return (
     <BotChat
@@ -54,7 +60,8 @@ export default async function BotPage({ params }: { params: Promise<{ botId: str
       isStaff={staff}
       enabled={bot.enabled}
       accessCount={accessCount}
-      initialConversations={conversations.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt.toISOString() }))}
+      initialConversations={conversations.map((c) => ({ id: c.id, title: c.title, updatedAt: c.updatedAt.toISOString(), jobId: running.get(c.id) ?? null }))}
+      initialActiveId={initialActiveId}
     />
   );
 }

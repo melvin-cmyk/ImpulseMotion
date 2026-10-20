@@ -1,6 +1,7 @@
 /**
  * /api/bot/[botId]/conversations — the caller's own threads on one bot.
- *   GET  → { conversations: [{ id, title, updatedAt }] } (50 most recent)
+ *   GET  → { conversations: [{ id, title, updatedAt, jobId }] } (50 most recent;
+ *          jobId = detached turn still running on that thread, else null)
  *   POST → { conversation: { id, title, updatedAt } } (new, empty)
  */
 
@@ -8,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
+import { runningConversationIds } from "@/lib/ai-jobs";
 
 const MAX_LIST = 50;
 
@@ -25,13 +27,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ bot
   const { botId } = await params;
   const g = await guardBot(botId);
   if ("error" in g) return g.error;
-  const conversations = await prisma.botConversation.findMany({
+  const rows = await prisma.botConversation.findMany({
     where: { botId, userId: g.session.userId },
     select: { id: true, title: true, updatedAt: true },
     orderBy: { updatedAt: "desc" },
     take: MAX_LIST,
   });
-  return NextResponse.json({ conversations });
+  // `jobId`: a reply is being produced on that thread (detached turn).
+  const running = await runningConversationIds(rows.map((r) => r.id), g.session.userId);
+  const conversations = rows.map((r) => ({ ...r, jobId: running.get(r.id) ?? null }));
+  return NextResponse.json({ conversations }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ botId: string }> }) {

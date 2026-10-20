@@ -15,6 +15,8 @@ const CLIENT_ALLOWED_PREFIXES = [
   "/api/auth",
   "/bot",
   "/api/bot",
+  // Detached AI turns of the bots (follow, stop, list).
+  "/api/ai/jobs",
   // Own-account management: a client must be able to change their password.
   "/settings",
   "/api/me/password",
@@ -30,7 +32,7 @@ export default auth((req) => {
   // /api/studio/media serves signed, short-lived links that Agnes AI fetches (no session): the signature is checked by the route.
   // /dash-runtime.js and /vendor/ are public static scripts loaded by the sandboxed
   // iframe of a staff dashboard (opaque origin: the session cookie is not sent).
-  const publicPaths = ["/login", "/api/auth", "/api/cron", "/api/ingest", "/api/tiktok-verify", "/api/studio/media/", "/_next", "/favicon", "/dash-runtime.js", "/vendor/"];
+  const publicPaths = ["/login", "/api/auth", "/api/cron", "/api/ingest", "/api/ai/jobs/complete", "/api/tiktok-verify", "/api/studio/media/", "/_next", "/favicon", "/dash-runtime.js", "/vendor/"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   const isAdminPath = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");

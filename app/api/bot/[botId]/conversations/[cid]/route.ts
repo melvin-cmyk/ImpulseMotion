@@ -1,6 +1,7 @@
 /**
  * /api/bot/[botId]/conversations/[cid] — one of the caller's threads.
- *   GET    → { conversation: { id, title, updatedAt, messages: BotMessage[] } }
+ *   GET    → { conversation: { id, title, updatedAt, messages: BotMessage[] }, job }
+ *            (job = the detached turn still running on it, else null)
  *   DELETE → { ok: true }
  * A thread owned by someone else is a 404 (never reveal it exists).
  */
@@ -10,6 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
 import { parseMessages } from "@/lib/bot-types";
+import { publicJob, runningJobOf } from "@/lib/ai-jobs";
 
 type Params = { params: Promise<{ botId: string; cid: string }> };
 
@@ -33,7 +35,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const g = await guardConversation(botId, cid);
   if ("error" in g) return g.error;
   const { messagesJson, ...rest } = g.conversation;
-  return NextResponse.json({ conversation: { ...rest, messages: parseMessages(messagesJson) } });
+  const job = await runningJobOf(g.conversation.id, g.session.userId);
+  return NextResponse.json({ conversation: { ...rest, messages: parseMessages(messagesJson) }, job: job ? publicJob(job) : null }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function DELETE(_req: NextRequest, { params }: Params) {

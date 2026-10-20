@@ -9,6 +9,8 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    // Detached turns: none running in these tests.
+    aiJob: { findFirst: async () => null, findMany: async () => [] },
     consoleConversation: {
       findUnique: async ({ where }: { where: { id: string } }) => rows.get(where.id) ?? null,
       findFirst: async ({ where }: { where: { id: string; userId: string } }) => {

@@ -1,51 +1,44 @@
 /**
- * POST /api/bot/[botId]/chat → SSE stream of the assistant's answer.
- *   body { conversationId, message }
+ * POST /api/bot/[botId]/chat → starts a detached turn of the assistant.
+ *   body { conversationId, message }   →   202 { jobId, conversationId }
+ *
+ * The answer is produced by the relay whatever the browser does next (the
+ * client may switch conversation, open a dashboard, close the tab). The
+ * browser follows it through GET /api/ai/jobs/[jobId]/events and reloads the
+ * conversation when it is over; the answer is stored by lib/ai-jobs.ts.
  *
  * The route owns persistence so the browser never writes messages itself:
  *   1. loads the caller's conversation (owner = session.userId, else 404);
  *   2. builds the system prompt (business context + enabled sources + data
- *      coverage + loaded datasets, memoised in lib/bot-context.ts) and calls the relay with MCP servers derived from the sources,
- *      account / data scopes derived from the dashboard (server-side scoping:
- *      the model never picks an account or a client_key; the TikTok
- *      advertisers are the ones attached to the dashboard);
- *   3. TEES the relay's SSE body: bytes go to the browser untouched while the
- *      `delta` events are accumulated; on `done` (or stream end with text) the
- *      user + assistant messages are appended to messagesJson and the title is
- *      set from the first user message.
- *
- * Events forwarded as-is: init, delta {text}, tool_call {name}, tool_result,
- * content, usage, error {message}, done.
+ *      coverage + loaded datasets, memoised in lib/bot-context.ts) and the
+ *      relay body with MCP servers derived from the sources, account / data
+ *      scopes derived from the dashboard (server-side scoping: the model
+ *      never picks an account or a client_key; the TikTok advertisers are
+ *      the ones attached to the dashboard);
+ *   3. writes the user message to the thread, starts the relay job, records
+ *      it (AiJob) with the ledger context of its usage line.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { recordBotUsage, type RelayUsage } from "@/lib/ai-usage";
 import { prisma } from "@/lib/prisma";
 import { isStaff, requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
-import { parseMessages, parseSources, serializeMessages, serversForSources, type BotMessage } from "@/lib/bot-types";
+import { parseMessages, parseSources, serversForSources, type BotMessage } from "@/lib/bot-types";
 import { buildBotSystemPrompt } from "@/lib/bot-prompt";
 import { loadBotCoverage, loadBotDatasets } from "@/lib/bot-context";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
-import { relayStream, teeRelayStream, type RelayChatBody, type RelayMessage } from "@/lib/relay-chat";
-
-export const maxDuration = 120;
+import type { RelayChatBody, RelayMessage } from "@/lib/relay-chat";
+import { appendBotMessages, jobTitle, runningJobOf, startAiJob } from "@/lib/ai-jobs";
 
 const MAX_HISTORY = 30;
 const MAX_MESSAGE_CHARS = 12000;
-const TITLE_CHARS = 60;
-/** Under maxDuration, leaving room for the persistence write after `done`. */
-const BUDGET_MS = 105_000;
+/** Detached: the relay allows a long turn; the browser is not holding a function open. */
+const BUDGET_MS = 10 * 60_000;
 
 function toRelayMessages(history: BotMessage[]): RelayMessage[] {
   return history
     .slice(-MAX_HISTORY)
     .map((m) => ({ role: m.role, content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
-}
-
-function titleFrom(text: string): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  return oneLine.length > TITLE_CHARS ? oneLine.slice(0, TITLE_CHARS - 1).trimEnd() + "…" : oneLine;
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ botId: string }> }) {
@@ -68,6 +61,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
     select: { id: true, title: true, messagesJson: true },
   });
   if (!conversation) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const running = await runningJobOf(conversation.id, guard.session.userId);
+  if (running) return NextResponse.json({ error: "Une réponse est déjà en cours sur cette conversation. Attendez qu'elle soit terminée avant d'envoyer la suite.", jobId: running.id }, { status: 409 });
 
   const sources = parseSources(bot.sourcesJson);
   // TikTok: read only when the admin ticked it, on the advertisers attached to
@@ -112,41 +107,29 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
     relayBody.dataScope = { clientKey: bot.clientKey, ga4PropertyId: sources.ga4PropertyId, ...(tools.length ? { tools } : {}) };
   }
 
-  const upstream = await relayStream(relayBody);
-  if (upstream.status !== 200 || !upstream.body) return upstream;
-
-  const persist = async (text: string, sawDone: boolean, usage: RelayUsage | null) => {
-    // Billing ledger first: the session was paid for even when no usable text
-    // came back. Never let a ledger failure lose the conversation.
-    if (usage) {
-      await recordBotUsage({
-        usage,
-        bot: { id: bot.id, clientKey: bot.clientKey, dashboard: bot.dashboard },
-        user: { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role },
-      }).catch((e) => console.error("[bot/chat] usage ledger failed", e));
-    }
-    const answer = text.trim();
-    if (!answer) return; // nothing usable: leave the thread untouched, the UI keeps the draft
-    const assistant: BotMessage = {
-      role: "assistant",
-      content: sawDone ? answer : `${answer}\n\n_(réponse possiblement tronquée)_`,
-      at: new Date().toISOString(),
-    };
-    await prisma.botConversation.update({
-      where: { id: conversation.id },
-      data: {
-        messagesJson: serializeMessages([...thread, assistant]),
-        title: conversation.title ?? titleFrom(thread.find((m) => m.role === "user")?.content ?? message),
-      },
-    });
-  };
-
-  return new Response(teeRelayStream(upstream.body, persist), {
-    status: 200,
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      "X-Accel-Buffering": "no",
+  // The question is part of the thread from now on; the answer joins it when
+  // the job ends (whoever notices first: the browser's reader, the relay's
+  // webhook, the reconciliation of the lists).
+  await appendBotMessages(conversation.id, [userMessage], conversation.title ?? jobTitle(message));
+  const started = await startAiJob({
+    relayBody,
+    surface: "bot",
+    userId: guard.session.userId,
+    conversationId: conversation.id,
+    botId: bot.id,
+    title: message,
+    usageContext: {
+      feature: "client_bot",
+      dashboardId: bot.dashboard.id,
+      clientName: bot.dashboard.name,
+      botId: bot.id,
+      clientKey: bot.clientKey,
+      user: { id: guard.session.userId, email: guard.session.user?.email, role: guard.session.role },
     },
   });
+  if ("error" in started) {
+    await appendBotMessages(conversation.id, [{ role: "assistant", content: `_L'assistant n'a pas pu répondre : ${started.error}_`, at: new Date().toISOString() }]);
+    return NextResponse.json({ error: started.error }, { status: 502 });
+  }
+  return NextResponse.json({ jobId: started.jobId, conversationId: conversation.id }, { status: 202 });
 }
