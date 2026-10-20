@@ -139,6 +139,7 @@ describe("buildBotSystemPrompt — sources conditionnelles", () => {
     });
     expect(p).toContain("Données e-commerce du client");
     expect(p).toContain("data_sales_summary");
+    expect(p).toContain("data_customer_segments");
     expect(p).toMatch(/12\s?345 commandes du 2024-01-15 au 2026-09-06/);
     expect(p).toContain("Dernière mise à jour des commandes : 2026-09-07");
     expect(p).toContain("complete (12");

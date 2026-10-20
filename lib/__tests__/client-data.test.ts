@@ -146,6 +146,23 @@ describe("upsertOrderRows", () => {
     expect(itemParams[3]).toEqual(["A-1", "B-2"]);
   });
 
+  it("carries customer_created_at (UTC) to the orders upsert, and accepts batches without it", async () => {
+    await upsertOrderRows("lpev", [{ ...head, sku: "A" }]);
+    const sql = calls[1].text.replace(/\s+/g, " ");
+    expect(sql).toContain("customer_created_at = EXCLUDED.customer_created_at");
+    // columns follow (client_key, order_ids) in ORDER_COLS order: customer_created_at is the 15th column
+    const colNames = sql.match(/INSERT INTO client_data\.orders \(client_key, order_id, ([^)]+), ingested_at\)/)![1].split(", ");
+    const idx = colNames.indexOf("customer_created_at");
+    expect(idx).toBeGreaterThan(-1);
+    expect(calls[1].values![2 + idx]).toEqual(["2025-11-01T10:00:00.000Z"]);
+
+    calls.length = 0;
+    const { customer_created_at: _omit, ...withoutDate } = head;
+    void _omit;
+    await upsertOrderRows("lpev", [{ ...withoutDate, sku: "A" }]);
+    expect(calls[1].values![2 + idx]).toEqual([null]);
+  });
+
   it("does nothing without usable rows", async () => {
     expect(await upsertOrderRows("lpev", [{ order_id: "" }, {} as IngestRow])).toEqual({ orders: 0, items: 0 });
     expect(calls).toHaveLength(0);

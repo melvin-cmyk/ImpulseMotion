@@ -84,6 +84,9 @@ const int = (v) => (v === null || v === undefined ? 0 : Number(v));
 function todayParis() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
+function parisDate(d) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(d));
+}
 function shiftDays(ymd, days) {
   const d = new Date(`${ymd}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
@@ -127,6 +130,26 @@ function baseParams(p, args) {
   return [clientOf(args), p.from, p.toExclusive, Boolean(args?.include_canceled)];
 }
 
+// Filtre facultatif sur le type de prescripteur : $5 = valeur exacte ou NULL (toutes).
+const PRESCRIBER_WHERE = `AND ($5::text IS NULL OR o.prescriber_type = $5::text)`;
+const prescriberShape = {
+  prescriber_type: z.string().optional().describe(
+    "Ne garder que les commandes de ce type de prescripteur (valeur exacte de prescriber_type, voir data_prescriber_split ; LPEV : « Prescripteur » ou « No Prescripteur »). Défaut : tous.",
+  ),
+};
+function prescriberOf(args) {
+  const v = typeof args?.prescriber_type === "string" ? args.prescriber_type.trim() : "";
+  return v || null;
+}
+/** Date (Europe/Paris) de la première commande de l'entrepôt pour ce client = début de l'historique connu. */
+async function historyStart(clientKey) {
+  const [row] = await q(
+    `SELECT to_char(min(created_at) AT TIME ZONE '${TZ}', 'YYYY-MM-DD') AS d FROM client_data.orders WHERE client_key = $1`,
+    [clientKey],
+  );
+  return row?.d || null;
+}
+
 function ok(payload) {
   return { content: [{ type: "text", text: renderValue(payload).text }] };
 }
@@ -167,8 +190,15 @@ async function coverageOf(clientKey) {
   {
     const [agg] = await q(
       `SELECT count(*)::int AS orders, min(created_at) AS first_at, max(created_at) AS last_at, max(ingested_at) AS last_ingested,
-              sum(grand_total) FILTER (WHERE coalesce(status,'') <> 'canceled') AS revenue
+              sum(grand_total) FILTER (WHERE coalesce(status,'') <> 'canceled') AS revenue,
+              count(customer_created_at)::int AS with_account_date
        FROM client_data.orders WHERE client_key = $1`,
+      [clientKey],
+    );
+    // Comptes clients créés avant la première commande chargée : ils ont pu commander avant l'historique.
+    const [before] = await q(
+      `SELECT count(DISTINCT customer_id)::int AS n FROM client_data.orders
+       WHERE client_key = $1 AND customer_created_at < (SELECT min(created_at) FROM client_data.orders WHERE client_key = $1)`,
       [clientKey],
     );
     const statuses = await q(
@@ -182,6 +212,13 @@ async function coverageOf(clientKey) {
       last_order_at: agg?.last_at ? new Date(agg.last_at).toISOString() : null,
       last_ingested_at: agg?.last_ingested ? new Date(agg.last_ingested).toISOString() : null,
       revenue_total_excl_canceled: r2(agg?.revenue),
+      history_start: agg?.first_at ? parisDate(agg.first_at) : null,
+      customer_accounts: {
+        orders_with_account_created_at: int(agg?.with_account_date),
+        accounts_created_before_history: int(before?.n),
+        note: "customer_created_at = date de création du compte client (Magento), portée par chaque commande d'un client identifié. " +
+          "Les comptes créés avant history_start ont pu commander avant l'historique chargé : voir data_customer_segments (segment reactivated).",
+      },
       statuses: Object.fromEntries(statuses.map((s) => [s.status, int(s.n)])),
       currency: "EUR",
       timezone: TZ,
@@ -197,10 +234,12 @@ server.registerTool(
     description:
       "Ventes e-commerce agrégées par jour, semaine, mois ou en total sur la période : nombre de commandes, chiffre d'affaires " +
       "(somme de grand_total, EUR TTC), panier moyen (aov), articles vendus, nouveaux clients (première commande dans la période), " +
-      "commandes invités. Source de référence pour le CA réel. Commandes annulées exclues par défaut.",
+      "commandes invités. Source de référence pour le CA réel. Commandes annulées exclues par défaut. " +
+      "prescriber_type restreint à un type de prescripteur (les nouveaux clients restent calculés sur toutes les commandes).",
     inputSchema: {
       ...clientShape,
       ...periodShape,
+      ...prescriberShape,
       granularity: z.enum(["day", "week", "month", "total"]).optional().describe("Granularité (défaut : total)."),
     },
   },
@@ -230,12 +269,13 @@ server.registerTool(
               count(*) FILTER (WHERE coalesce(o.customer_is_guest, false) OR o.customer_key IS NULL)::int AS guest_orders
        FROM client_data.orders o
        LEFT JOIN first_orders f ON f.customer_key = o.customer_key
-       WHERE ${WHERE}
+       WHERE ${WHERE} ${PRESCRIBER_WHERE}
        GROUP BY 1 ORDER BY 1 LIMIT ${MAX_ROWS}`,
-      baseParams(p, args),
+      [...baseParams(p, args), prescriberOf(args)],
     );
     return {
       period: { from: p.from, to: p.to }, granularity: g, currency: "EUR",
+      ...(prescriberOf(args) ? { prescriber_type: prescriberOf(args) } : {}),
       rows: rows.map((r) => ({
         period: r.period, orders: int(r.orders), revenue: r2(r.revenue), aov: r2(r.aov),
         items: r2(r.items), new_customers: int(r.new_customers), guest_orders: int(r.guest_orders),
@@ -322,8 +362,10 @@ server.registerTool(
     title: "Nouveaux clients vs récurrents",
     description:
       "Sur la période : commandes et CA (EUR TTC) des nouveaux clients (première commande dans la période, calculée sur tout " +
-      "l'historique), des clients récurrents (déjà commandé avant) et des invités (sans compte). Commandes annulées exclues par défaut.",
-    inputSchema: { ...clientShape, ...periodShape },
+      "l'historique), des clients récurrents (déjà commandé avant) et des invités (sans compte). Commandes annulées exclues par défaut. " +
+      "prescriber_type restreint à un type de prescripteur. Pour une lecture par période, ou pour distinguer les vrais nouveaux " +
+      "des comptes antérieurs à l'historique (reactivated), utilise data_customer_segments.",
+    inputSchema: { ...clientShape, ...periodShape, ...prescriberShape },
   },
   guarded(async (args) => {
     const p = period(args);
@@ -345,9 +387,9 @@ server.registerTool(
               avg(o.grand_total) AS aov
        FROM client_data.orders o
        LEFT JOIN first_orders f ON f.customer_key = o.customer_key
-       WHERE ${WHERE}
+       WHERE ${WHERE} ${PRESCRIBER_WHERE}
        GROUP BY 1 ORDER BY 1`,
-      baseParams(p, args),
+      [...baseParams(p, args), prescriberOf(args)],
     );
     const totalRevenue = rows.reduce((s, r) => s + Number(r.revenue || 0), 0);
     const out = { new: null, returning: null, guest: null };
@@ -358,7 +400,99 @@ server.registerTool(
         revenue_share_pct: totalRevenue ? r2((Number(r.revenue || 0) / totalRevenue) * 100) : null,
       };
     }
-    return { period: { from: p.from, to: p.to }, currency: "EUR", segments: out, total_revenue: r2(totalRevenue) };
+    return {
+      period: { from: p.from, to: p.to }, currency: "EUR",
+      ...(prescriberOf(args) ? { prescriber_type: prescriberOf(args) } : {}),
+      segments: out, total_revenue: r2(totalRevenue),
+    };
+  }),
+);
+
+server.registerTool(
+  "data_customer_segments",
+  {
+    title: "Segments clients × prescripteur par période",
+    description:
+      "Commandes, clients distincts, CA (EUR TTC = grand_total, port inclus) et panier moyen (aov) par période × segment client × " +
+      "type de prescripteur. Identité client = compte (customer_id) ; segment calculé sur TOUT l'historique de l'entrepôt, pas seulement " +
+      "la période. new = première commande valide du client dans la période ET compte créé à partir de history_start (début de " +
+      "l'historique chargé ; LPEV : 2025-01-01). reactivated = première commande valide dans l'entrepôt située dans la période MAIS " +
+      "compte créé avant history_start (il a très probablement commandé avant l'historique). returning = au moins une commande valide " +
+      "dans l'entrepôt avant la période. guest = commande sans compte (invité ou customer_id vide). Toutes les commandes du client sur la " +
+      "période portent son segment, pas seulement la première ; un client new ou reactivated est returning sur toute période postérieure. " +
+      "Limite connue : un compte créé avant history_start qui n'avait jamais commandé est classé reactivated alors que c'est un vrai " +
+      "nouveau client. Commandes valides = hors annulées (include_canceled pour tout compter, aussi dans l'historique). Les totaux par " +
+      "période (period_totals) sont égaux à data_sales_summary sur les mêmes paramètres. ATTENTION pour compter les clients d'un segment " +
+      "tous types de prescripteur confondus : n'additionne pas les lignes (un client peut avoir des commandes avec et sans prescripteur " +
+      "sur la période), lis segment_totals, qui dédoublonne ; de même period_totals.customers dédoublonne entre segments.",
+    inputSchema: {
+      ...clientShape,
+      ...periodShape,
+      ...prescriberShape,
+      granularity: z.enum(["day", "week", "month", "total"]).optional().describe("Granularité (défaut : total)."),
+    },
+  },
+  guarded(async (args) => {
+    const p = period(args);
+    const g = args.granularity || "total";
+    const clientKey = clientOf(args);
+    const start = await historyStart(clientKey);
+    const bucket = g === "total"
+      ? `'total'`
+      : `to_char(date_trunc('${g}', o.created_at AT TIME ZONE '${TZ}'), '${g === "month" ? "YYYY-MM" : "YYYY-MM-DD"}')`;
+    const rows = await q(
+      `WITH hist AS (
+         SELECT customer_id,
+                min((created_at AT TIME ZONE '${TZ}')::date) AS first_day,
+                min(customer_created_at) AS account_created_at
+         FROM client_data.orders
+         WHERE client_key = $1 AND customer_id IS NOT NULL AND coalesce(customer_is_guest, false) = false
+           AND ($4::boolean OR coalesce(status, '') <> 'canceled')
+         GROUP BY customer_id
+       ),
+       base AS (
+         SELECT ${bucket} AS period,
+                CASE
+                  WHEN coalesce(o.customer_is_guest, false) OR o.customer_id IS NULL THEN 'guest'
+                  WHEN h.first_day < $2::date THEN 'returning'
+                  WHEN h.account_created_at IS NULL OR (h.account_created_at AT TIME ZONE '${TZ}')::date >= $6::date THEN 'new'
+                  ELSE 'reactivated' END AS segment,
+                coalesce(o.prescriber_type, '(aucun)') AS prescriber_type,
+                o.customer_id, o.customer_is_guest, o.grand_total
+         FROM client_data.orders o
+         LEFT JOIN hist h ON h.customer_id = o.customer_id
+         WHERE ${WHERE} ${PRESCRIBER_WHERE}
+       )
+       SELECT period, segment, prescriber_type,
+              grouping(segment)::int AS g_segment, grouping(prescriber_type)::int AS g_type,
+              count(*)::int AS orders,
+              count(DISTINCT customer_id) FILTER (WHERE coalesce(customer_is_guest, false) = false)::int AS customers,
+              sum(grand_total) AS revenue, avg(grand_total) AS aov
+       FROM base
+       GROUP BY GROUPING SETS ((period, segment, prescriber_type), (period, segment), (period))
+       ORDER BY period, segment NULLS LAST, prescriber_type NULLS LAST`,
+      [...baseParams(p, args), prescriberOf(args), start || "1970-01-01"],
+    );
+    const detail = [];
+    const segmentTotals = [];
+    const periodTotals = [];
+    for (const r of rows) {
+      const customers = r.segment === "guest" ? null : int(r.customers);
+      if (r.g_segment) periodTotals.push({ period: r.period, orders: int(r.orders), customers: int(r.customers), revenue: r2(r.revenue), aov: r2(r.aov) });
+      else if (r.g_type) segmentTotals.push({ period: r.period, segment: r.segment, orders: int(r.orders), customers, revenue: r2(r.revenue), aov: r2(r.aov) });
+      else detail.push({ period: r.period, segment: r.segment, prescriber_type: r.prescriber_type, orders: int(r.orders), customers, revenue: r2(r.revenue), aov: r2(r.aov) });
+    }
+    const truncated = detail.length > MAX_ROWS;
+    return {
+      period: { from: p.from, to: p.to }, granularity: g, currency: "EUR",
+      history_start: start,
+      ...(prescriberOf(args) ? { prescriber_type: prescriberOf(args) } : {}),
+      segments: { new: "première commande dans la période, compte créé depuis history_start", reactivated: "première commande dans l'entrepôt, compte antérieur à history_start", returning: "a déjà commandé avant la période", guest: "sans compte" },
+      rows: truncated ? detail.slice(0, MAX_ROWS) : detail,
+      ...(truncated ? { note: `Détail tronqué à ${MAX_ROWS} lignes sur ${detail.length} : choisis une granularité plus large ou une période plus courte. segment_totals et period_totals restent complets.` } : {}),
+      segment_totals: segmentTotals,
+      period_totals: periodTotals,
+    };
   }),
 );
 

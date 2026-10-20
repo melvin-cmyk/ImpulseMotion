@@ -256,8 +256,8 @@ function sourcesBlock(sources: BotSources, coverage: BotDataCoverage | null | un
   if (sources.data) {
     n++;
     lines.push(
-      `${n}. Données e-commerce du client (commandes réelles) — outils data_* (data_coverage, data_sales_summary, data_top_products, data_prescriber_split, data_customers_new_vs_returning, data_orders_by_status, data_breakdown).`,
-      "  Chiffre d'affaires réel (grand_total TTC, devise EUR), commandes, panier moyen, produits, nouveaux clients vs récurrents, prescripteurs, moyens de paiement, livraison, pays. C'est LA référence pour le CA et les commandes.",
+      `${n}. Données e-commerce du client (commandes réelles) — outils data_* (data_coverage, data_sales_summary, data_top_products, data_prescriber_split, data_customers_new_vs_returning, data_customer_segments, data_orders_by_status, data_breakdown).`,
+      "  Chiffre d'affaires réel (grand_total TTC, devise EUR), commandes, panier moyen, produits, nouveaux clients vs récurrents (data_customer_segments : par période et par type de prescripteur, à partir de la date de création du compte client), prescripteurs, moyens de paiement, livraison, pays. C'est LA référence pour le CA et les commandes.",
       ...coverageLines(coverage),
     );
   }
