@@ -8,6 +8,7 @@
  *   {"action":"set_dataset","id":"g_spend","dataset":{"title":"…","description":"…","source":{"connector":"…","tool":"…","args":{…}}}}
  *   {"action":"remove_dataset","id":"g_spend"}
  *   {"action":"set_params","params":{…}}                       (remplace tous les paramètres)
+ *   {"action":"set_sources","sources":[{"kind":"google","accounts":[{"id":"…","name":"…"}],"detail":"…"}]} (remplace les sources cochées)
  *   {"action":"edit_html","find":"…","replace":"…","all":false} (remplacement exact, unique sauf all)
  *   {"action":"set_html"}  suivi d'un bloc ```html = la page entière (ou {"action":"set_html","html":"…"})
  * Rien n'est appliqué sans un clic du consultant : le navigateur calcule le
@@ -16,6 +17,7 @@
  */
 
 import { connectorServer, DATASET_ID_RE, PARAM_NAME_RE } from "./connectors";
+import { parseSources, sourceSummary, type StaffSource } from "./sources";
 
 export interface ProposalDataset {
   title: string;
@@ -28,6 +30,7 @@ export type StaffProposal =
   | { action: "set_dataset"; id: string; dataset: ProposalDataset }
   | { action: "remove_dataset"; id: string }
   | { action: "set_params"; params: Record<string, unknown> }
+  | { action: "set_sources"; sources: StaffSource[] }
   | { action: "edit_html"; find: string; replace: string; all?: boolean }
   | { action: "set_html"; html: string };
 
@@ -38,6 +41,8 @@ export interface StaffDashboardState {
   datasets: Record<string, ProposalDataset>;
   params: Record<string, unknown>;
   html: string;
+  /** Sources cochées par le consultant (absent sur un état ancien = aucune). */
+  sources?: StaffSource[];
 }
 
 export interface ExtractedProposal {
@@ -139,6 +144,8 @@ export function coerceProposal(raw: Record<string, unknown>): StaffProposal | nu
     }
     case "set_params":
       return raw.params && typeof raw.params === "object" && !Array.isArray(raw.params) ? { action: "set_params", params: raw.params as Record<string, unknown> } : null;
+    case "set_sources":
+      return Array.isArray(raw.sources) ? { action: "set_sources", sources: parseSources(raw.sources) } : null;
     case "edit_html": {
       const find = str(raw.find), replace = str(raw.replace);
       return find !== undefined && replace !== undefined ? { action: "edit_html", find, replace, ...(raw.all === true ? { all: true } : {}) } : null;
@@ -159,6 +166,7 @@ export function proposalLabel(p: StaffProposal): string {
     case "set_dataset": return `Jeu de données « ${p.id} » (${p.dataset.source.connector} · ${p.dataset.source.tool})`;
     case "remove_dataset": return `Supprimer le jeu de données « ${p.id} »`;
     case "set_params": return `Paramètres : ${Object.keys(p.params).join(", ") || "aucun"}`;
+    case "set_sources": return `Sources : ${p.sources.map(sourceSummary).join(", ") || "aucune"}`;
     case "edit_html": return `Modifier la page (${p.find.length} → ${p.replace.length} caractères${p.all ? ", toutes les occurrences" : ""})`;
     case "set_html": return `Remplacer la page entière (${p.html.length.toLocaleString("fr-FR")} caractères)`;
   }
@@ -201,6 +209,8 @@ export function applyProposal(state: StaffDashboardState, p: StaffProposal): Sta
       if (bad.length) throw new Error(`Nom de paramètre invalide : ${bad.join(", ")}.`);
       return { ...state, params: p.params };
     }
+    case "set_sources":
+      return { ...state, sources: parseSources(p.sources) };
     case "edit_html": {
       if (!p.find) throw new Error("edit_html : le texte à chercher est vide.");
       const n = countOccurrences(state.html, p.find);
@@ -223,12 +233,13 @@ export function proposalProblem(state: StaffDashboardState, p: StaffProposal): s
 }
 
 /** Les champs changés entre deux états, pour PUT /api/staff-dashboards/[id]. */
-export function stateDiff(before: StaffDashboardState, after: StaffDashboardState): Partial<Record<"title" | "description" | "datasets" | "params" | "html", unknown>> {
-  const out: Partial<Record<"title" | "description" | "datasets" | "params" | "html", unknown>> = {};
+export function stateDiff(before: StaffDashboardState, after: StaffDashboardState): Partial<Record<"title" | "description" | "datasets" | "params" | "html" | "sources", unknown>> {
+  const out: Partial<Record<"title" | "description" | "datasets" | "params" | "html" | "sources", unknown>> = {};
   if (after.title !== before.title) out.title = after.title;
   if (after.description !== before.description) out.description = after.description;
   if (JSON.stringify(after.datasets) !== JSON.stringify(before.datasets)) out.datasets = after.datasets;
   if (JSON.stringify(after.params) !== JSON.stringify(before.params)) out.params = after.params;
   if (after.html !== before.html) out.html = after.html;
+  if (JSON.stringify(after.sources ?? []) !== JSON.stringify(before.sources ?? [])) out.sources = after.sources ?? [];
   return out;
 }

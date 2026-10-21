@@ -27,6 +27,7 @@ import { teeRelayStream, type RelayEffort, type RelayModel } from "@/lib/relay-c
 import { sanitizeThread, toRelayMessages, type ThreadMessage } from "@/lib/relay-attachments";
 import { recordAiUsage } from "@/lib/ai-usage";
 import { parseDatasets, parseParams } from "@/lib/staff-dashboards/model";
+import { parseSources } from "@/lib/staff-dashboards/sources";
 import { buildStaffCopilotSystemPrompt, buildStaffCopilotTurnContext, staffCopilotSessionKey, withPageIfUnseen } from "@/lib/staff-dashboards/copilot";
 import { catalogPromptText, loadStaffCatalog } from "@/lib/staff-dashboards/catalog";
 import type { StaffDashboardState } from "@/lib/staff-dashboards/proposals";
@@ -49,20 +50,21 @@ interface ThreadPayload { messages: ThreadMessage[]; proposals: Record<string, s
 async function loadEditable(id: string, session: { userId: string; role?: string | null }) {
   const row = await prisma.staffDashboard.findUnique({
     where: { id },
-    select: { id: true, ownerId: true, title: true, description: true, datasetsJson: true, paramsJson: true, html: true },
+    select: { id: true, ownerId: true, title: true, description: true, datasetsJson: true, paramsJson: true, html: true, sourcesJson: true },
   });
   if (!row) return { error: NextResponse.json({ error: "introuvable" }, { status: 404 }) };
   if (row.ownerId !== session.userId && session.role !== "admin") return { error: NextResponse.json({ error: "réservé au propriétaire" }, { status: 403 }) };
   return { row };
 }
 
-function toState(row: { title: string; description: string | null; datasetsJson: string; paramsJson: string; html: string }): StaffDashboardState {
+function toState(row: { title: string; description: string | null; datasetsJson: string; paramsJson: string; html: string; sourcesJson: string }): StaffDashboardState {
   return {
     title: row.title,
     description: row.description ?? "",
     datasets: parseDatasets(row.datasetsJson).datasets,
     params: parseParams(row.paramsJson),
     html: row.html,
+    sources: parseSources(row.sourcesJson),
   };
 }
 

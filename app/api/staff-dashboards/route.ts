@@ -1,7 +1,7 @@
 /**
  * « Mes dashboards » (staff).
  *   GET  → { dashboards: [{ id, title, description, shared, mine, ownerEmail, datasetCount, updatedAt }], templates }
- *   POST → crée un dashboard : { title?, description?, datasets?, params?, html?, shared? }
+ *   POST → crée un dashboard : { title?, description?, datasets?, params?, html?, shared?, sources? }
  *          ou depuis un modèle livré : { template: "cours-legendre", title? }
  */
 
@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { MAX_HTML_CHARS, MAX_TITLE_CHARS, TEMPLATES, loadTemplate, parseDatasets, parseParams } from "@/lib/staff-dashboards/model";
+import { parseSources } from "@/lib/staff-dashboards/sources";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -69,7 +70,10 @@ export async function POST(req: NextRequest) {
   if (html.length > MAX_HTML_CHARS) return NextResponse.json({ error: `page trop grande (max ${MAX_HTML_CHARS} caractères)` }, { status: 413 });
 
   const row = await prisma.staffDashboard.create({
-    data: { ownerId: guard.session.userId, title, description: description || null, datasetsJson, paramsJson, html, shared: body.shared === true },
+    data: {
+      ownerId: guard.session.userId, title, description: description || null, datasetsJson, paramsJson, html, shared: body.shared === true,
+      sourcesJson: JSON.stringify(parseSources(body.sources)),
+    },
     select: { id: true },
   });
   return NextResponse.json({ id: row.id }, { status: 201 });

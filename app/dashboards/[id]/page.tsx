@@ -15,6 +15,8 @@ import { DashFrame, type DashFrameHandle } from "@/components/staff-dashboards/d
 import { StaffCopilotPanel } from "@/components/staff-dashboards/copilot";
 import { SHEETS_SHARE_EMAIL } from "@/lib/mcp-whitelist";
 import { STAFF_DASHBOARDS_DRIVE_FOLDER_URL } from "@/lib/staff-dashboards/drive";
+import { SourcesPicker } from "@/components/staff-dashboards/sources-picker";
+import { sourceSummary, type StaffSource } from "@/lib/staff-dashboards/sources";
 import {
   FIELD, MONO_FIELD, PRIMARY_BUTTON, SMALL_BUTTON, apiErrorText, dateLabel, ownerLabel, parseJsonField,
   type DashboardDetail, type FrameSource,
@@ -53,6 +55,7 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
   const [eDatasets, setEDatasets] = useState("");
   const [eParams, setEParams] = useState("");
   const [eHtml, setEHtml] = useState("");
+  const [eSources, setESources] = useState<StaffSource[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -61,7 +64,7 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
       if (!res.ok) { setLoadError({ status: res.status, message: apiErrorText(body, res.status) }); return null; }
       const d = body.dashboard as DashboardDetail | undefined;
       if (!d || typeof d.id !== "string" || typeof d.html !== "string") { setLoadError({ status: 500, message: "Réponse illisible du serveur" }); return null; }
-      setDashboard({ ...d, datasets: d.datasets && typeof d.datasets === "object" ? d.datasets : {}, params: d.params && typeof d.params === "object" ? d.params : {} });
+      setDashboard({ ...d, datasets: d.datasets && typeof d.datasets === "object" ? d.datasets : {}, params: d.params && typeof d.params === "object" ? d.params : {}, sources: Array.isArray(d.sources) ? d.sources : [] });
       setLoadError(null);
       return d;
     } catch (e) {
@@ -119,6 +122,7 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
     setEDatasets(JSON.stringify(dashboard.datasets, null, 2));
     setEParams(JSON.stringify(dashboard.params, null, 2));
     setEHtml(dashboard.html);
+    setESources(dashboard.sources);
     setNotice(null);
     setShowEditor(true);
   }
@@ -191,6 +195,7 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
           datasets: datasetsParsed.value ?? {},
           params: paramsParsed.value ?? {},
           html: eHtml,
+          sources: eSources,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -245,9 +250,14 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
         <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
           {dashboard.shared ? <Pill tone={dashboard.mine ? "violet" : "blue"}>{dashboard.mine ? "Partagé à l'équipe" : "Partagé"}</Pill> : <Pill>Privé</Pill>}
           {!dashboard.mine && <span className="inline-flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {ownerLabel(dashboard)}</span>}
-          <span className="inline-flex items-center gap-1"><Database className="w-3.5 h-3.5" /> {Object.keys(dashboard.datasets).length} source{Object.keys(dashboard.datasets).length > 1 ? "s" : ""}</span>
+          <span className="inline-flex items-center gap-1"><Database className="w-3.5 h-3.5" /> {Object.keys(dashboard.datasets).length} jeu{Object.keys(dashboard.datasets).length > 1 ? "x" : ""} de données</span>
           <span>Mis à jour le {dateLabel(dashboard.updatedAt)}</span>
         </div>
+        {dashboard.sources.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5" aria-label="Sources choisies">
+            {dashboard.sources.map((s) => <Pill key={s.kind} tone="violet">{sourceSummary(s)}</Pill>)}
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -332,6 +342,11 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
               <span className="text-xs font-medium text-gray-300">Description</span>
               <input value={eDescription} onChange={(e) => setEDescription(e.target.value)} maxLength={2000} className={`${FIELD} mt-1`} />
             </label>
+            <div>
+              <span className="text-xs font-medium text-gray-300">Sources</span>
+              <span className="block text-[11px] text-gray-500 mb-2">Plateformes et comptes de la page : le copilote IA construit ses jeux de données dessus.</span>
+              <SourcesPicker value={eSources} onChange={setESources} disabled={!!busy} />
+            </div>
             <label className="block">
               <span className="text-xs font-medium text-gray-300">Jeux de données (JSON)</span>
               <textarea value={eDatasets} onChange={(e) => setEDatasets(e.target.value)} rows={12} spellCheck={false} className={`${MONO_FIELD} mt-1`} />

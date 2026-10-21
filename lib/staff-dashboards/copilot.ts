@@ -15,6 +15,7 @@ import { staffSignature, staffToolGuidance, SYSTEM_PROMPT_DYNAMIC_BOUNDARY } fro
 import { DATASET_TOOLS } from "./connectors";
 import { STAFF_DASHBOARDS_DRIVE_FOLDER_ID } from "./drive";
 import { htmlHash, type StaffDashboardState } from "./proposals";
+import { SOURCE_KINDS, sourcesContextText } from "./sources";
 
 export const STAFF_COPILOT_CONTEXT_MAX_CHARS = 18_000;
 
@@ -53,6 +54,8 @@ CONNECTEURS ET OUTILS OUVERTS AUX JEUX DE DONNÉES (lecture seule — un outil a
 ${datasetToolsCatalogue()}
 Les identifiants de comptes (customer_id Google, act_… Meta, advertiser_id TikTok) doivent être ceux du client, donnés par le consultant ou trouvés avec tes outils (List_Customers, List_Ad_Accounts1…). Le serveur refuse un jeu dont le compte est hors du périmètre du consultant (statut "declined").
 
+SOURCES CHOISIES PAR LE CONSULTANT : à la création (et dans « Modifier »), le consultant coche les sources de la page (${SOURCE_KINDS.map((k) => k.label).join(", ")}) et les comptes à lire. Elles figurent dans l'état du dashboard (« Sources choisies par le consultant »). Règles : construis tes jeux de données sur ces sources et ces comptes-là, avec le connecteur indiqué ; une source cochée sans compte ni précision → trouve le compte avec tes outils ou demande-le ; une source non cochée dont tu as besoin → propose-la (set_sources) plutôt que de l'utiliser en silence. Quand il te demande d'ajouter ou de retirer une source ou un compte, émets {"action":"set_sources","sources":[…]} avec la liste COMPLÈTE (kind parmi ${SOURCE_KINDS.map((k) => k.kind).join("|")}, accounts [{id,name}], detail).
+
 VÉRIFIER AVANT D'ÉCRIRE : tu disposes des MÊMES outils en direct dans cette conversation (mcp__mcp-google-ads__Custom_GAQL_Query, mcp__meta-ads-impulse__Campaign_Performance1, mcp__mcp-google-sheet__Get_row_s_in_sheet_in_Google_Sheets…). Quand tu crées ou changes un jeu de données, appelle d'abord l'outil avec les mêmes arguments pour voir la forme réelle de la réponse (noms de colonnes, camelCase, micros, chaînes), puis écris le loader en conséquence. Ne devine pas une colonne d'onglet Sheets : lis l'onglet.
 
 ÉTAT DU DASHBOARD : il t'est donné entre crochets ([ÉTAT DU DASHBOARD …] : titre, jeux de données, paramètres, empreinte de la page) dans le message de l'utilisateur, au début puis à chaque changement. La PAGE ENTIÈRE t'est donnée dans un bloc \`\`\`html du message quand tu ne l'as pas encore vue (premier tour, ou modifiée à la main depuis) — garde-la en tête : elle n'est pas renvoyée tant qu'elle ne change pas sous tes pieds. Après une proposition appliquée, la page est celle que tu as écrite.
@@ -63,6 +66,7 @@ RÈGLE ABSOLUE : toute modification DOIT être émise dans un bloc de code au la
 - {"action":"set_dataset","id":"<id>","dataset":{"title":"…","description":"…","source":{"kind":"query","connector":"n8n google ads","tool":"Custom_GAQL_Query","args":{…}}}} — ajoute ou remplace le jeu <id> en entier
 - {"action":"remove_dataset","id":"<id>"}
 - {"action":"set_params","params":{…}} — remplace TOUS les paramètres
+- {"action":"set_sources","sources":[{"kind":"google","accounts":[{"id":"1234567890","name":"Client"}],"detail":""}]} — remplace TOUTES les sources cochées (voir plus haut)
 - {"action":"edit_html","find":"<texte exact présent une seule fois dans la page>","replace":"<nouveau texte>"} — pour une retouche : copie le texte à remplacer À L'IDENTIQUE (espaces, guillemets, retours à la ligne échappés en \\n dans le JSON), assez long pour être unique ; "all":true pour remplacer toutes les occurrences
 - {"action":"set_html"} IMMÉDIATEMENT suivi d'un bloc \`\`\`html contenant la page ENTIÈRE — pour une page nouvelle ou une refonte. Jamais de page tronquée ni de « … le reste inchangé ».
 Choisis edit_html pour une retouche (moins cher, plus sûr), set_html pour créer ou réécrire largement. Plusieurs blocs dans une même réponse sont possibles (jeux de données d'abord, puis la page). Réponds brièvement avant les blocs : ce que tu changes et pourquoi.
@@ -112,6 +116,7 @@ export function buildStaffCopilotTurnContext(state: StaffDashboardState, maxChar
     return `[ÉTAT DU DASHBOARD « ${state.title} » — remplace tout état donné plus haut
 Description : ${state.description || "(aucune)"}
 Paramètres : ${JSON.stringify(state.params)}
+${sourcesContextText(state.sources ?? [])}
 Jeux de données (${Object.keys(state.datasets).length}) :
 ${datasets.join("\n") || "(aucun)"}
 Page : ${state.html.length ? `${state.html.length.toLocaleString("fr-FR")} caractères, empreinte ${hash}` : "VIDE (à créer avec set_html)"}${limit !== Infinity ? "\n(ÉTAT ABRÉGÉ : les textes longs des jeux sont coupés « … [+N caractères] » ; un set_dataset renvoie toujours le jeu entier.)" : ""}]`;

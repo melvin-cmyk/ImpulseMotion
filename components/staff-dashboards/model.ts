@@ -4,8 +4,9 @@
  */
 
 import type { Dataset, ParamValue } from "@/lib/staff-dashboards/model";
+import type { StaffSource } from "@/lib/staff-dashboards/sources";
 
-export type { Dataset, ParamValue };
+export type { Dataset, ParamValue, StaffSource };
 
 export interface DashboardListItem {
   id: string;
@@ -29,6 +30,8 @@ export interface DashboardDetail {
   params: Record<string, ParamValue>;
   html: string;
   shared: boolean;
+  /** Sources cochées par le consultant (plateformes + comptes), données au copilote. */
+  sources: StaffSource[];
   mine: boolean;
   canEdit: boolean;
   ownerEmail: string;

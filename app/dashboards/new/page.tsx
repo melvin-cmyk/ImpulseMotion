@@ -13,10 +13,12 @@ import { ArrowLeft, ClipboardPaste, LayoutTemplate, Loader2, Sparkles } from "lu
 import { Card, PageHeader } from "@/components/ui/surface";
 import { FIELD, MONO_FIELD, PRIMARY_BUTTON, SMALL_BUTTON, apiErrorText, parseJsonField, type TemplateInfo } from "@/components/staff-dashboards/model";
 import { STAFF_DASHBOARDS_DRIVE_FOLDER_URL } from "@/lib/staff-dashboards/drive";
+import { SourcesPicker } from "@/components/staff-dashboards/sources-picker";
+import type { StaffSource } from "@/lib/staff-dashboards/sources";
 
 type Tab = "ai" | "template" | "import";
 
-const BRIEF_PLACEHOLDER = `Ex. : Pacing budget Google Ads du client Liferay (compte 973-316-6788, en USD) par marché : dépensé depuis le 1er vs budget du mois (onglet Pays du Google Sheet https://docs.google.com/spreadsheets/d/…), projection fin de mois, alertes de sous/sur-pacing, tableau des campagnes avec budget/jour recommandé.`;
+const BRIEF_PLACEHOLDER = `Ex. : Pacing budget Google Ads du client Liferay par marché : dépensé depuis le 1er vs budget du mois (onglet Pays du Google Sheet choisi ci-dessus), projection fin de mois, alertes de sous/sur-pacing, tableau des campagnes avec budget/jour recommandé.`;
 
 const DATASETS_PLACEHOLDER = `{
   "g_spend": {
@@ -41,6 +43,8 @@ export default function NewStaffDashboardPage() {
   const [paramsText, setParamsText] = useState("");
   const [html, setHtml] = useState("");
   const [shared, setShared] = useState(false);
+  // Sources cochées (plateformes + comptes) : gardées sur le dashboard, données au copilote.
+  const [sources, setSources] = useState<StaffSource[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +102,7 @@ export default function NewStaffDashboardPage() {
       params: paramsParsed.value ?? {},
       html,
       shared,
+      sources,
     }, "import");
   }
 
@@ -109,7 +114,7 @@ export default function NewStaffDashboardPage() {
     const text = brief.trim();
     // Le dashboard naît vide ; le brief part au copilote dès l'ouverture de la page
     // (sessionStorage : pas d'adresse interminable, lu une seule fois).
-    void create({ title: title.trim(), description: description.trim(), html: "", shared }, "ai", (id) => {
+    void create({ title: title.trim(), description: description.trim(), html: "", shared, sources }, "ai", (id) => {
       try { sessionStorage.setItem(`staff-dashboard-brief:${id}`, text); } catch { /* stockage indisponible */ }
     });
   }
@@ -157,7 +162,7 @@ export default function NewStaffDashboardPage() {
         <form onSubmit={submitDescribe} className="space-y-4">
           <Card padded className="space-y-4">
             <div className="text-xs text-gray-400 leading-relaxed bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
-              Décrivez la page comme à un collègue : le client et ses comptes (identifiant Google Ads, act_… Meta, annonceur TikTok), les Google Sheets à lire (lien + onglet, partagés avec data@impulse-analytics.com), les indicateurs, alertes et tableaux attendus.
+              Cochez les sources et les comptes du client, puis décrivez la page comme à un collègue : les indicateurs, alertes et tableaux attendus, les Google Sheets à lire (lien + onglet, partagés avec data@impulse-analytics.com).
               Le copilote s&apos;ouvre sur le dashboard, interroge les vraies sources, puis construit les jeux de données et la page directement, comme un artefact : vous itérez avec lui, chaque version est gardée.
               {STAFF_DASHBOARDS_DRIVE_FOLDER_URL && (
                 <>
@@ -175,6 +180,11 @@ export default function NewStaffDashboardPage() {
               <span className="text-xs font-medium text-gray-300">Description <span className="text-gray-500 font-normal">(facultatif)</span></span>
               <input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={2000} className={`${FIELD} mt-1`} placeholder="Ce que la page montre, pour qui." />
             </label>
+            <div>
+              <span className="text-xs font-medium text-gray-300">Sources</span>
+              <span className="block text-[11px] text-gray-500 mb-2">Les plateformes à lire et les comptes retenus : le copilote construit ses jeux de données dessus, sans identifiant à recopier dans le brief.</span>
+              <SourcesPicker value={sources} onChange={setSources} disabled={!!busy} />
+            </div>
             <label className="block">
               <span className="text-xs font-medium text-gray-300">Brief pour l&apos;IA <span className="text-red-400">*</span></span>
               <textarea value={brief} onChange={(e) => setBrief(e.target.value)} rows={8} maxLength={20000} className={`${FIELD} mt-1 min-h-[160px]`} placeholder={BRIEF_PLACEHOLDER} />
@@ -257,6 +267,12 @@ export default function NewStaffDashboardPage() {
               <span className="block text-[11px] text-gray-500">Le contenu de files/index.html : style, balisage et scripts. Elle tourne dans un cadre isolé avec le runtime <code>dash</code>.</span>
               <textarea value={html} onChange={(e) => setHtml(e.target.value)} rows={14} spellCheck={false} maxLength={262144} className={`${MONO_FIELD} mt-1 min-h-[300px]`} placeholder={"<style>…</style>\n<div class=\"grid\">…</div>\n<script>dash.onData(() => { … });</script>"} />
             </label>
+
+            <div>
+              <span className="text-xs font-medium text-gray-300">Sources <span className="text-gray-500 font-normal">(facultatif)</span></span>
+              <span className="block text-[11px] text-gray-500 mb-2">Plateformes et comptes de la page, pour le copilote IA qui la modifiera ensuite.</span>
+              <SourcesPicker value={sources} onChange={setSources} disabled={!!busy} />
+            </div>
 
             <label className="flex items-center gap-2 text-xs text-gray-300 w-fit">
               <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} className="accent-violet-600" />

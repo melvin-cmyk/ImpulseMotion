@@ -62,7 +62,7 @@ function versionWhen(iso: string): string {
 const NOTES_RE = /^\[Résultat des propositions précédentes[^\]]*\]\n\n/;
 
 export function toState(d: DashboardDetail): StaffDashboardState {
-  return { title: d.title, description: d.description ?? "", datasets: d.datasets, params: d.params, html: d.html };
+  return { title: d.title, description: d.description ?? "", datasets: d.datasets, params: d.params, html: d.html, sources: Array.isArray(d.sources) ? d.sources : [] };
 }
 
 /** Les propositions d'un message, validées EN SÉQUENCE sur l'état donné (une retouche peut s'appuyer sur la précédente). */

@@ -1,8 +1,8 @@
 /**
  * Un dashboard du staff.
- *   GET    → { dashboard: { id, title, description, datasets, params, html, shared, mine, ownerEmail, updatedAt } }
+ *   GET    → { dashboard: { id, title, description, datasets, params, html, shared, sources, mine, ownerEmail, updatedAt } }
  *            (propriétaire, ou tout le staff s'il est partagé)
- *   PUT    → { title?, description?, datasets?, params?, html?, shared?, origin?: "copilot"|"manual", label? } (propriétaire ou admin)
+ *   PUT    → { title?, description?, datasets?, params?, html?, shared?, sources?, origin?: "copilot"|"manual", label? } (propriétaire ou admin)
  *            → { ok, versionId? } : l'état précédent est gardé en version quand le contenu change
  *   DELETE → supprime (propriétaire ou admin)
  */
@@ -13,6 +13,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { forgetDashboardCache } from "@/lib/staff-dashboards/data";
 import { describeChange, snapshotVersion } from "@/lib/staff-dashboards/versions";
 import { MAX_HTML_CHARS, MAX_TITLE_CHARS, parseDatasets, parseParams } from "@/lib/staff-dashboards/model";
+import { parseSources } from "@/lib/staff-dashboards/sources";
 
 type Ctx = { params: Promise<{ id: string }> };
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -20,7 +21,7 @@ const NO_STORE = { "Cache-Control": "no-store" };
 async function load(id: string) {
   return prisma.staffDashboard.findUnique({
     where: { id },
-    select: { id: true, ownerId: true, title: true, description: true, datasetsJson: true, paramsJson: true, html: true, shared: true, updatedAt: true, owner: { select: { email: true, name: true } } },
+    select: { id: true, ownerId: true, title: true, description: true, datasetsJson: true, paramsJson: true, html: true, shared: true, sourcesJson: true, updatedAt: true, owner: { select: { email: true, name: true } } },
   });
 }
 
@@ -40,6 +41,7 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
       params: parseParams(row.paramsJson),
       html: row.html,
       shared: row.shared,
+      sources: parseSources(row.sourcesJson),
       mine,
       canEdit: mine || guard.session.role === "admin",
       ownerEmail: row.owner.email,
@@ -59,7 +61,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "corps de requête invalide" }, { status: 400 });
 
-  const data: { title?: string; description?: string | null; datasetsJson?: string; paramsJson?: string; html?: string; shared?: boolean } = {};
+  const data: { title?: string; description?: string | null; datasetsJson?: string; paramsJson?: string; html?: string; shared?: boolean; sourcesJson?: string } = {};
   if (typeof body.title === "string") {
     const t = body.title.trim().slice(0, MAX_TITLE_CHARS);
     if (!t) return NextResponse.json({ error: "titre requis" }, { status: 400 });
@@ -77,6 +79,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     data.html = body.html;
   }
   if (typeof body.shared === "boolean") data.shared = body.shared;
+  // Les sources cochées ne font pas partie des versions (comme le partage) : une aide pour le copilote, pas du contenu.
+  if (Array.isArray(body.sources)) data.sourcesJson = JSON.stringify(parseSources(body.sources));
 
   // L'état précédent devient une version dès que le contenu change (pas pour le partage seul).
   const changed = describeChange(row, data);

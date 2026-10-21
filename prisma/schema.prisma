@@ -1096,6 +1096,8 @@ model StaffDashboard {
   html         String                  @default("") @db.Text
   /// Visible (read-only) to every staff member
   shared       Boolean                 @default(false)
+  /// JSON StaffSource[] (lib/staff-dashboards/sources.ts): sources the consultant picked (platforms + accounts) for the copilot
+  sourcesJson  String                  @default("[]") @db.Text
   createdAt    DateTime                @default(now())
   updatedAt    DateTime                @updatedAt
   owner        User                    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
