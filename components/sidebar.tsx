@@ -1,5 +1,7 @@
 "use client"
 
+import { useEffect, useState } from "react"
+
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
@@ -18,7 +20,7 @@ import {
   MessageSquare,
   Repeat,
   SlidersHorizontal,
-  Wand2, PenTool, PanelLeftClose, PanelLeftOpen } from "lucide-react"
+  Wand2, PenTool, PanelLeftClose, PanelLeftOpen, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
 import { useAiJobs } from "@/components/ai-jobs-watcher"
@@ -160,6 +162,18 @@ export function Sidebar() {
   const { running } = useAiJobs()
   // Folded rail: icons only, labels as tooltips (remembered per browser).
   const [collapsed, toggleCollapsed] = useSidebarCollapsed()
+  // Each section is a dropdown: folded sections are remembered per browser.
+  const [folded, setFolded] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    let active = true
+    void Promise.resolve().then(() => { if (!active) return; try { setFolded(JSON.parse(localStorage.getItem("im:sidebar-folded") || "{}")) } catch { /* fine */ } })
+    return () => { active = false }
+  }, [])
+  const toggleSection = (label: string) => setFolded((prev) => {
+    const next = { ...prev, [label]: !prev[label] }
+    try { localStorage.setItem("im:sidebar-folded", JSON.stringify(next)) } catch { /* fine */ }
+    return next
+  })
   const runningFor = (href: string) => running.filter((j) => (href === "/ai" ? j.surface === "console" : href === "/bot" ? j.surface === "bot" : href === "/design" ? j.surface === "design" : false)).length
 
   return (
@@ -168,8 +182,18 @@ export function Sidebar() {
         <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-700 rounded-xl flex items-center justify-center shrink-0" title="ImpulseMotion">
           <Zap className="w-5 h-5 text-white" />
         </div>
-        {!collapsed && <span className="text-sm font-semibold text-white tracking-tight">ImpulseMotion</span>}
+        {!collapsed && <span className="text-sm font-semibold text-white tracking-tight flex-1 truncate">ImpulseMotion</span>}
+        {!collapsed && (
+          <button type="button" onClick={toggleCollapsed} title="Replier le menu" className="p-1 rounded-md text-gray-500 hover:text-gray-200 hover:bg-gray-800/70">
+            <PanelLeftClose className="w-4 h-4" />
+          </button>
+        )}
       </div>
+      {collapsed && (
+        <button type="button" onClick={toggleCollapsed} title="Déployer le menu" className="mx-auto mb-2 w-9 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800/70">
+          <PanelLeftOpen className="w-4 h-4" />
+        </button>
+      )}
 
       {NAV_SECTIONS.map((section) => {
         const items = section.items.filter((it) => (!it.adminOnly || isAdmin) && (!it.realAdminOnly || baseRole === "admin") && (!it.routinesOnly || session?.routinesAccess === true))
@@ -179,16 +203,25 @@ export function Sidebar() {
             {collapsed ? (
               <div className="mx-2 mb-2 border-t border-gray-800" title={section.label} />
             ) : (
-              <div className="px-2 mb-1">
-                <span className="text-[10px] uppercase tracking-wider text-gray-600 font-semibold">
-                  {section.label}
+              <button
+                type="button"
+                onClick={() => toggleSection(section.label)}
+                aria-expanded={!folded[section.label]}
+                title={folded[section.label] ? "Déplier" : "Replier"}
+                className="w-full px-2 mb-1 flex items-center gap-1 text-left group"
+              >
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[10px] uppercase tracking-wider text-gray-600 group-hover:text-gray-400 font-semibold">
+                    {section.label}
+                  </span>
+                  {section.hint && !folded[section.label] && (
+                    <span className="block text-[10px] text-gray-700">{section.hint}</span>
+                  )}
                 </span>
-                {section.hint && (
-                  <span className="block text-[10px] text-gray-700">{section.hint}</span>
-                )}
-              </div>
+                <ChevronDown className={cn("w-3.5 h-3.5 text-gray-600 group-hover:text-gray-400 transition-transform", folded[section.label] ? "-rotate-90" : "")} />
+              </button>
             )}
-            <div className="flex flex-col gap-0.5">
+            <div className={cn("flex flex-col gap-0.5", !collapsed && folded[section.label] ? "hidden" : "")}>
               {items.map(({ href, icon: Icon, label, match }) => {
                 const active = match ? match(pathname) : pathname === href
                 return (
@@ -227,15 +260,6 @@ export function Sidebar() {
       })}
 
       <div className={cn("mt-auto flex flex-col gap-2 pt-3", collapsed ? "items-center" : "px-2")}>
-        <button
-          type="button"
-          onClick={toggleCollapsed}
-          title={collapsed ? "Déployer le menu" : "Replier le menu"}
-          className={cn("flex items-center gap-2 h-8 rounded-lg text-xs text-gray-500 hover:text-gray-200 hover:bg-gray-800/70 transition-colors", collapsed ? "w-9 justify-center" : "px-2 w-full")}
-        >
-          {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-          {!collapsed && <span>Replier le menu</span>}
-        </button>
         <div className="flex items-center gap-2" title={collapsed ? `${session?.user?.name ?? session?.user?.email ?? ""} · ${ROLE_LABELS[baseRole] ?? baseRole}` : undefined}>
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center text-xs font-semibold text-white shrink-0">
             {(session?.user?.name ?? "IM").slice(0, 2).toUpperCase()}
