@@ -57,6 +57,7 @@ vi.mock("@/lib/tiktok-accounts", () => ({
 // startAiJob and stores the user message itself.
 vi.mock("@/lib/ai-jobs", () => ({
   runningJobOf: async () => null,
+  runningJobCount: async () => 0,
   jobTitle: (t: string) => t.slice(0, 60),
   appendBotMessages: async (_id: string, messages: unknown[]) => { saved.push({ messages }); },
   startAiJob: async (input: { relayBody: RelayChatBody }) => { relayCalls.push(input.relayBody); return { jobId: "a".repeat(32) }; },

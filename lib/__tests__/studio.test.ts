@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
-beforeAll(() => { process.env.RELAY_SHARED_SECRET = "test-secret"; process.env.VERCEL_PROJECT_PRODUCTION_URL = "impulsemotion.vercel.app"; });
+beforeAll(() => { process.env.RELAY_SHARED_SECRET = "test-secret-0123456789abcdef"; process.env.VERCEL_PROJECT_PRODUCTION_URL = "impulsemotion.vercel.app"; });
 
 describe("Studio créa — liens signés", () => {
   it("un lien signé se vérifie ; signature, fichier ou date faux → refusé", async () => {

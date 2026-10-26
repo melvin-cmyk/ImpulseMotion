@@ -94,6 +94,6 @@ export const config = {
     // The exclusion names the TikTok verification file explicitly: a blanket
     // `.*\.txt` would let ANY future route ending in .txt — /api/ ones
     // included — skip the middleware entirely.
-    "/((?!login|share|api/auth|_next/static|_next/image|favicon.ico|tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad\\.txt).*)",
+    "/((?!login|api/auth|_next/static|_next/image|favicon.ico|tiktokvWEKPzvuaeiKervgnnetgZzrGjHnHDad\\.txt).*)",
   ],
 };

@@ -23,5 +23,7 @@ declare module "next-auth/jwt" {
     acl?: string;
     /** Epoch ms of the last time `role` was re-read from the database. */
     roleCheckedAt?: number;
+    /** Epoch ms of the sign-in: a password changed after it ends the session (auth.ts). */
+    issuedAt?: number;
   }
 }

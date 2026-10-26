@@ -11,6 +11,7 @@ import { requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
 import { runningConversationIds } from "@/lib/ai-jobs";
 
+const MAX_CONVERSATIONS = 100;
 const MAX_LIST = 50;
 
 async function guardBot(botId: string) {
@@ -43,6 +44,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ bo
   const { botId } = await params;
   const g = await guardBot(botId);
   if ("error" in g) return g.error;
+  // A bounded number of threads per person and bot: each one may carry a paid AI turn.
+  const count = await prisma.botConversation.count({ where: { botId, userId: g.session.userId } });
+  if (count >= MAX_CONVERSATIONS) {
+    return NextResponse.json({ error: `Limite de ${MAX_CONVERSATIONS} conversations atteinte : supprimez-en une pour continuer.` }, { status: 429 });
+  }
   const conversation = await prisma.botConversation.create({
     data: { botId, userId: g.session.userId, messagesJson: "[]" },
     select: { id: true, title: true, updatedAt: true },

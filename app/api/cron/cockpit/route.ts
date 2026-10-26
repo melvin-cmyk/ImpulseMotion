@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkCronAuth } from "@/lib/cron-auth";
 import { prisma } from "@/lib/prisma";
 import { runCockpitBuild } from "@/lib/cockpit/build";
 
@@ -14,8 +15,7 @@ export const maxDuration = 300;
 const FRESH_MS = 3 * 3600 * 1000;
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!checkCronAuth(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   if (req.nextUrl.searchParams.get("retry") === "1") {

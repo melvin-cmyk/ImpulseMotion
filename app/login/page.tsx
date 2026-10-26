@@ -16,7 +16,10 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   // "/" lets the middleware route by role: client → /client, staff → /cockpit
-  const callbackUrl = params.get("callbackUrl") ?? "/";
+  // Only a path of this site: `/login?callbackUrl=https://evil.tld` must not send
+  // a person elsewhere once they have typed their password.
+  const rawCallback = params.get("callbackUrl") ?? "/";
+  const callbackUrl = rawCallback.startsWith("/") && !rawCallback.startsWith("//") && !rawCallback.startsWith("/\\") ? rawCallback : "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);

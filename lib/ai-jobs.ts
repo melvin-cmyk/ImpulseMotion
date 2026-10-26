@@ -241,6 +241,11 @@ export async function runningJobOf(conversationId: string, userId: string): Prom
   return job.status === "running" ? job : null;
 }
 
+/** How many detached turns of this person are running right now (any surface). */
+export async function runningJobCount(userId: string): Promise<number> {
+  return prisma.aiJob.count({ where: { userId, status: "running" } });
+}
+
 /** Conversation ids (of the given ones) that have a running job. */
 export async function runningConversationIds(conversationIds: string[], userId: string): Promise<Map<string, string>> {
   if (!conversationIds.length) return new Map();

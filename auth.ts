@@ -14,17 +14,21 @@ import { clientIp, recordFailure, recordSuccess, signInLocked } from "@/lib/logi
 const ROLE_TTL_MS = 20 * 1000;
 
 /** Role and accounts of a user, as the session carries them. */
-async function readAccess(userId: string): Promise<{ role: string; acl: string } | null> {
+/** Hash compared when the e-mail is unknown: the answer then takes as long as for a wrong password. */
+const DUMMY_HASH = "$2a$10$CwTycUXWue0Thq9StjUM0uJ8Q7u0wD3Yx9YQ1y6E0y0f5u5Yq0rW2";
+
+async function readAccess(userId: string): Promise<{ role: string; acl: string; passwordChangedAt: Date | null } | null> {
   const db = await prisma.user.findUnique({
     where: { id: userId },
-    select: { role: true, adAccounts: { select: { platform: true, accountId: true } } },
+    select: { role: true, passwordChangedAt: true, adAccounts: { select: { platform: true, accountId: true } } },
   });
-  return db ? { role: db.role, acl: aclVersion(db.role, db.adAccounts) } : null;
+  return db ? { role: db.role, acl: aclVersion(db.role, db.adAccounts), passwordChangedAt: db.passwordChangedAt } : null;
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   secret: process.env.AUTH_SECRET,
-  session: { strategy: "jwt" },
+  // A week of validity, renewed on use: a stolen token does not live a month.
+  session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60 },
   trustHost: true,
   providers: [
     Credentials({
@@ -44,7 +48,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (await signInLocked(email, ip)) return null;
 
         const user = await prisma.user.findUnique({ where: { email } });
-        const ok = !!user?.passwordHash && (await bcrypt.compare(password, user.passwordHash));
+        const ok = (await bcrypt.compare(password, user?.passwordHash || DUMMY_HASH)) && !!user?.passwordHash;
         if (!user || !ok) {
           await recordFailure(email, ip);
           return null;
@@ -66,6 +70,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.userId = user.id;
         token.role = (user as { role?: string }).role ?? "client";
         token.roleCheckedAt = Date.now();
+        token.issuedAt = Date.now();
         token.acl = (await readAccess(user.id as string).catch(() => null))?.acl;
         return token;
       }
@@ -82,6 +87,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (!db) {
         // Account deleted → drop the identity; the proxy and requireSession
         // then treat the request as anonymous.
+        delete token.userId;
+        delete token.role;
+        delete token.acl;
+        return token;
+      }
+      // A password change signs every other session of the account out.
+      const issuedAt = (token.issuedAt as number | undefined) ?? 0;
+      if (db.passwordChangedAt && issuedAt && db.passwordChangedAt.getTime() > issuedAt + 1000) {
         delete token.userId;
         delete token.role;
         delete token.acl;

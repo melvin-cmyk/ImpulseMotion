@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireRealAdmin } from "@/lib/auth-helpers";
+import { BCRYPT_COST, MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -20,8 +21,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
     data.role = body.role;
   }
-  if (typeof body.password === "string" && body.password.length >= 8) {
-    data.passwordHash = await bcrypt.hash(body.password, 12);
+  if (typeof body.password === "string") {
+    if (body.password.length < MIN_PASSWORD_LENGTH) {
+      return NextResponse.json({ error: `Le mot de passe doit faire au moins ${MIN_PASSWORD_LENGTH} caractères.` }, { status: 400 });
+    }
+    data.passwordHash = await bcrypt.hash(body.password, BCRYPT_COST);
+    data.passwordChangedAt = new Date(); // the person's other sessions end
   }
 
   if (Object.keys(data).length === 0) {

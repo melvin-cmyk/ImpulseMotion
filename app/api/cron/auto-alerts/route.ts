@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkCronAuth } from "@/lib/cron-auth";
 import { runAutoAlerts } from "@/lib/auto-alerts/run";
 
 export const maxDuration = 300;
 
-function checkCronAuth(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false; // fail closed: no secret configured → deny
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 /** Four firings a day (vercel.json); each client follows its own frequency. Quiet accounts cost a few API reads and no AI. */
 export async function GET(req: NextRequest) {

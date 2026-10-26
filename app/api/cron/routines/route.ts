@@ -24,6 +24,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkCronAuth } from "@/lib/cron-auth"; // CRON_SECRET bearer, constant time
 import { closeInterruptedRuns, runLocked } from "@/lib/routines/engine";
 import { dueRoutineIds } from "@/lib/routines/store";
 import { MIN_START_MS, RUN_BUDGET_MS } from "@/lib/routines/types";
@@ -34,12 +35,6 @@ export const maxDuration = 300;
 
 const MAX_PER_FIRING = 50;
 
-function checkCronAuth(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false; // fail closed: no secret configured → deny
-  const auth = req.headers.get("authorization");
-  return auth === `Bearer ${secret}`;
-}
 
 export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) {

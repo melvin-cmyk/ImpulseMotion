@@ -111,7 +111,7 @@ export default function SettingsPage() {
         <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><KeyRound className="w-4 h-4 text-violet-400" /> Changer le mot de passe</h2>
         <form onSubmit={changePassword} className="space-y-3 max-w-sm">
           <input type="password" autoComplete="current-password" placeholder="Mot de passe actuel" value={current} onChange={(e) => setCurrent(e.target.value)} className={inputCls} required />
-          <input type="password" autoComplete="new-password" placeholder="Nouveau mot de passe (10 caractères min.)" value={next} onChange={(e) => setNext(e.target.value)} className={inputCls} required minLength={10} />
+          <input type="password" autoComplete="new-password" placeholder="Nouveau mot de passe (12 caractères min.)" value={next} onChange={(e) => setNext(e.target.value)} className={inputCls} required minLength={12} />
           <input type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" value={confirm} onChange={(e) => setConfirm(e.target.value)} className={inputCls} required />
           {pwState.msg && <div className={`text-xs ${pwState.ok ? "text-emerald-400" : "text-red-400"}`}>{pwState.msg}</div>}
           <button type="submit" disabled={pwState.busy} className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold">

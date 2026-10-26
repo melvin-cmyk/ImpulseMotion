@@ -213,7 +213,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Re-link the dashboard to another client login (grants matching ACL rows).
   // Handing an account to another login is ACL management → admin only.
   if (typeof body.userId === "string" && body.userId && body.userId !== existing.userId) {
-    if (guard.session.role !== "admin") {
+    if (guard.session.baseRole !== "admin") {
       return NextResponse.json({ error: "réservé aux admins" }, { status: 403 });
     }
     const target = await prisma.user.findUnique({ where: { id: body.userId } });

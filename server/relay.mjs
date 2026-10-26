@@ -147,6 +147,32 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);
+// What the spawned CLI (and through it every stdio MCP server) inherits: the
+// relay's environment minus the secrets only the relay needs. Each MCP server
+// receives what it needs explicitly in its `env` (buildScopedMcpConfig).
+const CHILD_ENV_DENY = new Set([
+  "RELAY_SHARED_SECRET", "RELAY_SHARED_SECRET_PREVIOUS", "AGNES_API_KEY",
+  "N8N_ALERT_WEBHOOK_SECRET", "N8N_ALERT_WEBHOOK_URL", "N8N_MCP_TOKEN", "N8N_TOOLS_TOKEN",
+  "DATA_DATABASE_URL", "DATABASE_URL", "HQ_CLIENT_SECRET",
+]);
+function childBaseEnv() {
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) if (!CHILD_ENV_DENY.has(k)) env[k] = v;
+  return env;
+}
+// Bearer the n8n MCP servers (Meta, Google Ads, TikTok, GA4, Sheets, Notion,
+// Merchant Center, Magento) require once their trigger nodes authenticate.
+// Empty = the servers are still open (to be closed before the public beta).
+const N8N_TOOLS_TOKEN = (process.env.N8N_TOOLS_TOKEN || "").trim();
+const N8N_TOOLS_HOST = (process.env.N8N_TOOLS_HOST || "impulseai.app.n8n.cloud").trim();
+function isN8nToolsUrl(url) {
+  try { return new URL(url).hostname === N8N_TOOLS_HOST; } catch { return false; }
+}
+/** The config entry of an n8n server, with its bearer when one is configured. */
+function withN8nAuth(entry) {
+  if (!N8N_TOOLS_TOKEN || !entry?.url || !isN8nToolsUrl(entry.url)) return entry;
+  return { ...entry, headers: { ...(entry.headers || {}), Authorization: `Bearer ${N8N_TOOLS_TOKEN}` } };
+}
 // RELAY_MCP_CONFIG : autre fichier pour les tests (le relay de production lit celui du dépôt).
 const MCP_CONFIG = process.env.RELAY_MCP_CONFIG || "/root/ImpulseMotion/config/mcp-claude.json";
 // MCP stdio "client-data" (entrepôt e-commerce des bots clients). Démarré à la
@@ -769,7 +795,7 @@ function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountSc
     const upstream = baseServers[name];
     if (!pick || !upstream) {
       // Not a scopable server and not in the base config: nothing to serve.
-      if (upstream) { mcpServers[name] = upstream; kept.push(name); }
+      if (upstream) { mcpServers[name] = withN8nAuth(upstream); kept.push(name); }
       continue;
     }
     // Admins keep business-manager-wide access, but still through the proxy:
@@ -790,6 +816,7 @@ function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountSc
       env: {
         SCOPED_SERVER_NAME: name,
         SCOPED_UPSTREAM_URL: upstream.url,
+        ...(N8N_TOOLS_TOKEN && isN8nToolsUrl(upstream.url) ? { SCOPED_UPSTREAM_TOKEN: N8N_TOOLS_TOKEN } : {}),
         SCOPED_ACCOUNTS: ids.join(","),
         ...(PROXY_PINNED_TOOLS.has(name) ? { SCOPED_TOOLS: (chatToolsOf(name, clientBot) || []).join(",") } : {}),
       },
@@ -853,6 +880,14 @@ async function acquireSessionLock(key) {
   return lock;
 }
 const SESSION_BUSY_MESSAGE = "Une réponse est déjà en cours sur cette conversation. Attendez qu'elle soit terminée avant d'envoyer la suite.";
+// How many CLI processes may run at once on this host (each one is a model
+// call of several hundred MB): beyond, a new turn is refused at once rather
+// than taking the whole relay down with it.
+// Client questions (names, figures) stay out of journald unless asked for.
+const RELAY_LOG_PROMPTS = process.env.RELAY_LOG_PROMPTS === "1";
+const MAX_CONCURRENT_TURNS = Number(process.env.RELAY_MAX_CONCURRENT_TURNS || 6);
+let activeTurns = 0;
+const RELAY_BUSY_MESSAGE = "Le service IA est très sollicité en ce moment. Réessayez dans quelques instants.";
 
 /** Ends a chat that could not run with an explicit error, never an empty stream. */
 function failChat(res, message) {
@@ -880,6 +915,12 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   }
   // A relaunched attempt (other account) inherits the lock of the first one.
   const sessionKey = typeof options.sessionKey === "string" && SESSION_KEY_RE.test(options.sessionKey) ? options.sessionKey : null;
+  // A relaunch (options.lock) replaces a turn that just ended: it is not a new one.
+  if (!options.lock && activeTurns >= MAX_CONCURRENT_TURNS) {
+    console.error(`[chat] tour refusé — ${activeTurns} tours déjà en cours (RELAY_MAX_CONCURRENT_TURNS=${MAX_CONCURRENT_TURNS})`);
+    failChat(res, RELAY_BUSY_MESSAGE);
+    return;
+  }
   const lock = options.lock ?? (sessionKey ? await acquireSessionLock(sessionKey) : null);
   if (sessionKey && !lock) {
     console.error(`[chat] ${sessionKey} : tour refusé — un tour est déjà en cours sur cette conversation`);
@@ -1148,14 +1189,14 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${promptLogExcerpt(lastUser?.content ?? prompt)}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${servers.includes(MAGENTO_SERVER) ? " | magento" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${scopedMcp && (clientKeys?.length || clientKey) ? ` | client-data=${clientKeys?.length ? clientKeys.join(",") : clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
+  console.log(`[chat] Prompt: "${RELAY_LOG_PROMPTS ? promptLogExcerpt(lastUser?.content ?? prompt) : `${String(lastUser?.content ?? prompt).length} car.`}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${servers.includes(MAGENTO_SERVER) ? " | magento" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${scopedMcp && (clientKeys?.length || clientKey) ? ` | client-data=${clientKeys?.length ? clientKeys.join(",") : clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
 
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
   const child = spawn("claude", args, {
     cwd: RELAY_CLAUDE_CWD,
     env: {
-      ...process.env,
+      ...childBaseEnv(),
       TERM: "dumb",
       ...cliTokenEnv({ useBedrock, resumable: !!sessionKey, maxMcpOutputTokens: process.env.RELAY_MAX_MCP_OUTPUT_TOKENS }),
       ...(useBedrock
@@ -1482,7 +1523,11 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     if (t && !useBedrock && looksLikeUsageLimit(t)) void accountMonitor?.markExhausted(t);
   });
 
+  activeTurns += 1;
+  let counted = true;
+  const uncount = () => { if (counted) { counted = false; activeTurns -= 1; } };
   child.on("close", (code) => {
+    uncount();
     cleanupScopedMcp();
     if (retrying) return; // the relaunched attempt owns the response now, and the lock
     lock?.release();
@@ -1496,6 +1541,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   });
 
   child.on("error", (err) => {
+    uncount();
     cleanupScopedMcp();
     if (!retrying) lock?.release();
     console.error("[chat] Spawn error:", err);
@@ -1582,11 +1628,24 @@ function authorized(req) {
   return ACCEPTED_SECRETS.some((s) => s.length === given.length && timingSafeEqual(s, given));
 }
 
-function readBody(req) {
+// A JSON body is read whole into memory: bounded, so a caller holding the
+// secret (or a looping cron) cannot fill the host. Uploads get a larger cap.
+const BODY_MAX_BYTES = Number(process.env.RELAY_MAX_BODY_BYTES || 16 * 1024 * 1024);
+const UPLOAD_BODY_MAX_BYTES = Math.ceil(UPLOAD_MAX_BYTES * 4 / 3) + 64 * 1024; // base64 of a full upload
+class BodyTooLarge extends Error { constructor() { super("body too large"); this.status = 413; } }
+function readBody(req, maxBytes = BODY_MAX_BYTES) {
   return new Promise((resolve, reject) => {
+    const declared = Number(req.headers["content-length"] || 0);
+    if (declared > maxBytes) { req.resume(); reject(new BodyTooLarge()); return; }
     const chunks = [];
-    req.on("data", c => chunks.push(c));
+    let total = 0;
+    req.on("data", (c) => {
+      total += c.length;
+      if (total > maxBytes) { req.destroy(); reject(new BodyTooLarge()); return; }
+      chunks.push(c);
+    });
     req.on("end", () => {
+      if (total > maxBytes) return;
       try { resolve(JSON.parse(Buffer.concat(chunks).toString())); }
       catch (e) { reject(new Error("Invalid JSON")); }
     });
@@ -1861,7 +1920,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (req.method === "POST" && !rel) {
-        const body = await readBody(req);
+        const body = await readBody(req, UPLOAD_BODY_MAX_BYTES);
         const name = typeof body?.name === "string" ? body.name.replace(/[^A-Za-z0-9._ \-()]/g, "_").slice(0, 120) : "";
         if (!name || name.startsWith(".") || typeof body?.data !== "string") { res.writeHead(400, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "name/data requis" })); return; }
         const buf = Buffer.from(body.data, "base64");
@@ -2120,7 +2179,7 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ error: "Not found" }));
   } catch (err) {
     console.error("[server]", err);
-    if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
+    if (!res.headersSent) res.writeHead(err?.status === 413 ? 413 : 500, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: err.message }));
   }
 });

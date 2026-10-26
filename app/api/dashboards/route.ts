@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
   const dashboards = await prisma.dashboard.findMany({
     where,
     include: {
-      user: { select: { id: true, email: true, name: true } },
+      // Who created the dashboard is staff information: a client only needs its content.
+      ...(staff ? { user: { select: { id: true, email: true, name: true } } } : {}),
       _count: { select: { widgets: true } },
       ...(staff
         ? { members: { include: { user: { select: { id: true, email: true, name: true } } } } }

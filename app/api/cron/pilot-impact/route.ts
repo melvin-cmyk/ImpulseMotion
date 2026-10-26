@@ -9,17 +9,13 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkCronAuth } from "@/lib/cron-auth";
 import { runPilotImpacts } from "@/lib/pilot/impact-run";
 import { runChangesIngest } from "@/lib/pilot/changes-ingest";
 import { recoverStale } from "@/lib/pilot/service";
 
 export const maxDuration = 300;
 
-function checkCronAuth(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false; // fail closed: no secret configured → deny
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

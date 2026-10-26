@@ -28,7 +28,9 @@ import { buildBotSystemPrompt } from "@/lib/bot-prompt";
 import { loadBotCoverage, loadBotDatasets } from "@/lib/bot-context";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import type { RelayChatBody, RelayMessage } from "@/lib/relay-chat";
-import { appendBotMessages, jobTitle, runningJobOf, startAiJob } from "@/lib/ai-jobs";
+import { appendBotMessages, jobTitle, runningJobCount, runningJobOf, startAiJob } from "@/lib/ai-jobs";
+
+const MAX_RUNNING_JOBS_PER_USER = 3;
 
 const MAX_HISTORY = 30;
 const MAX_MESSAGE_CHARS = 12000;
@@ -63,6 +65,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   if (!conversation) return NextResponse.json({ error: "not found" }, { status: 404 });
   const running = await runningJobOf(conversation.id, guard.session.userId);
   if (running) return NextResponse.json({ error: "Une réponse est déjà en cours sur cette conversation. Attendez qu'elle soit terminée avant d'envoyer la suite.", jobId: running.id }, { status: 409 });
+  // Every detached turn is a model call of up to ten minutes: a person gets a few at a time, not an unbounded fan-out.
+  if (await runningJobCount(guard.session.userId) >= MAX_RUNNING_JOBS_PER_USER) {
+    return NextResponse.json({ error: `${MAX_RUNNING_JOBS_PER_USER} réponses sont déjà en cours sur votre compte. Attendez qu'une se termine.` }, { status: 429 });
+  }
 
   const sources = parseSources(bot.sourcesJson);
   // TikTok: read only when the admin ticked it, on the advertisers attached to

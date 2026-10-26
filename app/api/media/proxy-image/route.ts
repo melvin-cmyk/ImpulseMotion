@@ -167,6 +167,7 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(buffer, { headers });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 502 });
+    console.error("[proxy-image]", e);
+    return NextResponse.json({ error: "image indisponible" }, { status: 502 });
   }
 }

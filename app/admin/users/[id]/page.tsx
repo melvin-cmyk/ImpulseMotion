@@ -247,8 +247,8 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   async function resetPassword(e: React.FormEvent) {
     e.preventDefault();
     setPasswordStatus(null);
-    if (newPassword.length < 8) {
-      setPasswordStatus("Minimum 8 caractères");
+    if (newPassword.length < 12) {
+      setPasswordStatus("Minimum 12 caractères");
       return;
     }
     const res = await fetch(`/api/admin/users/${id}`, {

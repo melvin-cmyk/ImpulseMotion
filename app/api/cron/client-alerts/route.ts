@@ -10,15 +10,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkCronAuth } from "@/lib/cron-auth";
 import { runClientAlerts } from "@/lib/client-alerts/run";
 
 export const maxDuration = 300;
 
-function checkCronAuth(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false; // fail closed: no secret configured → deny
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

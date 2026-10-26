@@ -115,6 +115,8 @@ async function startRelay(extraEnv: Record<string, string> = {}) {
       HOME: path.join(root, "home"),
       RELAY_PORT: String(port),
       RELAY_SHARED_SECRET: SECRET,
+      // The journal carries the question only on demand (client data stays out of journald in production).
+      RELAY_LOG_PROMPTS: "1",
       RELAY_CLAUDE_CWD: state(),
       MAX_ACCOUNTS_FILE: path.join(root, "accounts.json"),
       QUOTA_STATE_FILE: path.join(root, "quota-notified.json"),

@@ -95,7 +95,10 @@ export const relayEnhance = (body: { request: string; kind: "image" | "video"; m
 
 /** Same key as server/agnes.mjs: derived from the relay's shared secret. */
 function mediaSignature(file: string, exp: number): string {
-  const key = createHmac("sha256", process.env.RELAY_SHARED_SECRET ?? "").update("impulsemotion-media").digest();
+  const secret = process.env.RELAY_SHARED_SECRET ?? "";
+  // Without the shared secret, a link would be signed with a key anyone can derive.
+  if (secret.length < 16) throw new Error("RELAY_SHARED_SECRET absent : liens média non signables");
+  const key = createHmac("sha256", secret).update("impulsemotion-media").digest();
   return createHmac("sha256", key).update(`${file}:${exp}`).digest("hex");
 }
 
@@ -110,6 +113,7 @@ const FILE_RE = /^[a-z0-9_-]{6,80}\.(png|jpg|jpeg|webp|mp4)$/;
 /** True when a link to `file` carries a valid, unexpired signature. */
 export function verifyMediaSignature(file: string, exp: number, sig: string): boolean {
   if (!FILE_RE.test(file) || !Number.isFinite(exp) || exp < Date.now() / 1000 || !/^[a-f0-9]{64}$/.test(sig)) return false;
+  if ((process.env.RELAY_SHARED_SECRET ?? "").length < 16) return false;
   const want = Buffer.from(mediaSignature(file, exp), "hex");
   return timingSafeEqual(want, Buffer.from(sig, "hex"));
 }

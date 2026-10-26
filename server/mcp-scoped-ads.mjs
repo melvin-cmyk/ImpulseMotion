@@ -36,6 +36,8 @@ import { accountsOfTikTokCall, describeTikTokTool, prepareTikTokArgs } from "./m
 
 const SERVER_NAME = process.env.SCOPED_SERVER_NAME || "";
 const UPSTREAM_URL = process.env.SCOPED_UPSTREAM_URL || "";
+// Bearer of the n8n trigger (relay env N8N_TOOLS_TOKEN); absent while the servers are open.
+const UPSTREAM_TOKEN = (process.env.SCOPED_UPSTREAM_TOKEN || "").trim();
 const RAW_ACCOUNTS = process.env.SCOPED_ACCOUNTS || "";
 
 const die = (msg) => {
@@ -288,7 +290,13 @@ const upstream = new Client(
 );
 
 async function connectUpstream() {
-  const transport = new SSEClientTransport(new URL(UPSTREAM_URL));
+  const headers = UPSTREAM_TOKEN ? { Authorization: `Bearer ${UPSTREAM_TOKEN}` } : {};
+  const withAuth = (url, init = {}) => fetch(url, { ...init, headers: { ...(init.headers instanceof Headers ? Object.fromEntries(init.headers) : init.headers || {}), ...headers } });
+  const transport = new SSEClientTransport(new URL(UPSTREAM_URL), {
+    requestInit: { headers },
+    eventSourceInit: { fetch: withAuth },
+    fetch: withAuth,
+  });
   await upstream.connect(transport);
 }
 

@@ -47,9 +47,23 @@ function escapeScriptJson(v: unknown): string {
 /** Le document complet du cadre. `html` est la page du dashboard telle qu'enregistrée (style + markup + scripts). */
 export function buildFrameDocument(html: string, datasetIds: string[], params: Record<string, ParamValue>, origin = "", catalog: FrameCatalog | null = null): string {
   const base = origin.replace(/\/$/, "");
+  // The page is AI-generated and shows client figures: it may run, draw and read the
+  // data handed to it, but never reach the network (no fetch, no <img src=https://…>
+  // exfiltration). Scripts come from the app's origin only, plus the inline ones.
+  const csp = [
+    "default-src 'none'",
+    `script-src ${base || "'self'"} 'unsafe-inline'`,
+    `style-src 'unsafe-inline' ${base || "'self'"} https://fonts.googleapis.com`,
+    `font-src ${base || "'self'"} https://fonts.gstatic.com data:`,
+    `img-src ${base || "'self'"} data: blob:`,
+    "connect-src 'none'",
+    "frame-src 'none'",
+    "form-action 'none'",
+  ].join("; ");
   return [
     "<!doctype html>",
     '<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
+    `<meta http-equiv="Content-Security-Policy" content="${csp}">`,
     `<style>${FRAME_THEME_CSS}</style>`,
     `<script src="${base}/vendor/d3.v7.min.js"></script>`,
     `<script src="${base}/dash-catalog.js"></script>`,

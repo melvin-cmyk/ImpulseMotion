@@ -10,6 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkCronAuth } from "@/lib/cron-auth";
 import { prisma } from "@/lib/prisma";
 import { generateClientReport, defaultReportTitle, releaseStaleReports } from "@/lib/report-generate";
 import { lastMonthRange, lastWeekRange } from "@/lib/report-data";
@@ -21,11 +22,6 @@ const BUDGET_MS = 270_000;
 /** One report can take up to ~290 s (HQ brief, figures, AI): none is started without that much time left. */
 const REPORT_WORST_MS = 290_000;
 
-function checkCronAuth(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return false; // fail closed
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 export async function GET(req: NextRequest) {
   if (!checkCronAuth(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

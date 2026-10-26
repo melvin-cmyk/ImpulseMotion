@@ -38,9 +38,16 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Apply CSP headers to all routes
+        // Security headers on every route.
         source: "/(.*)",
         headers: [
+          // Browsers that have seen the site once only reach it over HTTPS (two years).
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // The app is never embedded by another site (clickjacking on the admin and pilot pages).
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
           {
             key: "Content-Security-Policy",
             // Allow Facebook iframes for Meta video embedding (facebook.com/video/embed)
@@ -51,15 +58,15 @@ const nextConfig: NextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: https: blob:",
               "media-src 'self' https: blob:",
-              // In dev, allow the local relay server (localhost:3457) and the public relay IP.
-              // In prod, same-origin + trycloudflare tunnel is used.
-              `connect-src 'self' https://graph.facebook.com https://api.tiktok.com https://*.trycloudflare.com${
-                process.env.NODE_ENV !== "production"
-                  ? " http://localhost:3457 http://127.0.0.1:3457 http://72.62.29.196:3457"
-                  : ""
-              }`,
+              // The browser only ever talks to this origin: the relay is reached
+              // server-side (lib/relay-server.ts), never from a page.
+              "connect-src 'self' https://graph.facebook.com",
               // Allow Facebook video embeds
               "frame-src 'self' https://www.facebook.com https://video.facebook.com https://web.facebook.com",
+              "frame-ancestors 'self'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "object-src 'none'",
             ].join("; "),
           },
         ],

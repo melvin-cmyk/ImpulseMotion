@@ -14,6 +14,8 @@ model User {
   emailVerified        DateTime?
   image                String?
   passwordHash         String?
+  /// Set on every password change: sessions issued before it are refused (auth.ts).
+  passwordChangedAt    DateTime?
   role                 String                @default("client")
   accounts             Account[]
   sessions             Session[]
