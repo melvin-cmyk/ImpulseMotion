@@ -18,10 +18,11 @@ import {
   MessageSquare,
   Repeat,
   SlidersHorizontal,
-  Wand2, PenTool } from "lucide-react"
+  Wand2, PenTool, PanelLeftClose, PanelLeftOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
 import { useAiJobs } from "@/components/ai-jobs-watcher"
+import { useSidebarCollapsed } from "@/lib/sidebar-state"
 
 // The rail is split into labeled sections so the boundary is obvious:
 // "Espace interne" = admin & consultants only; "Espace clients" = the exact
@@ -157,15 +158,17 @@ export function Sidebar() {
   const baseRole = session?.baseRole ?? role
   // Detached AI turns still running, per surface: a count next to the assistants.
   const { running } = useAiJobs()
+  // Folded rail: icons only, labels as tooltips (remembered per browser).
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed()
   const runningFor = (href: string) => running.filter((j) => (href === "/ai" ? j.surface === "console" : href === "/bot" ? j.surface === "bot" : href === "/design" ? j.surface === "design" : false)).length
 
   return (
-    <div className="w-52 bg-gray-950 border-r border-gray-800 flex flex-col py-4 px-3 gap-1 shrink-0 overflow-y-auto">
-      <div className="flex items-center gap-2.5 px-2 mb-4">
-        <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-700 rounded-xl flex items-center justify-center shrink-0">
+    <div className={cn("bg-gray-950 border-r border-gray-800 flex flex-col py-4 gap-1 shrink-0 overflow-y-auto overflow-x-hidden transition-[width] duration-150", collapsed ? "w-14 px-2" : "w-52 px-3")}>
+      <div className={cn("flex items-center gap-2.5 mb-4", collapsed ? "justify-center px-0" : "px-2")}>
+        <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-700 rounded-xl flex items-center justify-center shrink-0" title="ImpulseMotion">
           <Zap className="w-5 h-5 text-white" />
         </div>
-        <span className="text-sm font-semibold text-white tracking-tight">ImpulseMotion</span>
+        {!collapsed && <span className="text-sm font-semibold text-white tracking-tight">ImpulseMotion</span>}
       </div>
 
       {NAV_SECTIONS.map((section) => {
@@ -173,14 +176,18 @@ export function Sidebar() {
         if (items.length === 0) return null
         return (
           <div key={section.label} className="mb-3">
-            <div className="px-2 mb-1">
-              <span className="text-[10px] uppercase tracking-wider text-gray-600 font-semibold">
-                {section.label}
-              </span>
-              {section.hint && (
-                <span className="block text-[10px] text-gray-700">{section.hint}</span>
-              )}
-            </div>
+            {collapsed ? (
+              <div className="mx-2 mb-2 border-t border-gray-800" title={section.label} />
+            ) : (
+              <div className="px-2 mb-1">
+                <span className="text-[10px] uppercase tracking-wider text-gray-600 font-semibold">
+                  {section.label}
+                </span>
+                {section.hint && (
+                  <span className="block text-[10px] text-gray-700">{section.hint}</span>
+                )}
+              </div>
+            )}
             <div className="flex flex-col gap-0.5">
               {items.map(({ href, icon: Icon, label, match }) => {
                 const active = match ? match(pathname) : pathname === href
@@ -188,16 +195,21 @@ export function Sidebar() {
                   <Link
                     key={href}
                     href={href}
+                    title={collapsed ? label : undefined}
                     className={cn(
-                      "flex items-center gap-3 h-9 px-3 rounded-xl text-sm font-medium transition-all duration-150",
+                      "relative flex items-center gap-3 h-9 rounded-xl text-sm font-medium transition-all duration-150",
+                      collapsed ? "justify-center px-0" : "px-3",
                       active
                         ? "bg-violet-600 text-white"
                         : "text-gray-400 hover:text-gray-100 hover:bg-gray-800/70"
                     )}
                   >
                     <Icon className="w-5 h-5 shrink-0" />
-                    <span className="truncate">{label}</span>
-                    {runningFor(href) > 0 && (
+                    {!collapsed && <span className="truncate">{label}</span>}
+                    {collapsed && runningFor(href) > 0 && (
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-violet-300 animate-pulse" title={`${runningFor(href)} réponse(s) en cours`} />
+                    )}
+                    {!collapsed && runningFor(href) > 0 && (
                       <span
                         title={`${runningFor(href)} réponse${runningFor(href) > 1 ? "s" : ""} en cours`}
                         className={cn("ml-auto inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full", active ? "bg-white/20 text-white" : "bg-violet-600/20 text-violet-300")}
@@ -214,13 +226,26 @@ export function Sidebar() {
         )
       })}
 
-      <div className="mt-auto flex items-center gap-2 px-2 pt-3">
-        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center text-xs font-semibold text-white shrink-0">
-          {(session?.user?.name ?? "IM").slice(0, 2).toUpperCase()}
-        </div>
-        <div className="min-w-0">
-          <div className="text-xs text-gray-400 truncate">{session?.user?.name ?? session?.user?.email ?? "Impulse Media"}</div>
-          <div className="text-[10px] text-violet-400 font-semibold uppercase tracking-wide">{ROLE_LABELS[baseRole] ?? baseRole}</div>
+      <div className={cn("mt-auto flex flex-col gap-2 pt-3", collapsed ? "items-center" : "px-2")}>
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          title={collapsed ? "Déployer le menu" : "Replier le menu"}
+          className={cn("flex items-center gap-2 h-8 rounded-lg text-xs text-gray-500 hover:text-gray-200 hover:bg-gray-800/70 transition-colors", collapsed ? "w-9 justify-center" : "px-2 w-full")}
+        >
+          {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          {!collapsed && <span>Replier le menu</span>}
+        </button>
+        <div className="flex items-center gap-2" title={collapsed ? `${session?.user?.name ?? session?.user?.email ?? ""} · ${ROLE_LABELS[baseRole] ?? baseRole}` : undefined}>
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center text-xs font-semibold text-white shrink-0">
+            {(session?.user?.name ?? "IM").slice(0, 2).toUpperCase()}
+          </div>
+          {!collapsed && (
+            <div className="min-w-0">
+              <div className="text-xs text-gray-400 truncate">{session?.user?.name ?? session?.user?.email ?? "Impulse Media"}</div>
+              <div className="text-[10px] text-violet-400 font-semibold uppercase tracking-wide">{ROLE_LABELS[baseRole] ?? baseRole}</div>
+            </div>
+          )}
         </div>
       </div>
     </div>

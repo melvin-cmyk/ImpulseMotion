@@ -10,12 +10,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Download, ExternalLink, Loader2, MessageSquare, Paperclip, PanelRightClose, Pencil, Send, Square, Trash2, Users, X } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, Loader2, MessageSquare, Paperclip, PanelLeftClose, PanelLeftOpen, PanelRightClose, Pencil, Send, Square, Trash2, Users, X } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { ModelPicker } from "@/components/ai/model-picker";
 import { AiActivity } from "@/components/ai/activity";
 import { useAiJobs } from "@/components/ai-jobs-watcher";
+import { useSidebarCollapsed } from "@/lib/sidebar-state";
 import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 import { AI_JOB_FINISHED_EVENT, AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent, type PublicAiJob } from "@/lib/ai-job-client";
 import { DEFAULT_PREFS, fmtBytes, loadPrefs, prepareImage, readAsBase64, savePrefs, type AiPrefs, type ChatFile, type ChatImage } from "@/lib/ai-chat-shared";
@@ -38,6 +39,7 @@ function when(iso: string): string {
 export function DesignPage({ id }: { id: string }) {
   const router = useRouter();
   const jobs = useAiJobs();
+  const [menuCollapsed, toggleMenu] = useSidebarCollapsed();
   const [design, setDesign] = useState<DesignDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -301,6 +303,9 @@ export function DesignPage({ id }: { id: string }) {
               <ExternalLink className="w-3.5 h-3.5" /> Plein écran
             </a>
           )}
+          <button type="button" onClick={toggleMenu} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700`} title={menuCollapsed ? "Déployer le menu de gauche" : "Replier le menu de gauche"}>
+            {menuCollapsed ? <PanelLeftOpen className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />} Menu
+          </button>
           <button type="button" onClick={togglePanel} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700`} title={panelOpen ? "Masquer le copilote : l'éditeur prend toute la fenêtre" : "Afficher le copilote"}>
             {panelOpen ? <PanelRightClose className="w-3.5 h-3.5" /> : <MessageSquare className="w-3.5 h-3.5" />} {panelOpen ? "Plein éditeur" : "Copilote"}
           </button>
