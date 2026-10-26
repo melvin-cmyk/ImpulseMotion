@@ -24,6 +24,7 @@ import { relayDetach, relayJobState, relayJobStop, type RelayChatBody, type Rela
 import { parseMessages, serializeMessages, type BotMessage } from "@/lib/bot-types";
 import { conversationTitle, parseStoredMessages, type StoredConsoleMessage } from "@/lib/console-conversations";
 import { appendDesignMessages } from "@/lib/design/thread";
+import { syncDesignOutputsToDrive } from "@/lib/design/drive-sync";
 
 export type AiJobSurface = "bot" | "console" | "design";
 export type AiJobStatus = "running" | "done" | "stopped" | "failed";
@@ -158,6 +159,8 @@ export async function finalizeAiJob(
       await appendBotMessages(row.conversationId, [{ role: "assistant", content: text, at }]);
     } else if (row.surface === "design") {
       await appendDesignMessages(row.conversationId, [{ role: "assistant", content: text, at }]);
+      // What the AI exported during this reply joins the client's Drive folder (best effort, in the background).
+      void syncDesignOutputsToDrive(row.conversationId, row.startedAt.getTime() - 60_000).catch((e) => console.error(`[design-drive] ${row.conversationId} : ${e instanceof Error ? e.message : e}`));
     } else if (row.surface === "console") {
       const toolCalls = summary.toolCalls.filter((t) => t.name);
       await appendConsoleMessages(row.conversationId, row.userId, [{

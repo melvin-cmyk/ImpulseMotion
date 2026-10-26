@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Search, Command } from "lucide-react";
 import { useAccountList } from "@/lib/use-account-list";
-import { AccountPalette } from "@/components/account-palette";
+import { ClientPalette, type ClientRow } from "@/components/client-palette";
 import { useCreativesContext, setStoredMetaAccount } from "@/lib/creatives-context";
 import { isAnalysePath } from "@/lib/nav-routes";
 
@@ -23,6 +23,17 @@ export function CommandPalette({ userId }: { userId: string | null }) {
   const { metaAccountId } = useCreativesContext();
   // Lazy: the list is fetched the first time the palette opens.
   const { accounts, loading, reload, loaded } = useAccountList(userId, false);
+  // The clients (deduped dashboards) with every identifier: fetched once per session, refreshed when the palette opens.
+  const [clients, setClients] = useState<ClientRow[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(false);
+  const loadClients = useCallback(async () => {
+    setClientsLoading(true);
+    try {
+      const res = await fetch("/api/clients", { cache: "no-store" });
+      if (res.ok) setClients(((await res.json()) as { clients: ClientRow[] }).clients ?? []);
+    } catch { /* the Meta accounts still show */ }
+    finally { setClientsLoading(false); }
+  }, []);
 
   const toggle = useCallback(() => setOpen((v) => !v), []);
 
@@ -38,8 +49,8 @@ export function CommandPalette({ userId }: { userId: string | null }) {
   }, [toggle]);
 
   useEffect(() => {
-    if (open) void reload(loaded);
-  }, [open, reload, loaded]);
+    if (open) { void reload(loaded); void Promise.resolve().then(() => loadClients()); }
+  }, [open, reload, loaded, loadClients]);
 
   // Warm the list once the page has settled so the first ⌘K opens instantly
   // (one request per session: the result is cached 5 min per user).
@@ -64,15 +75,20 @@ export function CommandPalette({ userId }: { userId: string | null }) {
         </kbd>
       </button>
 
-      <AccountPalette
+      <ClientPalette
         open={open}
         onClose={() => setOpen(false)}
+        clients={clients}
         accounts={accounts}
-        loading={loading}
-        currentId={inAnalyse ? metaAccountId : null}
+        loading={(loading || clientsLoading) && clients.length === 0}
+        currentAccountId={inAnalyse ? metaAccountId : null}
         primary={inAnalyse ? "analyse" : "client"}
-        title={inAnalyse ? "Changer le compte analysé…" : "Aller à un client…"}
-        onPick={(a, action) => {
+        title={inAnalyse ? "Changer le compte analysé, ou aller à un client…" : "Client, compte Meta (act_…), Google Ads (123-456-7890), TikTok…"}
+        onPickClient={(c) => {
+          setOpen(false);
+          router.push(`/portfolio/${c.id}`);
+        }}
+        onPickAccount={(a, action) => {
           setOpen(false);
           if (action === "client" && a.clientId) {
             router.push(`/portfolio/${a.clientId}`);

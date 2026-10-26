@@ -16,10 +16,13 @@ import { createDesignFile } from "@/lib/design/relay";
 const MAX_LIST = 200;
 const MAX_DESIGNS = 1000;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
-  const rows = await prisma.designFile.findMany({ select: DESIGN_SELECT, orderBy: { updatedAt: "desc" }, take: MAX_LIST });
+  // ?client=<dashboardId> → the designs of one client (its cockpit, the filtered list).
+  const client = req.nextUrl.searchParams.get("client");
+  const where = client && /^[a-z0-9]{10,40}$/i.test(client) ? { clientDashboardId: client } : {};
+  const rows = await prisma.designFile.findMany({ where, select: DESIGN_SELECT, orderBy: { updatedAt: "desc" }, take: MAX_LIST });
   return NextResponse.json({ designs: rows.map((r) => toDesignListItem(r, guard.session)) }, { headers: { "Cache-Control": "no-store" } });
 }
 

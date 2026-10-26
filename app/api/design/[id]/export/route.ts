@@ -9,6 +9,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { EXPORT_FORMATS, type ExportFormat } from "@/lib/design/model";
 import { loadDesign } from "@/lib/design/access";
 import { exportDesignFile } from "@/lib/design/relay";
+import { uploadDesignExport } from "@/lib/design/drive-sync";
 
 export const maxDuration = 120;
 
@@ -24,13 +25,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const out = await exportDesignFile({ link: design.viewLink, format, scale });
     const base = design.name.normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._ -]/g, "_").trim().slice(0, 80) || "design";
+    const filename = `${base}.${out.format}`;
+    // A design of a client: the export also lands in the client's Drive folder (best effort).
+    let driveLink: string | null = null;
+    if (design.clientDashboardId) {
+      try { driveLink = (await uploadDesignExport(design.id, { name: filename, mimeType: out.mimeType, data: out.bytes }))?.webViewLink ?? null; }
+      catch (e) { console.error(`[design] export → Drive refusé (${design.id}) : ${e instanceof Error ? e.message : e}`); }
+    }
     return new Response(new Uint8Array(out.bytes), {
       status: 200,
       headers: {
         "Content-Type": out.mimeType,
         "Content-Length": String(out.bytes.length),
-        "Content-Disposition": `attachment; filename="${base}.${out.format}"`,
+        "Content-Disposition": `attachment; filename="${filename}"`,
         "Cache-Control": "no-store",
+        ...(driveLink ? { "X-Drive-Link": driveLink } : {}),
       },
     });
   } catch (e) {

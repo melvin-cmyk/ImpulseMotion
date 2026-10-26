@@ -11,6 +11,7 @@ import { DeltaBadge, PacingBar } from "@/components/portfolio/kpi-delta";
 import { errorKindLabel, fmtMetric, fmtMoney, fmtNumber, fmtRoas } from "@/components/portfolio/format";
 import { Freshness, KpiUnavailable } from "@/components/portfolio/freshness";
 import { SourcesPanel } from "@/components/portfolio/sources-panel";
+import { ClientHub } from "@/components/portfolio/client-hub";
 import { CrmAttributionCard } from "@/components/portfolio/crm-attribution-card";
 import type { CrmAttributionData } from "@/components/portfolio/crm-types";
 import { validateRange } from "@/lib/date-ranges";
@@ -257,13 +258,16 @@ export default function ClientSheetPage() {
             <span className="text-gray-600 text-xs">→</span>
             <input type="date" value={draft.until} min={draft.since || undefined} onChange={(e) => setDraft((x) => ({ ...x, until: e.target.value }))} onBlur={applyDraft} onKeyDown={(e) => { if (e.key === "Enter") applyDraft(); }} className={dateInput} />
           </div>
-          <Link href={`/d/${c.id}${rangeQs}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Dashboard client</Link>
+          <Link href={`/d/${c.id}${rangeQs}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Dashboard consultant</Link>
           {c.metaAccountId && <Link href={`/creatives?accountId=act_${c.metaAccountId}`} className={btn}><Sparkles className="w-3.5 h-3.5" /> Analyse créas</Link>}
           {session?.baseRole === "admin" && <Link href={`/admin/bots/${c.id}`} className={btn}><Bot className="w-3.5 h-3.5" /> Bot privé</Link>}
           <Link href={`/reports?new=1&dashboardId=${c.id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white"><FileText className="w-3.5 h-3.5" /> Rapport IA</Link>
         </div>
       </div>
       {rangeError && <div className="text-xs text-red-400 -mt-4">{rangeError}</div>}
+
+      {/* Everything of this client in one place: surfaces, designs, Drive folder. */}
+      <ClientHub clientId={c.id} metaAccountId={c.metaAccountId} isAdmin={session?.baseRole === "admin"} />
 
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div>

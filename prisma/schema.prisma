@@ -228,6 +228,8 @@ model Dashboard {
   slackChannelId   String?
   autoAlerts       Boolean           @default(true)
   autoAlertConfig  String            @default("{}") @db.Text
+  /// Google Drive folder of the client (data@ Drive, under the agency's « Clients » folder): designs, exports, files — see lib/clients/drive.ts
+  driveFolderId    String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   widgets          DashboardWidget[]

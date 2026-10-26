@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Download, ExternalLink, Loader2, Paperclip, Pencil, Send, Square, Trash2, Users, X } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, Loader2, MessageSquare, Paperclip, PanelRightClose, Pencil, Send, Square, Trash2, Users, X } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { ModelPicker } from "@/components/ai/model-picker";
@@ -24,6 +24,7 @@ import { DESIGN_FILES_ACCEPT, DESIGN_FILES_UPLOAD_RE, type DesignDetail, type De
 
 const PREFS_KEY = "design-copilot:prefs";
 const HINT_KEY = "design-copilot:join-hint";
+const PANEL_KEY = "design-copilot:panel";
 const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
 
 type Run = { jobId: string; text: string; activity: ActivityState; startedAt: number; stopping?: boolean };
@@ -50,6 +51,8 @@ export function DesignPage({ id }: { id: string }) {
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
   const [showHint, setShowHint] = useState(false);
+  // The copilot panel can be folded away: the editor then takes the whole window.
+  const [panelOpen, setPanelOpen] = useState(true);
   const [exporting, setExporting] = useState<string | null>(null);
   const follower = useRef<AbortController | null>(null);
   const threadEnd = useRef<HTMLDivElement | null>(null);
@@ -63,10 +66,12 @@ export function DesignPage({ id }: { id: string }) {
       if (!active) return;
       setPrefs(loadPrefs(PREFS_KEY));
       try { setShowHint(localStorage.getItem(HINT_KEY) !== "0"); } catch { setShowHint(true); }
+      try { setPanelOpen(localStorage.getItem(PANEL_KEY) !== "0"); } catch { /* fine */ }
     });
     return () => { active = false; };
   }, []);
   const updatePrefs = (patch: Partial<AiPrefs>) => setPrefs((p) => { const next = { ...p, ...patch }; savePrefs(PREFS_KEY, next); return next; });
+  const togglePanel = () => setPanelOpen((v) => { const next = !v; try { localStorage.setItem(PANEL_KEY, next ? "1" : "0"); } catch { /* fine */ } return next; });
   const dismissHint = () => { setShowHint(false); try { localStorage.setItem(HINT_KEY, "0"); } catch { /* fine */ } };
 
   const load = useCallback(async (): Promise<{ detail: DesignDetail; jobOwner: boolean | null } | null> => {
@@ -296,6 +301,9 @@ export function DesignPage({ id }: { id: string }) {
               <ExternalLink className="w-3.5 h-3.5" /> Plein écran
             </a>
           )}
+          <button type="button" onClick={togglePanel} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700`} title={panelOpen ? "Masquer le copilote : l'éditeur prend toute la fenêtre" : "Afficher le copilote"}>
+            {panelOpen ? <PanelRightClose className="w-3.5 h-3.5" /> : <MessageSquare className="w-3.5 h-3.5" />} {panelOpen ? "Plein éditeur" : "Copilote"}
+          </button>
           {design.canManage && (
             <button type="button" onClick={() => void remove()} className={`${SMALL_BUTTON} text-red-300 hover:bg-red-950/50`} title="Supprimer le design">
               <Trash2 className="w-3.5 h-3.5" />
@@ -335,7 +343,7 @@ export function DesignPage({ id }: { id: string }) {
           )}
         </div>
 
-        <aside className="w-[400px] shrink-0 border-l border-gray-800 bg-gray-950 flex flex-col min-h-0">
+        <aside className={`w-[400px] shrink-0 border-l border-gray-800 bg-gray-950 flex-col min-h-0 ${panelOpen ? "flex" : "hidden"}`}>
           <div className="px-4 py-2.5 border-b border-gray-800 shrink-0">
             <div className="text-sm font-semibold text-white">Copilote design</div>
             <div className="text-xs text-gray-500">Il dessine dans le fichier à côté : demandez un visuel, une déclinaison, une correction.</div>

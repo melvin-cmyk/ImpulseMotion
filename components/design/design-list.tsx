@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, PenTool, Plus, Trash2, Users } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { PageHelp } from "@/components/ui/page-help";
@@ -18,18 +18,20 @@ interface ClientOption { id: string; name: string }
 
 export function DesignList() {
   const router = useRouter();
+  // ?client=<dashboardId> : the designs of one client (from its cockpit); new designs start on that client.
+  const clientParam = useSearchParams().get("client") ?? "";
   const [designs, setDesigns] = useState<DesignListItem[] | null>(null);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [preset, setPreset] = useState<DesignPresetKey>("square");
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(clientParam);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/design", { cache: "no-store" });
+      const res = await fetch(clientParam ? `/api/design?client=${encodeURIComponent(clientParam)}` : "/api/design", { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(apiErrorText(json, res.status));
       setDesigns(json.designs as DesignListItem[]);
@@ -37,7 +39,7 @@ export function DesignList() {
       setError(e instanceof Error ? e.message : "Erreur");
       setDesigns([]);
     }
-  }, []);
+  }, [clientParam]);
 
   useEffect(() => {
     void Promise.resolve().then(() => load());
@@ -127,6 +129,12 @@ export function DesignList() {
         </form>
       </Card>
 
+      {clientParam && (
+        <div className="text-xs text-gray-400 flex items-center gap-2">
+          <Users className="w-3.5 h-3.5" /> Designs du client {clients.find((c) => c.id === clientParam)?.name ?? "sélectionné"} ·{" "}
+          <Link href="/design" className="text-violet-400 hover:text-white">tous les designs</Link>
+        </div>
+      )}
       {error && <div className="text-sm text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2">{error}</div>}
 
       {designs === null ? (

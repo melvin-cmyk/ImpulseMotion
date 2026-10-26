@@ -27,6 +27,7 @@ import { accountsOfTikTokCall, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
 import * as agnes from "./agnes.mjs";
 import * as jobs from "./jobs.mjs";
 import * as figcraft from "./figcraft.mjs";
+import * as drive from "./drive-direct.mjs";
 import { timingSafeEqual } from "node:crypto";
 let hqProjectsCache = null;
 
@@ -2216,6 +2217,51 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: e.message }));
       }
       return;
+    }
+
+    // ── Dossiers Drive des clients (server/drive-direct.mjs, identité data@) :
+    // un dossier par client sous « ImpulseMotion – Clients », listé et alimenté
+    // par l'app (designs, exports). Jamais de suppression ici.
+    if (url.pathname.startsWith("/api/drive/")) {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (!gwsAuth.configured()) return send(503, { error: "Google Workspace n'est pas configuré sur le relay (gws-auth)." });
+      const getToken = async () => (await gwsAuth.getAccessToken()).token;
+      try {
+        if (url.pathname === "/api/drive/root" && req.method === "GET") return send(200, await drive.ensureRoot(getToken));
+        if (url.pathname === "/api/drive/client-folder" && req.method === "POST") {
+          const body = await readBody(req);
+          const out = await drive.ensureClientFolder(getToken, { name: body?.name, description: body?.description });
+          console.log(`[drive] dossier client « ${drive.cleanName(body?.name)} » ${out.created ? "créé" : "trouvé"} (${out.id})`);
+          return send(200, out);
+        }
+        if (url.pathname === "/api/drive/folder" && req.method === "POST") {
+          const body = await readBody(req);
+          const out = await drive.ensureFolder(getToken, body?.parentId, body?.name, body?.description);
+          return send(200, out);
+        }
+        if (url.pathname === "/api/drive/folder" && req.method === "GET") {
+          const f = await drive.getFolder(getToken, url.searchParams.get("id") || "");
+          return f ? send(200, f) : send(404, { error: "dossier introuvable" });
+        }
+        if (url.pathname === "/api/drive/list" && req.method === "GET") {
+          return send(200, { files: await drive.listFolder(getToken, url.searchParams.get("folderId") || "", { limit: Number(url.searchParams.get("limit")) || 100 }) });
+        }
+        if (url.pathname === "/api/drive/upload" && req.method === "POST") {
+          const body = await readBody(req, UPLOAD_BODY_MAX_BYTES);
+          const out = await drive.uploadFile(getToken, body?.folderId || "", { name: body?.name, mimeType: body?.mimeType, data: body?.data });
+          console.log(`[drive] ${out.replaced ? "remplacé" : "déposé"} « ${out.name} » (${out.bytes} o) dans ${body?.folderId}`);
+          return send(200, out);
+        }
+        return send(404, { error: "not found" });
+      } catch (e) {
+        console.error("[drive] échec:", e.message);
+        return send(e.status && e.status >= 400 && e.status < 500 ? e.status : 502, { error: e.message });
+      }
     }
 
     // ── Design (FigCraft, server/figcraft.mjs) : fichiers créés, exportés et
