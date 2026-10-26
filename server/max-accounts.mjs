@@ -85,6 +85,11 @@ export function init(options) {
   console.log(`[max-accounts] ${1 + accounts.length} compte(s) Max : host${accounts.map((a) => `, ${a.id}`).join("")}`);
 }
 
+/** The `login` accounts of the pool, with their credentials file (server/auth-watch.mjs). */
+export function loginAccounts() {
+  return accounts.filter((a) => a.kind === "login").map((a) => ({ id: a.id, label: a.label || a.id, credentialsPath: path.join(a.configDir, ".credentials.json") }));
+}
+
 export function ids() {
   return [HOST_ACCOUNT, ...accounts.map((a) => a.id)];
 }

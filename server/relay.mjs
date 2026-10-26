@@ -17,6 +17,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { looksLikeUsageLimit, makeWebhookNotifier } from "./quota.mjs";
 import * as hqOauth from "./hq-oauth.mjs";
+import { HOST_CREDENTIALS, startAuthWatch } from "./auth-watch.mjs";
 import { hqToolCall } from "./hq-client.mjs";
 import * as maxAccounts from "./max-accounts.mjs";
 import * as gwsAuth from "./gws-auth.mjs";
@@ -630,6 +631,18 @@ maxAccounts.init({
   probeMs: Number(process.env.QUOTA_PROBE_MS || 300_000),
 });
 const quota = maxAccounts.hostMonitor();
+// Expiring logins (Claude Max, HQ) are announced on Slack before they die, and
+// HQ's refresh token is kept alive on a timer (server/auth-watch.mjs).
+const authNotifier = makeWebhookNotifier({
+  url: process.env.N8N_ALERT_WEBHOOK_URL,
+  secret: process.env.N8N_ALERT_WEBHOOK_SECRET,
+  slackChannel: process.env.RELAY_ALERT_SLACK_CHANNEL,
+  appUrl: (process.env.APP_URL || "https://impulsemotion.vercel.app").replace(/\/$/, ""),
+});
+startAuthWatch({
+  accounts: () => [{ id: maxAccounts.HOST_ACCOUNT, label: "compte serveur (bot@)", credentialsPath: HOST_CREDENTIALS }, ...maxAccounts.loginAccounts()],
+  notify: authNotifier,
+});
 
 const SYSTEM_PROMPT = `Tu es l'assistant IA d'ImpulseMotion, une agence marketing digitale.
 Tu as accès aux données publicitaires de l'agence via des outils MCP (Meta Ads, Google Ads, Google Analytics).

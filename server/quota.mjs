@@ -258,7 +258,7 @@ export function makeWebhookNotifier({ url, secret, slackChannel, appUrl }) {
     const payload = {
       version: 1,
       event: {
-        id: `quota-${kind}-${Date.now()}`,
+        id: `${kind === "auth" ? "auth" : "quota"}-${kind}-${Date.now()}`,
         triggeredAt: new Date().toISOString(),
         metric: "claude_max_usage",
         condition: "above",
@@ -272,7 +272,7 @@ export function makeWebhookNotifier({ url, secret, slackChannel, appUrl }) {
         entityLevel: null,
         entityName: null,
       },
-      rule: { id: "quota", ownerEmail: null, ownerName: null, label: kind === "switch" ? "Bascule de compte Claude Max" : "Quota Claude Max", mode: "system" },
+      rule: { id: kind === "auth" ? "auth" : "quota", ownerEmail: null, ownerName: null, label: kind === "switch" ? "Bascule de compte Claude Max" : kind === "auth" ? "Connexion IA du relay (à reconnecter)" : "Quota Claude Max", mode: "system" },
       notify: { slackChannel, emails: [] },
       links: { alerts: `${appUrl}/admin/usage`, event: `${appUrl}/admin/usage` },
     };
