@@ -23,8 +23,9 @@ import { answerText, summaryFromRelayState, type AiJobSummary } from "@/lib/ai-j
 import { relayDetach, relayJobState, relayJobStop, type RelayChatBody, type RelayJobState } from "@/lib/relay-chat";
 import { parseMessages, serializeMessages, type BotMessage } from "@/lib/bot-types";
 import { conversationTitle, parseStoredMessages, type StoredConsoleMessage } from "@/lib/console-conversations";
+import { appendDesignMessages } from "@/lib/design/thread";
 
-export type AiJobSurface = "bot" | "console";
+export type AiJobSurface = "bot" | "console" | "design";
 export type AiJobStatus = "running" | "done" | "stopped" | "failed";
 
 export const JOB_ID_RE = /^[a-f0-9]{32}$/;
@@ -155,6 +156,8 @@ export async function finalizeAiJob(
   try {
     if (row.surface === "bot") {
       await appendBotMessages(row.conversationId, [{ role: "assistant", content: text, at }]);
+    } else if (row.surface === "design") {
+      await appendDesignMessages(row.conversationId, [{ role: "assistant", content: text, at }]);
     } else if (row.surface === "console") {
       const toolCalls = summary.toolCalls.filter((t) => t.name);
       await appendConsoleMessages(row.conversationId, row.userId, [{
@@ -268,6 +271,7 @@ export async function loadJob(jobId: string): Promise<AiJobRow | null> {
 /** Where the browser opens the conversation of a job. */
 export function jobHref(job: Pick<AiJobRow, "surface" | "conversationId" | "botId">): string {
   if (job.surface === "bot" && job.botId) return `/bot/${job.botId}?c=${job.conversationId}`;
+  if (job.surface === "design") return `/design/${job.conversationId}`;
   return `/ai?c=${job.conversationId}`;
 }
 

@@ -1,5 +1,16 @@
 import type { NextConfig } from "next";
 
+// The FigCraft editor (design files, lib/design) is served by the relay's
+// host and shown in an iframe: its origin must be allowed in frame-src.
+function figcraftFrameOrigin(): string {
+  try {
+    const u = process.env.NEXT_PUBLIC_FIGCRAFT_URL ? new URL(process.env.NEXT_PUBLIC_FIGCRAFT_URL) : null;
+    return u && u.protocol === "https:" ? ` ${u.origin}` : "";
+  } catch {
+    return "";
+  }
+}
+
 const nextConfig: NextConfig = {
   // Build id baked into the client bundle, compared with /api/version by
   // open tabs (components/ai/stale-build.tsx).
@@ -62,7 +73,8 @@ const nextConfig: NextConfig = {
               // server-side (lib/relay-server.ts), never from a page.
               "connect-src 'self' https://graph.facebook.com",
               // Allow Facebook video embeds
-              "frame-src 'self' https://www.facebook.com https://video.facebook.com https://web.facebook.com",
+              // + the FigCraft editor of the design pages (NEXT_PUBLIC_FIGCRAFT_URL)
+              `frame-src 'self' https://www.facebook.com https://video.facebook.com https://web.facebook.com${figcraftFrameOrigin()}`,
               "frame-ancestors 'self'",
               "base-uri 'self'",
               "form-action 'self'",

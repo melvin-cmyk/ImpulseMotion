@@ -18,8 +18,7 @@ import {
   MessageSquare,
   Repeat,
   SlidersHorizontal,
-  Wand2,
-} from "lucide-react"
+  Wand2, PenTool } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
 import { useAiJobs } from "@/components/ai-jobs-watcher"
@@ -93,6 +92,8 @@ const NAV_SECTIONS: NavSection[] = [
         match: (p) => ANALYSE_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
       },
       { href: "/studio", icon: Wand2, label: "Studio créa", match: (p) => p === "/studio" || p.startsWith("/studio/") },
+      // Design files (FigCraft editor + AI copilot), staff only: proxy.ts keeps /design out of the client prefixes.
+      { href: "/design", icon: PenTool, label: "Design", match: (p) => p === "/design" || p.startsWith("/design/") },
       { href: "/ai", icon: Bot, label: "AI Assistant", match: (p) => p.startsWith("/ai") },
     ],
   },
@@ -156,7 +157,7 @@ export function Sidebar() {
   const baseRole = session?.baseRole ?? role
   // Detached AI turns still running, per surface: a count next to the assistants.
   const { running } = useAiJobs()
-  const runningFor = (href: string) => running.filter((j) => (href === "/ai" ? j.surface === "console" : href === "/bot" ? j.surface === "bot" : false)).length
+  const runningFor = (href: string) => running.filter((j) => (href === "/ai" ? j.surface === "console" : href === "/bot" ? j.surface === "bot" : href === "/design" ? j.surface === "design" : false)).length
 
   return (
     <div className="w-52 bg-gray-950 border-r border-gray-800 flex flex-col py-4 px-3 gap-1 shrink-0 overflow-y-auto">

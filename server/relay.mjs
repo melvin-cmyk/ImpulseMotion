@@ -26,6 +26,7 @@ import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promp
 import { accountsOfTikTokCall, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
 import * as agnes from "./agnes.mjs";
 import * as jobs from "./jobs.mjs";
+import * as figcraft from "./figcraft.mjs";
 import { timingSafeEqual } from "node:crypto";
 let hqProjectsCache = null;
 
@@ -155,6 +156,8 @@ const CHILD_ENV_DENY = new Set([
   "RELAY_SHARED_SECRET", "RELAY_SHARED_SECRET_PREVIOUS", "AGNES_API_KEY",
   "N8N_ALERT_WEBHOOK_SECRET", "N8N_ALERT_WEBHOOK_URL", "N8N_MCP_TOKEN", "N8N_TOOLS_TOKEN",
   "DATA_DATABASE_URL", "DATABASE_URL", "HQ_CLIENT_SECRET",
+  // FigCraft publish key: the relay creates and removes design files; the AI only gets a file's edit link.
+  "FIGCRAFT_SERVER_URL",
 ]);
 function childBaseEnv() {
   const env = {};
@@ -192,6 +195,12 @@ const SANDBOX_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-sandbox.mjs";
 // en env au serveur stdio ; les secrets ne sortent jamais du relay.
 const GWS_SERVER = "gws";
 const GWS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-gws.mjs";
+// FigCraft (server/figcraft.mjs, server/mcp-figcraft.mjs) : éditeur de design
+// des consultants. Dans une conversation de design, l'IA rejoint le fichier
+// partagé (lien d'édition porté par la requête) et y travaille en direct ;
+// ses lectures/écritures de fichiers restent dans le workspace de la conversation.
+const FIGCRAFT_SERVER = "figcraft";
+const FIGCRAFT_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-figcraft.mjs";
 const WORKSPACES_DIR = path.join(RELAY_CLAUDE_CWD, "workspaces");
 const WORKSPACE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const WORKSPACE_ID_RE = /^[a-f0-9]{24}$/;
@@ -399,7 +408,7 @@ const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // fields, announced by /health. The application reads it before relying on a
 // field an older relay would silently ignore (lib/dashboard-copilot.ts), so
 // the relay and the application can be deployed in any order.
-const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs"];
+const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft"];
 // Detached turns (jobs) hold no HTTP response open: they may run longer than
 // a streamed one, up to this cap.
 const DETACHED_MAX_BUDGET_MS = Number(process.env.RELAY_DETACHED_MAX_BUDGET_MS || 15 * 60 * 1000);
@@ -522,6 +531,7 @@ const ALLOWED_MCP_SERVERS = new Set([
   MERCHANT_SERVER,
   MAGENTO_SERVER,
   N8N_SERVER,
+  FIGCRAFT_SERVER,
 ]);
 
 // Per-server explicit tool allowlist for the CHAT (handleChat). Servers absent
@@ -737,7 +747,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null }) {
+function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null, figcraftLink = null }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -764,6 +774,18 @@ function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountSc
           ...(process.env.SANDBOX_IMAGE ? { SANDBOX_IMAGE: process.env.SANDBOX_IMAGE } : {}),
           ...(syncedSkillsDir() ? { SKILLS_DIR: syncedSkillsDir() } : {}),
         },
+      };
+      kept.push(name);
+      continue;
+    }
+    if (name === FIGCRAFT_SERVER) {
+      // The AI joins the conversation's design file; its file reads and writes
+      // stay in the workspace (uploads/ read, out/ written: served by /api/files).
+      if (!figcraftLink || !workspaceDir) continue;
+      mcpServers[name] = {
+        command: "node",
+        args: [FIGCRAFT_MCP_SCRIPT],
+        env: { FIGCRAFT_JOIN_LINK: figcraftLink, FIGCRAFT_CLI: figcraft.FIGCRAFT_CLI, WORKSPACE_DIR: workspaceDir },
       };
       kept.push(name);
       continue;
@@ -1092,6 +1114,31 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       }
     }
   }
+  // FigCraft: staff only, for a named conversation whose request carries the
+  // edit link of its design file (the app owns the link; the model never sees
+  // the server key). The AI's files live in the same workspace as the sandbox.
+  let figcraftLink = null;
+  if (servers.includes(FIGCRAFT_SERVER)) {
+    const link = options.figcraft && typeof options.figcraft === "object" && typeof options.figcraft.link === "string" ? figcraft.loopbackLink(options.figcraft.link) : null;
+    if (clientBot || !sessionKey || !link || !figcraft.figcraftConfigured()) {
+      servers = servers.filter((s) => s !== FIGCRAFT_SERVER);
+      console.error(`[chat] figcraft retiré — ${clientBot ? "requête de bot client" : !sessionKey ? "conversation sans nom" : !link ? "lien de design absent ou invalide" : "FigCraft non configuré sur le relay"}`);
+    } else {
+      figcraftLink = link;
+      if (!workspaceDir) {
+        const wsId = workspaceIdFor(sessionKey);
+        workspaceDir = path.join(WORKSPACES_DIR, wsId);
+        try {
+          for (const sub of ["uploads", "out"]) ensureWorkspaceDir(wsId, sub);
+        } catch (e) {
+          console.error(`[chat] workspace ${wsId} inutilisable : ${e.code || e.message}`);
+          lock?.release();
+          failChat(res, "Le dossier de travail de cette conversation est inutilisable. Ouvrez une nouvelle conversation ; si l'erreur persiste, prévenez un administrateur.");
+          return;
+        }
+      }
+    }
+  }
   // Google Workspace: staff only. The token is minted here (never by the
   // model); without one the server still starts so gws_status can explain.
   let gwsAuthState = null;
@@ -1102,7 +1149,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       catch (err) { gwsAuthState = { error: err.message }; }
     }
   }
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, clientKeys, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools });
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, clientKeys, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools, figcraftLink });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -1823,6 +1870,8 @@ const server = http.createServer(async (req, res) => {
         clientBot: body.clientBot === true,
         turnContext: body.turnContext,
         hqGuidance: body.hqGuidance,
+        // Design conversation: { link } = the edit link of its FigCraft file.
+        figcraft: body.figcraft,
       };
       // Detached turn: the CLI writes into a job log the caller reads back
       // (GET /api/jobs/:id); the answer here is only the job id. Closing a
@@ -2167,6 +2216,51 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: e.message }));
       }
       return;
+    }
+
+    // ── Design (FigCraft, server/figcraft.mjs) : fichiers créés, exportés et
+    // supprimés par le relay, qui seul tient la clé du serveur de collaboration.
+    if (url.pathname.startsWith("/api/figcraft/")) {
+      if (!authorized(req)) {
+        res.writeHead(401, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (url.pathname === "/api/figcraft/status" && req.method === "GET") {
+        return send(200, { configured: figcraft.figcraftConfigured(), server: figcraft.figcraftConfigured() ? await figcraft.serverHealth() : null });
+      }
+      if (!figcraft.figcraftConfigured()) return send(503, { error: "FigCraft n'est pas configuré sur le relay (FIGCRAFT_SERVER_URL, figcraft-cli)." });
+      try {
+        if (url.pathname === "/api/figcraft/files" && req.method === "POST") {
+          const body = await readBody(req);
+          const out = await figcraft.createDesign({ name: body?.name, width: body?.width, height: body?.height, frameName: body?.frameName });
+          console.log(`[figcraft] fichier créé ${out.fileId} « ${out.name} »`);
+          return send(200, out);
+        }
+        const fileMatch = url.pathname.match(/^\/api\/figcraft\/files\/([a-f0-9]{8,32})$/);
+        if (fileMatch && req.method === "DELETE") {
+          const out = await figcraft.removeDesign(fileMatch[1]);
+          console.log(`[figcraft] fichier ${fileMatch[1]} ${out.removed ? "supprimé" : "déjà absent"}`);
+          return send(200, out);
+        }
+        if (url.pathname === "/api/figcraft/export" && req.method === "POST") {
+          const body = await readBody(req);
+          if (!figcraft.parseShareLink(body?.link)) return send(400, { error: "lien de partage invalide" });
+          const out = await figcraft.exportDesign({ link: body.link, format: body.format, scale: body.scale, ids: body.ids });
+          console.log(`[figcraft] export ${out.format} ${out.bytes} o`);
+          return send(200, out);
+        }
+        if (url.pathname === "/api/figcraft/preview" && req.method === "POST") {
+          const body = await readBody(req);
+          if (!figcraft.parseShareLink(body?.link)) return send(400, { error: "lien de partage invalide" });
+          return send(200, await figcraft.previewDesign({ link: body.link, maxSize: body.maxSize }));
+        }
+        return send(404, { error: "not found" });
+      } catch (e) {
+        console.error("[figcraft] échec:", e.message);
+        return send(e.status === 413 ? 413 : 502, { error: e.message });
+      }
     }
 
     if (url.pathname === "/api/quota" && req.method === "GET") {

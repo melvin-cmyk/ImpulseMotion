@@ -46,6 +46,7 @@ const FEATURE_LABEL: Record<string, string> = {
   client_alert_compose: "Alertes (création avec l'IA)",
   pilot_assistant: "Pilotage (modifications avec l'IA)",
   persona: "Personas client (HQ)",
+  design_copilot: "Design (copilote FigCraft)",
 };
 type ProfileUsage = Totals & {
   key: string;

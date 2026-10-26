@@ -32,6 +32,7 @@ model User {
   staffDashboards      StaffDashboard[]
   staffMetrics         StaffMetric[]
   staffDimensions      StaffDimension[]
+  designFiles          DesignFile[]
   /// Slack member the private alerts are sent to (lib/client-alerts/slack-dm.ts):
   /// found by e-mail through n8n, `slackEmail` when it differs from `email`.
   slackUserId          String?
@@ -238,6 +239,7 @@ model Dashboard {
   bot              ClientBot?
   personaDraft     PersonaDraft?
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  designFiles      DesignFile[]
 
   @@index([userId])
 }
@@ -1214,4 +1216,27 @@ model StaffDimension {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+/// A design file (FigCraft) edited live by the staff and the AI — see lib/design and server/figcraft.mjs
+model DesignFile {
+  id                String     @id @default(cuid())
+  ownerId           String
+  name              String
+  /// Client dashboard the design is for (its name and HQ brief feed the AI); optional
+  clientDashboardId String?
+  /// FigCraft file id on the agency's collaboration server
+  fileId            String     @unique
+  /// Share links (edit / view). Secrets: staff only; the browser gets the edit link inside the editor's join URL
+  editLink          String
+  viewLink          String
+  /// JSON DesignMessage[] (lib/design/model.ts): the AI thread of the design, shared by the staff
+  messagesJson      String     @default("[]") @db.Text
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  owner             User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  clientDashboard   Dashboard? @relation(fields: [clientDashboardId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, updatedAt])
+  @@index([updatedAt])
 }

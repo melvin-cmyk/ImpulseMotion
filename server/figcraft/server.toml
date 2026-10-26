@@ -1,0 +1,11 @@
+# FigCraft collaboration server for ImpulseMotion (design files edited live by consultants and the AI).
+# Only the relay (server/figcraft.mjs) publishes files, with the server key kept in /etc/impulsemotion-relay.env.
+listen = "127.0.0.1:47900"
+data = "/var/lib/figcraft-server"
+# Links name the public address: Caddy terminates TLS and strips /figcraft-collab.
+public_url = "wss://72-62-29-196.sslip.io/figcraft-collab/"
+max_files = 2000
+max_file_mb = 64
+max_links = 100
+max_connections = 256
+max_people = 64

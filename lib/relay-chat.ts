@@ -68,6 +68,12 @@ export interface RelayChatBody {
    * thread restarts the session.
    */
   sessionKey?: string;
+  /**
+   * Design conversation (lib/design): the edit link of its FigCraft file. The
+   * relay's "figcraft" MCP server joins that file so the model edits it live
+   * with the consultant; the server is dropped without a link.
+   */
+  figcraft?: { link: string };
 }
 
 export type RelayModel = "sonnet" | "opus" | "fable";
