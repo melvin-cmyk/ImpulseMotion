@@ -240,13 +240,18 @@ export const metaAdapter: WarehouseAdapter = {
       daily.push(row);
       seen.add(row.adId);
     }
-    // Lead-gen account left on the default "purchase" event (Admin → Comptes not
-    // filled): when leads clearly dominate purchases in the window, its
-    // conversions are its leads. An explicit setting is always honoured.
+    // Account left on the default "purchase" event (Admin → Comptes not filled)
+    // that has NEVER recorded a purchase, in this window nor in its stored
+    // history: its conversions are its leads. The decision is account-wide so
+    // every window agrees; an explicit setting is always honoured, and
+    // changing it in the admin re-syncs the account (resync).
     if (settings.conversionEvent === "purchase") {
       const purchases = daily.reduce((a, d) => a + d.purchases, 0);
       const leads = daily.reduce((a, d) => a + d.leads, 0);
-      if (leads > 0 && leads >= purchases * 3) for (const d of daily) { d.conversions = d.leads; d.conversionValue = 0; }
+      if (purchases === 0 && leads > 0) {
+        const hist = await prisma.adDaily.aggregate({ where: { platform: "meta", accountId }, _sum: { purchases: true } });
+        if ((hist._sum.purchases ?? 0) === 0) for (const d of daily) { d.conversions = d.leads; d.conversionValue = 0; }
+      }
     }
 
     // Metadata — only for ads that delivered in the window: all of them on the

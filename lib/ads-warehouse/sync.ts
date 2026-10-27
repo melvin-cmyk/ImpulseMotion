@@ -96,7 +96,9 @@ function needsWork(s: State): boolean {
 function windowsFor(s: State | undefined): SyncWindow[] {
   const y = yesterdayUtc();
   const target = addDays(y, -(BACKFILL_DAYS - 1));
-  if (!s?.syncedTo || !s.syncedFrom) return [{ since: addDays(y, -(CHUNK_DAYS - 1)), until: y }];
+  // A big account whose last read timed out gets shorter windows.
+  const chunk = s?.lastError && /timeout|time-out|délai/i.test(s.lastError) ? Math.max(7, Math.floor(CHUNK_DAYS / 3)) : CHUNK_DAYS;
+  if (!s?.syncedTo || !s.syncedFrom) return [{ since: addDays(y, -(chunk - 1)), until: y }];
   const out: SyncWindow[] = [];
   const to = iso(s.syncedTo);
   const from = iso(s.syncedFrom);
@@ -104,7 +106,7 @@ function windowsFor(s: State | undefined): SyncWindow[] {
   out.push({ since: incSince < from ? from : incSince, until: y });
   if (from > target) {
     const chunkUntil = addDays(from, -1);
-    const chunkSince = addDays(chunkUntil, -(CHUNK_DAYS - 1));
+    const chunkSince = addDays(chunkUntil, -(chunk - 1));
     out.push({ since: chunkSince < target ? target : chunkSince, until: chunkUntil });
   }
   return out;
@@ -239,6 +241,13 @@ async function upsertDaily(rows: DailyRow[]) {
       "videoPlays" = EXCLUDED."videoPlays", "video3s" = EXCLUDED."video3s", "thruPlays" = EXCLUDED."thruPlays",
       "videoP25" = EXCLUDED."videoP25", "videoP50" = EXCLUDED."videoP50", "videoP75" = EXCLUDED."videoP75", "videoP100" = EXCLUDED."videoP100",
       "actionsJson" = EXCLUDED."actionsJson", "updatedAt" = NOW()`;
+}
+
+/** Forget the sync state of accounts (their rows stay and are overwritten): the next pass re-reads them from scratch. */
+export async function resetAccounts(platform: WarehousePlatform, accountIds: string[]): Promise<number> {
+  if (!accountIds.length) return 0;
+  const r = await prisma.adSyncState.deleteMany({ where: { platform, accountId: { in: accountIds } } });
+  return r.count;
 }
 
 /** Sync status per account, for the admin page and the Analyse Ads freshness line. */
