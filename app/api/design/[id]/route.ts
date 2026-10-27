@@ -60,7 +60,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!row) return NextResponse.json({ error: "not found" }, { status: 404 });
   if (!canManageDesign(row, guard.session)) return NextResponse.json({ error: "Seul le créateur du design (ou un admin) peut le supprimer." }, { status: 403 });
   try {
-    await deleteDesignFile(row.fileId);
+    if (row.kind !== "photocraft") await deleteDesignFile(row.fileId);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: `Le fichier n'a pas pu être retiré du serveur (${msg}). Réessayez.` }, { status: 502 });

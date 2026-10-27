@@ -83,7 +83,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   ]);
   const clientBrief = dashboard && dashboard.hqSlug && isHqContextFresh(dashboard) ? dashboard.hqContextMd : null;
   const author = guard.session.user?.email ?? null;
-  const systemPrompt = buildDesignSystemPrompt({ name: design.name, clientName: dashboard?.name ?? design.clientDashboard?.name ?? null, clientBrief, author });
+  const kind = design.kind === "photocraft" ? "photocraft" : "figcraft";
+  const systemPrompt = buildDesignSystemPrompt({ name: design.name, kind, clientName: dashboard?.name ?? design.clientDashboard?.name ?? null, clientBrief, author });
 
   const history = parseDesignMessages(design.messagesJson);
   const text = message || (images.length ? "(image jointe)" : "(fichiers déposés)");
@@ -106,10 +107,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     ...(account ? { account } : {}),
     maxTurns: MAX_TURNS,
     budgetMs: BUDGET_MS,
-    // The file, and the agency's memory for briefs and charters; no ads data here.
-    allowedServers: ["figcraft", HQ_SERVER],
+    // The editor's tools, and the agency's memory for briefs and charters; no ads data here.
+    allowedServers: [kind, HQ_SERVER],
     accountScope: {},
-    figcraft: { link: design.editLink },
+    ...(kind === "figcraft" ? { figcraft: { link: design.editLink } } : {}),
   };
 
   await appendDesignMessages(design.id, [userMessage]);

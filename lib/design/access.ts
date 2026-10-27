@@ -7,13 +7,13 @@ import { prisma } from "@/lib/prisma";
 import { editorUrlFor, type DesignDetail, type DesignListItem, type DesignMessage } from "@/lib/design/model";
 
 export const DESIGN_SELECT = {
-  id: true, ownerId: true, name: true, clientDashboardId: true, fileId: true, editLink: true, viewLink: true, messagesJson: true, createdAt: true, updatedAt: true,
+  id: true, ownerId: true, name: true, kind: true, clientDashboardId: true, fileId: true, editLink: true, viewLink: true, messagesJson: true, createdAt: true, updatedAt: true,
   owner: { select: { email: true, name: true } },
   clientDashboard: { select: { name: true } },
 } as const;
 
 export type DesignRow = {
-  id: string; ownerId: string; name: string; clientDashboardId: string | null; fileId: string; editLink: string; viewLink: string; messagesJson: string;
+  id: string; ownerId: string; name: string; kind: string; clientDashboardId: string | null; fileId: string; editLink: string; viewLink: string; messagesJson: string;
   createdAt: Date; updatedAt: Date; owner: { email: string | null; name: string | null }; clientDashboard: { name: string } | null;
 };
 
@@ -27,6 +27,7 @@ export function toDesignListItem(row: DesignRow, session: StaffSessionLike): Des
   return {
     id: row.id,
     name: row.name,
+    kind: row.kind === "photocraft" ? "photocraft" : "figcraft",
     clientDashboardId: row.clientDashboardId,
     clientName: row.clientDashboard?.name ?? null,
     ownerId: row.ownerId,
@@ -41,7 +42,7 @@ export function toDesignListItem(row: DesignRow, session: StaffSessionLike): Des
 export function toDesignDetail(row: DesignRow, session: StaffSessionLike, messages: DesignMessage[], jobId: string | null): DesignDetail {
   return {
     ...toDesignListItem(row, session),
-    editorUrl: editorUrlFor(process.env.NEXT_PUBLIC_FIGCRAFT_URL, row.editLink),
+    editorUrl: row.kind === "photocraft" ? (process.env.NEXT_PUBLIC_PHOTOCRAFT_URL?.trim() || null) : editorUrlFor(process.env.NEXT_PUBLIC_FIGCRAFT_URL, row.editLink),
     messages,
     jobId,
   };

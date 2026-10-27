@@ -1225,6 +1225,8 @@ model DesignFile {
   id                String     @id @default(cuid())
   ownerId           String
   name              String
+  /// figcraft (mise en page, fichier partagé en direct) | photocraft (retouche d'image, fichiers du workspace)
+  kind              String     @default("figcraft")
   /// Client dashboard the design is for (its name and HQ brief feed the AI); optional
   clientDashboardId String?
   /// FigCraft file id on the agency's collaboration server

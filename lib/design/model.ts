@@ -12,6 +12,12 @@ import type { ChatFile, ChatImage } from "@/lib/ai-chat-shared";
 
 export const DESIGN_NAME_MAX = 120;
 
+/** Editor of a design: FigCraft (layout, shared live file) or PhotoCraft (image retouching, files of the workspace). */
+export const DESIGN_KINDS = ["figcraft", "photocraft"] as const;
+export type DesignKind = (typeof DESIGN_KINDS)[number];
+export const DESIGN_KIND_LABEL: Record<DesignKind, string> = { figcraft: "Mise en page (FigCraft)", photocraft: "Retouche image (PhotoCraft)" };
+export function parseDesignKind(v: unknown): DesignKind { return v === "photocraft" ? "photocraft" : "figcraft"; }
+
 /** Artboards offered when a design is created (width × height in px). "free" = an empty page. */
 export const DESIGN_PRESETS = [
   { key: "square", label: "Carré 1080 × 1080 (Meta, Instagram)", width: 1080, height: 1080 },
@@ -43,6 +49,7 @@ export interface DesignMessage {
 }
 
 export interface DesignListItem {
+  kind: DesignKind;
   id: string;
   name: string;
   clientDashboardId: string | null;
@@ -79,5 +86,5 @@ export function editorUrlFor(base: string | null | undefined, link: string): str
   return `${b}/#join=${encodeURIComponent(link)}`;
 }
 
-export const DESIGN_FILES_UPLOAD_RE = /\.(png|jpe?g|webp|gif|svg|figcraft|fig|json|pdf)$/i;
+export const DESIGN_FILES_UPLOAD_RE = /\.(png|jpe?g|webp|gif|svg|figcraft|fig|json|pdf|psd|psb|tiff?|heic|avif|bmp)$/i;
 export const DESIGN_FILES_ACCEPT = "image/*,.svg,.figcraft,.fig,.json,.pdf";

@@ -12,7 +12,7 @@ import { Loader2, PenTool, Plus, Trash2, Users } from "lucide-react";
 import { Card, PageHeader, Pill } from "@/components/ui/surface";
 import { PageHelp } from "@/components/ui/page-help";
 import { FIELD, PRIMARY_BUTTON, SMALL_BUTTON, apiErrorText, dateLabel } from "@/components/staff-dashboards/model";
-import { DESIGN_PRESETS, type DesignListItem, type DesignPresetKey } from "@/lib/design/model";
+import { DESIGN_KIND_LABEL, DESIGN_PRESETS, type DesignKind, type DesignListItem, type DesignPresetKey } from "@/lib/design/model";
 
 interface ClientOption { id: string; name: string }
 
@@ -25,6 +25,7 @@ export function DesignList() {
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [preset, setPreset] = useState<DesignPresetKey>("square");
+  const [kind, setKind] = useState<DesignKind>("figcraft");
   const [clientId, setClientId] = useState(clientParam);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -61,7 +62,7 @@ export function DesignList() {
       const res = await fetch("/api/design", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), preset, clientDashboardId: clientId || null }),
+        body: JSON.stringify({ name: name.trim(), preset, kind, clientDashboardId: clientId || null }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(apiErrorText(json, res.status));
@@ -104,14 +105,20 @@ export function DesignList() {
       />
 
       <Card padded>
-        <form onSubmit={create} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto] items-end">
+        <form onSubmit={create} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_1fr_auto] items-end">
           <label className="block">
             <span className="block text-xs text-gray-400 mb-1">Nom du design</span>
             <input className={FIELD} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Promo rentrée — bannières Meta" maxLength={120} required />
           </label>
           <label className="block">
-            <span className="block text-xs text-gray-400 mb-1">Planche de départ</span>
-            <select className={FIELD} value={preset} onChange={(e) => setPreset(e.target.value as DesignPresetKey)}>
+            <span className="block text-xs text-gray-400 mb-1">Éditeur</span>
+            <select className={FIELD} value={kind} onChange={(e) => setKind(e.target.value as DesignKind)} title="Mise en page : FigCraft (type Figma, fichier partagé en direct avec le copilote). Retouche : PhotoCraft (type Photoshop, calques et masques sur vos images).">
+              {(Object.keys(DESIGN_KIND_LABEL) as DesignKind[]).map((k) => <option key={k} value={k}>{DESIGN_KIND_LABEL[k]}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="block text-xs text-gray-400 mb-1">{kind === "photocraft" ? "Planche (sans effet en retouche)" : "Planche de départ"}</span>
+            <select className={FIELD} value={preset} onChange={(e) => setPreset(e.target.value as DesignPresetKey)} disabled={kind === "photocraft"}>
               {DESIGN_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
             </select>
           </label>

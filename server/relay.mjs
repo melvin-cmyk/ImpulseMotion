@@ -202,6 +202,12 @@ const GWS_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-gws.mjs";
 // ses lectures/écritures de fichiers restent dans le workspace de la conversation.
 const FIGCRAFT_SERVER = "figcraft";
 const FIGCRAFT_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-figcraft.mjs";
+// PhotoCraft (server/mcp-photocraft.mjs) : retouche d'images (Photoshop open
+// source, même équipe que FigCraft), headless, sur les fichiers du workspace.
+const PHOTOCRAFT_SERVER = "photocraft";
+const PHOTOCRAFT_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-photocraft.mjs";
+const PHOTOCRAFT_CLI = process.env.PHOTOCRAFT_CLI || "/usr/local/bin/photocraft-cli";
+function photocraftConfigured() { return fs.existsSync(PHOTOCRAFT_CLI); }
 const WORKSPACES_DIR = path.join(RELAY_CLAUDE_CWD, "workspaces");
 const WORKSPACE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const WORKSPACE_ID_RE = /^[a-f0-9]{24}$/;
@@ -409,7 +415,7 @@ const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // fields, announced by /health. The application reads it before relying on a
 // field an older relay would silently ignore (lib/dashboard-copilot.ts), so
 // the relay and the application can be deployed in any order.
-const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft"];
+const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft", "photocraft"];
 // Detached turns (jobs) hold no HTTP response open: they may run longer than
 // a streamed one, up to this cap.
 const DETACHED_MAX_BUDGET_MS = Number(process.env.RELAY_DETACHED_MAX_BUDGET_MS || 15 * 60 * 1000);
@@ -533,6 +539,7 @@ const ALLOWED_MCP_SERVERS = new Set([
   MAGENTO_SERVER,
   N8N_SERVER,
   FIGCRAFT_SERVER,
+  PHOTOCRAFT_SERVER,
 ]);
 
 // Per-server explicit tool allowlist for the CHAT (handleChat). Servers absent
@@ -749,7 +756,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null, figcraftLink = null }) {
+function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null, figcraftLink = null, photocraft = false }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -788,6 +795,17 @@ function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountSc
         command: "node",
         args: [FIGCRAFT_MCP_SCRIPT],
         env: { FIGCRAFT_JOIN_LINK: figcraftLink, FIGCRAFT_CLI: figcraft.FIGCRAFT_CLI, WORKSPACE_DIR: workspaceDir },
+      };
+      kept.push(name);
+      continue;
+    }
+    if (name === PHOTOCRAFT_SERVER) {
+      // Headless PhotoCraft on the conversation's workspace (uploads/ read, out/ written).
+      if (!photocraft || !workspaceDir) continue;
+      mcpServers[name] = {
+        command: "node",
+        args: [PHOTOCRAFT_MCP_SCRIPT],
+        env: { PHOTOCRAFT_CLI, WORKSPACE_DIR: workspaceDir },
       };
       kept.push(name);
       continue;
@@ -1151,7 +1169,22 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       catch (err) { gwsAuthState = { error: err.message }; }
     }
   }
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, clientKeys, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools, figcraftLink });
+  // PhotoCraft: staff only, named conversation (its workspace holds the files).
+  let photocraftOn = false;
+  if (servers.includes(PHOTOCRAFT_SERVER)) {
+    if (clientBot || !sessionKey || !photocraftConfigured()) {
+      servers = servers.filter((s) => s !== PHOTOCRAFT_SERVER);
+      console.error(`[chat] photocraft retiré — ${clientBot ? "requête de bot client" : !sessionKey ? "conversation sans nom" : "photocraft-cli absent du relay"}`);
+    } else {
+      photocraftOn = true;
+      if (!workspaceDir) {
+        const wsId = workspaceIdFor(sessionKey);
+        workspaceDir = path.join(WORKSPACES_DIR, wsId);
+        try { for (const sub of ["uploads", "out"]) ensureWorkspaceDir(wsId, sub); } catch (e) { console.error(`[chat] workspace photocraft : ${e instanceof Error ? e.message : e}`); }
+      }
+    }
+  }
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, clientKeys, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools, figcraftLink, photocraft: photocraftOn });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();

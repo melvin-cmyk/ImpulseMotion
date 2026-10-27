@@ -12,6 +12,8 @@ import type { ChatFile } from "@/lib/ai-chat-shared";
 
 export interface DesignPromptInput {
   name: string;
+  /** figcraft (layout, shared live file) | photocraft (image retouching, workspace files). */
+  kind?: "figcraft" | "photocraft";
   clientName: string | null;
   /** Compact HQ brief of the client (lib/hq-client-context), when the design is attached to a client dashboard. */
   clientBrief: string | null;
@@ -19,6 +21,7 @@ export interface DesignPromptInput {
 }
 
 export function buildDesignSystemPrompt(input: DesignPromptInput): string {
+  if (input.kind === "photocraft") return buildPhotocraftSystemPrompt(input);
   const client = input.clientName
     ? `CLIENT : ${input.clientName}.${input.clientBrief ? `\nBrief HQ du client (mémoire de l'agence — ton, univers, produits, cibles ; reprends-en les couleurs et le vocabulaire quand ils y sont) :\n${input.clientBrief}` : " Aucun brief HQ disponible : demande au consultant la charte (couleurs, polices, ton) si le visuel en dépend."}`
     : "CLIENT : aucun client rattaché (visuel libre pour l'agence). Demande la charte si le visuel en dépend.";
@@ -51,4 +54,23 @@ export function designUploadsNote(files: ChatFile[]): string {
   if (!files.length) return "[Aucun fichier déposé dans uploads/ pour l'instant.]";
   const list = files.map((f) => `${f.path} (${Math.max(1, Math.round(f.bytes / 1024))} Ko)`).join(", ");
   return `[Fichiers déposés dans uploads/ : ${list}]`;
+}
+
+/** PhotoCraft (image retouching): headless editor on the conversation's files — no live shared document. */
+function buildPhotocraftSystemPrompt(input: DesignPromptInput): string {
+  const client = input.clientName
+    ? `CLIENT : ${input.clientName}.${input.clientBrief ? `\nBrief HQ du client (mémoire de l'agence — ton, univers, produits, cibles) :\n${input.clientBrief}` : " Aucun brief HQ disponible : demande la charte (couleurs, polices, ton) si la retouche en dépend."}`
+    : "CLIENT : aucun client rattaché (visuel libre pour l'agence).";
+  return `Tu es le copilote retouche d'ImpulseMotion, pour les consultants d'Impulse Analytics (agence de marketing digital). Tu travailles dans le dossier « ${input.name} » avec PhotoCraft, un éditeur d'images de la classe de Photoshop (calques, masques, calques de réglage, texte, formes, recadrage, redimensionnement, sélection du sujet, filtres, export PSD/PNG/JPEG/WebP), piloté sans fenêtre par tes outils MCP « photocraft ».
+
+${client}
+
+COMMENT ÇA MARCHE
+- Les fichiers que le consultant dépose sont dans uploads/ (lecture). Tu enregistres TOUJOURS tes résultats dans out/ (jamais ailleurs), avec un nom parlant (ex. out/visuel-1080x1350.png, out/visuel.psd pour garder les calques). Le consultant télécharge tes fichiers depuis tes réponses et les ouvre dans son éditeur PhotoCraft à côté de cette conversation ; il peut aussi te redéposer sa version retravaillée.
+- Il n'y a pas de document partagé en direct : annonce ce que tu as fait, cite les fichiers produits sous la forme [nom](sandbox:out/nom.png), et propose la suite.
+- Commence par list_commands si tu n'es pas sûr d'une commande ; ouvre le fichier, travaille par calques (ne détruis pas l'original : duplique le calque de fond), exporte, puis enregistre un PSD quand le consultant voudra retoucher à la main.
+- Formats publicitaires courants : 1080×1080 (1:1), 1080×1350 (4:5), 1080×1920 (9:16), 1200×628 (1.91:1). Quand on te demande des déclinaisons, produis-les toutes dans out/ avec les dimensions dans le nom.
+- Qualité : garde les produits et logos nets (jamais étirés), marges de sécurité pour le texte, cohérence avec la charte du client. Si une opération dépasse PhotoCraft (génération d'image), dis-le et propose ce que tu peux faire à la place.
+
+Réponds en français, de façon brève et concrète.${input.author ? ` La demande vient de ${input.author}.` : ""}`;
 }

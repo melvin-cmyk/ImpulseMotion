@@ -330,19 +330,21 @@ export function DesignPage({ id }: { id: string }) {
           {design.editorUrl ? (
             <iframe
               src={design.editorUrl}
-              title={`Éditeur FigCraft — ${design.name}`}
+              title={`${design.kind === "photocraft" ? "Éditeur PhotoCraft" : "Éditeur FigCraft"} — ${design.name}`}
               className="absolute inset-0 w-full h-full border-0"
               allow="fullscreen; clipboard-read; clipboard-write"
               allowFullScreen
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-400 p-6 text-center">
-              L’éditeur n’est pas configuré (NEXT_PUBLIC_FIGCRAFT_URL). Prévenez un administrateur.
+              L’éditeur n’est pas configuré ({design.kind === "photocraft" ? "NEXT_PUBLIC_PHOTOCRAFT_URL" : "NEXT_PUBLIC_FIGCRAFT_URL"}). Prévenez un administrateur.
             </div>
           )}
           {showHint && design.editorUrl && (
             <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-gray-950/95 border border-violet-800/70 text-gray-200 text-xs rounded-lg px-3 py-2 flex items-center gap-3 shadow-lg max-w-[90%]">
-              <span>À l’ouverture, cliquez sur <strong>Join</strong> dans l’éditeur : le fichier partagé s’affiche et reste synchronisé avec le copilote.</span>
+              <span>{design.kind === "photocraft"
+                ? <>Retouche : déposez votre image dans la conversation, le copilote la travaille et vous rend ses fichiers à télécharger. Ouvrez-les dans l’éditeur par <strong>Fichier › Ouvrir</strong> (ou glissez-les dessus) pour finir à la main.</>
+                : <>À l’ouverture, cliquez sur <strong>Join</strong> dans l’éditeur : le fichier partagé s’affiche et reste synchronisé avec le copilote.</>}</span>
               <button type="button" onClick={dismissHint} className="text-gray-400 hover:text-white" aria-label="Fermer"><X className="w-3.5 h-3.5" /></button>
             </div>
           )}

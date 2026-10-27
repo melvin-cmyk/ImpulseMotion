@@ -9,7 +9,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { DESIGN_NAME_MAX, presetByKey } from "@/lib/design/model";
+import { DESIGN_NAME_MAX, parseDesignKind, presetByKey } from "@/lib/design/model";
+import { randomBytes } from "node:crypto";
 import { DESIGN_SELECT, toDesignListItem } from "@/lib/design/access";
 import { createDesignFile } from "@/lib/design/relay";
 
@@ -29,7 +30,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
-  const body = (await req.json().catch(() => ({}))) as { name?: unknown; preset?: unknown; width?: unknown; height?: unknown; clientDashboardId?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { name?: unknown; preset?: unknown; width?: unknown; height?: unknown; clientDashboardId?: unknown; kind?: unknown };
+  const kind = parseDesignKind(body.kind);
   const name = typeof body.name === "string" ? body.name.trim().slice(0, DESIGN_NAME_MAX) : "";
   if (!name) return NextResponse.json({ error: "Donnez un nom au design." }, { status: 400 });
 
@@ -52,16 +54,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Limite de ${MAX_DESIGNS} designs atteinte : supprimez-en avant d'en créer.` }, { status: 429 });
   }
 
-  let created;
-  try {
-    created = await createDesignFile({ name, ...(width && height ? { width, height, frameName: name } : {}) });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: `Le fichier n'a pas pu être créé (${msg}).` }, { status: 502 });
+  // PhotoCraft: no shared file on a server — the design is its workspace (uploads/ → out/).
+  let created: { fileId: string; editLink: string; viewLink: string };
+  if (kind === "photocraft") {
+    created = { fileId: `pc_${randomBytes(12).toString("hex")}`, editLink: "", viewLink: "" };
+  } else {
+    try {
+      created = await createDesignFile({ name, ...(width && height ? { width, height, frameName: name } : {}) });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return NextResponse.json({ error: `Le fichier n'a pas pu être créé (${msg}).` }, { status: 502 });
+    }
   }
 
   const row = await prisma.designFile.create({
-    data: { ownerId: guard.session.userId, name, clientDashboardId, fileId: created.fileId, editLink: created.editLink, viewLink: created.viewLink },
+    data: { ownerId: guard.session.userId, name, kind, clientDashboardId, fileId: created.fileId, editLink: created.editLink, viewLink: created.viewLink },
     select: DESIGN_SELECT,
   });
   return NextResponse.json({ design: toDesignListItem(row, guard.session) }, { status: 201 });
