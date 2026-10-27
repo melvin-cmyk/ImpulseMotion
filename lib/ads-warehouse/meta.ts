@@ -40,8 +40,8 @@ const ADS_META_FIELDS = [
   "id", "name", "status", "effective_status", "created_time", "updated_time",
   "adset{id,name}", "campaign{id,name}",
   "creative{id,thumbnail_url,image_url,video_id,object_type,image_hash,body,title,"
-    + "object_story_spec{link_data{link,message,name,description,call_to_action,child_attachments{link,name}},"
-    + "video_data{link_description,title,message,call_to_action}},"
+    + "object_story_spec{link_data{link,message,name,description,call_to_action,picture,image_hash,child_attachments{link,name,picture,image_hash,video_id}},"
+    + "video_data{link_description,title,message,call_to_action,image_url,image_hash,video_id}},"
     + "asset_feed_spec{bodies,titles,descriptions,link_urls,images{hash,url},videos{video_id,thumbnail_url}}}",
 ].join(",");
 const ADS_PAGE_LIMIT = 100;
@@ -51,9 +51,51 @@ const isTooMuchData = (e: unknown) => e instanceof MetaApiError && /reduce the a
 type MetaAdX = MetaAd & {
   creative?: MetaAd["creative"] & {
     asset_feed_spec?: NonNullable<MetaAd["creative"]>["asset_feed_spec"] & { images?: Array<{ hash?: string; url?: string }>; videos?: Array<{ video_id?: string; thumbnail_url?: string }> };
-    object_story_spec?: NonNullable<MetaAd["creative"]>["object_story_spec"] & { link_data?: { child_attachments?: unknown[] } };
+    object_story_spec?: NonNullable<MetaAd["creative"]>["object_story_spec"] & {
+      link_data?: { picture?: string; image_hash?: string; child_attachments?: Array<{ picture?: string; image_hash?: string; video_id?: string }> };
+      video_data?: { image_url?: string; image_hash?: string; video_id?: string };
+    };
   };
 };
+
+/** Large preview of creatives: GET /?ids=…&fields=thumbnail_url&thumbnail_width=1200&thumbnail_height=1200 (the plain thumbnail_url is 64 px). */
+const THUMB_BATCH = 50;
+export async function fetchLargeThumbnails(token: string, creativeIds: string[], deadline = Date.now() + 120_000): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = Array.from(new Set(creativeIds.filter(Boolean)));
+  for (let i = 0; i < ids.length; i += THUMB_BATCH) {
+    if (Date.now() > deadline) break;
+    const slice = ids.slice(i, i + THUMB_BATCH);
+    try {
+      const r = await metaGraphGet<Record<string, { thumbnail_url?: string }>>("/", token, { ids: slice.join(","), fields: "thumbnail_url", thumbnail_width: "1200", thumbnail_height: "1200" });
+      for (const [id, v] of Object.entries(r)) if (v?.thumbnail_url) out.set(id, v.thumbnail_url);
+    } catch (e) {
+      // One bad id fails the whole batch: retry one by one, best effort.
+      if (slice.length > 1 && Date.now() < deadline) for (const id of slice) {
+        try {
+          const v = await metaGraphGet<{ thumbnail_url?: string }>(`/${id}`, token, { fields: "thumbnail_url", thumbnail_width: "1200", thumbnail_height: "1200" });
+          if (v?.thumbnail_url) out.set(id, v.thumbnail_url);
+        } catch { /* skip */ }
+      } else console.warn("[ads-warehouse] large thumbnails:", e instanceof Error ? e.message : e);
+    }
+  }
+  return out;
+}
+
+/** Re-read the large previews of an account's catalogue (one-off backfill of rows stored with 64 px thumbnails). */
+export async function refreshThumbnails(accountId: string, deadline = Date.now() + 10 * 60_000): Promise<number> {
+  const token = getMetaSystemToken();
+  const rows = await prisma.adCatalog.findMany({ where: { platform: "meta", accountId, creativeId: { not: null } }, select: { id: true, creativeId: true } });
+  const large = await fetchLargeThumbnails(token, rows.map((r) => r.creativeId!), deadline);
+  let n = 0;
+  for (const r of rows) {
+    const url = large.get(r.creativeId!);
+    if (!url) continue;
+    await prisma.adCatalog.update({ where: { id: r.id }, data: { thumbnailUrl: url } });
+    n += 1;
+  }
+  return n;
+}
 
 /** Ads with creative metadata, cursor-paged (page size halves on "reduce the amount of data"). */
 async function fetchAds(token: string, accountId: string, opts: { updatedSince?: Date | null; ids?: string[] | null; deadline: number }): Promise<{ ads: MetaAdX[]; truncated: boolean }> {
@@ -117,8 +159,11 @@ function catalogFromAd(accountId: string, ad: MetaAdX): CatalogRow {
   const landingUrl = link?.link ?? link?.call_to_action?.value?.link ?? video?.call_to_action?.value?.link ?? feed?.link_urls?.find((l) => l.website_url)?.website_url ?? null;
   const feedVideo = feed?.videos?.find((v) => v.video_id)?.video_id ?? null;
   const feedImage = feed?.images?.find((im) => im.hash || im.url) ?? null;
-  const videoId = c?.video_id ?? feedVideo;
-  const imageHash = c?.image_hash ?? feedImage?.hash ?? null;
+  const child = link?.child_attachments?.[0];
+  const videoId = c?.video_id ?? video?.video_id ?? feedVideo ?? child?.video_id ?? null;
+  const imageHash = c?.image_hash ?? video?.image_hash ?? link?.image_hash ?? feedImage?.hash ?? child?.image_hash ?? null;
+  // Full-size asset when the creative spec carries one (classic image, video cover, carousel first card, dynamic image).
+  const fullImage = c?.image_url ?? video?.image_url ?? feedImage?.url ?? link?.picture ?? child?.picture ?? null;
   const creativeKey = videoId ? `v:${videoId}` : imageHash ? `i:${imageHash}` : c?.id ? `c:${c.id}` : null;
   return {
     platform: "meta",
@@ -135,7 +180,7 @@ function catalogFromAd(accountId: string, ad: MetaAdX): CatalogRow {
     creativeId: c?.id ?? null,
     creativeKey,
     thumbnailUrl: c?.thumbnail_url ?? feed?.videos?.find((v) => v.thumbnail_url)?.thumbnail_url ?? null,
-    imageUrl: c?.image_url ?? feedImage?.url ?? null,
+    imageUrl: fullImage,
     videoId,
     previewUrl: `https://www.facebook.com/ads/library/?id=${ad.id}`,
     title: c?.title ?? link?.name ?? video?.title ?? firstText(feed?.titles) ?? null,
@@ -271,6 +316,9 @@ export const metaAdapter: WarehouseAdapter = {
       ads.push(...r.ads);
     }
     const catalog = ads.map((a) => catalogFromAd(accountId, a));
+    // The creative's plain thumbnail_url is 64 px: replace it by the 1200 px rendition for every row.
+    const large = await fetchLargeThumbnails(token, catalog.map((r) => r.creativeId ?? ""), deadline);
+    for (const r of catalog) if (r.creativeId && large.has(r.creativeId)) r.thumbnailUrl = large.get(r.creativeId)!;
     return { daily, catalog, truncated, currency: settings.currency ?? daily.find((d) => d.currency)?.currency ?? null };
   },
 };

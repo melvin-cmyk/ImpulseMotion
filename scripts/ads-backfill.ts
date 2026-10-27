@@ -4,9 +4,12 @@
  * Repeats passes until every account is complete or the time budget is spent.
  *   --dry --accounts=123 [--days=7] → reads the platform for one account and
  *   prints what the adapter would store, WITHOUT writing anything.
+ *   --thumbs [--accounts=…] → re-read the large previews of the catalogue
+ *   (rows stored with 64 px thumbnails before 2026-10-27).
  */
 import { runAdsSync, warehouseStatus } from "../lib/ads-warehouse/sync";
-import { metaAdapter } from "../lib/ads-warehouse/meta";
+import { metaAdapter, refreshThumbnails } from "../lib/ads-warehouse/meta";
+import { prisma } from "../lib/prisma";
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const m = a.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? "1"] : [a, "1"]; }));
 const minutes = parseFloat(args.minutes ?? "120");
@@ -37,8 +40,19 @@ async function dryRun() {
   console.log(" sample day:", JSON.stringify(out.daily.sort((a, b) => b.spend - a.spend)[0]));
 }
 
+async function thumbs() {
+  const accounts = accountIds ?? (await prisma.adCatalog.findMany({ where: { platform: "meta" }, select: { accountId: true }, distinct: ["accountId"] })).map((r) => r.accountId);
+  for (const a of accounts) {
+    const t0 = Date.now();
+    const n = await refreshThumbnails(a, Math.min(end, Date.now() + 10 * 60_000));
+    console.log(`thumbs meta:${a} ${n} previews in ${Math.round((Date.now() - t0) / 1000)} s`);
+    if (Date.now() > end) break;
+  }
+}
+
 async function main() {
   if (args.dry === "1") return dryRun();
+  if (args.thumbs === "1") return thumbs();
   let pass = 0;
   while (Date.now() < end) {
     pass += 1;
