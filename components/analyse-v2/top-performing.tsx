@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import { BarChart3, ChevronDown, LayoutGrid, LineChart as LineIcon, Loader2, Plus, RefreshCw, Search, Table as TableIcon, X } from "lucide-react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from "recharts";
 import { useCreativesContext } from "@/lib/creatives-context";
@@ -61,8 +62,9 @@ export function TopPerforming() {
   const { data: session } = useSession();
   const isAdmin = session?.role === "admin";
   const { metaAccountId, metaAccountName } = useCreativesContext();
-  const accountId = metaAccountId ? normalizeAct(metaAccountId).replace(/^act_/, "") : null;
-  const accountKey = accountId ? `meta:${accountId}` : null;
+  const params = useSearchParams();
+  const clientParam = params.get("client");
+  const metaId = metaAccountId ? normalizeAct(metaAccountId).replace(/^act_/, "") : null;
 
   // The client behind the selected Meta account (GET /api/clients) brings its
   // Google customer and TikTok advertisers: one report, every platform.
@@ -72,7 +74,16 @@ export function TopPerforming() {
     fetch("/api/clients").then((r) => (r.ok ? r.json() : { clients: [] })).then((j: { clients: typeof clientsState }) => { if (!cancelled) setClientsState(j.clients ?? []); }).catch(() => { if (!cancelled) setClientsState([]); });
     return () => { cancelled = true; };
   }, []);
-  const client = useMemo(() => (accountId && clientsState ? clientsState.find((c) => (c.metaAccountId ?? "").replace(/^act_/, "") === accountId) ?? null : null), [clientsState, accountId]);
+  // Selected client: ?client=<id> (from the Clients list / cockpit, works for Google-only or TikTok-only clients)
+  // or, by default, the client behind the Meta account chosen in the picker.
+  const client = useMemo(() => {
+    if (!clientsState) return null;
+    if (clientParam) return clientsState.find((c) => c.id === clientParam) ?? null;
+    return metaId ? clientsState.find((c) => (c.metaAccountId ?? "").replace(/^act_/, "") === metaId) ?? null : null;
+  }, [clientsState, clientParam, metaId]);
+  const accountId = client?.metaAccountId ? client.metaAccountId.replace(/^act_/, "") : clientParam ? null : metaId;
+  const accountKey = client ? `client:${client.id}` : accountId ? `meta:${accountId}` : null;
+  const clientName = client?.name ?? metaAccountName ?? null;
   const accounts = useMemo(() => {
     const out: Array<{ platform: "meta" | "google" | "tiktok"; id: string }> = [];
     if (accountId) out.push({ platform: "meta", id: accountId });
@@ -80,6 +91,7 @@ export function TopPerforming() {
     for (const t of client?.tiktokAdvertiserIds ?? []) out.push({ platform: "tiktok", id: t });
     return out;
   }, [accountId, client]);
+  const hasAccounts = accounts.length > 0;
   const [platformsOff, setPlatformsOff] = useState<Set<string>>(new Set());
   const activeAccounts = accounts.filter((a) => !platformsOff.has(a.platform));
 
@@ -115,13 +127,13 @@ export function TopPerforming() {
   const [today] = useState(() => iso(new Date()));
   const launchAfter = useMemo(() => { if (!config.launchDays) return null; const d = new Date(today + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - config.launchDays); return iso(d); }, [config.launchDays, today]);
   const query = useMemo<AdsQuery | null>(() => {
-    if (!accountId) return null;
+    if (!hasAccounts) return null;
     const f: AdsFilters = { ...config.filters };
     if (search.trim()) f.nameContains = search.trim();
     if (launchAfter && !f.launchedAfter) f.launchedAfter = launchAfter;
-    const acc = activeAccounts.length ? activeAccounts : [{ platform: "meta" as const, id: accountId }];
+    const acc = activeAccounts.length ? activeAccounts : accounts;
     return { platforms: Array.from(new Set(acc.map((a) => a.platform))), accountIds: Array.from(new Set(acc.map((a) => a.id))), accounts: acc, range, compare: config.compare ? prevRange(range) : null, groupBy: config.groupBy, filters: f, sort: config.sort, limit: 120 } as AdsQuery & { accounts: typeof acc };
-  }, [accountId, activeAccounts, config.filters, config.compare, config.groupBy, config.sort, search, launchAfter, range]);
+  }, [hasAccounts, accounts, activeAccounts, config.filters, config.compare, config.groupBy, config.sort, search, launchAfter, range]);
 
   const [loadedResult, setResult] = useState<Result | null>(null);
   const result = query ? loadedResult : null;
@@ -147,19 +159,19 @@ export function TopPerforming() {
   const [facetsState, setFacets] = useState<{ key: string; facets: Facets } | null>(null);
   const facets = facetsState && facetsState.key === accountKey ? facetsState.facets : [];
   useEffect(() => {
-    if (!accountId || !accountKey) return;
+    if (!hasAccounts || !accountKey) return;
     let cancelled = false;
     fetch("/api/ads/facets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platforms: Array.from(new Set(accounts.map((a) => a.platform))), accounts, range: { since: "2020-01-01", until: "2020-01-02" } }) })
       .then((r) => (r.ok ? r.json() : { keys: [] })).then((j: { keys: Facets }) => { if (!cancelled) setFacets({ key: accountKey, facets: j.keys ?? [] }); }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [accountId, accountKey, accounts]);
+  }, [hasAccounts, accountKey, accounts]);
 
   // ── Curve view ──
-  const checkScope = `${config.groupBy}|${accountId ?? ""}`;
+  const checkScope = `${config.groupBy}|${accountKey ?? ""}`;
   const [checkedState, setCheckedState] = useState<{ scope: string; set: Set<string> }>({ scope: checkScope, set: new Set() });
   const checked = useMemo(() => (checkedState.scope === checkScope ? checkedState.set : new Set<string>()), [checkedState, checkScope]);
   const setChecked = (fn: (s: Set<string>) => Set<string>) => setCheckedState((c) => ({ scope: checkScope, set: fn(c.scope === checkScope ? c.set : new Set()) }));
-  const seriesScope = JSON.stringify([accountId, config.groupBy, range, config.compare, config.filters, search, launchAfter]);
+  const seriesScope = JSON.stringify([accountKey, config.groupBy, range, config.compare, config.filters, search, launchAfter]);
   const [seriesState, setSeriesState] = useState<{ scope: string; map: Record<string, DailyPoint[]> }>({ scope: seriesScope, map: {} });
   const series = useMemo<Record<string, DailyPoint[]>>(() => (seriesState.scope === seriesScope ? seriesState.map : {}), [seriesState, seriesScope]);
   const [chartMetric, setChartMetric] = useState<MetricKey>("spend");
@@ -193,9 +205,12 @@ export function TopPerforming() {
   const onSort = (key: SortKey) => patch({ sort: config.sort.key === key ? { key, dir: config.sort.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "name" || key === "launch" ? "asc" : METRIC_BY_KEY[key as MetricKey]?.higherBetter === false ? "asc" : "desc" } });
   const toggleFormat = (f: AdFormat) => { const cur = new Set(config.filters.formats ?? []); if (cur.has(f)) cur.delete(f); else cur.add(f); patchFilters({ formats: cur.size ? Array.from(cur) : undefined }); };
   async function syncNow() {
-    if (!accountId) return;
+    if (!hasAccounts) return;
     setSyncing(true);
-    try { await fetch("/api/admin/ads-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountIds: [accountId], platforms: ["meta"] }) }); if (query) await load(query); } finally { setSyncing(false); }
+    try {
+      for (const p of Array.from(new Set(accounts.map((a) => a.platform)))) await fetch("/api/admin/ads-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountIds: accounts.filter((a) => a.platform === p).map((a) => a.id), platforms: [p] }) });
+      if (query) await load(query);
+    } finally { setSyncing(false); }
   }
   async function saveView(name: string, emoji: string) {
     if (!accountKey) return;
@@ -232,7 +247,7 @@ export function TopPerforming() {
         <div className="px-6 pt-4 pb-2 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-lg font-semibold text-white truncate">{title}{dirty && <span className="ml-2 text-[10px] font-normal text-amber-400 align-middle">modifié</span>}</h1>
-            {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+            <p className="text-xs text-gray-500">{client ? <span className="text-gray-300">{client.name}</span> : null}{client && subtitle ? " · " : ""}{subtitle}</p>
           </div>
           <div className="flex items-center gap-2">
             {accounts.length > 1 && (
@@ -334,13 +349,13 @@ export function TopPerforming() {
 
         {/* ── Report card ── */}
         <div className="px-6 pb-8 flex-1">
-          {!accountId && <Empty title="Choisis un client" text="Analyse Ads lit l'entrepôt créa du compte sélectionné (bouton en haut à droite, ou ⌘K)." />}
-          {accountId && noWarehouse && (
-            <Empty title={`${metaAccountName ?? "Ce compte"} n'est pas encore synchronisé`} text="L'entrepôt se remplit automatiquement (30 jours d'abord, puis l'historique).">
+          {!hasAccounts && <Empty title="Choisis un client" text="Analyse Ads lit l'entrepôt créa du client sélectionné (bouton en haut à droite, ⌘K, ou le bouton Analyse Ads de la liste des clients)." />}
+          {hasAccounts && noWarehouse && (
+            <Empty title={`${clientName ?? "Ce client"} n'est pas encore synchronisé`} text="L'entrepôt se remplit automatiquement (30 jours d'abord, puis l'historique).">
               {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-violet-600 hover:bg-violet-500 px-3 py-1.5 text-sm text-white disabled:opacity-50">{syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Synchroniser maintenant (≈ 1 min)</button>}
             </Empty>
           )}
-          {accountId && result && !noWarehouse && (
+          {hasAccounts && result && !noWarehouse && (
             <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-3 space-y-3">
               {/* metric chips + view switch */}
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -411,7 +426,7 @@ export function TopPerforming() {
         </div>
       </div>
 
-      {copilot.open && query && <CopilotPanel query={query} groupLabel={GROUPS.find((g) => g.value === config.groupBy)?.label ?? config.groupBy} clientName={metaAccountName ?? null} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
+      {copilot.open && query && <CopilotPanel query={query} groupLabel={GROUPS.find((g) => g.value === config.groupBy)?.label ?? config.groupBy} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
 
       {open && query && result && <AdDrawer row={open} query={query} benchmark={result.benchmark} currency={result.currency} onClose={() => setOpen(null)} />}
     </div>

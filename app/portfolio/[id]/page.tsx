@@ -259,7 +259,7 @@ export default function ClientSheetPage() {
             <input type="date" value={draft.until} min={draft.since || undefined} onChange={(e) => setDraft((x) => ({ ...x, until: e.target.value }))} onBlur={applyDraft} onKeyDown={(e) => { if (e.key === "Enter") applyDraft(); }} className={dateInput} />
           </div>
           <Link href={`/d/${c.id}${rangeQs}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Dashboard consultant</Link>
-          {c.metaAccountId && <Link href={`/analyse?accountId=act_${c.metaAccountId}`} className={btn}><Sparkles className="w-3.5 h-3.5" /> Analyse créas</Link>}
+          <Link href={`/analyse?client=${c.id}`} className={btn}><Sparkles className="w-3.5 h-3.5" /> Analyse Ads</Link>
           {session?.baseRole === "admin" && <Link href={`/admin/bots/${c.id}`} className={btn}><Bot className="w-3.5 h-3.5" /> Bot privé</Link>}
           <Link href={`/reports?new=1&dashboardId=${c.id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white"><FileText className="w-3.5 h-3.5" /> Rapport IA</Link>
         </div>
@@ -497,7 +497,7 @@ export default function ClientSheetPage() {
       </div>
 
       {creatives.length > 0 && (
-        <Section title="Top créas Meta (par dépense)" action={c.metaAccountId ? <Link href={`/analyse?accountId=act_${c.metaAccountId}`} className="text-xs text-violet-400 hover:text-white">Analyse créas →</Link> : undefined} bodyClassName="p-3">
+        <Section title="Top créas Meta (par dépense)" action={c.metaAccountId ? <Link href={`/analyse?client=${c.id}`} className="text-xs text-violet-400 hover:text-white">Analyse créas →</Link> : undefined} bodyClassName="p-3">
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
             {creatives.map((cr) => (
               <div key={cr.adId} className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
