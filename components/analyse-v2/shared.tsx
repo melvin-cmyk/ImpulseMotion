@@ -36,9 +36,22 @@ export function relativeDay(iso: string | null | undefined): string {
  * drawer through the official ad preview (the Facebook embed player refuses
  * most ad videos, which showed "Video unavailable").
  */
-export function AdVisual({ ad, className = "aspect-[4/5]" }: { ad: AdSample | null; className?: string }) {
+export function AdVisual({ ad, ads, className = "aspect-[4/5]" }: { ad: AdSample | null; ads?: AdSample[]; className?: string }) {
   if (!ad) return <div className={`${className} rounded-xl bg-gray-800`} />;
   const url = upgradeImageUrl(ad.imageUrl ?? ad.thumbnailUrl ?? undefined);
+  // A group of several ads (Motion's comparative cards): a 2×2 collage of its top ads.
+  const tiles = (ads ?? []).filter((a) => a.imageUrl || a.thumbnailUrl).slice(0, 4);
+  if (tiles.length >= 2) {
+    const cells = tiles.length === 2 ? "grid-cols-2 grid-rows-1" : "grid-cols-2 grid-rows-2";
+    return (
+      <div className={`relative ${className} w-full rounded-xl overflow-hidden bg-gray-950 grid ${cells} gap-0.5`}>
+        {tiles.map((a, i) => (
+          // eslint-disable-next-line @next/next/no-img-element -- Meta CDN, many hosts
+          <img key={a.adId + i} src={upgradeImageUrl(a.imageUrl ?? a.thumbnailUrl ?? undefined)} alt="" loading="lazy" className="w-full h-full object-cover" />
+        ))}
+      </div>
+    );
+  }
   return (
     <div className={`relative ${className} w-full rounded-xl overflow-hidden bg-gray-950`}>
       {url ? (

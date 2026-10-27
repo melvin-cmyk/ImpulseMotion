@@ -80,13 +80,17 @@ export function fmtMetric(key: MetricKey, value: number, currency: string | null
 
 export type Tone = "good" | "bad" | "neutral";
 
-/** Colour of a cell against the benchmark (±10 % band), honouring the metric direction. */
+/**
+ * Colour of a cell against the account average, honouring the metric
+ * direction. Like Motion, only the GOOD side is highlighted (green when at
+ * least 5 % better than the average); the rest stays neutral — red everywhere
+ * made the page shout. Deltas keep their red (deltaTone).
+ */
 export function toneVs(key: MetricKey, value: number, bench: number): Tone {
   const def = METRIC_BY_KEY[key];
   if (!def || def.higherBetter === null || value <= 0 || bench <= 0) return "neutral";
   const r = value / bench;
-  if (r >= 1.1) return def.higherBetter ? "good" : "bad";
-  if (r <= 0.9) return def.higherBetter ? "bad" : "good";
+  if (def.higherBetter ? r >= 1.05 : r <= 0.95) return "good";
   return "neutral";
 }
 

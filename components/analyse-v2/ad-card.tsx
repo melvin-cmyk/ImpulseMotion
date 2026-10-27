@@ -24,7 +24,7 @@ export function AdCard({ row, metrics, benchmark, currency, compare, onOpen }: P
   return (
     <button type="button" onClick={() => onOpen(row)} className="text-left rounded-2xl border border-gray-800 bg-gray-900 hover:border-violet-500/50 transition-colors overflow-hidden flex flex-col">
       <div className="relative">
-        <AdVisual ad={ad} />
+        <AdVisual ad={ad} ads={row.adCount > 1 ? row.ads : undefined} />
         <FormatBadge ad={ad} />
         {row.adCount > 1 && <span className="absolute right-2 top-2 rounded-md bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">{row.adCount} annonces</span>}
       </div>

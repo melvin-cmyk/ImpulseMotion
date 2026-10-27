@@ -332,7 +332,7 @@ export function TopPerforming() {
                   {result.rows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} onOpen={setOpen} />)}
                 </div>
               )}
-              {result.rows.length > 0 && config.view === "bar" && <AdsBar rows={result.rows} metric={visibleMetrics[0] ?? "spend"} benchmark={result.benchmark} currency={result.currency} />}
+              {result.rows.length > 0 && config.view === "bar" && <AdsBar rows={result.rows} metrics={visibleMetrics} benchmark={result.benchmark} currency={result.currency} />}
               {result.rows.length > 0 && config.view === "chart" && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-xs text-gray-400">
