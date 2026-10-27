@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, FileText, Loader2, Bot } from "lucide-react";
+import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, FileText, Loader2, Bot, Sparkles, BarChart3, LayoutDashboard, Gauge } from "lucide-react";
+import type { ClientRef } from "@/app/api/clients/route";
 import { Card, Kpi, PageHeader, Pill } from "@/components/ui/surface";
 import { DeltaBadge, PacingBar } from "@/components/portfolio/kpi-delta";
 import { errorKindLabel, fmtMetric, fmtMoney, fmtNumber, fmtRoas } from "@/components/portfolio/format";
@@ -13,7 +14,138 @@ import type { PortfolioClient, PortfolioResult } from "@/lib/portfolio";
 
 import { compareClients, DEFAULT_DIR, type PortfolioRow, type SortDir, type SortKey } from "@/components/portfolio/sort";
 
+/**
+ * /portfolio — the client list. Opens INSTANTLY on the light list
+ * (GET /api/clients: names, platforms, identifiers, no Meta/Google call);
+ * the 30-day KPI table (GET /api/portfolio, up to 100 s) is loaded only when
+ * the consultant asks for it ("Chiffres 30 j", or ?kpis=1) — the per-client
+ * cockpit already carries the numbers.
+ */
 export default function PortfolioPage() {
+  const params = useSearchParams();
+  const [showKpis, setShowKpis] = useState(params.get("kpis") === "1");
+  if (showKpis) return <PortfolioKpiPage onBack={() => setShowKpis(false)} />;
+  return <ClientListPage onShowKpis={() => setShowKpis(true)} />;
+}
+
+function ClientListPage({ onShowKpis }: { onShowKpis: () => void }) {
+  const [clients, setClients] = useState<ClientRef[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/clients", { cache: "no-store" });
+        if (!res.ok) throw new Error(`Erreur ${res.status}`);
+        const body = (await res.json()) as { clients: ClientRef[] };
+        if (!cancelled) setClients(body.clients);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Erreur");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const rows = useMemo(() => {
+    if (!clients) return [];
+    const needle = q.trim().toLowerCase();
+    const digits = needle.replace(/\D/g, "");
+    return clients.filter((c) => {
+      if (!needle) return true;
+      if (c.name.toLowerCase().includes(needle)) return true;
+      if (digits.length >= 3) {
+        const ids = [c.metaAccountId, c.googleCustomerId, ...c.tiktokAdvertiserIds].filter(Boolean) as string[];
+        if (ids.some((id) => id.replace(/\D/g, "").includes(digits))) return true;
+      }
+      return false;
+    });
+  }, [clients, q]);
+
+  const action = "inline-flex items-center gap-1.5 rounded-md border border-gray-800 bg-gray-900 px-2.5 py-1 text-xs text-gray-300 hover:text-white hover:border-violet-500/50 transition-colors whitespace-nowrap";
+
+  return (
+    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+      <PageHeader
+        title="Clients"
+        subtitle="Un client = un compte publicitaire (Meta, Google et/ou TikTok Ads). Les chiffres sont dans le cockpit de chaque client ; ⌘K retrouve un client par nom ou par identifiant."
+        action={
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onShowKpis} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-800 bg-gray-900 text-gray-300 hover:text-white hover:border-violet-500/50 text-sm" title="Charger les KPIs des 30 derniers jours pour tous les clients (jusqu'à 1 à 2 min)">
+              <BarChart3 className="w-4 h-4" /> Chiffres 30 j
+            </button>
+            <Link href="/reports?new=1" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold">
+              <FileText className="w-4 h-4" /> Rapport IA
+            </Link>
+          </div>
+        }
+      />
+
+      {error && <div className="text-xs text-red-400">{error}</div>}
+
+      <Card className="overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-3">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Rechercher un client (nom, compte Meta, Google, TikTok)…"
+            autoFocus
+            className="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500 w-96 max-w-full"
+          />
+          <span className="text-xs text-gray-500">{clients ? `${rows.length} client${rows.length > 1 ? "s" : ""}` : ""}</span>
+          {!clients && !error && <Loader2 className="w-3 h-3 animate-spin text-gray-500" />}
+        </div>
+        <table className="w-full text-sm">
+          <thead className="bg-gray-950/50">
+            <tr>
+              <th className="text-left px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Client</th>
+              <th className="text-left px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Plateformes</th>
+              <th className="text-right px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Ouvrir</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c) => (
+              <tr key={c.id} className="border-t border-gray-800 hover:bg-gray-800/30">
+                <td className="px-3 py-2.5">
+                  <Link href={`/portfolio/${c.id}`} className="font-medium text-white hover:text-violet-300">{c.name}</Link>
+                  <div className="text-[11px] text-gray-500 truncate max-w-[360px]">
+                    {[c.metaAccountId ? `Meta ${c.metaAccountId}` : null, c.googleCustomerId ? `Google ${c.googleCustomerId}` : null, c.tiktokAdvertiserIds.length ? `TikTok ${c.tiktokAdvertiserIds.join(", ")}` : null].filter(Boolean).join(" · ") || "Aucun compte rattaché"}
+                  </div>
+                </td>
+                <td className="px-3 py-2.5">
+                  <div className="flex gap-1">
+                    {c.metaAccountId && <Pill tone="blue">Meta</Pill>}
+                    {c.googleCustomerId && <Pill tone="emerald">Google</Pill>}
+                    {c.tiktokAdvertiserIds.length > 0 && <Pill tone="violet">TikTok</Pill>}
+                  </div>
+                </td>
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                    <Link href={`/portfolio/${c.id}`} className={action} title="Cockpit du client : KPIs, sources, rapports, Drive"><Gauge className="w-3.5 h-3.5 text-violet-300" /> Cockpit</Link>
+                    {c.metaAccountId ? (
+                      <Link href={`/creatives?accountId=act_${c.metaAccountId}`} className={action} title="Analyse Ads sur le compte Meta de ce client"><Sparkles className="w-3.5 h-3.5 text-violet-300" /> Analyse Ads</Link>
+                    ) : (
+                      <span className={`${action} opacity-40 cursor-not-allowed`} title="Analyse Ads lit les créas Meta : ce client n'a pas de compte Meta rattaché"><Sparkles className="w-3.5 h-3.5" /> Analyse Ads</span>
+                    )}
+                    <Link href={`/d/${c.id}`} className={action} title="Dashboard consultant"><LayoutDashboard className="w-3.5 h-3.5 text-violet-300" /> Dashboard</Link>
+                    <Link href={`/reports?new=1&dashboardId=${c.id}`} className={action} title="Nouveau rapport IA pour ce client"><FileText className="w-3.5 h-3.5 text-violet-300" /> Rapport</Link>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {clients && rows.length === 0 && (
+              <tr><td colSpan={3} className="px-4 py-10 text-center text-sm text-gray-500">{q ? "Aucun client ne correspond." : <>Aucun client. Créez un dashboard client dans <Link href="/d" className="text-violet-400">Dashboards consultant</Link>.</>}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+}
+
+/** The former /portfolio: every client with 30-day KPIs vs previous period (heavy: one Meta/Google read per client). */
+function PortfolioKpiPage({ onBack }: { onBack: () => void }) {
   const params = useSearchParams();
   const since = params.get("since");
   const until = params.get("until");
@@ -71,7 +203,7 @@ export default function PortfolioPage() {
       <button type="button" onClick={() => load(false)} className="text-xs text-violet-400 hover:text-white">Réessayer</button>
     </div>
   );
-  if (!data) return <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement des clients (30 derniers jours complets)…</div>;
+  if (!data) return <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement des chiffres (30 derniers jours complets, jusqu\u2019à 1 à 2 min)…</div>;
 
   const s = data.summary;
   const currencies = Object.values(s.totalsByCurrency);
@@ -96,9 +228,12 @@ export default function PortfolioPage() {
           </div>
         }
         action={
-          <Link href="/reports?new=1" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold">
-            <FileText className="w-4 h-4" /> Rapport IA
-          </Link>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={onBack} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-800 bg-gray-900 text-gray-300 hover:text-white text-sm">Liste simple</button>
+            <Link href="/reports?new=1" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold">
+              <FileText className="w-4 h-4" /> Rapport IA
+            </Link>
+          </div>
         }
       />
 
@@ -165,6 +300,9 @@ export default function PortfolioPage() {
                       {c.duplicates > 0 && <span className="text-gray-600" title={`${c.duplicates + 1} dashboards fusionnés : ${c.dashboardIds.join(", ")}`}> · {c.duplicates + 1} dashboards</span>}
                       {c.currency && <span className="text-gray-600"> · {c.currency}</span>}
                     </div>
+                    {c.metaAccountId && (
+                      <Link href={`/creatives?accountId=act_${c.metaAccountId}`} className="mt-1 inline-flex items-center gap-1 text-[11px] text-violet-400 hover:text-white" title="Analyse Ads sur le compte Meta de ce client"><Sparkles className="w-3 h-3" /> Analyse Ads</Link>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex gap-1">
