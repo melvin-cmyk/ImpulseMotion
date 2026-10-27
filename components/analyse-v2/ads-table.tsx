@@ -11,6 +11,7 @@ import type { AdsGroupRow, MetricKey, Metrics } from "@/lib/ads-warehouse/query"
 import { METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
 import { upgradeImageUrl } from "@/lib/image-upgrade";
 import { StatusDot, TagChips, colorFor } from "./shared";
+import { launchSignals, SIGNAL_CLASS } from "@/lib/ads-warehouse/signals";
 
 interface Props {
   rows: AdsGroupRow[];
@@ -24,9 +25,10 @@ interface Props {
   checked: Set<string>;
   onCheck: (key: string, on: boolean) => void;
   onOpen: (row: AdsGroupRow) => void;
+  signals?: boolean;
 }
 
-export function AdsTable({ rows, metrics, benchmark, benchmarkPrevious, currency, compare, sort, onSort, checked, onCheck, onOpen }: Props) {
+export function AdsTable({ rows, metrics, benchmark, benchmarkPrevious, currency, compare, sort, onSort, checked, onCheck, onOpen, signals }: Props) {
   const th = (key: Props["sort"]["key"], label: string, align = "text-right", hint?: string) => (
     <th key={String(key)} className={`${align} px-2 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap`}>
       <button type="button" onClick={() => onSort(key)} title={hint ?? "Trier"} className={`inline-flex items-center gap-1 hover:text-white ${sort.key === key ? "text-violet-300" : ""}`}>
@@ -76,7 +78,10 @@ export function AdsTable({ rows, metrics, benchmark, benchmarkPrevious, currency
                 </td>
                 <td className="px-2 py-1.5 text-right text-xs text-gray-400 tabular-nums">{r.adCount}</td>
                 <td className="px-2 py-1.5 text-left text-[11px] text-gray-400 whitespace-nowrap">{r.launch ? new Date(r.launch + "T00:00:00Z").toLocaleDateString("fr-FR", { day: "2-digit", month: "short" }) : "—"}</td>
-                <td className="px-2 py-1.5 max-w-[200px]">{ad ? <TagChips tags={ad.tags} max={3} /> : null}</td>
+                <td className="px-2 py-1.5 max-w-[220px]">
+                  {signals && <div className="flex flex-wrap gap-1 mb-0.5">{launchSignals(r.metrics, benchmark, { video: ad?.format === "Video" }).map((x) => <span key={x.id} title={x.hint} className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${SIGNAL_CLASS[x.tone]}`}>{x.label}</span>)}</div>}
+                  {ad ? <TagChips tags={ad.tags} max={3} /> : null}
+                </td>
                 {metrics.map((k) => cell(r.metrics, r.previous, k, false))}
               </tr>
             );

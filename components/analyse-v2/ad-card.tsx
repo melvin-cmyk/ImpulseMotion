@@ -9,6 +9,7 @@
 import type { AdsGroupRow, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
 import { AdVisual, FormatBadge, StatusDot, TagChips, relativeDay } from "./shared";
+import { launchSignals, SIGNAL_CLASS } from "@/lib/ads-warehouse/signals";
 
 interface Props {
   row: AdsGroupRow;
@@ -16,11 +17,14 @@ interface Props {
   benchmark: Metrics;
   currency: string | null;
   compare: boolean;
+  /** Launch report: show the launch signals (Gagnante, Top hook, Top clic…). */
+  signals?: boolean;
   onOpen: (row: AdsGroupRow) => void;
 }
 
-export function AdCard({ row, metrics, benchmark, currency, compare, onOpen }: Props) {
+export function AdCard({ row, metrics, benchmark, currency, compare, signals, onOpen }: Props) {
   const ad = row.sample;
+  const sig = signals ? launchSignals(row.metrics, benchmark, { video: ad?.format === "Video" }) : [];
   return (
     <button type="button" onClick={() => onOpen(row)} className="text-left rounded-2xl border border-gray-800 bg-gray-900 hover:border-violet-500/50 transition-colors overflow-hidden flex flex-col">
       <div className="relative">
@@ -38,6 +42,7 @@ export function AdCard({ row, metrics, benchmark, currency, compare, onOpen }: P
             {ad?.campaignName ?? ""}{row.launch ? ` · lancée ${relativeDay(row.launch)}` : ""}
           </div>
         </div>
+        {sig.length > 0 && <div className="flex flex-wrap gap-1">{sig.map((x) => <span key={x.id} title={x.hint} className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${SIGNAL_CLASS[x.tone]}`}>{x.label}</span>)}</div>}
         <div className="space-y-1">
           {metrics.map((k) => {
             const def = METRIC_BY_KEY[k];

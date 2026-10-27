@@ -309,7 +309,8 @@ const ANALYSE_SUB_NAV: SubNavGroup[] = [
 export function SecondaryNav() {
   const pathname = usePathname()
   const inAnalyse = ANALYSE_ROUTES.some((r) => pathname === r || pathname.startsWith(r + "/"))
-  if (!inAnalyse) return null
+  // /analyse carries its own report sidebar (Motion-style); the old sub-nav only serves the legacy pages.
+  if (!inAnalyse || pathname === "/analyse" || pathname.startsWith("/analyse/")) return null
 
   return (
     <nav className="h-10 border-b border-gray-800 bg-gray-950 flex items-center gap-3 px-4 overflow-x-auto flex-shrink-0">

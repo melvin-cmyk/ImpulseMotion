@@ -373,7 +373,7 @@ export function TopPerforming() {
               {result.rows.length === 0 && <Empty title="Rien sur cette période" text="Aucune annonce ne correspond aux filtres. Élargis la période ou retire un filtre." />}
               {result.rows.length > 0 && config.view === "cards" && (
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-                  {result.rows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} onOpen={setOpen} />)}
+                  {result.rows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} signals={!!config.launchDays} onOpen={setOpen} />)}
                 </div>
               )}
               {result.rows.length > 0 && config.view === "bar" && <AdsBar rows={result.rows} metrics={visibleMetrics} benchmark={result.benchmark} currency={result.currency} />}
@@ -400,7 +400,7 @@ export function TopPerforming() {
                 </div>
               )}
               {result.rows.length > 0 && (config.view === "table" || config.view === "chart" || config.view === "bar") && (
-                <AdsTable rows={result.rows} metrics={visibleMetrics} benchmark={result.benchmark} benchmarkPrevious={result.benchmarkPrevious} currency={result.currency} compare={config.compare} sort={config.sort} onSort={onSort} checked={checked} onCheck={(k, on) => setChecked((s) => { const n = new Set(s); if (on) n.add(k); else n.delete(k); return n; })} onOpen={setOpen} />
+                <AdsTable rows={result.rows} metrics={visibleMetrics} benchmark={result.benchmark} benchmarkPrevious={result.benchmarkPrevious} currency={result.currency} compare={config.compare} sort={config.sort} onSort={onSort} checked={checked} onCheck={(k, on) => setChecked((s) => { const n = new Set(s); if (on) n.add(k); else n.delete(k); return n; })} onOpen={setOpen} signals={!!config.launchDays} />
               )}
             </div>
           )}
