@@ -327,8 +327,10 @@ export function TopPerforming() {
           {result && (
             <>
               <span>{result.total} {config.groupBy === "ad" ? "annonces" : "groupes"} · {range.since} → {range.until}{config.compare ? " · vs période précédente" : ""}</span>
-              {result.coverage.until && <span>· données au {result.coverage.until}{result.coverage.since ? ` (depuis le ${result.coverage.since})` : ""}</span>}
-              {!result.coverage.complete && result.coverage.accounts > 0 && <span className="text-amber-400">· historique en cours de chargement</span>}
+              {result.coverage.until && <span>· données au {result.coverage.until}{result.coverage.since ? ` (historique depuis le ${result.coverage.since})` : ""}</span>}
+              {result.coverage.loading && <span className="text-amber-400 inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> historique en cours de chargement</span>}
+              {result.coverage.missing > 0 && result.coverage.accounts > 0 && <span className="text-gray-500" title="Comptes de la sélection pas encore passés par la synchronisation">· {result.coverage.missing} compte{result.coverage.missing > 1 ? "s" : ""} pas encore synchronisé{result.coverage.missing > 1 ? "s" : ""}</span>}
+              {result.coverage.errors > 0 && <span className="text-red-400" title="La dernière synchronisation a échoué sur ces comptes ; le passage suivant réessaie">· synchro en erreur sur {result.coverage.errors} compte{result.coverage.errors > 1 ? "s" : ""}</span>}
               {result.benchmark.estimated && <span>· * valeur estimée via panier moyen</span>}
               {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} className="inline-flex items-center gap-1 text-gray-400 hover:text-white disabled:opacity-50" title="Relire la plateforme maintenant (admin)"><RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} /> Synchroniser</button>}
             </>

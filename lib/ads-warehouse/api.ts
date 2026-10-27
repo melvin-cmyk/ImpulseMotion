@@ -41,6 +41,7 @@ export async function parseScopedQuery(req: NextRequest): Promise<{ q: AdsQuery 
   const q: AdsQuery = {
     platforms: Array.from(new Set(wanted.map((a) => a.platform))),
     accountIds,
+    accounts: wanted,
     range: range.range,
     compare,
     groupBy: (body.groupBy as AdsQuery["groupBy"]) ?? "creative",

@@ -51,6 +51,8 @@ export interface AdsQuery {
   platforms: WarehousePlatform[];
   /** Normalised account ids (already scope-filtered). */
   accountIds: string[];
+  /** The exact (platform, account) pairs when known — used for the coverage line. */
+  accounts?: Array<{ platform: WarehousePlatform; id: string }>;
   range: { since: string; until: string };
   compare?: { since: string; until: string } | null;
   groupBy: GroupBy;
@@ -88,7 +90,18 @@ export interface AdsQueryResult {
   benchmark: Metrics;
   benchmarkPrevious: Metrics | null;
   currency: string | null;
-  coverage: { since: string | null; until: string | null; accounts: number; complete: boolean };
+  coverage: {
+    since: string | null; until: string | null;
+    /** Accounts of the selection that have a sync state. */
+    accounts: number;
+    /** Accounts of the selection without any sync state yet. */
+    missing: number;
+    /** Accounts whose last sync failed. */
+    errors: number;
+    /** A sync ran in the last 10 minutes and the history is not full yet: still loading. */
+    loading: boolean;
+    complete: boolean;
+  };
 }
 
 type Sums = {
@@ -251,7 +264,7 @@ function labelOf(groupBy: GroupBy, key: string, sample: AdSample | null): string
 
 export async function queryAds(q: AdsQuery): Promise<AdsQueryResult> {
   if (!q.accountIds.length || !q.platforms.length) {
-    return { rows: [], total: 0, benchmark: deriveMetrics(ZERO, null), benchmarkPrevious: null, currency: null, coverage: { since: null, until: null, accounts: 0, complete: false } };
+    return { rows: [], total: 0, benchmark: deriveMetrics(ZERO, null), benchmarkPrevious: null, currency: null, coverage: { since: null, until: null, accounts: 0, missing: 0, errors: 0, loading: false, complete: false } };
   }
   const keyExpr = groupKeyExpr(q.groupBy);
   const aovMap = await getAovMap("meta", q.accountIds);
@@ -262,7 +275,7 @@ export async function queryAds(q: AdsQuery): Promise<AdsQueryResult> {
     q.compare ? aggregate(q, q.compare, keyExpr) : Promise.resolve(null),
     benchmark(q, q.range),
     q.compare ? benchmark(q, q.compare) : Promise.resolve(null),
-    prisma.adSyncState.findMany({ where: { platform: { in: q.platforms }, accountId: { in: q.accountIds } }, select: { syncedFrom: true, syncedTo: true, lastError: true } }),
+    prisma.adSyncState.findMany({ where: { platform: { in: q.platforms }, accountId: { in: q.accountIds } }, select: { platform: true, accountId: true, syncedFrom: true, syncedTo: true, lastError: true, lastRunAt: true } }),
   ]);
 
   let entries = Array.from(cur.entries()).map(([key, v]) => ({ key, ...v, metrics: deriveMetrics(v.sums, aov), previous: prev?.get(key) ? deriveMetrics(prev.get(key)!.sums, aov) : null }));
@@ -291,14 +304,21 @@ export async function queryAds(q: AdsQuery): Promise<AdsQueryResult> {
     return { key: e.key, label: labelOf(q.groupBy, e.key, sample), adCount: e.adCount, sample, ads: list, launch: e.launch, metrics: e.metrics, previous: e.previous };
   });
 
-  const since = states.map((s) => s.syncedFrom).filter(Boolean).sort((a, b) => a!.getTime() - b!.getTime())[0] ?? null;
-  const until = states.map((s) => s.syncedTo).filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null;
+  const wanted = q.accounts?.length ? q.accounts : q.accountIds.map((id) => ({ platform: q.platforms[0], id }));
+  const relevant = states.filter((s) => wanted.some((w) => w.platform === s.platform && w.id === s.accountId));
+  const since = relevant.map((s) => s.syncedFrom).filter(Boolean).sort((a, b) => a!.getTime() - b!.getTime())[0] ?? null;
+  const until = relevant.map((s) => s.syncedTo).filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null;
+  const target = new Date(); target.setUTCDate(target.getUTCDate() - 365);
+  const recent = Date.now() - 10 * 60_000;
+  const loading = relevant.some((s) => s.lastRunAt && s.lastRunAt.getTime() > recent && (!s.syncedFrom || s.syncedFrom > target));
+  const errors = relevant.filter((s) => !!s.lastError).length;
+  const missing = Math.max(0, wanted.length - relevant.length);
   return {
     rows, total,
     benchmark: deriveMetrics(bench.sums, aov),
     benchmarkPrevious: benchPrev ? deriveMetrics(benchPrev.sums, aov) : null,
     currency: bench.currency,
-    coverage: { since: since ? since.toISOString().slice(0, 10) : null, until: until ? until.toISOString().slice(0, 10) : null, accounts: states.length, complete: states.length === q.accountIds.length * q.platforms.length && states.every((s) => !s.lastError) },
+    coverage: { since: since ? since.toISOString().slice(0, 10) : null, until: until ? until.toISOString().slice(0, 10) : null, accounts: relevant.length, missing, errors, loading, complete: missing === 0 && errors === 0 && !loading },
   };
 }
 
