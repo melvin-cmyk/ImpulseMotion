@@ -72,7 +72,7 @@ export function ClientHub({ clientId, metaAccountId, isAdmin }: { clientId: stri
   const link = "flex items-center gap-2.5 rounded-lg border border-gray-800 bg-gray-900/60 hover:bg-gray-900 hover:border-gray-700 px-3 py-2.5 text-sm text-gray-200 transition-colors";
   const links: Array<{ href: string; label: string; hint: string; icon: React.ReactNode }> = [
     { href: `/d/${clientId}`, label: "Dashboard consultant", hint: "KPIs, widgets, pages", icon: <BarChart3 className="w-4 h-4 text-violet-300" /> },
-    ...(metaAccountId ? [{ href: `/creatives?accountId=act_${metaAccountId}`, label: "Analyse Ads", hint: "créas, angles, fatigue…", icon: <Sparkles className="w-4 h-4 text-violet-300" /> }] : []),
+    ...(metaAccountId ? [{ href: `/analyse?accountId=act_${metaAccountId}`, label: "Analyse Ads", hint: "créas, angles, fatigue…", icon: <Sparkles className="w-4 h-4 text-violet-300" /> }] : []),
     { href: `/reports?dashboardId=${clientId}`, label: "Rapports IA", hint: "rapports et personas", icon: <FileText className="w-4 h-4 text-violet-300" /> },
     { href: `/pilotage?dashboardId=${clientId}`, label: "Pilotage", hint: "modifications et impact", icon: <Gauge className="w-4 h-4 text-violet-300" /> },
     { href: `/me/alerts?dashboardId=${clientId}`, label: "Alertes", hint: "règles et historique", icon: <AlertTriangle className="w-4 h-4 text-violet-300" /> },

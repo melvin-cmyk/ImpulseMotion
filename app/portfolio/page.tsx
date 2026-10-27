@@ -124,7 +124,7 @@ function ClientListPage({ onShowKpis }: { onShowKpis: () => void }) {
                   <div className="flex items-center justify-end gap-1.5 flex-wrap">
                     <Link href={`/portfolio/${c.id}`} className={action} title="Cockpit du client : KPIs, sources, rapports, Drive"><Gauge className="w-3.5 h-3.5 text-violet-300" /> Cockpit</Link>
                     {c.metaAccountId ? (
-                      <Link href={`/creatives?accountId=act_${c.metaAccountId}`} className={action} title="Analyse Ads sur le compte Meta de ce client"><Sparkles className="w-3.5 h-3.5 text-violet-300" /> Analyse Ads</Link>
+                      <Link href={`/analyse?accountId=act_${c.metaAccountId}`} className={action} title="Analyse Ads sur le compte Meta de ce client"><Sparkles className="w-3.5 h-3.5 text-violet-300" /> Analyse Ads</Link>
                     ) : (
                       <span className={`${action} opacity-40 cursor-not-allowed`} title="Analyse Ads lit les créas Meta : ce client n'a pas de compte Meta rattaché"><Sparkles className="w-3.5 h-3.5" /> Analyse Ads</span>
                     )}
@@ -301,7 +301,7 @@ function PortfolioKpiPage({ onBack }: { onBack: () => void }) {
                       {c.currency && <span className="text-gray-600"> · {c.currency}</span>}
                     </div>
                     {c.metaAccountId && (
-                      <Link href={`/creatives?accountId=act_${c.metaAccountId}`} className="mt-1 inline-flex items-center gap-1 text-[11px] text-violet-400 hover:text-white" title="Analyse Ads sur le compte Meta de ce client"><Sparkles className="w-3 h-3" /> Analyse Ads</Link>
+                      <Link href={`/analyse?accountId=act_${c.metaAccountId}`} className="mt-1 inline-flex items-center gap-1 text-[11px] text-violet-400 hover:text-white" title="Analyse Ads sur le compte Meta de ce client"><Sparkles className="w-3 h-3" /> Analyse Ads</Link>
                     )}
                   </td>
                   <td className="px-3 py-2.5">

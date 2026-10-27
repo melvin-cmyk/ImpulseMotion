@@ -89,7 +89,7 @@ const NAV_SECTIONS: NavSection[] = [
         match: (p) => p === "/pilotage" || p.startsWith("/pilotage/"),
       },
       {
-        href: "/creatives",
+        href: "/analyse",
         icon: Sparkles,
         label: "Analyse Ads",
         match: (p) => ANALYSE_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
@@ -283,28 +283,22 @@ type SubNavGroup = { label: string; items: { href: string; label: string }[] }
 
 const ANALYSE_SUB_NAV: SubNavGroup[] = [
   {
-    label: "Performance",
+    label: "Analyse",
+    items: [{ href: "/analyse", label: "Créas" }],
+  },
+  {
+    label: "Anciennes vues",
     items: [
-      { href: "/creatives", label: "Créas" },
+      { href: "/creatives", label: "Créas (live)" },
       { href: "/launch", label: "Launch" },
       { href: "/top-charts", label: "Top Charts" },
       { href: "/fatigue", label: "Fatigue" },
       { href: "/creative-team", label: "Funnel" },
-    ],
-  },
-  {
-    label: "Insights",
-    items: [
       { href: "/angles", label: "Angles" },
       { href: "/patterns", label: "Patterns" },
       { href: "/top-copy", label: "Top Copy" },
       { href: "/audience", label: "Audience" },
       { href: "/top-landing-page", label: "Landing" },
-    ],
-  },
-  {
-    label: "Comparer",
-    items: [
       { href: "/compare", label: "A/B" },
       { href: "/comparaisons", label: "Comparaisons" },
       { href: "/naming", label: "Naming" },

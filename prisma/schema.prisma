@@ -1242,3 +1242,111 @@ model DesignFile {
   @@index([ownerId, updatedAt])
   @@index([updatedAt])
 }
+
+// ── Creative warehouse (Analyse Ads v2) ──────────────────────────────────────
+// One catalogue row per ad per platform (metadata, refreshed by the nightly
+// sync) and one row per ad per DAY of delivery. Every Analyse Ads surface
+// reads these tables, never the platforms live (lib/ads-warehouse).
+
+/// An ad as the platform describes it. id = "<platform>:<adId>".
+model AdCatalog {
+  id           String    @id
+  /// meta | google | tiktok | linkedin
+  platform     String
+  /// Platform account id without prefix (Meta act digits, Google customer digits, TikTok advertiser id).
+  accountId    String
+  adId         String
+  name         String
+  /// Platform delivery status (Meta effective_status, Google status, TikTok operation/secondary status).
+  status       String?
+  adsetId      String?
+  adsetName    String?
+  campaignId   String?
+  campaignName String?
+  /// Video | Image | Carousel | Unknown — the visual asset type (Motion's ad type)
+  format       String    @default("Unknown")
+  /// Dynamic creative / Advantage+ creative with several text or asset variants (Motion: "Dynamic Creative").
+  dynamic      Boolean   @default(false)
+  creativeId   String?
+  /// Groups ads sharing the same visual (Meta video_id / image_hash / creative id): Motion's "N ads" per creative.
+  creativeKey  String?
+  thumbnailUrl String?   @db.Text
+  imageUrl     String?   @db.Text
+  videoId      String?
+  previewUrl   String?   @db.Text
+  title        String?   @db.Text
+  body         String?   @db.Text
+  cta          String?
+  landingUrl   String?   @db.Text
+  /// Launch date as the platform reports it.
+  createdTime  DateTime?
+  /// JSON object: tags parsed from the ad name (naming convention) and AI tags, e.g. {"c":"Lavender","f":"Video","ai_angle":"…"}.
+  tagsJson     String    @default("{}") @db.Text
+  /// Platform-side updated_time, to refresh metadata only when it changed.
+  platformUpdatedAt DateTime?
+  firstSeenAt  DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([platform, accountId])
+  @@index([accountId, createdTime])
+  @@index([creativeKey])
+  @@index([campaignId])
+}
+
+/// Delivery of one ad on one day (platform time zone). id = "<platform>:<adId>:<yyyy-mm-dd>".
+model AdDaily {
+  id              String   @id
+  platform        String
+  accountId       String
+  adId            String
+  date            DateTime @db.Date
+  currency        String?
+  spend           Float    @default(0)
+  impressions     Int      @default(0)
+  reach           Int      @default(0)
+  clicks          Int      @default(0)
+  linkClicks      Int      @default(0)
+  /// Conversions for the account's configured conversion event at sync time.
+  conversions     Float    @default(0)
+  conversionValue Float    @default(0)
+  purchases       Float    @default(0)
+  purchaseValue   Float    @default(0)
+  leads           Float    @default(0)
+  videoPlays      Int      @default(0)
+  video3s         Int      @default(0)
+  thruPlays       Int      @default(0)
+  videoP25        Int      @default(0)
+  videoP50        Int      @default(0)
+  videoP75        Int      @default(0)
+  videoP100       Int      @default(0)
+  /// Compact JSON {action_type: count} of the useful platform actions (to re-derive conversions when the event changes).
+  actionsJson     String   @default("{}") @db.Text
+  updatedAt       DateTime @updatedAt
+
+  @@unique([platform, adId, date])
+  @@index([accountId, date])
+  @@index([platform, accountId, date])
+}
+
+/// Sync bookkeeping per platform account. id = "<platform>:<accountId>".
+model AdSyncState {
+  id          String    @id
+  platform    String
+  accountId   String
+  /// Earliest and latest day fully synced (inclusive).
+  syncedFrom  DateTime? @db.Date
+  syncedTo    DateTime? @db.Date
+  /// Last FULL metadata refresh (otherwise only ads updated since the previous run are re-read).
+  metaFullAt  DateTime?
+  lastRunAt   DateTime?
+  lastOkAt    DateTime?
+  lastError   String?   @db.Text
+  adCount     Int       @default(0)
+  dayRows     Int       @default(0)
+  /// off → the account is skipped by the sync (admin switch).
+  enabled     Boolean   @default(true)
+  updatedAt   DateTime  @updatedAt
+
+  @@index([platform, syncedTo])
+}

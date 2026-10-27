@@ -898,6 +898,39 @@ export async function getAdDailyInsightsBatchPaged(
   }, opts.max ?? 10000);
 }
 
+/**
+ * Daily ad-level rows with the FULL field set (reach, link clicks, actions and
+ * values, every video quartile) for the creative warehouse (lib/ads-warehouse).
+ * One paged call per account and window; `truncated` when the cap is hit.
+ */
+export const AD_DAILY_RICH_FIELDS = [
+  "ad_id", "ad_name", "adset_id", "adset_name", "campaign_id", "campaign_name",
+  "spend", "impressions", "reach", "clicks", "inline_link_clicks", "account_currency",
+  "actions", "action_values", "purchase_roas",
+  "video_play_actions", "video_thruplay_watched_actions",
+  "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p100_watched_actions",
+].join(",");
+
+export interface MetaCreativeInsightRich extends MetaCreativeInsight {
+  video_p100_watched_actions?: Array<{ action_type: string; value: string }>;
+}
+
+export async function getAdDailyInsightsRichPaged(
+  accessToken: string,
+  adAccountId: string,
+  timeRange: { since: string; until: string },
+  opts: PagedOptions = {},
+): Promise<Paged<MetaCreativeInsightRich>> {
+  return metaFetchAll<MetaCreativeInsightRich>(`/${actId(adAccountId)}/insights`, accessToken, {
+    ...INSIGHTS_COMMON,
+    fields: AD_DAILY_RICH_FIELDS,
+    level: "ad",
+    time_increment: "1",
+    limit: "500",
+    time_range: JSON.stringify(timeRange),
+  }, opts.max ?? 20000);
+}
+
 /** Daily ad-level rows for a period in ONE paged call (replaces the per-ad N+1). */
 export async function getAdDailyInsightsBatch(
   accessToken: string,

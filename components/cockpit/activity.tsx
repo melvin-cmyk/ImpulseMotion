@@ -218,7 +218,7 @@ export function CockpitActivity() {
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       {c.metaAccountId && (
-                        <Link href={`/creatives?accountId=act_${c.metaAccountId}`} className="text-xs text-gray-400 hover:text-white">Créas</Link>
+                        <Link href={`/analyse?accountId=act_${c.metaAccountId}`} className="text-xs text-gray-400 hover:text-white">Créas</Link>
                       )}
                       <Link href={`/portfolio/${c.id}`} className="inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300">Fiche <ArrowRight className="w-3 h-3" /></Link>
                     </div>
