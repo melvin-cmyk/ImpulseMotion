@@ -51,7 +51,7 @@ export function CopilotPanel({ query, groupLabel, clientName, initialPrompt, onC
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
 
   return (
-    <aside className="w-[380px] shrink-0 border-l border-gray-800 bg-gray-950 flex flex-col h-[calc(100vh-56px)] sticky top-14">
+    <aside className="fixed right-0 top-12 bottom-0 z-40 w-[400px] max-w-[92vw] border-l border-gray-800 bg-gray-950 flex flex-col shadow-2xl">
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
         <div className="inline-flex items-center gap-2 text-sm font-semibold text-white"><Sparkles className="w-4 h-4 text-violet-300" /> Copilote</div>
         <button type="button" onClick={onClose} className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-gray-800" aria-label="Fermer"><X className="w-4 h-4" /></button>

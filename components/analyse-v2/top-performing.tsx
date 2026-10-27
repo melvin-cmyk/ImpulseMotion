@@ -239,7 +239,7 @@ export function TopPerforming() {
   for (const [k, v] of Object.entries(f.tags ?? {})) chips.push({ id: `tag:${k}`, label: `${tagKeyLabel(k)} = ${v}`, clear: () => { const t = { ...(f.tags ?? {}) }; delete t[k]; patchFilters({ tags: Object.keys(t).length ? t : undefined }); } });
 
   return (
-    <div className="flex min-h-full">
+    <div className={`flex min-h-full ${copilot.open ? "pr-[400px]" : ""}`}>
       <ReportSidebar accountKey={accountKey} saved={saved} loading={savedLoading} activeId={activeId} dirty={dirty} onPick={apply} onSave={saveView} onUpdate={updateView} onRename={renameView} onDelete={deleteView} />
 
       <div className="flex-1 min-w-0 flex flex-col">
