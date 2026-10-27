@@ -35,7 +35,7 @@ export function CopilotPanel({ query, groupLabel, clientName, initialPrompt, onC
     const next: Msg[] = [...messages, { role: "user", content: t }];
     setMessages(next); setInput(""); setBusy(true);
     try {
-      const res = await fetch("/api/ads/copilot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...query, accounts: query.accountIds.map((id) => ({ platform: "meta", id })), messages: next.map((m) => ({ role: m.role, content: m.content })), groupLabel, clientName }) });
+      const res = await fetch("/api/ads/copilot", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...query, messages: next.map((m) => ({ role: m.role, content: m.content })), groupLabel, clientName }) });
       const j = (await res.json().catch(() => ({}))) as { reply?: string; error?: string };
       if (!res.ok || !j.reply) throw new Error(j.error ?? `Erreur ${res.status}`);
       setMessages((m) => [...m, { role: "assistant", content: j.reply! }]);

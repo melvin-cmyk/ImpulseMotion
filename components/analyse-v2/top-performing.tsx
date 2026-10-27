@@ -63,6 +63,25 @@ export function TopPerforming() {
   const accountId = metaAccountId ? normalizeAct(metaAccountId).replace(/^act_/, "") : null;
   const accountKey = accountId ? `meta:${accountId}` : null;
 
+  // The client behind the selected Meta account (GET /api/clients) brings its
+  // Google customer and TikTok advertisers: one report, every platform.
+  const [clientsState, setClientsState] = useState<Array<{ id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; tiktokAdvertiserIds: string[] }> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/clients").then((r) => (r.ok ? r.json() : { clients: [] })).then((j: { clients: typeof clientsState }) => { if (!cancelled) setClientsState(j.clients ?? []); }).catch(() => { if (!cancelled) setClientsState([]); });
+    return () => { cancelled = true; };
+  }, []);
+  const client = useMemo(() => (accountId && clientsState ? clientsState.find((c) => (c.metaAccountId ?? "").replace(/^act_/, "") === accountId) ?? null : null), [clientsState, accountId]);
+  const accounts = useMemo(() => {
+    const out: Array<{ platform: "meta" | "google" | "tiktok"; id: string }> = [];
+    if (accountId) out.push({ platform: "meta", id: accountId });
+    if (client?.googleCustomerId) out.push({ platform: "google", id: client.googleCustomerId.replace(/-/g, "") });
+    for (const t of client?.tiktokAdvertiserIds ?? []) out.push({ platform: "tiktok", id: t });
+    return out;
+  }, [accountId, client]);
+  const [platformsOff, setPlatformsOff] = useState<Set<string>>(new Set());
+  const activeAccounts = accounts.filter((a) => !platformsOff.has(a.platform));
+
   // ── Report configuration (one object = one report) ──
   const [config, setConfig] = useState<ViewConfig>(VIEW_TEMPLATES[0].config);
   const [activeId, setActiveId] = useState<string>(`tpl:${VIEW_TEMPLATES[0].id}`);
@@ -99,8 +118,9 @@ export function TopPerforming() {
     const f: AdsFilters = { ...config.filters };
     if (search.trim()) f.nameContains = search.trim();
     if (launchAfter && !f.launchedAfter) f.launchedAfter = launchAfter;
-    return { platforms: ["meta"], accountIds: [accountId], range, compare: config.compare ? prevRange(range) : null, groupBy: config.groupBy, filters: f, sort: config.sort, limit: 120 };
-  }, [accountId, config.filters, config.compare, config.groupBy, config.sort, search, launchAfter, range]);
+    const acc = activeAccounts.length ? activeAccounts : [{ platform: "meta" as const, id: accountId }];
+    return { platforms: Array.from(new Set(acc.map((a) => a.platform))), accountIds: Array.from(new Set(acc.map((a) => a.id))), accounts: acc, range, compare: config.compare ? prevRange(range) : null, groupBy: config.groupBy, filters: f, sort: config.sort, limit: 120 } as AdsQuery & { accounts: typeof acc };
+  }, [accountId, activeAccounts, config.filters, config.compare, config.groupBy, config.sort, search, launchAfter, range]);
 
   const [loadedResult, setResult] = useState<Result | null>(null);
   const result = query ? loadedResult : null;
@@ -110,7 +130,7 @@ export function TopPerforming() {
   const load = useCallback(async (q: AdsQuery) => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch("/api/ads/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...q, accounts: q.accountIds.map((id) => ({ platform: "meta", id })) }) });
+      const res = await fetch("/api/ads/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(q) });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Erreur ${res.status}`);
       setResult(await res.json());
     } catch (e) { setError(e instanceof Error ? e.message : "Erreur"); } finally { setLoading(false); }
@@ -128,10 +148,10 @@ export function TopPerforming() {
   useEffect(() => {
     if (!accountId || !accountKey) return;
     let cancelled = false;
-    fetch("/api/ads/facets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platforms: ["meta"], accounts: [{ platform: "meta", id: accountId }], range: { since: "2020-01-01", until: "2020-01-02" } }) })
+    fetch("/api/ads/facets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ platforms: Array.from(new Set(accounts.map((a) => a.platform))), accounts, range: { since: "2020-01-01", until: "2020-01-02" } }) })
       .then((r) => (r.ok ? r.json() : { keys: [] })).then((j: { keys: Facets }) => { if (!cancelled) setFacets({ key: accountKey, facets: j.keys ?? [] }); }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [accountId, accountKey]);
+  }, [accountId, accountKey, accounts]);
 
   // ── Curve view ──
   const checkScope = `${config.groupBy}|${accountId ?? ""}`;
@@ -152,7 +172,7 @@ export function TopPerforming() {
     (async () => {
       const out: Record<string, DailyPoint[]> = {};
       await Promise.all(missing.map(async (k) => {
-        const res = await fetch("/api/ads/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...query, accounts: query.accountIds.map((id) => ({ platform: "meta", id })), key: k === "__all__" ? null : k }) });
+        const res = await fetch("/api/ads/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...query, key: k === "__all__" ? null : k }) });
         out[k] = res.ok ? (((await res.json()) as { points: DailyPoint[] }).points ?? []) : [];
       }));
       if (!cancelled) setSeriesState((s) => ({ scope: seriesScope, map: { ...(s.scope === seriesScope ? s.map : {}), ...out } }));
@@ -213,7 +233,16 @@ export function TopPerforming() {
             <h1 className="text-lg font-semibold text-white truncate">{title}{dirty && <span className="ml-2 text-[10px] font-normal text-amber-400 align-middle">modifié</span>}</h1>
             {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
           </div>
-          <AccountPicker />
+          <div className="flex items-center gap-2">
+            {accounts.length > 1 && (
+              <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5" title="Plateformes incluses dans le rapport">
+                {(["meta", "google", "tiktok"] as const).filter((p) => accounts.some((a) => a.platform === p)).map((p) => (
+                  <button key={p} type="button" onClick={() => setPlatformsOff((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else if (activeAccounts.filter((a) => a.platform !== p).length) n.add(p); return n; })} className={`px-2 py-1 rounded-md text-xs ${platformsOff.has(p) ? "text-gray-500 line-through" : p === "meta" ? "bg-blue-500/15 text-blue-200" : p === "google" ? "bg-emerald-500/15 text-emerald-200" : "bg-violet-500/15 text-violet-200"}`}>{p === "meta" ? "Meta" : p === "google" ? "Google" : "TikTok"}</button>
+                ))}
+              </div>
+            )}
+            <AccountPicker />
+          </div>
         </div>
 
         {/* ── Control bar ── */}

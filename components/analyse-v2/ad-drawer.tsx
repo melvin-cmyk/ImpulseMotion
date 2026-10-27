@@ -34,7 +34,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/ads/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...query, accounts: query.accountIds.map((id) => ({ platform: query.platforms[0], id })), key: row.key }) })
+    fetch("/api/ads/daily", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...query, key: row.key }) })
       .then((r) => (r.ok ? r.json() : { points: [] }))
       .then((j: { points: DailyPoint[] }) => { if (!cancelled) setLoaded({ key: row.key, points: j.points ?? [] }); })
       .catch(() => { if (!cancelled) setLoaded({ key: row.key, points: [] }); });
