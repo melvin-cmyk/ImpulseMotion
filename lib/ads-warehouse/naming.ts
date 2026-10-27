@@ -13,9 +13,9 @@
  * pair (otherwise the pairs are the convention and the rest is free text).
  */
 
-const SEP = /\s*(?:_|\||\s-\s|\s\/\s)\s*/;
+const SEP = /\s*(?:_|\||\s-\s|\s\/\s|\[|\])\s*/;
 const PAIR = /^([A-Za-z][A-Za-z0-9]{0,24})\s*[:=]\s*(.+)$/;
-const DASH_PAIR = /^([A-Za-z]{1,4})-(.+)$/;
+const DASH_PAIR = /^([A-Za-z][A-Za-z0-9]{0,4})-(.+)$/;
 const BRACKET = /\[([^\]]{1,40})\]/g;
 
 export function parseNamingTags(name: string | null | undefined): Record<string, string> {
@@ -24,12 +24,16 @@ export function parseNamingTags(name: string | null | undefined): Record<string,
   const trimmed = name.trim();
   if (!trimmed) return out;
 
+  // "[UGC][Promo] Summer" → t1, t2 ; but "[g-desti_ca1-maroc_m-experience]" is a
+  // convention block (keys inside): it is split like the rest of the name.
   let i = 0;
+  const isBlock = (inner: string) => /[_|]/.test(inner) || /^[A-Za-z][A-Za-z0-9]{0,4}[-:=]/.test(inner);
   for (const m of trimmed.matchAll(BRACKET)) {
+    if (isBlock(m[1])) continue;
     i += 1;
     out[`t${i}`] = m[1].trim();
   }
-  const rest = trimmed.replace(BRACKET, " ").trim();
+  const rest = trimmed.replace(BRACKET, (m, inner: string) => (isBlock(inner) ? ` ${inner} ` : " ")).trim();
   const segments = rest.split(SEP).map((s) => s.trim()).filter(Boolean);
   const pairs: Array<[string, string]> = [];
   const loose: string[] = [];

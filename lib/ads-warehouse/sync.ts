@@ -19,9 +19,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { metaAdapter } from "./meta";
+import { googleAdapter } from "./google";
+import { tiktokAdapter } from "./tiktok";
 import { catalogId, dailyId, stateId, type CatalogRow, type DailyRow, type SyncWindow, type WarehouseAdapter, type WarehousePlatform } from "./types";
 
-const ADAPTERS: Partial<Record<WarehousePlatform, WarehouseAdapter>> = { meta: metaAdapter };
+const ADAPTERS: Partial<Record<WarehousePlatform, WarehouseAdapter>> = { meta: metaAdapter, google: googleAdapter, tiktok: tiktokAdapter };
 export const WAREHOUSE_ENABLED_PLATFORMS = Object.keys(ADAPTERS) as WarehousePlatform[];
 
 const BACKFILL_DAYS = Math.max(30, parseInt(process.env.WAREHOUSE_BACKFILL_DAYS ?? "365", 10) || 365);

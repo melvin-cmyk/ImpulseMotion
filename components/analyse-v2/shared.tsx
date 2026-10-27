@@ -14,7 +14,7 @@ export function colorFor(id: string): string {
   return COLORS[Math.abs(h) % COLORS.length];
 }
 
-export const FORMAT_LABEL: Record<string, string> = { Video: "Vidéo", Image: "Image", Carousel: "Carrousel", Unknown: "—" };
+export const FORMAT_LABEL: Record<string, string> = { Video: "Vidéo", Image: "Image", Carousel: "Carrousel", Text: "Texte", Unknown: "—" };
 
 export function isActive(status: string | null | undefined): boolean {
   return status === "ACTIVE" || status === "ENABLE" || status === "ENABLED";

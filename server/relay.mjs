@@ -595,7 +595,8 @@ const DIRECT_TOOL_ALLOWLIST = {
   // still read and completed by prepareTikTokArgs (fixed metrics, strict JSON,
   // one advertiser named), see tiktokDirectInput.
   // get_adgroups / get_ads: the structure of an advertiser for Pilotage (lib/pilot/tiktok.ts), read only.
-  [TIKTOK_SERVER]: ["get_advertiser_info", "get_campaigns", "get_adgroups", "get_ads", "get_report_integrated", "list_business_centers", "list_bc_advertisers"],
+  // search_ad_videos / search_ad_images: covers and image URLs of the creative warehouse (lib/ads-warehouse/tiktok.ts), read only.
+  [TIKTOK_SERVER]: ["get_advertiser_info", "get_campaigns", "get_adgroups", "get_ads", "get_report_integrated", "list_business_centers", "list_bc_advertisers", "search_ad_videos", "search_ad_images"],
   // Merchant Center (lib/merchant-center.ts) : liste des comptes pour le
   // rattachement, puis diagnostics, statuts et performance produits des rapports.
   [MERCHANT_SERVER]: ["list_merchant_accounts", "list_subaccounts", "get_account_issues", "list_data_sources", "search_reports", "list_products"],

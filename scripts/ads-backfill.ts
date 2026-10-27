@@ -1,6 +1,6 @@
 /**
  * Creative warehouse backfill, run on the server (no 300 s function limit):
- *   node_modules/.bin/tsx --env-file=.env.local scripts/ads-backfill.ts [--accounts=123,456] [--full] [--minutes=120]
+ *   node_modules/.bin/tsx --env-file=.env.local scripts/ads-backfill.ts [--platforms=meta,google,tiktok] [--accounts=123,456] [--full] [--minutes=120]
  * Repeats passes until every account is complete or the time budget is spent.
  *   --dry --accounts=123 [--days=7] → reads the platform for one account and
  *   prints what the adapter would store, WITHOUT writing anything.
@@ -9,11 +9,16 @@
  */
 import { runAdsSync, warehouseStatus } from "../lib/ads-warehouse/sync";
 import { metaAdapter, refreshThumbnails } from "../lib/ads-warehouse/meta";
+import { googleAdapter } from "../lib/ads-warehouse/google";
+import { tiktokAdapter } from "../lib/ads-warehouse/tiktok";
+import type { WarehousePlatform } from "../lib/ads-warehouse/types";
 import { prisma } from "../lib/prisma";
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const m = a.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? "1"] : [a, "1"]; }));
 const minutes = parseFloat(args.minutes ?? "120");
 const accountIds = args.accounts ? String(args.accounts).split(",").map((s) => s.trim()).filter(Boolean) : undefined;
+const platforms = args.platforms ? (String(args.platforms).split(",").map((s) => s.trim()).filter(Boolean) as WarehousePlatform[]) : undefined;
+const ADAPTERS = { meta: metaAdapter, google: googleAdapter, tiktok: tiktokAdapter } as const;
 const end = Date.now() + minutes * 60_000;
 
 async function dryRun() {
@@ -23,8 +28,10 @@ async function dryRun() {
   const until = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
   const since = new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
   const t0 = Date.now();
-  const out = await metaAdapter.sync({ accountId, window: { since, until }, fullMetadata: args.full === "1", metadataSince: null, knownAdIds: new Set(), deadline: Date.now() + 10 * 60_000 });
-  console.log(`dry run meta:${accountId} ${since}→${until} in ${Math.round((Date.now() - t0) / 1000)} s — ${out.daily.length} day rows, ${out.catalog.length} catalogue rows, truncated ${out.truncated}, currency ${out.currency}`);
+  const platform = (platforms?.[0] ?? "meta") as keyof typeof ADAPTERS;
+  const adapter = ADAPTERS[platform] ?? metaAdapter;
+  const out = await adapter.sync({ accountId, window: { since, until }, fullMetadata: args.full === "1", metadataSince: null, knownAdIds: new Set(), deadline: Date.now() + 10 * 60_000 });
+  console.log(`dry run ${platform}:${accountId} ${since}→${until} in ${Math.round((Date.now() - t0) / 1000)} s — ${out.daily.length} day rows, ${out.catalog.length} catalogue rows, truncated ${out.truncated}, currency ${out.currency}`);
   const byFormat: Record<string, number> = {};
   for (const c of out.catalog) byFormat[c.format] = (byFormat[c.format] ?? 0) + 1;
   console.log("formats:", byFormat);
@@ -56,7 +63,7 @@ async function main() {
   let pass = 0;
   while (Date.now() < end) {
     pass += 1;
-    const report = await runAdsSync({ deadline: Math.min(end, Date.now() + 25 * 60_000), accountIds, fullMetadata: args.full === "1" && pass === 1, ignoreRecentRun: true });
+    const report = await runAdsSync({ deadline: Math.min(end, Date.now() + 25 * 60_000), accountIds, platforms, fullMetadata: args.full === "1" && pass === 1, ignoreRecentRun: true });
     const ok = report.accounts.filter((a) => a.ok).length;
     const ko = report.accounts.filter((a) => !a.ok);
     console.log(`[pass ${pass}] ${ok} ok, ${ko.length} ko, ${report.accounts.reduce((s, a) => s + a.daily, 0)} day rows, pending ${report.pending}, timedOut ${report.timedOut}`);

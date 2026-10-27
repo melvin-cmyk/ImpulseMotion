@@ -10,7 +10,7 @@
 export type WarehousePlatform = "meta" | "google" | "tiktok" | "linkedin";
 export const WAREHOUSE_PLATFORMS: WarehousePlatform[] = ["meta", "google", "tiktok", "linkedin"];
 
-export type AdFormat = "Video" | "Image" | "Carousel" | "Unknown";
+export type AdFormat = "Video" | "Image" | "Carousel" | "Text" | "Unknown";
 
 export interface CatalogRow {
   platform: WarehousePlatform;

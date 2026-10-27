@@ -12,6 +12,12 @@ describe("parseNamingTags", () => {
     expect(t.s1).toBe("SGL"); expect(t.s2).toBe("IMG");
     expect(conventionKeys(t).sort()).toEqual(["c", "cta", "m", "s", "v"]);
   });
+  it("reads a convention block inside brackets (TikTok names of the agency)", () => {
+    const t = parseNamingTags("W33Y26 - SGL - VID - [g-desti_ca1-maroc_ca2_solo_m-experience_f-testi_h-sionestcommemoi_pc-solo]");
+    expect(t.g).toBe("desti"); expect(t.ca1).toBe("maroc"); expect(t.m).toBe("experience"); expect(t.f).toBe("testi"); expect(t.pc).toBe("solo");
+    expect(t.s1).toBe("W33Y26"); expect(t.s2).toBe("SGL"); expect(t.s3).toBe("VID");
+    expect(Object.values(t).some((v) => v.includes("[") || v.includes("]"))).toBe(false);
+  });
   it("keeps positional segments when there is no convention", () => {
     expect(parseNamingTags("UGC_Hook3_Promo_FR")).toEqual({ s1: "UGC", s2: "Hook3", s3: "Promo", s4: "FR" });
   });
