@@ -71,7 +71,7 @@ export function TopPerforming() {
 
   // The client behind the selected Meta account (GET /api/clients) brings its
   // Google customer and TikTok advertisers: one report, every platform.
-  const [clientsState, setClientsState] = useState<Array<{ id: string; clientId: string; name: string; metaAccountId: string | null; accounts: Array<{ platform: "meta" | "google" | "tiktok"; id: string; name: string }> }> | null>(null);
+  const [clientsState, setClientsState] = useState<Array<{ id: string; clientId: string; aliasIds: string[]; name: string; metaAccountId: string | null; accounts: Array<{ platform: "meta" | "google" | "tiktok"; id: string; name: string }> }> | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/clients").then((r) => (r.ok ? r.json() : { clients: [] })).then((j: { clients: typeof clientsState }) => { if (!cancelled) setClientsState(j.clients ?? []); }).catch(() => { if (!cancelled) setClientsState([]); });
@@ -81,7 +81,7 @@ export function TopPerforming() {
   // or, by default, the client behind the Meta account chosen in the picker.
   const client = useMemo(() => {
     if (!clientsState) return null;
-    if (clientParam) return clientsState.find((c) => c.clientId === clientParam || c.id === clientParam) ?? null;
+    if (clientParam) return clientsState.find((c) => c.clientId === clientParam || c.id === clientParam || c.aliasIds.includes(clientParam)) ?? null;
     return metaId ? clientsState.find((c) => (c.metaAccountId ?? "").replace(/^act_/, "") === metaId) ?? null : null;
   }, [clientsState, clientParam, metaId]);
   const accountId = client?.metaAccountId ? client.metaAccountId.replace(/^act_/, "") : clientParam ? null : metaId;

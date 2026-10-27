@@ -24,6 +24,8 @@ export interface ClientRef {
   id: string;
   /** Registry id (AlertClient) — the client itself, independent of dashboards. */
   clientId: string;
+  /** Other registry ids merged into this client (same name): still accepted as its id. */
+  aliasIds: string[];
   name: string;
   /** Every ad account of the client, all platforms. */
   accounts: ClientAccountRef[];
@@ -68,6 +70,7 @@ export async function listClientRegistry(scope: AccountScope): Promise<ClientRef
     out.push({
       id: primary?.id ?? `c_${c.id}`,
       clientId: c.id,
+      aliasIds: [],
       name: c.name,
       accounts: accs,
       dashboardId: primary?.id ?? null,
@@ -88,13 +91,46 @@ export async function listClientRegistry(scope: AccountScope): Promise<ClientRef
     for (const s of d.sources ?? []) if (s.kind === "tiktok" && s.status !== "disabled") accs.push({ platform: "tiktok", id: s.externalId, name: d.name });
     if (!accs.length) continue;
     claimed.add(d.id);
-    out.push({ id: d.id, clientId: `d_${d.id}`, name: d.name, accounts: accs, dashboardId: d.id, dashboardIds: [d.id], metaAccountId: accs.find((a) => a.platform === "meta")?.id ?? null, googleCustomerId: accs.find((a) => a.platform === "google")?.id ?? null, tiktokAdvertiserIds: accs.filter((a) => a.platform === "tiktok").map((a) => a.id), driveFolderId: d.driveFolderId, hqSlug: d.hqSlug });
+    out.push({ id: d.id, clientId: `d_${d.id}`, aliasIds: [], name: d.name, accounts: accs, dashboardId: d.id, dashboardIds: [d.id], metaAccountId: accs.find((a) => a.platform === "meta")?.id ?? null, googleCustomerId: accs.find((a) => a.platform === "google")?.id ?? null, tiktokAdvertiserIds: accs.filter((a) => a.platform === "tiktok").map((a) => a.id), driveFolderId: d.driveFolderId, hqSlug: d.hqSlug });
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  return mergeSameName(out).sort((a, b) => a.name.localeCompare(b.name, "fr"));
+}
+
+const nameKey = (n: string) => n.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * Same name = same brand: the budget sheet and the account listings sometimes
+ * yield two registry rows for one client ("Le Barth Villas" twice). They are
+ * merged at read time — union of accounts and dashboards, the row with a
+ * dashboard (else the first) lends its ids, the others become aliases.
+ */
+export function mergeSameName(clients: ClientRef[]): ClientRef[] {
+  const groups = new Map<string, ClientRef[]>();
+  for (const c of clients) { const k = nameKey(c.name); const l = groups.get(k) ?? []; l.push(c); groups.set(k, l); }
+  const out: ClientRef[] = [];
+  for (const list of groups.values()) {
+    if (list.length === 1) { out.push(list[0]); continue; }
+    const lead = list.find((c) => c.dashboardId) ?? list[0];
+    const seen = new Set<string>();
+    const accounts = list.flatMap((c) => c.accounts).filter((a) => { const k = `${a.platform}:${a.id}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    const dashboardIds = Array.from(new Set(list.flatMap((c) => c.dashboardIds)));
+    out.push({
+      ...lead,
+      aliasIds: list.filter((c) => c !== lead).flatMap((c) => [c.clientId, c.id, ...c.aliasIds]),
+      accounts,
+      dashboardIds,
+      metaAccountId: accounts.find((a) => a.platform === "meta")?.id ?? null,
+      googleCustomerId: accounts.find((a) => a.platform === "google")?.id ?? null,
+      tiktokAdvertiserIds: accounts.filter((a) => a.platform === "tiktok").map((a) => a.id),
+      driveFolderId: list.map((c) => c.driveFolderId).find(Boolean) ?? null,
+      hqSlug: list.map((c) => c.hqSlug).find(Boolean) ?? null,
+    });
+  }
+  return out;
 }
 
 /** One client by app id (dashboard id or c_<registry id>) or by registry id, within the scope. */
 export async function findClient(scope: AccountScope, idOrClientId: string): Promise<ClientRef | null> {
   const all = await listClientRegistry(scope);
-  return all.find((c) => c.id === idOrClientId || c.clientId === idOrClientId || c.dashboardIds.includes(idOrClientId)) ?? null;
+  return all.find((c) => c.id === idOrClientId || c.clientId === idOrClientId || c.aliasIds.includes(idOrClientId) || c.dashboardIds.includes(idOrClientId)) ?? null;
 }
