@@ -10,7 +10,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type { AdsGroupRow, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
 import { upgradeImageUrl } from "@/lib/image-upgrade";
-import { StatusDot, colorFor } from "./shared";
+import { StatusDot, TagChips, colorFor } from "./shared";
 
 interface Props {
   rows: AdsGroupRow[];
@@ -53,7 +53,8 @@ export function AdsTable({ rows, metrics, benchmark, benchmarkPrevious, currency
             {th("name", "Créa", "text-left")}
             {th("adCount", "Ann.", "text-right", "Nombre d'annonces regroupées")}
             {th("launch", "Lancée", "text-left")}
-            {metrics.map((k) => th(k, METRIC_BY_KEY[k]?.short ?? k, "text-right", METRIC_BY_KEY[k]?.hint))}
+            <th className="text-left px-2 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Tags</th>
+            {metrics.map((k, i) => th(k, `${i + 1} ${METRIC_BY_KEY[k]?.short ?? k}`, "text-right", METRIC_BY_KEY[k]?.hint))}
           </tr>
         </thead>
         <tbody>
@@ -75,16 +76,28 @@ export function AdsTable({ rows, metrics, benchmark, benchmarkPrevious, currency
                 </td>
                 <td className="px-2 py-1.5 text-right text-xs text-gray-400 tabular-nums">{r.adCount}</td>
                 <td className="px-2 py-1.5 text-left text-[11px] text-gray-400 whitespace-nowrap">{r.launch ? new Date(r.launch + "T00:00:00Z").toLocaleDateString("fr-FR", { day: "2-digit", month: "short" }) : "—"}</td>
+                <td className="px-2 py-1.5 max-w-[200px]">{ad ? <TagChips tags={ad.tags} max={3} /> : null}</td>
                 {metrics.map((k) => cell(r.metrics, r.previous, k, false))}
               </tr>
             );
           })}
           <tr className="border-t-2 border-gray-700 bg-gray-950/60">
             <td />
-            <td className="px-2 py-2 text-xs font-semibold text-gray-300">Moyenne du compte</td>
+            <td className="px-2 py-2 text-xs font-semibold text-gray-300">Résultat net<div className="text-[10px] font-normal text-gray-500">total du compte · moy. par ligne</div></td>
             <td className="px-2 py-2 text-right text-xs text-gray-500">{rows.reduce((s, r) => s + r.adCount, 0)}</td>
-            <td />
-            {metrics.map((k) => cell(benchmark, benchmarkPrevious, k, true))}
+            <td /><td />
+            {metrics.map((k) => {
+              const def = METRIC_BY_KEY[k];
+              const additive = def?.higherBetter === null && def.format !== "ratio";
+              const avg = rows.length ? rows.reduce((s, r) => s + r.metrics[k], 0) / rows.length : 0;
+              return (
+                <td key={k} className="px-2 py-1.5 text-right">
+                  <span className="inline-block rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums bg-gray-800 text-gray-100">{fmtMetric(k, benchmark[k], currency, benchmark)}</span>
+                  <div className="text-[10px] text-gray-500">{additive ? `moy. ${fmtMetric(k, avg, currency)}` : "moy. compte"}</div>
+                  {compare && benchmarkPrevious && (() => { const d = deltaPct(benchmark[k], benchmarkPrevious[k]); return d === null ? null : <div className={`text-[10px] ${deltaTone(k, d) === "good" ? "text-emerald-400" : deltaTone(k, d) === "bad" ? "text-red-400" : "text-gray-500"}`}>{d > 0 ? "+" : ""}{d.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} %</div>; })()}
+                </td>
+              );
+            })}
           </tr>
         </tbody>
       </table>

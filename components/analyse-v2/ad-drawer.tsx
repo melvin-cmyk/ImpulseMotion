@@ -13,6 +13,7 @@ import type { AdsGroupRow, AdsQuery, DailyPoint, MetricKey, Metrics } from "@/li
 import { METRICS, METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
 import { AdVisual, FormatBadge, StatusDot, TagChips, isActive, relativeDay } from "./shared";
 import { AdPreviewPane } from "./ad-preview";
+import { AdNotes } from "./ad-notes";
 
 interface Props {
   row: AdsGroupRow;
@@ -27,6 +28,7 @@ const fmtDay = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("fr-
 export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
   const [loaded, setLoaded] = useState<{ key: string; points: DailyPoint[] } | null>(null);
   const [metric, setMetric] = useState<MetricKey>("cpc");
+  const [tab, setTab] = useState<"apercu" | "performance" | "notes">("apercu");
   const ad = row.sample;
   const points = loaded && loaded.key === row.key ? loaded.points : null;
 
@@ -60,8 +62,14 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
           <button type="button" onClick={onClose} className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800" aria-label="Fermer"><X className="w-4 h-4" /></button>
         </div>
 
-        <div className="p-4 space-y-5">
-          <div className="grid grid-cols-5 gap-4">
+        <div className="px-4 pt-3 flex gap-1 border-b border-gray-800">
+          {([["apercu", "Aperçu"], ["performance", "Performance"], ["notes", "Notes & tags"]] as const).map(([id, l]) => (
+            <button key={id} type="button" onClick={() => setTab(id)} className={`px-3 py-1.5 text-xs rounded-t-md border-b-2 ${tab === id ? "border-violet-500 text-white" : "border-transparent text-gray-400 hover:text-white"}`}>{l}</button>
+          ))}
+        </div>
+        {tab === "notes" && ad && <div className="p-4"><AdNotes platform={ad.platform} adId={ad.adId} /></div>}
+        <div className={`p-4 space-y-5 ${tab === "notes" ? "hidden" : ""}`}>
+          <div className={`grid grid-cols-5 gap-4 ${tab !== "apercu" ? "hidden" : ""}`}>
             <div className="col-span-2">{ad ? <AdPreviewPane ad={ad} /> : <div className="relative"><AdVisual ad={ad} className="aspect-[4/5]" /><FormatBadge ad={ad} /></div>}</div>
             <div className="col-span-3 space-y-2 text-xs">
               {ad?.title && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Titre</div><div className="text-gray-200">{ad.title}</div></div>}
@@ -72,7 +80,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
             </div>
           </div>
 
-          <div>
+          <div className={tab !== "performance" && tab !== "apercu" ? "hidden" : ""}>
             <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Période {query.range.since} → {query.range.until}{query.compare ? ` · vs ${query.compare.since} → ${query.compare.until}` : ""}</div>
             <div className="grid grid-cols-3 gap-2">
               {shown.map((k) => {
@@ -91,7 +99,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
             </div>
           </div>
 
-          <div>
+          <div className={tab !== "performance" ? "hidden" : ""}>
             <div className="flex items-center justify-between mb-2">
               <div className="text-[10px] uppercase tracking-wide text-gray-500">Jour par jour — dépenses et</div>
               <select value={metric} onChange={(e) => setMetric(e.target.value as MetricKey)} className="bg-gray-900 border border-gray-800 rounded-md px-2 py-1 text-[11px] text-gray-200">
@@ -115,7 +123,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
           </div>
 
           {row.ads.length > 1 && (
-            <div>
+            <div className={tab !== "apercu" ? "hidden" : ""}>
               <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">{row.adCount} annonces dans ce groupe</div>
               <div className="rounded-xl border border-gray-800 bg-gray-900 divide-y divide-gray-800">
                 {row.ads.map((a) => (

@@ -1350,3 +1350,37 @@ model AdSyncState {
 
   @@index([platform, syncedTo])
 }
+
+/// Saved Analyse Ads report (Motion's "report" = a saved configuration: period, group by, filters, metrics, view).
+/// accountKey = "<platform>:<accountId>" of the client it belongs to (null = shared template of the agency).
+model AnalyseView {
+  id            String   @id @default(cuid())
+  accountKey    String?
+  name          String
+  emoji         String   @default("🏆")
+  /// JSON of the report configuration (lib/ads-warehouse/views.ts ViewConfig).
+  configJson    String   @db.Text
+  createdById   String
+  createdByName String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([accountKey, updatedAt])
+}
+
+/// Consultant annotations of an ad: free note + custom tags (Motion's "Notes" tab and "Custom tags"). id = "<platform>:<adId>".
+model AdAnnotation {
+  id            String   @id
+  platform      String
+  accountId     String
+  adId          String
+  note          String   @default("") @db.Text
+  /// JSON array of custom tags, e.g. ["Success","Follow"].
+  tagsJson      String   @default("[]") @db.Text
+  updatedById   String?
+  updatedByName String   @default("")
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  @@index([accountId])
+}
