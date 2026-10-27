@@ -32,6 +32,9 @@ export interface DashboardDetail {
   shared: boolean;
   /** Sources cochées par le consultant (plateformes + comptes), données au copilote. */
   sources: StaffSource[];
+  /** Dossier Drive « Dashboards » du client déduit des sources (null → dossier partagé général). */
+  driveFolderUrl?: string | null;
+  driveClientName?: string | null;
   mine: boolean;
   canEdit: boolean;
   ownerEmail: string;

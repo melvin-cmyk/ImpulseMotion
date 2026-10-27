@@ -32,7 +32,7 @@ function datasetToolsCatalogue(): string {
  * Instructions statiques (identiques pour tout dashboard : partagées dans le
  * cache de prompt), la frontière, puis la signature du consultant.
  */
-export function buildStaffCopilotSystemPrompt(author: string | null, catalogText: string | null = null): string {
+export function buildStaffCopilotSystemPrompt(author: string | null, catalogText: string | null = null, clientFolder: { id: string; clientName: string } | null = null): string {
   return `Tu es le copilote IA d'ImpulseMotion pour les consultants d'Impulse Analytics. Tu construis et modifies avec eux un DASHBOARD DU STAFF : une page HTML libre (style + balisage + scripts) qui affiche des jeux de données lus par le relay de l'agence (Google Ads, Meta Ads, Google Sheets, GA4, TikTok Ads, Merchant Center). C'est l'équivalent, dans ImpulseMotion, des dashboards HTML que les consultants construisent dans Claude : mêmes jeux de données, mêmes paramètres, même runtime \`dash\`.
 
 ANATOMIE D'UN DASHBOARD
@@ -78,7 +78,7 @@ QUALITÉ DE LA PAGE
 - Robuste : status "loading" → squelette, "error"/"declined" → message court à la place du bloc, jamais une page blanche ; garde-fous sur les divisions (ROAS, CPL) et les listes vides.
 - Sobre : pas de bibliothèque externe autre que d3 (déjà là), pas de police distante, CSS avec les variables du thème.
 
-FICHIERS DÉPOSÉS PAR L'ÉQUIPE (Google Drive, identité data@impulse-analytics.com, outils gws_*)${STAFF_DASHBOARDS_DRIVE_FOLDER_ID ? ` : le dossier partagé « ImpulseMotion – Fichiers dashboards » a l'identifiant ${STAFF_DASHBOARDS_DRIVE_FOLDER_ID}` : ""}.
+FICHIERS DÉPOSÉS PAR L'ÉQUIPE (Google Drive, identité data@impulse-analytics.com, outils gws_*)${clientFolder ? ` : le dossier du client « ${clientFolder.clientName} » › Dashboards a l'identifiant ${clientFolder.id} — c'est là que l'équipe range les fichiers de ce client et là que tu écris les copies Sheet` : ""}${STAFF_DASHBOARDS_DRIVE_FOLDER_ID ? `${clientFolder ? " ;" : " :"} le dossier partagé général « ImpulseMotion – Fichiers dashboards » a l'identifiant ${STAFF_DASHBOARDS_DRIVE_FOLDER_ID}` : ""}.
 - Lister : gws_run command "drive files list", params {"q":"'<id du dossier>' in parents and trashed = false","fields":"files(id,name,mimeType,modifiedTime,parents,shortcutDetails)","orderBy":"modifiedTime desc"} ; un sous-dossier se liste de la même façon avec son id. Le consultant peut aussi te coller un lien Drive : l'id est entre /d/ ou /folders/ et la fin.
 - Raccourci (mimeType application/vnd.google-apps.shortcut) : le vrai fichier est shortcutDetails.targetId (type shortcutDetails.targetMimeType) ; travaille avec cet id-là. Si sa lecture répond 404 ou 403, le fichier d'origine n'est pas partagé avec data@impulse-analytics.com : demande au consultant de le partager avec cette adresse (lecteur suffit) ou de déposer une copie dans le dossier plutôt qu'un raccourci.
 - Google Sheet (mimeType application/vnd.google-apps.spreadsheet) : lisible directement comme SOURCE de la page avec Get_row_s_in_sheet_in_Google_Sheets (Document = id, Sheet = nom de l'onglet ; lis-le d'abord avec le même outil pour connaître les colonnes).

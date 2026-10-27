@@ -2,7 +2,7 @@
  * Designs → the client's Google Drive folder.
  *
  * A design attached to a client keeps its deliverables in
- *   <Client>/Designs/<design name>/   (the client folder of lib/clients/drive.ts)
+ *   <Client>/Créas/<design name>/   (the client folder of lib/clients/drive.ts)
  * - what the consultant exports from the page (PNG, SVG, PDF) goes there;
  * - what the AI exports into the design's workspace (out/) is copied there
  *   when its reply ends (lib/ai-jobs.ts).
@@ -13,19 +13,18 @@ import { prisma } from "@/lib/prisma";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
 import { contentTypeFor, workspaceIdFor } from "@/lib/relay-workspace";
-import { ensureClientFolder, ensureSubfolder, uploadToFolder, type DriveFolderRef } from "@/lib/clients/drive";
+import { ensureClientSubfolder, ensureSubfolder, uploadToFolder, type DriveFolderRef } from "@/lib/clients/drive";
 import { designSessionKey } from "@/lib/design/model";
 
-const SYNC_EXT_RE = /\.(png|jpe?g|webp|svg|pdf|figcraft|fig)$/i;
+const SYNC_EXT_RE = /\.(png|jpe?g|webp|svg|pdf|figcraft|fig|psd|psb|tiff?)$/i;
 
-/** The design's folder in the client's Drive (Designs/<name>), created on demand; null without a client. */
+/** The design's folder in the client's Drive (<Client>/Créas/<name>), created on demand; null without a client. */
 export async function designDriveFolder(designId: string): Promise<DriveFolderRef | null> {
   const d = await prisma.designFile.findUnique({ where: { id: designId }, select: { name: true, clientDashboardId: true } });
   if (!d?.clientDashboardId) return null;
-  const client = await ensureClientFolder(d.clientDashboardId, { force: true });
-  if (!client) return null;
-  const designs = await ensureSubfolder(client.id, "Designs", "Designs FigCraft du client (ImpulseMotion).");
-  return ensureSubfolder(designs.id, d.name, "Exports de ce design (ImpulseMotion /design).");
+  const creas = await ensureClientSubfolder(d.clientDashboardId, "creas");
+  if (!creas) return null;
+  return ensureSubfolder(creas.id, d.name, "Exports de ce design (ImpulseMotion /design).");
 }
 
 /** Puts one exported file in the design's Drive folder. */

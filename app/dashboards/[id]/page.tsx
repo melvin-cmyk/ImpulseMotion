@@ -277,8 +277,8 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
           >
             <Database className="w-3.5 h-3.5" /> Sources {sources.length ? `(${sources.length})` : ""}
           </button>
-          {STAFF_DASHBOARDS_DRIVE_FOLDER_URL && (
-            <a href={STAFF_DASHBOARDS_DRIVE_FOLDER_URL} target="_blank" rel="noreferrer" className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`} title="Dossier Google Drive partagé : déposez-y les fichiers (CSV, Excel, Sheets) que le copilote IA doit lire">
+          {(dashboard?.driveFolderUrl ?? STAFF_DASHBOARDS_DRIVE_FOLDER_URL) && (
+            <a href={dashboard?.driveFolderUrl ?? STAFF_DASHBOARDS_DRIVE_FOLDER_URL ?? "#"} target="_blank" rel="noreferrer" className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`} title={dashboard?.driveFolderUrl ? `Dossier Drive du client ${dashboard.driveClientName ?? ""} › Dashboards : déposez-y les fichiers (CSV, Excel, Sheets) que le copilote IA doit lire` : "Dossier Google Drive partagé : déposez-y les fichiers (CSV, Excel, Sheets) que le copilote IA doit lire"}>
               <FolderOpen className="w-3.5 h-3.5" /> Fichiers Drive
             </a>
           )}
@@ -418,7 +418,7 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
               initialPrompt={initialPrompt}
               sheetsShareEmail={SHEETS_SHARE_EMAIL}
               flush={fullscreen !== "off"}
-              driveFolderUrl={STAFF_DASHBOARDS_DRIVE_FOLDER_URL}
+              driveFolderUrl={dashboard?.driveFolderUrl ?? STAFF_DASHBOARDS_DRIVE_FOLDER_URL}
             />
           )}
         </div>

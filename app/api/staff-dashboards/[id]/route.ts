@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { staffDashboardClientFolder } from "@/lib/staff-dashboards/drive";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { forgetDashboardCache } from "@/lib/staff-dashboards/data";
@@ -32,7 +33,10 @@ export async function GET(_req: NextRequest, { params }: Ctx) {
   const row = await load(id);
   const mine = row?.ownerId === guard.session.userId;
   if (!row || (!mine && !row.shared && guard.session.role !== "admin")) return NextResponse.json({ error: "introuvable" }, { status: 404 });
+  const clientFolder = await staffDashboardClientFolder(row.sourcesJson, { timeoutMs: 8_000 }).catch(() => null);
   return NextResponse.json({
+      driveFolderUrl: clientFolder?.url ?? null,
+      driveClientName: clientFolder?.clientName ?? null,
     dashboard: {
       id: row.id,
       title: row.title,

@@ -29,6 +29,7 @@ import { recordAiUsage } from "@/lib/ai-usage";
 import { parseDatasets, parseParams } from "@/lib/staff-dashboards/model";
 import { parseSources } from "@/lib/staff-dashboards/sources";
 import { buildStaffCopilotSystemPrompt, buildStaffCopilotTurnContext, staffCopilotSessionKey, withPageIfUnseen } from "@/lib/staff-dashboards/copilot";
+import { staffDashboardClientFolder } from "@/lib/staff-dashboards/drive";
 import { catalogPromptText, loadStaffCatalog } from "@/lib/staff-dashboards/catalog";
 import type { StaffDashboardState } from "@/lib/staff-dashboards/proposals";
 
@@ -150,7 +151,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const effort: RelayEffort = EFFORTS.has(body.effort) ? body.effort : STAFF_CHAT_PROFILE.effort;
   // The team's catalogue of metrics and dimensions, after the cached static part of the prompt.
   const catalogText = catalogPromptText(await loadStaffCatalog().catch(() => ({ metrics: [], dimensions: [] })));
-  const systemPrompt = buildStaffCopilotSystemPrompt(guard.session.user?.email ?? null, catalogText);
+  const clientFolder = await staffDashboardClientFolder(row.sourcesJson, { timeoutMs: 10_000 }).catch(() => null);
+  const systemPrompt = buildStaffCopilotSystemPrompt(guard.session.user?.email ?? null, catalogText, clientFolder ? { id: clientFolder.id, clientName: clientFolder.clientName } : null);
   // Warehouses of the e-commerce clients (closed key list pinned by the relay).
   const dataScope = await staffDataScopeForAll();
   const turnContext = buildStaffCopilotTurnContext(state);
