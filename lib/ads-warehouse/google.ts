@@ -161,7 +161,7 @@ export const googleAdapter: WarehouseAdapter = {
       // Video metrics, best effort (the API refuses them on some accounts / channel types).
       try {
         // metrics.video_views is refused by the relay's client at ad level: the quartile rates (share of impressions) are enough.
-        const vrows = await gaql(accountId, `SELECT ad_group_ad.ad.id, segments.date, metrics.impressions, metrics.video_quartile_p25_rate, metrics.video_quartile_p50_rate, metrics.video_quartile_p75_rate, metrics.video_quartile_p100_rate FROM ad_group_ad WHERE segments.date BETWEEN '${sl.since}' AND '${sl.until}' AND campaign.advertising_channel_type IN ('VIDEO','DEMAND_GEN','DISCOVERY') AND metrics.impressions > 0`);
+        const vrows = await gaql(accountId, `SELECT ad_group_ad.ad.id, segments.date, metrics.impressions, metrics.video_quartile_p25_rate, metrics.video_quartile_p50_rate, metrics.video_quartile_p75_rate, metrics.video_quartile_p100_rate FROM ad_group_ad WHERE segments.date BETWEEN '${sl.since}' AND '${sl.until}' AND campaign.advertising_channel_type IN ('VIDEO','DEMAND_GEN') AND metrics.impressions > 0`);
         for (const r of vrows) {
           const adId = String(obj(obj(r.adGroupAd).ad).id ?? ""); const date = str(obj(r.segments).date); const m = obj(r.metrics);
           const row = adId && date ? daily.get(`${adId}:${date}`) : undefined; if (!row) continue;
