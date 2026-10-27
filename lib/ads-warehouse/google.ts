@@ -156,7 +156,11 @@ export const googleAdapter: WarehouseAdapter = {
         currency = currency ?? str(obj(r.customer).currencyCode);
         const spend = costFrom(m), impressions = int(m.impressions), clicks = int(m.clicks), conv = num(m.conversions), val = num(m.conversionsValue ?? m.conversions_value);
         names.set(adId, { adName: str(ad.name) ?? adId, adsetId: str(obj(r.adGroup).id) ?? undefined, adsetName: str(obj(r.adGroup).name) ?? undefined, campaignId: str(obj(r.campaign).id) ?? undefined, campaignName: str(obj(r.campaign).name) ?? undefined });
-        daily.set(`${adId}:${date}`, { platform: "google", accountId, adId, date, currency, spend, impressions, reach: 0, clicks, linkClicks: clicks, conversions: conv, conversionValue: val, purchases: conv, purchaseValue: val, leads: 0, videoPlays: 0, video3s: 0, thruPlays: 0, videoP25: 0, videoP50: 0, videoP75: 0, videoP100: 0, actions: {}, ...names.get(adId)! });
+        // The same ad can sit in several ad groups: one warehouse row per ad and day, metrics summed.
+        const key = `${adId}:${date}`;
+        const prev = daily.get(key);
+        if (prev) { prev.spend += spend; prev.impressions += impressions; prev.clicks += clicks; prev.linkClicks += clicks; prev.conversions += conv; prev.conversionValue += val; prev.purchases += conv; prev.purchaseValue += val; continue; }
+        daily.set(key, { platform: "google", accountId, adId, date, currency, spend, impressions, reach: 0, clicks, linkClicks: clicks, conversions: conv, conversionValue: val, purchases: conv, purchaseValue: val, leads: 0, videoPlays: 0, video3s: 0, thruPlays: 0, videoP25: 0, videoP50: 0, videoP75: 0, videoP100: 0, actions: {}, ...names.get(adId)! });
       }
       // Video metrics, best effort (the API refuses them on some accounts / channel types).
       try {
@@ -166,7 +170,7 @@ export const googleAdapter: WarehouseAdapter = {
           const adId = String(obj(obj(r.adGroupAd).ad).id ?? ""); const date = str(obj(r.segments).date); const m = obj(r.metrics);
           const row = adId && date ? daily.get(`${adId}:${date}`) : undefined; if (!row) continue;
           const impr = int(m.impressions) || row.impressions;
-          row.videoP25 = Math.round(num(m.videoQuartileP25Rate) * impr); row.videoP50 = Math.round(num(m.videoQuartileP50Rate) * impr); row.videoP75 = Math.round(num(m.videoQuartileP75Rate) * impr); row.videoP100 = Math.round(num(m.videoQuartileP100Rate) * impr);
+          row.videoP25 += Math.round(num(m.videoQuartileP25Rate) * impr); row.videoP50 += Math.round(num(m.videoQuartileP50Rate) * impr); row.videoP75 += Math.round(num(m.videoQuartileP75Rate) * impr); row.videoP100 += Math.round(num(m.videoQuartileP100Rate) * impr);
           row.videoPlays = row.videoP25; row.thruPlays = row.videoP100;
         }
       } catch (e) { console.warn("[ads-warehouse] google video metrics skipped:", e instanceof Error ? e.message.slice(0, 120) : e); }

@@ -197,7 +197,9 @@ async function persist(daily: DailyRow[], catalog: CatalogRow[], platform: strin
   }
 }
 
-async function upsertCatalog(rows: CatalogRow[]) {
+async function upsertCatalog(input: CatalogRow[]) {
+  // One row per id in a statement (Postgres refuses to touch a row twice in one ON CONFLICT): last one wins.
+  const rows = Array.from(new Map(input.map((r) => [catalogId(r.platform, r.adId), r])).values());
   if (!rows.length) return;
   const values = rows.map((r) => Prisma.sql`(${catalogId(r.platform, r.adId)}, ${r.platform}, ${r.accountId}, ${r.adId}, ${r.name}, ${r.status ?? null}, ${r.adsetId ?? null}, ${r.adsetName ?? null}, ${r.campaignId ?? null}, ${r.campaignName ?? null}, ${r.format}, ${r.dynamic ?? false}, ${r.creativeId ?? null}, ${r.creativeKey ?? null}, ${r.thumbnailUrl ?? null}, ${r.imageUrl ?? null}, ${r.videoId ?? null}, ${r.previewUrl ?? null}, ${r.title ?? null}, ${r.body ?? null}, ${r.cta ?? null}, ${r.landingUrl ?? null}, ${r.createdTime ?? null}, ${JSON.stringify(r.tags ?? {})}, ${r.platformUpdatedAt ?? null}, NOW())`);
   await prisma.$executeRaw`
@@ -228,7 +230,8 @@ async function upsertCatalog(rows: CatalogRow[]) {
       "updatedAt" = NOW()`;
 }
 
-async function upsertDaily(rows: DailyRow[]) {
+async function upsertDaily(input: DailyRow[]) {
+  const rows = Array.from(new Map(input.map((r) => [dailyId(r.platform, r.adId, r.date), r])).values());
   if (!rows.length) return;
   const values = rows.map((r) => Prisma.sql`(${dailyId(r.platform, r.adId, r.date)}, ${r.platform}, ${r.accountId}, ${r.adId}, ${r.date}::date, ${r.currency ?? null}, ${r.spend}, ${r.impressions}, ${r.reach}, ${r.clicks}, ${r.linkClicks}, ${r.conversions}, ${r.conversionValue}, ${r.purchases}, ${r.purchaseValue}, ${r.leads}, ${r.videoPlays}, ${r.video3s}, ${r.thruPlays}, ${r.videoP25}, ${r.videoP50}, ${r.videoP75}, ${r.videoP100}, ${JSON.stringify(r.actions)}, NOW())`);
   await prisma.$executeRaw`
