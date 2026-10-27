@@ -162,8 +162,9 @@ describe("relay — TikTok Ads en appel direct", () => {
   };
   const REPORT = { advertiser_id: "7111111111111111111", data_level: "AUCTION_ADVERTISER", dimensions: ["advertiser_id", "stat_time_day"], metrics: ["spend"], start_date: "2026-09-01", end_date: "2026-09-30" };
 
-  // get_adgroups and get_ads are open since Pilotage reads the structure of an advertiser (read only).
-  it.each(["list_advertisers", "list_custom_audiences", "search_ad_videos", "create_campaign"])("ferme %s", async (tool) => {
+  // get_adgroups and get_ads are open since Pilotage reads the structure of an advertiser (read only);
+  // search_ad_videos / search_ad_images since the creative warehouse reads the covers (lib/ads-warehouse/tiktok.ts).
+  it.each(["list_advertisers", "list_custom_audiences", "create_campaign"])("ferme %s", async (tool) => {
     const out = await post(`${TIKTOK}.${tool}`);
     expect(out.status).toBe(403);
     expect(out.json.error).toMatch(/^tool not allowed/);
@@ -177,6 +178,7 @@ describe("relay — TikTok Ads en appel direct", () => {
       ["get_report_integrated", REPORT],
       ["list_business_centers", {}],
       ["list_bc_advertisers", { bc_id: "7005927560051687425" }],
+      ["search_ad_videos", { advertiser_id: "7111111111111111111", filtering: { video_ids: ["v1"] } }],
     ] as Array<[string, unknown]>) {
       const out = await post(`${TIKTOK}.${tool}`, input);
       expect(out.status, tool).toBeGreaterThanOrEqual(500);

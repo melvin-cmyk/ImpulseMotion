@@ -1,111 +1,41 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, useSyncExternalStore } from "react";
-import type { Creative, CreativesMeta, WowMetrics } from "./creative-types";
-import { mockCreatives } from "./mock-data";
-import { useCreatives } from "./use-creatives";
-import { useWow, type WowData } from "./use-wow";
-import { lastFullDays, presetRange, prevRange, type DateRange as CanonicalRange } from "./date-ranges";
-import { moneyFormatter, type MoneyFmt } from "./creative-format";
+/**
+ * Selected Meta account of the staff surfaces (Analyse Ads v2, ⌘K, account
+ * picker). The selection lives in localStorage so it survives navigation and
+ * reloads; every provider re-reads it on `storage` / ACCOUNT_CHANGE_EVENT.
+ * Deep links `?accountId=act_…` select the account when the viewer may see it.
+ * (The live creatives fetch of the former Analyse Ads pages is gone: the
+ * warehouse serves /analyse.)
+ */
 
-/** localStorage keys shared with components/account-picker.tsx */
+import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
+
+/** localStorage key shared with components/account-picker.tsx */
 export const META_ACCOUNT_STORAGE_KEY = "impulse_meta_account";
-/** Dispatched on `window` to re-read the stored selection (refetch, deep link). */
+/** Dispatched on `window` to re-read the stored selection (picker, deep link). */
 export const ACCOUNT_CHANGE_EVENT = "impulse:account-change";
 
-export type DatePreset = 7 | 14 | 30 | 90;
-
-export type DateRange = CanonicalRange;
-
 interface CreativesContextValue {
-  creatives: Creative[];
-  isLoading: boolean;
-  /** True when the list comes from a connected account (real Meta data, possibly empty). */
-  isRealData: boolean;
-  /** True when at least one ad account is selected. */
-  isConnected: boolean;
-  error: string | null;
-  /** Refetch; `{ refresh: true }` bypasses the server cache (Meta re-read). */
-  refetch: (opts?: { refresh?: boolean }) => void;
-  /** Provenance / freshness of the Meta list (null in demo mode or while loading). */
-  meta: CreativesMeta | null;
-  /** ISO 4217 currency of the selected Meta account (null when unknown / demo). */
-  currency: string | null;
-  /** Currently selected date range */
-  dateRange: DateRange;
-  /** Currently active preset (null if custom) */
-  datePreset: DatePreset | null;
-  /** Set date range via a preset number of FULL days ending yesterday */
-  setDatePreset: (days: DatePreset) => void;
-  /** Set a fully custom date range */
-  setDateRange: (range: DateRange) => void;
-  /** Selected Meta campaign id filter (null = all) */
-  campaignId: string | null;
-  setCampaignId: (id: string | null) => void;
-  /** Connected Meta ad account id (act_…), null when none is selected */
+  /** Selected Meta ad account id (act_…), null when none is selected */
   metaAccountId: string | null;
   /** Display name stored with the selection (null when unknown). */
   metaAccountName: string | null;
-  /** Week-over-week data (null when no Meta account connected) */
-  wowData: WowData | null;
-  isWowLoading: boolean;
 }
 
 const CreativesContext = createContext<CreativesContextValue | null>(null);
 
-const DEFAULT_PRESET: DatePreset = 30;
+const normalizeAct = (id: string) => id.replace(/^act_/, "");
 
-/** Browser timezone (the account timezone is only known once `meta` arrives). */
-function browserTz(): string | undefined {
+function readStoredAccount(): string | null {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone;
-  } catch {
-    return undefined;
-  }
-}
-
-function readStoredAccount(key: string): string | null {
-  try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(META_ACCOUNT_STORAGE_KEY);
     if (!raw) return null;
     const id = JSON.parse(raw)?.accountId;
     return typeof id === "string" && id ? id : null;
   } catch {
     return null;
   }
-}
-
-const normalizeAct = (id: string) => id.replace(/^act_/, "");
-
-// The selected accounts are an external store (localStorage written by the
-// account picker): subscribe to storage + our own change event, snapshot =
-// the stored id (string → stable comparison), null during SSR / hydration.
-function subscribeAccounts(callback: () => void): () => void {
-  window.addEventListener("storage", callback);
-  window.addEventListener(ACCOUNT_CHANGE_EVENT, callback);
-  return () => {
-    window.removeEventListener("storage", callback);
-    window.removeEventListener(ACCOUNT_CHANGE_EVENT, callback);
-  };
-}
-const readMeta = () => readStoredAccount(META_ACCOUNT_STORAGE_KEY);
-const readMetaName = () => readStoredMetaAccountName();
-const readNone = () => null;
-
-/** Notifies every CreativesProvider that the stored selection changed. */
-export function notifyAccountChange(): void {
-  if (typeof window !== "undefined") window.dispatchEvent(new Event(ACCOUNT_CHANGE_EVENT));
-}
-
-/** Persists the analysed Meta account (picker / ⌘K / deep link) and notifies. */
-export function setStoredMetaAccount(accountId: string, accountName: string): void {
-  const id = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
-  try {
-    localStorage.setItem(META_ACCOUNT_STORAGE_KEY, JSON.stringify({ accountId: id, accountName }));
-  } catch {
-    // storage unavailable — the in-memory selection is lost on reload only
-  }
-  notifyAccountChange();
 }
 
 /** Display name stored with the selection (null when nothing is selected). */
@@ -119,22 +49,38 @@ export function readStoredMetaAccountName(): string | null {
   }
 }
 
+function subscribeAccounts(callback: () => void): () => void {
+  window.addEventListener("storage", callback);
+  window.addEventListener(ACCOUNT_CHANGE_EVENT, callback);
+  return () => {
+    window.removeEventListener("storage", callback);
+    window.removeEventListener(ACCOUNT_CHANGE_EVENT, callback);
+  };
+}
+const readNone = () => null;
+
+/** Notifies every provider that the stored selection changed. */
+export function notifyAccountChange(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(ACCOUNT_CHANGE_EVENT));
+}
+
+/** Persists the analysed Meta account (picker / ⌘K / deep link) and notifies. */
+export function setStoredMetaAccount(accountId: string, accountName: string): void {
+  const id = accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+  try {
+    localStorage.setItem(META_ACCOUNT_STORAGE_KEY, JSON.stringify({ accountId: id, accountName }));
+  } catch {
+    /* storage unavailable: the selection just does not persist */
+  }
+  notifyAccountChange();
+}
+
 export function CreativesProvider({ children }: { children: React.ReactNode }) {
-  const metaAccountId = useSyncExternalStore(subscribeAccounts, readMeta, readNone);
-  const metaAccountName = useSyncExternalStore(subscribeAccounts, readMetaName, readNone);
-  const [nonce, setNonce] = useState(0);
-  const refreshRef = useRef(false);
+  const metaAccountId = useSyncExternalStore(subscribeAccounts, readStoredAccount, readNone);
+  const metaAccountName = useSyncExternalStore(subscribeAccounts, readStoredMetaAccountName, readNone);
 
-  // Date range state — defaults to the last 30 FULL days ending yesterday.
-  const [datePreset, setDatePresetState] = useState<DatePreset | null>(DEFAULT_PRESET);
-  const [dateRange, setDateRangeState] = useState<DateRange>(() => presetRange("last_30", { tz: browserTz() }));
-
-  // Campaign filter
-  const [campaignId, setCampaignId] = useState<string | null>(null);
-
-  // Deep links from the cockpit / portfolio: `?accountId=act_…` selects the
-  // account (when allowed for this user), persists it for the picker and is
-  // then stripped from the URL.
+  // Deep links from the cockpit / clients list: `?accountId=act_…` selects the
+  // account (when allowed for this user), persists it and is stripped from the URL.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
@@ -149,133 +95,23 @@ export function CreativesProvider({ children }: { children: React.ReactNode }) {
         if (res.ok) {
           const data = (await res.json()) as { accounts?: Array<{ id: string; name?: string; outOfScope?: boolean }> };
           const match = data.accounts?.find((a) => normalizeAct(a.id) === normalizeAct(wanted) && !a.outOfScope);
-          if (match) {
-            allowed = true;
-            name = match.name ?? "";
-          }
+          if (match) { allowed = true; name = match.name ?? ""; }
         }
-      } catch {
-        allowed = false;
-      }
+      } catch { allowed = false; }
       if (cancelled) return;
       url.searchParams.delete("accountId");
       const clean = `${url.pathname}${url.search}${url.hash}`;
-      if (!allowed) {
-        window.history.replaceState(window.history.state, "", clean);
-        return;
-      }
-      // The provider and the picker both subscribe to the store: no reload.
-      setStoredMetaAccount(wanted, name);
+      if (allowed) setStoredMetaAccount(wanted, name);
       window.history.replaceState(window.history.state, "", clean);
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // Meta only: the legacy TikTok creatives (direct API, never configured) were removed.
-  const isConnected = !!metaAccountId;
-
-  const { creatives, loading, error, isRealData, meta } = useCreatives({
-    metaAccountId,
-    isConnected,
-    since: dateRange.since,
-    until: dateRange.until,
-    campaignId: campaignId ?? undefined,
-    nonce,
-    refreshRef,
-  });
-
-  const { wowData: realWowData, loading: wowLoading } = useWow({
-    metaAccountId,
-    enabled: !!metaAccountId,
-    since: dateRange.since,
-    until: dateRange.until,
-    nonce,
-  });
-
-  // Demo WoW aggregate built from the mock creatives (demo mode only).
-  const mockWowData = useMemo<WowData>(() => {
-    const wowByAdId: Record<string, WowMetrics> = {};
-    for (const c of mockCreatives) if (c.wow) wowByAdId[c.id] = c.wow;
-    const vals = mockCreatives.map((c) => c.wow).filter(Boolean) as WowMetrics[];
-    const avg = (key: keyof WowMetrics) => {
-      const nonNull = vals.map((v) => v[key]).filter((v) => v !== null) as number[];
-      return nonNull.length ? nonNull.reduce((a, b) => a + b, 0) / nonNull.length : null;
-    };
-    const current = lastFullDays(7, { tz: browserTz() });
-    return {
-      wowByAdId,
-      aggregateWow: {
-        spendChange: avg("spendChange"),
-        ctrChange: avg("ctrChange"),
-        cpaChange: avg("cpaChange"),
-        roasChange: avg("roasChange"),
-        hookRateChange: avg("hookRateChange"),
-      },
-      currentPeriod: current,
-      prevPeriod: prevRange(current),
-    };
-  }, []);
-
-  const wowData: WowData | null = isConnected ? (realWowData ?? null) : mockWowData;
-
-  // The account picker writes localStorage then calls refetch(): re-read the
-  // selection (external store) and bump the request nonce.
-  const refetch = useCallback((opts?: { refresh?: boolean }) => {
-    refreshRef.current = opts?.refresh === true;
-    notifyAccountChange();
-    setNonce((k) => k + 1);
-  }, []);
-
-  const setDatePreset = useCallback((days: DatePreset) => {
-    setDatePresetState(days);
-    setDateRangeState(lastFullDays(days, { tz: browserTz() }));
-  }, []);
-
-  const setDateRange = useCallback((range: DateRange) => {
-    setDatePresetState(null);
-    setDateRangeState(range);
-  }, []);
-
-  return (
-    <CreativesContext.Provider
-      value={{
-        creatives,
-        isLoading: loading,
-        isRealData,
-        isConnected,
-        error,
-        refetch,
-        meta,
-        currency: meta?.currency ?? null,
-        dateRange,
-        datePreset,
-        setDatePreset,
-        setDateRange,
-        campaignId,
-        setCampaignId,
-        metaAccountId,
-        metaAccountName,
-        wowData,
-        isWowLoading: isConnected ? wowLoading : false,
-      }}
-    >
-      {children}
-    </CreativesContext.Provider>
-  );
-}
-
-/** Money formatter bound to the selected account's currency (code shown when unknown). */
-export function useMoney(): MoneyFmt {
-  const { currency } = useCreativesContext();
-  return useMemo(() => moneyFormatter(currency), [currency]);
+  return <CreativesContext.Provider value={{ metaAccountId, metaAccountName }}>{children}</CreativesContext.Provider>;
 }
 
 export function useCreativesContext(): CreativesContextValue {
   const ctx = useContext(CreativesContext);
-  if (!ctx) {
-    throw new Error("useCreativesContext must be used within a CreativesProvider");
-  }
+  if (!ctx) throw new Error("useCreativesContext must be used within CreativesProvider");
   return ctx;
 }

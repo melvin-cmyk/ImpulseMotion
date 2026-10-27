@@ -174,3 +174,7 @@
 }
 .animate-im-slide-right { animation: im-slide-right 180ms ease-out; }
 .animate-im-fade-in { animation: im-fade-in 120ms ease-out; }
+
+/* Menus that scroll without showing a bar (left sidebar). */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
