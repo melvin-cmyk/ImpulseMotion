@@ -2,9 +2,9 @@
 
 /** Small shared pieces of Analyse Ads v2 (cards, table, drawer). */
 
+import { Play } from "lucide-react";
 import { upgradeImageUrl } from "@/lib/image-upgrade";
 import type { AdSample } from "@/lib/ads-warehouse/query";
-import { CreativeThumbnail } from "@/components/creative-thumbnail";
 
 const COLORS = ["from-violet-500 to-purple-700", "from-blue-500 to-cyan-600", "from-pink-500 to-rose-600", "from-emerald-500 to-teal-600", "from-orange-500 to-amber-600", "from-indigo-500 to-violet-600"];
 
@@ -30,18 +30,29 @@ export function relativeDay(iso: string | null | undefined): string {
   return `il y a ${Math.round(days / 30)} mois`;
 }
 
-/** Visual of an ad: image or video player, Meta CDN image upgraded to a large size. */
+/**
+ * Visual of an ad on a card: the sharp thumbnail (1200 px rendition stored by
+ * the warehouse), with a play badge for videos. Playback happens in the
+ * drawer through the official ad preview (the Facebook embed player refuses
+ * most ad videos, which showed "Video unavailable").
+ */
 export function AdVisual({ ad, className = "aspect-[4/5]" }: { ad: AdSample | null; className?: string }) {
   if (!ad) return <div className={`${className} rounded-xl bg-gray-800`} />;
   const url = upgradeImageUrl(ad.imageUrl ?? ad.thumbnailUrl ?? undefined);
   return (
-    <CreativeThumbnail
-      format={ad.format}
-      thumbnailColor={colorFor(ad.adId)}
-      thumbnailUrl={url}
-      videoId={ad.videoId ?? undefined}
-      className={`${className} w-full rounded-xl overflow-hidden`}
-    />
+    <div className={`relative ${className} w-full rounded-xl overflow-hidden bg-gray-950`}>
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element -- Meta CDN, many hosts
+        <img src={url} alt="" loading="lazy" className="w-full h-full object-cover" />
+      ) : (
+        <div className={`w-full h-full bg-gradient-to-br ${colorFor(ad.adId)}`} />
+      )}
+      {ad.format === "Video" && (
+        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="w-11 h-11 rounded-full bg-black/60 border border-white/30 flex items-center justify-center"><Play className="w-5 h-5 text-white fill-white ml-0.5" /></span>
+        </span>
+      )}
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis }
 import type { AdsGroupRow, AdsQuery, DailyPoint, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRICS, METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
 import { AdVisual, FormatBadge, StatusDot, TagChips, isActive, relativeDay } from "./shared";
+import { AdPreviewPane } from "./ad-preview";
 
 interface Props {
   row: AdsGroupRow;
@@ -61,7 +62,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
 
         <div className="p-4 space-y-5">
           <div className="grid grid-cols-5 gap-4">
-            <div className="col-span-2 relative"><AdVisual ad={ad} className="aspect-[4/5]" /><FormatBadge ad={ad} /></div>
+            <div className="col-span-2">{ad ? <AdPreviewPane ad={ad} /> : <div className="relative"><AdVisual ad={ad} className="aspect-[4/5]" /><FormatBadge ad={ad} /></div>}</div>
             <div className="col-span-3 space-y-2 text-xs">
               {ad?.title && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Titre</div><div className="text-gray-200">{ad.title}</div></div>}
               {ad?.body && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Texte</div><div className="text-gray-300 whitespace-pre-line max-h-32 overflow-y-auto">{ad.body}</div></div>}
