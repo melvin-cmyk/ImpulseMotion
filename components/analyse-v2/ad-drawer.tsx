@@ -53,7 +53,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <aside className="relative w-full max-w-xl h-full bg-gray-950 border-l border-gray-800 overflow-y-auto">
+      <aside className="relative w-full max-w-3xl h-full bg-gray-950 border-l border-gray-800 overflow-y-auto">
         <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-gray-950/95 border-b border-gray-800">
           <div className="min-w-0">
             <div className="flex items-center gap-2"><StatusDot status={ad?.status} /><h2 className="text-sm font-semibold text-white truncate" title={row.label}>{row.label}</h2></div>
@@ -69,11 +69,11 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
         </div>
         {tab === "notes" && ad && <div className="p-4"><AdNotes platform={ad.platform} adId={ad.adId} /></div>}
         <div className={`p-4 space-y-5 ${tab === "notes" ? "hidden" : ""}`}>
-          <div className={`grid grid-cols-5 gap-4 ${tab !== "apercu" ? "hidden" : ""}`}>
-            <div className="col-span-2">{ad ? <AdPreviewPane ad={ad} /> : <div className="relative"><AdVisual ad={ad} className="aspect-[4/5]" /><FormatBadge ad={ad} /></div>}</div>
-            <div className="col-span-3 space-y-2 text-xs">
+          <div className={`grid grid-cols-2 gap-5 ${tab !== "apercu" ? "hidden" : ""}`}>
+            <div>{ad ? <AdPreviewPane ad={ad} /> : <div className="relative"><AdVisual ad={ad} className="aspect-[4/5]" /><FormatBadge ad={ad} /></div>}</div>
+            <div className="space-y-2 text-xs">
               {ad?.title && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Titre</div><div className="text-gray-200">{ad.title}</div></div>}
-              {ad?.body && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Texte</div><div className="text-gray-300 whitespace-pre-line max-h-32 overflow-y-auto">{ad.body}</div></div>}
+              {ad?.body && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Texte</div><div className="text-gray-300 whitespace-pre-line max-h-64 overflow-y-auto">{ad.body}</div></div>}
               {ad?.landingUrl && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Landing page</div><a href={ad.landingUrl} target="_blank" rel="noopener noreferrer" className="text-violet-300 hover:text-white break-all inline-flex items-center gap-1">{ad.landingUrl.replace(/^https?:\/\//, "").slice(0, 60)} <ExternalLink className="w-3 h-3" /></a></div>}
               {ad && <TagChips tags={ad.tags} max={8} />}
               {ad?.previewUrl && <a href={ad.previewUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-white">Voir dans la bibliothèque Meta <ExternalLink className="w-3 h-3" /></a>}
