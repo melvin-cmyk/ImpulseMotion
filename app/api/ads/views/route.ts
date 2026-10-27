@@ -7,7 +7,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { getAccountScope, platformAccountInScope, dashboardIdInScope, type AccountScope } from "@/lib/scope";
+import { getAccountScope, platformAccountInScope, type AccountScope } from "@/lib/scope";
+import { findClient } from "@/lib/clients/registry";
 import { isViewConfig } from "@/lib/ads-warehouse/views";
 
 /** "meta:123" (one platform account) or "client:<dashboardId>" (the whole client). */
@@ -16,7 +17,7 @@ function parseKey(key: string | null): { platform: string; accountId: string } |
   return m ? { platform: m[1], accountId: m[2] } : null;
 }
 async function keyInScope(scope: AccountScope, key: { platform: string; accountId: string }): Promise<boolean> {
-  return key.platform === "client" ? dashboardIdInScope(scope, key.accountId) : platformAccountInScope(scope, key.platform, key.accountId);
+  return key.platform === "client" ? !!(await findClient(scope, key.accountId)) : platformAccountInScope(scope, key.platform, key.accountId);
 }
 
 export async function GET(req: NextRequest) {

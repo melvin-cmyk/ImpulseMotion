@@ -256,6 +256,15 @@ function dailyFromInsight(accountId: string, i: MetaCreativeInsightRich, convers
   };
 }
 
+/** Re-align the stored rows of an auto-event account on the current decision (leads or purchases). */
+async function normaliseConversions(accountId: string, useLeads: boolean): Promise<void> {
+  if (useLeads) {
+    await prisma.$executeRaw`UPDATE "AdDaily" SET conversions = leads, "conversionValue" = 0, "updatedAt" = NOW() WHERE platform = 'meta' AND "accountId" = ${accountId} AND (conversions <> leads OR "conversionValue" <> 0)`;
+  } else {
+    await prisma.$executeRaw`UPDATE "AdDaily" SET conversions = purchases, "conversionValue" = "purchaseValue", "updatedAt" = NOW() WHERE platform = 'meta' AND "accountId" = ${accountId} AND (conversions <> purchases OR "conversionValue" <> "purchaseValue")`;
+  }
+}
+
 export const metaAdapter: WarehouseAdapter = {
   platform: "meta",
 
@@ -285,18 +294,19 @@ export const metaAdapter: WarehouseAdapter = {
       daily.push(row);
       seen.add(row.adId);
     }
-    // Account left on the default "purchase" event (Admin → Comptes not filled)
-    // that has NEVER recorded a purchase, in this window nor in its stored
-    // history: its conversions are its leads. The decision is account-wide so
-    // every window agrees; an explicit setting is always honoured, and
-    // changing it in the admin re-syncs the account (resync).
+    // Conversion event of the account. Explicit setting (lead, complete_registration,
+    // custom:…) → honoured as stored. Default "purchase" → AUTO: over the whole stored
+    // history plus this window, leads beat purchases ⇒ the account converts in leads.
+    // The decision is account-wide and re-applied to every stored row at the end of
+    // the sync (normaliseConversions), so a lead-gen account with a handful of
+    // purchases never shows "—" as its CPA.
+    let useLeads = false;
     if (settings.conversionEvent === "purchase") {
-      const purchases = daily.reduce((a, d) => a + d.purchases, 0);
-      const leads = daily.reduce((a, d) => a + d.leads, 0);
-      if (purchases === 0 && leads > 0) {
-        const hist = await prisma.adDaily.aggregate({ where: { platform: "meta", accountId }, _sum: { purchases: true } });
-        if ((hist._sum.purchases ?? 0) === 0) for (const d of daily) { d.conversions = d.leads; d.conversionValue = 0; }
-      }
+      const hist = await prisma.adDaily.aggregate({ where: { platform: "meta", accountId }, _sum: { purchases: true, leads: true } });
+      const purchases = (hist._sum.purchases ?? 0) + daily.reduce((a, d) => a + d.purchases, 0);
+      const leads = (hist._sum.leads ?? 0) + daily.reduce((a, d) => a + d.leads, 0);
+      useLeads = leads > purchases;
+      if (useLeads) for (const d of daily) { d.conversions = d.leads; d.conversionValue = 0; }
     }
 
     // Metadata — only for ads that delivered in the window: all of them on the
@@ -319,6 +329,7 @@ export const metaAdapter: WarehouseAdapter = {
     // The creative's plain thumbnail_url is 64 px: replace it by the 1200 px rendition for every row.
     const large = await fetchLargeThumbnails(token, catalog.map((r) => r.creativeId ?? ""), deadline);
     for (const r of catalog) if (r.creativeId && large.has(r.creativeId)) r.thumbnailUrl = large.get(r.creativeId)!;
+    if (settings.conversionEvent === "purchase") await normaliseConversions(accountId, useLeads);
     return { daily, catalog, truncated, currency: settings.currency ?? daily.find((d) => d.currency)?.currency ?? null };
   },
 };

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, FileText, Loader2, Bot, Sparkles, BarChart3, LayoutDashboard, Gauge } from "lucide-react";
-import type { ClientRef } from "@/app/api/clients/route";
+import type { ClientRef } from "@/lib/clients/registry";
 import { Card, Kpi, PageHeader, Pill } from "@/components/ui/surface";
 import { DeltaBadge, PacingBar } from "@/components/portfolio/kpi-delta";
 import { errorKindLabel, fmtMetric, fmtMoney, fmtNumber, fmtRoas } from "@/components/portfolio/format";
@@ -55,10 +55,8 @@ function ClientListPage({ onShowKpis }: { onShowKpis: () => void }) {
     return clients.filter((c) => {
       if (!needle) return true;
       if (c.name.toLowerCase().includes(needle)) return true;
-      if (digits.length >= 3) {
-        const ids = [c.metaAccountId, c.googleCustomerId, ...c.tiktokAdvertiserIds].filter(Boolean) as string[];
-        if (ids.some((id) => id.replace(/\D/g, "").includes(digits))) return true;
-      }
+      if (digits.length >= 3 && c.accounts.some((a) => a.id.replace(/\D/g, "").includes(digits))) return true;
+      if (c.accounts.some((a) => a.name.toLowerCase().includes(needle))) return true;
       return false;
     });
   }, [clients, q]);
@@ -69,7 +67,7 @@ function ClientListPage({ onShowKpis }: { onShowKpis: () => void }) {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <PageHeader
         title="Clients"
-        subtitle="Un client = un compte publicitaire (Meta, Google et/ou TikTok Ads). Les chiffres sont dans le cockpit de chaque client ; ⌘K retrouve un client par nom ou par identifiant."
+        subtitle="Un client = une marque, avec tous ses comptes Meta, Google Ads et TikTok. Les chiffres sont dans le cockpit de chaque client ; ⌘K retrouve un client par nom ou par identifiant."
         action={
           <div className="flex items-center gap-2">
             <button type="button" onClick={onShowKpis} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-800 bg-gray-900 text-gray-300 hover:text-white hover:border-violet-500/50 text-sm" title="Charger les KPIs des 30 derniers jours pour tous les clients (jusqu'à 1 à 2 min)">
@@ -108,28 +106,23 @@ function ClientListPage({ onShowKpis }: { onShowKpis: () => void }) {
             {rows.map((c) => (
               <tr key={c.id} className="border-t border-gray-800 hover:bg-gray-800/30">
                 <td className="px-3 py-2.5">
-                  <Link href={`/portfolio/${c.id}`} className="font-medium text-white hover:text-violet-300">{c.name}</Link>
-                  <div className="text-[11px] text-gray-500 truncate max-w-[360px]">
-                    {[c.metaAccountId ? `Meta ${c.metaAccountId}` : null, c.googleCustomerId ? `Google ${c.googleCustomerId}` : null, c.tiktokAdvertiserIds.length ? `TikTok ${c.tiktokAdvertiserIds.join(", ")}` : null].filter(Boolean).join(" · ") || "Aucun compte rattaché"}
+                  {c.dashboardId ? <Link href={`/portfolio/${c.dashboardId}`} className="font-medium text-white hover:text-violet-300">{c.name}</Link> : <Link href={`/analyse?client=${c.clientId}`} className="font-medium text-white hover:text-violet-300">{c.name}</Link>}
+                  <div className="text-[11px] text-gray-500 truncate max-w-[420px]" title={c.accounts.map((a) => `${a.platform === "meta" ? "Meta" : a.platform === "google" ? "Google" : "TikTok"} ${a.id} · ${a.name}`).join("\n")}>
+                    {c.accounts.length} compte{c.accounts.length > 1 ? "s" : ""} : {c.accounts.map((a) => a.name).filter((v, i, arr) => arr.indexOf(v) === i).slice(0, 3).join(" · ")}{c.accounts.length > 3 ? "…" : ""}
+                    {!c.dashboardId && <span className="text-amber-400/80"> · sans dashboard</span>}
                   </div>
                 </td>
                 <td className="px-3 py-2.5">
                   <div className="flex gap-1">
-                    {c.metaAccountId && <Pill tone="blue">Meta</Pill>}
-                    {c.googleCustomerId && <Pill tone="emerald">Google</Pill>}
-                    {c.tiktokAdvertiserIds.length > 0 && <Pill tone="violet">TikTok</Pill>}
+                    {(["meta", "google", "tiktok"] as const).map((pf) => { const n = c.accounts.filter((a) => a.platform === pf).length; return n ? <Pill key={pf} tone={pf === "meta" ? "blue" : pf === "google" ? "emerald" : "violet"}>{pf === "meta" ? "Meta" : pf === "google" ? "Google Ads" : "TikTok"}{n > 1 ? ` ×${n}` : ""}</Pill> : null; })}
                   </div>
                 </td>
                 <td className="px-3 py-2.5">
                   <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                    <Link href={`/portfolio/${c.id}`} className={action} title="Cockpit du client : KPIs, sources, rapports, Drive"><Gauge className="w-3.5 h-3.5 text-violet-300" /> Cockpit</Link>
-                    {c.metaAccountId || c.googleCustomerId || c.tiktokAdvertiserIds.length ? (
-                      <Link href={`/analyse?client=${c.id}`} className={action} title="Analyse Ads : les créas Meta, Google et TikTok de ce client"><Sparkles className="w-3.5 h-3.5 text-violet-300" /> Analyse Ads</Link>
-                    ) : (
-                      <span className={`${action} opacity-40 cursor-not-allowed`} title="Aucun compte publicitaire rattaché"><Sparkles className="w-3.5 h-3.5" /> Analyse Ads</span>
-                    )}
-                    <Link href={`/d/${c.id}`} className={action} title="Dashboard consultant"><LayoutDashboard className="w-3.5 h-3.5 text-violet-300" /> Dashboard</Link>
-                    <Link href={`/reports?new=1&dashboardId=${c.id}`} className={action} title="Nouveau rapport IA pour ce client"><FileText className="w-3.5 h-3.5 text-violet-300" /> Rapport</Link>
+                    {c.dashboardId ? <Link href={`/portfolio/${c.dashboardId}`} className={action} title="Cockpit du client : KPIs, sources, rapports, Drive"><Gauge className="w-3.5 h-3.5 text-violet-300" /> Cockpit</Link> : <Link href="/d" className={action} title="Ce client n'a pas encore de dashboard consultant : créez-le pour avoir son cockpit, ses rapports et son Drive"><Gauge className="w-3.5 h-3.5 text-amber-300" /> Créer le dashboard</Link>}
+                    <Link href={`/analyse?client=${c.clientId}`} className={action} title="Analyse Ads : les créas Meta, Google et TikTok de ce client"><Sparkles className="w-3.5 h-3.5 text-violet-300" /> Analyse Ads</Link>
+                    {c.dashboardId && <Link href={`/d/${c.dashboardId}`} className={action} title="Dashboard consultant"><LayoutDashboard className="w-3.5 h-3.5 text-violet-300" /> Dashboard</Link>}
+                    {c.dashboardId && <Link href={`/reports?new=1&dashboardId=${c.dashboardId}`} className={action} title="Nouveau rapport IA pour ce client"><FileText className="w-3.5 h-3.5 text-violet-300" /> Rapport</Link>}
                   </div>
                 </td>
               </tr>

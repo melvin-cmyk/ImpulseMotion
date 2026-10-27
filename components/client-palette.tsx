@@ -15,7 +15,10 @@ import { normalizeAct, type PreviewAccount } from "@/lib/use-account-list";
 
 export interface ClientRow {
   id: string;
+  clientId: string;
   name: string;
+  dashboardId: string | null;
+  accounts: Array<{ platform: "meta" | "google" | "tiktok"; id: string; name: string }>;
   metaAccountId: string | null;
   googleCustomerId: string | null;
   tiktokAdvertiserIds: string[];
@@ -35,7 +38,7 @@ function digits(s: string): string {
 function clientMatches(c: ClientRow, q: string, qd: string): boolean {
   if (norm(c.name).includes(q)) return true;
   if (!qd) return false;
-  const ids = [c.metaAccountId, c.googleCustomerId, ...c.tiktokAdvertiserIds].filter(Boolean) as string[];
+  const ids = c.accounts.map((a) => a.id);
   return ids.some((id) => digits(id).includes(qd));
 }
 
@@ -152,7 +155,7 @@ export function ClientPalette({ open, onClose, clients, accounts, loading, curre
                         <button type="button" onClick={() => activate(row)} className="flex-1 min-w-0 text-left">
                           <div className="text-sm font-medium text-white truncate">{row.client.name}</div>
                           <div className="text-xs text-gray-500 mt-0.5 truncate">
-                            {[row.client.metaAccountId ? `Meta act_${row.client.metaAccountId}` : null, row.client.googleCustomerId ? `Google ${row.client.googleCustomerId}` : null, ...row.client.tiktokAdvertiserIds.map((t) => `TikTok ${t}`)].filter(Boolean).join(" · ") || "aucun compte rattaché"}
+                            {row.client.accounts.map((a) => `${a.platform === "meta" ? "Meta" : a.platform === "google" ? "Google" : "TikTok"} ${a.id}`).join(" · ") || "aucun compte rattaché"}{row.client.dashboardId ? "" : " · sans dashboard"}
                           </div>
                         </button>
                         <span className={`text-[10px] text-gray-500 inline-flex items-center gap-1 ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}><CornerDownLeft className="w-3 h-3" /> cockpit</span>

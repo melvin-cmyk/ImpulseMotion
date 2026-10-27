@@ -3,7 +3,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { getAccountScope, platformAccountInScope, dashboardIdInScope } from "@/lib/scope";
+import { getAccountScope, platformAccountInScope } from "@/lib/scope";
+import { findClient } from "@/lib/clients/registry";
 import { isViewConfig } from "@/lib/ads-warehouse/views";
 
 async function load(id: string, session: { userId?: string | null; role?: string | null }) {
@@ -11,7 +12,7 @@ async function load(id: string, session: { userId?: string | null; role?: string
   if (!row) return { error: NextResponse.json({ error: "introuvable" }, { status: 404 }) };
   const [platform, accountId] = (row.accountKey ?? ":").split(":");
   const scope = await getAccountScope(session as never);
-  const ok = !row.accountKey || (platform === "client" ? await dashboardIdInScope(scope, accountId) : platformAccountInScope(scope, platform, accountId));
+  const ok = !row.accountKey || (platform === "client" ? !!(await findClient(scope, accountId)) : platformAccountInScope(scope, platform, accountId));
   if (!ok) return { error: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
   return { row };
 }

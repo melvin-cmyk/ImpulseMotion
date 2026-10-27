@@ -86,7 +86,8 @@ export function CommandPalette({ userId }: { userId: string | null }) {
         title={inAnalyse ? "Changer le compte analysé, ou aller à un client…" : "Client, compte Meta (act_…), Google Ads (123-456-7890), TikTok…"}
         onPickClient={(c) => {
           setOpen(false);
-          router.push(`/portfolio/${c.id}`);
+          // Cockpit when the client has a dashboard, its Analyse Ads otherwise (Google-only clients…).
+          router.push(c.dashboardId ? `/portfolio/${c.dashboardId}` : `/analyse?client=${c.clientId}`);
         }}
         onPickAccount={(a, action) => {
           setOpen(false);

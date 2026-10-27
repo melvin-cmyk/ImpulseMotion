@@ -68,7 +68,7 @@ export function TopPerforming() {
 
   // The client behind the selected Meta account (GET /api/clients) brings its
   // Google customer and TikTok advertisers: one report, every platform.
-  const [clientsState, setClientsState] = useState<Array<{ id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; tiktokAdvertiserIds: string[] }> | null>(null);
+  const [clientsState, setClientsState] = useState<Array<{ id: string; clientId: string; name: string; metaAccountId: string | null; accounts: Array<{ platform: "meta" | "google" | "tiktok"; id: string; name: string }> }> | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch("/api/clients").then((r) => (r.ok ? r.json() : { clients: [] })).then((j: { clients: typeof clientsState }) => { if (!cancelled) setClientsState(j.clients ?? []); }).catch(() => { if (!cancelled) setClientsState([]); });
@@ -78,18 +78,15 @@ export function TopPerforming() {
   // or, by default, the client behind the Meta account chosen in the picker.
   const client = useMemo(() => {
     if (!clientsState) return null;
-    if (clientParam) return clientsState.find((c) => c.id === clientParam) ?? null;
+    if (clientParam) return clientsState.find((c) => c.clientId === clientParam || c.id === clientParam) ?? null;
     return metaId ? clientsState.find((c) => (c.metaAccountId ?? "").replace(/^act_/, "") === metaId) ?? null : null;
   }, [clientsState, clientParam, metaId]);
   const accountId = client?.metaAccountId ? client.metaAccountId.replace(/^act_/, "") : clientParam ? null : metaId;
-  const accountKey = client ? `client:${client.id}` : accountId ? `meta:${accountId}` : null;
+  const accountKey = client ? `client:${client.clientId}` : accountId ? `meta:${accountId}` : null;
   const clientName = client?.name ?? metaAccountName ?? null;
   const accounts = useMemo(() => {
-    const out: Array<{ platform: "meta" | "google" | "tiktok"; id: string }> = [];
-    if (accountId) out.push({ platform: "meta", id: accountId });
-    if (client?.googleCustomerId) out.push({ platform: "google", id: client.googleCustomerId.replace(/-/g, "") });
-    for (const t of client?.tiktokAdvertiserIds ?? []) out.push({ platform: "tiktok", id: t });
-    return out;
+    if (client) return client.accounts.map((a) => ({ platform: a.platform, id: a.id }));
+    return accountId ? [{ platform: "meta" as const, id: accountId }] : [];
   }, [accountId, client]);
   const hasAccounts = accounts.length > 0;
   const [platformsOff, setPlatformsOff] = useState<Set<string>>(new Set());
