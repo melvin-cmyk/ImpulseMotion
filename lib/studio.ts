@@ -69,6 +69,17 @@ export interface ImageOut { url: string; file: string | null; model: string; siz
 export const relayImage = (body: { prompt: string; ratio: string; size: string; images?: string[] }) =>
   relay<ImageOut>("/api/agnes/image", { method: "POST", body }, 200_000);
 
+// ── fal.ai (server/fal.mjs) ──────────────────────────────────────────────
+/** Image generators offered by the Studio: Agnes (historical) and the fal.ai models. */
+export interface ImageEngine { id: string; label: string; provider: "agnes" | "fal"; refs: boolean; usd: number }
+export const AGNES_ENGINE: ImageEngine = { id: "agnes-image-2.5-flash", label: "Agnes 2.5 Flash", provider: "agnes", refs: true, usd: 0 };
+export const isFalModel = (id: unknown): id is string => typeof id === "string" && id.startsWith("fal-ai/");
+export interface FalImageOut { urls: string[]; files: (string | null)[]; model: string; ratio: string; requestId: string; seconds: number; usd: number }
+export const relayFalImage = (body: { prompt: string; model: string; ratio: string; images?: string[]; n?: number }) =>
+  relay<FalImageOut>("/api/fal/image", { method: "POST", body }, 270_000);
+export const relayFalModels = () =>
+  relay<{ configured: boolean; models: Array<{ id: string; label: string; refs: boolean; usd: number }>; defaultModel: string }>("/api/fal/models", { method: "GET" }, 10_000);
+
 export interface VideoOut { videoId: string; status: string; model: string; seconds: string; size: string; aspect_ratio: string }
 export const relayVideo = (body: { prompt: string; model: string; size: string; seconds: number; aspect_ratio: string; first_frame?: string }) =>
   relay<VideoOut>("/api/agnes/video", { method: "POST", body }, 60_000);

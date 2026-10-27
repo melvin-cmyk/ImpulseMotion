@@ -25,6 +25,7 @@ import { handleSheetsRequest } from "./sheets-direct.mjs";
 import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promptLogExcerpt } from "./relay-prompt.mjs";
 import { accountsOfTikTokCall, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
 import * as agnes from "./agnes.mjs";
+import * as fal from "./fal.mjs";
 import * as jobs from "./jobs.mjs";
 import * as figcraft from "./figcraft.mjs";
 import * as drive from "./drive-direct.mjs";
@@ -154,7 +155,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
 // relay's environment minus the secrets only the relay needs. Each MCP server
 // receives what it needs explicitly in its `env` (buildScopedMcpConfig).
 const CHILD_ENV_DENY = new Set([
-  "RELAY_SHARED_SECRET", "RELAY_SHARED_SECRET_PREVIOUS", "AGNES_API_KEY",
+  "RELAY_SHARED_SECRET", "RELAY_SHARED_SECRET_PREVIOUS", "AGNES_API_KEY", "FAL_KEY",
   "N8N_ALERT_WEBHOOK_SECRET", "N8N_ALERT_WEBHOOK_URL", "N8N_MCP_TOKEN", "N8N_TOOLS_TOKEN",
   "DATA_DATABASE_URL", "DATABASE_URL", "HQ_CLIENT_SECRET",
   // FigCraft publish key: the relay creates and removes design files; the AI only gets a file's edit link.
@@ -2042,6 +2043,23 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith("/media/") && req.method === "GET") {
       agnes.serveMedia(req, res, url);
       return;
+    }
+    // ── Studio créa : images fal.ai (server/fal.mjs) ──
+    if (url.pathname.startsWith("/api/fal/")) {
+      const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (!authorized(req)) return send(401, { error: "unauthorized" });
+      if (url.pathname === "/api/fal/models" && req.method === "GET") return send(200, { configured: fal.falConfigured(), models: Object.entries(fal.FAL_MODELS).map(([id, m]) => ({ id, ...m })), defaultModel: fal.DEFAULT_MODEL });
+      if (!fal.falConfigured()) return send(503, { error: "fal.ai n'est pas configuré sur le relay (FAL_KEY)." });
+      try {
+        if (url.pathname === "/api/fal/image" && req.method === "POST") {
+          const out = await fal.generateImage(await readBody(req));
+          console.log(`[fal] image ${out.model} ${out.ratio} ×${out.urls.length} ${out.seconds}s ≈ $${out.usd}`);
+          return send(200, out);
+        }
+      } catch (e) {
+        return send(e?.status && e.status >= 400 && e.status < 500 ? e.status : 502, { error: e instanceof Error ? e.message : String(e) });
+      }
+      return send(404, { error: "not found" });
     }
     if (url.pathname.startsWith("/api/agnes/")) {
       if (!authorized(req)) {

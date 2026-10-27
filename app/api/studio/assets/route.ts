@@ -15,6 +15,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import {
   IMAGE_RATIOS, VIDEO_QUALITIES, VIDEO_RATIOS, VIDEO_SECONDS, dataUriOk, hdSecondsPerDay, promptOk,
   STUDIO_MODES, publicMediaUrl, relayEnhance, relayImage, relayUpload, relayVideo, videoCost, type StudioMode, type VideoQuality,
+  isFalModel, relayFalImage,
 } from "@/lib/studio";
 import { assetView, refreshVideo } from "@/lib/studio-assets";
 
@@ -107,17 +108,29 @@ export async function POST(req: NextRequest) {
       : null;
     const sent = brief?.prompt ?? prompt;
     const group = `g_${Date.now().toString(36)}`;
-    const results = await Promise.allSettled(Array.from({ length: variants }, () => relayImage({ prompt: sent, ratio, size, images })));
+    // Engine: Agnes (historical) or a fal.ai model (server/fal.mjs), chosen in the Studio.
+    const engine = isFalModel(body.engine) ? body.engine : null;
+    let results: Array<PromiseSettledResult<{ url: string; file: string | null; model: string; usd?: number }>>;
+    if (engine) {
+      try {
+        const out = await relayFalImage({ prompt: sent, model: engine, ratio, images, n: variants });
+        results = out.urls.map((url, i) => ({ status: "fulfilled" as const, value: { url, file: out.files[i] ?? null, model: out.model, usd: out.usd / Math.max(1, out.urls.length) } }));
+      } catch (e) {
+        results = [{ status: "rejected" as const, reason: e }];
+      }
+    } else {
+      results = await Promise.allSettled(Array.from({ length: variants }, () => relayImage({ prompt: sent, ratio, size, images })));
+    }
     const ok = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
     if (!ok.length) {
       const first = results.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
       return NextResponse.json({ error: `L'image n'a pas pu être générée : ${first?.reason instanceof Error ? first.reason.message : String(first?.reason ?? "")}` }, { status: 502 });
     }
-    const params = { ratio, size, references: images.length, mode, scene: scene ?? null, textless, promptSent: sent, note: brief?.note ?? "", enhanced: !!brief?.enhanced, group, variants };
+    const params = { ratio, size: engine ? null : size, engine: engine ?? "agnes", references: images.length, mode, scene: scene ?? null, textless, promptSent: sent, note: brief?.note ?? "", enhanced: !!brief?.enhanced, group, variants };
     const assets = [];
     for (const out of ok) {
       assets.push(await prisma.creativeAsset.create({
-        data: { ...base, kind: "image", model: out.model, paramsJson: JSON.stringify(params), status: "completed", progress: 100, url: out.url, file: out.file },
+        data: { ...base, kind: "image", model: out.model, paramsJson: JSON.stringify(params), status: "completed", progress: 100, url: out.url, file: out.file, costUsd: out.usd ?? 0 },
       }));
     }
     const views = assets.map((a) => assetView(a, guard.session.userId));

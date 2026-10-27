@@ -47,6 +47,14 @@ export function StudioPage() {
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("1:1");
   const [size, setSize] = useState<"1K" | "2K">("2K");
+  const [engines, setEngines] = useState<Array<{ id: string; label: string; provider: "agnes" | "fal"; refs: boolean; usd: number }>>([]);
+  const [engine, setEngine] = useState<string>("agnes-image-2.5-flash");
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/studio/engines").then((r) => (r.ok ? r.json() : null)).then((j: { engines: typeof engines; defaultEngine: string } | null) => { if (!cancelled && j) { setEngines(j.engines); setEngine(j.defaultEngine); } }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+  const currentEngine = engines.find((e) => e.id === engine);
   const [mode, setMode] = useState<Mode>("free");
   const [scene, setScene] = useState("studio");
   const [sceneCustom, setSceneCustom] = useState("");
@@ -139,7 +147,7 @@ export function StudioPage() {
     try {
       const body = kind === "image"
         ? {
-            kind, prompt, ratio, size, clientId: clientId || undefined, images: refs.map((r) => r.dataUri),
+            kind, prompt, ratio, size, engine: engine.startsWith("fal-ai/") ? engine : undefined, clientId: clientId || undefined, images: refs.map((r) => r.dataUri),
             mode: mode === "free" && refs.length ? "edit" : mode, scene: mode === "product" && scene !== "custom" ? scene : undefined,
             sceneCustom: mode === "product" && scene === "custom" ? sceneCustom : undefined, textless, enhance, variants,
           }
@@ -232,12 +240,18 @@ export function StudioPage() {
             {kind === "image" ? (
               <>
               <label className="flex flex-col gap-1 text-xs text-gray-400">
+                Moteur
+                <select value={engine} onChange={(e) => setEngine(e.target.value)} className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm text-white max-w-[260px]" title={currentEngine ? `${currentEngine.provider === "fal" ? "fal.ai" : "Agnes"} · ${currentEngine.refs ? "accepte des images de référence" : "texte seul"} · ≈ $${currentEngine.usd}/image` : undefined}>
+                  {engines.length ? engines.map((e) => <option key={e.id} value={e.id}>{e.label}{e.usd ? ` · $${e.usd}` : ""}</option>) : <option value={engine}>Agnes 2.5 Flash</option>}
+                </select>
+              </label>
+              {!engine.startsWith("fal-ai/") && <label className="flex flex-col gap-1 text-xs text-gray-400">
                 Définition
                 <select value={size} onChange={(e) => setSize(e.target.value as "1K" | "2K")} className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm text-white">
                   <option value="2K">Haute (2K)</option>
                   <option value="1K">Standard (1K)</option>
                 </select>
-              </label>
+              </label>}
               <label className="flex flex-col gap-1 text-xs text-gray-400">
                 Variantes
                 <select value={variants} onChange={(e) => setVariants(Number(e.target.value))} className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm text-white">
