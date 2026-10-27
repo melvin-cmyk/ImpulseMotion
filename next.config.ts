@@ -72,9 +72,10 @@ const nextConfig: NextConfig = {
               // The browser only ever talks to this origin: the relay is reached
               // server-side (lib/relay-server.ts), never from a page.
               "connect-src 'self' https://graph.facebook.com",
-              // Allow Facebook video embeds
+              // Allow Facebook video embeds + the official ad previews of Analyse Ads
+              // (business.facebook.com/ads/api/preview_iframe.php)
               // + the FigCraft editor of the design pages (NEXT_PUBLIC_FIGCRAFT_URL)
-              `frame-src 'self' https://www.facebook.com https://video.facebook.com https://web.facebook.com${figcraftFrameOrigin()}`,
+              `frame-src 'self' https://www.facebook.com https://video.facebook.com https://web.facebook.com https://business.facebook.com${figcraftFrameOrigin()}`,
               "frame-ancestors 'self'",
               "base-uri 'self'",
               "form-action 'self'",
