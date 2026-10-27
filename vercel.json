@@ -44,6 +44,9 @@
     },
     "app/api/admin/ads-sync/route.ts": {
       "maxDuration": 300
+    },
+    "app/api/cron/ads-ai-tags/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -230,6 +233,10 @@
     {
       "path": "/api/cron/ads-sync",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/ads-ai-tags",
+      "schedule": "45 6 * * *"
     }
   ]
 }

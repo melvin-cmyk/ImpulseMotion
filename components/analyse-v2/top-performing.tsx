@@ -26,6 +26,7 @@ import { AdCard } from "./ad-card";
 import { AdsTable } from "./ads-table";
 import { AdsBar } from "./ads-bar";
 import { AdDrawer } from "./ad-drawer";
+import { tagKeyLabel } from "./shared";
 import { ReportSidebar, type SavedView } from "./report-sidebar";
 import { CopilotPanel } from "./copilot-panel";
 import { COPILOT_SUGGESTIONS } from "@/lib/ads-warehouse/copilot";
@@ -220,7 +221,7 @@ export function TopPerforming() {
   if (config.launchDays) chips.push({ id: "launch", label: `Lancées : ${LAUNCH.find((l) => l.v === config.launchDays)?.l ?? config.launchDays + " j"}`, clear: () => patch({ launchDays: 0 }) });
   if (f.status) chips.push({ id: "status", label: f.status === "active" ? "Actives seulement" : "En pause seulement", clear: () => patchFilters({ status: undefined }) });
   if (f.campaignContains) chips.push({ id: "camp", label: `Campagne contient « ${f.campaignContains} »`, clear: () => patchFilters({ campaignContains: undefined }) });
-  for (const [k, v] of Object.entries(f.tags ?? {})) chips.push({ id: `tag:${k}`, label: `${k} = ${v}`, clear: () => { const t = { ...(f.tags ?? {}) }; delete t[k]; patchFilters({ tags: Object.keys(t).length ? t : undefined }); } });
+  for (const [k, v] of Object.entries(f.tags ?? {})) chips.push({ id: `tag:${k}`, label: `${tagKeyLabel(k)} = ${v}`, clear: () => { const t = { ...(f.tags ?? {}) }; delete t[k]; patchFilters({ tags: Object.keys(t).length ? t : undefined }); } });
 
   return (
     <div className="flex min-h-full">
@@ -259,7 +260,8 @@ export function TopPerforming() {
           <div className="relative">
             <select value={config.groupBy} onChange={(e) => patch({ groupBy: e.target.value as GroupBy })} className="appearance-none rounded-lg border border-gray-800 bg-gray-900 pl-2 pr-7 py-1.5 text-xs text-gray-200" title="Regrouper par">
               <optgroup label="Regrouper par">{GROUPS.map((g) => <option key={g.value} value={g.value} title={g.hint}>{g.label}</option>)}</optgroup>
-              {result?.tagKeys.length ? <optgroup label="Convention de nommage">{result.tagKeys.map((t) => <option key={t.key} value={`tag:${t.key}`}>{t.key} ({t.count})</option>)}</optgroup> : null}
+              {result?.tagKeys.some((t) => t.key.startsWith("ai:")) ? <optgroup label="Tags IA">{result.tagKeys.filter((t) => t.key.startsWith("ai:")).map((t) => <option key={t.key} value={`tag:${t.key}`}>{tagKeyLabel(t.key)} ({t.count})</option>)}</optgroup> : null}
+              {result?.tagKeys.some((t) => !t.key.startsWith("ai:")) ? <optgroup label="Convention de nommage">{result.tagKeys.filter((t) => !t.key.startsWith("ai:")).map((t) => <option key={t.key} value={`tag:${t.key}`}>{t.key} ({t.count})</option>)}</optgroup> : null}
             </select>
             <ChevronDown className="w-3 h-3 text-gray-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
@@ -279,8 +281,10 @@ export function TopPerforming() {
                     <button type="button" onClick={() => setShowAddFilter("campaign")} className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-800 text-gray-200">Campagne ou ad set contient…</button>
                     <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-gray-500">Statut</div>
                     <div className="px-2 pb-1 flex gap-1">{([["", "Toutes"], ["active", "Actives"], ["inactive", "En pause"]] as const).map(([v, l]) => <button key={v} type="button" onClick={() => patchFilters({ status: (v || undefined) as AdsFilters["status"] })} className={`rounded-md border px-2 py-0.5 ${(f.status ?? "") === v ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>)}</div>
-                    {facets.length > 0 && <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-gray-500">Convention de nommage</div>}
-                    {facets.slice(0, 12).map((fa) => <button key={fa.key} type="button" onClick={() => setShowAddFilter(`tag:${fa.key}`)} className="w-full text-left px-2 py-1 rounded-md hover:bg-gray-800 text-gray-200 flex justify-between"><span>{fa.key}</span><span className="text-gray-600">{fa.values.length} valeurs</span></button>)}
+                    {facets.some((fa) => fa.key.startsWith("ai:")) && <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-gray-500">Tags IA</div>}
+                    {facets.filter((fa) => fa.key.startsWith("ai:")).map((fa) => <button key={fa.key} type="button" onClick={() => setShowAddFilter(`tag:${fa.key}`)} className="w-full text-left px-2 py-1 rounded-md hover:bg-gray-800 text-gray-200 flex justify-between"><span>{tagKeyLabel(fa.key)}</span><span className="text-gray-600">{fa.values.length} valeurs</span></button>)}
+                    {facets.some((fa) => !fa.key.startsWith("ai:")) && <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-gray-500">Convention de nommage</div>}
+                    {facets.filter((fa) => !fa.key.startsWith("ai:")).slice(0, 12).map((fa) => <button key={fa.key} type="button" onClick={() => setShowAddFilter(`tag:${fa.key}`)} className="w-full text-left px-2 py-1 rounded-md hover:bg-gray-800 text-gray-200 flex justify-between"><span>{fa.key}</span><span className="text-gray-600">{fa.values.length} valeurs</span></button>)}
                   </div>
                 )}
                 {showAddFilter === "spend" && <div className="p-2 space-y-2"><div className="text-gray-400">Dépense minimale sur la période</div><input type="number" min={0} autoFocus defaultValue={f.minSpend ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ minSpend: Number((e.target as HTMLInputElement).value) || undefined }); setShowAddFilter(null); } }} className="w-full bg-gray-900 border border-gray-800 rounded-md px-2 py-1 text-white" placeholder="ex. 100 puis Entrée" /></div>}
@@ -288,7 +292,7 @@ export function TopPerforming() {
                 {showAddFilter === "campaign" && <div className="p-2 space-y-2"><div className="text-gray-400">Nom de campagne ou d&apos;ad set contient</div><input autoFocus defaultValue={f.campaignContains ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ campaignContains: (e.target as HTMLInputElement).value.trim() || undefined }); setShowAddFilter(null); } }} className="w-full bg-gray-900 border border-gray-800 rounded-md px-2 py-1 text-white" placeholder="ex. retargeting puis Entrée" /></div>}
                 {showAddFilter.startsWith("tag:") && (() => { const k = showAddFilter.slice(4); const fa = facets.find((x) => x.key === k); return (
                   <div className="p-1 max-h-72 overflow-y-auto">
-                    <div className="px-2 py-1 text-gray-400">{k} est…</div>
+                    <div className="px-2 py-1 text-gray-400">{tagKeyLabel(k)} est…</div>
                     {(fa?.values ?? []).map((v) => <button key={v.value} type="button" onClick={() => { patchFilters({ tags: { ...(f.tags ?? {}), [k]: v.value } }); setShowAddFilter(null); }} className="w-full text-left px-2 py-1 rounded-md hover:bg-gray-800 text-gray-200 flex justify-between"><span className="truncate">{v.value}</span><span className="text-gray-600 ml-2">{v.count}</span></button>)}
                   </div>
                 ); })()}

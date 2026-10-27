@@ -3,6 +3,7 @@
 /** Small shared pieces of Analyse Ads v2 (cards, table, drawer). */
 
 import { Play } from "lucide-react";
+import { AI_TAG_LABELS } from "@/lib/ads-warehouse/ai-tags-labels";
 import { upgradeImageUrl } from "@/lib/image-upgrade";
 import type { AdSample } from "@/lib/ads-warehouse/query";
 
@@ -84,15 +85,25 @@ export function StatusDot({ status }: { status: string | null | undefined }) {
   return <span className={`inline-block w-1.5 h-1.5 rounded-full ${on ? "bg-emerald-400" : "bg-gray-600"}`} title={on ? "Active" : status ?? "Inactive"} />;
 }
 
+/** Human label of a tag key: naming-convention keys as they are, AI keys with their category name. */
+export function tagKeyLabel(k: string): string {
+  return AI_TAG_LABELS[k as keyof typeof AI_TAG_LABELS] ?? k;
+}
+
 export function TagChips({ tags, max = 4 }: { tags: Record<string, string>; max?: number }) {
-  const entries = Object.entries(tags).filter(([k]) => !/^(s|t)\d+$/.test(k)).slice(0, max);
-  if (!entries.length) return null;
+  const entries = Object.entries(tags).filter(([k]) => !/^(s|t)\d+$/.test(k));
+  const naming = entries.filter(([k]) => !k.startsWith("ai:")).slice(0, max);
+  const ai = entries.filter(([k]) => k.startsWith("ai:") && !/indéterminé|aucune?$/i.test(tags[k])).slice(0, max);
+  if (!naming.length && !ai.length) return null;
   return (
     <div className="flex flex-wrap gap-1">
-      {entries.map(([k, v]) => (
+      {naming.map(([k, v]) => (
         <span key={k} className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-gray-300 max-w-[140px] truncate" title={`${k} : ${v}`}>
           <span className="text-gray-500">{k}:</span>{v}
         </span>
+      ))}
+      {ai.map(([k, v]) => (
+        <span key={k} className="rounded bg-violet-500/10 border border-violet-500/20 px-1.5 py-0.5 text-[10px] text-violet-200 max-w-[150px] truncate" title={`${tagKeyLabel(k)} (IA) : ${v}`}>{v}</span>
       ))}
     </div>
   );

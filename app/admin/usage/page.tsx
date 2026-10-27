@@ -36,6 +36,7 @@ const FEATURE_LABEL: Record<string, string> = {
   report_chat: "Chat rapport",
   creative_analysis: "Analyse créas",
   analyse_copilot: "Copilote Analyse Ads",
+  ai_tagging: "Tags IA des créas",
   recommend: "Plan d'action alertes",
   hq_context: "Contexte HQ client",
   alert_compose: "Rédaction d'alerte (IA)",

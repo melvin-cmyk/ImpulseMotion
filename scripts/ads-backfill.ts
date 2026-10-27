@@ -4,6 +4,7 @@
  * Repeats passes until every account is complete or the time budget is spent.
  *   --dry --accounts=123 [--days=7] → reads the platform for one account and
  *   prints what the adapter would store, WITHOUT writing anything.
+ *   --ai-tags [--limit=100] [--accounts=…] → AI-tag the recently delivered creatives
  *   --thumbs [--accounts=…] → re-read the large previews of the catalogue
  *   (rows stored with 64 px thumbnails before 2026-10-27).
  */
@@ -13,6 +14,7 @@ import { googleAdapter } from "../lib/ads-warehouse/google";
 import { tiktokAdapter } from "../lib/ads-warehouse/tiktok";
 import type { WarehousePlatform } from "../lib/ads-warehouse/types";
 import { prisma } from "../lib/prisma";
+import { runAiTagging } from "../lib/ads-warehouse/ai-tags";
 
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const m = a.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? "1"] : [a, "1"]; }));
 const minutes = parseFloat(args.minutes ?? "120");
@@ -60,6 +62,7 @@ async function thumbs() {
 async function main() {
   if (args.dry === "1") return dryRun();
   if (args.thumbs === "1") return thumbs();
+  if (args["ai-tags"] === "1") { const r = await runAiTagging({ limit: parseInt(args.limit ?? "100", 10) || 100, accountIds, deadline: end }); console.log("ai tags", JSON.stringify(r)); return; }
   let pass = 0;
   while (Date.now() < end) {
     pass += 1;
