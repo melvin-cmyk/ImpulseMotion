@@ -209,7 +209,27 @@
     },
     {
       "path": "/api/cron/ads-sync",
-      "schedule": "30 * * * *"
+      "schedule": "30 1 * * *"
+    },
+    {
+      "path": "/api/cron/ads-sync",
+      "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/api/cron/ads-sync",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/ads-sync",
+      "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/ads-sync",
+      "schedule": "30 5 * * *"
+    },
+    {
+      "path": "/api/cron/ads-sync",
+      "schedule": "30 6 * * *"
     }
   ]
 }

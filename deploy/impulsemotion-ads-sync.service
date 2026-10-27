@@ -1,0 +1,12 @@
+# Creative warehouse sync on the relay host (no 300 s function limit).
+# Install: cp deploy/impulsemotion-ads-sync.{service,timer} /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now impulsemotion-ads-sync.timer
+[Unit]
+Description=ImpulseMotion — synchronisation de l'entrepôt créas (Analyse Ads)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/ImpulseMotion
+ExecStart=/root/ImpulseMotion/node_modules/.bin/tsx --env-file=/root/ImpulseMotion/.env.local /root/ImpulseMotion/scripts/ads-backfill.ts --minutes=50
+TimeoutStartSec=3600
+Nice=10

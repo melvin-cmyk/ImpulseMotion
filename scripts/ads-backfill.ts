@@ -1,6 +1,6 @@
 /**
  * Creative warehouse backfill, run on the server (no 300 s function limit):
- *   npx -y tsx --env-file=.env.local scripts/ads-backfill.ts [--accounts=123,456] [--full] [--minutes=120]
+ *   node_modules/.bin/tsx --env-file=.env.local scripts/ads-backfill.ts [--accounts=123,456] [--full] [--minutes=120]
  * Repeats passes until every account is complete or the time budget is spent.
  *   --dry --accounts=123 [--days=7] → reads the platform for one account and
  *   prints what the adapter would store, WITHOUT writing anything.

@@ -1,8 +1,10 @@
 /**
- * GET /api/cron/ads-sync — hourly pass of the creative warehouse (see
- * vercel.json): yesterday for every account + one backfill chunk, within the
- * function budget. Partial passes are normal: the next hour continues.
- * `WAREHOUSE_SYNC=off` pauses it.
+ * GET /api/cron/ads-sync — nightly passes of the creative warehouse (six
+ * entries 01:30→06:30 UTC in vercel.json: the Hobby plan only allows daily
+ * expressions): yesterday for every account + one backfill chunk, within the
+ * function budget. Partial passes are normal: the next entry continues, and
+ * the server timer (deploy/impulsemotion-ads-sync.timer) does the heavy
+ * lifting without the 300 s limit. `WAREHOUSE_SYNC=off` pauses it.
  */
 
 import { NextRequest, NextResponse } from "next/server";
