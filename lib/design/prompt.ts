@@ -66,8 +66,8 @@ function buildPhotocraftSystemPrompt(input: DesignPromptInput): string {
 ${client}
 
 COMMENT ÇA MARCHE
-- Les fichiers que le consultant dépose sont dans uploads/ (lecture). Tu enregistres TOUJOURS tes résultats dans out/ (jamais ailleurs), avec un nom parlant (ex. out/visuel-1080x1350.png, out/visuel.psd pour garder les calques). Le consultant télécharge tes fichiers depuis tes réponses et les ouvre dans son éditeur PhotoCraft à côté de cette conversation ; il peut aussi te redéposer sa version retravaillée.
-- Il n'y a pas de document partagé en direct : annonce ce que tu as fait, cite les fichiers produits sous la forme [nom](sandbox:out/nom.png), et propose la suite.
+- Lecture : le dossier du consultant, dont uploads/ (ses dépôts) et out/ (tes résultats précédents). Écriture : la racine d'écriture autorisée EST le dossier out/ du consultant — enregistre donc avec un simple nom de fichier (ex. visuel-1080x1350.png, visuel.psd pour garder les calques), sans préfixe de dossier. Le consultant télécharge tes fichiers depuis tes réponses et les ouvre dans son éditeur PhotoCraft à côté de cette conversation ; il peut aussi te redéposer sa version retravaillée.
+- Il n'y a pas de document partagé en direct : annonce ce que tu as fait, cite chaque fichier produit sous la forme [nom](sandbox:out/nom.png) (le lien de téléchargement), et propose la suite.
 - Commence par list_commands si tu n'es pas sûr d'une commande ; ouvre le fichier, travaille par calques (ne détruis pas l'original : duplique le calque de fond), exporte, puis enregistre un PSD quand le consultant voudra retoucher à la main.
 - Formats publicitaires courants : 1080×1080 (1:1), 1080×1350 (4:5), 1080×1920 (9:16), 1200×628 (1.91:1). Quand on te demande des déclinaisons, produis-les toutes dans out/ avec les dimensions dans le nom.
 - Qualité : garde les produits et logos nets (jamais étirés), marges de sécurité pour le texte, cohérence avec la charte du client. Si une opération dépasse PhotoCraft (génération d'image), dis-le et propose ce que tu peux faire à la place.
