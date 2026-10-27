@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { BarChart3, ChevronDown, LayoutGrid, LineChart as LineIcon, Loader2, Plus, RefreshCw, Search, Table as TableIcon, X } from "lucide-react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from "recharts";
 import { useCreativesContext } from "@/lib/creatives-context";
@@ -63,7 +63,10 @@ export function TopPerforming() {
   const isAdmin = session?.role === "admin";
   const { metaAccountId, metaAccountName } = useCreativesContext();
   const params = useSearchParams();
-  const clientParam = params.get("client");
+  const router = useRouter();
+  const threadParam = params.get("thread");
+  const [threadClient, setThreadClient] = useState<{ thread: string; clientParam: string | null } | null>(null);
+  const clientParam = params.get("client") ?? threadClient?.clientParam ?? null;
   const metaId = metaAccountId ? normalizeAct(metaAccountId).replace(/^act_/, "") : null;
 
   // The client behind the selected Meta account (GET /api/clients) brings its
@@ -108,6 +111,21 @@ export function TopPerforming() {
   const [open, setOpen] = useState<AdsGroupRow | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [copilot, setCopilot] = useState<{ open: boolean; prompt: string | null }>({ open: false, prompt: null });
+  // ?thread=<id> (the « réponse prête » notice): open the client of that thread and its copilot.
+  useEffect(() => {
+    if (!threadParam || threadClient?.thread === threadParam) return;
+    let cancelled = false;
+    fetch(`/api/ads/copilot?threadId=${encodeURIComponent(threadParam)}`).then((r) => (r.ok ? r.json() : null)).then((j: { clientParam?: string | null } | null) => {
+      if (cancelled) return;
+      queueMicrotask(() => {
+      setThreadClient({ thread: threadParam, clientParam: j?.clientParam ?? null });
+      setCopilot({ open: true, prompt: null });
+      router.replace(j?.clientParam ? `/analyse?client=${encodeURIComponent(j.clientParam)}` : "/analyse");
+      });
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [threadParam, threadClient, router]);
+
 
   // ── Saved reports ──
   const [savedState, setSavedState] = useState<{ key: string; views: SavedView[] }>({ key: "", views: [] });
@@ -426,7 +444,7 @@ export function TopPerforming() {
         </div>
       </div>
 
-      {copilot.open && query && <CopilotPanel query={query} groupLabel={GROUPS.find((g) => g.value === config.groupBy)?.label ?? config.groupBy} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
+      {copilot.open && query && <CopilotPanel query={query} accountKey={accountKey ?? ""} clientParam={client?.clientId ?? null} groupLabel={GROUPS.find((g) => g.value === config.groupBy)?.label ?? config.groupBy} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
 
       {open && query && result && <AdDrawer row={open} query={query} benchmark={result.benchmark} currency={result.currency} onClose={() => setOpen(null)} />}
     </div>

@@ -1386,3 +1386,19 @@ model AdAnnotation {
 
   @@index([accountId])
 }
+
+/// Analyse Ads copilot thread — one per consultant and client (accountKey = "client:<id>" | "meta:<id>").
+model AnalyseThread {
+  id            String   @id @default(cuid())
+  accountKey    String
+  userId        String
+  /// ?client= value that reopens the report (for the job notice).
+  clientParam   String?
+  /// JSON [{ role, content, at }]
+  messagesJson  String   @default("[]") @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([accountKey, userId])
+  @@index([updatedAt])
+}

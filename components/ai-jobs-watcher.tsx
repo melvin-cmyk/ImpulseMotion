@@ -36,7 +36,7 @@ const BUSY_INTERVAL_MS = 8_000;
 const IDLE_INTERVAL_MS = 60_000;
 const NOTICE_MS = 25_000;
 
-const SURFACE_LABEL: Record<PublicAiJob["surface"], string> = { console: "AI Assistant", bot: "Assistant IA", design: "Design" };
+const SURFACE_LABEL: Record<PublicAiJob["surface"], string> = { console: "AI Assistant", bot: "Assistant IA", design: "Design", analyse: "Analyse Ads" };
 
 export function AiJobsWatcher({ enabled, children }: { enabled: boolean; children: React.ReactNode }) {
   const [running, setRunning] = useState<PublicAiJob[]>([]);

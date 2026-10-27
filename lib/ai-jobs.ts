@@ -24,9 +24,10 @@ import { relayDetach, relayJobState, relayJobStop, type RelayChatBody, type Rela
 import { parseMessages, serializeMessages, type BotMessage } from "@/lib/bot-types";
 import { conversationTitle, parseStoredMessages, type StoredConsoleMessage } from "@/lib/console-conversations";
 import { appendDesignMessages } from "@/lib/design/thread";
+import { appendAnalyseMessages } from "@/lib/ads-warehouse/copilot-thread";
 import { syncDesignOutputsToDrive } from "@/lib/design/drive-sync";
 
-export type AiJobSurface = "bot" | "console" | "design";
+export type AiJobSurface = "bot" | "console" | "design" | "analyse";
 export type AiJobStatus = "running" | "done" | "stopped" | "failed";
 
 export const JOB_ID_RE = /^[a-f0-9]{32}$/;
@@ -161,6 +162,8 @@ export async function finalizeAiJob(
       await appendDesignMessages(row.conversationId, [{ role: "assistant", content: text, at }]);
       // What the AI exported during this reply joins the client's Drive folder (best effort, in the background).
       void syncDesignOutputsToDrive(row.conversationId, row.startedAt.getTime() - 60_000).catch((e) => console.error(`[design-drive] ${row.conversationId} : ${e instanceof Error ? e.message : e}`));
+    } else if (row.surface === "analyse") {
+      await appendAnalyseMessages(row.conversationId, [{ role: "assistant", content: text, at }]);
     } else if (row.surface === "console") {
       const toolCalls = summary.toolCalls.filter((t) => t.name);
       await appendConsoleMessages(row.conversationId, row.userId, [{
@@ -275,6 +278,7 @@ export async function loadJob(jobId: string): Promise<AiJobRow | null> {
 export function jobHref(job: Pick<AiJobRow, "surface" | "conversationId" | "botId">): string {
   if (job.surface === "bot" && job.botId) return `/bot/${job.botId}?c=${job.conversationId}`;
   if (job.surface === "design") return `/design/${job.conversationId}`;
+  if (job.surface === "analyse") return `/analyse?thread=${job.conversationId}`;
   return `/ai?c=${job.conversationId}`;
 }
 
