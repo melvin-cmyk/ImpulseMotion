@@ -20,6 +20,7 @@ export type AiFeature =
   | "report"
   | "report_chat"
   | "creative_analysis"
+  | "analyse_copilot"
   | "recommend"
   | "hq_context"
   | "alert_compose"

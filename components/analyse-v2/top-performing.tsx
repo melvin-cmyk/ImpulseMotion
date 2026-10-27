@@ -27,6 +27,9 @@ import { AdsTable } from "./ads-table";
 import { AdsBar } from "./ads-bar";
 import { AdDrawer } from "./ad-drawer";
 import { ReportSidebar, type SavedView } from "./report-sidebar";
+import { CopilotPanel } from "./copilot-panel";
+import { COPILOT_SUGGESTIONS } from "@/lib/ads-warehouse/copilot";
+import { MessageSquare } from "lucide-react";
 
 type SortKey = MetricKey | "name" | "adCount" | "launch";
 type Result = AdsQueryResult & { tagKeys: Array<{ key: string; count: number }> };
@@ -74,6 +77,7 @@ export function TopPerforming() {
   const [showAddFilter, setShowAddFilter] = useState<null | "menu" | `tag:${string}` | "spend" | "launch" | "campaign">(null);
   const [open, setOpen] = useState<AdsGroupRow | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [copilot, setCopilot] = useState<{ open: boolean; prompt: string | null }>({ open: false, prompt: null });
 
   // ── Saved reports ──
   const [savedState, setSavedState] = useState<{ key: string; views: SavedView[] }>({ key: "", views: [] });
@@ -284,6 +288,17 @@ export function TopPerforming() {
           {error && <span className="text-red-400">{error}</span>}
         </div>
 
+        {/* ── Copilot suggestions (once data is on screen) ── */}
+        {result && result.rows.length > 0 && (
+          <div className="px-6 pb-3 flex items-center gap-2 flex-wrap">
+            {COPILOT_SUGGESTIONS.map((sg) => (
+              <button key={sg.id} type="button" onClick={() => setCopilot({ open: true, prompt: sg.prompt || null })} className="inline-flex items-center gap-1.5 rounded-full border border-gray-800 bg-gray-900 px-3 py-1.5 text-xs text-gray-300 hover:border-violet-500/50 hover:text-white">
+                {sg.id === "ask" ? <MessageSquare className="w-3.5 h-3.5 text-violet-300" /> : <span className="text-violet-300">✦</span>} {sg.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* ── Report card ── */}
         <div className="px-6 pb-8 flex-1">
           {!accountId && <Empty title="Choisis un client" text="Analyse Ads lit l'entrepôt créa du compte sélectionné (bouton en haut à droite, ou ⌘K)." />}
@@ -362,6 +377,8 @@ export function TopPerforming() {
           )}
         </div>
       </div>
+
+      {copilot.open && query && <CopilotPanel query={query} groupLabel={GROUPS.find((g) => g.value === config.groupBy)?.label ?? config.groupBy} clientName={metaAccountName ?? null} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
 
       {open && query && result && <AdDrawer row={open} query={query} benchmark={result.benchmark} currency={result.currency} onClose={() => setOpen(null)} />}
     </div>
