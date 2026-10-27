@@ -42,7 +42,7 @@ async function main() {
   let pass = 0;
   while (Date.now() < end) {
     pass += 1;
-    const report = await runAdsSync({ deadline: Math.min(end, Date.now() + 25 * 60_000), accountIds, fullMetadata: args.full === "1" && pass === 1 });
+    const report = await runAdsSync({ deadline: Math.min(end, Date.now() + 25 * 60_000), accountIds, fullMetadata: args.full === "1" && pass === 1, ignoreRecentRun: true });
     const ok = report.accounts.filter((a) => a.ok).length;
     const ko = report.accounts.filter((a) => !a.ok);
     console.log(`[pass ${pass}] ${ok} ok, ${ko.length} ko, ${report.accounts.reduce((s, a) => s + a.daily, 0)} day rows, pending ${report.pending}, timedOut ${report.timedOut}`);

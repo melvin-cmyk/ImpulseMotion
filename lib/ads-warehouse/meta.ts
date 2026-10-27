@@ -240,11 +240,13 @@ export const metaAdapter: WarehouseAdapter = {
       daily.push(row);
       seen.add(row.adId);
     }
-    // Lead-gen account left on the default "purchase" event: its conversions are its leads.
+    // Lead-gen account left on the default "purchase" event (Admin → Comptes not
+    // filled): when leads clearly dominate purchases in the window, its
+    // conversions are its leads. An explicit setting is always honoured.
     if (settings.conversionEvent === "purchase") {
       const purchases = daily.reduce((a, d) => a + d.purchases, 0);
       const leads = daily.reduce((a, d) => a + d.leads, 0);
-      if (purchases === 0 && leads > 0) for (const d of daily) { d.conversions = d.leads; d.conversionValue = 0; }
+      if (leads > 0 && leads >= purchases * 3) for (const d of daily) { d.conversions = d.leads; d.conversionValue = 0; }
     }
 
     // Metadata — only for ads that delivered in the window: all of them on the

@@ -48,10 +48,12 @@ export interface RunOptions {
   accountIds?: string[];
   /** Force a full metadata refresh for every processed account. */
   fullMetadata?: boolean;
+  /** Server script: successive passes in one process must not skip the accounts it just ran. */
+  ignoreRecentRun?: boolean;
 }
 
 /** Accounts to process this pass, never-synced first then least recently run. */
-async function plan(platforms: WarehousePlatform[], accountIds?: string[]) {
+async function plan(platforms: WarehousePlatform[], accountIds?: string[], ignoreRecentRun = false) {
   const items: Array<{ platform: WarehousePlatform; accountId: string }> = [];
   for (const p of platforms) {
     const adapter = ADAPTERS[p];
@@ -67,7 +69,7 @@ async function plan(platforms: WarehousePlatform[], accountIds?: string[]) {
     const s = byId.get(stateId(i.platform, i.accountId));
     if (!s) return true;
     if (!s.enabled) return false;
-    if (s.lastRunAt && now - s.lastRunAt.getTime() < RECENT_RUN_MS) return false; // overlapping pass
+    if (!ignoreRecentRun && s.lastRunAt && now - s.lastRunAt.getTime() < RECENT_RUN_MS) return false; // overlapping pass
     return needsWork(s);
   });
   ready.sort((a, b) => {
@@ -111,7 +113,7 @@ function windowsFor(s: State | undefined): SyncWindow[] {
 export async function runAdsSync(opts: RunOptions): Promise<SyncReport> {
   const startedAt = new Date().toISOString();
   const platforms = (opts.platforms ?? WAREHOUSE_ENABLED_PLATFORMS).filter((p) => ADAPTERS[p]);
-  const { ready, byId } = await plan(platforms, opts.accountIds);
+  const { ready, byId } = await plan(platforms, opts.accountIds, opts.ignoreRecentRun);
   const report: SyncReport = { startedAt, finishedAt: "", accounts: [], pending: ready.length, timedOut: false };
 
   for (const item of ready) {
