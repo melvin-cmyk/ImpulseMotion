@@ -14,22 +14,29 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ChevronDown, LayoutGrid, Maximize2, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Board, type BoardHandle } from "@/components/mo/board";
-import { MoCardView, MoGhostCard, type Ghost } from "@/components/mo/card";
+import { MoCardView, MoGhostCard, MoUploadCard, type CardBusy, type Ghost, type PublishEdits, type Upload } from "@/components/mo/card";
+import type { CreativeAction } from "@/components/mo/card-actions";
 import { Composer, type ComposerAsk, type ComposerHandle } from "@/components/mo/composer";
 import { warmMoBoard } from "@/components/mo/warm";
 import { WaveCanvas, type WaveMood } from "@/components/mo/wave-canvas";
 import { useVoice } from "@/components/mo/use-voice";
-import { CARD_SIZES, layoutNewCards, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec } from "@/lib/mo/model";
+import { CARD_SIZES, COL_GAP, layoutNewCards, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec } from "@/lib/mo/model";
+import { MAX_UPLOAD_BYTES, fileKindOf } from "@/lib/mo/act";
 import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
 
 const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
-import { PERIOD_OPTIONS, completeQuickAsk, ghostTitle, orderClientCandidates, parseNavIntent, parseQuickIntent, type IntentClient, type QuickAsk, type QuickResult } from "@/lib/mo/intents";
-import { moStatusLabel } from "@/lib/mo/status";
+import { PERIOD_OPTIONS, completeQuickAsk, ghostTitle, orderClientCandidates, parseFollowUpIntent, parseNavIntent, parseQuickIntent, type IntentClient, type QuickAsk, type QuickResult } from "@/lib/mo/intents";
+import { actStatusLabel, moStatusLabel } from "@/lib/mo/status";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
 interface BoardSummary { id: string; title: string; updatedAt: string; cards: number }
 interface Run { jobId: string; startedAt: number; activity: ActivityState }
+/** An action of the board running (POST /api/mo/[id]/act): which card, which button, since when. */
+interface Acting { cardId: string | null; key: CardBusy; action: string; startedAt: number }
+interface ActResponse { say?: string; cardIds?: string[]; card?: MoCard; open?: string; needs?: { adset: Array<{ adsetId: string; adset: string; campaign: string; spend_30d: number; status: string | null }> }; error?: string }
+const MAX_DROP_FILES = 10;
+const readDataUrl = (f: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
 
 /** The « Mo » wordmark plays on the first visit only. */
 const INTRO_KEY = "mo:intro-seen";
@@ -64,6 +71,14 @@ export function MoPage() {
   useEffect(() => { ghostRef.current = ghost; }, [ghost]);
   /** Mo is missing one thing (the client, the period): chips in the composer. */
   const [ask, setAsk] = useState<QuickAsk | null>(null);
+  /** Chips of an action in progress (which ad set, which visual, which client for a dropped file). */
+  const [choice, setChoice] = useState<ComposerAsk | null>(null);
+  /** The action of the board running now (verdict, publication, file…), shown in the composer's state line. */
+  const [acting, setActing] = useState<Acting | null>(null);
+  /** Files dropped on the board, being sent (their local preview sits where the card will land). */
+  const [uploads, setUploads] = useState<Upload[]>([]);
+  /** The visual the pointer or the focus is on (« garde celle-là »). */
+  const hotItem = useRef<{ cardId: string; index: number } | null>(null);
   const composerRef = useRef<ComposerHandle>(null);
   const [muted, setMuted] = useState(false);
   const follower = useRef<AbortController | null>(null);
@@ -259,7 +274,7 @@ export function MoPage() {
 
   const send = useCallback(async (text: string) => {
     const t = text.trim();
-    if (!t || !board || run) return;
+    if (!t || !board || run || acting) return;
     setGhost((g) => (g && g.state === "error" ? null : g));
     setError(null);
     setLastSaid({ you: t, mo: null });
@@ -270,6 +285,23 @@ export function MoPage() {
       if (!muted) speakRef.current(nav.say);
       window.setTimeout(() => router.push(nav.path), 600);
       return;
+    }
+    // « Mets les chiffres dessous », « garde celle-là » over the creatives card at hand: an action, no model.
+    const followUp = parseFollowUpIntent(t);
+    if (followUp) {
+      const target = targetCreativesCard();
+      if (target) {
+        setLastSaid({ you: t, mo: followUp.say });
+        if (followUp.kind === "creative_metrics") { void act({ action: "creative_metrics", cardId: target.id, ...(followUp.period ? { period: followUp.period } : {}), said: t }, { cardId: target.id, key: null }); return; }
+        const verdict = followUp.verdict;
+        const runVerdict = (i: number) => act({ action: "verdict", cardId: target.id, item: i, verdict, said: t }, { cardId: target.id, key: `item:${i}:${verdict === "keep" ? "keep" : "cut"}` });
+        if (followUp.target.which === "all") { (async () => { for (let i = 0; i < target.items.length; i++) await runVerdict(i); })(); return; }
+        const idx = followUp.target.which === "index" ? followUp.target.index : hotItem.current?.cardId === target.id ? hotItem.current.index : target.items.length === 1 ? 0 : null;
+        if (idx !== null && target.items[idx]) { void runVerdict(idx); return; }
+        setChoice({ question: verdict === "keep" ? "Laquelle je garde ?" : "Laquelle je coupe ?", chips: target.items.slice(0, 8).map((it, i) => ({ label: `${i + 1}. ${it.name.length > 28 ? it.name.slice(0, 27) + "…" : it.name}`, onPick: () => { setChoice(null); void runVerdict(i); } })) });
+        if (!muted) speakRef.current(verdict === "keep" ? "Laquelle je garde ?" : "Laquelle je coupe ?");
+        return;
+      }
     }
     const quick: QuickResult | null = parseQuickIntent(t, clientsRef.current);
     // « Créas cette semaine » without a client: Mo asks with chips, nothing leaves the browser.
@@ -323,7 +355,8 @@ export function MoPage() {
       setError(msg);
       setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: msg } : g));
     }
-  }, [board, run, follow, listBoards, loadBoard, muted, router, placeGhost]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- act and targetCreativesCard are defined below (stable callbacks)
+  }, [board, run, acting, follow, listBoards, loadBoard, muted, router, placeGhost]);
 
   const voice = useVoice(send);
   useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);
@@ -337,7 +370,7 @@ export function MoPage() {
     const isTyping = () => { const el = document.activeElement as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
     const down = (e: KeyboardEvent) => {
       if (e.code === "Space" && !e.repeat && !isTyping() && !run) { e.preventDefault(); warm(); voice.begin(); }
-      if (e.key === "Escape") { voice.hush(); voice.cancel(); setSessionsOpen(false); }
+      if (e.key === "Escape") { voice.hush(); voice.cancel(); setSessionsOpen(false); setChoice(null); }
     };
     const up = (e: KeyboardEvent) => { if (e.code === "Space" && !isTyping()) { e.preventDefault(); voice.end(); } };
     window.addEventListener("keydown", down);
@@ -477,6 +510,102 @@ export function MoPage() {
   }, [onFront]);
   const onHoverRef = useCallback((id: string | null) => setHoverLink(id), []);
 
+  // ── Actions on the cards (no model): verdicts, figures, editors, Drive, publication, files ──
+  const selectedRef = useRef(selected); useEffect(() => { selectedRef.current = selected; }, [selected]);
+  const freshRef = useRef(fresh); useEffect(() => { freshRef.current = fresh; }, [fresh]);
+  /** The creatives card a follow-up is about: the one selected, else the freshest, else the latest on the board. */
+  const targetCreativesCard = useCallback((): Extract<MoCard, { type: "creatives" }> | null => {
+    const b = boardStateRef.current; if (!b) return null;
+    const creatives = b.cards.filter((c): c is Extract<MoCard, { type: "creatives" }> => c.type === "creatives");
+    const sel = creatives.filter((c) => selectedRef.current.has(c.id));
+    if (sel.length === 1) return sel[0];
+    const latest = (list: typeof creatives) => [...list].sort((a, c) => (c.at > a.at ? 1 : c.at < a.at ? -1 : 0))[0] ?? null;
+    return latest(creatives.filter((c) => freshRef.current.has(c.id))) ?? latest(creatives);
+  }, []);
+
+  /** Runs one action on the board; the answer's card replaces (or joins) the board's, Mo says its sentence. Returns the response (null on failure). */
+  const act = useCallback(async (body: Record<string, unknown>, opts: { cardId: string | null; key: CardBusy }): Promise<ActResponse | null> => {
+    const b = boardStateRef.current; if (!b) return null;
+    setError(null); setChoice(null);
+    setActing({ cardId: opts.cardId, key: opts.key, action: String(body.action), startedAt: Date.now() });
+    try {
+      const res = await fetch(`/api/mo/${b.id}/act`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = (await res.json().catch(() => ({}))) as ActResponse;
+      if (!res.ok) throw new Error(j.error ?? `Erreur ${res.status}`);
+      if (j.card) {
+        const card = j.card;
+        setBoard((bb) => (bb ? { ...bb, cards: bb.cards.some((c) => c.id === card.id) ? bb.cards.map((c) => (c.id === card.id ? card : c)) : [...bb.cards, card] } : bb));
+        if (!knownIds.current.has(card.id)) { knownIds.current.add(card.id); setFresh(new Set([card.id])); window.setTimeout(() => boardRef.current?.fit([{ x: card.x, y: card.y, w: card.w, h: card.h ?? CARD_SIZES[card.type].h }], 90, { kMin: 0.5, kMax: 1 }), 60); }
+      } else if (j.cardIds?.length) {
+        // Cards rewritten or posted by a tool (figures under the visuals, a competitor card): reloaded.
+        const loaded = await loadBoard(b.id).catch(() => null);
+        if (loaded) { const ids = new Set(j.cardIds); setFresh(ids); const rects = loaded.board.cards.filter((c) => ids.has(c.id)).map(rectOf); if (rects.length && !b.cards.some((c) => ids.has(c.id))) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60); }
+      }
+      if (j.needs?.adset) {
+        const base = { ...body };
+        setChoice({ question: "Dans quel ensemble ?", chips: j.needs.adset.map((t) => ({ label: `${t.adset}${t.spend_30d ? ` · ${t.spend_30d} € / 30 j` : ""}`, onPick: () => { setChoice(null); void act({ ...base, adsetId: t.adsetId }, opts); } })) });
+      }
+      if (j.say) { setLastSaid((s) => ({ you: s?.you ?? "", mo: j.say! })); if (!muted) speakRef.current(j.say); }
+      if (j.open) window.setTimeout(() => router.push(j.open!), 500);
+      return j;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "L'action a échoué.");
+      return null;
+    } finally {
+      setActing(null);
+    }
+  }, [loadBoard, muted, router]);
+
+  const onItemAction = useCallback((cardId: string, index: number, action: CreativeAction) => {
+    const body: Record<string, unknown> = action === "keep" || action === "cut" ? { action: "verdict", verdict: action } : action === "metrics" ? { action: "creative_metrics" } : action === "figcraft" || action === "photocraft" ? { action: "open_editor", editor: action } : action === "drive" ? { action: "drive" } : { action: "publish_prepare" };
+    void act({ ...body, cardId, item: index }, { cardId, key: `item:${index}:${action}` });
+  }, [act]);
+  const onConfirmPublish = useCallback((cardId: string, edits: PublishEdits) => { void act({ action: "publish_confirm", cardId, ...edits }, { cardId, key: "confirm" }); }, [act]);
+  const onItemHover = useCallback((cardId: string, index: number | null) => { hotItem.current = index === null ? (hotItem.current?.cardId === cardId ? null : hotItem.current) : { cardId, index }; }, []);
+
+  /** One dropped file sent to the board (POST act upload); 428 = Mo asks which client with chips, then sends again. */
+  const uploadOne = useCallback(async (file: File, up: Upload, clientId?: string) => {
+    const b = boardStateRef.current; if (!b) return;
+    try {
+      const data = await readDataUrl(file);
+      const res = await fetch(`/api/mo/${b.id}/act`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "upload", name: file.name, mime: file.type, bytes: file.size, data, x: up.x, y: up.y, ...(clientId ? { clientId } : {}) }) });
+      const j = (await res.json().catch(() => ({}))) as ActResponse;
+      if (res.status === 428) {
+        const ordered = orderClientCandidates(clientsRef.current, boardStateRef.current?.cards ?? []);
+        setChoice({ question: `${file.name} : pour quel client ?`, chips: ordered.slice(0, MAX_CHIPS + 2).map((c) => ({ label: c.name, onPick: () => { setChoice(null); void uploadOne(file, up, c.id); } })) });
+        if (!muted) speakRef.current("Pour quel client ?");
+        return;
+      }
+      if (!res.ok || !j.card) throw new Error(j.error ?? `Erreur ${res.status}`);
+      const card = j.card;
+      knownIds.current.add(card.id);
+      setBoard((bb) => (bb ? { ...bb, cards: [...bb.cards.filter((c) => c.id !== card.id), card] } : bb));
+      setUploads((u) => u.filter((x) => x.id !== up.id));
+      if (up.preview) URL.revokeObjectURL(up.preview);
+      setFresh((f) => new Set([...f, card.id]));
+      if (j.say) { setLastSaid((s) => ({ you: s?.you ?? "", mo: j.say! })); if (!muted) speakRef.current(j.say); }
+    } catch (e) {
+      setUploads((u) => u.map((x) => (x.id === up.id ? { ...x, state: "error", message: e instanceof Error ? e.message : "Le fichier n'a pas pu être rangé." } : x)));
+    }
+  }, [muted]);
+
+  /** Files dropped or pasted: a local preview at once where they land, then each one is sent. */
+  const dropFiles = useCallback((files: File[], world: { x: number; y: number }) => {
+    const b = boardStateRef.current; if (!b) return;
+    let dx = 0;
+    const z = topZ(b.cards) + 1;
+    files.slice(0, MAX_DROP_FILES).forEach((f, i) => {
+      const kind = fileKindOf(f.type, f.name);
+      const up: Upload = { id: `up_${Math.random().toString(36).slice(2, 8)}`, name: f.name, mime: f.type, bytes: f.size, x: Math.round(world.x + dx), y: Math.round(world.y), z: z + i, preview: kind === "image" ? URL.createObjectURL(f) : null, state: "pending" };
+      dx += CARD_SIZES.file.w + COL_GAP;
+      if (!kind) { setUploads((u) => [...u, { ...up, state: "error", message: "Format non pris en charge : PNG, JPG, WebP (visuel) ou PDF, DOCX (brief)." }]); return; }
+      if (f.size > MAX_UPLOAD_BYTES) { setUploads((u) => [...u, { ...up, state: "error", message: "Fichier trop lourd : 20 Mo au plus." }]); return; }
+      setUploads((u) => [...u, up]);
+      void uploadOne(f, up);
+    });
+    if (files.length > MAX_DROP_FILES) setError(`${MAX_DROP_FILES} fichiers à la fois au plus : les suivants n'ont pas été pris.`);
+  }, [uploadOne]);
+
   /** « Ranger » : masonry by turn, every card moved and saved, then fit. */
   const arrange = useCallback(() => {
     const b = boardStateRef.current; if (!b || !b.cards.length) return;
@@ -526,8 +655,9 @@ export function MoPage() {
     return [{ id: c.id, d: linkPath(anchors), mid: { x: (anchors.a.x + anchors.b.x) / 2, y: (anchors.a.y + anchors.b.y) / 2 } }];
   }), [board]);
 
-  const mood: WaveMood = intro ? "intro" : voice.listening ? "listening" : run ? "thinking" : voice.speaking ? "speaking" : "idle";
-  const running = useMemo(() => (run ? { label: moStatusLabel(run.activity, run.jobId === "quick" ? "quick" : "model"), startedAt: run.startedAt, onStop: () => { if (run.jobId !== "quick" && run.jobId !== "pending") void stopJob(run.jobId).catch(() => undefined); } } : null), [run]);
+  const mood: WaveMood = intro ? "intro" : voice.listening ? "listening" : run || acting ? "thinking" : voice.speaking ? "speaking" : "idle";
+  const running = useMemo(() => (run ? { label: moStatusLabel(run.activity, run.jobId === "quick" ? "quick" : "model"), startedAt: run.startedAt, onStop: () => { if (run.jobId !== "quick" && run.jobId !== "pending") void stopJob(run.jobId).catch(() => undefined); } }
+    : acting ? { label: actStatusLabel(acting.action), startedAt: acting.startedAt, onStop: () => undefined } : null), [run, acting]);
 
   /** An « ask » card answered: the option is the next message, the card leaves quietly. */
   const onAnswer = useCallback((id: string, option: string) => {
@@ -563,7 +693,7 @@ export function MoPage() {
       </div>
 
       {/* Board */}
-      <Board ref={boardRef} className="absolute inset-0" onViewChange={(v) => { kRef.current = v.k; }} onBackgroundClick={clearSelection}
+      <Board ref={boardRef} className="absolute inset-0" onViewChange={(v) => { kRef.current = v.k; }} onBackgroundClick={clearSelection} onDropFiles={dropFiles} onPasteFiles={dropFiles}
         underlay={links.length ? (
           <svg className="absolute left-0 top-0 overflow-visible pointer-events-none" width={1} height={1}>
             <defs>
@@ -593,15 +723,17 @@ export function MoPage() {
         {sortedCards.map((c) => (
           <MoCardView key={c.id} card={c} fresh={fresh.has(c.id)} delayMs={(freshOrder.get(c.id) ?? 0) * 60} selected={selected.has(c.id)} refTitle={c.ref ? titles.get(c.ref) ?? null : null} getK={getK}
             onMove={onMove} onMoveEnd={onMoveEnd} onResizeStart={onResizeStart} onResize={onResize} onResizeEnd={onResizeEnd}
-            onFront={onFront} onSelect={onSelect} onToggle={onToggle} onClose={onClose} onFocusRef={onFocusRef} onHoverRef={onHoverRef} onAnswer={onAnswer} />
+            onFront={onFront} onSelect={onSelect} onToggle={onToggle} onClose={onClose} onFocusRef={onFocusRef} onHoverRef={onHoverRef} onAnswer={onAnswer}
+            onItemAction={onItemAction} onItemHover={onItemHover} onConfirmPublish={onConfirmPublish} busy={acting?.cardId === c.id ? acting.key : null} />
         ))}
         {ghost && <MoGhostCard ghost={ghost} onRetry={() => { setGhost(null); void send(ghost.text); }} onClose={() => setGhost(null)} />}
+        {uploads.map((up) => <MoUploadCard key={up.id} up={up} onClose={() => { if (up.preview) URL.revokeObjectURL(up.preview); setUploads((u) => u.filter((x) => x.id !== up.id)); }} />)}
       </Board>
 
       {/* Board toolbar: ranger · fit · shortcuts — and the undo toast after a removal */}
       <div className="absolute bottom-5 left-5 flex items-center gap-1.5 pointer-events-auto">
         <button type="button" onClick={arrange} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Ranger les cartes (R)"><LayoutGrid className="w-3.5 h-3.5" /> Ranger</button>
-        <span className="hidden md:inline text-[10px] text-gray-600 ml-1">⌘0 tout voir · F nouvelles cartes · R ranger · Suppr retirer · Alt = sans aimant</span>
+        <span className="hidden md:inline text-[10px] text-gray-600 ml-1">⌘0 tout voir · F nouvelles cartes · R ranger · Suppr retirer · G garder · X couper · P publier · glisse un fichier</span>
       </div>
       {undo && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 inline-flex items-center gap-3 rounded-full border border-white/10 bg-[#0d0a1a]/95 backdrop-blur px-4 py-2 text-xs text-gray-200 shadow-xl pointer-events-auto">
@@ -654,7 +786,7 @@ export function MoPage() {
       )}
 
       {/* Bottom: the composer (always there) */}
-      <Composer ref={composerRef} voice={voice} running={running} lastSaid={lastSaid} error={error} ask={composerAsk} onSend={(t) => void send(t)} onEscape={clearSelection} onFocus={warm} onBegin={warm} className="absolute inset-x-0 bottom-0 pb-5" />
+      <Composer ref={composerRef} voice={voice} running={running} lastSaid={lastSaid} error={error} ask={composerAsk ?? choice} onSend={(t) => void send(t)} onEscape={() => { clearSelection(); setChoice(null); }} onFocus={warm} onBegin={warm} className="absolute inset-x-0 bottom-0 pb-5" />
     </div>
   );
 }

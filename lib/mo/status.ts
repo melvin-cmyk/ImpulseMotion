@@ -16,6 +16,11 @@ export const MO_STATUS = {
   write: "je prépare la réponse",
   live: "je lis les données en direct",
   memory: "je relis la mémoire du client",
+  verdict: "je consigne ton verdict",
+  editor: "j'ouvre l'éditeur",
+  drive: "je range dans le Drive",
+  upload: "je range le fichier",
+  send: "j'envoie la publicité (en pause)",
 } as const;
 
 export type MoStatusKey = keyof typeof MO_STATUS;
@@ -35,6 +40,21 @@ export function toolStatusKey(name: string | null | undefined): MoStatusKey {
   if (/^mcp__(meta-ads|mcp-google-ads|mcp-tiktok-ads|mcp-google-analytics|mcp-merchant)/.test(n)) return "live";
   if (/^mcp__(hq|claude_ai_mcp_hq)/.test(n)) return "memory";
   return "think";
+}
+
+/** The line shown while an action of the board runs (lib/mo/act.ts), by action. */
+export function actStatusLabel(action: string): string {
+  switch (action) {
+    case "verdict": return MO_STATUS.verdict;
+    case "creative_metrics": return MO_STATUS.warehouse;
+    case "open_editor": return MO_STATUS.editor;
+    case "drive": return MO_STATUS.drive;
+    case "competitor_ads": return MO_STATUS.library;
+    case "publish_prepare": return MO_STATUS.publish;
+    case "publish_confirm": return MO_STATUS.send;
+    case "upload": return MO_STATUS.upload;
+    default: return MO_STATUS.think;
+  }
 }
 
 /** One line for the status area, from the activity of the running turn. */

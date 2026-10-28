@@ -22,6 +22,10 @@ export interface BoardHandle {
   focus(rect: Rect): void;
   getView(): View;
   zoomBy(factor: number): void;
+  /** World coordinates of a point of the viewport (CSS px from its top-left corner). */
+  toWorld(px: number, py: number): { x: number; y: number };
+  /** World coordinates of the centre of the viewport. */
+  center(): { x: number; y: number };
 }
 
 const MIN_K = 0.2, MAX_K = 2.2;
@@ -36,15 +40,21 @@ interface Props {
   onViewChange?: (v: View) => void;
   /** A click (no drag) on the empty background. */
   onBackgroundClick?: () => void;
+  /** Files dropped on the board (from the desktop), with the world point of the drop. */
+  onDropFiles?: (files: File[], world: { x: number; y: number }) => void;
+  /** Files pasted (⌘V outside a text field), placed at the centre of the view. */
+  onPasteFiles?: (files: File[], world: { x: number; y: number }) => void;
   className?: string;
 }
 
 const prefersReducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-export const Board = forwardRef<BoardHandle, Props>(function Board({ children, underlay, overlay, onViewChange, onBackgroundClick, className }, ref) {
+export const Board = forwardRef<BoardHandle, Props>(function Board({ children, underlay, overlay, onViewChange, onBackgroundClick, onDropFiles, onPasteFiles, className }, ref) {
   const el = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ x: 120, y: 120, k: 1 });
+  const [dragOver, setDragOver] = useState(false);
+  const dragDepth = useRef(0);
   const viewRef = useRef(view);
   const anim = useRef<number>(0);
   const commitRaf = useRef<number>(0);
@@ -95,7 +105,42 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ children, u
     },
     getView: () => viewRef.current,
     zoomBy(f) { const host = el.current; if (!host) return; zoomAround(viewRef.current.k * f, host.clientWidth / 2, host.clientHeight / 2, true); },
+    toWorld: (px, py) => toWorld(px, py),
+    center() { const host = el.current; return toWorld((host?.clientWidth ?? 0) / 2, (host?.clientHeight ?? 0) / 2); },
   }), [setViewAnimated, zoomAround]);
+
+  function toWorld(px: number, py: number) { const v = viewRef.current; return { x: (px - v.x) / v.k, y: (py - v.y) / v.k }; }
+
+  // ⌘V of a picture (outside a text field): the files land at the centre of the view.
+  useEffect(() => {
+    if (!onPasteFiles) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const a = document.activeElement as HTMLElement | null;
+      if (a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.isContentEditable)) return;
+      const files = Array.from(e.clipboardData?.files ?? []);
+      if (!files.length) return;
+      e.preventDefault();
+      const host = el.current;
+      onPasteFiles(files, toWorld((host?.clientWidth ?? 0) / 2 - 150, (host?.clientHeight ?? 0) / 2 - 190));
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [onPasteFiles]);
+
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const onDragEnter = (e: React.DragEvent) => { if (!onDropFiles || !hasFiles(e)) return; e.preventDefault(); dragDepth.current += 1; setDragOver(true); };
+  const onDragOver = (e: React.DragEvent) => { if (!onDropFiles || !hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; };
+  const onDragLeave = (e: React.DragEvent) => { if (!onDropFiles || !hasFiles(e)) return; dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragOver(false); };
+  const onDrop = (e: React.DragEvent) => {
+    if (!onDropFiles) return;
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    dragDepth.current = 0; setDragOver(false);
+    if (!files.length) return;
+    e.preventDefault();
+    const host = el.current; if (!host) return;
+    const rect = host.getBoundingClientRect();
+    onDropFiles(files, toWorld(e.clientX - rect.left, e.clientY - rect.top));
+  };
 
   useEffect(() => { onViewChange?.(view); }, [view, onViewChange]);
   useEffect(() => () => { cancelAnimationFrame(anim.current); cancelAnimationFrame(commitRaf.current); }, []);
@@ -181,12 +226,13 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ children, u
     // The caller positions and sizes the board (« absolute inset-0 »). No `relative` here: Tailwind emits
     // `.relative` after `.absolute`, so it won the position and the board, with no height of its own,
     // was a 0 px strip whose overflow hid every card.
-    <div ref={el} className={`overflow-hidden touch-none select-none cursor-grab active:cursor-grabbing ${className ?? "relative w-full h-full"}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+    <div ref={el} data-board data-drag-over={dragOver ? "1" : undefined} className={`overflow-hidden touch-none select-none cursor-grab active:cursor-grabbing ${dragOver ? "ring-2 ring-inset ring-violet-400/60" : ""} ${className ?? "relative w-full h-full"}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <div ref={layer} className="absolute left-0 top-0 origin-top-left will-change-transform" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
         {underlay}
         {children}
         {overlay}
       </div>
+      {dragOver && <div className="absolute inset-x-0 top-14 flex justify-center pointer-events-none"><span className="rounded-full border border-violet-400/40 bg-[#0d0a1a]/90 px-4 py-1.5 text-xs text-violet-100">Lâche ici : visuel → Créas du client · PDF / Word → Briefs</span></div>}
       <div className="absolute bottom-5 right-5 flex items-center gap-1 rounded-full border border-white/10 bg-black/50 backdrop-blur px-1.5 py-1 text-xs text-gray-300">
         <button type="button" onClick={() => { const host = el.current; if (host) zoomAround(viewRef.current.k / 1.25, host.clientWidth / 2, host.clientHeight / 2, true); }} className="w-7 h-7 rounded-full hover:bg-white/10" aria-label="Zoom arrière">−</button>
         <span className="tabular-nums w-11 text-center">{Math.round(view.k * 100)} %</span>

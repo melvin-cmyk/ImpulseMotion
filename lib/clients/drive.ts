@@ -93,12 +93,13 @@ export async function uploadToFolder(folderId: string, file: { name: string; mim
 /**
  * Standard sub-folders of a client's Drive folder — everything the agency
  * produces for a client lives under ONE folder: « Dashboards » (files the
- * dashboards read), « Créas » (FigCraft and PhotoCraft exports), the root for
- * the rest. Created on demand.
+ * dashboards read), « Créas » (FigCraft and PhotoCraft exports, Mo's visuals),
+ * « Briefs » (PDF / Word dropped in Mo), the root for the rest. Created on demand.
  */
 export const CLIENT_SUBFOLDERS = {
   dashboards: { name: "Dashboards", description: "Fichiers des dashboards du client (CSV, Excel, Google Sheets lus par le copilote). Dossier ImpulseMotion." },
-  creas: { name: "Créas", description: "Créas du client : exports FigCraft (mise en page) et PhotoCraft (retouche). Dossier ImpulseMotion." },
+  creas: { name: "Créas", description: "Créas du client : exports FigCraft (mise en page) et PhotoCraft (retouche), visuels générés ou déposés dans Mo. Dossier ImpulseMotion." },
+  briefs: { name: "Briefs", description: "Briefs du client (PDF, Word) déposés par les consultants dans Mo. Dossier ImpulseMotion." },
 } as const;
 
 export async function ensureClientSubfolder(dashboardId: string, kind: keyof typeof CLIENT_SUBFOLDERS): Promise<DriveFolderRef | null> {

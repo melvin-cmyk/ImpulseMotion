@@ -18,7 +18,7 @@ import {
   STUDIO_MODES, publicMediaUrl, relayEnhance, relayImage, relayUpload, relayVideo, videoCost, type StudioMode, type VideoQuality,
   isFalModel, relayFalImage, relayFalModels,
 } from "@/lib/studio";
-import { assetView, refreshVideo } from "@/lib/studio-assets";
+import { assetView, createBrandAsset, refreshVideo } from "@/lib/studio-assets";
 import { checkGeneration, readQuotas, spentToday } from "@/lib/quotas";
 
 export const maxDuration = 300;
@@ -68,19 +68,9 @@ export async function POST(req: NextRequest) {
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Demande illisible." }, { status: 400 });
   // A brand asset (logo, product photo…) of a client: kept on the relay as a reference for the copies, no AI, no cost.
   if (body.kind === "asset") {
-    if (!dataUriOk(body.image)) return NextResponse.json({ error: "Image invalide (PNG, JPG ou WebP)." }, { status: 400 });
-    const client = typeof body.clientId === "string" && body.clientId ? await prisma.alertClient.findUnique({ where: { id: body.clientId }, select: { id: true, name: true, gone: true } }) : null;
-    if (!client || client.gone) return NextResponse.json({ error: "Choisissez le client de cet élément de marque." }, { status: 400 });
-    try {
-      const { file } = await relayUpload(body.image);
-      const asset = await prisma.creativeAsset.create({ data: {
-        createdById: guard.session.userId, createdByName: await authorName(guard.session.userId, guard.session.user?.email), alertClientId: client.id, clientName: client.name,
-        prompt: (typeof body.name === "string" && body.name.trim() ? body.name.trim() : "Élément de marque").slice(0, 120), kind: "image", model: "upload", origin: "asset", status: "completed", progress: 100, file, paramsJson: JSON.stringify({ ratio: "1:1", asset: true }),
-      } });
-      return NextResponse.json({ asset: assetView(asset, guard.session.userId) }, { status: 201 });
-    } catch (e) {
-      return NextResponse.json({ error: `L'élément n'a pas pu être enregistré : ${e instanceof Error ? e.message : String(e)}` }, { status: 502 });
-    }
+    const r = await createBrandAsset({ userId: guard.session.userId, userEmail: guard.session.user?.email, clientId: typeof body.clientId === "string" ? body.clientId : "", image: body.image, name: typeof body.name === "string" ? body.name : null });
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+    return NextResponse.json({ asset: assetView(r.asset, guard.session.userId) }, { status: 201 });
   }
   if (!promptOk(body.prompt)) return NextResponse.json({ error: "Décrivez ce que vous voulez (3 caractères au moins, 4 000 au plus)." }, { status: 400 });
   const prompt = String(body.prompt).trim();

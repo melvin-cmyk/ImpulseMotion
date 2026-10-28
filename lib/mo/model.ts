@@ -8,12 +8,20 @@
  * This module is client-safe (types + pure parsing); storage is in ./thread.
  */
 
-export type MoCardType = "kpis" | "table" | "chart" | "creatives" | "note" | "ask";
+export type MoCardType = "kpis" | "table" | "chart" | "creatives" | "note" | "ask" | "file" | "action";
 export type MoTone = "good" | "bad" | "neutral";
+/** The consultant's verdict on a visual: kept (green) or cut (grey). */
+export type MoVerdict = "keep" | "cut";
 
 export interface MoKpi { label: string; value: string; delta?: string; tone?: MoTone; hint?: string }
-/** One visual on a creatives card. `adId` (platform ad) or `assetId` (Studio/Mo asset) ties it to what the tools know; `link` opens it (Drive, platform). */
-export interface MoCreative { name: string; image?: string; metrics: Record<string, string>; note?: string; adId?: string; assetId?: string; link?: string }
+/**
+ * One visual on a creatives card. `adId` (platform ad, or `adlib:<id>` for the
+ * Ad Library) or `assetId` (Studio/Mo asset) ties it to what the tools know;
+ * `link` opens it (Drive, platform); `verdict` is the consultant's keep / cut
+ * (also written on the CreativeAsset, or kept as a template for a warehouse ad:
+ * `templateId`).
+ */
+export interface MoCreative { name: string; image?: string; metrics: Record<string, string>; note?: string; adId?: string; assetId?: string; link?: string; verdict?: MoVerdict; templateId?: string }
 export interface MoSeries { name: string; values: Array<number | null> }
 
 interface MoCardBase {
@@ -34,6 +42,37 @@ interface MoCardBase {
   /** Turn that produced the card (index of the assistant message). */
   turn: number;
   at: string;
+  /** The client the card is about (registry id, lib/clients/registry.ts) when a tool or an action knows it. */
+  clientId?: string;
+  clientName?: string;
+}
+
+/** A publication prepared by Mo (Pilotage draft): confirmed by a click, never sent otherwise. */
+export interface MoPublishAction {
+  kind: "publish";
+  /** Pilotage action id (PilotAction) of the prepared draft. */
+  actionId: string;
+  status: "to_confirm" | "sent" | "failed";
+  assetId: string;
+  image?: string;
+  account: string;
+  adset: string;
+  adsetId: string;
+  page: string;
+  pageId?: string;
+  name: string;
+  primaryText: string;
+  headline?: string;
+  linkUrl: string;
+  cta?: string;
+  /** Where the texts come from when the person gave none (« repris de la créa « X » »). */
+  textsFrom?: string;
+  writesOpen: boolean;
+  hq: string;
+  /** Meta ad id once created (PAUSED). */
+  adId?: string;
+  error?: string;
+  pilotage: string;
 }
 
 /** The content of a card, by type. */
@@ -44,12 +83,16 @@ export type MoCardPayload =
   | { type: "creatives"; items: MoCreative[] }
   | { type: "note"; markdown: string }
   /** Mo hesitates between readings: a question and 2-4 options to click (the click is the next message). */
-  | { type: "ask"; question: string; options: string[] };
+  | { type: "ask"; question: string; options: string[] }
+  /** A file dropped on the board: a visual (kept as a CreativeAsset, copied in the client's Drive « Créas ») or a brief (Drive « Briefs »). */
+  | { type: "file"; name: string; mime: string; bytes?: number; image?: string; link?: string; assetId?: string; folder?: "creas" | "briefs" }
+  /** Something to confirm: a publication prepared through the Pilotage. */
+  | ({ type: "action" } & MoPublishAction);
 
 export type MoCard = MoCardBase & MoCardPayload;
 
 /** What the model writes for one card (before it gets an id and a place). */
-export type MoCardSpec = { title: string; subtitle?: string; ref?: string } & MoCardPayload;
+export type MoCardSpec = { title: string; subtitle?: string; ref?: string; clientId?: string; clientName?: string } & MoCardPayload;
 
 /** A card already on the board rewritten by the model: same id and place, new content (and title when given). */
 export type MoCardUpdate = { id: string; title?: string; subtitle?: string } & (MoCardPayload | { type?: undefined });
@@ -57,9 +100,15 @@ export type MoCardUpdate = { id: string; title?: string; subtitle?: string } & (
 /** Geometry patch sent by the browser. */
 export interface MoCardPatch { x?: number; y?: number; w?: number; h?: number; z?: number; minimized?: boolean; removed?: boolean }
 
+/** What the consultant did on the board without the model (journal, lib/mo/act.ts). */
+export type MoActionKind = "verdict" | "creative_metrics" | "open_editor" | "drive" | "competitor_ads" | "publish_prepare" | "publish_confirm" | "upload";
+export const MO_ACTION_KINDS: readonly MoActionKind[] = ["verdict", "creative_metrics", "open_editor", "drive", "competitor_ads", "publish_prepare", "publish_confirm", "upload"];
+export interface MoActionMeta { kind: MoActionKind; clientId?: string; cardIds: string[]; label: string; at: string }
+
 export interface MoMessage {
-  role: "user" | "assistant";
-  /** What was said (user) or Mo's raw answer (assistant, the ```mo block included). */
+  /** « action » = a line of the journal (a verdict, a publication, a file): never sent to the model (see `modelHistory`). */
+  role: "user" | "assistant" | "action";
+  /** What was said (user), Mo's raw answer (assistant, the ```mo block included) or the action's label (action). */
   content: string;
   at: string;
   /** Assistant: the spoken sentence and the cards the turn produced. */
@@ -67,6 +116,46 @@ export interface MoMessage {
   cardIds?: string[];
   /** Assistant: the page of the app Mo opened for the person ("/analyse?client=…"). */
   open?: string;
+  /** Action: what was done. */
+  action?: MoActionMeta;
+}
+
+/** A message the model may see (what was said, what Mo answered): the journal's action lines are left out. */
+export type MoChatMessage = MoMessage & { role: "user" | "assistant" };
+export const modelHistory = (messages: MoMessage[]): MoChatMessage[] => messages.filter((m): m is MoChatMessage => m.role === "user" || m.role === "assistant");
+
+/** Every entry of a board's journal, read from its JSON with caps (unknown shapes dropped). */
+export function parseMoEntries(json: string | null | undefined): MoMessage[] {
+  if (!json) return [];
+  let raw: unknown;
+  try { raw = JSON.parse(json); } catch { return []; }
+  if (!Array.isArray(raw)) return [];
+  const out: MoMessage[] = [];
+  for (const m of raw) {
+    if (!m || typeof m !== "object") continue;
+    const r = m as Record<string, unknown>;
+    if ((r.role !== "user" && r.role !== "assistant" && r.role !== "action") || typeof r.content !== "string") continue;
+    const action = r.role === "action" ? sanitizeActionMeta(r.action) : null;
+    if (r.role === "action" && !action) continue;
+    out.push({
+      role: r.role,
+      content: r.content,
+      at: typeof r.at === "string" ? r.at : new Date(0).toISOString(),
+      ...(typeof r.say === "string" ? { say: r.say } : {}),
+      ...(Array.isArray(r.cardIds) ? { cardIds: r.cardIds.filter((x): x is string => typeof x === "string") } : {}),
+      ...(typeof r.open === "string" ? { open: r.open } : {}),
+      ...(action ? { action } : {}),
+    });
+  }
+  return out.slice(-MO_MAX_MESSAGES);
+}
+
+function sanitizeActionMeta(raw: unknown): MoActionMeta | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (!(MO_ACTION_KINDS as readonly string[]).includes(String(r.kind))) return null;
+  const clientId = typeof r.clientId === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(r.clientId) ? r.clientId : undefined;
+  return { kind: r.kind as MoActionKind, ...(clientId ? { clientId } : {}), cardIds: (Array.isArray(r.cardIds) ? r.cardIds : []).filter((x): x is string => typeof x === "string").slice(0, 24), label: typeof r.label === "string" ? r.label.slice(0, 200) : "", at: typeof r.at === "string" ? r.at : new Date(0).toISOString() };
 }
 
 export interface MoBoardData {
@@ -89,6 +178,8 @@ export const CARD_SIZES: Record<MoCardType, { w: number; h: number }> = {
   creatives: { w: 660, h: 440 },
   note: { w: 440, h: 320 },
   ask: { w: 440, h: 200 },
+  file: { w: 300, h: 380 },
+  action: { w: 560, h: 700 },
 };
 
 export const ROW_GAP = 70;
@@ -145,7 +236,9 @@ function sanitizeCard(raw: unknown): MoCardSpec | null {
   const title = str(r.title, MAX_TITLE) || "Sans titre";
   const subtitle = str(r.subtitle, 160) || undefined;
   const ref = /^[a-z0-9]{3,24}$/i.test(String(r.ref ?? "")) ? String(r.ref) : undefined;
-  const base = { title, ...(subtitle ? { subtitle } : {}), ...(ref ? { ref } : {}) };
+  const clientId = /^[A-Za-z0-9_-]{1,40}$/.test(String(r.clientId ?? "")) ? String(r.clientId) : undefined;
+  const clientName = str(r.clientName, 80) || undefined;
+  const base = { title, ...(subtitle ? { subtitle } : {}), ...(ref ? { ref } : {}), ...(clientId ? { clientId } : {}), ...(clientName ? { clientName } : {}) };
   switch (r.type) {
     case "kpis": {
       const items = (Array.isArray(r.items) ? r.items : []).slice(0, MAX_ITEMS).map((it): MoKpi | null => {
@@ -191,8 +284,9 @@ function sanitizeCard(raw: unknown): MoCardSpec | null {
         const metrics: Record<string, string> = {};
         if (k.metrics && typeof k.metrics === "object") for (const [mk, mv] of Object.entries(k.metrics as Record<string, unknown>).slice(0, 8)) { const key = str(mk, 30); const val = str(mv, 40); if (key && val) metrics[key] = val; }
         const note = str(k.note, 200);
-        const adId = str(k.adId, 40); const assetId = str(k.assetId, 40); const link = str(k.link, 500);
-        return { name, ...(cardImageOk(image) ? { image } : {}), metrics, ...(note ? { note } : {}), ...(/^[\w:-]+$/.test(adId) ? { adId } : {}), ...(/^[\w-]+$/.test(assetId) ? { assetId } : {}), ...(/^https:\/\//.test(link) ? { link } : {}) };
+        const adId = str(k.adId, 40); const assetId = str(k.assetId, 40); const link = str(k.link, 500); const templateId = str(k.templateId, 40);
+        const verdict = k.verdict === "keep" || k.verdict === "cut" ? k.verdict : undefined;
+        return { name, ...(cardImageOk(image) ? { image } : {}), metrics, ...(note ? { note } : {}), ...(/^[\w:-]+$/.test(adId) ? { adId } : {}), ...(/^[\w-]+$/.test(assetId) ? { assetId } : {}), ...(/^https:\/\//.test(link) ? { link } : {}), ...(verdict ? { verdict } : {}), ...(/^[\w-]+$/.test(templateId) ? { templateId } : {}) };
       }).filter((x): x is MoCreative => !!x);
       return items.length ? { ...base, type: "creatives", items } : null;
     }
@@ -204,9 +298,40 @@ function sanitizeCard(raw: unknown): MoCardSpec | null {
       const ask = sanitizeAsk(r);
       return ask ? { ...base, type: "ask", ...ask } : null;
     }
+    case "file": {
+      const name = str(r.name, 160);
+      if (!name) return null;
+      const mime = str(r.mime, 80) || "application/octet-stream";
+      const bytes = typeof r.bytes === "number" && Number.isFinite(r.bytes) && r.bytes >= 0 ? Math.round(r.bytes) : undefined;
+      const image = str(r.image, 1500); const link = str(r.link, 500); const assetId = str(r.assetId, 40);
+      const folder = r.folder === "creas" || r.folder === "briefs" ? r.folder : undefined;
+      return { ...base, type: "file", name, mime, ...(bytes !== undefined ? { bytes } : {}), ...(cardImageOk(image) ? { image } : {}), ...(/^https:\/\//.test(link) ? { link } : {}), ...(/^[\w-]+$/.test(assetId) ? { assetId } : {}), ...(folder ? { folder } : {}) };
+    }
+    case "action": {
+      const a = sanitizePublishAction(r);
+      return a ? { ...base, type: "action", ...a } : null;
+    }
     default:
       return null;
   }
+}
+
+/** « action » of kind publish: the prepared Pilotage draft and its editable texts; null when the essentials are missing. */
+export function sanitizePublishAction(raw: unknown): MoPublishAction | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (r.kind !== "publish") return null;
+  const actionId = str(r.actionId, 40); const assetId = str(r.assetId, 40); const adsetId = str(r.adsetId, 30);
+  if (!/^[\w-]+$/.test(actionId) || !/^[\w-]+$/.test(assetId) || !/^\d{5,25}$/.test(adsetId)) return null;
+  const status = r.status === "sent" || r.status === "failed" ? r.status : "to_confirm" as const;
+  const image = str(r.image, 1500); const pageId = str(r.pageId, 30); const headline = str(r.headline, 255); const cta = str(r.cta, 40); const textsFrom = str(r.textsFrom, 160); const adId = str(r.adId, 40); const error = str(r.error, 400);
+  const pilotage = sanitizeOpen(r.pilotage) ?? "/pilotage";
+  return {
+    kind: "publish", actionId, status, assetId, ...(cardImageOk(image) ? { image } : {}),
+    account: str(r.account, 120), adset: str(r.adset, 160), adsetId, page: str(r.page, 120), ...(/^\d{5,25}$/.test(pageId) ? { pageId } : {}),
+    name: str(r.name, 255), primaryText: str(r.primaryText, 2000), ...(headline ? { headline } : {}), linkUrl: str(r.linkUrl, 2000), ...(cta ? { cta } : {}), ...(textsFrom ? { textsFrom } : {}),
+    writesOpen: r.writesOpen === true, hq: str(r.hq, 300), ...(/^\d+$/.test(adId) ? { adId } : {}), ...(error ? { error } : {}), pilotage,
+  };
 }
 
 /** « ask »: a question (≤ 200 chars) and 1-4 distinct options of ≤ 60 chars; null when unusable. */
@@ -285,13 +410,13 @@ export function applyCardUpdates(cards: MoCard[], answer: Pick<MoAnswer, "update
     if (!u) { out.push(c); continue; }
     touched.push(c.id);
     const { id: _id, title, subtitle, ...rest } = u; void _id;
-    const base = { id: c.id, x: c.x, y: c.y, w: c.w, ...(c.h ? { h: c.h } : {}), ...(c.z !== undefined ? { z: c.z } : {}), ...(c.ref ? { ref: c.ref } : {}), minimized: false, turn, at, title: title ?? c.title, ...(subtitle ? { subtitle } : c.subtitle ? { subtitle: c.subtitle } : {}) };
+    const base = { id: c.id, x: c.x, y: c.y, w: c.w, ...(c.h ? { h: c.h } : {}), ...(c.z !== undefined ? { z: c.z } : {}), ...(c.ref ? { ref: c.ref } : {}), ...(c.clientId ? { clientId: c.clientId } : {}), ...(c.clientName ? { clientName: c.clientName } : {}), minimized: false, turn, at, title: title ?? c.title, ...(subtitle ? { subtitle } : c.subtitle ? { subtitle: c.subtitle } : {}) };
     if ("type" in rest && rest.type) {
       // New content: same size unless the type changed (then the default size of the new type).
       const size = rest.type === c.type ? { w: c.w, h: c.h } : CARD_SIZES[rest.type];
       out.push({ ...base, ...rest, w: size.w, ...(size.h ? { h: size.h } : {}) } as MoCard);
     } else {
-      const { x: _x, y: _y, w: _w, h: _h, z: _z, ref: _r, minimized: _m, turn: _t, at: _a, title: _ti, subtitle: _su, id: _i, ...payload } = c; void [_x, _y, _w, _h, _z, _r, _m, _t, _a, _ti, _su, _i];
+      const { x: _x, y: _y, w: _w, h: _h, z: _z, ref: _r, minimized: _m, turn: _t, at: _a, title: _ti, subtitle: _su, id: _i, clientId: _ci, clientName: _cn, ...payload } = c; void [_x, _y, _w, _h, _z, _r, _m, _t, _a, _ti, _su, _i, _ci, _cn];
       out.push({ ...base, ...payload } as MoCard);
     }
   }
@@ -342,9 +467,12 @@ export function describeCards(cards: MoCard[]): string {
       case "chart": return ` — ${c.series.map((s) => s.name).join(", ")} sur ${c.x.length} points`;
       case "note": return "";
       case "ask": return ` — question : ${c.question} (${c.options.join(" / ")})`;
+      case "file": return ` — fichier ${c.name}${c.assetId ? ` [asset ${c.assetId}]` : ""}${c.link ? " (dans le Drive)" : ""}`;
+      case "action": return ` — publication ${c.status === "sent" ? "envoyée (PAUSED)" : c.status === "failed" ? "en échec" : "à confirmer par la personne"} : ${c.adset} [asset ${c.assetId}]`;
     }
   };
-  return visible.map((c) => `- ${c.id} · ${c.type} · « ${c.title} »${c.subtitle ? ` (${c.subtitle})` : ""}${detail(c)}`).join("\n");
+  const verdicts = (c: MoCard) => (c.type === "creatives" ? c.items.filter((it) => it.verdict).map((it) => `${it.name} ${it.verdict === "keep" ? "gardée" : "coupée"}`) : []);
+  return visible.map((c) => `- ${c.id} · ${c.type} · « ${c.title} »${c.subtitle ? ` (${c.subtitle})` : ""}${c.clientName ? ` [client ${c.clientName}]` : ""}${detail(c)}${verdicts(c).length ? ` — verdicts : ${verdicts(c).join(" ; ")}` : ""}`).join("\n");
 }
 
 export function boardTitleFrom(messages: MoMessage[]): string {

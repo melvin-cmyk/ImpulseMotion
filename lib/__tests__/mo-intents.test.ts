@@ -129,3 +129,33 @@ describe("Mo — quick path (no model)", () => {
     expect(parseQuickIntent("affiche les créas", clients)).toBeNull();
   });
 });
+
+describe("Mo — follow-ups over the card at hand", () => {
+  it("« mets les chiffres dessous » asks the figures under the visuals", async () => {
+    const { parseFollowUpIntent } = await import("@/lib/mo/intents");
+    expect(parseFollowUpIntent("Mets les chiffres sous chaque créa")).toMatchObject({ kind: "creative_metrics" });
+    expect(parseFollowUpIntent("mets les chiffres dessous")).toMatchObject({ kind: "creative_metrics" });
+    expect(parseFollowUpIntent("les chiffres en dessous, cette semaine")).toMatchObject({ kind: "creative_metrics", period: "this_week" });
+    expect(parseFollowUpIntent("ajoute le CPA sous les visuels")).toMatchObject({ kind: "creative_metrics" });
+    expect(parseFollowUpIntent("chiffres ?")).toMatchObject({ kind: "creative_metrics" });
+  });
+  it("« garde / coupe celle-là » is a verdict on the hovered, the n-th, or every visual", async () => {
+    const { parseFollowUpIntent } = await import("@/lib/mo/intents");
+    expect(parseFollowUpIntent("garde celle-là")).toMatchObject({ kind: "verdict", verdict: "keep", target: { which: "this" } });
+    expect(parseFollowUpIntent("coupe celle-ci")).toMatchObject({ kind: "verdict", verdict: "cut", target: { which: "this" } });
+    expect(parseFollowUpIntent("on coupe la deuxième")).toMatchObject({ kind: "verdict", verdict: "cut", target: { which: "index", index: 1 } });
+    expect(parseFollowUpIntent("garde la 3")).toMatchObject({ kind: "verdict", verdict: "keep", target: { which: "index", index: 2 } });
+    expect(parseFollowUpIntent("vire-la")).toMatchObject({ kind: "verdict", verdict: "cut", target: { which: "this" } });
+    expect(parseFollowUpIntent("garde tout")).toMatchObject({ kind: "verdict", verdict: "keep", target: { which: "all" } });
+    expect(parseFollowUpIntent("coupe les deux")).toMatchObject({ kind: "verdict", verdict: "cut", target: { which: "all" } });
+  });
+  it("leaves the rest to the quick path or the model", async () => {
+    const { parseFollowUpIntent } = await import("@/lib/mo/intents");
+    expect(parseFollowUpIntent("les chiffres de Naturalia cette semaine")).toBeNull();
+    expect(parseFollowUpIntent("compare les chiffres avec la semaine d'avant")).toBeNull();
+    expect(parseFollowUpIntent("garde le budget mais coupe la campagne")).toBeNull();
+    expect(parseFollowUpIntent("pourquoi le CPA monte ?")).toBeNull();
+    expect(parseFollowUpIntent("créas cours legendre cette semaine")).toBeNull();
+    expect(parseFollowUpIntent("ouvre le cockpit de naturalia")).toBeNull();
+  });
+});

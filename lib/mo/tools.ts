@@ -36,6 +36,7 @@ import { CALL_TO_ACTIONS } from "@/lib/meta-write";
 import { mergeCreativeMetrics, postMoCards } from "@/lib/mo/thread";
 import { searchAdLibrary } from "@/lib/creas/ad-library";
 import { analyseTemplate } from "@/lib/creas/analysis";
+import { ownAdTemplateSource } from "@/lib/creas/templates";
 import { dataUriToRelayImage } from "@/lib/creas/media";
 import { relayUpload } from "@/lib/studio";
 import type { MoCardSpec } from "@/lib/mo/model";
@@ -162,7 +163,7 @@ const adImage = (platform: string, adId: string) => `/api/mo/ad-image/${platform
 
 // ── Tools ──────────────────────────────────────────────────────────────────
 
-async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+export async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const { client } = await resolveClient(ctx, a.client);
   const range = periodRange(a);
   const { platforms, accountIds, accounts } = platformsOf(client, a.platform);
@@ -194,7 +195,7 @@ async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const platformLabel = platforms.map((p) => p === "meta" ? "Meta" : p === "google" ? "Google" : p === "tiktok" ? "TikTok" : p).join(" + ");
   const full = a.with_metrics !== false;
   const card: MoCardSpec = {
-    type: "creatives", title: str(a.title, 90) || (sortKey === "launch" && dir === "desc" ? `${items.length} dernières créas ${client.name}` : `Créas ${client.name} — ${range.label}`), subtitle: `${platformLabel} · ${client.name} · ${range.since} → ${range.until}${res.coverage.until && res.coverage.until < range.until ? ` · données jusqu'au ${res.coverage.until}` : ""}`,
+    type: "creatives", clientId: client.id, clientName: client.name, title: str(a.title, 90) || (sortKey === "launch" && dir === "desc" ? `${items.length} dernières créas ${client.name}` : `Créas ${client.name} — ${range.label}`), subtitle: `${platformLabel} · ${client.name} · ${range.since} → ${range.until}${res.coverage.until && res.coverage.until < range.until ? ` · données jusqu'au ${res.coverage.until}` : ""}`,
     items: items.map((it) => ({ name: shortName(it.name), ...(it.image ? { image: it.image } : {}), adId: it.adId, metrics: full ? it.metrics : { Dépense: it.metrics.Dépense, ...(it.metrics.CPA ? { CPA: it.metrics.CPA } : it.metrics.CPL ? { CPL: it.metrics.CPL } : {}) } })),
   };
   // The card goes on the board now (the person sees it while the model is still writing its sentence).
@@ -230,7 +231,7 @@ export function shortName(name: string): string {
 const GROUPS = { campaign: "campaign", adset: "adset", format: "format", platform: null } as const;
 
 /** The client's figures over a period, against the previous period of the same length: a KPI card, and a table by campaign / ad set / format when asked. */
-async function metrics(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+export async function metrics(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const { client } = await resolveClient(ctx, a.client);
   const range = periodRange(a);
   const { platforms, accountIds, accounts } = platformsOf(client, a.platform ?? "all");
@@ -258,13 +259,13 @@ async function metrics(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   if (m.impressions) main.push({ label: "Impressions", value: int(m.impressions), ...delta(m.impressions, p?.impressions) });
   const platformLabel = platforms.map((q) => q === "meta" ? "Meta" : q === "google" ? "Google" : q === "tiktok" ? "TikTok" : q).join(" + ");
   const subtitle = `${platformLabel} · ${client.name} · ${range.since} → ${range.until}${compare ? ` · vs ${compare.since} → ${compare.until}` : ""}`;
-  const cards: MoCardSpec[] = [{ type: "kpis", title: str(a.title, 90) || `${client.name} — ${range.label}`, subtitle, items: main.slice(0, 8) }];
+  const cards: MoCardSpec[] = [{ type: "kpis", clientId: client.id, clientName: client.name, title: str(a.title, 90) || `${client.name} — ${range.label}`, subtitle, items: main.slice(0, 8) }];
   let rows: Array<Record<string, string>> = [];
   if (by && res.rows.length) {
     const cols = ["Dépense", m.leads ? "Leads" : "Conv.", m.leads ? "CPL" : "CPA", "CTR", ...(m.roas && !m.roasUnavailable ? ["ROAS"] : [])];
     rows = res.rows.map((r) => ({ [by === "campaign" ? "Campagne" : by === "adset" ? "Ensemble" : "Format"]: r.label.slice(0, 60), Dépense: money(r.metrics.spend, cur), [m.leads ? "Leads" : "Conv."]: int(m.leads ? r.metrics.leads : r.metrics.conversions), [m.leads ? "CPL" : "CPA"]: m.leads ? (r.metrics.leads ? money(r.metrics.spend / r.metrics.leads, cur) : "—") : (r.metrics.cpa ? money(r.metrics.cpa, cur) : "—"), CTR: r.metrics.ctr ? pct(r.metrics.ctr) : "—", ...(m.roas && !m.roasUnavailable ? { ROAS: r.metrics.roas ? x(r.metrics.roas) : "—" } : {}) }));
     const first = Object.keys(rows[0])[0];
-    cards.push({ type: "table", title: `Par ${by === "campaign" ? "campagne" : by === "adset" ? "ensemble" : "format"} — ${client.name}`, subtitle, columns: [first, ...cols], rows: rows.map((r) => [r[first], ...cols.map((c) => r[c] ?? "")]), align: ["left", ...cols.map(() => "right" as const)] });
+    cards.push({ type: "table", clientId: client.id, clientName: client.name, title: `Par ${by === "campaign" ? "campagne" : by === "adset" ? "ensemble" : "format"} — ${client.name}`, subtitle, columns: [first, ...cols], rows: rows.map((r) => [r[first], ...cols.map((c) => r[c] ?? "")]), align: ["left", ...cols.map(() => "right" as const)] });
   }
   const posted = a.post !== false ? await postMoCards(ctx.boardId, cards) : [];
   return {
@@ -276,7 +277,7 @@ async function metrics(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   };
 }
 
-async function creativeMetrics(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+export async function creativeMetrics(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const { client } = await resolveClient(ctx, a.client);
   const range = periodRange(a);
   const ids = (Array.isArray(a.adIds) ? a.adIds : []).map((v) => str(v, 40)).filter((v) => /^[\w:-]+$/.test(v)).slice(0, 40);
@@ -316,7 +317,7 @@ async function relayFileBytes(file: string): Promise<{ buf: Buffer; mimeType: st
   return null;
 }
 
-async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+export async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const { client } = await resolveClient(ctx, a.client);
   const prompt = str(a.prompt, 4000);
   if (prompt.length < 3) throw new MoToolError("Décris le visuel à créer (prompt).");
@@ -399,7 +400,7 @@ async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResul
     }
     items.push({ assetId: asset.id, image: assetImage(asset.id), model: out.model, usd: Math.round(out.usd * 1000) / 1000, drive: drive?.webViewLink ?? null });
   }
-  const card: MoCardSpec = { type: "creatives", title: str(a.title, 90) || `Nouvelles créas ${client.name}`, subtitle: `Générées par Mo · ${via.replace("fal-ai/", "")} · ${day}${folder?.webViewLink ? " · dans le Drive du client" : ""}`, items: items.map((it, k) => ({ name: str((Array.isArray(a.names) ? a.names[k] : null) ?? "", 60) || `Proposition ${k + 1}`, image: it.image, assetId: it.assetId, metrics: { Moteur: via.replace("fal-ai/", ""), Coût: it.usd ? `${it.usd} $` : "gratuit" }, ...(it.drive ? { link: it.drive } : {}) })) };
+  const card: MoCardSpec = { type: "creatives", clientId: client.id, clientName: client.name, title: str(a.title, 90) || `Nouvelles créas ${client.name}`, subtitle: `Générées par Mo · ${via.replace("fal-ai/", "")} · ${day}${folder?.webViewLink ? " · dans le Drive du client" : ""}`, items: items.map((it, k) => ({ name: str((Array.isArray(a.names) ? a.names[k] : null) ?? "", 60) || `Proposition ${k + 1}`, image: it.image, assetId: it.assetId, metrics: { Moteur: via.replace("fal-ai/", ""), Coût: it.usd ? `${it.usd} $` : "gratuit" }, ...(it.drive ? { link: it.drive } : {}) })) };
   const posted = a.post !== false ? await postMoCards(ctx.boardId, [card]) : [];
   return {
     client: { id: client.id, name: client.name }, generated: items.length, engine: via, ratio, references: refs.length, ...(note ? { note } : {}),
@@ -409,7 +410,22 @@ async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResul
   };
 }
 
-async function metaTargets(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+/**
+ * The texts of the client's best-performing Meta ad of the last 30 days
+ * (the one that spent most and carries a body and a landing link): what a new
+ * ad reuses when the person gave no copy. Null when the warehouse has none.
+ */
+export async function bestAdTexts(client: ClientRef): Promise<{ name: string; body: string; title: string; landing: string } | null> {
+  const { platforms, accountIds, accounts } = platformsOf(client, "meta");
+  if (!accountIds.length) return null;
+  const range = periodRange({ period: "last_30d" });
+  const res = await queryAds({ platforms, accountIds, accounts, range: { since: range.since, until: range.until }, groupBy: "ad", sort: { key: "spend", dir: "desc" }, limit: 24 }).catch(() => null);
+  const hit = res?.rows.find((r) => r.sample?.body && r.sample.landingUrl && /^https:\/\//.test(r.sample.landingUrl));
+  if (!hit?.sample) return null;
+  return { name: shortName(hit.sample.name), body: hit.sample.body!.slice(0, 2000), title: (hit.sample.title ?? "").slice(0, 255), landing: hit.sample.landingUrl!.slice(0, 2000) };
+}
+
+export async function metaTargets(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const { client } = await resolveClient(ctx, a.client);
   const accounts = client.accounts.filter((x) => x.platform === "meta").map((x) => x.id.replace(/^act_/, ""));
   if (!accounts.length) throw new MoToolError(`${client.name} n'a pas de compte Meta rattaché.`, 404);
@@ -432,7 +448,7 @@ async function metaTargets(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   };
 }
 
-async function metaPublishAd(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+export async function metaPublishAd(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const { client, session } = await resolveClient(ctx, a.client);
   const metaAccounts = client.accounts.filter((x) => x.platform === "meta");
   if (!metaAccounts.length) throw new MoToolError(`${client.name} n'a pas de compte Meta rattaché.`, 404);
@@ -469,26 +485,34 @@ async function metaPublishAd(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   }
   const instagramUserId = str(a.instagramUserId, 30) || (identities?.instagram.length === 1 ? identities.instagram[0].id : undefined);
   const cta = str(a.callToAction, 40).toUpperCase();
+  // Texts the person did not give are taken from the client's best-performing ad of the warehouse (and said so).
+  let primaryText = str(a.primaryText, 2000); let headline = str(a.headline, 255); let linkUrl = str(a.linkUrl, 2000);
+  let textsFrom: string | null = null;
+  if (!primaryText || !/^https:\/\//.test(linkUrl)) {
+    const best = await bestAdTexts(client);
+    if (best) { textsFrom = best.name; primaryText = primaryText || best.body; headline = headline || best.title; linkUrl = /^https:\/\//.test(linkUrl) ? linkUrl : best.landing; }
+  }
   const spec = {
     name: str(a.name, 255) || `Mo · ${slug(asset.prompt).slice(0, 30)} · ${isoParis(new Date())}`,
-    primaryText: str(a.primaryText, 2000), headline: str(a.headline, 255) || undefined, description: str(a.description, 255) || undefined,
-    linkUrl: str(a.linkUrl, 2000), callToAction: (CALL_TO_ACTIONS as readonly string[]).includes(cta) ? cta : undefined, imageUrl, pageId, instagramUserId, studioAssetId: asset.id,
+    primaryText, headline: headline || undefined, description: str(a.description, 255) || undefined,
+    linkUrl, callToAction: (CALL_TO_ACTIONS as readonly string[]).includes(cta) ? cta : undefined, imageUrl, pageId, instagramUserId, studioAssetId: asset.id,
   };
-  if (!spec.primaryText) throw new MoToolError("Il faut le texte principal de la publicité (primaryText).");
-  if (!/^https:\/\//.test(spec.linkUrl)) throw new MoToolError("Il faut le lien de destination (linkUrl, https).");
+  if (!spec.primaryText) throw new MoToolError("Il faut le texte principal de la publicité (primaryText) : aucune créa de l'entrepôt n'a de texte à reprendre.");
+  if (!/^https:\/\//.test(spec.linkUrl)) throw new MoToolError("Il faut le lien de destination (linkUrl, https) : aucune créa de l'entrepôt n'a de lien à reprendre.");
   const prepared = await prepareAction(session, { alertClientId: client.clientId, accountId: account.id, platform: "meta", requests: [{ kind: "create_ad", objectType: "adset", objectId: adsetId, value: JSON.stringify(spec) }], why: str(a.why, 2000) || "Créa générée par Mo" });
   if (!prepared.ok) throw new MoToolError(prepared.error + (prepared.errors?.length ? ` ${prepared.errors.join(" ")}` : ""), prepared.status);
   const op = prepared.action.operations[0];
   return {
     prepared: true, actionId: prepared.action.id, needs_confirmation: true, writes_open: pilotWritesOpen("meta"),
-    summary: { account: `${account.name} (act_${account.id.replace(/^act_/, "")})`, adset: op ? `${op.objectName ?? adsetId}` : adsetId, page: identities?.pages.find((p) => p.id === pageId)?.name ?? pageId, instagram: instagramUserId ?? null, name: spec.name, primaryText: spec.primaryText, headline: spec.headline ?? null, link: spec.linkUrl, cta: spec.callToAction ?? "(bouton par défaut)", image: assetImage(asset.id), status_at_creation: "PAUSED (en pause : rien n'est dépensé avant activation dans le Gestionnaire)" },
+    summary: { account: `${account.name} (act_${account.id.replace(/^act_/, "")})`, adset: op ? `${op.objectName ?? adsetId}` : adsetId, adsetId, page: identities?.pages.find((p) => p.id === pageId)?.name ?? pageId, pageId, instagram: instagramUserId ?? null, name: spec.name, primaryText: spec.primaryText, headline: spec.headline ?? null, link: spec.linkUrl, cta: spec.callToAction ?? "(bouton par défaut)", image: assetImage(asset.id), status_at_creation: "PAUSED (en pause : rien n'est dépensé avant activation dans le Gestionnaire)" },
+    ...(textsFrom ? { texts_from: textsFrom, texts_note: `Textes et lien repris de la créa « ${textsFrom} » (la plus dépensée sur 30 jours) : dis-le à la personne.` } : {}),
     hq: (await hqProjectOf({ hqSlug: client.hqSlug, dashboardId: client.dashboardId })) ? "la publication sera consignée dans la fiche HQ du client" : "ATTENTION : ce client n'a pas de dossier HQ, l'envoi sera refusé tant qu'un dossier n'est pas rattaché (Admin → HQ).",
     next: "Lis le résumé à la personne et attends un « oui » explicite ; alors rappelle meta_publish_ad avec confirm=true et cet actionId. L'aperçu expire dans 30 minutes.",
   };
 }
 
 /** The ads a brand runs now, from the Meta Ad Library (public page through the relay, ~15-20 s): a creatives card, and the ids to keep one as template. */
-async function competitorAds(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+export async function competitorAds(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const query = str(a.query ?? a.brand, 100);
   if (query.length < 2) throw new MoToolError("Dis-moi la marque ou le mot-clé à chercher (query).");
   const country = /^[A-Za-z]{2}$/.test(str(a.country, 2)) ? str(a.country, 2).toUpperCase() : "FR";
@@ -509,12 +533,22 @@ async function competitorAds(ctx: MoToolContext, a: Args): Promise<ToolResult> {
 }
 
 /** One ad of the library (or any https picture) kept as a template of the client: picture copied on the relay, analysed (hook, structure, text zones, brief). */
-async function keepTemplate(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+export async function keepTemplate(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const libraryId = str(a.libraryId, 40).replace(/^adlib:/, "");
   let imageUrl = /^https:\/\//.test(str(a.imageUrl, 2000)) ? str(a.imageUrl, 2000) : "";
   let brand = str(a.brand, 120);
   let text = str(a.body ?? a.text, 4000);
+  let title = str(a.title, 500);
+  let name = str(a.name, 120);
   let sourceUrl = libraryId ? `https://www.facebook.com/ads/library/?id=${libraryId}` : str(a.sourceUrl, 2000);
+  // One of the client's OWN ads (warehouse, « meta:<id> ») kept as a template: source « own », texts and picture from the warehouse.
+  const ownAdId = str(a.adId, 60);
+  let own: Awaited<ReturnType<typeof ownAdTemplateSource>> = null;
+  if (ownAdId) {
+    own = await ownAdTemplateSource(ownAdId);
+    if (!own) throw new MoToolError(`Annonce ${ownAdId} introuvable dans l'entrepôt.`, 404);
+    imageUrl = imageUrl || own.imageUrl || ""; title = title || own.title; text = text || own.body; name = name || shortName(own.name);
+  }
   if (libraryId && !imageUrl) {
     // The picture comes from the last search (cached on the relay for 10 min): the query is needed to find the ad again.
     const query = str(a.query ?? a.brand, 100);
@@ -525,19 +559,20 @@ async function keepTemplate(ctx: MoToolContext, a: Args): Promise<ToolResult> {
     imageUrl = ad.imageUrl ?? ""; brand = brand || ad.pageName; text = text || ad.bodies[0] || ""; sourceUrl = ad.snapshotUrl ?? sourceUrl;
   }
   if (!imageUrl && !text) throw new MoToolError("Il faut l'image (imageUrl) ou au moins le texte de la pub.");
-  const client = a.client ? (await resolveClient(ctx, a.client)).client : null;
+  const client = a.client ? (await resolveClient(ctx, a.client)).client : own?.client ? (await resolveClient(ctx, own.client.id).catch(() => null))?.client ?? null : null;
+  if (own) brand = brand || client?.name || own.client?.name || "";
   let dataUri: string | null = null;
   if (imageUrl) { const got = await fetchImageBytes(imageUrl); if (got) dataUri = toDataUri(got.buf, got.mediaType); }
   let file: string | null = null;
   if (dataUri) { try { file = (await relayUpload(dataUri)).file; } catch (e) { throw new MoToolError(`L'image n'a pas pu être enregistrée : ${e instanceof Error ? e.message : String(e)}`, 502); } }
   const author = await prisma.user.findUnique({ where: { id: ctx.userId }, select: { name: true, email: true } });
-  const analysis = await analyseTemplate({ image: dataUri ? dataUriToRelayImage(dataUri, "template") : null, title: str(a.title, 500) || null, body: text || null, brand: brand || null, user: { id: ctx.userId, email: ctx.email, role: ctx.role } });
-  const name = str(a.name, 120) || analysis?.hook || (brand ? `Pub ${brand}` : "Template");
+  const analysis = a.analyse === false ? null : await analyseTemplate({ image: dataUri ? dataUriToRelayImage(dataUri, "template") : null, title: title || null, body: text || null, brand: brand || null, user: { id: ctx.userId, email: ctx.email, role: ctx.role } });
+  name = name || analysis?.hook || (brand ? `Pub ${brand}` : "Template");
   const row = await prisma.creativeTemplate.create({ data: {
-    alertClientId: client?.clientId ?? null, clientName: client?.name ?? "", name, source: "competitor", brand, sourceRef: libraryId ? `adlib:${libraryId}` : null, sourceUrl: sourceUrl || null, imageUrl: imageUrl || null, file,
-    title: str(a.title, 500) || null, body: text || null, analysisJson: JSON.stringify(analysis ?? {}), tags: str(a.tags, 300), createdById: ctx.userId, createdByName: (author?.name ?? "").trim() || author?.email || "Consultant",
+    alertClientId: client?.clientId ?? own?.client?.id ?? null, clientName: client?.name ?? own?.client?.name ?? "", name, source: own ? "own" : "competitor", brand, sourceRef: own ? own.sourceRef : libraryId ? `adlib:${libraryId}` : null, sourceUrl: sourceUrl || null, imageUrl: imageUrl || null, file,
+    title: title || null, body: text || null, analysisJson: JSON.stringify(analysis ?? {}), tags: str(a.tags, 300), createdById: ctx.userId, createdByName: (author?.name ?? "").trim() || author?.email || "Consultant",
   } });
-  return { templateId: row.id, name: row.name, brand, client: client ? { id: client.id, name: client.name } : null, open: `/creas?${client ? `client=${client.id}&` : ""}tab=templates&template=${row.id}`, analysis: analysis ? { hook: analysis.hook, structure: analysis.structure, style: analysis.style, brief: analysis.brief } : null, note: "Template enregistré dans Créas › Templates & concurrents ; la personne peut dire « copie-le pour <client> » (generate_creatives avec references=[templateId] … ou ouvrir la page)." };
+  return { templateId: row.id, name: row.name, brand, source: row.source, client: client ? { id: client.id, name: client.name } : null, open: `/creas?${client ? `client=${client.id}&` : ""}tab=templates&template=${row.id}`, analysis: analysis ? { hook: analysis.hook, structure: analysis.structure, style: analysis.style, brief: analysis.brief } : null, note: "Template enregistré dans Créas › Templates & concurrents ; la personne peut dire « copie-le pour <client> » (generate_creatives avec references=[templateId] … ou ouvrir la page)." };
 }
 
 export async function runMoTool(ctx: MoToolContext, tool: string, args: unknown): Promise<ToolResult> {

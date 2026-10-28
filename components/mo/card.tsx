@@ -10,17 +10,22 @@
  * DOM at once and the page commits the state a frame later.
  */
 
-import { memo, useMemo, useRef, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, BarChart3, ChevronDown, ChevronUp, Image as ImageIcon, LayoutGrid, Link2, Loader2, MessageCircleQuestion, Minus, RotateCcw, StickyNote, Table2, TrendingUp, X } from "lucide-react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronUp, ExternalLink, FileText, FileUp, HardDrive, Image as ImageIcon, LayoutGrid, Link2, Loader2, MessageCircleQuestion, Minus, Rocket, RotateCcw, Send, StickyNote, Table2, TrendingUp, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { CARD_SIZES, type MoCard } from "@/lib/mo/model";
 import { MIN_HEADER_H, type HandleDir, type Rect } from "@/lib/mo/geometry";
 import { useCardDrag } from "@/components/mo/board";
+import { CardActions, VerdictBadge, actionForKey, actionsFor, type CreativeAction } from "@/components/mo/card-actions";
 
 const SERIES_COLORS = ["#a78bfa", "#f0abfc", "#67e8f9", "#fde68a", "#86efac", "#fca5a5"];
 
-const ICONS = { kpis: LayoutGrid, table: Table2, chart: TrendingUp, creatives: ImageIcon, note: StickyNote, ask: MessageCircleQuestion } as const;
+const ICONS = { kpis: LayoutGrid, table: Table2, chart: TrendingUp, creatives: ImageIcon, note: StickyNote, ask: MessageCircleQuestion, file: FileUp, action: Send } as const;
+
+/** What the page is doing on this card right now (a spinner on the button): `item:<index>:<action>` or `confirm`. */
+export type CardBusy = string | null;
+export interface PublishEdits { primaryText: string; headline: string; linkUrl: string }
 
 export interface MoCardViewProps {
   card: MoCard;
@@ -45,6 +50,13 @@ export interface MoCardViewProps {
   onHoverRef: (id: string | null) => void;
   /** An option of an « ask » card was clicked: it is the next message. */
   onAnswer?: (id: string, option: string) => void;
+  /** An action on one visual of a creatives card (hover toolbar, or G / X / P on the selected card). */
+  onItemAction?: (id: string, index: number, action: CreativeAction) => void;
+  /** The visual the pointer or the focus is on (for « garde celle-là » said in the composer). */
+  onItemHover?: (id: string, index: number | null) => void;
+  /** « Confirmer » on a publication card, with the texts as edited. */
+  onConfirmPublish?: (id: string, edits: PublishEdits) => void;
+  busy?: CardBusy;
 }
 
 const HANDLES: Array<{ dir: HandleDir; cls: string; cursor: string }> = [
@@ -71,7 +83,7 @@ function Handle({ dir, cls, cursor, cardId, getK, onStart, onResize, onEnd }: { 
   return <div data-handle={dir} data-card-id={cardId} className={`absolute z-10 ${cls} ${cursor} touch-none`} {...drag} />;
 }
 
-export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, selected, refTitle, getK, onMove, onMoveEnd, onResizeStart, onResize, onResizeEnd, onFront, onSelect, onToggle, onClose, onFocusRef, onHoverRef, onAnswer }: MoCardViewProps) {
+export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, selected, refTitle, getK, onMove, onMoveEnd, onResizeStart, onResize, onResizeEnd, onFront, onSelect, onToggle, onClose, onFocusRef, onHoverRef, onAnswer, onItemAction, onItemHover, onConfirmPublish, busy = null }: MoCardViewProps) {
   const el = useRef<HTMLDivElement>(null);
   const Icon = ICONS[card.type] ?? BarChart3;
   const h = card.minimized ? MIN_HEADER_H : card.h ?? CARD_SIZES[card.type].h;
@@ -90,7 +102,8 @@ export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, s
       ref={el}
       data-card
       data-card-id={card.id}
-      className={`absolute left-0 top-0 flex flex-col rounded-2xl border bg-[#100c1f] shadow-[0_20px_60px_-20px_rgba(124,58,237,0.45)] text-gray-100 cursor-default ${fresh ? "mo-card-in" : ""} ${selected ? "border-violet-400 ring-2 ring-violet-400/40" : fresh ? "border-violet-400/60" : card.type === "ask" ? "border-fuchsia-400/40" : "border-white/10"}`}
+      data-card-type={card.type}
+      className={`absolute left-0 top-0 flex flex-col rounded-2xl border bg-[#100c1f] shadow-[0_20px_60px_-20px_rgba(124,58,237,0.45)] text-gray-100 cursor-default ${fresh ? "mo-card-in" : ""} ${selected ? "border-violet-400 ring-2 ring-violet-400/40" : fresh ? "border-violet-400/60" : card.type === "ask" ? "border-fuchsia-400/40" : card.type === "action" ? (card.status === "sent" ? "border-emerald-400/40" : card.status === "failed" ? "border-rose-400/40" : "border-amber-300/40") : "border-white/10"}`}
       style={{ transform: `translate(${card.x}px, ${card.y}px)`, width: card.w, height: h, zIndex: card.z ?? 0, animationDelay: fresh && delayMs ? `${delayMs}ms` : undefined }}
       onPointerDownCapture={(e) => { if (e.button === 0) { onFront(card.id); onSelect(card.id, e.shiftKey); } }}
     >
@@ -113,7 +126,9 @@ export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, s
       {!card.minimized && (
         <>
           <div className="flex-1 min-h-0 overflow-auto px-3.5 py-3 mo-scroll select-text touch-auto cursor-auto">
-            <CardBody card={card} width={width} onAnswer={onAnswer ? (opt) => onAnswer(card.id, opt) : undefined} />
+            <CardBody card={card} width={width} selected={selected} busy={busy} onAnswer={onAnswer ? (opt) => onAnswer(card.id, opt) : undefined}
+              onItemAction={onItemAction ? (i, a) => onItemAction(card.id, i, a) : undefined} onItemHover={onItemHover ? (i) => onItemHover(card.id, i) : undefined}
+              onConfirmPublish={onConfirmPublish ? (edits) => onConfirmPublish(card.id, edits) : undefined} />
           </div>
           <div className="flex items-center gap-2 px-3.5 py-1.5 border-t border-white/5 text-[10px] text-gray-500 select-none">
             <span className="truncate" title={card.subtitle ?? ""}>{card.subtitle || "Source non précisée"}</span>
@@ -180,6 +195,28 @@ export function MoGhostCard({ ghost, onRetry, onClose }: { ghost: Ghost; onRetry
   );
 }
 
+/** A file being sent after a drop: its local preview where it was dropped, then the real card replaces it. */
+export interface Upload { id: string; name: string; mime: string; bytes: number; x: number; y: number; z: number; preview: string | null; state: "pending" | "error"; message?: string }
+
+export function MoUploadCard({ up, onClose }: { up: Upload; onClose: () => void }) {
+  const error = up.state === "error";
+  const size = CARD_SIZES.file;
+  return (
+    <div data-upload data-upload-state={up.state} className={`absolute left-0 top-0 flex flex-col rounded-2xl border text-gray-100 ${error ? "border-rose-400/40 bg-[#1a0d16]" : "border-violet-400/40 border-dashed bg-[#100c1f]/90 mo-ghost"}`} style={{ transform: `translate(${up.x}px, ${up.y}px)`, width: size.w, height: error ? 200 : size.h, zIndex: up.z }}>
+      <div className="flex items-start gap-2 px-3.5 pt-3 pb-2 border-b border-white/5 select-none">
+        <span className={`mt-0.5 inline-flex w-6 h-6 items-center justify-center rounded-lg shrink-0 ${error ? "bg-rose-500/15 text-rose-300" : "bg-violet-500/15 text-violet-300"}`}>{error ? <X className="w-3.5 h-3.5" /> : <Loader2 className="w-3.5 h-3.5 animate-spin" />}</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold leading-tight truncate" title={up.name}>{up.name}</div>
+          <div className={`text-[11px] mt-0.5 ${error ? "text-rose-300/80" : "text-violet-300/80"}`}>{error ? "pas rangé" : "envoi…"}</div>
+        </div>
+        {error && <button type="button" onClick={onClose} className="p-1 rounded-md text-gray-500 hover:text-white hover:bg-white/10" aria-label="Fermer"><X className="w-3.5 h-3.5" /></button>}
+      </div>
+      {error ? <div className="px-3.5 py-3 text-[12px] text-gray-300 leading-snug line-clamp-4">{up.message || "Le fichier n'a pas pu être rangé."}</div>
+        : <div className="flex-1 min-h-0 px-3.5 py-3">{up.preview ? <div className="rounded-xl overflow-hidden border border-white/5 bg-black/40"><CreativeImage src={up.preview} alt={up.name} ratio="aspect-square" /></div> : <div className="h-full min-h-[120px] rounded-xl border border-white/5 bg-white/[0.03] flex items-center justify-center"><FileText className="w-10 h-10 text-violet-300/60" /></div>}</div>}
+    </div>
+  );
+}
+
 function relativeTime(iso: string): string {
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t)) return "";
@@ -191,15 +228,96 @@ function relativeTime(iso: string): string {
   return new Date(t).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 }
 
-function CardBody({ card, width, onAnswer }: { card: MoCard; width: number; onAnswer?: (option: string) => void }) {
+function CardBody({ card, width, selected, busy, onAnswer, onItemAction, onItemHover, onConfirmPublish }: { card: MoCard; width: number; selected: boolean; busy: CardBusy; onAnswer?: (option: string) => void; onItemAction?: (index: number, action: CreativeAction) => void; onItemHover?: (index: number | null) => void; onConfirmPublish?: (edits: PublishEdits) => void }) {
   switch (card.type) {
     case "ask": return <Ask question={card.question} options={card.options} onAnswer={onAnswer} />;
     case "kpis": return <Kpis items={card.items} width={width} />;
     case "table": return <Table columns={card.columns} rows={card.rows} align={card.align} />;
     case "chart": return <Chart kind={card.kind} series={card.series} unit={card.unit} labels={card.x} width={width} />;
-    case "creatives": return <Creatives items={card.items} width={width} />;
+    case "creatives": return <Creatives items={card.items} width={width} selected={selected} busy={busy} onAction={onItemAction} onHover={onItemHover} />;
     case "note": return <AiMarkdown content={card.markdown} filesBase={null} className="prose-xs" />;
+    case "file": return <FileBody card={card} />;
+    case "action": return <PublishBody card={card} busy={busy === "confirm"} onConfirm={onConfirmPublish} />;
   }
+}
+
+const fmtBytes = (n?: number) => (n === undefined ? "" : n < 1024 ? `${n} o` : n < 1024 * 1024 ? `${Math.round(n / 1024)} Ko` : `${(n / 1024 / 1024).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Mo`);
+
+/** A dropped file: the picture (a visual) or the document icon (a brief), its name, the Drive link. */
+function FileBody({ card }: { card: Extract<MoCard, { type: "file" }> }) {
+  const isImage = !!card.image;
+  return (
+    <div className="flex flex-col gap-2 h-full">
+      {isImage ? <div className="rounded-xl overflow-hidden border border-white/5 bg-black/40"><CreativeImage src={card.image!} alt={card.name} ratio="aspect-square" /></div>
+        : <div className="flex-1 min-h-[120px] rounded-xl border border-white/5 bg-white/[0.03] flex flex-col items-center justify-center gap-2 text-gray-400"><FileText className="w-10 h-10 text-violet-300/70" /><span className="text-[11px] uppercase tracking-wide">{/pdf/i.test(card.mime) ? "PDF" : /word|docx?/i.test(card.mime) ? "Word" : "Document"}</span></div>}
+      <div className="min-w-0">
+        <div className="text-[12px] font-medium truncate" title={card.name}>{card.name}</div>
+        <div className="text-[11px] text-gray-500">{[fmtBytes(card.bytes), card.folder === "briefs" ? "Brief" : card.assetId ? "Dans les créas du client" : null].filter(Boolean).join(" · ")}</div>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mt-auto">
+        {card.link && <a href={card.link} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-gray-200 hover:bg-white/10 hover:text-white"><HardDrive className="w-3 h-3" /> Ouvrir dans le Drive</a>}
+        {card.assetId && <a href={`/api/studio/assets/${card.assetId}/file`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-gray-200 hover:bg-white/10 hover:text-white"><ExternalLink className="w-3 h-3" /> Fichier</a>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A publication prepared through the Pilotage: the summary, the texts (editable
+ * until it leaves), « Confirmer » (the only thing that sends: the ad is created
+ * PAUSED), the outcome and the link to the Pilotage.
+ */
+function PublishBody({ card, busy, onConfirm }: { card: Extract<MoCard, { type: "action" }>; busy: boolean; onConfirm?: (edits: PublishEdits) => void }) {
+  const [primaryText, setPrimaryText] = useState(card.primaryText);
+  const [headline, setHeadline] = useState(card.headline ?? "");
+  const [linkUrl, setLinkUrl] = useState(card.linkUrl);
+  // The card was rewritten by the server (re-prepared, sent): the fields follow (derived state, reset on a new draft).
+  const draftKey = `${card.actionId}|${card.primaryText}|${card.headline ?? ""}|${card.linkUrl}`;
+  const [seenDraft, setSeenDraft] = useState(draftKey);
+  if (seenDraft !== draftKey) { setSeenDraft(draftKey); setPrimaryText(card.primaryText); setHeadline(card.headline ?? ""); setLinkUrl(card.linkUrl); }
+  const editable = card.status !== "sent";
+  const linkOk = /^https:\/\/\S+$/.test(linkUrl.trim());
+  const canConfirm = editable && !busy && card.writesOpen && primaryText.trim().length > 0 && linkOk && !!onConfirm;
+  const field = "w-full rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-[12px] text-gray-100 placeholder:text-gray-600 focus:outline-none focus:border-violet-400/60 disabled:opacity-70";
+  return (
+    <div className="flex flex-col gap-2.5 text-[12px]" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="flex gap-3">
+        {card.image && <div className="w-24 shrink-0 rounded-lg overflow-hidden border border-white/5 bg-black/40"><CreativeImage src={card.image} alt={card.name} /></div>}
+        <dl className="flex-1 min-w-0 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+          <dt className="text-gray-500">Compte</dt><dd className="truncate text-gray-200" title={card.account}>{card.account}</dd>
+          <dt className="text-gray-500">Ensemble</dt><dd className="truncate text-gray-200" title={card.adset}>{card.adset}</dd>
+          <dt className="text-gray-500">Page</dt><dd className="truncate text-gray-200" title={card.page}>{card.page}</dd>
+          <dt className="text-gray-500">Nom</dt><dd className="truncate text-gray-200" title={card.name}>{card.name}</dd>
+          <dt className="text-gray-500">Statut</dt><dd className={card.status === "sent" ? "text-emerald-300" : card.status === "failed" ? "text-rose-300" : "text-amber-200"}>{card.status === "sent" ? `Créée EN PAUSE${card.adId ? ` · pub ${card.adId}` : ""}` : card.status === "failed" ? "Échec de l'envoi" : "À confirmer · créée en pause, rien ne dépense"}</dd>
+        </dl>
+      </div>
+      {card.textsFrom && <div className="rounded-lg border border-violet-400/20 bg-violet-500/10 px-2.5 py-1.5 text-[11px] text-violet-100">Textes et lien repris de la créa « {card.textsFrom} » (la plus dépensée sur 30 jours) : relis-les, ils sont modifiables.</div>}
+      <label className="block"><span className="text-[10px] uppercase tracking-wide text-gray-500">Texte principal</span>
+        <textarea data-publish-field="primaryText" value={primaryText} onChange={(e) => setPrimaryText(e.target.value)} disabled={!editable || busy} rows={3} className={`${field} mt-0.5 resize-y min-h-[56px] mo-scroll`} /></label>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block"><span className="text-[10px] uppercase tracking-wide text-gray-500">Titre</span>
+          <input data-publish-field="headline" value={headline} onChange={(e) => setHeadline(e.target.value)} disabled={!editable || busy} className={`${field} mt-0.5`} placeholder="(facultatif)" /></label>
+        <label className="block"><span className="text-[10px] uppercase tracking-wide text-gray-500">Bouton</span>
+          <input value={card.cta ?? "(bouton par défaut)"} disabled className={`${field} mt-0.5`} /></label>
+      </div>
+      <label className="block"><span className="text-[10px] uppercase tracking-wide text-gray-500">Lien de destination</span>
+        <input data-publish-field="linkUrl" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} disabled={!editable || busy} className={`${field} mt-0.5 ${linkUrl && !linkOk ? "border-rose-400/60" : ""}`} placeholder="https://…" /></label>
+      {card.hq && <div className={`text-[11px] ${/ATTENTION/.test(card.hq) ? "text-amber-200" : "text-gray-500"}`}>{card.hq}</div>}
+      {!card.writesOpen && editable && <div className="rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] text-amber-100">Les écritures Meta sont fermées sur cet environnement (PILOT_WRITES) : la confirmation serait refusée.</div>}
+      {card.error && <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200">{card.error}</div>}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        {editable ? (
+          <button type="button" data-publish-confirm disabled={!canConfirm} onClick={() => onConfirm?.({ primaryText: primaryText.trim(), headline: headline.trim(), linkUrl: linkUrl.trim() })} className="inline-flex items-center gap-1.5 rounded-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 px-3.5 py-1.5 text-[12px] font-semibold text-white">
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} {card.status === "failed" ? "Réessayer" : "Confirmer"}
+          </button>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 text-emerald-200 px-3 py-1.5 text-[12px] font-semibold"><Check className="w-3.5 h-3.5" /> Publiée en pause</span>
+        )}
+        <button type="button" disabled title="Bientôt : pour l'instant l'activation se fait dans le Gestionnaire de publicités" className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-[12px] text-gray-500 opacity-60 cursor-not-allowed"><Rocket className="w-3.5 h-3.5" /> Mettre en ligne</button>
+        <a href={card.pilotage} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-[11px] text-violet-300 hover:text-white"><ExternalLink className="w-3 h-3" /> Pilotage</a>
+      </div>
+    </div>
+  );
 }
 
 /** Mo's question with its options as chips: a click is the next message. */
@@ -291,26 +409,55 @@ function Chart({ kind, series, unit, labels, width }: { kind: "line" | "bar"; se
   );
 }
 
-function CreativeImage({ src, alt }: { src: string; alt: string }) {
+export function CreativeImage({ src, alt, ratio = "aspect-[4/5]" }: { src: string; alt: string; ratio?: string }) {
   const [state, setState] = useState<"loading" | "ok" | "error">("loading");
+  // Our own files and local previews (blob:, data:) load as they are; a platform picture goes through the proxy.
+  const url = /^(\/|blob:|data:)/.test(src) ? src : `/api/media/proxy-image?url=${encodeURIComponent(src)}`;
   return (
-    <div className="aspect-[4/5] bg-black/40 flex items-center justify-center relative overflow-hidden">
+    <div className={`${ratio} bg-black/40 flex items-center justify-center relative overflow-hidden`}>
       {state === "loading" && <div className="absolute inset-0 animate-pulse bg-white/[0.04]" />}
       {state === "error" ? <ImageIcon className="w-6 h-6 text-gray-600" /> : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src.startsWith("/") ? src : `/api/media/proxy-image?url=${encodeURIComponent(src)}`} alt={alt} className={`w-full h-full object-cover transition-opacity ${state === "ok" ? "opacity-100" : "opacity-0"}`} loading="lazy" onLoad={() => setState("ok")} onError={() => setState("error")} />
+        <img src={url} alt={alt} className={`w-full h-full object-cover transition-opacity ${state === "ok" ? "opacity-100" : "opacity-0"}`} loading="lazy" onLoad={() => setState("ok")} onError={() => setState("error")} />
       )}
     </div>
   );
 }
 
-function Creatives({ items, width }: { items: Extract<MoCard, { type: "creatives" }>["items"]; width: number }) {
+const isTyping = () => { const el = document.activeElement as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
+
+function Creatives({ items, width, selected, busy, onAction, onHover }: { items: Extract<MoCard, { type: "creatives" }>["items"]; width: number; selected: boolean; busy: CardBusy; onAction?: (index: number, action: CreativeAction) => void; onHover?: (index: number | null) => void }) {
   const cols = width < 420 ? 1 : width < 560 ? 2 : 3;
+  const [hot, setHot] = useState<number | null>(null);
+  const hotRef = useRef<number | null>(null);
+  const setHover = (i: number | null) => { hotRef.current = i; setHot(i); onHover?.(i); };
+  // G / X / P on the selected card act on the visual the pointer or the focus is on (the only one when there is one).
+  useEffect(() => {
+    if (!selected || !onAction) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping() || e.metaKey || e.ctrlKey || e.altKey) return;
+      const a = actionForKey(e.key);
+      if (!a) return;
+      const i = hotRef.current ?? (items.length === 1 ? 0 : null);
+      if (i === null || !actionsFor(items[i]).includes(a)) return;
+      e.preventDefault(); e.stopPropagation();
+      onAction(i, a);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selected, onAction, items]);
+  const busyOf = (i: number): CreativeAction | null => { const m = busy?.match(/^item:(\d+):(\w+)$/); return m && Number(m[1]) === i ? (m[2] as CreativeAction) : null; };
   return (
     <div className="grid gap-2.5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
       {items.map((it, i) => (
-        <div key={i} className="rounded-xl overflow-hidden border border-white/5 bg-white/[0.03]">
-          {it.image ? <CreativeImage src={it.image} alt={it.name} /> : <div className="aspect-[4/5] bg-black/40 flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-600" /></div>}
+        <div key={i} data-item={i} data-item-verdict={it.verdict ?? undefined} tabIndex={onAction ? 0 : undefined}
+          onMouseEnter={() => setHover(i)} onMouseLeave={() => { if (hotRef.current === i) setHover(null); }} onFocus={() => setHover(i)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null) && hotRef.current === i) setHover(null); }}
+          className={`group relative rounded-xl overflow-hidden border bg-white/[0.03] outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60 ${it.verdict === "keep" ? "border-emerald-400/40" : it.verdict === "cut" ? "border-white/5 opacity-60" : hot === i && selected ? "border-violet-400/40" : "border-white/5"}`}>
+          <div className="relative">
+            {it.image ? <CreativeImage src={it.image} alt={it.name} /> : <div className="aspect-[4/5] bg-black/40 flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-600" /></div>}
+            <VerdictBadge verdict={it.verdict} />
+            {onAction && <CardActions item={it} busy={busyOf(i)} onAction={(a) => onAction(i, a)} />}
+          </div>
           <div className="px-2.5 py-2">
             <div className="text-[12px] font-medium truncate" title={it.name}>{it.link ? <a href={it.link} target="_blank" rel="noreferrer" className="hover:underline" onClick={(e) => e.stopPropagation()}>{it.name}</a> : it.name}</div>
             <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5">

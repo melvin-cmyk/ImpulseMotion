@@ -15,23 +15,10 @@ import { dataUriOk, relayUpload } from "@/lib/studio";
 import { TEMPLATE_SOURCES, type TemplateSource } from "@/lib/creas/model";
 import { dataUriToRelayImage, fetchImageBytes, toDataUri } from "@/lib/creas/media";
 import { analyseTemplate } from "@/lib/creas/analysis";
-import { resolveAlertClient, templateView } from "@/lib/creas/templates";
+import { OWN_AD_ID_RE, ownAdTemplateSource, resolveAlertClient, templateView } from "@/lib/creas/templates";
 
 const NO_STORE = { headers: { "Cache-Control": "no-store" } };
 const MAX_LIST = 200;
-
-/** The agency client owning an ad account (registry accountsJson), or null. */
-async function clientOfAccount(platform: string, accountId: string): Promise<{ id: string; name: string; hqSlug: string | null } | null> {
-  const norm = (p: string, id: string) => (p === "meta" ? id.replace(/^act_/, "") : p === "google" ? id.replace(/-/g, "") : id);
-  const wanted = norm(platform, accountId);
-  const rows = await prisma.alertClient.findMany({ where: { gone: false }, select: { id: true, name: true, hqSlug: true, accountsJson: true } });
-  for (const c of rows) {
-    let accs: Array<{ platform: string; accountId: string }> = [];
-    try { accs = JSON.parse(c.accountsJson); } catch { accs = []; }
-    if (accs.some((a) => a.platform === platform && norm(a.platform, a.accountId) === wanted)) return { id: c.id, name: c.name, hqSlug: c.hqSlug };
-  }
-  return null;
-}
 
 export async function GET(req: NextRequest) {
   const guard = await requireStaff();
@@ -66,16 +53,16 @@ export async function POST(req: NextRequest) {
   let name = typeof body.name === "string" ? body.name.trim().slice(0, 120) : "";
 
   // One of the client's own ads (Analyse Ads « Garder comme template »): picture and texts from the warehouse.
-  if (typeof body.adId === "string" && /^(meta|google|tiktok|linkedin):[\w-]+$/.test(body.adId)) {
-    const ad = await prisma.adCatalog.findUnique({ where: { id: body.adId } });
+  if (typeof body.adId === "string" && OWN_AD_ID_RE.test(body.adId)) {
+    const ad = await ownAdTemplateSource(body.adId);
     if (!ad) return NextResponse.json({ error: "Annonce introuvable dans l'entrepôt." }, { status: 404 });
-    sourceRef = ad.id;
-    imageUrl = imageUrl ?? ad.imageUrl ?? ad.thumbnailUrl ?? null;
-    title = title || ad.title || "";
-    text = text || ad.body || "";
-    name = name || ad.name.slice(0, 120);
+    sourceRef = ad.sourceRef;
+    imageUrl = imageUrl ?? ad.imageUrl;
+    title = title || ad.title;
+    text = text || ad.body;
+    name = name || ad.name;
     // No client given: the ad's account tells which client it belongs to.
-    if (!client) client = await clientOfAccount(ad.platform, ad.accountId);
+    if (!client) client = ad.client;
     brand = brand || client?.name || "";
   }
   if (!dataUri && imageUrl) {

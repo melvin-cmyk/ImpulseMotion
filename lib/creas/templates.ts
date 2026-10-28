@@ -31,6 +31,33 @@ export async function resolveAlertClient(id: string | null | undefined): Promise
   return null;
 }
 
+/** The agency client owning an ad account (registry accountsJson), or null. */
+export async function clientOfAccount(platform: string, accountId: string): Promise<{ id: string; name: string; hqSlug: string | null } | null> {
+  const norm = (p: string, id: string) => (p === "meta" ? id.replace(/^act_/, "") : p === "google" ? id.replace(/-/g, "") : id);
+  const wanted = norm(platform, accountId);
+  const rows = await prisma.alertClient.findMany({ where: { gone: false }, select: { id: true, name: true, hqSlug: true, accountsJson: true } });
+  for (const c of rows) {
+    let accs: Array<{ platform: string; accountId: string }> = [];
+    try { accs = JSON.parse(c.accountsJson); } catch { accs = []; }
+    if (accs.some((a) => a.platform === platform && norm(a.platform, a.accountId) === wanted)) return { id: c.id, name: c.name, hqSlug: c.hqSlug };
+  }
+  return null;
+}
+
+export const OWN_AD_ID_RE = /^(meta|google|tiktok|linkedin):[\w-]+$/;
+
+/**
+ * One of the client's own ads kept as a template (source « own », Analyse Ads
+ * and Mo « Garder »): picture, texts and name from the warehouse, the client
+ * from the ad's account when none is given. Null when the ad is unknown.
+ */
+export async function ownAdTemplateSource(adId: string): Promise<{ sourceRef: string; imageUrl: string | null; title: string; body: string; name: string; client: { id: string; name: string; hqSlug: string | null } | null } | null> {
+  if (!OWN_AD_ID_RE.test(adId)) return null;
+  const ad = await prisma.adCatalog.findUnique({ where: { id: adId } });
+  if (!ad) return null;
+  return { sourceRef: ad.id, imageUrl: ad.imageUrl ?? ad.thumbnailUrl ?? null, title: ad.title ?? "", body: ad.body ?? "", name: ad.name.slice(0, 120), client: await clientOfAccount(ad.platform, ad.accountId) };
+}
+
 export function templateView(row: CreativeTemplate, viewerId: string, uses = 0): TemplateView {
   return {
     id: row.id, name: row.name, source: (row.source === "competitor" || row.source === "own" ? row.source : "upload"), brand: row.brand,

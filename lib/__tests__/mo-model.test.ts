@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutNewCards, parseMoAnswer, sanitizeAsk, sanitizeOpen } from "@/lib/mo/model";
+import { describeCards, layoutNewCards, modelHistory, parseMoAnswer, parseMoEntries, sanitizeAsk, sanitizeOpen } from "@/lib/mo/model";
 
 describe("Mo — parsing of an answer", () => {
   it("reads the ```mo block: say, cards, open", () => {
@@ -76,5 +76,57 @@ describe("Mo — layout", () => {
     const second = layoutNewCards(first, { say: "", cards: [{ type: "note", title: "c", markdown: "z", ref: first[0].id }] }, 1, "t");
     expect(second[0].y).toBeGreaterThan(first[0].y);
     expect(second[0].ref).toBe(first[0].id);
+  });
+});
+
+describe("Mo — cards of lot 2 (file, action) and verdicts", () => {
+  it("keeps a verdict, a template id and the client on a creatives card", () => {
+    const a = parseMoAnswer(JSON.stringify({ say: "ok", cards: [{ type: "creatives", title: "t", clientId: "d_cl", clientName: "Cours Legendre", items: [{ name: "a", metrics: {}, verdict: "keep", templateId: "tpl1" }, { name: "b", metrics: {}, verdict: "nope" }] }] }));
+    const c = a.cards[0] as Extract<typeof a.cards[number], { type: "creatives" }>;
+    expect(c.clientId).toBe("d_cl"); expect(c.clientName).toBe("Cours Legendre");
+    expect(c.items[0]).toMatchObject({ verdict: "keep", templateId: "tpl1" });
+    expect(c.items[1].verdict).toBeUndefined();
+  });
+  it("reads a file card (our own picture only, https link only)", () => {
+    const a = parseMoAnswer(JSON.stringify({ say: "ok", cards: [{ type: "file", title: "visuel.png", name: "visuel.png", mime: "image/png", bytes: 1234.6, image: "/api/studio/assets/ckasset0000000001/file?inline=1", link: "https://drive.google.com/x", assetId: "ckasset0000000001", folder: "creas" }, { type: "file", title: "b", name: "brief.pdf", mime: "application/pdf", image: "http://evil/x.png", link: "ftp://x", folder: "briefs" }, { type: "file", title: "no name" }] }));
+    expect(a.cards).toHaveLength(2);
+    expect(a.cards[0]).toMatchObject({ type: "file", name: "visuel.png", bytes: 1235, image: "/api/studio/assets/ckasset0000000001/file?inline=1", link: "https://drive.google.com/x", assetId: "ckasset0000000001", folder: "creas" });
+    expect(a.cards[1]).not.toHaveProperty("image");
+    expect(a.cards[1]).not.toHaveProperty("link");
+    expect(layoutNewCards([], { cards: a.cards }, 0, "t")[0]).toMatchObject({ w: 300, h: 380 });
+  });
+  it("reads a publish action card and refuses one without its draft", () => {
+    const ok = { type: "action", title: "À publier", kind: "publish", actionId: "act_1", status: "to_confirm", assetId: "ckasset0000000001", adsetId: "12345678", account: "CL", adset: "Prospection", page: "Page", name: "Mo · x", primaryText: "Texte", linkUrl: "https://cours.fr", writesOpen: true, hq: "ok", pilotage: "/pilotage?dashboardId=d_cl", textsFrom: "UGC Lisa" };
+    const a = parseMoAnswer(JSON.stringify({ say: "ok", cards: [ok, { ...ok, status: "sent", adId: "123" }, { ...ok, status: "weird", pilotage: "https://evil" }, { ...ok, actionId: "" }, { ...ok, adsetId: "abc" }] }));
+    expect(a.cards).toHaveLength(3);
+    expect(a.cards[0]).toMatchObject({ type: "action", kind: "publish", status: "to_confirm", actionId: "act_1", textsFrom: "UGC Lisa", writesOpen: true });
+    expect(a.cards[1]).toMatchObject({ status: "sent", adId: "123" });
+    expect(a.cards[2]).toMatchObject({ status: "to_confirm", pilotage: "/pilotage" });
+  });
+  it("describes verdicts, files and publications to the model", () => {
+    const d = describeCards([
+      { id: "a1", type: "creatives", title: "Créas", clientName: "CL", x: 0, y: 0, w: 1, turn: 0, at: "t", items: [{ name: "UGC Lisa", adId: "1", metrics: {}, verdict: "keep" }, { name: "B", metrics: {}, verdict: "cut" }] },
+      { id: "a2", type: "file", title: "brief.pdf", name: "brief.pdf", mime: "application/pdf", link: "https://drive.google.com/x", x: 0, y: 0, w: 1, turn: 0, at: "t" },
+      { id: "a3", type: "action", title: "À publier", kind: "publish", actionId: "x", status: "to_confirm", assetId: "s", adsetId: "12345678", account: "", adset: "Prospection", page: "", name: "", primaryText: "", linkUrl: "", writesOpen: false, hq: "", pilotage: "/pilotage", x: 0, y: 0, w: 1, turn: 0, at: "t" },
+    ]);
+    expect(d).toContain("[client CL]");
+    expect(d).toContain("verdicts : UGC Lisa gardée ; B coupée");
+    expect(d).toContain("fichier brief.pdf (dans le Drive)");
+    expect(d).toContain("publication à confirmer par la personne : Prospection");
+  });
+});
+
+describe("Mo — the journal's action lines", () => {
+  it("are stored with the messages but never shown to the model", () => {
+    const json = JSON.stringify([
+      { role: "user", content: "créas cl", at: "t1" },
+      { role: "action", content: "garde celle-là", at: "t2", action: { kind: "verdict", clientId: "d_cl", cardIds: ["abc123"], label: "Gardée : UGC Lisa", at: "t2" } },
+      { role: "action", content: "x", at: "t3", action: { kind: "nope", cardIds: [], label: "" } },
+      { role: "assistant", content: "```mo\n{}\n```", at: "t4", say: "ok" },
+    ]);
+    const all = parseMoEntries(json);
+    expect(all.map((m) => m.role)).toEqual(["user", "action", "assistant"]);
+    expect(all[1].action).toMatchObject({ kind: "verdict", clientId: "d_cl", cardIds: ["abc123"], label: "Gardée : UGC Lisa" });
+    expect(modelHistory(all).map((m) => m.role)).toEqual(["user", "assistant"]);
   });
 });

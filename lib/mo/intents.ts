@@ -248,6 +248,49 @@ export function parseQuickIntent(text: string, clients: IntentClient[]): QuickRe
 
 const sortedClients = (clients: IntentClient[]) => [...clients].sort((a, b) => a.name.localeCompare(b.name, "fr"));
 
+// ── Follow-ups on the card at hand (no client named: the fresh or selected creatives card) ──
+
+/** « Mets les chiffres dessous » → the figures under the visuals of the card; « garde / coupe celle-là » → a verdict on one of them. */
+export type FollowUpIntent =
+  | { kind: "creative_metrics"; period?: QuickPeriod; say: string }
+  | { kind: "verdict"; verdict: "keep" | "cut"; target: { which: "this" } | { which: "index"; index: number } | { which: "all" }; say: string };
+
+const METRICS_UNDER = /\b(chiffres?|metrics?|metriques?|resultats?|perfs?|performances?|stats?|cpa|cpl|roas|ctr)\b/;
+const UNDER_WORDS = /\b(dessous|en dessous|sous (chaque|les|ces|la|le|tous les)|sur (chaque|les|ces) (visuel|crea|image|pub)|de (chaque|ces|les) (visuel|crea|pub))/;
+const KEEP_VERBS = /\b(garde|gardes|garder|gardons|on garde|je garde|conserve|conserver|valide|valider|retiens|ok pour|top pour|j aime)\b/;
+const CUT_VERBS = /\b(coupe|coupes|couper|coupons|on coupe|je coupe|vire|virer|jette|jeter|elimine|eliminer|rejette|rejeter|pas celle|non pour|bof|stoppe|arrete)\b/;
+const ORDINALS: Array<[RegExp, number]> = [
+  [/\b(premiere?|1(?:ere?|re)?)\b/, 0], [/\b(deuxieme|seconde?|2(?:e|eme)?)\b/, 1], [/\b(troisieme|3(?:e|eme)?)\b/, 2], [/\b(quatrieme|4(?:e|eme)?)\b/, 3],
+  [/\b(cinquieme|5(?:e|eme)?)\b/, 4], [/\b(sixieme|6(?:e|eme)?)\b/, 5], [/\b(septieme|7(?:e|eme)?)\b/, 6], [/\b(huitieme|8(?:e|eme)?)\b/, 7],
+  [/\b(neuvieme|9(?:e|eme)?)\b/, 8], [/\b(dixieme|10(?:e|eme)?)\b/, 9], [/\b(onzieme|11(?:e|eme)?)\b/, 10], [/\b(douzieme|12(?:e|eme)?)\b/, 11],
+];
+const THIS_ONE = /\b(celle (la|ci)|celui (la|ci)|ca|cette (crea|pub|image|visuel)|ce visuel|cette la|la (la|ci))\b|\b(garde|coupe|vire|conserve|valide|jette) (la|le)\b/;
+const ALL_ONES = /\b(toutes?|tous|les deux|le lot|tout)\b/;
+
+/**
+ * A follow-up said over a creatives card: the figures under its visuals, or
+ * a verdict on one of them. Null when the sentence is anything else (a client
+ * name, a period alone, a question).
+ */
+export function parseFollowUpIntent(text: string): FollowUpIntent | null {
+  const t = fold(text);
+  if (!t || t.length > 120) return null;
+  const words = t.split(" ").filter(Boolean).length;
+  // « mets les chiffres sous chaque créa », « les chiffres dessous », « chiffres ? »
+  if (METRICS_UNDER.test(t) && (UNDER_WORDS.test(t) || /\b(mets?|mettre|ajoute|affiche|montre)\b/.test(t) || words <= 3) && !/\b(de|pour|chez)\s+[a-z]{3,}\s+(cette|ce|la|le|sur|du|des)\b/.test(t) && !/\b(compare|pourquoi|explique)\b/.test(t)) {
+    const period = PERIOD_WORDS.find(([re]) => re.test(t));
+    return { kind: "creative_metrics", ...(period ? { period: period[1] } : {}), say: "Je mets les chiffres sous les visuels." };
+  }
+  const keep = KEEP_VERBS.test(t), cut = CUT_VERBS.test(t);
+  if (keep === cut) return null;
+  const verdict = keep ? "keep" as const : "cut" as const;
+  const ord = ORDINALS.find(([re]) => re.test(t));
+  if (ord) return { kind: "verdict", verdict, target: { which: "index", index: ord[1] }, say: verdict === "keep" ? "Je la garde." : "Je la coupe." };
+  if (ALL_ONES.test(t)) return { kind: "verdict", verdict, target: { which: "all" }, say: verdict === "keep" ? "Je garde tout." : "Je coupe tout." };
+  if (THIS_ONE.test(t) || words <= 2) return { kind: "verdict", verdict, target: { which: "this" }, say: verdict === "keep" ? "Je la garde." : "Je la coupe." };
+  return null;
+}
+
 /** The sentence completed with the chip picked, ready for the quick path again. */
 export function completeQuickAsk(ask: QuickAsk, choice: IntentClient | QuickPeriodOption): string {
   const base = ask.draft.text.trim().replace(/[\s?.!…]+$/, "");
