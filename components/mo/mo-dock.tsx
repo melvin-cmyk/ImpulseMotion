@@ -5,8 +5,8 @@
  * the Guide bubble). Hold it (or Alt+M) and speak; release: Mo transcribes,
  * understands navigation at once ("ouvre le cockpit de Naturalia" → the page
  * opens in under a second, no model call), and asks the model for anything
- * else — spoken answer + cards on the consultant's « Mo partout » board
- * (/mo?b=…). States: idle → listening → transcribing → thinking → speaking →
+ * else — spoken answer + cards on the consultant's home page « Aujourd'hui »
+ * (/mo). States: idle → listening → transcribing → thinking → speaking →
  * done | error (retry). Hidden on /mo itself, which has the full experience.
  */
 
@@ -236,7 +236,7 @@ export function MoDock() {
               {bubble.chips.map((c) => <button key={c.label} type="button" onClick={() => void send(c.text)} className="rounded-full border border-violet-400/40 bg-violet-500/15 px-2.5 py-0.5 text-[12px] text-violet-100 hover:bg-violet-500/30">{c.label}</button>)}
             </div>
           )}
-          {bubble?.cards ? <Link href={`/mo?b=${boardId}`} className="inline-flex items-center gap-1 text-[12px] text-violet-300 hover:text-white"><AudioLines className="w-3.5 h-3.5" /> {bubble.cards} carte{bubble.cards > 1 ? "s" : ""} sur ton tableau Mo →</Link> : null}
+          {bubble?.cards ? <Link href="/mo" className="inline-flex items-center gap-1 text-[12px] text-violet-300 hover:text-white"><AudioLines className="w-3.5 h-3.5" /> {bubble.cards} carte{bubble.cards > 1 ? "s" : ""} · voir sur mon espace →</Link> : null}
           {(bubble?.error || voice.error) && (
             <div className="flex items-center gap-2 text-[12px] text-rose-300">
               <span className="flex-1">{bubble?.error ?? voice.error}</span>

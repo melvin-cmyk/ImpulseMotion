@@ -11,7 +11,7 @@
  */
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronUp, ExternalLink, FileText, FileUp, HardDrive, Image as ImageIcon, LayoutGrid, Link2, Loader2, MessageCircleQuestion, Minus, Rocket, RotateCcw, Send, StickyNote, Table2, TrendingUp, X } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronUp, ExternalLink, FileText, FileUp, Frame, HardDrive, Image as ImageIcon, LayoutGrid, Link2, Loader2, MessageCircleQuestion, Minus, Rocket, RotateCcw, Send, StickyNote, Table2, TrendingUp, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { CARD_SIZES, type MoCard } from "@/lib/mo/model";
@@ -21,7 +21,7 @@ import { CardActions, VerdictBadge, actionForKey, actionsFor, type CreativeActio
 
 const SERIES_COLORS = ["#a78bfa", "#f0abfc", "#67e8f9", "#fde68a", "#86efac", "#fca5a5"];
 
-const ICONS = { kpis: LayoutGrid, table: Table2, chart: TrendingUp, creatives: ImageIcon, note: StickyNote, ask: MessageCircleQuestion, file: FileUp, action: Send } as const;
+const ICONS = { kpis: LayoutGrid, table: Table2, chart: TrendingUp, creatives: ImageIcon, note: StickyNote, ask: MessageCircleQuestion, file: FileUp, action: Send, frame: Frame } as const;
 
 /** What the page is doing on this card right now (a spinner on the button): `item:<index>:<action>` or `confirm`. */
 export type CardBusy = string | null;
@@ -59,7 +59,7 @@ export interface MoCardViewProps {
   busy?: CardBusy;
 }
 
-const HANDLES: Array<{ dir: HandleDir; cls: string; cursor: string }> = [
+export const HANDLES: Array<{ dir: HandleDir; cls: string; cursor: string }> = [
   { dir: "n", cls: "left-3 right-3 -top-1 h-2", cursor: "cursor-ns-resize" },
   { dir: "s", cls: "left-3 right-3 -bottom-1 h-2", cursor: "cursor-ns-resize" },
   { dir: "w", cls: "top-3 bottom-3 -left-1 w-2", cursor: "cursor-ew-resize" },
@@ -70,14 +70,14 @@ const HANDLES: Array<{ dir: HandleDir; cls: string; cursor: string }> = [
   { dir: "sw", cls: "-left-1.5 -bottom-1.5 w-3.5 h-3.5", cursor: "cursor-nesw-resize" },
 ];
 
-function applyRect(el: HTMLDivElement | null, r: { x: number; y: number; w?: number; h?: number | null }) {
+export function applyRect(el: HTMLDivElement | null, r: { x: number; y: number; w?: number; h?: number | null }) {
   if (!el) return;
   el.style.transform = `translate(${r.x}px, ${r.y}px)`;
   if (r.w !== undefined) el.style.width = `${r.w}px`;
   if (r.h !== undefined) el.style.height = r.h === null ? "" : `${r.h}px`;
 }
 
-function Handle({ dir, cls, cursor, cardId, getK, onStart, onResize, onEnd }: { dir: HandleDir; cls: string; cursor: string; cardId: string; getK: () => number; onStart: () => void; onResize: (dir: HandleDir, dx: number, dy: number, alt: boolean) => void; onEnd: () => void }) {
+export function Handle({ dir, cls, cursor, cardId, getK, onStart, onResize, onEnd }: { dir: HandleDir; cls: string; cursor: string; cardId: string; getK: () => number; onStart: () => void; onResize: (dir: HandleDir, dx: number, dy: number, alt: boolean) => void; onEnd: () => void }) {
   const acc = useRef({ dx: 0, dy: 0 });
   const drag = useCardDrag(getK, (dx, dy, e) => { acc.current.dx += dx; acc.current.dy += dy; onResize(dir, acc.current.dx, acc.current.dy, e.altKey); }, (moved) => { if (moved) onEnd(); }, () => { acc.current = { dx: 0, dy: 0 }; onStart(); });
   return <div data-handle={dir} data-card-id={cardId} className={`absolute z-10 ${cls} ${cursor} touch-none`} {...drag} />;
@@ -238,6 +238,8 @@ function CardBody({ card, width, selected, busy, onAnswer, onItemAction, onItemH
     case "note": return <AiMarkdown content={card.markdown} filesBase={null} className="prose-xs" />;
     case "file": return <FileBody card={card} />;
     case "action": return <PublishBody card={card} busy={busy === "confirm"} onConfirm={onConfirmPublish} />;
+    // Frames are drawn by MoFrameView (components/mo/frame.tsx), never as a card body.
+    case "frame": return null;
   }
 }
 

@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowRight, Briefcase, CornerDownLeft, Search, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowRight, Briefcase, CornerDownLeft, FileText, Search, Sparkles, Sun, Zap } from "lucide-react";
 import { normalizeAct, type PreviewAccount } from "@/lib/use-account-list";
 
 export interface ClientRow {
@@ -25,7 +25,20 @@ export interface ClientRow {
 }
 
 export type PaletteAction = "analyse" | "client";
-type Row = { kind: "client"; client: ClientRow } | { kind: "account"; account: PreviewAccount };
+
+/** An extra row a caller adds (Mo's palette: actions, pages): found by its label and keywords, ↵ runs it. */
+export interface PaletteCommand {
+  id: string;
+  label: string;
+  hint?: string;
+  /** Section header the row is listed under (« Actions », « Pages »). */
+  group: string;
+  icon?: "action" | "page" | "home" | "client";
+  keywords?: string;
+  onPick: () => void;
+}
+
+type Row = { kind: "client"; client: ClientRow } | { kind: "account"; account: PreviewAccount } | { kind: "command"; command: PaletteCommand };
 
 function norm(s: string): string {
   return s.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -42,7 +55,7 @@ function clientMatches(c: ClientRow, q: string, qd: string): boolean {
   return ids.some((id) => digits(id).includes(qd));
 }
 
-export function ClientPalette({ open, onClose, clients, accounts, loading, currentAccountId, primary, onPickClient, onPickAccount, title }: {
+export function ClientPalette({ open, onClose, clients, accounts, loading, currentAccountId, primary, onPickClient, onPickAccount, title, commands = [], clientHint = "cockpit", clientSubtitle }: {
   open: boolean;
   onClose: () => void;
   clients: ClientRow[];
@@ -54,6 +67,12 @@ export function ClientPalette({ open, onClose, clients, accounts, loading, curre
   onPickClient: (client: ClientRow) => void;
   onPickAccount: (account: PreviewAccount, action: PaletteAction) => void;
   title?: string;
+  /** Extra rows (actions, pages): first when nothing is typed, after the clients once a search narrows them. */
+  commands?: PaletteCommand[];
+  /** What ↵ does on a client row, shown on the right (« cockpit », « cadre »…). */
+  clientHint?: string;
+  /** Second line of a client row (default: its accounts). */
+  clientSubtitle?: (client: ClientRow) => string;
 }) {
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -84,8 +103,10 @@ export function ClientPalette({ open, onClose, clients, accounts, loading, curre
       .filter((a) => !clientMeta.has(normalizeAct(a.id)) || primary === "analyse")
       .filter((a) => !q || norm(a.name).includes(q) || norm(a.clientName ?? "").includes(q) || (qd && digits(a.id).includes(qd)))
       .map((account) => ({ kind: "account", account }));
-    return primary === "analyse" ? [...accountRows, ...clientRows] : [...clientRows, ...accountRows];
-  }, [clients, accounts, query, primary]);
+    const commandRows: Row[] = commands.filter((c) => !q || norm(`${c.label} ${c.keywords ?? ""} ${c.group}`).includes(q)).map((command) => ({ kind: "command", command }));
+    const main = primary === "analyse" ? [...accountRows, ...clientRows] : [...clientRows, ...accountRows];
+    return q ? [...main, ...commandRows] : [...commandRows, ...main];
+  }, [clients, accounts, query, primary, commands]);
 
   useEffect(() => {
     const el = listRef.current?.children[highlight] as HTMLElement | undefined;
@@ -93,6 +114,7 @@ export function ClientPalette({ open, onClose, clients, accounts, loading, curre
   }, [highlight]);
 
   function activate(row: Row, alt = false) {
+    if (row.kind === "command") { row.command.onPick(); return; }
     if (row.kind === "client") { onPickClient(row.client); return; }
     const a = row.account;
     if (a.outOfScope) return;
@@ -110,7 +132,7 @@ export function ClientPalette({ open, onClose, clients, accounts, loading, curre
 
   if (!open) return null;
   const nClients = rows.filter((r) => r.kind === "client").length;
-  const nAccounts = rows.length - nClients;
+  const nAccounts = rows.filter((r) => r.kind === "account").length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] px-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -141,24 +163,32 @@ export function ClientPalette({ open, onClose, clients, accounts, loading, curre
               {rows.map((row, i) => {
                 const active = i === highlight;
                 const prev = rows[i - 1];
-                const header = !prev || prev.kind !== row.kind;
+                const groupOf = (r: Row) => (r.kind === "client" ? "Clients" : r.kind === "account" ? "Comptes Meta (analyse)" : r.command.group);
+                const header = !prev || groupOf(prev) !== groupOf(row);
                 return (
-                  <li key={row.kind === "client" ? `c:${row.client.id}` : `a:${row.account.id}`}>
+                  <li key={row.kind === "client" ? `c:${row.client.id}` : row.kind === "account" ? `a:${row.account.id}` : `k:${row.command.id}`}>
                     {header && (
-                      <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-600">
-                        {row.kind === "client" ? "Clients" : "Comptes Meta (analyse)"}
-                      </div>
+                      <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-600">{groupOf(row)}</div>
                     )}
-                    {row.kind === "client" ? (
-                      <div onMouseEnter={() => setHighlight(i)} className={`group w-full px-4 py-2.5 flex items-center gap-3 transition-colors ${active ? "bg-violet-500/10" : ""}`}>
+                    {row.kind === "command" ? (
+                      <div onMouseEnter={() => setHighlight(i)} data-palette-command={row.command.id} className={`group w-full px-4 py-2.5 flex items-center gap-3 transition-colors ${active ? "bg-violet-500/10" : ""}`}>
+                        {row.command.icon === "page" ? <FileText className="w-4 h-4 text-gray-400 shrink-0" /> : row.command.icon === "home" ? <Sun className="w-4 h-4 text-violet-300 shrink-0" /> : row.command.icon === "client" ? <Briefcase className="w-4 h-4 text-violet-400 shrink-0" /> : <Zap className="w-4 h-4 text-fuchsia-300 shrink-0" />}
+                        <button type="button" onClick={() => activate(row)} className="flex-1 min-w-0 text-left">
+                          <div className="text-sm font-medium text-white truncate">{row.command.label}</div>
+                          {row.command.hint && <div className="text-xs text-gray-500 mt-0.5 truncate">{row.command.hint}</div>}
+                        </button>
+                        <span className={`text-[10px] text-gray-500 inline-flex items-center gap-1 ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}><CornerDownLeft className="w-3 h-3" /></span>
+                      </div>
+                    ) : row.kind === "client" ? (
+                      <div onMouseEnter={() => setHighlight(i)} data-palette-client={row.client.id} className={`group w-full px-4 py-2.5 flex items-center gap-3 transition-colors ${active ? "bg-violet-500/10" : ""}`}>
                         <Briefcase className="w-4 h-4 text-violet-400 shrink-0" />
                         <button type="button" onClick={() => activate(row)} className="flex-1 min-w-0 text-left">
                           <div className="text-sm font-medium text-white truncate">{row.client.name}</div>
                           <div className="text-xs text-gray-500 mt-0.5 truncate">
-                            {row.client.accounts.map((a) => `${a.platform === "meta" ? "Meta" : a.platform === "google" ? "Google" : "TikTok"} ${a.id}`).join(" · ") || "aucun compte rattaché"}{row.client.dashboardId ? "" : " · sans dashboard"}
+                            {clientSubtitle ? clientSubtitle(row.client) : <>{row.client.accounts.map((a) => `${a.platform === "meta" ? "Meta" : a.platform === "google" ? "Google" : "TikTok"} ${a.id}`).join(" · ") || "aucun compte rattaché"}{row.client.dashboardId ? "" : " · sans dashboard"}</>}
                           </div>
                         </button>
-                        <span className={`text-[10px] text-gray-500 inline-flex items-center gap-1 ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}><CornerDownLeft className="w-3 h-3" /> cockpit</span>
+                        <span className={`text-[10px] text-gray-500 inline-flex items-center gap-1 ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}><CornerDownLeft className="w-3 h-3" /> {clientHint}</span>
                       </div>
                     ) : (
                       <AccountRow account={row.account} active={active} current={!!currentAccountId && normalizeAct(row.account.id) === normalizeAct(currentAccountId)} primary={primary} onHover={() => setHighlight(i)} onPick={(alt) => activate(row, alt)} />

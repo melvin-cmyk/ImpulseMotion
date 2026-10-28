@@ -6,6 +6,7 @@
  */
 
 import { CARD_SIZES, COL_GAP, ROW_GAP, type MoCard, type MoCardType } from "@/lib/mo/model";
+import { FRAME_FOLDED_H, arrangeWithFrames, isFrame, type ArrangedRect } from "@/lib/mo/frames";
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Guide { axis: "x" | "y"; pos: number; from: number; to: number }
@@ -27,13 +28,16 @@ export const MIN_SIZES: Record<MoCardType, { w: number; h: number }> = {
   ask: { w: 280, h: 120 },
   file: { w: 200, h: 200 },
   action: { w: 400, h: 320 },
+  frame: { w: 480, h: 200 },
 };
 export const MAX_SIZE = { w: 1600, h: 1400 };
+/** Frames may be wider and taller than cards (they hold them). */
+export const MAX_FRAME_SIZE = { w: 6000, h: 6000 };
 
 /** Header height of a minimised card (what stays visible). */
 export const MIN_HEADER_H = 56;
 
-export const rectOf = (c: MoCard): Rect => ({ x: c.x, y: c.y, w: c.w, h: c.minimized ? MIN_HEADER_H : c.h ?? CARD_SIZES[c.type].h });
+export const rectOf = (c: MoCard): Rect => ({ x: c.x, y: c.y, w: c.w, h: c.minimized ? (isFrame(c) ? FRAME_FOLDED_H : MIN_HEADER_H) : c.h ?? CARD_SIZES[c.type].h });
 
 export const snapToGrid = (v: number, grid = GRID) => Math.round(v / grid) * grid;
 
@@ -90,6 +94,7 @@ export function snapMove(moving: Rect, others: Rect[], tol: number, grid: number
 /** The rect after dragging one handle by (dx, dy), clamped to the type's minimum and the board maximum. */
 export function resizeRect(start: Rect, dir: HandleDir, dx: number, dy: number, type: MoCardType, grid: number | null = GRID): Rect {
   const min = MIN_SIZES[type];
+  const max = type === "frame" ? MAX_FRAME_SIZE : MAX_SIZE;
   let { x, y, w, h } = start;
   if (dir.includes("e")) w = start.w + dx;
   if (dir.includes("s")) h = start.h + dy;
@@ -99,8 +104,8 @@ export function resizeRect(start: Rect, dir: HandleDir, dx: number, dy: number, 
     if (dir.includes("e") || dir.includes("w")) w = snapToGrid(w, grid);
     if (dir.includes("s") || dir.includes("n")) h = snapToGrid(h, grid);
   }
-  w = Math.min(MAX_SIZE.w, Math.max(min.w, w));
-  h = Math.min(MAX_SIZE.h, Math.max(min.h, h));
+  w = Math.min(max.w, Math.max(min.w, w));
+  h = Math.min(max.h, Math.max(min.h, h));
   // Western / northern handles keep the opposite edge where it was.
   if (dir.includes("w")) x = start.x + start.w - w;
   if (dir.includes("n")) y = start.y + start.h - h;
@@ -108,11 +113,20 @@ export function resizeRect(start: Rect, dir: HandleDir, dx: number, dy: number, 
 }
 
 /**
- * "Ranger": cards grouped by turn (oldest first), each turn flowing left to
- * right in rows no wider than `maxWidth`, rows stacked with ROW_GAP; a new
- * turn always starts a new row. Returns the new position of every card.
+ * "Ranger": the frames side by side, each one's cards flowing inside, then
+ * the free cards under them — frame by frame (lib/mo/frames.ts). Returns the
+ * new position of every card, and the new size of the frames.
  */
-export function arrangeCards(cards: MoCard[], maxWidth = MAX_ROW_WIDTH): Map<string, { x: number; y: number }> {
+export function arrangeCards(cards: MoCard[], maxWidth = MAX_ROW_WIDTH): Map<string, ArrangedRect> {
+  return arrangeWithFrames(cards, arrangeFree, maxWidth);
+}
+
+/**
+ * The flow of free cards: grouped by turn (oldest first), each turn flowing
+ * left to right in rows no wider than `maxWidth`, rows stacked with ROW_GAP;
+ * a new turn always starts a new row. Returns the new position of every card.
+ */
+export function arrangeFree(cards: MoCard[], maxWidth = MAX_ROW_WIDTH): Map<string, { x: number; y: number }> {
   const out = new Map<string, { x: number; y: number }>();
   const byTurn = new Map<number, MoCard[]>();
   for (const c of cards) { const t = c.turn ?? 0; if (!byTurn.has(t)) byTurn.set(t, []); byTurn.get(t)!.push(c); }

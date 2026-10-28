@@ -8,7 +8,7 @@
  * This module is client-safe (types + pure parsing); storage is in ./thread.
  */
 
-export type MoCardType = "kpis" | "table" | "chart" | "creatives" | "note" | "ask" | "file" | "action";
+export type MoCardType = "kpis" | "table" | "chart" | "creatives" | "note" | "ask" | "file" | "action" | "frame";
 export type MoTone = "good" | "bad" | "neutral";
 /** The consultant's verdict on a visual: kept (green) or cut (grey). */
 export type MoVerdict = "keep" | "cut";
@@ -45,6 +45,8 @@ interface MoCardBase {
   /** The client the card is about (registry id, lib/clients/registry.ts) when a tool or an action knows it. */
   clientId?: string;
   clientName?: string;
+  /** The client frame (card of type « frame ») this card lives in; moves with it, hidden when it is folded. */
+  frame?: string;
 }
 
 /** A publication prepared by Mo (Pilotage draft): confirmed by a click, never sent otherwise. */
@@ -87,7 +89,9 @@ export type MoCardPayload =
   /** A file dropped on the board: a visual (kept as a CreativeAsset, copied in the client's Drive « Créas ») or a brief (Drive « Briefs »). */
   | { type: "file"; name: string; mime: string; bytes?: number; image?: string; link?: string; assetId?: string; folder?: "creas" | "briefs" }
   /** Something to confirm: a publication prepared through the Pilotage. */
-  | ({ type: "action" } & MoPublishAction);
+  | ({ type: "action" } & MoPublishAction)
+  /** A client frame: a named zone of the board (lib/mo/frames.ts) the client's cards are laid in; never written by the model. */
+  | { type: "frame"; clientId: string; clientName: string; color: string };
 
 export type MoCard = MoCardBase & MoCardPayload;
 
@@ -98,7 +102,7 @@ export type MoCardSpec = { title: string; subtitle?: string; ref?: string; clien
 export type MoCardUpdate = { id: string; title?: string; subtitle?: string } & (MoCardPayload | { type?: undefined });
 
 /** Geometry patch sent by the browser. */
-export interface MoCardPatch { x?: number; y?: number; w?: number; h?: number; z?: number; minimized?: boolean; removed?: boolean }
+export interface MoCardPatch { x?: number; y?: number; w?: number; h?: number; z?: number; minimized?: boolean; removed?: boolean; /** Joins a frame (its id) or leaves it (null). */ frame?: string | null }
 
 /** What the consultant did on the board without the model (journal, lib/mo/act.ts). */
 export type MoActionKind = "verdict" | "creative_metrics" | "open_editor" | "drive" | "competitor_ads" | "publish_prepare" | "publish_confirm" | "upload";
@@ -161,6 +165,10 @@ function sanitizeActionMeta(raw: unknown): MoActionMeta | null {
 export interface MoBoardData {
   id: string;
   title: string;
+  /** Page of the workspace: « Aujourd'hui » (home), a client's page, or a free page (lib/mo/pages.ts). */
+  kind: "home" | "client" | "free";
+  clientId: string | null;
+  archived: boolean;
   cards: MoCard[];
   messages: MoMessage[];
   updatedAt: string;
@@ -180,6 +188,7 @@ export const CARD_SIZES: Record<MoCardType, { w: number; h: number }> = {
   ask: { w: 440, h: 200 },
   file: { w: 300, h: 380 },
   action: { w: 560, h: 700 },
+  frame: { w: 1168, h: 320 },
 };
 
 export const ROW_GAP = 70;
@@ -311,6 +320,7 @@ function sanitizeCard(raw: unknown): MoCardSpec | null {
       const a = sanitizePublishAction(r);
       return a ? { ...base, type: "action", ...a } : null;
     }
+    // A frame is laid by the application (lib/mo/frames.ts), never by the model.
     default:
       return null;
   }
@@ -410,20 +420,25 @@ export function applyCardUpdates(cards: MoCard[], answer: Pick<MoAnswer, "update
     if (!u) { out.push(c); continue; }
     touched.push(c.id);
     const { id: _id, title, subtitle, ...rest } = u; void _id;
-    const base = { id: c.id, x: c.x, y: c.y, w: c.w, ...(c.h ? { h: c.h } : {}), ...(c.z !== undefined ? { z: c.z } : {}), ...(c.ref ? { ref: c.ref } : {}), ...(c.clientId ? { clientId: c.clientId } : {}), ...(c.clientName ? { clientName: c.clientName } : {}), minimized: false, turn, at, title: title ?? c.title, ...(subtitle ? { subtitle } : c.subtitle ? { subtitle: c.subtitle } : {}) };
+    const base = { id: c.id, x: c.x, y: c.y, w: c.w, ...(c.h ? { h: c.h } : {}), ...(c.z !== undefined ? { z: c.z } : {}), ...(c.ref ? { ref: c.ref } : {}), ...(c.clientId ? { clientId: c.clientId } : {}), ...(c.clientName ? { clientName: c.clientName } : {}), ...(c.frame ? { frame: c.frame } : {}), minimized: false, turn, at, title: title ?? c.title, ...(subtitle ? { subtitle } : c.subtitle ? { subtitle: c.subtitle } : {}) };
     if ("type" in rest && rest.type) {
       // New content: same size unless the type changed (then the default size of the new type).
       const size = rest.type === c.type ? { w: c.w, h: c.h } : CARD_SIZES[rest.type];
       out.push({ ...base, ...rest, w: size.w, ...(size.h ? { h: size.h } : {}) } as MoCard);
     } else {
-      const { x: _x, y: _y, w: _w, h: _h, z: _z, ref: _r, minimized: _m, turn: _t, at: _a, title: _ti, subtitle: _su, id: _i, clientId: _ci, clientName: _cn, ...payload } = c; void [_x, _y, _w, _h, _z, _r, _m, _t, _a, _ti, _su, _i, _ci, _cn];
+      const { x: _x, y: _y, w: _w, h: _h, z: _z, ref: _r, minimized: _m, turn: _t, at: _a, title: _ti, subtitle: _su, id: _i, clientId: _ci, clientName: _cn, frame: _f, ...payload } = c; void [_x, _y, _w, _h, _z, _r, _m, _t, _a, _ti, _su, _i, _ci, _cn, _f];
       out.push({ ...base, ...payload } as MoCard);
     }
   }
   return { cards: out, touched };
 }
 
-/** Places the cards of one turn on new rows under everything already on the board (rows wrap at ROW_WRAP_WIDTH), on top of the stack. */
+/**
+ * Places the cards of one turn on new rows under everything already on the
+ * board (rows wrap at ROW_WRAP_WIDTH), on top of the stack — the free cards.
+ * Cards that belong to a client go in its frame: see `layoutWithFrames`
+ * (lib/mo/frames.ts), which calls this for the rest.
+ */
 export function layoutNewCards(existing: MoCard[], answer: { cards: MoCardSpec[]; say?: string; open?: string; updates?: MoCardUpdate[]; remove?: string[] }, turn: number, at: string): MoCard[] {
   const bottom = existing.reduce((m, c) => Math.max(m, c.y + (c.h ?? CARD_SIZES[c.type].h)), 0);
   let y = existing.length ? bottom + ROW_GAP : 0;
@@ -457,7 +472,7 @@ export function newCardId(): string {
  * the KPIs) so « mets les chiffres sous chaque créa » can rewrite the right card.
  */
 export function describeCards(cards: MoCard[]): string {
-  const visible = cards.slice(-24);
+  const visible = cards.filter((c) => c.type !== "frame").slice(-24);
   if (!visible.length) return "Aucune carte à l'écran pour l'instant.";
   const detail = (c: MoCard): string => {
     switch (c.type) {
@@ -469,6 +484,7 @@ export function describeCards(cards: MoCard[]): string {
       case "ask": return ` — question : ${c.question} (${c.options.join(" / ")})`;
       case "file": return ` — fichier ${c.name}${c.assetId ? ` [asset ${c.assetId}]` : ""}${c.link ? " (dans le Drive)" : ""}`;
       case "action": return ` — publication ${c.status === "sent" ? "envoyée (PAUSED)" : c.status === "failed" ? "en échec" : "à confirmer par la personne"} : ${c.adset} [asset ${c.assetId}]`;
+      case "frame": return " — cadre client";
     }
   };
   const verdicts = (c: MoCard) => (c.type === "creatives" ? c.items.filter((it) => it.verdict).map((it) => `${it.name} ${it.verdict === "keep" ? "gardée" : "coupée"}`) : []);

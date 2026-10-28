@@ -120,7 +120,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ vo
             {voice.speaking && <button type="button" onClick={() => voice.hush()} className="ml-2 text-[11px] text-gray-400 hover:text-white align-middle">stop</button>}
           </div>
         ) : null}
-        {error && <div className="text-[12px] text-rose-300">{error}</div>}
+        {error && <div data-mo-error className="text-[12px] text-rose-300">{error}</div>}
         {ask && !running && (
           <div data-mo-chips className="pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 pt-1">
             <span className="text-[12px] text-violet-200/80 mr-1">{ask.question}</span>

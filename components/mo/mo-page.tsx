@@ -1,26 +1,37 @@
 "use client";
 
 /**
- * /mo — Mo's screen. Full-screen board over the app chrome: the violet wave
- * behind, the cards in front, the composer at the bottom (text + microphone,
- * always there). Hold SPACE (or the orb) to talk; release to send. The moment
- * a message leaves, a ghost card marks where the answer will land; Mo answers
- * out loud and its cards replace the ghost. A session = a board, reopened
- * from the list. The « Mo » intro plays once (localStorage).
+ * /mo — the consultant's Mo workspace. Full-screen board over the app chrome:
+ * the violet wave behind, the client frames and the cards in front, the
+ * composer at the bottom (text + microphone, always there), the pages rail on
+ * the left (« Aujourd'hui », client pages, free pages), the journal of the day
+ * on the right, ⌘K for clients / actions / pages. Hold SPACE (or the orb) to
+ * talk; release to send. The moment a message leaves, a ghost card marks where
+ * the answer will land (inside the client's frame); Mo answers out loud and
+ * its cards replace the ghost. /mo opens « Aujourd'hui », /mo?b= a page. The
+ * « Mo » intro plays once (localStorage).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ChevronDown, LayoutGrid, Maximize2, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Briefcase, ChevronDown, ChevronUp, FileOutput, Frame as FrameIcon, LayoutGrid, Maximize2, PanelLeft, PanelRight, Search, Volume2, VolumeX, X } from "lucide-react";
 import { Board, type BoardHandle } from "@/components/mo/board";
 import { MoCardView, MoGhostCard, MoUploadCard, type CardBusy, type Ghost, type PublishEdits, type Upload } from "@/components/mo/card";
+import { MoFrameView, MoGhostFrame } from "@/components/mo/frame";
+import { PagesRail } from "@/components/mo/pages-rail";
+import { JournalRail } from "@/components/mo/journal-rail";
+import { MoPalette, type PaletteMode } from "@/components/mo/mo-palette";
+import type { ClientRow } from "@/components/client-palette";
+import { frameChildren, frameForMovedCard, frames as framesOf, isFrame, layoutWithFrames, moveFrameChildren, type MoFrame } from "@/lib/mo/frames";
+import { pageTitle, type MoPages } from "@/lib/mo/pages";
+import { localDay, type JournalEntry } from "@/lib/mo/journal";
 import type { CreativeAction } from "@/components/mo/card-actions";
 import { Composer, type ComposerAsk, type ComposerHandle } from "@/components/mo/composer";
 import { warmMoBoard } from "@/components/mo/warm";
 import { WaveCanvas, type WaveMood } from "@/components/mo/wave-canvas";
 import { useVoice } from "@/components/mo/use-voice";
-import { CARD_SIZES, COL_GAP, layoutNewCards, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec } from "@/lib/mo/model";
+import { CARD_SIZES, COL_GAP, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec } from "@/lib/mo/model";
 import { MAX_UPLOAD_BYTES, fileKindOf } from "@/lib/mo/act";
 import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
 
@@ -30,7 +41,6 @@ import { actStatusLabel, moStatusLabel } from "@/lib/mo/status";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
-interface BoardSummary { id: string; title: string; updatedAt: string; cards: number }
 interface Run { jobId: string; startedAt: number; activity: ActivityState }
 /** An action of the board running (POST /api/mo/[id]/act): which card, which button, since when. */
 interface Acting { cardId: string | null; key: CardBusy; action: string; startedAt: number }
@@ -40,6 +50,11 @@ const readDataUrl = (f: File) => new Promise<string>((res, rej) => { const r = n
 
 /** The « Mo » wordmark plays on the first visit only. */
 const INTRO_KEY = "mo:intro-seen";
+/** The rails stay as the person left them. */
+const RAIL_LEFT_KEY = "mo:rail-left";
+const RAIL_RIGHT_KEY = "mo:rail-right";
+const railPref = (key: string, fallback: boolean) => { try { const v = localStorage.getItem(key); return v === null ? fallback : v === "1"; } catch { return fallback; } };
+const rectOfCard = (c: MoCard) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h });
 /** Chips offered when Mo asks for the client (the rest behind « autre… »). */
 const MAX_CHIPS = 6;
 
@@ -58,13 +73,20 @@ export function MoPage() {
   const boardRef = useRef<BoardHandle>(null);
   const kRef = useRef(1);
   const [board, setBoard] = useState<MoBoardData | null>(null);
-  const [boards, setBoards] = useState<BoardSummary[]>([]);
+  const [pages, setPages] = useState<MoPages | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [lastSaid, setLastSaid] = useState<{ you: string; mo: string | null } | null>(null);
   const [intro, setIntro] = useState(false);
-  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const [railLeft, setRailLeft] = useState(true);
+  const [railRight, setRailRight] = useState(true);
+  const [palette, setPalette] = useState<{ open: boolean; mode: PaletteMode }>({ open: false, mode: "all" });
+  /** The menu of a frame (right-click / ⋯): screen point and frame id. */
+  const [menu, setMenu] = useState<{ frameId: string; x: number; y: number } | null>(null);
+  const [journal, setJournal] = useState<{ day: string; entries: JournalEntry[]; loading: boolean }>({ day: localDay(), entries: [], loading: false });
+  /** Bumped after anything Mo did, so the journal refreshes. */
+  const [journalTick, setJournalTick] = useState(0);
   /** The placeholder card drawn where the answer will land, from the send to the first real card. */
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const ghostRef = useRef<Ghost | null>(null);
@@ -108,26 +130,52 @@ export function MoPage() {
     return j;
   }, []);
 
-  const listBoards = useCallback(async () => {
+  /** The pages of the workspace (rail): home, client pages, free pages. */
+  const loadPages = useCallback(async (): Promise<MoPages | null> => {
     const r = await fetch("/api/mo", { cache: "no-store" });
-    if (!r.ok) return [];
-    const j = (await r.json()) as { boards: BoardSummary[] };
-    setBoards(j.boards ?? []);
-    return j.boards ?? [];
+    if (!r.ok) return null;
+    const j = (await r.json()) as { home: MoPages["home"]; pages: { client: MoPages["client"]; free: MoPages["free"] } };
+    const p: MoPages = { home: j.home, client: j.pages?.client ?? [], free: j.pages?.free ?? [] };
+    pagesRef.current = p;
+    setPages(p);
+    return p;
   }, []);
+  const listBoards = loadPages;
+  /** The pages as last loaded (set at once, before React renders them: openPage needs the home id right after the first load). */
+  const pagesRef = useRef<MoPages | null>(null);
 
-  const createBoard = useCallback(async () => {
-    const r = await fetch("/api/mo", { method: "POST" });
-    if (!r.ok) throw new Error("Impossible de créer la session");
-    const j = (await r.json()) as { board: MoBoardData };
-    setBoard(j.board);
-    setFresh(new Set());
-    setLastSaid(null);
-    warmMoBoard(j.board.id);
-    router.replace(`/mo?b=${j.board.id}`);
-    void listBoards();
+  /** Shows a page: URL, board, running reply, view on its cards, last exchange. */
+  const openPage = useCallback(async (id: string, focusIds?: string[]) => {
+    setFresh(new Set()); setSelected(new Set()); setGhost(null); setMenu(null);
+    const home = pagesRef.current?.home.id;
+    router.replace(id === home ? "/mo" : `/mo?b=${id}`);
+    const j = await loadBoard(id);
+    seenTurns.current = j.board.messages.filter((m) => m.role === "assistant").length;
+    if (j.jobId) followRef.current?.(j.jobId, id);
+    const last = [...j.board.messages].reverse();
+    const you = last.find((m) => m.role === "user");
+    setLastSaid(you ? { you: you.content, mo: last.find((m) => m.role === "assistant")?.say ?? null } : null);
+    window.setTimeout(() => {
+      const wanted = focusIds?.length ? j.board.cards.filter((c) => focusIds.includes(c.id)) : [];
+      if (wanted.length) { setSelected(new Set(wanted.map((c) => c.id))); boardRef.current?.fit(wanted.map(rectOfCard), 90, { kMin: 0.5, kMax: 1 }); return; }
+      const rects = j.board.cards.map(rectOfCard);
+      if (rects.length) boardRef.current?.fit(rects, 90);
+    }, 60);
     return j.board;
-  }, [router, listBoards]);
+  }, [loadBoard, router]);
+  const followRef = useRef<((jobId: string, boardId: string) => void) | null>(null);
+
+  /** A new page: free, or the client's (created when missing). Opens it. */
+  const createPage = useCallback(async (body: { kind: "free"; title?: string } | { kind: "client"; clientId: string }) => {
+    const r = await fetch("/api/mo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = (await r.json().catch(() => ({}))) as { board?: MoBoardData; error?: string };
+    if (!r.ok || !j.board) throw new Error(j.error ?? "Impossible de créer la page");
+    await loadPages();
+    await openPage(j.board.id);
+    warmMoBoard(j.board.id);
+    return j.board;
+  }, [loadPages, openPage]);
+  const createBoard = useCallback(() => createPage({ kind: "free" }), [createPage]);
 
   // ── Following a reply ─────────────────────────────────────────────────
   const finishTurn = useCallback(async (id: string) => {
@@ -149,9 +197,10 @@ export function MoPage() {
     setLastSaid((s) => ({ you: s?.you ?? "", mo: last?.say ?? null }));
     if (last?.say && !muted && earlySaid.current !== last.say) speakRef.current(last.say);
     earlySaid.current = null;
-    const rects = j.board.cards.filter((c) => ids.has(c.id)).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
+    const rects = j.board.cards.filter((c) => ids.has(c.id)).map(rectOfCard);
     if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
-    // Mo was asked to open a page: the board stays (reopened from the menu), the page comes up once the sentence is said.
+    setJournalTick((t) => t + 1);
+    // Mo was asked to open a page: the board stays (reopened from the rail), the page comes up once the sentence is said.
     if (last?.open && !last.cardIds?.length) window.setTimeout(() => router.push(last.open!), 900);
   }, [loadBoard, muted, router]);
 
@@ -212,32 +261,39 @@ export function MoPage() {
       await finishTurn(boardId);
     }).catch((e) => { window.clearInterval(live); follower.current = null; setRun(null); const msg = e instanceof Error ? e.message : "Suivi interrompu"; setError(msg); setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: msg } : g)); });
   }, [finishTurn, muted]);
+  useEffect(() => { followRef.current = follow; }, [follow]);
 
-  // First load: the wanted board, else the latest, else a new one.
+  // First load: the wanted page (deep link), else « Aujourd'hui » (always there).
   useEffect(() => {
     let cancelled = false;
+    queueMicrotask(() => { setRailLeft(railPref(RAIL_LEFT_KEY, true)); setRailRight(railPref(RAIL_RIGHT_KEY, true)); });
     (async () => {
       try {
-        const list = await listBoards();
-        const id = wanted && list.some((b) => b.id === wanted) ? wanted : wanted ?? list[0]?.id ?? null;
-        if (!id) { if (!cancelled) await createBoard(); return; }
-        const j = await loadBoard(id).catch(async () => { if (!wanted) return null; router.replace("/mo"); return null; });
+        const p = await loadPages();
         if (cancelled) return;
-        if (!j) { await createBoard(); return; }
-        if (!wanted) router.replace(`/mo?b=${id}`);
-        if (j.jobId) follow(j.jobId, id);
-        seenTurns.current = j.board.messages.filter((m) => m.role === "assistant").length;
-        const last = [...j.board.messages].reverse();
-        const you = last.find((m) => m.role === "user")?.content ?? "";
-        const mo = last.find((m) => m.role === "assistant")?.say ?? null;
-        if (you) setLastSaid({ you, mo });
-        window.setTimeout(() => { const rects = j.board.cards.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h })); if (rects.length) boardRef.current?.fit(rects, 90); }, 120);
+        if (!p) throw new Error("Espace indisponible");
+        const id = wanted ?? p.home.id;
+        try { await openPage(id); } catch { if (cancelled) return; if (id !== p.home.id) await openPage(p.home.id); else throw new Error("Page introuvable"); }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Chargement impossible");
       }
     })();
     return () => { cancelled = true; follower.current?.abort(); follower.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The journal of the day, across pages: refreshed after each thing Mo does, and every minute.
+  useEffect(() => {
+    let cancelled = false;
+    setJournal((j) => ({ ...j, loading: true }));
+    const load = () => fetch(`/api/mo/journal?day=${journal.day}&tz=${new Date().getTimezoneOffset()}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j: { entries: JournalEntry[] } | null) => { if (!cancelled && j) setJournal((s) => ({ ...s, entries: j.entries, loading: false })); }).catch(() => { if (!cancelled) setJournal((s) => ({ ...s, loading: false })); });
+    void load();
+    const t = window.setInterval(load, 60_000);
+    return () => { cancelled = true; window.clearInterval(t); };
+  }, [journal.day, journalTick]);
+  const toggleRail = useCallback((side: "left" | "right") => {
+    if (side === "left") setRailLeft((v) => { try { localStorage.setItem(RAIL_LEFT_KEY, v ? "0" : "1"); } catch { /* fine */ } return !v; });
+    else setRailRight((v) => { try { localStorage.setItem(RAIL_RIGHT_KEY, v ? "0" : "1"); } catch { /* fine */ } return !v; });
   }, []);
 
   // The wordmark plays once; afterwards the board is usable the moment it loads.
@@ -259,17 +315,26 @@ export function MoPage() {
     }).catch(() => undefined);
   }, []);
 
-  /** Draws the ghost where the next card will land (same rule as the server: a new row under everything), and brings it into view. */
+  /** The frame a ghost would open (dashed outline) while the quick answer runs. */
+  const [ghostFrame, setGhostFrame] = useState<{ rect: Rect; name: string; color: string } | null>(null);
+  useEffect(() => { if (!ghost) setGhostFrame(null); }, [ghost]);
+  /** Draws the ghost where the next card will land (same rule as the server: inside the client's frame, else a new row under everything), and brings it into view. */
   const placeGhost = useCallback((text: string, quick: QuickResult | null) => {
     const b = boardStateRef.current;
     if (!b) return;
     const type: MoCard["type"] = quick?.kind === "creatives" ? "creatives" : "kpis";
     const title = ghostTitle(text, quick);
-    const [placed] = layoutNewCards(b.cards, { cards: [{ type, title } as unknown as MoCardSpec] }, b.messages.filter((m) => m.role === "assistant").length, new Date().toISOString());
+    const client = quick && quick.kind !== "ask" ? quick.client : null;
+    const spec = { type, title, ...(client ? { clientId: client.id, clientName: client.name } : {}) } as unknown as MoCardSpec;
+    const laid = layoutWithFrames(b.cards, [spec], b.messages.filter((m) => m.role === "assistant").length, new Date().toISOString());
+    const placed = laid.placed[0];
     if (!placed) return;
     const g: Ghost = { id: placed.id, text, title, x: placed.x, y: placed.y, w: placed.w, h: placed.h ?? CARD_SIZES[type].h, z: placed.z ?? 0, state: "pending", startedAt: Date.now() };
+    const nf = laid.newFrames[0];
+    setGhostFrame(nf ? { rect: { x: nf.x, y: nf.y, w: nf.w, h: nf.h ?? CARD_SIZES.frame.h }, name: nf.clientName, color: nf.color } : null);
     setGhost(g);
-    window.setTimeout(() => boardRef.current?.fit([{ x: g.x, y: g.y, w: g.w, h: g.h }], 90, { kMin: 0.5, kMax: 1 }), 30);
+    const rects = [{ x: g.x, y: g.y, w: g.w, h: g.h }, ...(nf ? [{ x: nf.x, y: nf.y, w: nf.w, h: nf.h ?? CARD_SIZES.frame.h }] : [])];
+    window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 30);
   }, []);
 
   const send = useCallback(async (text: string) => {
@@ -330,9 +395,10 @@ export function MoPage() {
           setFresh(ids);
           // No card came back: the ghost says why, with a retry.
           setGhost((g) => (g && g.state === "pending" ? (ids.size ? null : { ...g, state: "error", message: j.say }) : g));
-          const rects = loaded.board.cards.filter((c) => ids.has(c.id)).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
+          const rects = loaded.board.cards.filter((c) => ids.has(c.id)).map(rectOfCard);
           if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
           void listBoards();
+          setJournalTick((t) => t + 1);
           return;
         }
         if (res.status !== 204) { const j = (await res.json().catch(() => ({}))) as { error?: string }; if (res.status === 409) { setRun(null); setError(j.error ?? "Mo répond déjà."); setGhost(null); return; } }
@@ -370,7 +436,7 @@ export function MoPage() {
     const isTyping = () => { const el = document.activeElement as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
     const down = (e: KeyboardEvent) => {
       if (e.code === "Space" && !e.repeat && !isTyping() && !run) { e.preventDefault(); warm(); voice.begin(); }
-      if (e.key === "Escape") { voice.hush(); voice.cancel(); setSessionsOpen(false); setChoice(null); }
+      if (e.key === "Escape") { voice.hush(); voice.cancel(); setMenu(null); setChoice(null); }
     };
     const up = (e: KeyboardEvent) => { if (e.code === "Space" && !isTyping()) { e.preventDefault(); voice.end(); } };
     window.addEventListener("keydown", down);
@@ -390,6 +456,8 @@ export function MoPage() {
   const resizeStart = useRef<Rect | null>(null);
   /** Unsnapped position of the dragged card: the pointer's truth, so the card does not stick to a guide. */
   const rawPos = useRef({ x: 0, y: 0 });
+  /** A frame being dragged: where it and its cards started (the cards follow by the same delta). */
+  const frameDrag = useRef<{ id: string; x: number; y: number; kids: MoCard[] } | null>(null);
   const commitRaf = useRef<number>(0);
   const getK = useCallback(() => kRef.current, []);
 
@@ -412,7 +480,9 @@ export function MoPage() {
     commitRaf.current = requestAnimationFrame(() => {
       commitRaf.current = 0;
       const l = live.current; if (!l) return;
-      setBoard((b) => (b ? { ...b, cards: b.cards.map((c): MoCard => (c.id === l.id ? { ...c, x: l.x, y: l.y, w: l.w, h: l.h } as MoCard : c)) } : b));
+      const fd = frameDrag.current;
+      const kids = fd && fd.id === l.id ? moveFrameChildren(fd.kids, fd.id, l.x - fd.x, l.y - fd.y) : null;
+      setBoard((b) => (b ? { ...b, cards: b.cards.map((c): MoCard => (c.id === l.id ? { ...c, x: l.x, y: l.y, w: l.w, h: l.h } as MoCard : kids?.has(c.id) ? { ...c, ...kids.get(c.id)! } as MoCard : c)) } : b));
     });
   }, []);
 
@@ -421,10 +491,13 @@ export function MoPage() {
     const c = b?.cards.find((x) => x.id === id);
     if (!b || !c) return { x: 0, y: 0 };
     const cur = live.current?.id === id ? live.current : { id, x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h };
+    if (live.current?.id !== id) frameDrag.current = isFrame(c) ? { id, x: c.x, y: c.y, kids: frameChildren(b.cards, id) } : null;
     // Raw target from the accumulated deltas (kept apart from the snapped one so the card does not "stick").
     const raw = { x: (live.current?.id === id ? rawPos.current.x : c.x) + dx, y: (live.current?.id === id ? rawPos.current.y : c.y) + dy };
     rawPos.current = raw;
-    const others = b.cards.filter((x) => x.id !== id).map(rectOf);
+    // A frame snaps to the other frames and the free cards, not to its own cards; a card does not snap to the frame it moves in.
+    const kidIds = new Set(frameDrag.current?.kids.map((k) => k.id) ?? []);
+    const others = b.cards.filter((x) => x.id !== id && !kidIds.has(x.id) && !(c.frame && x.id === c.frame)).map(rectOf);
     const snapped = snapMove({ x: raw.x, y: raw.y, w: cur.w, h: cur.h }, others, SNAP_SCREEN_PX / (kRef.current || 1), alt ? null : GRID);
     live.current = { ...cur, x: snapped.x, y: snapped.y };
     setGuides((g) => (sameGuides(g, snapped.guides) ? g : snapped.guides));
@@ -433,12 +506,26 @@ export function MoPage() {
   }, [commitLive]);
   const onMoveEnd = useCallback((id: string, moved: boolean) => {
     const l = live.current;
-    live.current = null;
+    const fd = frameDrag.current;
+    live.current = null; frameDrag.current = null;
     setGuides([]);
     if (!moved || !l || l.id !== id) return;
     cancelAnimationFrame(commitRaf.current); commitRaf.current = 0;
-    setBoard((b) => (b ? { ...b, cards: b.cards.map((c): MoCard => (c.id === id ? { ...c, x: l.x, y: l.y } as MoCard : c)) } : b));
-    queue(id, { x: l.x, y: l.y });
+    const b = boardStateRef.current;
+    if (fd && fd.id === id) {
+      // The frame moved: its cards by the same delta.
+      const kids = moveFrameChildren(fd.kids, id, l.x - fd.x, l.y - fd.y);
+      setBoard((bb) => (bb ? { ...bb, cards: bb.cards.map((c): MoCard => (c.id === id ? { ...c, x: l.x, y: l.y } as MoCard : kids.has(c.id) ? { ...c, ...kids.get(c.id)! } as MoCard : c)) } : bb));
+      queue(id, { x: l.x, y: l.y });
+      for (const [kid, p] of kids) queue(kid, p);
+      return;
+    }
+    // A card dropped in a frame joins it; dragged out, it leaves it.
+    const c = b?.cards.find((x) => x.id === id);
+    const nextFrame = b && c ? frameForMovedCard(b.cards, { ...c, x: l.x, y: l.y, w: l.w, h: l.h }) : null;
+    const frameChange = c && (nextFrame ?? undefined) !== c.frame ? { frame: nextFrame } : {};
+    setBoard((bb) => (bb ? { ...bb, cards: bb.cards.map((cc): MoCard => (cc.id === id ? ({ ...cc, x: l.x, y: l.y, ...("frame" in frameChange ? (nextFrame ? { frame: nextFrame } : { frame: undefined }) : {}) } as MoCard) : cc)) } : bb));
+    queue(id, { x: l.x, y: l.y, ...frameChange });
   }, [queue]);
 
   const onResizeStart = useCallback((id: string) => {
@@ -487,7 +574,8 @@ export function MoPage() {
     const b = boardStateRef.current; if (!b || !ids.length) return;
     const removed = b.cards.filter((c) => ids.includes(c.id));
     if (!removed.length) return;
-    setBoard((bb) => (bb ? { ...bb, cards: bb.cards.filter((c) => !ids.includes(c.id)) } : bb));
+    const gone = new Set(removed.filter(isFrame).map((f) => f.id));
+    setBoard((bb) => (bb ? { ...bb, cards: bb.cards.filter((c) => !ids.includes(c.id)).map((c) => (c.frame && gone.has(c.frame) ? ({ ...c, frame: undefined } as MoCard) : c)) } : bb));
     setSelected((s) => { const n = new Set(s); ids.forEach((i) => n.delete(i)); return n; });
     setUndo((u) => {
       if (u) { window.clearTimeout(u.timer); u.cards.forEach((c) => queue(c.id, { removed: true })); }
@@ -606,12 +694,12 @@ export function MoPage() {
     if (files.length > MAX_DROP_FILES) setError(`${MAX_DROP_FILES} fichiers à la fois au plus : les suivants n'ont pas été pris.`);
   }, [uploadOne]);
 
-  /** « Ranger » : masonry by turn, every card moved and saved, then fit. */
+  /** « Ranger » : frame by frame (each sized to its cards), then the free cards by turn; every card moved and saved, then fit. */
   const arrange = useCallback(() => {
     const b = boardStateRef.current; if (!b || !b.cards.length) return;
     const pos = arrangeCards(b.cards);
-    const cards = b.cards.map((c): MoCard => { const p = pos.get(c.id); return p && (p.x !== c.x || p.y !== c.y) ? ({ ...c, x: p.x, y: p.y } as MoCard) : c; });
-    cards.forEach((c, i) => { if (c !== b.cards[i]) queue(c.id, { x: c.x, y: c.y }); });
+    const cards = b.cards.map((c): MoCard => { const p = pos.get(c.id); if (!p) return c; const w = p.w ?? c.w, h = p.h ?? c.h; return p.x !== c.x || p.y !== c.y || w !== c.w || h !== c.h ? ({ ...c, x: p.x, y: p.y, w, ...(h !== undefined ? { h } : {}) } as MoCard) : c; });
+    cards.forEach((c, i) => { if (c !== b.cards[i]) queue(c.id, { x: c.x, y: c.y, ...(isFrame(c) ? { w: c.w, h: c.h } : {}) }); });
     setBoard({ ...b, cards });
     window.setTimeout(() => boardRef.current?.fit(cards.map(rectOf), 90), 30);
   }, [queue]);
@@ -624,7 +712,7 @@ export function MoPage() {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping()) return;
       const meta = e.metaKey || e.ctrlKey;
-      if (e.key === "Escape") { clearSelection(); return; }
+      if (e.key === "Escape") { clearSelection(); setMenu(null); return; }
       if (meta && e.key === "0") { e.preventDefault(); fitAll(); return; }
       if (meta && (e.key === "=" || e.key === "+")) { e.preventDefault(); boardRef.current?.zoomBy(1.25); return; }
       if (meta && e.key === "-") { e.preventDefault(); boardRef.current?.zoomBy(1 / 1.25); return; }
@@ -641,11 +729,18 @@ export function MoPage() {
       for (const id of selected) { const c = boardStateRef.current?.cards.find((x) => x.id === id); if (c) queue(id, { x: c.x + d[0], y: c.y + d[1] }); }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // ⌘K is Mo's palette here (the app's own ⌘K listens on the window too: captured first, stopped).
+    const onPalette = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); e.stopPropagation(); setPalette((p) => ({ open: !p.open, mode: "all" })); } };
+    window.addEventListener("keydown", onPalette, true);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("keydown", onPalette, true); };
   }, [selected, clearSelection, fitAll, fitFresh, arrange, removeCards, queue]);
   useEffect(() => () => { cancelAnimationFrame(commitRaf.current); if (undo) window.clearTimeout(undo.timer); }, [undo]);
 
-  const sortedCards = useMemo(() => [...(board?.cards ?? [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0) || a.turn - b.turn), [board]);
+  const frameList = useMemo(() => framesOf(board?.cards ?? []), [board]);
+  const foldedFrames = useMemo(() => new Set(frameList.filter((f) => f.minimized).map((f) => f.id)), [frameList]);
+  const frameCounts = useMemo(() => { const m = new Map<string, number>(); for (const c of board?.cards ?? []) if (c.frame && !isFrame(c)) m.set(c.frame, (m.get(c.frame) ?? 0) + 1); return m; }, [board]);
+  const sortedCards = useMemo(() => (board?.cards ?? []).filter((c) => !isFrame(c) && !(c.frame && foldedFrames.has(c.frame))).sort((a, b) => (a.z ?? 0) - (b.z ?? 0) || a.turn - b.turn), [board, foldedFrames]);
+  const framedClients = useMemo(() => frameList.map((f) => ({ clientId: f.clientId, clientName: f.clientName })), [frameList]);
   const freshOrder = useMemo(() => { const m = new Map<string, number>(); let i = 0; for (const c of board?.cards ?? []) if (fresh.has(c.id)) m.set(c.id, i++); return m; }, [board, fresh]);
   const titles = useMemo(() => new Map((board?.cards ?? []).map((c) => [c.id, c.title])), [board]);
   const links = useMemo(() => (board?.cards ?? []).flatMap((c) => {
@@ -681,8 +776,64 @@ export function MoPage() {
     return { question: ask.question, chips: PERIOD_OPTIONS.map((p) => ({ label: p.label, onPick: () => pick(completeQuickAsk(ask, p)) })) };
   }, [ask, board, send, typeOther]);
 
+  // ── Workspace: pages, frames menu, palette, journal ───────────────────
+  const openPageSafe = useCallback((id: string, focusIds?: string[]) => { void openPage(id, focusIds).catch((e) => setError(e instanceof Error ? e.message : "Page introuvable")); }, [openPage]);
+  const renamePage = useCallback(async (id: string, title: string) => {
+    await fetch(`/api/mo/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }).catch(() => undefined);
+    setBoard((b) => (b && b.id === id ? { ...b, title } : b));
+    void loadPages();
+  }, [loadPages]);
+  const archivePage = useCallback(async (id: string) => {
+    await fetch(`/api/mo/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archived: true }) }).catch(() => undefined);
+    const p = await loadPages();
+    if (boardStateRef.current?.id === id && p) openPageSafe(p.home.id);
+  }, [loadPages, openPageSafe]);
+  /** The frame of a client on this page brought into view and selected (true when there is one). */
+  const focusFrame = useCallback((clientId: string): boolean => {
+    const f = framesOf(boardStateRef.current?.cards ?? []).find((x) => x.clientId === clientId);
+    if (!f) return false;
+    const kids = frameChildren(boardStateRef.current?.cards ?? [], f.id);
+    boardRef.current?.fit([rectOf(f), ...kids.map(rectOf)], 90, { kMin: 0.3, kMax: 1 });
+    setSelected(new Set([f.id]));
+    return true;
+  }, []);
+  /** A client picked in the palette: its frame here, else its page (created when needed). */
+  const pickClient = useCallback((c: ClientRow, mode: PaletteMode) => {
+    if (mode === "all" && focusFrame(c.id)) return;
+    const page = pagesRef.current?.client.find((p) => p.clientId === c.id);
+    if (page) { openPageSafe(page.id); return; }
+    void createPage({ kind: "client", clientId: c.id }).catch((e) => setError(e instanceof Error ? e.message : "Impossible d'ouvrir la page du client"));
+  }, [focusFrame, openPageSafe, createPage]);
+  /** « Détacher en page » : the frame and its cards leave for the client's page, which opens. */
+  const detachFrame = useCallback(async (frameId: string) => {
+    const b = boardStateRef.current; if (!b) return;
+    setMenu(null);
+    try {
+      const r = await fetch(`/api/mo/${b.id}/detach`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ frameId }) });
+      const j = (await r.json().catch(() => ({}))) as { pageId?: string; error?: string };
+      if (!r.ok || !j.pageId) throw new Error(j.error ?? `Erreur ${r.status}`);
+      await loadPages();
+      openPageSafe(j.pageId);
+      setJournalTick((t) => t + 1);
+    } catch (e) { setError(e instanceof Error ? e.message : "Le cadre n'a pas pu être détaché."); }
+  }, [loadPages, openPageSafe]);
+  const onFrameMenu = useCallback((frameId: string, x: number, y: number) => setMenu({ frameId, x, y }), []);
+  const onFrameOpenPage = useCallback((frameId: string) => { const f = frameList.find((x) => x.id === frameId); if (f) pickClient({ id: f.clientId } as ClientRow, "client-page"); }, [frameList, pickClient]);
+  const onJournalOpen = useCallback((e: JournalEntry) => { if (e.boardId === boardStateRef.current?.id) { const wanted = (boardStateRef.current?.cards ?? []).filter((c) => e.cardIds.includes(c.id)); if (wanted.length) { setSelected(new Set(wanted.map((c) => c.id))); boardRef.current?.fit(wanted.map(rectOfCard), 90, { kMin: 0.5, kMax: 1 }); } return; } openPageSafe(e.boardId, e.cardIds); }, [openPageSafe]);
+  /** « Publier la sélection » : the selected creatives card's visual at hand (else its first) goes to publish_prepare. */
+  const publishSelection = useCallback(() => {
+    const target = targetCreativesCard();
+    if (!target) { setError("Sélectionne d'abord une carte de créas."); return; }
+    const idx = hotItem.current?.cardId === target.id ? hotItem.current.index : target.items.findIndex((it) => it.verdict !== "cut");
+    onItemAction(target.id, Math.max(0, idx), "publish");
+  }, [targetCreativesCard, onItemAction]);
+  const menuFrame = menu ? frameList.find((f) => f.id === menu.frameId) ?? null : null;
+  const menuFrameHasPage = !!menuFrame && board?.kind === "client" && board.clientId === menuFrame.clientId;
+  const currentTitle = board ? pageTitle({ kind: board.kind, title: board.title, clientName: pages?.client.find((p) => p.id === board.id)?.clientName }) : "";
+  const railTop = "top-14", railBottom = "bottom-28";
+
   return (
-    <div className="fixed inset-0 z-[70] bg-[#07050f] text-gray-100 overflow-hidden" data-mo-ready={board ? "1" : undefined}>
+    <div className="fixed inset-0 z-[70] bg-[#07050f] text-gray-100 overflow-hidden" data-mo-ready={board ? "1" : undefined} data-mo-page-kind={board?.kind}>
       <WaveCanvas mood={mood} level={voice.level} levelRef={voice.levelRef} className="absolute inset-0 w-full h-full pointer-events-none" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(7,5,15,0)_0%,rgba(7,5,15,0.55)_70%,rgba(7,5,15,0.85)_100%)] pointer-events-none" />
 
@@ -692,7 +843,8 @@ export function MoPage() {
         <div className="text-sm text-violet-200/70 mo-intro-sub">Maintiens <kbd className="px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-[11px]">espace</kbd> et parle-moi</div>
       </div>
 
-      {/* Board */}
+      {/* Board — inset by the open rails, so « tout voir » and the focus on a card fit between them */}
+      <div className="absolute inset-y-0" style={{ left: railLeft ? 272 : 0, right: railRight ? 320 : 0 }}>
       <Board ref={boardRef} className="absolute inset-0" onViewChange={(v) => { kRef.current = v.k; }} onBackgroundClick={clearSelection} onDropFiles={dropFiles} onPasteFiles={dropFiles}
         underlay={links.length ? (
           <svg className="absolute left-0 top-0 overflow-visible pointer-events-none" width={1} height={1}>
@@ -720,6 +872,12 @@ export function MoPage() {
           </svg>
         ) : null}
       >
+        {frameList.map((f) => (
+          <MoFrameView key={f.id} frame={f as MoFrame} count={frameCounts.get(f.id) ?? 0} selected={selected.has(f.id)} getK={getK}
+            onMove={onMove} onMoveEnd={onMoveEnd} onResizeStart={onResizeStart} onResize={onResize} onResizeEnd={onResizeEnd}
+            onSelect={onSelect} onToggle={onToggle} onMenu={onFrameMenu} onOpenPage={onFrameOpenPage} />
+        ))}
+        {ghostFrame && <MoGhostFrame rect={ghostFrame.rect} name={ghostFrame.name} color={ghostFrame.color} />}
         {sortedCards.map((c) => (
           <MoCardView key={c.id} card={c} fresh={fresh.has(c.id)} delayMs={(freshOrder.get(c.id) ?? 0) * 60} selected={selected.has(c.id)} refTitle={c.ref ? titles.get(c.ref) ?? null : null} getK={getK}
             onMove={onMove} onMoveEnd={onMoveEnd} onResizeStart={onResizeStart} onResize={onResize} onResizeEnd={onResizeEnd}
@@ -729,11 +887,12 @@ export function MoPage() {
         {ghost && <MoGhostCard ghost={ghost} onRetry={() => { setGhost(null); void send(ghost.text); }} onClose={() => setGhost(null)} />}
         {uploads.map((up) => <MoUploadCard key={up.id} up={up} onClose={() => { if (up.preview) URL.revokeObjectURL(up.preview); setUploads((u) => u.filter((x) => x.id !== up.id)); }} />)}
       </Board>
+      </div>
 
       {/* Board toolbar: ranger · fit · shortcuts — and the undo toast after a removal */}
       <div className="absolute bottom-5 left-5 flex items-center gap-1.5 pointer-events-auto">
         <button type="button" onClick={arrange} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Ranger les cartes (R)"><LayoutGrid className="w-3.5 h-3.5" /> Ranger</button>
-        <span className="hidden md:inline text-[10px] text-gray-600 ml-1">⌘0 tout voir · F nouvelles cartes · R ranger · Suppr retirer · G garder · X couper · P publier · glisse un fichier</span>
+        <span className="hidden md:inline text-[10px] text-gray-600 ml-1">⌘K clients, actions, pages · ⌘0 tout voir · F nouvelles cartes · R ranger · Suppr retirer · G garder · X couper · P publier · glisse un fichier</span>
       </div>
       {undo && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 inline-flex items-center gap-3 rounded-full border border-white/10 bg-[#0d0a1a]/95 backdrop-blur px-4 py-2 text-xs text-gray-200 shadow-xl pointer-events-auto">
@@ -746,34 +905,40 @@ export function MoPage() {
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 pointer-events-none">
         <div className="flex items-center gap-2 pointer-events-auto">
           <Link href="/cockpit" className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10"><ArrowLeft className="w-3.5 h-3.5" /> Quitter</Link>
-          <div className="relative">
-            <button type="button" onClick={() => { setSessionsOpen((o) => !o); void listBoards(); }} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-200 hover:bg-white/10 max-w-[320px]">
-              <span className="w-2 h-2 rounded-full bg-violet-400 shrink-0" /><span className="truncate">{board?.title || "Nouvelle session"}</span><ChevronDown className="w-3.5 h-3.5 shrink-0 text-gray-500" />
-            </button>
-            {sessionsOpen && (
-              <div className="absolute left-0 mt-2 w-80 rounded-xl border border-white/10 bg-[#0d0a1a]/95 backdrop-blur-xl shadow-2xl p-1.5 text-xs">
-                <button type="button" onClick={() => { setSessionsOpen(false); void createBoard().catch((e) => setError(e.message)); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-violet-200 hover:bg-white/10"><Plus className="w-3.5 h-3.5" /> Nouvelle session</button>
-                <div className="max-h-72 overflow-auto mo-scroll mt-1 border-t border-white/5 pt-1">
-                  {boards.map((b) => (
-                    <div key={b.id} className={`flex items-center gap-1 rounded-lg ${b.id === board?.id ? "bg-white/10" : "hover:bg-white/5"}`}>
-                      <button type="button" onClick={() => { setSessionsOpen(false); setFresh(new Set()); router.replace(`/mo?b=${b.id}`); void loadBoard(b.id).then((j) => { if (j.jobId) follow(j.jobId, b.id); const rects = j.board.cards.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h })); window.setTimeout(() => { if (rects.length) boardRef.current?.fit(rects, 90); }, 60); const last = [...j.board.messages].reverse(); setLastSaid(last.find((m) => m.role === "user") ? { you: last.find((m) => m.role === "user")!.content, mo: last.find((m) => m.role === "assistant")?.say ?? null } : null); }).catch((e) => setError(e.message)); }} className="flex-1 min-w-0 text-left px-2.5 py-2">
-                        <div className="truncate text-gray-100">{b.title}</div>
-                        <div className="text-[10px] text-gray-500">{new Date(b.updatedAt).toLocaleString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} · {b.cards} carte{b.cards > 1 ? "s" : ""}</div>
-                      </button>
-                      <button type="button" aria-label="Supprimer" onClick={async () => { if (!confirm("Supprimer cette session et ses cartes ?")) return; await fetch(`/api/mo/${b.id}`, { method: "DELETE" }); const list = await listBoards(); if (b.id === board?.id) { if (list[0]) { router.replace(`/mo?b=${list[0].id}`); void loadBoard(list[0].id); } else void createBoard(); } }} className="p-1.5 mr-1 rounded-md text-gray-600 hover:text-rose-300 hover:bg-white/10"><Trash2 className="w-3.5 h-3.5" /></button>
-                    </div>
-                  ))}
-                  {!boards.length && <div className="px-2.5 py-2 text-gray-500">Aucune session</div>}
-                </div>
-              </div>
-            )}
+          <button type="button" data-rail-toggle="left" onClick={() => toggleRail("left")} className={`inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-2.5 py-1.5 text-xs hover:bg-white/10 ${railLeft ? "text-violet-200" : "text-gray-300"}`} title="Pages (rail de gauche)"><PanelLeft className="w-3.5 h-3.5" /></button>
+          <div data-mo-page-title className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-200 max-w-[320px]">
+            {board?.kind === "client" ? <Briefcase className="w-3.5 h-3.5 text-violet-300 shrink-0" /> : <span className="w-2 h-2 rounded-full bg-violet-400 shrink-0" />}<span className="truncate">{currentTitle || "…"}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 pointer-events-auto">
-          <button type="button" onClick={() => { const rects = (board?.cards ?? []).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h })); if (rects.length) boardRef.current?.fit(rects, 90); }} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Tout voir"><Maximize2 className="w-3.5 h-3.5" /> Tout voir</button>
+          <button type="button" data-mo-palette-button onClick={() => setPalette({ open: true, mode: "all" })} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Clients, actions, pages (⌘K)"><Search className="w-3.5 h-3.5" /> <span className="hidden md:inline">Rechercher</span> <kbd className="hidden md:inline text-[10px] text-gray-500 border border-white/10 rounded px-1">⌘K</kbd></button>
+          <button type="button" onClick={fitAll} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Tout voir"><Maximize2 className="w-3.5 h-3.5" /> Tout voir</button>
           <button type="button" onClick={() => { setMuted((m) => { if (!m) voice.hush(); return !m; }); }} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-2.5 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title={muted ? "Réactiver la voix de Mo" : "Couper la voix de Mo"}>{muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>
+          <button type="button" data-rail-toggle="right" onClick={() => toggleRail("right")} className={`inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-2.5 py-1.5 text-xs hover:bg-white/10 ${railRight ? "text-violet-200" : "text-gray-300"}`} title="Journal du jour (rail de droite)"><PanelRight className="w-3.5 h-3.5" /></button>
         </div>
       </div>
+
+      {/* Rails: pages on the left, the journal of the day on the right */}
+      {railLeft && <PagesRail pages={pages} currentId={board?.id ?? null} onOpen={openPageSafe} onNewFree={() => void createBoard().catch((e) => setError(e.message))} onNewClient={() => setPalette({ open: true, mode: "client-page" })} onRename={(id, t) => void renamePage(id, t)} onArchive={(id) => void archivePage(id)} className={`absolute left-4 ${railTop} ${railBottom} w-60 z-10 pointer-events-auto`} />}
+      {railRight && <JournalRail day={journal.day} entries={journal.entries} loading={journal.loading} onDay={(day) => setJournal((j) => ({ ...j, day }))} onOpen={onJournalOpen} className={`absolute right-4 ${railTop} ${railBottom} w-72 z-10 pointer-events-auto`} />}
+
+      {/* Menu of a frame */}
+      {menu && menuFrame && (
+        <>
+          <div className="fixed inset-0 z-30" onMouseDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
+          <div data-frame-context-menu className="fixed z-40 w-72 rounded-xl border border-white/10 bg-[#0d0a1a]/95 backdrop-blur-xl shadow-2xl p-1.5 text-xs" style={{ left: Math.min(menu.x, window.innerWidth - 300), top: Math.min(menu.y, window.innerHeight - 200) }}>
+            <div className="px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 flex items-center gap-1.5"><FrameIcon className="w-3 h-3" /> {menuFrame.clientName}</div>
+            {!menuFrameHasPage && <button type="button" data-menu-detach onClick={() => void detachFrame(menuFrame.id)} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-violet-200 hover:bg-white/10"><FileOutput className="w-3.5 h-3.5" /> Détacher en page</button>}
+            <button type="button" onClick={() => { setMenu(null); focusFrame(menuFrame.clientId); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-gray-200 hover:bg-white/10"><Maximize2 className="w-3.5 h-3.5" /> Voir le cadre</button>
+            <button type="button" onClick={() => { setMenu(null); onToggle(menuFrame.id); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-gray-200 hover:bg-white/10">{menuFrame.minimized ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />} {menuFrame.minimized ? "Déplier" : "Replier"}</button>
+            <button type="button" onClick={() => { setMenu(null); removeCards([menuFrame.id]); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-gray-400 hover:text-rose-300 hover:bg-white/10"><X className="w-3.5 h-3.5 shrink-0" /> <span className="whitespace-nowrap">Retirer le cadre <span className="text-gray-600">(les cartes restent)</span></span></button>
+          </div>
+        </>
+      )}
+
+      {/* ⌘K */}
+      <MoPalette open={palette.open} mode={palette.mode} onMode={(mode) => setPalette({ open: true, mode })} onClose={() => setPalette((p) => ({ ...p, open: false }))} pages={pages} currentId={board?.id ?? null} framed={framedClients} hasSelection={selected.size > 0}
+        onPickClient={pickClient} onOpenPage={openPageSafe} onNewFree={() => void createBoard().catch((e) => setError(e.message))} onSend={(t) => void send(t)} onArrange={arrange} onFitAll={fitAll} onPublishSelection={publishSelection} />
 
       {/* Empty state */}
       {board && !board.cards.length && !run && !intro && !ghost && (
