@@ -131,8 +131,14 @@ export async function resolveClient(ctx: MoToolContext, raw: unknown): Promise<R
   return { client: clients.find((c) => c.id === m.id)!, scope, session };
 }
 
+/**
+ * The accounts a tool looks at. Without a platform, « créas » means visuals:
+ * Meta when the client has it (Google text ads are not what the consultant
+ * pictures), else every platform of the client. "all" forces everything.
+ */
 function platformsOf(client: ClientRef, wanted: unknown): { platforms: WarehousePlatform[]; accountIds: string[]; accounts: Array<{ platform: WarehousePlatform; id: string }> } {
-  const want = str(wanted, 20).toLowerCase();
+  let want = str(wanted, 20).toLowerCase();
+  if (!want && client.accounts.some((a) => a.platform === "meta")) want = "meta";
   const all = client.accounts.filter((a) => !want || want === "all" || a.platform === want);
   const accounts = all.map((a) => ({ platform: a.platform as WarehousePlatform, id: a.id.replace(/^act_/, "").replace(/-/g, "") }));
   return { platforms: [...new Set(accounts.map((a) => a.platform))], accountIds: [...new Set(accounts.map((a) => a.id))], accounts };
@@ -147,15 +153,19 @@ async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const range = periodRange(a);
   const { platforms, accountIds, accounts } = platformsOf(client, a.platform);
   if (!accountIds.length) throw new MoToolError(`${client.name} n'a pas de compte ${str(a.platform) || "publicitaire"} rattaché.`, 404);
-  const launched = a.launched_in_period === true;
+  let launched = a.launched_in_period === true;
   const sortKey = (SORT_KEYS as string[]).includes(str(a.sort)) ? (str(a.sort) as MetricKey | "launch") : "spend";
   const dir: "asc" | "desc" = a.order === "asc" || (a.order === undefined && (sortKey === "cpa" || sortKey === "launch")) ? "asc" : "desc";
   const limit = Math.min(24, Math.max(1, Math.round(num(a.limit) ?? 12)));
-  const res = await queryAds({
+  const run = (withLaunch: boolean) => queryAds({
     platforms, accountIds, accounts, range: { since: range.since, until: range.until }, groupBy: "ad",
-    filters: { ...(launched ? { launchedAfter: range.since, launchedBefore: range.until } : {}), ...(num(a.min_spend) ? { minSpend: num(a.min_spend)! } : {}), ...(str(a.name_contains) ? { nameContains: str(a.name_contains, 80) } : {}) },
+    filters: { ...(withLaunch ? { launchedAfter: range.since, launchedBefore: range.until } : {}), ...(num(a.min_spend) ? { minSpend: num(a.min_spend)! } : {}), ...(str(a.name_contains) ? { nameContains: str(a.name_contains, 80) } : {}) },
     sort: { key: sortKey === "launch" ? "launch" : sortKey, dir }, limit,
   });
+  let res = await run(launched);
+  let note = "";
+  // « Les créas de cette semaine » with nothing launched this week: the ones that ran, said so — never an empty board.
+  if (launched && !res.rows.length) { res = await run(false); launched = false; note = "Aucune créa lancée sur la période : voici celles qui ont diffusé (dis-le)."; }
   const cur = res.currency;
   const items = res.rows.map((r) => {
     const s = r.sample;
@@ -168,10 +178,11 @@ async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
     };
   });
   return {
-    client: { id: client.id, name: client.name }, period: { ...range }, platforms, currency: cur, launched_in_period: launched,
+    client: { id: client.id, name: client.name }, period: { ...range }, platforms, currency: cur, launched_in_period: launched, ...(note ? { note } : {}),
     count: items.length, total: res.total, items,
     account_total: { metrics: frMetrics(res.benchmark, cur), spend: res.benchmark.spend },
-    coverage: res.coverage.complete ? "complète" : res.coverage.loading ? "synchronisation en cours (chiffres partiels)" : res.coverage.missing ? `${res.coverage.missing} compte(s) jamais synchronisé(s)` : res.coverage.errors ? "dernière synchronisation en erreur" : "partielle",
+    data_until: res.coverage.until,
+    coverage: res.coverage.complete ? "complète" : res.coverage.loading ? "synchronisation en cours (chiffres partiels)" : res.coverage.missing ? `${res.coverage.missing} compte(s) jamais synchronisé(s)` : res.coverage.errors ? `données jusqu'au ${res.coverage.until ?? "?"} (la dernière synchronisation a échoué, elle reprend chaque heure)` : "partielle",
     card_hint: { type: "creatives", title: `Créas ${client.name} — ${range.label}`, subtitle: `${platforms.map((p) => p === "meta" ? "Meta" : p === "google" ? "Google" : p === "tiktok" ? "TikTok" : p).join(" + ")} · ${client.name} · ${range.since} → ${range.until}`, items: items.map((it) => ({ name: it.name, image: it.image, adId: it.adId, metrics: { Dépense: it.metrics.Dépense, ...(it.metrics.CPA ? { CPA: it.metrics.CPA } : it.metrics.CPL ? { CPL: it.metrics.CPL } : {}) } })) },
   };
 }
