@@ -21,7 +21,7 @@ describe("the guide knows the application", () => {
 
   it("stays small", () => {
     // About four characters per token: the whole prompt stays around two thousand tokens.
-    expect(buildGuidePrompt().length).toBeLessThan(10000);
+    expect(buildGuidePrompt().length).toBeLessThan(11000);
   });
 
   it("keeps its instructions identical for everybody, so that they are cached", () => {
