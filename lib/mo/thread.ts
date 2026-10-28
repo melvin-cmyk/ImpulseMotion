@@ -70,6 +70,26 @@ export async function appendMoAnswer(boardId: string, text: string, at: string):
   return { say: answer.say, cardIds, ...(answer.open ? { open: answer.open } : {}) };
 }
 
+/**
+ * A quick turn stored in ONE write (the quick path, lib/mo/intents.ts): the
+ * person's sentence, Mo's answer and the cards the tool produced, laid in the
+ * client's frame, from the row the route already loaded — no re-read of the
+ * board between the tool and the answer (two reads and two writes before).
+ * Returns the whole board so the browser shows the cards at once.
+ */
+export async function storeMoQuickTurn(row: { id: string; title: string; cardsJson: string; messagesJson: string }, turn: { userText: string; askedAt: string; text: string; specs: LayoutItem[]; at: string }): Promise<{ say: string; cardIds: string[]; cards: MoCard[]; messages: MoMessage[] }> {
+  const messages: MoMessage[] = [...parseMoEntries(row.messagesJson), { role: "user", content: turn.userText, at: turn.askedAt }];
+  const answer = parseMoAnswer(turn.text);
+  const turnIndex = messages.filter((m) => m.role === "assistant").length;
+  const updated = applyCardUpdates(parseMoCards(row.cardsJson), answer, turnIndex, turn.at);
+  const laid = layoutWithFrames(updated.cards, [...turn.specs, ...answer.cards], turnIndex, turn.at);
+  const cardIds = [...new Set([...updated.touched.filter((id) => laid.cards.some((c) => c.id === id)), ...laid.placed.map((c) => c.id)])];
+  const all = capCards(laid.cards);
+  const msgs: MoMessage[] = [...messages, { role: "assistant" as const, content: turn.text, at: turn.at, say: answer.say, cardIds }].slice(-MO_MAX_MESSAGES);
+  await prisma.moBoard.update({ where: { id: row.id }, data: { cardsJson: JSON.stringify(all), messagesJson: JSON.stringify(msgs), ...(row.title ? {} : { title: boardTitleFrom(msgs) }) } });
+  return { say: answer.say, cardIds, cards: all, messages: msgs };
+}
+
 /** The board capped at MO_MAX_CARDS: the oldest free cards leave first, frames and their cards last. */
 function capCards(cards: MoCard[]): MoCard[] {
   if (cards.length <= MO_MAX_CARDS) return cards;

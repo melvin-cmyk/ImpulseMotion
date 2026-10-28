@@ -13,7 +13,7 @@
  */
 
 import { CARD_SIZES, COL_GAP, type MoActionKind, type MoCard, type MoCardSpec, type MoCreative, type MoVerdict } from "@/lib/mo/model";
-import { matchClientName, type IntentClient } from "@/lib/mo/intents";
+import { isClientId, matchClientName, type IntentClient } from "@/lib/mo/intents";
 
 // ── Requests ────────────────────────────────────────────────────────────────
 
@@ -120,7 +120,7 @@ export const briefMime = (mime: string, name: string): string => {
 /** The client a card is about: its `clientId` when a tool set it, else the client named in its title / subtitle. */
 export function cardClientOf<C extends IntentClient>(card: Pick<MoCard, "clientId" | "title" | "subtitle"> | null | undefined, clients: C[]): C | null {
   if (!card) return null;
-  if (card.clientId) { const c = clients.find((x) => x.id === card.clientId); if (c) return c; }
+  if (card.clientId) { const c = clients.find((x) => isClientId(x, card.clientId)); if (c) return c; }
   return matchClientName(`${card.title} ${card.subtitle ?? ""}`, clients) as C | null;
 }
 

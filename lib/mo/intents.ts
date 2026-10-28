@@ -6,10 +6,42 @@
  * the model, which answers with cards. Client-safe, pure.
  */
 
-export interface IntentClient { id: string; name: string; dashboardId?: string | null; aliases?: string[] }
+export interface IntentClient { id: string; name: string; dashboardId?: string | null; aliases?: string[]; /** Other registry ids of the same client (lib/clients/registry.ts aliasIds). */ aliasIds?: string[] }
 export interface NavIntent { path: string; say: string; label: string; clientName: string | null }
 
 export const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[’']/g, " ").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * Short names the team says or types for clients, beside the registry names:
+ * « CL » for Cours Legendre, « natu » for Naturalia… Key = the alias as said
+ * (any case, accents ignored), value = the start of the client's registry name
+ * (folded: lower case, no accents). TO EXTEND: add a line; both the browser and
+ * the server read this table through `withClientAliases`, nothing else to do.
+ * An alias of 1-3 letters only matches as a whole word (« cl »), longer ones
+ * like any other name. Ids merged by the registry (`aliasIds`) are carried by
+ * `withClientAliases` too, so a card tagged with an old id still finds its client.
+ */
+export const CLIENT_ALIASES: Record<string, string> = {
+  "cl": "cours legendre",
+  "legendre": "cours legendre",
+  "natu": "naturalia",
+  "lbv": "le barth",
+  "sev": "saveurs",
+  "la petite epicerie verte": "lpev",
+};
+
+/** The clients with their spoken aliases (table above) and their merged ids, ready for the matchers. */
+export function withClientAliases<C extends IntentClient>(clients: C[]): C[] {
+  return clients.map((c) => {
+    const key = fold(c.name);
+    const extra = Object.entries(CLIENT_ALIASES).filter(([, name]) => key === name || key.startsWith(name + " ") || key.startsWith(name)).map(([alias]) => alias);
+    const aliases = [...new Set([...(c.aliases ?? []), ...extra])];
+    return aliases.length ? { ...c, aliases } : c;
+  });
+}
+
+/** True when `id` is the client's id or one of its merged ids. */
+export const isClientId = (c: Pick<IntentClient, "id" | "aliasIds">, id: string | null | undefined): boolean => !!id && (c.id === id || (c.aliasIds ?? []).includes(id));
 
 const NAV_VERBS = /\b(ouvre|ouvrir|ouvres|ouvrons|ouvrez|va sur|vas sur|va dans|aller sur|allons sur|allons dans|emmene moi|amene moi|montre moi|montre|affiche|afficher|lance|accede a|acceder a|direction|on va sur)\b/;
 /** Words that make it a data question, not a navigation. */
@@ -80,6 +112,8 @@ export function matchClientName(text: string, clients: IntentClient[]): IntentCl
     const names = [c.name, ...(c.aliases ?? [])].map(fold).filter(Boolean);
     let score = 0;
     for (const name of names) {
+      // A short alias (« cl ») counts only as a whole word.
+      if (name.length <= 3) { if (words.includes(name)) score = Math.max(score, 90); continue; }
       if (!score) {
         const d = compactDistance(compactText, name.replace(/ /g, ""));
         if (d !== null) score = Math.max(score, 30 + name.length - d * 3);
@@ -251,9 +285,12 @@ const sortedClients = (clients: IntentClient[]) => [...clients].sort((a, b) => a
 // ── Follow-ups on the card at hand (no client named: the fresh or selected creatives card) ──
 
 /** « Mets les chiffres dessous » → the figures under the visuals of the card; « garde / coupe celle-là » → a verdict on one of them. */
+export type FollowUpTarget = { which: "this" } | { which: "index"; index: number } | { which: "all" } | { which: "last"; count: number };
 export type FollowUpIntent =
   | { kind: "creative_metrics"; period?: QuickPeriod; say: string }
-  | { kind: "verdict"; verdict: "keep" | "cut"; target: { which: "this" } | { which: "index"; index: number } | { which: "all" }; say: string };
+  | { kind: "verdict"; verdict: "keep" | "cut"; target: FollowUpTarget; say: string }
+  /** « Publie la première » : a publication prepared for one visual of the card (confirmed by a click, never sent here). */
+  | { kind: "publish"; target: FollowUpTarget; say: string };
 
 const METRICS_UNDER = /\b(chiffres?|metrics?|metriques?|resultats?|perfs?|performances?|stats?|cpa|cpl|roas|ctr)\b/;
 const UNDER_WORDS = /\b(dessous|en dessous|sous (chaque|les|ces|la|le|tous les)|sur (chaque|les|ces) (visuel|crea|image|pub)|de (chaque|ces|les) (visuel|crea|pub))/;
@@ -264,8 +301,23 @@ const ORDINALS: Array<[RegExp, number]> = [
   [/\b(cinquieme|5(?:e|eme)?)\b/, 4], [/\b(sixieme|6(?:e|eme)?)\b/, 5], [/\b(septieme|7(?:e|eme)?)\b/, 6], [/\b(huitieme|8(?:e|eme)?)\b/, 7],
   [/\b(neuvieme|9(?:e|eme)?)\b/, 8], [/\b(dixieme|10(?:e|eme)?)\b/, 9], [/\b(onzieme|11(?:e|eme)?)\b/, 10], [/\b(douzieme|12(?:e|eme)?)\b/, 11],
 ];
-const THIS_ONE = /\b(celle (la|ci)|celui (la|ci)|ca|cette (crea|pub|image|visuel)|ce visuel|cette la|la (la|ci))\b|\b(garde|coupe|vire|conserve|valide|jette) (la|le)\b/;
+const THIS_ONE = /\b(celle (la|ci)|celui (la|ci)|ca|cette (crea|pub|image|visuel)|ce visuel|cette la|la (la|ci))\b|\b(garde|coupe|vire|conserve|valide|jette|publie|poste) (la|le)\b/;
 const ALL_ONES = /\b(toutes?|tous|les deux|le lot|tout)\b/;
+/** « les deux dernières », « la dernière » → the last N visuals of the card. */
+const LAST_ONES = /\b(?:les |la )?(deux|trois|quatre|2|3|4)?\s*dernieres?\b/;
+const PUBLISH_VERBS = /\b(publie|publies|publier|publions|poste|postes|poster|mets? en ligne|mettre en ligne|envoie en pub|lance la pub|diffuse|diffuser)\b/;
+const SMALL_NUMBERS: Record<string, number> = { un: 1, une: 1, "1": 1, deux: 2, "2": 2, trois: 3, "3": 3, quatre: 4, "4": 4 };
+
+/** Which visual(s) of the card a sentence points at (ordinal, last N, all, this one), or null. */
+function followUpTarget(t: string, words: number): FollowUpTarget | null {
+  const last = t.match(LAST_ONES);
+  if (last) return { which: "last", count: last[1] ? SMALL_NUMBERS[last[1]] ?? 1 : 1 };
+  const ord = ORDINALS.find(([re]) => re.test(t));
+  if (ord) return { which: "index", index: ord[1] };
+  if (ALL_ONES.test(t)) return { which: "all" };
+  if (THIS_ONE.test(t) || words <= 2) return { which: "this" };
+  return null;
+}
 
 /**
  * A follow-up said over a creatives card: the figures under its visuals, or
@@ -281,14 +333,119 @@ export function parseFollowUpIntent(text: string): FollowUpIntent | null {
     const period = PERIOD_WORDS.find(([re]) => re.test(t));
     return { kind: "creative_metrics", ...(period ? { period: period[1] } : {}), say: "Je mets les chiffres sous les visuels." };
   }
+  // « publie la première », « poste celle-là » : a publication to prepare (the card « À publier » asks for the click).
+  if (PUBLISH_VERBS.test(t) && !KEEP_VERBS.test(t) && !CUT_VERBS.test(t) && words <= 8) {
+    const target = followUpTarget(t, words);
+    if (target && target.which !== "all") return { kind: "publish", target, say: "Je prépare la publication." };
+    return null;
+  }
   const keep = KEEP_VERBS.test(t), cut = CUT_VERBS.test(t);
   if (keep === cut) return null;
   const verdict = keep ? "keep" as const : "cut" as const;
-  const ord = ORDINALS.find(([re]) => re.test(t));
-  if (ord) return { kind: "verdict", verdict, target: { which: "index", index: ord[1] }, say: verdict === "keep" ? "Je la garde." : "Je la coupe." };
-  if (ALL_ONES.test(t)) return { kind: "verdict", verdict, target: { which: "all" }, say: verdict === "keep" ? "Je garde tout." : "Je coupe tout." };
-  if (THIS_ONE.test(t) || words <= 2) return { kind: "verdict", verdict, target: { which: "this" }, say: verdict === "keep" ? "Je la garde." : "Je la coupe." };
+  const target = followUpTarget(t, words);
+  if (!target) return null;
+  const many = target.which === "all" || (target.which === "last" && target.count > 1);
+  const say = verdict === "keep" ? (target.which === "all" ? "Je garde tout." : many ? "Je les garde." : "Je la garde.") : (target.which === "all" ? "Je coupe tout." : many ? "Je les coupe." : "Je la coupe.");
+  return { kind: "verdict", verdict, target, say };
+}
+
+/** The indexes of a card's items a target points at (`hot` = the visual under the pointer, `count` = items on the card). */
+export function targetIndexes(target: FollowUpTarget, count: number, hot: number | null): number[] {
+  if (count <= 0) return [];
+  switch (target.which) {
+    case "all": return Array.from({ length: count }, (_, i) => i);
+    case "index": return target.index < count ? [target.index] : [];
+    case "last": return Array.from({ length: Math.min(target.count, count) }, (_, i) => count - 1 - i).reverse();
+    case "this": return hot !== null && hot < count ? [hot] : count === 1 ? [0] : [];
+  }
+}
+
+// ── Follow-ups that need the server (card at hand + warehouse / generation / Ad Library), still without the model ──
+
+export type QuickFollowUp =
+  /** « Deux autres comme ça (en jaune) » : new visuals inspired by the fresh / selected creatives card. */
+  | { kind: "more_like_this"; n: number; style: string; say: string }
+  /** « Compare avec la semaine d'avant » : the figures of the named period beside the KPI card at hand. */
+  | { kind: "compare"; period: QuickPeriod | "previous"; periodLabel: string; client: IntentClient | null; say: string }
+  /** « Montre les pubs de La Fourche », « les concurrents de Naturalia » : the Meta Ad Library (brands named, or the client's known competitors). */
+  | { kind: "competitor_ads"; brands: string[]; client: IntentClient | null; say: string };
+
+const MAKE_VERBS = /\b(cree|crees|creer|creons|fais|fait|faire|faisons|genere|generes|generer|generons|propose|proposes|refais|refaire|sors|produis|ponds|imagine|decline|declines|decliner|encore|il m en faut|j en veux|je veux|donne)\b/;
+const LIKE_THIS = /\b(comme ca|comme celle (la|ci)|comme celles (la|ci)|dans le meme esprit|du meme genre|dans le meme style|du meme style|similaires?|pareils?|pareilles?|variantes?|declinaisons?|la meme|les memes|dans cette veine|sur ce modele|sur cette base|a partir de (ca|celle (la|ci)|celles (la|ci))|qui font ca|comme (la|les) (premiere|deuxieme|derniere|precedente)s?)\b/;
+const COUNT_WORDS = /\b(un|une|deux|trois|quatre|1|2|3|4|d autres|des autres|autres?|plusieurs)\b/;
+const COMPARE_WORDS = /\b(compare|compares|comparer|comparons|comparaison|versus|vs|par rapport a|par rapport au|et (la |le )?(semaine|mois) d avant|c etait comment|face a)\b/;
+const PREVIOUS_WORDS = /\b(periode d avant|periode precedente|d avant|precedente?|avant)\b/;
+const BRAND_ADS = /\b(pubs?|publicites?|annonces?|ads|campagnes?)\s+(?:de|du|des|d)\s+(.+)$/;
+const COMPETITORS_OF = /\b(?:concurrents?|concurrence|competiteurs?|competition)\s+(?:de|du|des|d|chez|pour)\s+(.+)$/;
+const EXTRA_PERIODS: Array<[RegExp, QuickPeriod, string]> = [[/\b(mois d avant|mois precedent)\b/, "last_month", "le mois dernier"], [/\b(semaine d avant|semaine precedente)\b/, "last_week", "la semaine dernière"]];
+
+/**
+ * A follow-up the server resolves against the card at hand, without the
+ * model: more visuals like these, a comparison with another period, the ads
+ * of a brand or of a client's competitors. Null for anything else.
+ */
+export function parseFollowUpQuick(text: string, clients: IntentClient[]): QuickFollowUp | null {
+  const t = fold(text);
+  if (!t || t.length > 140) return null;
+  const words = t.split(" ").filter(Boolean);
+
+  // Comparison with another period (figures only: a creatives comparison is the model's).
+  if (COMPARE_WORDS.test(t) && !CREA_WORDS.test(t) && !/\b(pourquoi|explique|google|tiktok)\b/.test(t)) {
+    const client = matchClientName(t, clients);
+    const period = [...EXTRA_PERIODS, ...PERIOD_WORDS].find(([re]) => re.test(t));
+    if (period) return { kind: "compare", period: period[1], periodLabel: period[2], client, say: `Je compare avec ${period[2]}.` };
+    if (PREVIOUS_WORDS.test(t) || words.length <= 3) return { kind: "compare", period: "previous", periodLabel: "la période d'avant", client, say: "Je compare avec la période d'avant." };
+    return null;
+  }
+
+  // More visuals like the ones on the card.
+  const makes = MAKE_VERBS.test(t);
+  const like = LIKE_THIS.test(t);
+  const count = t.match(COUNT_WORDS);
+  if ((like && (makes || count)) || (makes && count && /\bautres?\b/.test(t))) {
+    if (/\b(chiffres?|metrics?|rapport|tableau)\b/.test(t)) return null;
+    const num = count ? SMALL_NUMBERS[count[1]] : undefined;
+    const n = Math.min(4, Math.max(1, num ?? (/\b(une|un|variante|la meme)\b/.test(t) ? 1 : 2)));
+    // What is left once the verb, the count and « comme ça » are removed is the style asked (« en jaune », « plus sobre »).
+    const style = t.replace(new RegExp(MAKE_VERBS.source, "g"), " ").replace(new RegExp(LIKE_THIS.source, "g"), " ").replace(new RegExp(COUNT_WORDS.source, "g"), " ").replace(/\b(m en|moi|nous en|s il te plait|stp|mo|hello|salut|ok|ca|celle (la|ci)|celles (la|ci)|qui font)\b/g, " ").replace(/\s+/g, " ").trim();
+    return { kind: "more_like_this", n, style: style.length >= 3 ? style : "", say: n === 1 ? "Je prépare une variante, trente secondes." : `Je prépare ${n === 2 ? "deux" : n === 3 ? "trois" : "quatre"} visuels, trente secondes.` };
+  }
+
+  // The ads of a brand (Ad Library) or the competitors of a client.
+  const comp = t.match(COMPETITORS_OF);
+  if (comp) {
+    const client = matchClientName(comp[1], clients);
+    if (client) return { kind: "competitor_ads", brands: [], client, say: `Je cherche les concurrents de ${client.name} dans la bibliothèque Meta.` };
+    const brands = splitBrands(text, comp[1]);
+    return brands.length ? { kind: "competitor_ads", brands, client: null, say: `Je cherche les pubs de ${brands.join(" et ")}.` } : null;
+  }
+  const ads = t.match(BRAND_ADS);
+  if (ads && /\b(montre|affiche|cherche|regarde|sors|voir|vois|trouve|donne|liste|fais voir|je veux|il me faut|ouvre|quelles?)\b/.test(t)) {
+    const brands = splitBrands(text, ads[2]);
+    if (!brands.length) return null;
+    if (matchClientName(brands.join(" "), clients)) return null; // a client's own ads: the warehouse (parseQuickIntent)
+    return { kind: "competitor_ads", brands, client: matchClientName(t.replace(ads[2], " "), clients), say: `Je cherche les pubs de ${brands.join(" et ")} dans la bibliothèque Meta, quinze secondes.` };
+  }
   return null;
+}
+
+/** The brand names in the tail of a sentence, with the case the person typed (« La Fourche et Aroma-Zone » → two brands). */
+export function splitBrands(original: string, foldedTail: string): string[] {
+  const tail = foldedTail.replace(/\b(en ce moment|actuellement|aujourd hui|sur meta|sur facebook|sur insta(gram)?|dans la bibliotheque( meta| publicitaire)?|s il te plait|stp)\b/g, " ").replace(/\s+/g, " ").trim();
+  if (!tail) return [];
+  // Find the tail in the original sentence to keep the case (« Aroma-Zone » folds to two words: words are aligned on their folded tokens); fall back to the folded words capitalised.
+  const words = original.replace(/[’']/g, " ").split(/\s+/).filter(Boolean);
+  const folded = words.map((w) => fold(w).split(" ").filter(Boolean));
+  const tailWords = tail.split(" ");
+  let kept: string[] | null = null;
+  for (let i = 0; i < words.length && !kept; i++) {
+    const acc: string[] = [];
+    let j = i;
+    while (acc.length < tailWords.length && j < words.length) { acc.push(...folded[j]); j++; }
+    if (acc.length === tailWords.length && acc.every((w, k) => w === tailWords[k])) kept = words.slice(i, j);
+  }
+  kept = kept ?? tailWords.map((w) => w.charAt(0).toUpperCase() + w.slice(1));
+  return kept.join(" ").replace(/[?.!…]+$/g, "").split(/\s*(?:,|\bet\b|&|\/)\s*/i).map((b) => b.trim()).filter((b) => b.length >= 2 && b.length <= 40).slice(0, 3);
 }
 
 /** The sentence completed with the chip picked, ready for the quick path again. */
@@ -316,9 +473,12 @@ export function orderClientCandidates(candidates: IntentClient[], cards: Array<{
 }
 
 /** A short title for the card about to land (« Créas Cours Legendre · cette semaine »), from the ask. */
-export function ghostTitle(text: string, quick: QuickResult | null): string {
+export function ghostTitle(text: string, quick: QuickResult | QuickFollowUp | null): string {
   if (quick && quick.kind === "creatives") return `Créas ${quick.client.name} · ${quick.periodLabel}`;
   if (quick && quick.kind === "metrics") return `Chiffres ${quick.client.name} · ${quick.periodLabel}`;
+  if (quick && quick.kind === "more_like_this") return `${quick.n} visuel${quick.n > 1 ? "s" : ""} en préparation`;
+  if (quick && quick.kind === "compare") return `Chiffres · ${quick.periodLabel}`;
+  if (quick && quick.kind === "competitor_ads") return quick.brands.length ? `Pubs ${quick.brands.join(" et ")}` : `Concurrents de ${quick.client?.name ?? "…"}`;
   const clean = text.replace(/\s+/g, " ").trim().replace(/^(hello|salut|bonjour|hey|ok)\s+mo[,\s]*/i, "").replace(/^mo[,\s]+/i, "");
   const short = clean.length > 60 ? clean.slice(0, 59).trimEnd() + "…" : clean;
   return short ? short.charAt(0).toUpperCase() + short.slice(1) : "En cours";

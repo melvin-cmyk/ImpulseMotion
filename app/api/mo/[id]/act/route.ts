@@ -19,6 +19,8 @@ import { createBrandAsset, setAssetFeedback } from "@/lib/studio-assets";
 import { ActError, parseActRequest, runMoAct, type ActDeps } from "@/lib/mo/act";
 import { appendMoAction, loadBoard, parseMoCards, placeMoCard, rewriteMoCard } from "@/lib/mo/thread";
 import { competitorAds, creativeMetrics, keepTemplate, metaPublishAd, metaTargets, MoToolError, type MoToolContext } from "@/lib/mo/tools";
+import { withClientAliases } from "@/lib/mo/intents";
+import { recordMoTurn } from "@/lib/mo/turns";
 
 export const maxDuration = 120;
 
@@ -48,7 +50,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     rewriteCard: (cardId, fn) => rewriteMoCard(board.id, cardId, fn),
     placeCard: (spec, at) => placeMoCard(board.id, spec, at),
     journal: (action, content) => appendMoAction(board.id, action, content),
-    clients: async () => (await listClientRegistry(await getAccountScope(session))).map((c) => ({ id: c.id, clientId: c.clientId, name: c.name, dashboardId: c.dashboardId, hqSlug: c.hqSlug })),
+    clients: async () => withClientAliases((await listClientRegistry(await getAccountScope(session))).map((c) => ({ id: c.id, clientId: c.clientId, name: c.name, dashboardId: c.dashboardId, hqSlug: c.hqSlug, aliasIds: c.aliasIds }))),
     assetFeedback: (assetId, verdict) => setAssetFeedback(assetId, { feedback: verdict }, who),
     keepTemplate: (args) => keepTemplate(ctx, args),
     creativeMetrics: (args) => creativeMetrics(ctx, args),
@@ -81,8 +83,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const t0 = Date.now();
   try {
     const result = await runMoAct(parsed, deps, who);
-    console.log(`[mo/act] ${parsed.action} ${Date.now() - t0} ms`);
-    return NextResponse.json(result, NO_STORE);
+    const totalMs = Date.now() - t0;
+    console.log(`[mo/act] ${parsed.action} ${totalMs} ms`);
+    // Measured (spec §6): an action is a turn without the model; a pending choice (which ad set) is not a finished one.
+    const turnId = result.needs ? null : await recordMoTurn({ userId: guard.session.userId, boardId: board.id, path: "act", kind: parsed.action, totalMs, firstCardMs: result.cardIds.length ? totalMs : null });
+    return NextResponse.json({ ...result, ...(turnId ? { turnId } : {}) }, NO_STORE);
   } catch (e) {
     const status = e instanceof ActError || e instanceof MoToolError ? e.status : 500;
     const message = e instanceof ActError || e instanceof MoToolError ? e.message : "L'action a échoué.";

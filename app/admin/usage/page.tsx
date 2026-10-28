@@ -76,6 +76,111 @@ type ClientUsage = {
 
 const int = (n: number) => n.toLocaleString("fr-FR");
 
+type MoPathStats = { path: string; turns: number; p50FirstCardMs: number | null; p90FirstCardMs: number | null; p50TotalMs: number | null; misunderstood: number };
+type MoMeasures =
+  | { days: number; summary: { turns: number; byPath: MoPathStats[]; withoutModelPct: number | null; misunderstoodPct: number | null; asksAbandoned: number; actionsByDay: Array<{ day: string; userId: string; actions: number; kinds: Record<string, number> }> }; people: Record<string, string> }
+  | { days: number; error: string };
+const MO_PATH_LABEL: Record<string, string> = { nav: "Navigation (sans modèle)", quick: "Chemin rapide (entrepôt, sans modèle)", act: "Action sur une carte (sans modèle)", model: "Modèle (Sonnet)", ask: "Question de Mo (puces)" };
+/** Targets of spec §6: quick / act p50 < 3 s, model p50 < 10 s to the first card. */
+const MO_TARGET_MS: Record<string, number> = { nav: 1000, quick: 3000, act: 3000, model: 10_000 };
+const MO_KIND_LABEL: Record<string, string> = { verdict: "verdicts", publish_prepare: "publications préparées", publish_confirm: "publications confirmées", upload: "fichiers déposés", drive: "envois Drive", open_editor: "ouvertures éditeur", more_like_this: "visuels générés", generate_creatives: "visuels générés", keep_template: "templates gardés" };
+const secs = (ms: number | null) => (ms === null ? "—" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} s`);
+
+/** « Mo : vitesse et compréhension » — the measures of spec §6 over the last 7 days (table MoTurn). */
+function MoMeasuresBlock({ mo }: { mo: MoMeasures | null }) {
+  const body = !mo ? <Card padded><p className="text-sm text-gray-500">Chargement…</p></Card>
+    : "error" in mo ? <Card padded><p className="text-sm text-amber-300">Mesures indisponibles : {mo.error}</p><p className="text-xs text-gray-500 mt-1">La table MoTurn arrive avec la migration 20261028230000_mo_turn (déployée au prochain build).</p></Card>
+    : mo.summary.turns === 0 ? <Card padded><p className="text-sm text-gray-400">Aucun tour de Mo sur les {mo.days} derniers jours.</p></Card>
+    : (() => {
+      const s = mo.summary;
+      const days = [...new Set(s.actionsByDay.map((a) => a.day))].sort((a, b) => (a < b ? 1 : -1)).slice(0, 7);
+      const people = [...new Set(s.actionsByDay.map((a) => a.userId))].sort((a, b) => (mo.people[a] ?? a).localeCompare(mo.people[b] ?? b, "fr"));
+      const cell = (day: string, userId: string) => s.actionsByDay.find((a) => a.day === day && a.userId === userId);
+      return (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <Kpi label="Tours de Mo" value={int(s.turns)} sub={`${mo.days} derniers jours`} />
+            <Kpi label="Compris sans modèle" value={s.withoutModelPct === null ? "—" : `${s.withoutModelPct} %`} sub="navigation + chemin rapide + actions · cible 75 %" accent="emerald" />
+            <Kpi label="Mal compris" value={s.misunderstoodPct === null ? "—" : `${s.misunderstoodPct.toLocaleString("fr-FR")} %`} sub={`reformulation < 60 s, « non », carte retirée, 👎, question sans réponse (${s.asksAbandoned}) · cible < 10 %`} accent="amber" />
+            <Kpi label="Première carte (chemin rapide)" value={secs(s.byPath.find((p) => p.path === "quick")?.p50FirstCardMs ?? null)} sub="médiane · cible < 3 s" />
+          </div>
+          <Card className="overflow-x-auto">
+            <table className="w-full text-sm" data-mo-measures>
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+                  <th className="px-4 py-3 font-medium">Chemin</th>
+                  <th className="px-4 py-3 font-medium text-right">Tours</th>
+                  <th className="px-4 py-3 font-medium text-right">Première carte p50</th>
+                  <th className="px-4 py-3 font-medium text-right">p90</th>
+                  <th className="px-4 py-3 font-medium text-right">Réponse complète p50</th>
+                  <th className="px-4 py-3 font-medium text-right">Mal compris</th>
+                  <th className="px-4 py-3 font-medium">Cible</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.byPath.filter((p) => p.turns > 0).map((p) => {
+                  const target = MO_TARGET_MS[p.path];
+                  const ok = target !== undefined && p.p50FirstCardMs !== null ? p.p50FirstCardMs <= target : null;
+                  return (
+                    <tr key={p.path} className="border-b border-gray-800/60">
+                      <td className="px-4 py-3 text-white font-medium">{MO_PATH_LABEL[p.path] ?? p.path}</td>
+                      <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{int(p.turns)}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums font-semibold ${ok === null ? "text-gray-300" : ok ? "text-emerald-300" : "text-amber-300"}`}>{secs(p.p50FirstCardMs)}</td>
+                      <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{secs(p.p90FirstCardMs)}</td>
+                      <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{secs(p.p50TotalMs)}</td>
+                      <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{p.misunderstood}{p.turns ? <span className="text-gray-500"> · {Math.round((p.misunderstood / p.turns) * 100)} %</span> : null}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{target !== undefined ? `p50 < ${secs(target)}` : p.path === "ask" ? "puce cliquée = compris" : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+          <div>
+            <h3 className="text-sm font-semibold text-white">Travail réel : actions par jour et par consultant</h3>
+            <p className="text-xs text-gray-500 mb-2">Verdicts, publications préparées / confirmées, fichiers déposés, visuels générés, envois Drive — la preuve que Mo est l&apos;endroit où l&apos;on travaille.</p>
+            {s.actionsByDay.length === 0 ? <Card padded><p className="text-sm text-gray-400">Aucune action sur la période.</p></Card> : (
+              <Card className="overflow-x-auto">
+                <table className="w-full text-sm" data-mo-actions>
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+                      <th className="px-4 py-3 font-medium">Consultant</th>
+                      {days.map((d) => <th key={d} className="px-4 py-3 font-medium text-right">{new Date(`${d}T12:00:00Z`).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" })}</th>)}
+                      <th className="px-4 py-3 font-medium text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {people.map((u) => {
+                      const total = s.actionsByDay.filter((a) => a.userId === u).reduce((t, a) => t + a.actions, 0);
+                      return (
+                        <tr key={u} className="border-b border-gray-800/60">
+                          <td className="px-4 py-3 text-white font-medium">{mo.people[u] ?? u}</td>
+                          {days.map((d) => { const c = cell(d, u); return <td key={d} className="px-4 py-3 text-right text-gray-300 tabular-nums" title={c ? Object.entries(c.kinds).map(([k, n]) => `${n} ${MO_KIND_LABEL[k] ?? k}`).join(", ") : ""}>{c ? int(c.actions) : <span className="text-gray-700">·</span>}</td>; })}
+                          <td className="px-4 py-3 text-right font-semibold text-white tabular-nums">{int(total)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </Card>
+            )}
+          </div>
+        </>
+      );
+    })();
+  return (
+    <section className="space-y-3" data-mo-block>
+      <div>
+        <h2 className="text-base font-semibold text-white">Mo : vitesse et compréhension</h2>
+        <p className="text-xs text-gray-500">
+          Les 7 derniers jours, tous consultants. « Première carte » = de l&apos;envoi à la première carte pleine (mesuré dans le navigateur) ; « compris sans modèle » = part des demandes résolues par la navigation, le chemin rapide et les actions ; « mal compris » = reformulation dans la minute, « non / pas ça », carte retirée dans les 30 s, 👎 ou question de Mo restée sans réponse. La part des tours modèle en session reprise se lit dans le journal du relay (journalctl -u impulsemotion-relay), pas ici.
+        </p>
+      </div>
+      {body}
+    </section>
+  );
+}
+
 function currentMonth(): string {
   const d = new Date();
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
@@ -117,6 +222,7 @@ export default function AdminUsagePage() {
   const [openProfile, setOpenProfile] = useState<string | null>(null);
   const [quota, setQuota] = useState<Quota | null>(null);
   const [quotaError, setQuotaError] = useState<string | null>(null);
+  const [mo, setMo] = useState<MoMeasures | null>(null);
 
   useEffect(() => {
     fetch("/api/admin/quota")
@@ -139,6 +245,7 @@ export default function AdminUsagePage() {
         setClients(data.clients ?? []);
         setFeatures(data.features ?? []);
         setProfiles(data.profiles ?? []);
+        setMo(data.mo ?? null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Erreur"))
       .finally(() => setLoading(false));
@@ -231,6 +338,8 @@ export default function AdminUsagePage() {
       </section>
 
       <MaxAccountsPanel warnPct={quota?.warnPct ?? 80} switchPct={quota?.switchPct ?? 95} />
+
+      <MoMeasuresBlock mo={mo} />
 
       <section className="space-y-2">
         <h2 className="text-base font-semibold text-white">Où partent les tokens (toutes surfaces)</h2>

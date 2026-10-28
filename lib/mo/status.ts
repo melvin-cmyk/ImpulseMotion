@@ -57,9 +57,17 @@ export function actStatusLabel(action: string): string {
   }
 }
 
+/** The action behind a quick intent (lib/mo/intents.ts kinds). */
+export function quickStatusKey(kind: string): MoStatusKey {
+  if (kind === "more_like_this" || kind === "generate_creatives") return "generate";
+  if (kind === "competitor_ads") return "library";
+  return "warehouse";
+}
+
 /** One line for the status area, from the activity of the running turn. */
-export function moStatusLabel(activity: ActivityState | null | undefined, path: "quick" | "model" = "model"): string {
+export function moStatusLabel(activity: ActivityState | null | undefined, path: "quick" | "model" | `quick:${string}` = "model"): string {
   if (path === "quick") return MO_STATUS.warehouse;
+  if (path.startsWith("quick:")) return MO_STATUS[quickStatusKey(path.slice(6))];
   if (!activity) return MO_STATUS.think;
   switch (activity.phase) {
     case "running":

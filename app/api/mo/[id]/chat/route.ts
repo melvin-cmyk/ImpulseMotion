@@ -17,6 +17,7 @@ import { runningJobCount, runningJobOf, startAiJob } from "@/lib/ai-jobs";
 import { describeCards } from "@/lib/mo/model";
 import { appendMoUserMessage, loadBoard, parseMoCards, parseMoMessages } from "@/lib/mo/thread";
 import { moBeltFor, moRelayBase, moTurnContext } from "@/lib/mo/turn";
+import { recordMoTurn } from "@/lib/mo/turns";
 
 const MAX_RUNNING_JOBS_PER_USER = 3;
 const MAX_HISTORY = 16;
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const board = await loadBoard(id, guard.session.userId);
   if (!board) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const body = (await req.json().catch(() => ({}))) as { message?: unknown; model?: unknown; effort?: unknown; account?: unknown; page?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { message?: unknown; model?: unknown; effort?: unknown; account?: unknown; page?: unknown; retried?: unknown };
   const page = typeof body.page === "string" && /^\/[A-Za-z0-9\-_./?=&%:+,]{0,300}$/.test(body.page) ? body.page : null;
   const message = typeof body.message === "string" ? body.message.trim().slice(0, MAX_MESSAGE_CHARS) : "";
   if (!message) return NextResponse.json({ error: "message requis" }, { status: 400 });
@@ -73,5 +74,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     usageContext: { feature: "mo", clientName: "—", user: { id: guard.session.userId, email: guard.session.user?.email ?? null, role: guard.session.role ?? "" } },
   });
   if ("error" in started) return NextResponse.json({ error: started.error }, { status: 502 });
-  return NextResponse.json({ jobId: started.jobId }, { status: 202 });
+  // Measured (spec §6): the row is opened now (path model), closed with its total time when the job ends (lib/ai-jobs.ts); the browser adds the first-card time.
+  const turnId = await recordMoTurn({ userId: guard.session.userId, boardId: board.id, path: "model", jobId: started.jobId, retried: body.retried === true });
+  return NextResponse.json({ jobId: started.jobId, ...(turnId ? { turnId } : {}) }, { status: 202 });
 }

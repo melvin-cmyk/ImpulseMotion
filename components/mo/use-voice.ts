@@ -12,11 +12,18 @@
  *
  * Speaking: the sentence is synthesised on the relay (POST /api/mo/tts →
  * Piper French) and played; the browser's own speechSynthesis is the
- * fallback. `levelRef` carries the microphone level at 60 Hz for the visuals,
- * `level` is a throttled copy for React.
+ * fallback. `speak` replaces what is being said, `say` queues a sentence
+ * after it (the answer is spoken sentence by sentence while it streams).
+ * Barge-in: `begin()` (the person starts talking) cuts Mo's playback and
+ * empties the queue. Hands-free (off by default, no wake word): the
+ * microphone stays open, a level above the threshold starts an utterance
+ * and 700 ms of silence ends it and sends it (lib/mo/voice.ts vadStep).
+ * `levelRef` carries the microphone level at 60 Hz for the visuals, `level`
+ * is a throttled copy for React.
  */
 
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { VAD_DEFAULT, initialSpeech, speechReduce, vadInitial, vadStep, type SpeechState, type VadState } from "@/lib/mo/voice";
 
 interface RecognitionLike extends EventTarget {
   lang: string;
@@ -64,6 +71,8 @@ export interface VoiceState {
   transcribing: boolean;
   speaking: boolean;
   error: string | null;
+  /** Hands-free mode: the microphone stays open, a silence ends the sentence. */
+  handsFree: boolean;
 }
 
 export interface Voice extends VoiceState {
@@ -71,8 +80,12 @@ export interface Voice extends VoiceState {
   begin: () => void;
   end: () => void;
   cancel: () => void;
+  /** Says this now (what was being said stops). */
   speak: (text: string) => void;
+  /** Says this after what is being said (sentence by sentence while the answer streams). */
+  say: (text: string) => void;
   hush: () => void;
+  setHandsFree: (on: boolean) => void;
 }
 
 const SERVER_TTS = true;
@@ -93,7 +106,14 @@ function premiumBrowserVoice(): SpeechSynthesisVoice | null {
 }
 
 export function useVoice(onFinal: (text: string) => void): Voice {
-  const [state, setState] = useState<VoiceState>({ supported: false, listening: false, interim: "", level: 0, transcribing: false, speaking: false, error: null });
+  const [state, setState] = useState<VoiceState>({ supported: false, listening: false, interim: "", level: 0, transcribing: false, speaking: false, error: null, handsFree: false });
+  /** The speech queue (lib/mo/voice.ts): what is being said, what waits. */
+  const speech = useRef<SpeechState>(initialSpeech);
+  const handsFree = useRef(false);
+  const vad = useRef<VadState>(vadInitial);
+  const speakingRef = useRef(false);
+  /** Set once the hook is built: the functions the level meter calls (defined below). */
+  const onVoice = useRef<{ start: () => void; end: () => void }>({ start: () => undefined, end: () => undefined });
   const levelRef = useRef(0);
   const lastLevelPush = useRef(0);
   const rec = useRef<RecognitionLike | null>(null);
@@ -145,7 +165,16 @@ export function useVoice(onFinal: (text: string) => void): Voice {
           analyser.getByteTimeDomainData(buf);
           let sum = 0;
           for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
-          setLevel(Math.min(1, Math.sqrt(sum / buf.length) * 6));
+          const level = Math.min(1, Math.sqrt(sum / buf.length) * 6);
+          setLevel(level);
+          // Hands-free: the level meter is the end-point detector (a higher bar while Mo speaks, so its own voice does not count).
+          if (handsFree.current) {
+            const cfg = speakingRef.current ? { ...VAD_DEFAULT, threshold: VAD_DEFAULT.threshold * 2, minSpeechMs: 400 } : VAD_DEFAULT;
+            const r = vadStep(vad.current, level, performance.now(), cfg);
+            vad.current = r.state;
+            if (r.event === "start") onVoice.current.start();
+            else if (r.event === "end") onVoice.current.end();
+          }
           if (audio.current) audio.current.raf = requestAnimationFrame(tick);
         };
         audio.current = { ctx, analyser, raf: requestAnimationFrame(tick) };
@@ -158,15 +187,25 @@ export function useVoice(onFinal: (text: string) => void): Voice {
     }
   }, [setLevel]);
 
-  /** Push-to-talk: begin (key or button down). */
+  /** Barge-in: the person speaks (or asks for silence) → Mo stops at once, the queue is emptied, an utterance in flight will not start. */
+  const hush = useCallback(() => {
+    session.current++;
+    speech.current = speechReduce(speech.current, { type: "hush" }).state;
+    window.speechSynthesis?.cancel();
+    if (player.current) { player.current.pause(); player.current.currentTime = 0; }
+    speakingRef.current = false;
+    setState((s) => (s.speaking ? { ...s, speaking: false } : s));
+  }, []);
+
+  /** Push-to-talk: begin (key or button down). Cuts Mo's voice first (barge-in). */
   const begin = useCallback(() => {
     if (holding.current) return;
+    hush();
     holding.current = true;
     const mySession = ++session.current;
-    window.speechSynthesis?.cancel();
-    player.current?.pause();
     transcript.current = "";
     chunks.current = [];
+    vad.current = vadInitial;
     setState((s) => ({ ...s, listening: true, interim: "", error: null, speaking: false, transcribing: false }));
 
     // Live transcript when the browser really offers it (Chrome).
@@ -205,7 +244,7 @@ export function useVoice(onFinal: (text: string) => void): Voice {
         mr.start(250);
       } catch { recorder.current = null; }
     });
-  }, [openMic]);
+  }, [openMic, hush]);
 
   const sendRecording = useCallback(async (blob: Blob, spoken: string) => {
     if (spoken) { onFinalRef.current(spoken); return; }
@@ -265,53 +304,85 @@ export function useVoice(onFinal: (text: string) => void): Voice {
     setState((s) => ({ ...s, listening: false, interim: "", transcribing: false }));
   }, [stopMeter, stopTracks]);
 
-  const speakWithBrowser = useCallback((text: string) => {
+  /** One utterance is over (or failed): the next of the queue starts, else silence. */
+  const utteranceEnded = useCallback((generation: number) => {
+    if (generation !== speech.current.generation) return; // hushed meanwhile
+    const r = speechReduce(speech.current, { type: "ended" });
+    speech.current = r.state;
+    if (r.start) startUtterance.current(r.start, r.state.generation);
+    else { speakingRef.current = false; setState((s) => ({ ...s, speaking: false })); }
+  }, []);
+
+  const speakWithBrowser = useCallback((text: string, generation: number) => {
     const synth = window.speechSynthesis;
-    if (!synth) return;
+    if (!synth) { utteranceEnded(generation); return; }
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "fr-FR";
     u.rate = 1.04;
     const preferred = premiumBrowserVoice() ?? synth.getVoices().filter((v) => v.lang.toLowerCase().startsWith("fr")).find((v) => /am[ée]lie|audrey|aurelie|denise|eloise|vivienne|marie|julie|siri/i.test(v.name)) ?? synth.getVoices().find((v) => v.lang.toLowerCase().startsWith("fr"));
     if (preferred) u.voice = preferred;
-    u.onstart = () => setState((s) => ({ ...s, speaking: true }));
-    u.onend = () => setState((s) => ({ ...s, speaking: false }));
-    u.onerror = () => setState((s) => ({ ...s, speaking: false }));
+    u.onstart = () => { speakingRef.current = true; setState((s) => ({ ...s, speaking: true })); };
+    u.onend = () => utteranceEnded(generation);
+    u.onerror = () => utteranceEnded(generation);
     synth.speak(u);
-  }, []);
+  }, [utteranceEnded]);
 
-  const speak = useCallback((text: string) => {
-    const clean = text.trim();
-    if (!clean) return;
-    window.speechSynthesis?.cancel();
-    player.current?.pause();
+  /** Starts one utterance of the queue (relay voice, else the browser's). */
+  const startUtterance = useRef<(text: string, generation: number) => void>(() => undefined);
+  startUtterance.current = (clean: string, generation: number) => {
+    speakingRef.current = true;
+    setState((s) => ({ ...s, speaking: true }));
     // The browser's own natural female French voice (Edge's neural voices, Chrome's Google voice, Apple's enhanced ones)
     // is better and instant; the relay's Piper voice is for the browsers without one (Brave, Firefox…).
-    if (!SERVER_TTS || premiumBrowserVoice()) { speakWithBrowser(clean); return; }
+    if (!SERVER_TTS || premiumBrowserVoice()) { speakWithBrowser(clean, generation); return; }
     const mySession = ++session.current;
-    setState((s) => ({ ...s, speaking: true }));
     fetch("/api/mo/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: clean }) })
       .then(async (res) => {
         if (!res.ok) throw new Error(`tts ${res.status}`);
         const blob = await res.blob();
-        if (session.current !== mySession) return;
+        if (session.current !== mySession || generation !== speech.current.generation) return;
         const url = URL.createObjectURL(blob);
         const el = player.current ?? new Audio();
         player.current = el;
         el.src = url;
-        el.onended = () => { URL.revokeObjectURL(url); setState((s) => ({ ...s, speaking: false })); };
-        el.onerror = () => { URL.revokeObjectURL(url); setState((s) => ({ ...s, speaking: false })); };
-        await el.play().catch(() => { setState((s) => ({ ...s, speaking: false })); });
+        el.onended = () => { URL.revokeObjectURL(url); utteranceEnded(generation); };
+        el.onerror = () => { URL.revokeObjectURL(url); utteranceEnded(generation); };
+        await el.play().catch(() => utteranceEnded(generation));
       })
-      .catch(() => { if (session.current === mySession) speakWithBrowser(clean); });
-  }, [speakWithBrowser]);
+      .catch(() => { if (session.current === mySession && generation === speech.current.generation) speakWithBrowser(clean, generation); });
+  };
 
-  const hush = useCallback(() => {
-    session.current++;
-    window.speechSynthesis?.cancel();
-    if (player.current) { player.current.pause(); player.current.currentTime = 0; }
-    setState((s) => ({ ...s, speaking: false }));
+  const enqueue = useCallback((text: string, replace: boolean) => {
+    const clean = text.trim();
+    if (!clean) return;
+    if (replace) { window.speechSynthesis?.cancel(); if (player.current) { player.current.pause(); player.current.currentTime = 0; } }
+    const r = speechReduce(speech.current, { type: "say", text: clean, replace });
+    speech.current = r.state;
+    if (r.start) startUtterance.current(r.start, r.state.generation);
   }, []);
+  /** Says this now: what was being said stops. */
+  const speak = useCallback((text: string) => enqueue(text, true), [enqueue]);
+  /** Says this after what is being said. */
+  const say = useCallback((text: string) => enqueue(text, false), [enqueue]);
+
+  // ── Hands-free (explicit mode, no wake word): the meter's end-point ends the sentence and sends it, then listens again ──
+  const endRef = useRef<() => void>(() => undefined);
+  endRef.current = end;
+  const beginRef = useRef<() => void>(() => undefined);
+  beginRef.current = begin;
+  onVoice.current = {
+    // The person starts talking while Mo speaks: Mo stops (barge-in). The recording restarts so the sent audio starts at the voice.
+    start: () => { if (speakingRef.current) hush(); const mr = recorder.current; const ms = stream.current; if (mr && ms && mr.state !== "inactive") { try { mr.ondataavailable = null; mr.stop(); const next = new MediaRecorder(ms, mr.mimeType ? { mimeType: mr.mimeType, audioBitsPerSecond: 32_000 } : undefined); chunks.current = []; next.ondataavailable = (ev) => { if (ev.data.size) chunks.current.push(ev.data); }; recorder.current = next; next.start(250); } catch { /* keep the running one */ } } },
+    end: () => { if (!holding.current) return; endRef.current(); window.setTimeout(() => { if (handsFree.current && !holding.current) beginRef.current(); }, 700); },
+  };
+  const setHandsFree = useCallback((on: boolean) => {
+    handsFree.current = on;
+    vad.current = vadInitial;
+    setState((s) => ({ ...s, handsFree: on }));
+    if (on) { if (!holding.current) beginRef.current(); }
+    else if (holding.current) cancel();
+  }, [cancel]);
 
   // Voices load asynchronously in Chrome: touching the list once makes the French one available for the fallback.
   useEffect(() => {
@@ -323,7 +394,7 @@ export function useVoice(onFinal: (text: string) => void): Voice {
     return () => { synth.removeEventListener?.("voiceschanged", onVoices); synth.cancel(); };
   }, []);
 
-  useEffect(() => () => { holding.current = false; rec.current?.abort(); recorder.current?.stop?.(); stopMeter(); stopTracks(); player.current?.pause(); }, [stopMeter, stopTracks]);
+  useEffect(() => () => { holding.current = false; handsFree.current = false; rec.current?.abort(); recorder.current?.stop?.(); stopMeter(); stopTracks(); player.current?.pause(); }, [stopMeter, stopTracks]);
 
-  return { ...state, levelRef, begin, end, cancel, speak, hush };
+  return { ...state, levelRef, begin, end, cancel, speak, say, hush, setHandsFree };
 }

@@ -43,7 +43,32 @@ export interface ClientRef {
 const normMeta = (id: string) => id.replace(/^act_/, "");
 const normGoogle = (id: string) => id.replace(/-/g, "");
 
-export async function listClientRegistry(scope: AccountScope): Promise<ClientRef[]> {
+/**
+ * The registry is read on almost every request of Mo (quick path, actions,
+ * tools) and costs two queries plus the merge: it is kept 60 s per scope in
+ * the lambda's memory (`REGISTRY_TTL_MS`, 0 disables). An ACL change shows
+ * within a minute, like the rest of the rights (lib/acl aclVersion).
+ */
+export const REGISTRY_TTL_MS = Number(process.env.CLIENT_REGISTRY_TTL_MS ?? 60_000);
+const registryCache = new Map<string, { at: number; value: Promise<ClientRef[]> }>();
+const scopeKey = (scope: AccountScope): string => (scope.all ? "all" : ["meta", "google", "tiktok"].map((p) => [...(scope as { meta: Set<string>; google: Set<string>; tiktok: Set<string> })[p as "meta"]].sort().join(",")).join("|"));
+
+/** Forgets the cached registries (tests, an admin edit that must show at once). */
+export function forgetClientRegistry(): void { registryCache.clear(); }
+
+export async function listClientRegistry(scope: AccountScope, opts: { fresh?: boolean } = {}): Promise<ClientRef[]> {
+  if (REGISTRY_TTL_MS <= 0 || opts.fresh) return readClientRegistry(scope);
+  const key = scopeKey(scope);
+  const hit = registryCache.get(key);
+  if (hit && Date.now() - hit.at < REGISTRY_TTL_MS) return hit.value;
+  const value = readClientRegistry(scope);
+  registryCache.set(key, { at: Date.now(), value });
+  value.catch(() => registryCache.delete(key));
+  if (registryCache.size > 50) for (const [k, v] of registryCache) if (Date.now() - v.at >= REGISTRY_TTL_MS) registryCache.delete(k);
+  return value;
+}
+
+async function readClientRegistry(scope: AccountScope): Promise<ClientRef[]> {
   const [clients, dashboards] = await Promise.all([
     prisma.alertClient.findMany({ select: { id: true, name: true, accountsJson: true, dashboardId: true }, orderBy: { name: "asc" } }),
     prisma.dashboard.findMany({ where: dashboardWhere(scope), select: { id: true, name: true, metaAccountId: true, googleCustomerId: true, driveFolderId: true, hqSlug: true, createdAt: true, sources: TIKTOK_ACCOUNT_SOURCES_SELECT }, orderBy: { createdAt: "asc" } }),

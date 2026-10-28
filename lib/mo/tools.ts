@@ -22,7 +22,9 @@ import { prisma } from "@/lib/prisma";
 import { getAccountScope, type AccountScope } from "@/lib/scope";
 import { effectiveRole } from "@/lib/roles";
 import { listClientRegistry, type ClientRef } from "@/lib/clients/registry";
-import { matchClientName } from "@/lib/mo/intents";
+import { matchClientName, withClientAliases } from "@/lib/mo/intents";
+import { brandBriefFromHq } from "@/lib/mo/brief";
+import { isHqContextFresh } from "@/lib/hq-client-context";
 import { deriveMetrics, queryAds, type Metrics, type MetricKey } from "@/lib/ads-warehouse/query";
 import type { WarehousePlatform } from "@/lib/ads-warehouse/types";
 import { checkGeneration, readQuotas, spentToday } from "@/lib/quotas";
@@ -44,7 +46,11 @@ import type { MoCardSpec } from "@/lib/mo/model";
 export const MO_TOOL_NAMES = ["creatives", "metrics", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad", "competitor_ads", "keep_template"] as const;
 export type MoToolName = (typeof MO_TOOL_NAMES)[number];
 
-export interface MoToolContext { userId: string; boardId: string; role: string; email: string | null; name: string | null }
+export interface MoToolContext {
+  userId: string; boardId: string; role: string; email: string | null; name: string | null;
+  /** The caller's registry when the route already read it (the quick path): no second read. */
+  registry?: { scope: AccountScope; clients: ClientRef[] };
+}
 
 type Args = Record<string, unknown>;
 type ToolResult = Record<string, unknown>;
@@ -130,13 +136,13 @@ async function sessionOf(ctx: MoToolContext): Promise<PilotSession> {
 /** The client named (or its id) among the ones the consultant may see; a clear error when none or several. */
 export async function resolveClient(ctx: MoToolContext, raw: unknown): Promise<Resolved> {
   const session = await sessionOf(ctx);
-  const scope = await getAccountScope(session);
-  const clients = await listClientRegistry(scope);
+  const scope = ctx.registry?.scope ?? await getAccountScope(session);
+  const clients = ctx.registry?.clients ?? await listClientRegistry(scope);
   const q = str(raw, 120);
   if (!q) throw new MoToolError("Dis-moi de quel client il s'agit (nom ou identifiant).");
   const byId = clients.find((c) => c.id === q || c.clientId === q || c.aliasIds.includes(q) || c.dashboardIds.includes(q));
   if (byId) return { client: byId, scope, session };
-  const m = matchClientName(q, clients.map((c) => ({ id: c.id, name: c.name })));
+  const m = matchClientName(q, withClientAliases(clients.map((c) => ({ id: c.id, name: c.name }))));
   if (!m) {
     const near = clients.filter((c) => c.name.toLowerCase().includes(q.toLowerCase().slice(0, 4))).slice(0, 5).map((c) => c.name);
     throw new MoToolError(`Client « ${q} » introuvable parmi les clients autorisés${near.length ? ` (proches : ${near.join(", ")})` : ""}.`, 404);
@@ -204,6 +210,7 @@ export async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult
   return {
     client: { id: client.id, name: client.name }, period: { ...range }, platforms, currency: cur, launched_in_period: launched, ...(note ? { note } : {}),
     ...(posted.length ? { posted_card: posted[0], posted: "La carte est DÉJÀ sur le tableau : ne la recopie pas dans « cards », dis juste la phrase (et son id si on te demande de la modifier)." } : {}),
+    ...(a.post === false && items.length ? { card_specs: [card] } : {}),
     count: items.length, total: res.total,
     items: items.map((it) => ({ adId: it.adId, name: shortName(it.name), format: it.format, status: it.status, launched: it.launched, campaign: it.campaign, metrics: it.metrics, ...(it.title ? { title: it.title } : {}), ...(it.landing ? { landing: it.landing } : {}) })),
     account_total: frMetrics(res.benchmark, cur),
@@ -271,6 +278,7 @@ export async function metrics(ctx: MoToolContext, a: Args): Promise<ToolResult> 
   return {
     client: { id: client.id, name: client.name }, period: { ...range }, compare, platforms, currency: cur,
     ...(posted.length ? { posted_cards: posted, posted: "Les cartes sont DÉJÀ sur le tableau : ne les recopie pas, dis juste la phrase (la conclusion, un ou deux chiffres)." } : {}),
+    ...(a.post === false ? { card_specs: cards } : {}),
     totals: Object.fromEntries(main.map((k) => [k.label, `${k.value}${k.delta ? ` (${k.delta})` : ""}`])),
     ...(rows.length ? { rows } : {}), data_until: res.coverage.until,
     coverage: res.coverage.complete ? "complète" : res.coverage.errors ? `données jusqu'au ${res.coverage.until ?? "?"} (dernière synchronisation en échec)` : res.coverage.loading ? "synchronisation en cours" : "partielle",
@@ -317,10 +325,26 @@ async function relayFileBytes(file: string): Promise<{ buf: Buffer; mimeType: st
   return null;
 }
 
+/**
+ * The brand brief of a client from the HQ context cached on its dashboard
+ * (lib/hq-client-context.ts, 7 days; never a new HQ call here): what a
+ * generated visual must respect. Empty when nothing is cached.
+ */
+export async function brandBriefOf(client: Pick<ClientRef, "dashboardId" | "dashboardIds">): Promise<string> {
+  const ids = [client.dashboardId, ...client.dashboardIds].filter((v): v is string => !!v);
+  if (!ids.length) return "";
+  const rows = await prisma.dashboard.findMany({ where: { id: { in: ids }, hqContextMd: { not: null } }, select: { hqContextMd: true, hqContextAt: true }, orderBy: { hqContextAt: "desc" }, take: 3 });
+  const fresh = rows.find((d) => isHqContextFresh(d));
+  return brandBriefFromHq(fresh?.hqContextMd);
+}
+
 export async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const { client } = await resolveClient(ctx, a.client);
-  const prompt = str(a.prompt, 4000);
-  if (prompt.length < 3) throw new MoToolError("Décris le visuel à créer (prompt).");
+  const asked = str(a.prompt, 4000);
+  if (asked.length < 3) throw new MoToolError("Décris le visuel à créer (prompt).");
+  // The brand brief of HQ goes first, so the visual respects the brand (the model's or the person's prompt follows).
+  const brief = a.brand_brief === false ? "" : await brandBriefOf(client);
+  const prompt = brief ? `CONTEXTE DE MARQUE (mémoire HQ de l'agence, à respecter) :\n${brief}\n\nVISUEL DEMANDÉ :\n${asked}` : asked;
   const n = Math.min(4, Math.max(1, Math.round(num(a.n) ?? 1)));
   const ratio = (IMAGE_RATIOS as readonly string[]).includes(str(a.ratio)) ? str(a.ratio) : "4:5" === str(a.ratio) ? "3:4" : "1:1";
   // Nano Banana 2 (the model the agency's fal key opens): edit when references are given, text-to-image otherwise.
@@ -387,8 +411,8 @@ export async function generateCreatives(ctx: MoToolContext, a: Args): Promise<To
   const items = [];
   for (const out of outs) {
     const asset = await prisma.creativeAsset.create({ data: {
-      createdById: ctx.userId, createdByName, alertClientId: client.clientId, clientName: client.name, prompt, kind: "image", model: out.model, origin: "mo",
-      paramsJson: JSON.stringify({ ratio, engine: via, references: refs.length, group, board: ctx.boardId, promptSent: prompt, note }), status: "completed", progress: 100, url: out.url, file: out.file, costUsd: out.usd,
+      createdById: ctx.userId, createdByName, alertClientId: client.clientId, clientName: client.name, prompt: asked, kind: "image", model: out.model, origin: "mo",
+      paramsJson: JSON.stringify({ ratio, engine: via, references: refs.length, group, board: ctx.boardId, promptSent: prompt, briefHq: !!brief, note }), status: "completed", progress: 100, url: out.url, file: out.file, costUsd: out.usd,
     } });
     let drive: { id: string; webViewLink: string | null } | null = null;
     if (folder) {
@@ -400,11 +424,15 @@ export async function generateCreatives(ctx: MoToolContext, a: Args): Promise<To
     }
     items.push({ assetId: asset.id, image: assetImage(asset.id), model: out.model, usd: Math.round(out.usd * 1000) / 1000, drive: drive?.webViewLink ?? null });
   }
-  const card: MoCardSpec = { type: "creatives", clientId: client.id, clientName: client.name, title: str(a.title, 90) || `Nouvelles créas ${client.name}`, subtitle: `Générées par Mo · ${via.replace("fal-ai/", "")} · ${day}${folder?.webViewLink ? " · dans le Drive du client" : ""}`, items: items.map((it, k) => ({ name: str((Array.isArray(a.names) ? a.names[k] : null) ?? "", 60) || `Proposition ${k + 1}`, image: it.image, assetId: it.assetId, metrics: { Moteur: via.replace("fal-ai/", ""), Coût: it.usd ? `${it.usd} $` : "gratuit" }, ...(it.drive ? { link: it.drive } : {}) })) };
+  // « d'après « A », « B » » : the visuals the new ones are inspired by (names given by the caller), and the HQ brief when it was used.
+  const inspired = (Array.isArray(a.inspired_by) ? a.inspired_by : []).map((v) => str(v, 60)).filter(Boolean).slice(0, 3);
+  const subtitle = [`Générées par Mo · ${via.replace("fal-ai/", "")} · ${day}`, inspired.length ? `d'après ${inspired.map((n) => `« ${n} »`).join(", ")}` : "", brief ? "brief HQ utilisé" : "", folder?.webViewLink ? "dans le Drive du client" : ""].filter(Boolean).join(" · ");
+  const card: MoCardSpec = { type: "creatives", clientId: client.id, clientName: client.name, title: str(a.title, 90) || `Nouvelles créas ${client.name}`, subtitle, items: items.map((it, k) => ({ name: str((Array.isArray(a.names) ? a.names[k] : null) ?? "", 60) || `Proposition ${k + 1}`, image: it.image, assetId: it.assetId, metrics: { Moteur: via.replace("fal-ai/", ""), Coût: it.usd ? `${it.usd} $` : "gratuit" }, ...(it.drive ? { link: it.drive } : {}) })) };
   const posted = a.post !== false ? await postMoCards(ctx.boardId, [card]) : [];
   return {
-    client: { id: client.id, name: client.name }, generated: items.length, engine: via, ratio, references: refs.length, ...(note ? { note } : {}),
+    client: { id: client.id, name: client.name }, generated: items.length, engine: via, ratio, references: refs.length, brief_hq: !!brief, ...(note ? { note } : {}),
     ...(posted.length ? { posted_card: posted[0], posted: "La carte est DÉJÀ sur le tableau : ne la recopie pas, dis juste la phrase." } : {}),
+    ...(a.post === false ? { card_specs: [card] } : {}),
     drive_folder: folder?.webViewLink ?? null, ...(driveError ? { drive_error: driveError } : {}),
     items,
   };
@@ -527,6 +555,7 @@ export async function competitorAds(ctx: MoToolContext, a: Args): Promise<ToolRe
   return {
     query, country, total: res.total ?? null, count: ads.length, brand_ads: res.brandAds ?? null, only_brand: onlyBrand,
     ...(posted.length ? { posted_card: posted[0], posted: "La carte est DÉJÀ sur le tableau : dis juste la phrase (combien de pubs, depuis quand, ce qui ressort)." } : {}),
+    ...(a.post === false && ads.length ? { card_specs: [card] } : {}),
     ads: ads.map((ad, i) => ({ n: i + 1, libraryId: ad.id, page: ad.pageName, started: ad.startedAt, video: !!ad.videoUrl, image: ad.imageUrl ?? null, text: ad.bodies[0]?.slice(0, 200) ?? null, domain: ad.domain ?? null })),
     next: "Pour garder une pub comme template du client : keep_template avec son libraryId (et le client).",
   };

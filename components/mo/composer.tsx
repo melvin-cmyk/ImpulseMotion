@@ -4,12 +4,14 @@
  * The composer of Mo: always visible at the bottom of the board. A text
  * input, the microphone (hold to talk, or click to start / click to stop),
  * send, one line of state (what Mo is doing, in Mo's words), and the chips
- * Mo offers when something is missing (« Pour quel client ? »).
+ * Mo offers when something is missing (« Pour quel client ? »), a 👎 on Mo's
+ * sentence (the turn is counted « mal compris », spec §6), and the hands-free
+ * switch (the microphone stays open, a silence sends — off by default).
  * `/` focuses the input, Escape blurs it and quiets Mo, ⌘⏎ (or ⏎) sends.
  */
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { Loader2, Mic, SendHorizontal, Square, Volume2 } from "lucide-react";
+import { AudioLines, Loader2, Mic, SendHorizontal, Square, ThumbsDown, Volume2 } from "lucide-react";
 import type { Voice } from "@/components/mo/use-voice";
 
 export interface ComposerChip { label: string; onPick: () => void; muted?: boolean }
@@ -35,15 +37,20 @@ interface Props {
   onFocus?: () => void;
   /** A dictation starts from the microphone button (same). */
   onBegin?: () => void;
+  /** 👎 on Mo's last sentence: Mo had not understood (measured). */
+  onThumbsDown?: () => void;
   className?: string;
 }
 
 const HOLD_MS = 350;
 
-export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ voice, running, lastSaid, error, ask, onSend, onEscape, onFocus, onBegin, className }, ref) {
+export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ voice, running, lastSaid, error, ask, onSend, onEscape, onFocus, onBegin, onThumbsDown, className }, ref) {
   const input = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [elapsed, setElapsed] = useState(0);
+  /** The sentence the 👎 was given to (the button then shows « noté »). */
+  const [downed, setDowned] = useState<string | null>(null);
+  useEffect(() => { setDowned(null); }, [lastSaid?.mo]);
   /** Microphone pressed at (ms): a short press toggles, a long press is push-to-talk. */
   const pressedAt = useRef<number | null>(null);
   const toggled = useRef(false);
@@ -118,6 +125,11 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ vo
           <div data-mo-say className="text-[15px] text-gray-100 leading-snug pointer-events-auto">
             {voice.speaking ? <Volume2 className="w-3.5 h-3.5 text-violet-300 inline -mt-0.5 mr-1" /> : <span className="text-violet-300">Mo ·</span>} {lastSaid.mo}
             {voice.speaking && <button type="button" onClick={() => voice.hush()} className="ml-2 text-[11px] text-gray-400 hover:text-white align-middle">stop</button>}
+            {onThumbsDown && (
+              <button type="button" data-mo-thumbs-down onClick={() => { if (downed === lastSaid.mo) return; setDowned(lastSaid.mo); onThumbsDown(); }} disabled={downed === lastSaid.mo} className={`ml-2 inline-flex items-center gap-1 align-middle text-[11px] ${downed === lastSaid.mo ? "text-amber-300" : "text-gray-500 hover:text-amber-300"}`} title="Mo n'a pas compris : je le note pour améliorer Mo" aria-label="Mo n'a pas compris">
+                <ThumbsDown className="w-3 h-3" />{downed === lastSaid.mo ? "noté" : null}
+              </button>
+            )}
           </div>
         ) : null}
         {error && <div data-mo-error className="text-[12px] text-rose-300">{error}</div>}
@@ -158,7 +170,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ vo
           onChange={(e) => setText(e.target.value)}
           onFocus={onFocus}
           onKeyDown={(e) => {
-            if (e.key === "Escape") { e.preventDefault(); input.current?.blur(); voice.hush(); if (voice.listening) voice.cancel(); onEscape?.(); return; }
+            if (e.key === "Escape") { e.preventDefault(); input.current?.blur(); voice.hush(); if (voice.handsFree) voice.setHandsFree(false); else if (voice.listening) voice.cancel(); onEscape?.(); return; }
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
           }}
           placeholder={voice.listening ? "Je t'écoute…" : running ? "Mo travaille… (tu peux préparer la suite)" : "Écris à Mo, ou maintiens espace pour parler"}
@@ -166,10 +178,15 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ vo
           autoComplete="off"
           spellCheck={false}
         />
+        {voice.supported && (
+          <button type="button" data-mo-handsfree onClick={() => voice.setHandsFree(!voice.handsFree)} aria-pressed={voice.handsFree} className={`w-8 h-8 shrink-0 rounded-full inline-flex items-center justify-center transition-colors ${voice.handsFree ? "bg-fuchsia-500/30 text-fuchsia-100 ring-1 ring-fuchsia-400/60" : "text-gray-500 hover:text-white hover:bg-white/10"}`} title={voice.handsFree ? "Mains libres actif : Mo écoute en continu et envoie après un silence · clic pour arrêter" : "Mains libres : Mo écoute en continu et envoie après un silence (pas de mot d'activation)"} aria-label="Mains libres">
+            <AudioLines className="w-4 h-4" />
+          </button>
+        )}
         <kbd className="hidden sm:inline text-[10px] text-gray-600 border border-white/10 rounded px-1 py-0.5 mr-1">/</kbd>
         <button type="submit" disabled={!text.trim() || !!running} className="w-9 h-9 shrink-0 rounded-full bg-violet-600 hover:bg-violet-500 disabled:opacity-30 inline-flex items-center justify-center text-white" aria-label="Envoyer" title="Envoyer (⏎ ou ⌘⏎)"><SendHorizontal className="w-4 h-4" /></button>
       </form>
-      <div className="mt-1.5 text-[11px] text-gray-500">{voice.supported ? "espace ou l'orbe pour parler · / pour écrire · Échap pour couper" : "Reconnaissance vocale indisponible ici : utilise Chrome, ou écris à Mo"}</div>
+      <div className="mt-1.5 text-[11px] text-gray-500">{voice.handsFree ? "mains libres : parle, un silence envoie · parle pendant que Mo parle pour le couper · Échap pour arrêter" : voice.supported ? "espace ou l'orbe pour parler · / pour écrire · Échap pour couper" : "Reconnaissance vocale indisponible ici : utilise Chrome, ou écris à Mo"}</div>
     </div>
   );
 });

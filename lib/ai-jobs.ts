@@ -27,6 +27,7 @@ import { appendDesignMessages } from "@/lib/design/thread";
 import { appendAnalyseMessages } from "@/lib/ads-warehouse/copilot-thread";
 import { syncDesignOutputsToDrive } from "@/lib/design/drive-sync";
 import { appendMoAnswer } from "@/lib/mo/thread";
+import { closeMoTurnByJob } from "@/lib/mo/turns";
 
 export type AiJobSurface = "bot" | "console" | "design" | "analyse" | "mo";
 export type AiJobStatus = "running" | "done" | "stopped" | "failed";
@@ -166,8 +167,9 @@ export async function finalizeAiJob(
     } else if (row.surface === "analyse") {
       await appendAnalyseMessages(row.conversationId, [{ role: "assistant", content: text, at }]);
     } else if (row.surface === "mo") {
-      // Mo answers in cards: parsed and laid on the board here (lib/mo/model.ts).
+      // Mo answers in cards: parsed and laid on the board here (lib/mo/model.ts); the measured turn gets its total time.
       await appendMoAnswer(row.conversationId, text, at);
+      await closeMoTurnByJob(jobId, Date.now() - row.startedAt.getTime());
     } else if (row.surface === "console") {
       const toolCalls = summary.toolCalls.filter((t) => t.name);
       await appendConsoleMessages(row.conversationId, row.userId, [{

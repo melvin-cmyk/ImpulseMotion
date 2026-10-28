@@ -19,6 +19,7 @@ import { warmMoBoard } from "@/components/mo/warm";
 import type { MoBoardData } from "@/lib/mo/model";
 import { PERIOD_OPTIONS, completeQuickAsk, orderClientCandidates, parseNavIntent, parseQuickIntent, type IntentClient } from "@/lib/mo/intents";
 import { moStatusLabel } from "@/lib/mo/status";
+import { nextSentences, sayProgress } from "@/lib/mo/voice";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
@@ -43,6 +44,8 @@ export function MoDock() {
   /** Sentence already spoken from the stream (not said twice at the end). */
   const earlySaid = useRef<string | null>(null);
   const streamText = useRef("");
+  const spokenCount = useRef(0);
+  const sayRef = useRef<(text: string) => void>(() => undefined);
   const pathRef = useRef(pathname);
   const clientsRef = useRef<IntentClient[]>([]);
   const seenTurns = useRef(0);
@@ -102,8 +105,10 @@ export function MoDock() {
     const cards = last?.cardIds?.length ?? 0;
     // A result with cards stays until dismissed.
     showBubble({ you, mo: say, cards, open }, cards ? 0 : open ? 6_000 : BUBBLE_MS);
-    if (say && earlySaid.current !== say) speakRef.current(say);
+    // What the stream did not say yet is said now (the rest of the sentence, or everything when nothing streamed).
+    if (say) { const left = earlySaid.current && say.startsWith(earlySaid.current) ? say.slice(earlySaid.current.length).trim() : earlySaid.current ? "" : say; if (left) sayRef.current(left); }
     earlySaid.current = null;
+    spokenCount.current = 0;
     if (open) window.setTimeout(() => router.push(open), 700);
   }, [router, showBubble]);
 
@@ -158,17 +163,20 @@ export function MoDock() {
       setRun({ jobId, activity: INITIAL_ACTIVITY, startedAt: Date.now() });
       streamText.current = "";
       earlySaid.current = null;
+      spokenCount.current = 0;
       const onEvent = (e: JobEvent) => {
         if (e.type === "job") return;
-        // « say » comes first in the answer: spoken as soon as it is complete.
+        // « say » comes first in the answer: spoken sentence by sentence as it streams (lib/mo/voice.ts).
         if ((e.type === "delta" || e.type === "content") && typeof e.text === "string") {
           streamText.current = e.type === "content" && !streamText.current ? e.text : streamText.current + (e.type === "delta" ? e.text : "");
-          if (!earlySaid.current) {
-            const m = streamText.current.match(/"say"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-            if (m) {
-              let sentence = "";
-              try { sentence = String(JSON.parse(`"${m[1]}"`)); } catch { sentence = m[1]; }
-              if (sentence.trim()) { earlySaid.current = sentence; showBubble({ you: t, mo: sentence, cards: 0, open: null }, 0); speakRef.current(sentence); }
+          const progress = sayProgress(streamText.current);
+          if (progress && progress.text.trim()) {
+            const { sentences, spoken } = nextSentences(progress, spokenCount.current);
+            spokenCount.current = spoken;
+            if (sentences.length) {
+              earlySaid.current = `${earlySaid.current ? `${earlySaid.current} ` : ""}${sentences.join(" ")}`;
+              showBubble({ you: t, mo: earlySaid.current, cards: 0, open: null }, 0);
+              for (const sentence of sentences) sayRef.current(sentence);
             }
           }
         }
@@ -187,7 +195,7 @@ export function MoDock() {
   }, [run, ensureBoard, finish, showBubble, router]);
 
   const voice = useVoice(send);
-  useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);
+  useEffect(() => { speakRef.current = voice.speak; sayRef.current = voice.say; }, [voice.speak, voice.say]);
 
   // Alt+M held = talk (anywhere, even in a text field); Escape = quiet.
   useEffect(() => {

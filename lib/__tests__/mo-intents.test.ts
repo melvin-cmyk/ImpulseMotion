@@ -159,3 +159,120 @@ describe("Mo — follow-ups over the card at hand", () => {
     expect(parseFollowUpIntent("ouvre le cockpit de naturalia")).toBeNull();
   });
 });
+
+// ── Lot 4 : follow-ups without the model, aliases ────────────────────────────
+import { CLIENT_ALIASES, isClientId, parseFollowUpIntent, parseFollowUpQuick, splitBrands, targetIndexes, withClientAliases, type IntentClient } from "@/lib/mo/intents";
+
+describe("Mo — client aliases (CL → Cours Legendre)", () => {
+  const aliased: IntentClient[] = withClientAliases<IntentClient>([...clients, { id: "c6", name: "Naturalia Bio", dashboardId: "d6" }]);
+  it("adds the spoken aliases of the table to the matching client, nothing to the others", () => {
+    expect(aliased.find((c) => c.id === "c2")?.aliases).toEqual(expect.arrayContaining(["cl", "legendre"]));
+    expect(aliased.find((c) => c.id === "c3")?.aliases).toEqual(["la petite epicerie verte"]);
+    expect(aliased.find((c) => c.id === "c1")?.aliases).toEqual(["natu"]);
+    expect(aliased.find((c) => c.id === "c5")?.aliases).toEqual(["sev"]);
+    expect(CLIENT_ALIASES.cl).toBe("cours legendre");
+  });
+  it("matches a short alias only as a whole word", () => {
+    expect(matchClientName("créas CL cette semaine", aliased)?.id).toBe("c2");
+    expect(matchClientName("chiffres de cl ce mois", aliased)?.id).toBe("c2");
+    expect(matchClientName("le cpl de naturalia", aliased)?.id).toBe("c1");
+    expect(matchClientName("ouvre le client", aliased)).toBeNull();
+  });
+  it("runs the quick path on an alias", () => {
+    expect(quick(parseQuickIntent("créas CL cette semaine", aliased))).toMatchObject({ kind: "creatives", client: { id: "c2" } });
+  });
+  it("accepts the merged ids of the registry as the client's id", () => {
+    const c = { id: "d2", name: "Cours Legendre", aliasIds: ["c_old", "c_other"] };
+    expect(isClientId(c, "d2")).toBe(true);
+    expect(isClientId(c, "c_old")).toBe(true);
+    expect(isClientId(c, "zzz")).toBe(false);
+    expect(isClientId(c, null)).toBe(false);
+  });
+});
+
+describe("Mo — verdict verbs on the card at hand", () => {
+  it("« garde la 2 » → the second visual", () => {
+    expect(parseFollowUpIntent("garde la 2")).toMatchObject({ kind: "verdict", verdict: "keep", target: { which: "index", index: 1 } });
+  });
+  it("« coupe les deux dernières » → the last two, not all", () => {
+    expect(parseFollowUpIntent("coupe les deux dernières")).toMatchObject({ kind: "verdict", verdict: "cut", target: { which: "last", count: 2 }, say: "Je les coupe." });
+    expect(parseFollowUpIntent("vire la dernière")).toMatchObject({ kind: "verdict", verdict: "cut", target: { which: "last", count: 1 } });
+  });
+  it("« garde-les toutes » → all", () => {
+    expect(parseFollowUpIntent("garde-les toutes")).toMatchObject({ kind: "verdict", verdict: "keep", target: { which: "all" } });
+  });
+  it("« publie la première » → a publication to prepare for the first visual", () => {
+    expect(parseFollowUpIntent("publie la première")).toMatchObject({ kind: "publish", target: { which: "index", index: 0 } });
+    expect(parseFollowUpIntent("poste celle-là")).toMatchObject({ kind: "publish", target: { which: "this" } });
+    expect(parseFollowUpIntent("publie-les toutes")).toBeNull();
+  });
+  it("resolves targets to item indexes", () => {
+    expect(targetIndexes({ which: "last", count: 2 }, 5, null)).toEqual([3, 4]);
+    expect(targetIndexes({ which: "last", count: 3 }, 2, null)).toEqual([0, 1]);
+    expect(targetIndexes({ which: "index", index: 7 }, 3, null)).toEqual([]);
+    expect(targetIndexes({ which: "this" }, 3, 1)).toEqual([1]);
+    expect(targetIndexes({ which: "this" }, 1, null)).toEqual([0]);
+    expect(targetIndexes({ which: "this" }, 3, null)).toEqual([]);
+    expect(targetIndexes({ which: "all" }, 3, null)).toEqual([0, 1, 2]);
+  });
+});
+
+describe("Mo — « deux autres comme ça »", () => {
+  it("understands the ways of asking for more visuals, with the count", () => {
+    expect(parseFollowUpQuick("deux autres comme ça", clients)).toMatchObject({ kind: "more_like_this", n: 2, style: "" });
+    expect(parseFollowUpQuick("Crée-m'en deux dans le même esprit", clients)).toMatchObject({ kind: "more_like_this", n: 2 });
+    expect(parseFollowUpQuick("fais-en 3 autres", clients)).toMatchObject({ kind: "more_like_this", n: 3 });
+    expect(parseFollowUpQuick("une variante de celle-là", clients)).toMatchObject({ kind: "more_like_this", n: 1 });
+  });
+  it("keeps the style asked (« en jaune »)", () => {
+    const r = parseFollowUpQuick("encore deux comme ça en jaune", clients);
+    expect(r).toMatchObject({ kind: "more_like_this", n: 2, style: "en jaune" });
+    expect(parseFollowUpQuick("refais la même plus sobre", clients)).toMatchObject({ kind: "more_like_this", n: 1, style: "plus sobre" });
+  });
+  it("leaves the rest to the quick path or the model", () => {
+    expect(parseFollowUpQuick("montre deux créas de Naturalia", clients)).toBeNull();
+    expect(parseFollowUpQuick("pourquoi le CPA monte chez Naturalia ?", clients)).toBeNull();
+    expect(parseFollowUpQuick("mets les chiffres dessous", clients)).toBeNull();
+  });
+});
+
+describe("Mo — « compare avec la semaine d'avant »", () => {
+  it("names the other period", () => {
+    expect(parseFollowUpQuick("compare avec la semaine d'avant", clients)).toMatchObject({ kind: "compare", period: "last_week", client: null });
+    expect(parseFollowUpQuick("compare avec le mois dernier", clients)).toMatchObject({ kind: "compare", period: "last_month" });
+    expect(parseFollowUpQuick("et la semaine d'avant ?", clients)).toMatchObject({ kind: "compare", period: "last_week" });
+    expect(parseFollowUpQuick("compare Naturalia avec hier", clients)).toMatchObject({ kind: "compare", period: "yesterday", client: { id: "c1" } });
+  });
+  it("« compare » alone = the previous period of the same length", () => {
+    expect(parseFollowUpQuick("compare", clients)).toMatchObject({ kind: "compare", period: "previous" });
+    expect(parseFollowUpQuick("compare avec la période d'avant", clients)).toMatchObject({ kind: "compare", period: "previous" });
+  });
+  it("a comparison of créas is the model's", () => {
+    expect(parseFollowUpQuick("compare ça avec les créas de la semaine d'avant", clients)).toBeNull();
+  });
+});
+
+describe("Mo — brands and competitors", () => {
+  it("« montre les pubs de La Fourche » → the Ad Library, brand kept as typed", () => {
+    expect(parseFollowUpQuick("Montre-moi les pubs de La Fourche", clients)).toMatchObject({ kind: "competitor_ads", brands: ["La Fourche"], client: null });
+    expect(parseFollowUpQuick("montre les pubs de La Fourche et Aroma-Zone en ce moment", clients)).toMatchObject({ kind: "competitor_ads", brands: ["La Fourche", "Aroma-Zone"] });
+  });
+  it("« les concurrents de Naturalia » → the client, brands from HQ", () => {
+    expect(parseFollowUpQuick("les concurrents de Naturalia", clients)).toMatchObject({ kind: "competitor_ads", brands: [], client: { id: "c1" } });
+    expect(parseFollowUpQuick("que font les concurrents de cours legendre ?", clients)).toMatchObject({ kind: "competitor_ads", client: { id: "c2" } });
+  });
+  it("a client's own ads stay on the warehouse path", () => {
+    expect(parseFollowUpQuick("montre les pubs de Naturalia", clients)).toBeNull();
+  });
+  it("splits brands on commas and « et »", () => {
+    expect(splitBrands("montre les pubs de La Fourche, Greenweez et Kazidomi", "la fourche greenweez et kazidomi")).toEqual(["La Fourche", "Greenweez", "Kazidomi"]);
+  });
+});
+
+describe("Mo — ghost titles of the follow-ups", () => {
+  it("names what is coming", () => {
+    expect(ghostTitle("deux autres comme ça", { kind: "more_like_this", n: 2, style: "", say: "" })).toBe("2 visuels en préparation");
+    expect(ghostTitle("compare", { kind: "compare", period: "last_week", periodLabel: "la semaine dernière", client: null, say: "" })).toBe("Chiffres · la semaine dernière");
+    expect(ghostTitle("x", { kind: "competitor_ads", brands: ["La Fourche"], client: null, say: "" })).toBe("Pubs La Fourche");
+  });
+});

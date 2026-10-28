@@ -32,19 +32,24 @@ import { warmMoBoard } from "@/components/mo/warm";
 import { WaveCanvas, type WaveMood } from "@/components/mo/wave-canvas";
 import { useVoice } from "@/components/mo/use-voice";
 import { CARD_SIZES, COL_GAP, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec } from "@/lib/mo/model";
-import { MAX_UPLOAD_BYTES, fileKindOf } from "@/lib/mo/act";
+import { MAX_UPLOAD_BYTES, cardClientOf, fileKindOf } from "@/lib/mo/act";
 import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
 
 const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
-import { PERIOD_OPTIONS, completeQuickAsk, ghostTitle, orderClientCandidates, parseFollowUpIntent, parseNavIntent, parseQuickIntent, type IntentClient, type QuickAsk, type QuickResult } from "@/lib/mo/intents";
+import { PERIOD_OPTIONS, completeQuickAsk, ghostTitle, orderClientCandidates, parseFollowUpIntent, parseFollowUpQuick, parseNavIntent, parseQuickIntent, targetIndexes, withClientAliases, type IntentClient, type QuickAsk, type QuickFollowUp, type QuickResult } from "@/lib/mo/intents";
+import { cardRemovedTooSoon, misunderstoodBy } from "@/lib/mo/measure";
+import { nextSentences, sayProgress } from "@/lib/mo/voice";
 import { actStatusLabel, moStatusLabel } from "@/lib/mo/status";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
 interface Run { jobId: string; startedAt: number; activity: ActivityState }
+/** The last turn measured (spec §6): its MoTurn id, what was said, when, the cards it produced — to detect a reformulation, a 👎, a card removed at once. */
+interface LastTurn { id: string | null; text: string; at: number; cardIds: string[]; path: "nav" | "quick" | "act" | "model" | "ask"; firstCardSent: boolean }
+interface QuickResponse { say: string; cardIds: string[]; cards?: MoCard[]; messages?: MoBoardData["messages"]; turnId?: string | null; needs?: "client" | "brands" | "card"; question?: string; options?: string[]; error?: string }
 /** An action of the board running (POST /api/mo/[id]/act): which card, which button, since when. */
 interface Acting { cardId: string | null; key: CardBusy; action: string; startedAt: number }
-interface ActResponse { say?: string; cardIds?: string[]; card?: MoCard; open?: string; needs?: { adset: Array<{ adsetId: string; adset: string; campaign: string; spend_30d: number; status: string | null }> }; error?: string }
+interface ActResponse { say?: string; cardIds?: string[]; card?: MoCard; open?: string; needs?: { adset: Array<{ adsetId: string; adset: string; campaign: string; spend_30d: number; status: string | null }> }; turnId?: string; error?: string }
 const MAX_DROP_FILES = 10;
 const readDataUrl = (f: File) => new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = () => rej(r.error); r.readAsDataURL(f); });
 
@@ -109,8 +114,19 @@ export function MoPage() {
   const flushTimer = useRef<number | null>(null);
   /** Mo's voice (set once the voice hook is up; it is used by the reply handler above it). */
   const speakRef = useRef<(text: string) => void>(() => undefined);
+  /** Mo's voice, queued: a sentence said after the one being said (the answer streams sentence by sentence). */
+  const sayRef = useRef<(text: string) => void>(() => undefined);
   /** The sentence spoken as soon as it appeared in the stream (finishTurn then does not say it twice). */
   const earlySaid = useRef<string | null>(null);
+  /** Sentences of the streaming « say » already handed to the voice (spoken one by one, lib/mo/voice.ts). */
+  const spokenCount = useRef(0);
+  /** The last turn, for the measures (reformulation within 60 s, 👎, card removed within 30 s). */
+  const lastTurn = useRef<LastTurn | null>(null);
+  /** Fire-and-forget writes of the measures (never block a turn). */
+  const patchTurn = useCallback((id: string | null, patch: Record<string, unknown>) => { if (!id) return; void fetch(`/api/mo/turn/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }).catch(() => undefined); }, []);
+  const createTurn = useCallback(async (body: Record<string, unknown>): Promise<string | null> => { try { const r = await fetch("/api/mo/turn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const j = (await r.json().catch(() => ({}))) as { id?: string | null }; return j.id ?? null; } catch { return null; } }, []);
+  /** The first card of the running turn landed: its delay goes on the turn (once). */
+  const firstCardLanded = useCallback(() => { const t = lastTurn.current; if (!t || t.firstCardSent) return; t.firstCardSent = true; patchTurn(t.id, { firstCardMs: Date.now() - t.at }); }, [patchTurn]);
   /** Streamed answer of the running turn, to catch « say » before the JSON is complete. */
   const streamText = useRef("");
   /** Ids of the cards the person already has (new ones found by the live refresh get the spotlight). */
@@ -192,17 +208,24 @@ export function MoPage() {
     const ids = new Set(last?.cardIds ?? []);
     setFresh(ids);
     knownIds.current = new Set(j.board.cards.map((c) => c.id));
+    if (ids.size) firstCardLanded();
+    if (lastTurn.current && lastTurn.current.path === "model") lastTurn.current.cardIds = [...ids];
     // The answer is in: the ghost has done its job (a card replaced it, or Mo only spoke).
     setGhost((g) => (g && g.state === "pending" ? null : g));
     setLastSaid((s) => ({ you: s?.you ?? "", mo: last?.say ?? null }));
-    if (last?.say && !muted && earlySaid.current !== last.say) speakRef.current(last.say);
+    // What the stream did not say yet (the sentences were spoken one by one as they arrived) is said now.
+    if (last?.say && !muted) {
+      const left = earlySaid.current && last.say.startsWith(earlySaid.current) ? last.say.slice(earlySaid.current.length).trim() : earlySaid.current ? "" : last.say;
+      if (left) sayRef.current(left);
+    }
     earlySaid.current = null;
+    spokenCount.current = 0;
     const rects = j.board.cards.filter((c) => ids.has(c.id)).map(rectOfCard);
     if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
     setJournalTick((t) => t + 1);
     // Mo was asked to open a page: the board stays (reopened from the rail), the page comes up once the sentence is said.
     if (last?.open && !last.cardIds?.length) window.setTimeout(() => router.push(last.open!), 900);
-  }, [loadBoard, muted, router]);
+  }, [loadBoard, muted, router, firstCardLanded]);
 
   const follow = useCallback((jobId: string, boardId: string) => {
     follower.current?.abort();
@@ -211,6 +234,7 @@ export function MoPage() {
     setRun({ jobId, startedAt: Date.now(), activity: INITIAL_ACTIVITY });
     streamText.current = "";
     earlySaid.current = null;
+    spokenCount.current = 0;
     // A short word if Mo has not started answering after a moment (the voice assistants people know do this).
     if (ackTimer.current) window.clearTimeout(ackTimer.current);
     ackTimer.current = window.setTimeout(() => { ackTimer.current = null; if (!muted && !streamText.current) speakRef.current(ACKS[Math.floor(Math.random() * ACKS.length)]); }, 2500);
@@ -224,6 +248,7 @@ export function MoPage() {
         for (const c of added) knownIds.current.add(c.id);
         setBoard(j.board);
         setGhost(null);
+        firstCardLanded();
         setFresh((f) => new Set([...f, ...added.map((c) => c.id)]));
         const rects = added.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
         window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
@@ -231,20 +256,18 @@ export function MoPage() {
     }, 2000);
     const onEvent = (e: JobEvent) => {
       if (e.type === "job") return;
-      // « say » is the first field of the answer: spoken the moment it is complete, cards or not.
+      // « say » is the first field of the answer: spoken sentence by sentence as it streams, cards or not (lib/mo/voice.ts).
       if ((e.type === "delta" || e.type === "content") && typeof e.text === "string") {
         streamText.current = e.type === "content" && !streamText.current ? e.text : streamText.current + (e.type === "delta" ? e.text : "");
-        if (!earlySaid.current) {
-          const m = streamText.current.match(/"say"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-          if (m) {
-            let sentence = "";
-            try { sentence = String(JSON.parse(`"${m[1]}"`)); } catch { sentence = m[1]; }
-            if (sentence.trim()) {
-              earlySaid.current = sentence;
-              if (ackTimer.current) { window.clearTimeout(ackTimer.current); ackTimer.current = null; }
-              setLastSaid((s) => ({ you: s?.you ?? "", mo: sentence }));
-              if (!muted) speakRef.current(sentence);
-            }
+        const progress = sayProgress(streamText.current);
+        if (progress && progress.text.trim()) {
+          const { sentences, spoken } = nextSentences(progress, spokenCount.current);
+          spokenCount.current = spoken;
+          if (sentences.length) {
+            if (ackTimer.current) { window.clearTimeout(ackTimer.current); ackTimer.current = null; }
+            earlySaid.current = `${earlySaid.current ? `${earlySaid.current} ` : ""}${sentences.join(" ")}`;
+            setLastSaid((s) => ({ you: s?.you ?? "", mo: earlySaid.current }));
+            if (!muted) for (const sentence of sentences) sayRef.current(sentence);
           }
         }
       }
@@ -260,7 +283,7 @@ export function MoPage() {
       if (outcome === "failed" || outcome === "stopped") setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: outcome === "stopped" ? "Arrêté." : "La réponse a échoué." } : g));
       await finishTurn(boardId);
     }).catch((e) => { window.clearInterval(live); follower.current = null; setRun(null); const msg = e instanceof Error ? e.message : "Suivi interrompu"; setError(msg); setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: msg } : g)); });
-  }, [finishTurn, muted]);
+  }, [finishTurn, muted, firstCardLanded]);
   useEffect(() => { followRef.current = follow; }, [follow]);
 
   // First load: the wanted page (deep link), else « Aujourd'hui » (always there).
@@ -311,7 +334,7 @@ export function MoPage() {
   const clientsRef = useRef<IntentClient[]>([]);
   useEffect(() => {
     fetch("/api/clients").then((r) => (r.ok ? r.json() : { clients: [] })).then((j: { clients: Array<{ id: string; name: string; dashboardId: string | null; aliasIds?: string[] }> }) => {
-      clientsRef.current = (j.clients ?? []).map((c) => ({ id: c.id, name: c.name, dashboardId: c.dashboardId }));
+      clientsRef.current = withClientAliases((j.clients ?? []).map((c) => ({ id: c.id, name: c.name, dashboardId: c.dashboardId, aliasIds: c.aliasIds ?? [] })));
     }).catch(() => undefined);
   }, []);
 
@@ -319,12 +342,12 @@ export function MoPage() {
   const [ghostFrame, setGhostFrame] = useState<{ rect: Rect; name: string; color: string } | null>(null);
   useEffect(() => { if (!ghost) setGhostFrame(null); }, [ghost]);
   /** Draws the ghost where the next card will land (same rule as the server: inside the client's frame, else a new row under everything), and brings it into view. */
-  const placeGhost = useCallback((text: string, quick: QuickResult | null) => {
+  const placeGhost = useCallback((text: string, quick: QuickResult | QuickFollowUp | null, clientHint?: IntentClient | null) => {
     const b = boardStateRef.current;
     if (!b) return;
-    const type: MoCard["type"] = quick?.kind === "creatives" ? "creatives" : "kpis";
+    const type: MoCard["type"] = quick?.kind === "creatives" || quick?.kind === "more_like_this" || quick?.kind === "competitor_ads" ? "creatives" : "kpis";
     const title = ghostTitle(text, quick);
-    const client = quick && quick.kind !== "ask" ? quick.client : null;
+    const client = quick && (quick.kind === "creatives" || quick.kind === "metrics") ? quick.client : quick && (quick.kind === "compare" || quick.kind === "competitor_ads") ? quick.client ?? clientHint ?? null : clientHint ?? null;
     const spec = { type, title, ...(client ? { clientId: client.id, clientName: client.name } : {}) } as unknown as MoCardSpec;
     const laid = layoutWithFrames(b.cards, [spec], b.messages.filter((m) => m.role === "assistant").length, new Date().toISOString());
     const placed = laid.placed[0];
@@ -337,32 +360,54 @@ export function MoPage() {
     window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 30);
   }, []);
 
-  const send = useCallback(async (text: string) => {
+  /** `send` is called from the chips it offers (428 answers): through this ref, so the callback does not depend on itself. */
+  const sendRef = useRef<(text: string, opts?: { fromChip?: boolean }) => Promise<void>>(async () => undefined);
+  const send = useCallback(async (text: string, opts: { fromChip?: boolean } = {}) => {
     const t = text.trim();
     if (!t || !board || run || acting) return;
     setGhost((g) => (g && g.state === "error" ? null : g));
     setError(null);
     setLastSaid({ you: t, mo: null });
+    const now = Date.now();
+    // Measures (spec §6): « non / pas ça » or the same thing said again within 60 s = the previous turn was not understood; an ask left without a chip too.
+    const prev = lastTurn.current;
+    const why = misunderstoodBy(prev ? { text: prev.text, at: prev.at } : null, { text: t, at: now });
+    if (prev && !opts.fromChip && (why || prev.path === "ask")) patchTurn(prev.id, { misunderstood: true });
+    if (prev && opts.fromChip && prev.path === "ask") patchTurn(prev.id, { clarified: true });
+    const retried = why === "reformulation";
+    const startTurn = (path: LastTurn["path"], id: string | null = null): LastTurn => { const lt: LastTurn = { id, text: t, at: now, cardIds: [], path, firstCardSent: false }; lastTurn.current = lt; return lt; };
+    const withTurn = (turn: LastTurn) => (j: ActResponse | null) => { if (j?.turnId) { turn.id = j.turnId; turn.cardIds = j.cardIds ?? []; if (turn.cardIds.length) turn.firstCardSent = true; } };
+
     // "Ouvre le cockpit de Naturalia": understood here, executed at once, no model call.
     const nav = parseNavIntent(t, clientsRef.current);
     if (nav) {
       setLastSaid({ you: t, mo: nav.say });
       if (!muted) speakRef.current(nav.say);
+      const turn = startTurn("nav");
+      void createTurn({ boardId: board.id, path: "nav", totalMs: 0, firstCardMs: 0, retried }).then((id) => { turn.id = id; });
       window.setTimeout(() => router.push(nav.path), 600);
       return;
     }
-    // « Mets les chiffres dessous », « garde celle-là » over the creatives card at hand: an action, no model.
+    // « Mets les chiffres dessous », « garde celle-là », « coupe les deux dernières », « publie la première » over the creatives card at hand: an action, no model.
     const followUp = parseFollowUpIntent(t);
     if (followUp) {
       const target = targetCreativesCard();
       if (target) {
         setLastSaid({ you: t, mo: followUp.say });
-        if (followUp.kind === "creative_metrics") { void act({ action: "creative_metrics", cardId: target.id, ...(followUp.period ? { period: followUp.period } : {}), said: t }, { cardId: target.id, key: null }); return; }
+        const turn = startTurn("act");
+        const hot = hotItem.current?.cardId === target.id ? hotItem.current.index : null;
+        if (followUp.kind === "creative_metrics") { void act({ action: "creative_metrics", cardId: target.id, ...(followUp.period ? { period: followUp.period } : {}), said: t }, { cardId: target.id, key: null }).then(withTurn(turn)); return; }
+        if (followUp.kind === "publish") {
+          const idx = targetIndexes(followUp.target, target.items.length, hot)[0];
+          if (idx !== undefined) { void act({ action: "publish_prepare", cardId: target.id, item: idx, said: t }, { cardId: target.id, key: `item:${idx}:publish` }).then(withTurn(turn)); return; }
+          setChoice({ question: "Laquelle je publie ?", chips: target.items.slice(0, 8).map((it, i) => ({ label: `${i + 1}. ${it.name.length > 28 ? it.name.slice(0, 27) + "…" : it.name}`, onPick: () => { setChoice(null); void act({ action: "publish_prepare", cardId: target.id, item: i, said: t }, { cardId: target.id, key: `item:${i}:publish` }).then(withTurn(turn)); } })) });
+          if (!muted) speakRef.current("Laquelle je publie ?");
+          return;
+        }
         const verdict = followUp.verdict;
-        const runVerdict = (i: number) => act({ action: "verdict", cardId: target.id, item: i, verdict, said: t }, { cardId: target.id, key: `item:${i}:${verdict === "keep" ? "keep" : "cut"}` });
-        if (followUp.target.which === "all") { (async () => { for (let i = 0; i < target.items.length; i++) await runVerdict(i); })(); return; }
-        const idx = followUp.target.which === "index" ? followUp.target.index : hotItem.current?.cardId === target.id ? hotItem.current.index : target.items.length === 1 ? 0 : null;
-        if (idx !== null && target.items[idx]) { void runVerdict(idx); return; }
+        const runVerdict = (i: number) => act({ action: "verdict", cardId: target.id, item: i, verdict, said: t }, { cardId: target.id, key: `item:${i}:${verdict === "keep" ? "keep" : "cut"}` }).then(withTurn(turn));
+        const idxs = targetIndexes(followUp.target, target.items.length, hot);
+        if (idxs.length) { (async () => { for (const i of idxs) await runVerdict(i); })(); return; }
         setChoice({ question: verdict === "keep" ? "Laquelle je garde ?" : "Laquelle je coupe ?", chips: target.items.slice(0, 8).map((it, i) => ({ label: `${i + 1}. ${it.name.length > 28 ? it.name.slice(0, 27) + "…" : it.name}`, onPick: () => { setChoice(null); void runVerdict(i); } })) });
         if (!muted) speakRef.current(verdict === "keep" ? "Laquelle je garde ?" : "Laquelle je coupe ?");
         return;
@@ -374,31 +419,67 @@ export function MoPage() {
       setAsk(quick);
       setLastSaid({ you: t, mo: quick.question });
       if (!muted) speakRef.current(quick.question);
+      const turn = startTurn("ask");
+      void createTurn({ boardId: board.id, path: "ask", kind: quick.draft.what, retried }).then((id) => { turn.id = id; });
       return;
     }
     setAsk(null);
+    // « Deux autres comme ça », « compare avec la semaine d'avant », « montre les pubs de La Fourche » : the server resolves them against the card at hand, without the model.
+    const fu: QuickFollowUp | null = quick ? null : parseFollowUpQuick(t, clientsRef.current);
+    const plan: QuickResult | QuickFollowUp | null = quick ?? fu;
+    const hint = fu?.kind === "more_like_this" ? targetCreativesCard() : fu?.kind === "compare" ? targetKpiCard() : null;
+    const hintClient = hint ? cardClientOf(hint, clientsRef.current) : null;
     setBoard((b) => (b ? { ...b, messages: [...b.messages, { role: "user", content: t, at: new Date().toISOString() }] } : b));
-    placeGhost(t, quick);
+    placeGhost(t, plan, hintClient);
     // « Les créas de Cours Legendre cette semaine », « le CPA de Naturalia ce mois-ci » : the app runs the tool itself, no model, 3 seconds.
-    if (quick) {
-      setRun({ jobId: "quick", startedAt: Date.now(), activity: INITIAL_ACTIVITY });
+    if (plan) {
+      const turn = startTurn("quick");
+      // A follow-up takes longer (a generation, the Ad Library): Mo announces it at once.
+      if (fu) { setLastSaid({ you: t, mo: fu.say }); if (!muted) speakRef.current(fu.say); }
+      setRun({ jobId: `quick:${plan.kind}`, startedAt: now, activity: INITIAL_ACTIVITY });
       try {
-        const res = await fetch(`/api/mo/${board.id}/quick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
+        const res = await fetch(`/api/mo/${board.id}/quick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t, ...(hint ? { cardId: hint.id } : {}), retried }) });
         if (res.status === 200) {
-          const j = (await res.json()) as { say: string; cardIds: string[] };
+          const j = (await res.json()) as QuickResponse;
           setRun(null);
+          turn.id = j.turnId ?? null; turn.cardIds = j.cardIds;
+          if (j.cardIds.length) { turn.firstCardSent = true; patchTurn(turn.id, { firstCardMs: Date.now() - now }); }
           setLastSaid({ you: t, mo: j.say });
           if (!muted) speakRef.current(j.say);
-          const loaded = await loadBoard(board.id);
-          seenTurns.current = loaded.board.messages.filter((m) => m.role === "assistant").length;
           const ids = new Set(j.cardIds);
+          let cards: MoCard[];
+          if (j.cards && j.messages) {
+            // The answer carries the board: the cards show at once, no second round trip.
+            const next = { cards: j.cards, messages: j.messages };
+            setBoard((b) => (b ? { ...b, ...next } : b));
+            cards = next.cards;
+            seenTurns.current = next.messages.filter((m) => m.role === "assistant").length;
+          } else {
+            const loaded = await loadBoard(board.id);
+            seenTurns.current = loaded.board.messages.filter((m) => m.role === "assistant").length;
+            cards = loaded.board.cards;
+          }
+          knownIds.current = new Set(cards.map((c) => c.id));
           setFresh(ids);
           // No card came back: the ghost says why, with a retry.
           setGhost((g) => (g && g.state === "pending" ? (ids.size ? null : { ...g, state: "error", message: j.say }) : g));
-          const rects = loaded.board.cards.filter((c) => ids.has(c.id)).map(rectOfCard);
+          const rects = cards.filter((c) => ids.has(c.id)).map(rectOfCard);
           if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
           void listBoards();
-          setJournalTick((t) => t + 1);
+          setJournalTick((k) => k + 1);
+          return;
+        }
+        if (res.status === 428) {
+          // One thing missing: Mo asks with chips (the client), or puts the sentence back for the brands.
+          const j = (await res.json().catch(() => ({}))) as QuickResponse;
+          setRun(null); setGhost(null);
+          const question = j.question ?? "Il me manque une précision.";
+          setLastSaid({ you: t, mo: question });
+          if (!muted) speakRef.current(question);
+          if (j.needs === "client" && j.options?.length) {
+            const ordered = orderClientCandidates(clientsRef.current.filter((c) => j.options!.includes(c.name)), boardStateRef.current?.cards ?? []);
+            setChoice({ question, chips: ordered.slice(0, MAX_CHIPS).map((c) => ({ label: c.name, onPick: () => { setChoice(null); void sendRef.current(`${t.replace(/[\s?.!…]+$/, "")} pour ${c.name}`, { fromChip: true }); } })) });
+          } else if (j.needs === "brands") composerRef.current?.setText("montre les pubs de ");
           return;
         }
         if (res.status !== 204) { const j = (await res.json().catch(() => ({}))) as { error?: string }; if (res.status === 409) { setRun(null); setError(j.error ?? "Mo répond déjà."); setGhost(null); return; } }
@@ -408,10 +489,11 @@ export function MoPage() {
     try {
       // The state line says « je réfléchis » from the first instant: the turn is being posted (follow() takes over once the job exists).
       setRun({ jobId: "pending", startedAt: Date.now(), activity: INITIAL_ACTIVITY });
-      const res = await fetch(`/api/mo/${board.id}/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
-      const j = (await res.json().catch(() => ({}))) as { jobId?: string; error?: string };
+      const res = await fetch(`/api/mo/${board.id}/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t, retried }) });
+      const j = (await res.json().catch(() => ({}))) as { jobId?: string; turnId?: string; error?: string };
       if (res.status === 409 && j.jobId) { follow(j.jobId, board.id); return; }
       if (!res.ok || !j.jobId) { setRun(null); throw new Error(j.error ?? `Erreur ${res.status}`); }
+      startTurn("model", j.turnId ?? null);
       window.dispatchEvent(new Event(AI_JOB_STARTED_EVENT));
       seenTurns.current = board.messages.filter((m) => m.role === "assistant").length;
       follow(j.jobId, board.id);
@@ -421,11 +503,12 @@ export function MoPage() {
       setError(msg);
       setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: msg } : g));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- act and targetCreativesCard are defined below (stable callbacks)
-  }, [board, run, acting, follow, listBoards, loadBoard, muted, router, placeGhost]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- act, targetCreativesCard and targetKpiCard are defined below (stable callbacks)
+  }, [board, run, acting, follow, listBoards, loadBoard, muted, router, placeGhost, patchTurn, createTurn]);
+  useEffect(() => { sendRef.current = send; }, [send]);
 
   const voice = useVoice(send);
-  useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);
+  useEffect(() => { speakRef.current = voice.speak; sayRef.current = voice.say; }, [voice.speak, voice.say]);
   // A dictation starts, the composer takes the focus: Mo's process is warmed on the relay meanwhile (fire and forget).
   const boardIdRef = useRef<string | null>(null);
   useEffect(() => { boardIdRef.current = board?.id ?? null; }, [board]);
@@ -436,7 +519,7 @@ export function MoPage() {
     const isTyping = () => { const el = document.activeElement as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
     const down = (e: KeyboardEvent) => {
       if (e.code === "Space" && !e.repeat && !isTyping() && !run) { e.preventDefault(); warm(); voice.begin(); }
-      if (e.key === "Escape") { voice.hush(); voice.cancel(); setMenu(null); setChoice(null); }
+      if (e.key === "Escape") { voice.hush(); if (voice.handsFree) voice.setHandsFree(false); else voice.cancel(); setMenu(null); setChoice(null); }
     };
     const up = (e: KeyboardEvent) => { if (e.code === "Space" && !isTyping()) { e.preventDefault(); voice.end(); } };
     window.addEventListener("keydown", down);
@@ -571,6 +654,9 @@ export function MoPage() {
   }, [queue]);
   /** Removes cards with a 5 s « Annuler »; the PATCH leaves when the toast expires. */
   const removeCards = useCallback((ids: string[]) => {
+    // Measures (spec §6): the card Mo just produced, removed within 30 s, was not what was wanted.
+    const lt = lastTurn.current;
+    if (lt && ids.some((id) => cardRemovedTooSoon(lt, id, Date.now()))) patchTurn(lt.id, { misunderstood: true });
     const b = boardStateRef.current; if (!b || !ids.length) return;
     const removed = b.cards.filter((c) => ids.includes(c.id));
     if (!removed.length) return;
@@ -582,7 +668,7 @@ export function MoPage() {
       const timer = window.setTimeout(() => { removed.forEach((c) => queue(c.id, { removed: true })); setUndo(null); }, 5000);
       return { cards: removed, timer };
     });
-  }, [queue]);
+  }, [queue, patchTurn]);
   const undoRemove = useCallback(() => {
     setUndo((u) => {
       if (!u) return null;
@@ -609,6 +695,16 @@ export function MoPage() {
     if (sel.length === 1) return sel[0];
     const latest = (list: typeof creatives) => [...list].sort((a, c) => (c.at > a.at ? 1 : c.at < a.at ? -1 : 0))[0] ?? null;
     return latest(creatives.filter((c) => freshRef.current.has(c.id))) ?? latest(creatives);
+  }, []);
+
+  /** The KPI card a comparison is about: the one selected, else the freshest, else the latest on the board. */
+  const targetKpiCard = useCallback((): Extract<MoCard, { type: "kpis" }> | null => {
+    const b = boardStateRef.current; if (!b) return null;
+    const kpis = b.cards.filter((c): c is Extract<MoCard, { type: "kpis" }> => c.type === "kpis");
+    const sel = kpis.filter((c) => selectedRef.current.has(c.id));
+    if (sel.length === 1) return sel[0];
+    const latest = (list: typeof kpis) => [...list].sort((a, c) => (c.at > a.at ? 1 : c.at < a.at ? -1 : 0))[0] ?? null;
+    return latest(kpis.filter((c) => freshRef.current.has(c.id))) ?? latest(kpis);
   }, []);
 
   /** Runs one action on the board; the answer's card replaces (or joins) the board's, Mo says its sentence. Returns the response (null on failure). */
@@ -751,14 +847,14 @@ export function MoPage() {
   }), [board]);
 
   const mood: WaveMood = intro ? "intro" : voice.listening ? "listening" : run || acting ? "thinking" : voice.speaking ? "speaking" : "idle";
-  const running = useMemo(() => (run ? { label: moStatusLabel(run.activity, run.jobId === "quick" ? "quick" : "model"), startedAt: run.startedAt, onStop: () => { if (run.jobId !== "quick" && run.jobId !== "pending") void stopJob(run.jobId).catch(() => undefined); } }
+  const running = useMemo(() => (run ? { label: moStatusLabel(run.activity, run.jobId.startsWith("quick") ? (run.jobId as `quick:${string}`) : "model"), startedAt: run.startedAt, onStop: () => { if (!run.jobId.startsWith("quick") && run.jobId !== "pending") void stopJob(run.jobId).catch(() => undefined); } }
     : acting ? { label: actStatusLabel(acting.action), startedAt: acting.startedAt, onStop: () => undefined } : null), [run, acting]);
 
   /** An « ask » card answered: the option is the next message, the card leaves quietly. */
   const onAnswer = useCallback((id: string, option: string) => {
     setBoard((b) => (b ? { ...b, cards: b.cards.filter((c) => c.id !== id) } : b));
     queue(id, { removed: true });
-    void send(option);
+    void send(option, { fromChip: true });
   }, [queue, send]);
 
   /** « autre… » : the sentence goes back to the input, ready for the client's name. */
@@ -766,7 +862,7 @@ export function MoPage() {
   // Chips of the composer: clients of the day first (those named on the board), then the rest; « autre… » lets one type the name.
   const composerAsk = useMemo<ComposerAsk | null>(() => {
     if (!ask) return null;
-    const pick = (text: string) => { setAsk(null); void send(text); };
+    const pick = (text: string) => { setAsk(null); void send(text, { fromChip: true }); };
     if (ask.missing === "client") {
       const ordered = orderClientCandidates(ask.candidates, board?.cards ?? []);
       const chips = ordered.slice(0, MAX_CHIPS).map((c) => ({ label: c.name, onPick: () => pick(completeQuickAsk(ask, c)) }));
@@ -951,7 +1047,7 @@ export function MoPage() {
       )}
 
       {/* Bottom: the composer (always there) */}
-      <Composer ref={composerRef} voice={voice} running={running} lastSaid={lastSaid} error={error} ask={composerAsk ?? choice} onSend={(t) => void send(t)} onEscape={() => { clearSelection(); setChoice(null); }} onFocus={warm} onBegin={warm} className="absolute inset-x-0 bottom-0 pb-5" />
+      <Composer ref={composerRef} voice={voice} running={running} lastSaid={lastSaid} error={error} ask={composerAsk ?? choice} onSend={(t) => void send(t)} onEscape={() => { clearSelection(); setChoice(null); }} onFocus={warm} onBegin={warm} onThumbsDown={() => patchTurn(lastTurn.current?.id ?? null, { misunderstood: true })} className="absolute inset-x-0 bottom-0 pb-5" />
     </div>
   );
 }

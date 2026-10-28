@@ -34,6 +34,7 @@ model User {
   staffDimensions      StaffDimension[]
   designFiles          DesignFile[]
   moBoards             MoBoard[]
+  moTurns              MoTurn[]
   /// Slack member the private alerts are sent to (lib/client-alerts/slack-dm.ts):
   /// found by e-mail through n8n, `slackEmail` when it differs from `email`.
   slackUserId          String?
@@ -1515,4 +1516,32 @@ model MoBoard {
 
   @@index([userId, updatedAt])
   @@index([userId, kind])
+}
+
+/// One turn of Mo measured (spec §6): which path answered (nav | quick | act | model | ask), how fast the first card landed, and whether the person was understood. Written by the quick / act / chat routes and the browser (POST /api/mo/turn).
+model MoTurn {
+  id            String   @id @default(cuid())
+  userId        String
+  boardId       String
+  /// Detached job of a model turn (AiJob id), so the end of the job can close the row
+  jobId         String?
+  /// nav | quick | act | model | ask
+  path          String
+  /// Detail of the path: the quick intent (creatives, metrics, compare, more_like_this, competitor_ads) or the act action (verdict, publish_confirm…)
+  kind          String?
+  /// Send → first card full or updated, measured by the browser (ms)
+  firstCardMs   Int?
+  /// Send → answer stored (ms), server side
+  totalMs       Int      @default(0)
+  /// An « ask » answered with a chip (the wanted behaviour)
+  clarified     Boolean  @default(false)
+  /// The person said the same thing again within 60 s (the previous turn is then « misunderstood »)
+  retried       Boolean  @default(false)
+  misunderstood Boolean  @default(false)
+  at            DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([at])
+  @@index([userId, at])
+  @@index([jobId])
 }
