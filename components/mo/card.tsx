@@ -11,7 +11,7 @@
  */
 
 import { memo, useMemo, useRef, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, BarChart3, ChevronDown, ChevronUp, Image as ImageIcon, LayoutGrid, Link2, Minus, StickyNote, Table2, TrendingUp, X } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, ChevronDown, ChevronUp, Image as ImageIcon, LayoutGrid, Link2, Loader2, MessageCircleQuestion, Minus, RotateCcw, StickyNote, Table2, TrendingUp, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { CARD_SIZES, type MoCard } from "@/lib/mo/model";
@@ -20,7 +20,7 @@ import { useCardDrag } from "@/components/mo/board";
 
 const SERIES_COLORS = ["#a78bfa", "#f0abfc", "#67e8f9", "#fde68a", "#86efac", "#fca5a5"];
 
-const ICONS = { kpis: LayoutGrid, table: Table2, chart: TrendingUp, creatives: ImageIcon, note: StickyNote } as const;
+const ICONS = { kpis: LayoutGrid, table: Table2, chart: TrendingUp, creatives: ImageIcon, note: StickyNote, ask: MessageCircleQuestion } as const;
 
 export interface MoCardViewProps {
   card: MoCard;
@@ -43,6 +43,8 @@ export interface MoCardViewProps {
   onClose: (id: string) => void;
   onFocusRef: (id: string) => void;
   onHoverRef: (id: string | null) => void;
+  /** An option of an « ask » card was clicked: it is the next message. */
+  onAnswer?: (id: string, option: string) => void;
 }
 
 const HANDLES: Array<{ dir: HandleDir; cls: string; cursor: string }> = [
@@ -69,7 +71,7 @@ function Handle({ dir, cls, cursor, cardId, getK, onStart, onResize, onEnd }: { 
   return <div data-handle={dir} data-card-id={cardId} className={`absolute z-10 ${cls} ${cursor} touch-none`} {...drag} />;
 }
 
-export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, selected, refTitle, getK, onMove, onMoveEnd, onResizeStart, onResize, onResizeEnd, onFront, onSelect, onToggle, onClose, onFocusRef, onHoverRef }: MoCardViewProps) {
+export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, selected, refTitle, getK, onMove, onMoveEnd, onResizeStart, onResize, onResizeEnd, onFront, onSelect, onToggle, onClose, onFocusRef, onHoverRef, onAnswer }: MoCardViewProps) {
   const el = useRef<HTMLDivElement>(null);
   const Icon = ICONS[card.type] ?? BarChart3;
   const h = card.minimized ? MIN_HEADER_H : card.h ?? CARD_SIZES[card.type].h;
@@ -88,7 +90,7 @@ export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, s
       ref={el}
       data-card
       data-card-id={card.id}
-      className={`absolute left-0 top-0 flex flex-col rounded-2xl border bg-[#100c1f] shadow-[0_20px_60px_-20px_rgba(124,58,237,0.45)] text-gray-100 cursor-default ${fresh ? "mo-card-in" : ""} ${selected ? "border-violet-400 ring-2 ring-violet-400/40" : fresh ? "border-violet-400/60" : "border-white/10"}`}
+      className={`absolute left-0 top-0 flex flex-col rounded-2xl border bg-[#100c1f] shadow-[0_20px_60px_-20px_rgba(124,58,237,0.45)] text-gray-100 cursor-default ${fresh ? "mo-card-in" : ""} ${selected ? "border-violet-400 ring-2 ring-violet-400/40" : fresh ? "border-violet-400/60" : card.type === "ask" ? "border-fuchsia-400/40" : "border-white/10"}`}
       style={{ transform: `translate(${card.x}px, ${card.y}px)`, width: card.w, height: h, zIndex: card.z ?? 0, animationDelay: fresh && delayMs ? `${delayMs}ms` : undefined }}
       onPointerDownCapture={(e) => { if (e.button === 0) { onFront(card.id); onSelect(card.id, e.shiftKey); } }}
     >
@@ -111,7 +113,7 @@ export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, s
       {!card.minimized && (
         <>
           <div className="flex-1 min-h-0 overflow-auto px-3.5 py-3 mo-scroll select-text touch-auto cursor-auto">
-            <CardBody card={card} width={width} />
+            <CardBody card={card} width={width} onAnswer={onAnswer ? (opt) => onAnswer(card.id, opt) : undefined} />
           </div>
           <div className="flex items-center gap-2 px-3.5 py-1.5 border-t border-white/5 text-[10px] text-gray-500 select-none">
             <span className="truncate" title={card.subtitle ?? ""}>{card.subtitle || "Source non précisée"}</span>
@@ -129,6 +131,55 @@ export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, s
   );
 });
 
+/** The placeholder drawn where the answer will land, from the send to the first real card. */
+export interface Ghost {
+  id: string;
+  /** The sentence sent (for « Réessayer »). */
+  text: string;
+  title: string;
+  x: number; y: number; w: number; h: number; z: number;
+  state: "pending" | "error";
+  message?: string;
+  startedAt: number;
+}
+
+/**
+ * Ghost card: same place and size as the card to come, pulsing, « en cours ».
+ * On error it becomes a short error card with « Réessayer ». Not draggable.
+ */
+export function MoGhostCard({ ghost, onRetry, onClose }: { ghost: Ghost; onRetry: () => void; onClose: () => void }) {
+  const error = ghost.state === "error";
+  return (
+    <div
+      data-ghost
+      data-ghost-state={ghost.state}
+      className={`absolute left-0 top-0 flex flex-col rounded-2xl border text-gray-100 ${error ? "border-rose-400/40 bg-[#1a0d16]" : "border-violet-400/40 border-dashed bg-[#100c1f]/80 mo-ghost"}`}
+      style={{ transform: `translate(${ghost.x}px, ${ghost.y}px)`, width: ghost.w, height: error ? Math.min(ghost.h, 200) : ghost.h, zIndex: ghost.z }}
+    >
+      <div className="flex items-start gap-2 px-3.5 pt-3 pb-2 border-b border-white/5 select-none">
+        <span className={`mt-0.5 inline-flex w-6 h-6 items-center justify-center rounded-lg shrink-0 ${error ? "bg-rose-500/15 text-rose-300" : "bg-violet-500/15 text-violet-300"}`}>{error ? <X className="w-3.5 h-3.5" /> : <Loader2 className="w-3.5 h-3.5 animate-spin" />}</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold leading-tight truncate" title={ghost.title}>{ghost.title}</div>
+          <div className={`text-[11px] mt-0.5 ${error ? "text-rose-300/80" : "text-violet-300/80"}`}>{error ? "pas de carte" : "en cours"}</div>
+        </div>
+        {error && <button type="button" onClick={onClose} className="p-1 rounded-md text-gray-500 hover:text-white hover:bg-white/10" aria-label="Fermer"><X className="w-3.5 h-3.5" /></button>}
+      </div>
+      {error ? (
+        <div className="px-3.5 py-3 flex flex-col gap-2.5">
+          <div className="text-[12px] text-gray-300 leading-snug line-clamp-3">{ghost.message || "Mo n'a pas pu répondre."}</div>
+          <button type="button" onClick={onRetry} className="self-start inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[12px] text-gray-200 hover:bg-white/10 hover:text-white"><RotateCcw className="w-3 h-3" /> Réessayer</button>
+        </div>
+      ) : (
+        <div className="flex-1 px-3.5 py-3 flex flex-col gap-2">
+          <div className="h-3 w-2/3 rounded bg-white/[0.06]" />
+          <div className="h-3 w-1/2 rounded bg-white/[0.05]" />
+          <div className="flex-1 min-h-[40px] rounded-xl bg-white/[0.03]" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function relativeTime(iso: string): string {
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t)) return "";
@@ -140,14 +191,29 @@ function relativeTime(iso: string): string {
   return new Date(t).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 }
 
-function CardBody({ card, width }: { card: MoCard; width: number }) {
+function CardBody({ card, width, onAnswer }: { card: MoCard; width: number; onAnswer?: (option: string) => void }) {
   switch (card.type) {
+    case "ask": return <Ask question={card.question} options={card.options} onAnswer={onAnswer} />;
     case "kpis": return <Kpis items={card.items} width={width} />;
     case "table": return <Table columns={card.columns} rows={card.rows} align={card.align} />;
     case "chart": return <Chart kind={card.kind} series={card.series} unit={card.unit} labels={card.x} width={width} />;
     case "creatives": return <Creatives items={card.items} width={width} />;
     case "note": return <AiMarkdown content={card.markdown} filesBase={null} className="prose-xs" />;
   }
+}
+
+/** Mo's question with its options as chips: a click is the next message. */
+function Ask({ question, options, onAnswer }: { question: string; options: string[]; onAnswer?: (option: string) => void }) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="text-[14px] text-gray-100 leading-snug">{question}</div>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => (
+          <button key={o} type="button" onClick={(e) => { e.stopPropagation(); onAnswer?.(o); }} disabled={!onAnswer} className="rounded-full border border-violet-400/40 bg-violet-500/15 px-3 py-1 text-[12px] text-violet-100 hover:bg-violet-500/30 hover:border-violet-300 disabled:opacity-60">{o}</button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function Kpis({ items, width }: { items: Extract<MoCard, { type: "kpis" }>["items"]; width: number }) {

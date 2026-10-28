@@ -15,12 +15,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AudioLines, Loader2, Mic, RotateCcw, Square, Volume2, X } from "lucide-react";
 import { useVoice } from "@/components/mo/use-voice";
+import { warmMoBoard } from "@/components/mo/warm";
 import type { MoBoardData } from "@/lib/mo/model";
-import { parseNavIntent, parseQuickIntent, type IntentClient } from "@/lib/mo/intents";
+import { PERIOD_OPTIONS, completeQuickAsk, orderClientCandidates, parseNavIntent, parseQuickIntent, type IntentClient } from "@/lib/mo/intents";
+import { moStatusLabel } from "@/lib/mo/status";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
-import { INITIAL_ACTIVITY, activityLabel, reduceActivity, type ActivityState } from "@/lib/ai-activity";
+import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
-interface Bubble { you: string; mo: string | null; cards: number; open: string | null; error?: string; retry?: string }
+interface Bubble { you: string; mo: string | null; cards: number; open: string | null; error?: string; retry?: string; /** Mo is missing one thing: the chips complete the sentence. */ chips?: Array<{ label: string; text: string }> }
 
 const HIDE_ON = ["/mo", "/login"];
 const BUBBLE_MS = 12_000;
@@ -75,8 +77,11 @@ export function MoDock() {
     const j = (await r.json()) as { board: MoBoardData };
     setBoardId(j.board.id);
     seenTurns.current = j.board.messages.filter((m) => m.role === "assistant").length;
+    warmMoBoard(j.board.id);
     return j.board.id;
   }, [boardId]);
+  // The orb is pressed: the board is fetched if needed and Mo's process warmed meanwhile (fire and forget).
+  const warmOnSpeak = useCallback(() => { if (boardId) warmMoBoard(boardId); else void ensureBoard().catch(() => undefined); }, [boardId, ensureBoard]);
 
   const finish = useCallback(async (id: string, you: string) => {
     // The "done" event is released once the answer is stored; a short retry covers a slow write anyway.
@@ -114,10 +119,20 @@ export function MoDock() {
       return;
     }
     showBubble({ you: t, mo: null, cards: 0, open: null }, 0);
+    // « Créas cette semaine » without a client: Mo asks, the chips complete the sentence (no model, no server).
+    const quick = parseQuickIntent(t, clientsRef.current);
+    if (quick?.kind === "ask") {
+      const chips = quick.missing === "client"
+        ? orderClientCandidates(quick.candidates, []).slice(0, 6).map((c) => ({ label: c.name, text: completeQuickAsk(quick, c) }))
+        : PERIOD_OPTIONS.map((p) => ({ label: p.label, text: completeQuickAsk(quick, p) }));
+      showBubble({ you: t, mo: quick.question, cards: 0, open: null, chips }, 0);
+      speakRef.current(quick.question);
+      return;
+    }
     const id = await ensureBoard();
     if (!id) { showBubble({ you: t, mo: null, cards: 0, open: null, error: "Mo est indisponible.", retry: t }); return; }
     // Créas or figures of a named client over a period: run by the app at once, no model.
-    if (parseQuickIntent(t, clientsRef.current)) {
+    if (quick) {
       setRun({ jobId: "quick", activity: INITIAL_ACTIVITY, startedAt: Date.now() });
       try {
         const res = await fetch(`/api/mo/${id}/quick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
@@ -177,21 +192,21 @@ export function MoDock() {
   // Alt+M held = talk (anywhere, even in a text field); Escape = quiet.
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.altKey && e.code === "KeyM" && !e.repeat && !run) { e.preventDefault(); dismissHint(); voice.begin(); }
+      if (e.altKey && e.code === "KeyM" && !e.repeat && !run) { e.preventDefault(); dismissHint(); warmOnSpeak(); voice.begin(); }
       if (e.key === "Escape" && (voice.listening || voice.speaking)) { voice.hush(); voice.cancel(); }
     };
     const up = (e: KeyboardEvent) => { if (e.code === "KeyM" && voice.listening) { e.preventDefault(); voice.end(); } };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
-  }, [voice, run, dismissHint]);
+  }, [voice, run, dismissHint, warmOnSpeak]);
 
   useEffect(() => () => { follower.current?.abort(); }, []);
 
   if (hidden || HIDE_ON.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return null;
 
   const status = run
-    ? `${activityLabel(run.activity)}${elapsed >= 3 ? ` · ${elapsed} s` : ""}`
+    ? `${moStatusLabel(run.activity, run.jobId === "quick" ? "quick" : "model")}${elapsed >= 3 ? ` · ${elapsed} s` : ""}`
     : voice.listening ? (voice.interim || "Je t'écoute…")
     : voice.transcribing ? "Je note ce que tu as dit…"
     : null;
@@ -216,6 +231,11 @@ export function MoDock() {
           ) : bubble?.mo ? (
             <div className="leading-snug flex items-start gap-2"><span>{voice.speaking ? <Volume2 className="w-3.5 h-3.5 text-violet-300 inline" /> : <span className="text-violet-300">Mo ·</span>} {bubble.mo}</span>{voice.speaking && <button type="button" onClick={() => voice.hush()} className="ml-auto text-[11px] text-gray-400 hover:text-white shrink-0">stop</button>}</div>
           ) : null}
+          {bubble?.chips && !status && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {bubble.chips.map((c) => <button key={c.label} type="button" onClick={() => void send(c.text)} className="rounded-full border border-violet-400/40 bg-violet-500/15 px-2.5 py-0.5 text-[12px] text-violet-100 hover:bg-violet-500/30">{c.label}</button>)}
+            </div>
+          )}
           {bubble?.cards ? <Link href={`/mo?b=${boardId}`} className="inline-flex items-center gap-1 text-[12px] text-violet-300 hover:text-white"><AudioLines className="w-3.5 h-3.5" /> {bubble.cards} carte{bubble.cards > 1 ? "s" : ""} sur ton tableau Mo →</Link> : null}
           {(bubble?.error || voice.error) && (
             <div className="flex items-center gap-2 text-[12px] text-rose-300">
@@ -223,7 +243,7 @@ export function MoDock() {
               {bubble?.retry && <button type="button" onClick={() => void send(bubble.retry!)} className="inline-flex items-center gap-1 text-gray-300 hover:text-white"><RotateCcw className="w-3 h-3" /> réessayer</button>}
             </div>
           )}
-          {(bubble?.cards || bubble?.error) ? <button type="button" onClick={() => showBubble(null)} className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-800 border border-white/10 text-gray-400 hover:text-white inline-flex items-center justify-center" aria-label="Fermer"><X className="w-3 h-3" /></button> : null}
+          {(bubble?.cards || bubble?.error || bubble?.chips) ? <button type="button" onClick={() => showBubble(null)} className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-800 border border-white/10 text-gray-400 hover:text-white inline-flex items-center justify-center" aria-label="Fermer"><X className="w-3 h-3" /></button> : null}
         </div>
       )}
       <div className="pointer-events-auto flex items-center gap-1.5">
@@ -232,7 +252,7 @@ export function MoDock() {
         ) : (
           <button
             type="button"
-            onPointerDown={(e) => { e.preventDefault(); dismissHint(); voice.begin(); }}
+            onPointerDown={(e) => { e.preventDefault(); dismissHint(); warmOnSpeak(); voice.begin(); }}
             onPointerUp={() => voice.end()}
             onPointerLeave={() => { if (voice.listening) voice.end(); }}
             onContextMenu={(e) => { e.preventDefault(); setHidden(true); }}

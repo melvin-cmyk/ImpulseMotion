@@ -64,7 +64,9 @@ export async function appendMoAnswer(boardId: string, text: string, at: string):
   const turn = messages.filter((m) => m.role === "assistant").length;
   const updated = applyCardUpdates(parseMoCards(row.cardsJson), answer, turn, at);
   const cards = updated.cards;
-  const placed = layoutNewCards(cards, answer, turn, at);
+  // A question from Mo lands as an « ask » card (its chips send the answer); what is said is the question.
+  const specs: MoCardSpec[] = answer.ask ? [...answer.cards, { type: "ask", title: "Mo te demande", question: answer.ask.question, options: answer.ask.options }] : answer.cards;
+  const placed = layoutNewCards(cards, { ...answer, cards: specs }, turn, at);
   // The cards the person should look at: the ones the tools posted during this turn, the rewritten ones, the new ones (a removed id is not on the board any more).
   const postedByTools = cards.filter((c) => c.turn === turn && !messages.some((m) => m.cardIds?.includes(c.id))).map((c) => c.id);
   const cardIds = [...new Set([...postedByTools, ...updated.touched.filter((id) => cards.some((c) => c.id === id)), ...placed.map((c) => c.id)])];

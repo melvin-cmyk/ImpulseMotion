@@ -36,7 +36,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const scope = await getAccountScope(guard.session);
   const clients = await listClientRegistry(scope);
   const quick = parseQuickIntent(message, clients.map((c) => ({ id: c.id, name: c.name, dashboardId: c.dashboardId })));
-  if (!quick) return new NextResponse(null, { status: 204 });
+  // An « ask » (one element missing) is settled in the browser with chips: here it is not a quick ask.
+  if (!quick || quick.kind === "ask") return new NextResponse(null, { status: 204 });
 
   const t0 = Date.now();
   const at = new Date().toISOString();

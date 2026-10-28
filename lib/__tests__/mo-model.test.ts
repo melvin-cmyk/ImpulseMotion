@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { layoutNewCards, parseMoAnswer, sanitizeOpen } from "@/lib/mo/model";
+import { layoutNewCards, parseMoAnswer, sanitizeAsk, sanitizeOpen } from "@/lib/mo/model";
 
 describe("Mo — parsing of an answer", () => {
   it("reads the ```mo block: say, cards, open", () => {
@@ -19,6 +19,34 @@ describe("Mo — parsing of an answer", () => {
   it("drops empty or malformed cards", () => {
     const a = parseMoAnswer(JSON.stringify({ say: "ok", cards: [{ type: "table", columns: [] }, { type: "chart", x: [], series: [] }, { type: "nope" }, { type: "note", markdown: "x" }] }));
     expect(a.cards.map((c) => c.type)).toEqual(["note"]);
+  });
+});
+
+describe("Mo — when it hesitates (ask)", () => {
+  it("reads « ask » and says the question", () => {
+    const a = parseMoAnswer("```mo\n" + JSON.stringify({ say: "Deux lectures possibles.", cards: [], ask: { question: "Naturalia ou Naturalia Bio ?", options: ["Naturalia", "Naturalia Bio"] } }) + "\n```");
+    expect(a.ask).toEqual({ question: "Naturalia ou Naturalia Bio ?", options: ["Naturalia", "Naturalia Bio"] });
+    expect(a.say).toBe("Deux lectures possibles. Naturalia ou Naturalia Bio ?");
+    expect(a.cards).toHaveLength(0);
+  });
+  it("the question alone is said when « say » already carries it, or is missing", () => {
+    expect(parseMoAnswer(JSON.stringify({ say: "Tu veux cette semaine ou ce mois-ci ?", ask: { question: "Tu veux cette semaine ou ce mois-ci ?", options: ["cette semaine", "ce mois-ci"] } })).say).toBe("Tu veux cette semaine ou ce mois-ci ?");
+    expect(parseMoAnswer(JSON.stringify({ ask: { question: "Meta ou Google ?", options: ["Meta", "Google"] } })).say).toBe("Meta ou Google ?");
+  });
+  it("sanitises: 4 options at most, 60 chars each, distinct, a question required", () => {
+    expect(sanitizeAsk({ question: "Q ?", options: ["a", "b", "c", "d", "e", "f"] })?.options).toEqual(["a", "b", "c", "d"]);
+    expect(sanitizeAsk({ question: "Q ?", options: ["x".repeat(100)] })?.options[0]).toHaveLength(60);
+    expect(sanitizeAsk({ question: "Q ?", options: ["a", "a", " a ", 3, null] })?.options).toEqual(["a", "3"]);
+    expect(sanitizeAsk({ question: "", options: ["a"] })).toBeNull();
+    expect(sanitizeAsk({ question: "Q ?", options: [] })).toBeNull();
+    expect(sanitizeAsk("nope")).toBeNull();
+    expect(parseMoAnswer(JSON.stringify({ say: "ok", ask: { question: "Q ?" } })).ask).toBeUndefined();
+  });
+  it("an « ask » card lands on the board like any other, with its size", () => {
+    const placed = layoutNewCards([], { cards: [{ type: "ask", title: "Mo te demande", question: "Q ?", options: ["a", "b"] }] }, 0, "2026-10-28T00:00:00Z");
+    expect(placed[0]).toMatchObject({ type: "ask", question: "Q ?", options: ["a", "b"], w: 440, h: 200 });
+    const a = parseMoAnswer(JSON.stringify({ say: "ok", cards: [{ type: "ask", title: "?", question: "Q ?", options: ["a"] }] }));
+    expect(a.cards[0]).toMatchObject({ type: "ask", options: ["a"] });
   });
 });
 

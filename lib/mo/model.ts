@@ -8,7 +8,7 @@
  * This module is client-safe (types + pure parsing); storage is in ./thread.
  */
 
-export type MoCardType = "kpis" | "table" | "chart" | "creatives" | "note";
+export type MoCardType = "kpis" | "table" | "chart" | "creatives" | "note" | "ask";
 export type MoTone = "good" | "bad" | "neutral";
 
 export interface MoKpi { label: string; value: string; delta?: string; tone?: MoTone; hint?: string }
@@ -42,7 +42,9 @@ export type MoCardPayload =
   | { type: "table"; columns: string[]; rows: string[][]; align?: Array<"left" | "right"> }
   | { type: "chart"; kind: "line" | "bar"; x: string[]; series: MoSeries[]; unit?: string }
   | { type: "creatives"; items: MoCreative[] }
-  | { type: "note"; markdown: string };
+  | { type: "note"; markdown: string }
+  /** Mo hesitates between readings: a question and 2-4 options to click (the click is the next message). */
+  | { type: "ask"; question: string; options: string[] };
 
 export type MoCard = MoCardBase & MoCardPayload;
 
@@ -86,6 +88,7 @@ export const CARD_SIZES: Record<MoCardType, { w: number; h: number }> = {
   chart: { w: 560, h: 360 },
   creatives: { w: 660, h: 440 },
   note: { w: 440, h: 320 },
+  ask: { w: 440, h: 200 },
 };
 
 export const ROW_GAP = 70;
@@ -93,8 +96,11 @@ export const COL_GAP = 40;
 /** A turn's cards wrap to a new row beyond this width (world px), so a fit stays legible. */
 export const ROW_WRAP_WIDTH = 1400;
 
+/** The question Mo asks when it hesitates between two readings (client, period, platform). */
+export interface MoAsk { question: string; options: string[] }
+
 /** What the model is asked to produce (parsed by `parseMoAnswer`). */
-export interface MoAnswer { say: string; cards: MoCardSpec[]; open?: string; updates: MoCardUpdate[]; remove: string[] }
+export interface MoAnswer { say: string; cards: MoCardSpec[]; open?: string; updates: MoCardUpdate[]; remove: string[]; ask?: MoAsk }
 
 const CARD_ID_RE = /^[a-z0-9]{3,24}$/i;
 
@@ -126,6 +132,9 @@ const MAX_COLS = 10;
 const MAX_ITEMS = 24;
 const MAX_POINTS = 120;
 const MAX_MD = 6000;
+const MAX_ASK_OPTIONS = 4;
+const MAX_ASK_OPTION = 60;
+const MAX_ASK_QUESTION = 200;
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "").trim().slice(0, max);
 const tone = (v: unknown): MoTone | undefined => (v === "good" || v === "bad" || v === "neutral" ? v : undefined);
@@ -191,9 +200,28 @@ function sanitizeCard(raw: unknown): MoCardSpec | null {
       const markdown = str(r.markdown ?? r.text ?? r.content, MAX_MD);
       return markdown ? { ...base, type: "note", markdown } : null;
     }
+    case "ask": {
+      const ask = sanitizeAsk(r);
+      return ask ? { ...base, type: "ask", ...ask } : null;
+    }
     default:
       return null;
   }
+}
+
+/** « ask »: a question (≤ 200 chars) and 1-4 distinct options of ≤ 60 chars; null when unusable. */
+export function sanitizeAsk(raw: unknown): MoAsk | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const question = str(r.question, MAX_ASK_QUESTION);
+  if (!question) return null;
+  const options: string[] = [];
+  for (const o of Array.isArray(r.options) ? r.options : []) {
+    const v = str(o, MAX_ASK_OPTION);
+    if (v && !options.includes(v)) options.push(v);
+    if (options.length >= MAX_ASK_OPTIONS) break;
+  }
+  return options.length ? { question, options } : null;
 }
 
 /**
@@ -215,8 +243,12 @@ export function parseMoAnswer(text: string): MoAnswer {
     const updates = (Array.isArray(o.update) ? o.update : Array.isArray(o.updates) ? o.updates : []).map(sanitizeUpdate).filter((x): x is MoCardUpdate => !!x).slice(0, 8);
     const remove = (Array.isArray(o.remove) ? o.remove : []).map((v) => String(v ?? "")).filter((v) => CARD_ID_RE.test(v)).slice(0, 24);
     const open = sanitizeOpen(o.open);
-    const say = str(o.say, MAX_SAY) || (cards.length ? `Voilà, ${cards.length === 1 ? "la carte est" : "les cartes sont"} à l'écran.` : updates.length ? "C'est mis à jour à l'écran." : open ? "J'ouvre la page." : "Je n'ai rien trouvé à afficher.");
-    return { say, cards, updates, remove, ...(open ? { open } : {}) };
+    const ask = sanitizeAsk(o.ask);
+    const rawSay = str(o.say, MAX_SAY);
+    // A question: what is said is the question (after the model's own words when they do not already carry it).
+    const say = ask ? (rawSay && !rawSay.includes(ask.question) ? `${rawSay} ${ask.question}`.slice(0, MAX_SAY) : ask.question)
+      : rawSay || (cards.length ? `Voilà, ${cards.length === 1 ? "la carte est" : "les cartes sont"} à l'écran.` : updates.length ? "C'est mis à jour à l'écran." : open ? "J'ouvre la page." : "Je n'ai rien trouvé à afficher.");
+    return { say, cards, updates, remove, ...(open ? { open } : {}), ...(ask ? { ask } : {}) };
   }
   // Prose fallback.
   const outside = trimmed.replace(/```[\s\S]*?```/g, "").trim();
@@ -309,6 +341,7 @@ export function describeCards(cards: MoCard[]): string {
       case "kpis": return ` — ${c.items.map((k) => `${k.label} ${k.value}`).join(", ")}`;
       case "chart": return ` — ${c.series.map((s) => s.name).join(", ")} sur ${c.x.length} points`;
       case "note": return "";
+      case "ask": return ` — question : ${c.question} (${c.options.join(" / ")})`;
     }
   };
   return visible.map((c) => `- ${c.id} · ${c.type} · « ${c.title} »${c.subtitle ? ` (${c.subtitle})` : ""}${detail(c)}`).join("\n");

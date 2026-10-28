@@ -24,6 +24,7 @@ export const MIN_SIZES: Record<MoCardType, { w: number; h: number }> = {
   chart: { w: 320, h: 220 },
   creatives: { w: 320, h: 240 },
   note: { w: 260, h: 160 },
+  ask: { w: 280, h: 120 },
 };
 export const MAX_SIZE = { w: 1600, h: 1400 };
 

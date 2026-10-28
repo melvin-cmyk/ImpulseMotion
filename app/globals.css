@@ -199,6 +199,9 @@
 .mo-intro-sub { animation: mo-intro-sub 2.8s ease-out both; }
 @keyframes mo-orb-think { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 .mo-orb-think { animation: mo-orb-think 1.6s ease-in-out infinite; }
+/* Ghost card (the answer is on its way): a slow breath of opacity, the transform stays its place. */
+@keyframes mo-ghost { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.95; } }
+.mo-ghost { animation: mo-ghost 1.4s ease-in-out infinite; }
 .mo-scroll { scrollbar-width: thin; scrollbar-color: rgba(167, 139, 250, 0.35) transparent; }
 /* Cards keep their place while the board animates them into a new arrangement. */
 [data-card] { transition: box-shadow 0.15s ease; }
@@ -206,6 +209,7 @@
   .mo-card-in { animation: none; opacity: 1; }
   .mo-intro-title, .mo-intro-sub { animation: none; opacity: 1; letter-spacing: -0.02em; filter: none; transform: none; }
   .mo-orb-think { animation: none; }
+  .mo-ghost { animation: none; opacity: 0.8; }
 }
 .mo-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .mo-scroll::-webkit-scrollbar-thumb { background: rgba(167, 139, 250, 0.35); border-radius: 999px; }

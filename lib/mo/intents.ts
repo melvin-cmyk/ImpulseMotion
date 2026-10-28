@@ -151,6 +151,20 @@ export interface QuickIntent {
   periodLabel: string;
 }
 
+/** A period the person may pick when Mo asks for one. */
+export interface QuickPeriodOption { period: QuickPeriod; label: string }
+
+/**
+ * A créas / chiffres ask with exactly one element missing: Mo asks for it
+ * with chips instead of handing the sentence to the model. `draft` keeps the
+ * sentence so the chosen chip completes it (see `completeQuickAsk`).
+ */
+export type QuickAsk =
+  | { kind: "ask"; missing: "client"; question: string; candidates: IntentClient[]; draft: { what: "creatives" | "metrics"; text: string } }
+  | { kind: "ask"; missing: "period"; question: string; candidates: QuickPeriodOption[]; draft: { what: "creatives" | "metrics"; text: string; client: IntentClient } };
+
+export type QuickResult = QuickIntent | QuickAsk;
+
 const PERIOD_WORDS: Array<[RegExp, QuickPeriod, string]> = [
   [/\b(aujourd hui|ce jour|today)\b/, "today", "aujourd'hui"],
   [/\bhier\b/, "yesterday", "hier"],
@@ -167,18 +181,29 @@ const SHOW_VERBS = /\b(affiche|montre|sors|sort|donne|liste|voir|vois|mets|met|o
 const METRIC_WORDS = /\b(cpa|cpl|cpm|cpc|ctr|roas|leads?|conversions?|achats?|ventes?|depenses?|chiffres?|resultats?|performances?|perf|kpis?|ca donne quoi|comment ca va|comment ca se passe|ou en est|bilan|point)\b/;
 const NOT_QUICK = /\b(compare|comparer|comparaison|versus|vs|pourquoi|explique|analyse|analyser|recommand|conseil|avis|penses|genere|generer|cree|creer|publie|publier|variante|modifie|change|ajoute|retire|supprime|enleve|en direct|google|tiktok|ga4|audience|ciblage|placement|enchere|budget)\b/;
 
+/** The periods offered when Mo asks for one. */
+export const PERIOD_OPTIONS: QuickPeriodOption[] = [
+  { period: "today", label: "aujourd'hui" },
+  { period: "yesterday", label: "hier" },
+  { period: "this_week", label: "cette semaine" },
+  { period: "last_week", label: "la semaine dernière" },
+  { period: "this_month", label: "ce mois-ci" },
+  { period: "last_30d", label: "sur 30 jours" },
+];
+
 /**
  * « Affiche-moi les créas de cette semaine sur Cours Legendre », « les 10
  * dernières créas Meta de LPEV », « le CPA de Naturalia cette semaine » : a
- * named client + a thing to show + a period → the tool is run at once by the
- * app (no model), Mo says a short sentence. Null for anything else.
+ * named client + a thing to show (+ a period, else the last 7 days) → the
+ * tool is run at once by the app (no model), Mo says a short sentence.
+ * « créas cette semaine » with no client named → an `ask` (chips of clients).
+ * Null for anything else (the model takes over).
  */
-export function parseQuickIntent(text: string, clients: IntentClient[]): QuickIntent | null {
+export function parseQuickIntent(text: string, clients: IntentClient[]): QuickResult | null {
   const t = fold(text);
   if (!t || t.length > 160 || NOT_QUICK.test(t)) return null;
   const client = matchClientName(t, clients);
-  if (!client) return null;
-  const rest = t.replace(fold(client.name), " ").replace(/\s+/g, " ");
+  const rest = client ? t.replace(fold(client.name), " ").replace(/\s+/g, " ") : t;
   const period = PERIOD_WORDS.find(([re]) => re.test(rest));
   const latest = rest.match(/\b(\d{1,2})\s+dernieres?\b/);
   const top = rest.match(/\b(top|meilleures?|plus (?:depense|performantes?|rentables?)|qui (?:ont|a) le plus depense|qui marchent? le mieux)\b/);
@@ -186,12 +211,23 @@ export function parseQuickIntent(text: string, clients: IntentClient[]): QuickIn
   const launched = /\b(lancees?|postees?|mises? en ligne|sorties?|nouvelles?)\b/.test(rest);
   const n = rest.match(/\b(\d{1,2})\b/);
   const platform = /\bmeta|facebook|insta(gram)?\b/.test(rest) ? "meta" : /\bgoogle\b/.test(rest) ? "google" : /\btiktok\b/.test(rest) ? "tiktok" : undefined;
+  const wantsCreatives = CREA_WORDS.test(rest) && (SHOW_VERBS.test(rest) || latest || top || period || worst || (client && rest.split(" ").filter(Boolean).length <= 4));
+  const wantsMetrics = !CREA_WORDS.test(rest) && METRIC_WORDS.test(rest);
 
-  if (CREA_WORDS.test(rest) && (SHOW_VERBS.test(rest) || latest || top || period)) {
-    if (!period && !latest && !top && !worst) return null;
+  if (!client) {
+    // One thing missing (the client) and the rest is clear: ask with chips. Too vague (no period, no shape) → the model.
+    if (!clients.length) return null;
+    const shaped = !!(period || latest || top || worst);
+    if (wantsCreatives && shaped) return { kind: "ask", missing: "client", question: "Pour quel client ?", candidates: sortedClients(clients), draft: { what: "creatives", text } };
+    if (wantsMetrics && period) return { kind: "ask", missing: "client", question: "Pour quel client ?", candidates: sortedClients(clients), draft: { what: "metrics", text } };
+    return null;
+  }
+
+  if (wantsCreatives) {
     const args: Record<string, unknown> = { client: client.id, ...(platform ? { platform } : {}) };
     let label = period ? period[2] : "sur 7 jours";
     if (period) args.period = period[1];
+    else if (!latest && !top && !worst) args.period = "last_7d";
     if (latest) { args.sort = "launch"; args.order = "desc"; args.limit = Math.min(24, Math.max(1, Number(latest[1]))); label = `les ${latest[1]} dernières`; }
     else if (n) args.limit = Math.min(24, Math.max(1, Number(n[1])));
     if (top) { args.sort = /cpa|cpl/.test(rest) ? "cpa" : /ctr/.test(rest) ? "ctr" : /roas/.test(rest) ? "roas" : "spend"; args.order = /cpa|cpl/.test(rest) ? "asc" : "desc"; }
@@ -200,12 +236,47 @@ export function parseQuickIntent(text: string, clients: IntentClient[]): QuickIn
     const say = latest ? `Voilà les ${latest[1]} dernières créas de ${client.name}.` : top ? `Voilà les créas de ${client.name} qui ${/cpa|cpl/.test(rest) ? "ont le meilleur coût" : "ont le plus dépensé"} ${label}.` : `Voilà les créas de ${client.name} ${label}.`;
     return { kind: "creatives", client, args, say, periodLabel: label };
   }
-  if (METRIC_WORDS.test(rest) && !CREA_WORDS.test(rest)) {
-    if (!period && !/\b(ca donne quoi|comment ca va|ou en est|bilan|point)\b/.test(rest)) return null;
+  if (wantsMetrics) {
+    // No period said: the last 7 days (no question asked).
     const by = /\bpar campagne\b/.test(rest) ? "campaign" : /\bpar (ensemble|adset|ad set)\b/.test(rest) ? "adset" : /\bpar format\b/.test(rest) ? "format" : undefined;
     const args: Record<string, unknown> = { client: client.id, period: period ? period[1] : "last_7d", ...(by ? { by } : {}), ...(platform ? { platform } : {}) };
     const label = period ? period[2] : "sur 7 jours";
     return { kind: "metrics", client, args, say: `Voilà les chiffres de ${client.name} ${label}${by ? `, par ${by === "campaign" ? "campagne" : by === "adset" ? "ensemble" : "format"}` : ""}.`, periodLabel: label };
   }
   return null;
+}
+
+const sortedClients = (clients: IntentClient[]) => [...clients].sort((a, b) => a.name.localeCompare(b.name, "fr"));
+
+/** The sentence completed with the chip picked, ready for the quick path again. */
+export function completeQuickAsk(ask: QuickAsk, choice: IntentClient | QuickPeriodOption): string {
+  const base = ask.draft.text.trim().replace(/[\s?.!…]+$/, "");
+  if (ask.missing === "client") return `${base} pour ${(choice as IntentClient).name}`;
+  return `${base} ${(choice as QuickPeriodOption).label}`;
+}
+
+/**
+ * Clients « of the day » first (those already named on a card of the board,
+ * most recent first), then the rest alphabetically — for the chips.
+ */
+export function orderClientCandidates(candidates: IntentClient[], cards: Array<{ title: string; subtitle?: string; at?: string }>): IntentClient[] {
+  const seen = new Map<string, number>();
+  for (const c of cards) {
+    const m = matchClientName(`${c.title} ${c.subtitle ?? ""}`, candidates);
+    if (!m) continue;
+    const t = c.at ? new Date(c.at).getTime() || 0 : 0;
+    seen.set(m.id, Math.max(seen.get(m.id) ?? 0, t));
+  }
+  const today = candidates.filter((c) => seen.has(c.id)).sort((a, b) => (seen.get(b.id) ?? 0) - (seen.get(a.id) ?? 0));
+  const rest = candidates.filter((c) => !seen.has(c.id)).sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  return [...today, ...rest];
+}
+
+/** A short title for the card about to land (« Créas Cours Legendre · cette semaine »), from the ask. */
+export function ghostTitle(text: string, quick: QuickResult | null): string {
+  if (quick && quick.kind === "creatives") return `Créas ${quick.client.name} · ${quick.periodLabel}`;
+  if (quick && quick.kind === "metrics") return `Chiffres ${quick.client.name} · ${quick.periodLabel}`;
+  const clean = text.replace(/\s+/g, " ").trim().replace(/^(hello|salut|bonjour|hey|ok)\s+mo[,\s]*/i, "").replace(/^mo[,\s]+/i, "");
+  const short = clean.length > 60 ? clean.slice(0, 59).trimEnd() + "…" : clean;
+  return short ? short.charAt(0).toUpperCase() + short.slice(1) : "En cours";
 }

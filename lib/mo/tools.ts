@@ -20,6 +20,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAccountScope, type AccountScope } from "@/lib/scope";
+import { effectiveRole } from "@/lib/roles";
 import { listClientRegistry, type ClientRef } from "@/lib/clients/registry";
 import { matchClientName } from "@/lib/mo/intents";
 import { deriveMetrics, queryAds, type Metrics, type MetricKey } from "@/lib/ads-warehouse/query";
@@ -120,7 +121,9 @@ const SORT_KEYS: Array<MetricKey | "launch"> = ["spend", "cpa", "ctr", "roas", "
 interface Resolved { client: ClientRef; scope: AccountScope; session: PilotSession }
 
 async function sessionOf(ctx: MoToolContext): Promise<PilotSession> {
-  return { userId: ctx.userId, role: ctx.role, user: { email: ctx.email, name: ctx.name } };
+  // The role as the application applies it (a consultant works as an admin, lib/roles.ts): the stored role alone
+  // narrowed the scope to the accounts assigned in UserAdAccount — none for a consultant — and every client was « introuvable ».
+  return { userId: ctx.userId, role: effectiveRole(ctx.role), baseRole: ctx.role, user: { email: ctx.email, name: ctx.name } };
 }
 
 /** The client named (or its id) among the ones the consultant may see; a clear error when none or several. */

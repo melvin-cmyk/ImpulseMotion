@@ -2,29 +2,39 @@
 
 /**
  * /mo — Mo's screen. Full-screen board over the app chrome: the violet wave
- * behind, the cards in front, the microphone at the bottom. Hold SPACE (or the
- * orb) to talk; release to send. Mo answers out loud and lays its cards on a
- * new row of the board. A session = a board, reopened from the list.
+ * behind, the cards in front, the composer at the bottom (text + microphone,
+ * always there). Hold SPACE (or the orb) to talk; release to send. The moment
+ * a message leaves, a ghost card marks where the answer will land; Mo answers
+ * out loud and its cards replace the ghost. A session = a board, reopened
+ * from the list. The « Mo » intro plays once (localStorage).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ChevronDown, Keyboard, LayoutGrid, Loader2, Maximize2, Mic, Plus, Square, Trash2, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, ChevronDown, LayoutGrid, Maximize2, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Board, type BoardHandle } from "@/components/mo/board";
-import { MoCardView } from "@/components/mo/card";
+import { MoCardView, MoGhostCard, type Ghost } from "@/components/mo/card";
+import { Composer, type ComposerAsk, type ComposerHandle } from "@/components/mo/composer";
+import { warmMoBoard } from "@/components/mo/warm";
 import { WaveCanvas, type WaveMood } from "@/components/mo/wave-canvas";
 import { useVoice } from "@/components/mo/use-voice";
-import { CARD_SIZES, type MoBoardData, type MoCard, type MoCardPatch } from "@/lib/mo/model";
+import { CARD_SIZES, layoutNewCards, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec } from "@/lib/mo/model";
 import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
 
 const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
-import { parseNavIntent, parseQuickIntent, type IntentClient } from "@/lib/mo/intents";
+import { PERIOD_OPTIONS, completeQuickAsk, ghostTitle, orderClientCandidates, parseNavIntent, parseQuickIntent, type IntentClient, type QuickAsk, type QuickResult } from "@/lib/mo/intents";
+import { moStatusLabel } from "@/lib/mo/status";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
-import { INITIAL_ACTIVITY, activityLabel, formatToolName, reduceActivity, type ActivityState } from "@/lib/ai-activity";
+import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
 interface BoardSummary { id: string; title: string; updatedAt: string; cards: number }
-interface Run { jobId: string; startedAt: number; activity: ActivityState; tools: string[] }
+interface Run { jobId: string; startedAt: number; activity: ActivityState }
+
+/** The « Mo » wordmark plays on the first visit only. */
+const INTRO_KEY = "mo:intro-seen";
+/** Chips offered when Mo asks for the client (the rest behind « autre… »). */
+const MAX_CHIPS = 6;
 
 /** Said when the answer takes more than a moment to start (one of them, at random). */
 const ACKS = ["Je regarde.", "Un instant.", "Je m'en occupe."];
@@ -46,10 +56,15 @@ export function MoPage() {
   const [error, setError] = useState<string | null>(null);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [lastSaid, setLastSaid] = useState<{ you: string; mo: string | null } | null>(null);
-  const [intro, setIntro] = useState(true);
-  const [typing, setTyping] = useState(false);
-  const [input, setInput] = useState("");
+  const [intro, setIntro] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  /** The placeholder card drawn where the answer will land, from the send to the first real card. */
+  const [ghost, setGhost] = useState<Ghost | null>(null);
+  const ghostRef = useRef<Ghost | null>(null);
+  useEffect(() => { ghostRef.current = ghost; }, [ghost]);
+  /** Mo is missing one thing (the client, the period): chips in the composer. */
+  const [ask, setAsk] = useState<QuickAsk | null>(null);
+  const composerRef = useRef<ComposerHandle>(null);
   const [muted, setMuted] = useState(false);
   const follower = useRef<AbortController | null>(null);
   const seenTurns = useRef<number>(-1);
@@ -64,6 +79,8 @@ export function MoPage() {
   /** Ids of the cards the person already has (new ones found by the live refresh get the spotlight). */
   const knownIds = useRef<Set<string>>(new Set());
   const ackTimer = useRef<number | null>(null);
+  const boardStateRef = useRef<MoBoardData | null>(null);
+  useEffect(() => { boardStateRef.current = board; }, [board]);
 
   // ── Loading ───────────────────────────────────────────────────────────
   const loadBoard = useCallback(async (id: string) => {
@@ -72,6 +89,7 @@ export function MoPage() {
     const j = (await r.json()) as { board: MoBoardData; jobId: string | null };
     setBoard(j.board);
     knownIds.current = new Set(j.board.cards.map((c) => c.id));
+    warmMoBoard(j.board.id);
     return j;
   }, []);
 
@@ -90,6 +108,7 @@ export function MoPage() {
     setBoard(j.board);
     setFresh(new Set());
     setLastSaid(null);
+    warmMoBoard(j.board.id);
     router.replace(`/mo?b=${j.board.id}`);
     void listBoards();
     return j.board;
@@ -110,6 +129,8 @@ export function MoPage() {
     const ids = new Set(last?.cardIds ?? []);
     setFresh(ids);
     knownIds.current = new Set(j.board.cards.map((c) => c.id));
+    // The answer is in: the ghost has done its job (a card replaced it, or Mo only spoke).
+    setGhost((g) => (g && g.state === "pending" ? null : g));
     setLastSaid((s) => ({ you: s?.you ?? "", mo: last?.say ?? null }));
     if (last?.say && !muted && earlySaid.current !== last.say) speakRef.current(last.say);
     earlySaid.current = null;
@@ -123,7 +144,7 @@ export function MoPage() {
     follower.current?.abort();
     const ctl = new AbortController();
     follower.current = ctl;
-    setRun({ jobId, startedAt: Date.now(), activity: INITIAL_ACTIVITY, tools: [] });
+    setRun({ jobId, startedAt: Date.now(), activity: INITIAL_ACTIVITY });
     streamText.current = "";
     earlySaid.current = null;
     // A short word if Mo has not started answering after a moment (the voice assistants people know do this).
@@ -138,6 +159,7 @@ export function MoPage() {
         if (!added.length) return;
         for (const c of added) knownIds.current.add(c.id);
         setBoard(j.board);
+        setGhost(null);
         setFresh((f) => new Set([...f, ...added.map((c) => c.id)]));
         const rects = added.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
         window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
@@ -162,13 +184,8 @@ export function MoPage() {
           }
         }
       }
-      setRun((r) => {
-        if (!r || r.jobId !== jobId) return r;
-        const activity = reduceActivity(r.activity, e);
-        const tools = e.type === "tool_call" && typeof e.name === "string" ? [...r.tools, formatToolName(e.name)].slice(-6) : r.tools;
-        return { ...r, activity, tools };
-      });
-      if (e.type === "error" && e.message) setError(e.message);
+      setRun((r) => (r && r.jobId === jobId ? { ...r, activity: reduceActivity(r.activity, e) } : r));
+      if (e.type === "error" && e.message) { setError(e.message); setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: e.message } : g)); }
     };
     void followJob(jobId, onEvent, ctl.signal).then(async (outcome) => {
       window.clearInterval(live);
@@ -176,8 +193,9 @@ export function MoPage() {
       if (outcome === "aborted") return;
       follower.current = null;
       setRun(null);
+      if (outcome === "failed" || outcome === "stopped") setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: outcome === "stopped" ? "Arrêté." : "La réponse a échoué." } : g));
       await finishTurn(boardId);
-    }).catch((e) => { window.clearInterval(live); follower.current = null; setRun(null); setError(e instanceof Error ? e.message : "Suivi interrompu"); });
+    }).catch((e) => { window.clearInterval(live); follower.current = null; setRun(null); const msg = e instanceof Error ? e.message : "Suivi interrompu"; setError(msg); setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: msg } : g)); });
   }, [finishTurn, muted]);
 
   // First load: the wanted board, else the latest, else a new one.
@@ -203,9 +221,18 @@ export function MoPage() {
         if (!cancelled) setError(e instanceof Error ? e.message : "Chargement impossible");
       }
     })();
-    const t = window.setTimeout(() => setIntro(false), 3400);
-    return () => { cancelled = true; window.clearTimeout(t); follower.current?.abort(); follower.current = null; };
+    return () => { cancelled = true; follower.current?.abort(); follower.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The wordmark plays once; afterwards the board is usable the moment it loads.
+  useEffect(() => {
+    let seen = true;
+    try { seen = !!localStorage.getItem(INTRO_KEY); if (!seen) localStorage.setItem(INTRO_KEY, "1"); } catch { seen = true; }
+    if (seen) return;
+    queueMicrotask(() => setIntro(true));
+    const t = window.setTimeout(() => setIntro(false), 3400);
+    return () => window.clearTimeout(t);
   }, []);
 
   // ── Sending ───────────────────────────────────────────────────────────
@@ -217,9 +244,23 @@ export function MoPage() {
     }).catch(() => undefined);
   }, []);
 
+  /** Draws the ghost where the next card will land (same rule as the server: a new row under everything), and brings it into view. */
+  const placeGhost = useCallback((text: string, quick: QuickResult | null) => {
+    const b = boardStateRef.current;
+    if (!b) return;
+    const type: MoCard["type"] = quick?.kind === "creatives" ? "creatives" : "kpis";
+    const title = ghostTitle(text, quick);
+    const [placed] = layoutNewCards(b.cards, { cards: [{ type, title } as unknown as MoCardSpec] }, b.messages.filter((m) => m.role === "assistant").length, new Date().toISOString());
+    if (!placed) return;
+    const g: Ghost = { id: placed.id, text, title, x: placed.x, y: placed.y, w: placed.w, h: placed.h ?? CARD_SIZES[type].h, z: placed.z ?? 0, state: "pending", startedAt: Date.now() };
+    setGhost(g);
+    window.setTimeout(() => boardRef.current?.fit([{ x: g.x, y: g.y, w: g.w, h: g.h }], 90, { kMin: 0.5, kMax: 1 }), 30);
+  }, []);
+
   const send = useCallback(async (text: string) => {
     const t = text.trim();
     if (!t || !board || run) return;
+    setGhost((g) => (g && g.state === "error" ? null : g));
     setError(null);
     setLastSaid({ you: t, mo: null });
     // "Ouvre le cockpit de Naturalia": understood here, executed at once, no model call.
@@ -230,10 +271,20 @@ export function MoPage() {
       window.setTimeout(() => router.push(nav.path), 600);
       return;
     }
+    const quick: QuickResult | null = parseQuickIntent(t, clientsRef.current);
+    // « Créas cette semaine » without a client: Mo asks with chips, nothing leaves the browser.
+    if (quick?.kind === "ask") {
+      setAsk(quick);
+      setLastSaid({ you: t, mo: quick.question });
+      if (!muted) speakRef.current(quick.question);
+      return;
+    }
+    setAsk(null);
     setBoard((b) => (b ? { ...b, messages: [...b.messages, { role: "user", content: t, at: new Date().toISOString() }] } : b));
+    placeGhost(t, quick);
     // « Les créas de Cours Legendre cette semaine », « le CPA de Naturalia ce mois-ci » : the app runs the tool itself, no model, 3 seconds.
-    if (parseQuickIntent(t, clientsRef.current)) {
-      setRun({ jobId: "quick", startedAt: Date.now(), activity: INITIAL_ACTIVITY, tools: ["mo"] });
+    if (quick) {
+      setRun({ jobId: "quick", startedAt: Date.now(), activity: INITIAL_ACTIVITY });
       try {
         const res = await fetch(`/api/mo/${board.id}/quick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
         if (res.status === 200) {
@@ -245,44 +296,54 @@ export function MoPage() {
           seenTurns.current = loaded.board.messages.filter((m) => m.role === "assistant").length;
           const ids = new Set(j.cardIds);
           setFresh(ids);
+          // No card came back: the ghost says why, with a retry.
+          setGhost((g) => (g && g.state === "pending" ? (ids.size ? null : { ...g, state: "error", message: j.say }) : g));
           const rects = loaded.board.cards.filter((c) => ids.has(c.id)).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
           if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
           void listBoards();
           return;
         }
-        if (res.status !== 204) { const j = (await res.json().catch(() => ({}))) as { error?: string }; if (res.status === 409) { setRun(null); setError(j.error ?? "Mo répond déjà."); return; } }
+        if (res.status !== 204) { const j = (await res.json().catch(() => ({}))) as { error?: string }; if (res.status === 409) { setRun(null); setError(j.error ?? "Mo répond déjà."); setGhost(null); return; } }
       } catch { /* the normal way below */ }
       setRun(null);
     }
     try {
+      // The state line says « je réfléchis » from the first instant: the turn is being posted (follow() takes over once the job exists).
+      setRun({ jobId: "pending", startedAt: Date.now(), activity: INITIAL_ACTIVITY });
       const res = await fetch(`/api/mo/${board.id}/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
       const j = (await res.json().catch(() => ({}))) as { jobId?: string; error?: string };
       if (res.status === 409 && j.jobId) { follow(j.jobId, board.id); return; }
-      if (!res.ok || !j.jobId) throw new Error(j.error ?? `Erreur ${res.status}`);
+      if (!res.ok || !j.jobId) { setRun(null); throw new Error(j.error ?? `Erreur ${res.status}`); }
       window.dispatchEvent(new Event(AI_JOB_STARTED_EVENT));
       seenTurns.current = board.messages.filter((m) => m.role === "assistant").length;
       follow(j.jobId, board.id);
       void listBoards();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Mo n'a pas démarré");
+      const msg = e instanceof Error ? e.message : "Mo n'a pas répondu";
+      setError(msg);
+      setGhost((g) => (g && g.state === "pending" ? { ...g, state: "error", message: msg } : g));
     }
-  }, [board, run, follow, listBoards, loadBoard, muted, router]);
+  }, [board, run, follow, listBoards, loadBoard, muted, router, placeGhost]);
 
   const voice = useVoice(send);
   useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);
+  // A dictation starts, the composer takes the focus: Mo's process is warmed on the relay meanwhile (fire and forget).
+  const boardIdRef = useRef<string | null>(null);
+  useEffect(() => { boardIdRef.current = board?.id ?? null; }, [board]);
+  const warm = useCallback(() => warmMoBoard(boardIdRef.current), []);
 
   // SPACE held = talk (outside text fields); Escape = quiet.
   useEffect(() => {
     const isTyping = () => { const el = document.activeElement as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
     const down = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !e.repeat && !isTyping() && !run) { e.preventDefault(); voice.begin(); }
+      if (e.code === "Space" && !e.repeat && !isTyping() && !run) { e.preventDefault(); warm(); voice.begin(); }
       if (e.key === "Escape") { voice.hush(); voice.cancel(); setSessionsOpen(false); }
     };
     const up = (e: KeyboardEvent) => { if (e.code === "Space" && !isTyping()) { e.preventDefault(); voice.end(); } };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
-  }, [voice, run]);
+  }, [voice, run, warm]);
 
   // ── Cards geometry ────────────────────────────────────────────────────
   // Snapped drag / resize with alignment guides, z-order, selection, keyboard,
@@ -291,8 +352,6 @@ export function MoPage() {
   const [guides, setGuides] = useState<Guide[]>([]);
   const [hoverLink, setHoverLink] = useState<string | null>(null);
   const [undo, setUndo] = useState<{ cards: MoCard[]; timer: number } | null>(null);
-  const boardStateRef = useRef<MoBoardData | null>(null);
-  useEffect(() => { boardStateRef.current = board; }, [board]);
   /** Live position of the card being dragged / resized (world), before the state commit. */
   const live = useRef<{ id: string; x: number; y: number; w: number; h: number } | null>(null);
   const resizeStart = useRef<Rect | null>(null);
@@ -468,10 +527,32 @@ export function MoPage() {
   }), [board]);
 
   const mood: WaveMood = intro ? "intro" : voice.listening ? "listening" : run ? "thinking" : voice.speaking ? "speaking" : "idle";
-  const status = run ? activityLabel(run.activity) : voice.listening ? (voice.interim || "Je t'écoute…") : voice.speaking ? "Mo parle" : null;
+  const running = useMemo(() => (run ? { label: moStatusLabel(run.activity, run.jobId === "quick" ? "quick" : "model"), startedAt: run.startedAt, onStop: () => { if (run.jobId !== "quick" && run.jobId !== "pending") void stopJob(run.jobId).catch(() => undefined); } } : null), [run]);
+
+  /** An « ask » card answered: the option is the next message, the card leaves quietly. */
+  const onAnswer = useCallback((id: string, option: string) => {
+    setBoard((b) => (b ? { ...b, cards: b.cards.filter((c) => c.id !== id) } : b));
+    queue(id, { removed: true });
+    void send(option);
+  }, [queue, send]);
+
+  /** « autre… » : the sentence goes back to the input, ready for the client's name. */
+  const typeOther = useCallback((draft: string) => { setAsk(null); composerRef.current?.setText(`${draft.trim().replace(/[\s?.!…]+$/, "")} pour `); }, []);
+  // Chips of the composer: clients of the day first (those named on the board), then the rest; « autre… » lets one type the name.
+  const composerAsk = useMemo<ComposerAsk | null>(() => {
+    if (!ask) return null;
+    const pick = (text: string) => { setAsk(null); void send(text); };
+    if (ask.missing === "client") {
+      const ordered = orderClientCandidates(ask.candidates, board?.cards ?? []);
+      const chips = ordered.slice(0, MAX_CHIPS).map((c) => ({ label: c.name, onPick: () => pick(completeQuickAsk(ask, c)) }));
+      const other = ordered.length > MAX_CHIPS ? [{ label: "autre…", muted: true, onPick: () => typeOther(ask.draft.text) }] : [];
+      return { question: ask.question, chips: [...chips, ...other] };
+    }
+    return { question: ask.question, chips: PERIOD_OPTIONS.map((p) => ({ label: p.label, onPick: () => pick(completeQuickAsk(ask, p)) })) };
+  }, [ask, board, send, typeOther]);
 
   return (
-    <div className="fixed inset-0 z-[70] bg-[#07050f] text-gray-100 overflow-hidden">
+    <div className="fixed inset-0 z-[70] bg-[#07050f] text-gray-100 overflow-hidden" data-mo-ready={board ? "1" : undefined}>
       <WaveCanvas mood={mood} level={voice.level} levelRef={voice.levelRef} className="absolute inset-0 w-full h-full pointer-events-none" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(7,5,15,0)_0%,rgba(7,5,15,0.55)_70%,rgba(7,5,15,0.85)_100%)] pointer-events-none" />
 
@@ -512,8 +593,9 @@ export function MoPage() {
         {sortedCards.map((c) => (
           <MoCardView key={c.id} card={c} fresh={fresh.has(c.id)} delayMs={(freshOrder.get(c.id) ?? 0) * 60} selected={selected.has(c.id)} refTitle={c.ref ? titles.get(c.ref) ?? null : null} getK={getK}
             onMove={onMove} onMoveEnd={onMoveEnd} onResizeStart={onResizeStart} onResize={onResize} onResizeEnd={onResizeEnd}
-            onFront={onFront} onSelect={onSelect} onToggle={onToggle} onClose={onClose} onFocusRef={onFocusRef} onHoverRef={onHoverRef} />
+            onFront={onFront} onSelect={onSelect} onToggle={onToggle} onClose={onClose} onFocusRef={onFocusRef} onHoverRef={onHoverRef} onAnswer={onAnswer} />
         ))}
+        {ghost && <MoGhostCard ghost={ghost} onRetry={() => { setGhost(null); void send(ghost.text); }} onClose={() => setGhost(null)} />}
       </Board>
 
       {/* Board toolbar: ranger · fit · shortcuts — and the undo toast after a removal */}
@@ -562,7 +644,7 @@ export function MoPage() {
       </div>
 
       {/* Empty state */}
-      {board && !board.cards.length && !run && !intro && (
+      {board && !board.cards.length && !run && !intro && !ghost && (
         <div className="absolute inset-x-0 top-[28%] flex flex-col items-center pointer-events-none">
           <div className="text-lg text-gray-300">Qu&apos;est-ce qu&apos;on regarde ?</div>
           <div className="mt-3 flex flex-col gap-1.5 items-center pointer-events-auto">
@@ -571,52 +653,8 @@ export function MoPage() {
         </div>
       )}
 
-      {/* Bottom: transcript + microphone */}
-      <div className="absolute inset-x-0 bottom-0 flex flex-col items-center pb-6 pointer-events-none">
-        {(lastSaid || status || error) && (
-          <div className="max-w-2xl w-[min(92vw,42rem)] mb-4 space-y-1.5 text-center">
-            {lastSaid?.you && !voice.listening && <div className="text-[13px] text-gray-400 line-clamp-2"><span className="text-gray-600">Toi ·</span> {lastSaid.you}</div>}
-            {status ? (
-              <div className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-500/10 backdrop-blur px-3.5 py-1.5 text-[13px] text-violet-100 max-w-full">
-                {run && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
-                <span className="truncate">{status}{run ? "…" : ""}</span>
-                {run && run.tools.length > 0 && <span className="text-[11px] text-violet-300/70 truncate hidden sm:inline">· {run.tools[run.tools.length - 1]}</span>}
-              </div>
-            ) : lastSaid?.mo ? (
-              <div className="text-[15px] text-gray-100 leading-snug"><span className="text-violet-300">Mo ·</span> {lastSaid.mo}</div>
-            ) : null}
-            {error && <div className="text-[12px] text-rose-300">{error}</div>}
-          </div>
-        )}
-        <div className="flex items-center gap-3 pointer-events-auto">
-          <button type="button" onClick={() => setTyping((t) => !t)} className="w-10 h-10 rounded-full border border-white/10 bg-black/40 backdrop-blur text-gray-400 hover:text-white hover:bg-white/10 inline-flex items-center justify-center" title="Écrire à la place" aria-label="Écrire"><Keyboard className="w-4 h-4" /></button>
-          {run ? (
-            <button type="button" onClick={() => void stopJob(run.jobId).catch(() => undefined)} className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 shadow-[0_0_60px_rgba(139,92,246,0.55)] inline-flex items-center justify-center text-white mo-orb-think" aria-label="Arrêter" title="Arrêter Mo"><Square className="w-5 h-5" /></button>
-          ) : (
-            <button
-              type="button"
-              onPointerDown={(e) => { e.preventDefault(); voice.begin(); }}
-              onPointerUp={() => voice.end()}
-              onPointerLeave={() => { if (voice.listening) voice.end(); }}
-              onContextMenu={(e) => e.preventDefault()}
-              className={`w-16 h-16 rounded-full inline-flex items-center justify-center text-white transition-transform ${voice.listening ? "bg-gradient-to-br from-fuchsia-500 to-violet-600 scale-110 shadow-[0_0_80px_rgba(217,70,239,0.7)]" : "bg-gradient-to-br from-violet-500 to-purple-700 shadow-[0_0_50px_rgba(139,92,246,0.45)] hover:scale-105"}`}
-              style={voice.listening ? { transform: `scale(${1.1 + voice.level * 0.25})` } : undefined}
-              aria-label="Maintenir pour parler"
-              title="Maintenir pour parler (ou la barre espace)"
-            >
-              <Mic className="w-6 h-6" />
-            </button>
-          )}
-          <div className="w-10 h-10" />
-        </div>
-        <div className="mt-2 text-[11px] text-gray-500 pointer-events-none">{voice.supported ? "Maintiens espace ou l'orbe pour parler" : "Reconnaissance vocale indisponible ici : utilise Chrome, ou écris à Mo"}</div>
-        {typing && (
-          <form className="mt-3 w-[min(92vw,36rem)] pointer-events-auto flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); setInput(""); }}>
-            <input autoFocus value={input} onChange={(e) => setInput(e.target.value)} placeholder="Écris à Mo…" className="flex-1 rounded-full border border-white/10 bg-black/50 backdrop-blur px-4 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-400/60" />
-            <button type="submit" disabled={!input.trim() || !!run} className="rounded-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 px-4 py-2 text-sm text-white">Envoyer</button>
-          </form>
-        )}
-      </div>
+      {/* Bottom: the composer (always there) */}
+      <Composer ref={composerRef} voice={voice} running={running} lastSaid={lastSaid} error={error} ask={composerAsk} onSend={(t) => void send(t)} onEscape={clearSelection} onFocus={warm} onBegin={warm} className="absolute inset-x-0 bottom-0 pb-5" />
     </div>
   );
 }

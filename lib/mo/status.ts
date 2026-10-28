@@ -1,0 +1,55 @@
+/**
+ * What Mo is doing, in Mo's own words. The relay's activity state (lib/ai-activity)
+ * names tools; the consultant reads an action: « je cherche dans l'entrepôt »,
+ * « je génère les visuels »… Never « démarrage », never a raw tool name.
+ * Client-safe, pure.
+ */
+
+import type { ActivityState } from "@/lib/ai-activity";
+
+export const MO_STATUS = {
+  warehouse: "je cherche dans l'entrepôt",
+  library: "je lis la bibliothèque Meta",
+  generate: "je génère les visuels",
+  publish: "je prépare la publication",
+  think: "je réfléchis",
+  write: "je prépare la réponse",
+  live: "je lis les données en direct",
+  memory: "je relis la mémoire du client",
+} as const;
+
+export type MoStatusKey = keyof typeof MO_STATUS;
+
+/** The action behind a tool name (raw MCP name, « mcp__mo__creatives »). */
+export function toolStatusKey(name: string | null | undefined): MoStatusKey {
+  if (!name) return "think";
+  const n = name.toLowerCase();
+  if (n.startsWith("mcp__mo__")) {
+    const tool = n.slice("mcp__mo__".length);
+    if (/^(creatives|metrics|creative_metrics)/.test(tool)) return "warehouse";
+    if (/^(competitor_ads|keep_template)/.test(tool)) return "library";
+    if (/^generate_creatives/.test(tool)) return "generate";
+    if (/^(meta_publish_ad|meta_targets)/.test(tool)) return "publish";
+    return "think";
+  }
+  if (/^mcp__(meta-ads|mcp-google-ads|mcp-tiktok-ads|mcp-google-analytics|mcp-merchant)/.test(n)) return "live";
+  if (/^mcp__(hq|claude_ai_mcp_hq)/.test(n)) return "memory";
+  return "think";
+}
+
+/** One line for the status area, from the activity of the running turn. */
+export function moStatusLabel(activity: ActivityState | null | undefined, path: "quick" | "model" = "model"): string {
+  if (path === "quick") return MO_STATUS.warehouse;
+  if (!activity) return MO_STATUS.think;
+  switch (activity.phase) {
+    case "running":
+    case "preparing":
+      return MO_STATUS[toolStatusKey(activity.tool)];
+    case "writing":
+      return MO_STATUS.write;
+    case "starting":
+    case "thinking":
+    default:
+      return MO_STATUS.think;
+  }
+}
