@@ -318,6 +318,13 @@ async function relayJson<T>(path: string, init: RequestInit & { timeoutMs?: numb
 }
 
 /** Starts a detached turn; the relay answers its job id at once. */
+/** Starts the persistent CLI of a conversation without a message (POST /api/chat/warm): the next turn finds it warm. Never throws. */
+export async function relayWarm(body: Omit<RelayChatBody, "messages">): Promise<{ warm: boolean; reason?: string }> {
+  const r = await relayJson<{ warm?: boolean; reason?: string }>("/api/chat/warm", { method: "POST", body: JSON.stringify(body), timeoutMs: 12_000 });
+  if (!r.ok) return { warm: false, reason: r.error };
+  return { warm: r.json.warm === true, ...(r.json.reason ? { reason: r.json.reason } : {}) };
+}
+
 export async function relayDetach(body: RelayChatBody, jobMeta?: Record<string, unknown>): Promise<{ jobId: string } | { error: string }> {
   const r = await relayJson<{ jobId?: string }>("/api/chat", {
     method: "POST",

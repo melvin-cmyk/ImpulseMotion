@@ -12,51 +12,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
-import { getAllowedAccountIds } from "@/lib/acl";
-import { getAccountScope } from "@/lib/scope";
-import { listClientRegistry } from "@/lib/clients/registry";
-import { CLIENT_DATA_SERVER, HQ_SERVER, MCP_SERVER_WHITELIST, MO_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS, TIKTOK_SERVER } from "@/lib/mcp-whitelist";
-import { staffDataScopeForAll } from "@/lib/staff-data-scope";
-import { MO_PROFILE } from "@/lib/ai-profiles";
 import type { RelayChatBody, RelayEffort, RelayMessage, RelayModel } from "@/lib/relay-chat";
 import { runningJobCount, runningJobOf, startAiJob } from "@/lib/ai-jobs";
-import { describeCards, moSessionKey } from "@/lib/mo/model";
-import { buildMoSystemPrompt } from "@/lib/mo/prompt";
+import { describeCards } from "@/lib/mo/model";
 import { appendMoUserMessage, loadBoard, parseMoCards, parseMoMessages } from "@/lib/mo/thread";
+import { moBeltFor, moRelayBase, moTurnContext } from "@/lib/mo/turn";
 
 const MAX_RUNNING_JOBS_PER_USER = 3;
 const MAX_HISTORY = 16;
 const MAX_MESSAGE_CHARS = 4000;
-const MAX_TURNS = MO_PROFILE.maxTurns ?? 12;
-
-/**
- * Servers attached to the turn, by what the sentence asks for: the three ads
- * platforms by default (plus GA4), HQ when the context of a client is asked,
- * the heavy belt (sheets, Notion, sandbox, warehouses…) only on explicit
- * words. Fewer servers = seconds saved at every start of the CLI.
- */
-/**
- * Two stable tool belts, each with its own relay session, so a turn always
- * RESUMES (the relay drops a session whose server list changed — the old
- * per-sentence list restarted Mo almost every turn):
- *   - « mo » (default): Mo's own tools only — warehouse, generation, Drive, publication, Ad Library. Starts in a second.
- *   - « wide »: the same plus the live ads platforms, HQ, the staff belt, the sandbox and the client warehouses,
- *     when the sentence clearly asks for them (live insights, audiences, HQ context, sheets, Python…).
- */
-function beltFor(message: string, dataScope: boolean): { name: "mo" | "wide"; servers: string[] } {
-  const t = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const live = /\b(en direct|temps reel|insights?|ga4|analytics|trafic|sessions?|audiences?|ciblages?|encheres?|placements?|frequence|statuts?|google ads|tiktok|adset|ensembles? de pub|pixel|evenements? de conversion|catalogue)\b/.test(t);
-  const hq = /\b(hq|contexte|historique|objectifs?|brief|memoire|persona|strategie)\b/.test(t);
-  const staff = /\b(sheet|sheets|tableur|excel|feuille|notion|merchant|magento|drive|gmail|agenda|calendar|web|internet|cherche sur)\b/.test(t);
-  const sandbox = /\b(calcul|python|script|graphique avance|fichier|csv|sandbox)\b/.test(t);
-  const data = dataScope && /\b(commandes?|entrepot|dataset|datasets|ventes? en base|panier|clients? finaux)\b/.test(t);
-  if (!live && !hq && !staff && !sandbox && !data) return { name: "mo", servers: [MO_SERVER] };
-  const servers = new Set<string>([MO_SERVER, ...MCP_SERVER_WHITELIST, TIKTOK_SERVER, HQ_SERVER, ...STAFF_MCP_SERVERS, SANDBOX_SERVER]);
-  if (dataScope) servers.add(CLIENT_DATA_SERVER);
-  return { name: "wide", servers: [...servers] };
-}
-/** A voice answer should come fast; the relay cuts a runaway turn. */
-const BUDGET_MS = 5 * 60_000;
 const MODELS = new Set<RelayModel>(["sonnet", "opus", "fable"]);
 const EFFORTS = new Set<RelayEffort>(["low", "medium", "high"]);
 const ACCOUNT_RE = /^[a-z0-9][a-z0-9-]{1,30}$/;
@@ -79,16 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: `${MAX_RUNNING_JOBS_PER_USER} réponses sont déjà en cours sur ton compte. Attends qu'une se termine.` }, { status: 429 });
   }
 
-  const [scope, metaIds, googleIds, tiktokIds, dataScope] = await Promise.all([
-    getAccountScope(guard.session),
-    getAllowedAccountIds(guard.session.userId, "meta"),
-    getAllowedAccountIds(guard.session.userId, "google"),
-    getAllowedAccountIds(guard.session.userId, "tiktok"),
-    staffDataScopeForAll(),
-  ]);
-  const clients = await listClientRegistry(scope);
-  const author = guard.session.user?.name ?? guard.session.user?.email ?? null;
-  const systemPrompt = buildMoSystemPrompt({ clients, author });
+  const ctx = await moTurnContext(guard.session);
 
   const cards = parseMoCards(board.cardsJson);
   const history = parseMoMessages(board.messagesJson).slice(-MAX_HISTORY);
@@ -101,26 +56,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     { role: "user", content: `${message}${context}` },
   ];
 
-  const model: RelayModel = MODELS.has(body.model as RelayModel) ? (body.model as RelayModel) : MO_PROFILE.model;
-  const effort: RelayEffort = EFFORTS.has(body.effort as RelayEffort) ? (body.effort as RelayEffort) : MO_PROFILE.effort;
+  const model: RelayModel | undefined = MODELS.has(body.model as RelayModel) ? (body.model as RelayModel) : undefined;
+  const effort: RelayEffort | undefined = EFFORTS.has(body.effort as RelayEffort) ? (body.effort as RelayEffort) : undefined;
   const account = typeof body.account === "string" && ACCOUNT_RE.test(body.account) && body.account !== "auto" ? body.account : undefined;
 
-  const belt = beltFor(message, !!dataScope);
-  const relayBody: RelayChatBody = {
-    messages: relayMessages,
-    systemPrompt,
-    hqGuidance: "caller",
-    sessionKey: belt.name === "wide" ? `${moSessionKey(board.id)}:wide` : moSessionKey(board.id),
-    model,
-    effort,
-    ...(account ? { account } : {}),
-    maxTurns: MAX_TURNS,
-    budgetMs: BUDGET_MS,
-    allowedServers: belt.servers,
-    mo: { userId: guard.session.userId, boardId: board.id },
-    ...(dataScope ? { dataScope } : {}),
-    accountScope: { meta: metaIds, google: googleIds, tiktok: tiktokIds, unrestricted: guard.session.role === "admin" },
-  };
+  const belt = moBeltFor(message, !!ctx.dataScope);
+  const relayBody: RelayChatBody = { ...moRelayBase(ctx, guard.session, board.id, belt, { ...(model ? { model } : {}), ...(effort ? { effort } : {}), account }), messages: relayMessages };
 
   await appendMoUserMessage(board.id, message, at);
   const started = await startAiJob({
