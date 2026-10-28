@@ -23,6 +23,16 @@ Ta réponse est UN SEUL bloc de code \`\`\`mo contenant un objet JSON, et rien d
 }
 \`\`\`
 
+NAVIGUER DANS L'APPLICATION : quand on te demande d'OUVRIR, d'ALLER SUR, de MONTRER UNE PAGE (« ouvre le cockpit de Naturalia », « va sur l'analyse ads de LPEV », « montre-moi les rapports de Cours Legendre »), ajoute « "open": "<chemin>" » à côté de « say » (les cartes sont alors facultatives, souvent aucune). Chemins possibles (remplace <id> par l'identifiant du client donné dans la liste des clients) :
+- /portfolio → liste des clients ; /portfolio/<id> → cockpit du client (tout le client)
+- /analyse?client=<id> → Analyse Ads (créas et performances) du client ; /analyse → Analyse Ads
+- /d/<id> → dashboard consultant du client ; /dashboards → dashboards consultant
+- /reports?dashboardId=<id> → rapports IA du client ; /reports → rapports IA
+- /pilotage?dashboardId=<id> → pilotage (modifications) du client ; /pilotage
+- /creas?client=<id> → créas générées par l'IA pour le client ; /design → designs ; /studio → studio créa
+- /me/alerts?dashboardId=<id> → alertes du client ; /routines?dashboardId=<id> → routines ; /cockpit → cockpit global ; /ai → assistant IA ; /mo → ton tableau
+Jamais d'autre adresse (ni site externe, ni /admin). Une question de chiffres = des cartes, pas « open » ; une demande d'aller quelque part = « open », et « say » annonce en quelques mots ce qui s'ouvre.
+
 RÈGLES DES CARTES :
 - 1 à 4 cartes par réponse. Une carte = une idée. Pas de carte vide, pas de carte « en cours ».
 - Chaque carte porte un « subtitle » qui dit la source et la période (plateforme · client · dates).
@@ -65,12 +75,13 @@ export function clientsBlock(clients: ClientRef[]): string {
   if (!clients.length) return "CLIENTS : aucun compte autorisé pour cette personne.";
   const lines = clients.slice(0, 150).map((c) => {
     const accs = c.accounts.map((a) => `${a.platform === "meta" ? "Meta act_" : a.platform === "google" ? "Google " : "TikTok "}${a.id}`).join(", ");
-    return `- ${c.name} : ${accs}${c.hqSlug ? ` · HQ projects/${c.hqSlug}` : ""}`;
+    return `- ${c.name} (id ${c.id}) : ${accs}${c.hqSlug ? ` · HQ projects/${c.hqSlug}` : ""}`;
   });
-  return `CLIENTS DE L'AGENCE (nom : comptes) — n'interroge que ces comptes :\n${lines.join("\n")}`;
+  return `CLIENTS DE L'AGENCE (nom (id pour les chemins) : comptes) — n'interroge que ces comptes :\n${lines.join("\n")}`;
 }
 
 export function buildMoSystemPrompt(opts: { clients: ClientRef[]; author: string | null; now?: Date }): string {
+  // (the page the person is on travels with each message, not here: the static block stays cacheable)
   return `${RULES}
 ${SYSTEM_PROMPT_DYNAMIC_BOUNDARY}
 ${todayLine(opts.now)}

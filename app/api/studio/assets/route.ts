@@ -15,9 +15,10 @@ import { requireStaff } from "@/lib/auth-helpers";
 import {
   IMAGE_RATIOS, VIDEO_QUALITIES, VIDEO_RATIOS, VIDEO_SECONDS, dataUriOk, hdSecondsPerDay, promptOk,
   STUDIO_MODES, publicMediaUrl, relayEnhance, relayImage, relayUpload, relayVideo, videoCost, type StudioMode, type VideoQuality,
-  isFalModel, relayFalImage,
+  isFalModel, relayFalImage, relayFalModels,
 } from "@/lib/studio";
 import { assetView, refreshVideo } from "@/lib/studio-assets";
+import { checkGeneration, readQuotas, spentToday } from "@/lib/quotas";
 
 export const maxDuration = 300;
 
@@ -46,6 +47,11 @@ export async function GET(req: NextRequest) {
 async function hdSecondsUsed(since: Date): Promise<number> {
   const rows = await prisma.creativeAsset.findMany({ where: { kind: "video", model: VIDEO_QUALITIES.hd.model, createdAt: { gte: since }, status: { not: "failed" } }, select: { paramsJson: true } });
   return rows.reduce((n, r) => { try { return n + (Number(JSON.parse(r.paramsJson).seconds) || 0); } catch { return n; } }, 0);
+}
+
+/** List price of one image of a fal.ai model, from the relay (0 when unknown). */
+async function falUnitUsd(model: string): Promise<number> {
+  try { return (await relayFalModels()).models.find((m) => m.id === model)?.usd ?? 0; } catch { return 0; }
 }
 
 async function authorName(userId: string, fallback?: string | null) {
@@ -110,6 +116,10 @@ export async function POST(req: NextRequest) {
     const group = `g_${Date.now().toString(36)}`;
     // Engine: Agnes (historical) or a fal.ai model (server/fal.mjs), chosen in the Studio.
     const engine = isFalModel(body.engine) ? body.engine : null;
+    // Daily caps (admin quotas): the price of this batch against what the team and the caller spent today.
+    const unitUsd = engine ? await falUnitUsd(engine) : 0;
+    const gate = checkGeneration(await readQuotas(), await spentToday(guard.session.userId), unitUsd * variants, variants);
+    if (!gate.ok) return NextResponse.json({ error: gate.reason }, { status: 429 });
     let results: Array<PromiseSettledResult<{ url: string; file: string | null; model: string; usd?: number }>>;
     if (engine) {
       try {
@@ -142,6 +152,8 @@ export async function POST(req: NextRequest) {
     const seconds = Math.min(VIDEO_SECONDS.max, Math.max(VIDEO_SECONDS.min, Math.round(Number(body.seconds) || VIDEO_SECONDS.default)));
     const quality: VideoQuality = body.quality === "hd" ? "hd" : "fast";
     const q = VIDEO_QUALITIES[quality];
+    const gate = checkGeneration(await readQuotas(), await spentToday(guard.session.userId), videoCost(quality, seconds), 1);
+    if (!gate.ok) return NextResponse.json({ error: gate.reason }, { status: 429 });
     if (quality === "hd") {
       const used = await hdSecondsUsed(new Date(Date.now() - 86_400_000));
       if (used + seconds > hdSecondsPerDay()) {

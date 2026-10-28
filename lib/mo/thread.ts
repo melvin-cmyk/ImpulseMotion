@@ -32,6 +32,7 @@ export function parseMoMessages(json: string | null | undefined): MoMessage[] {
       at: typeof r.at === "string" ? r.at : new Date(0).toISOString(),
       ...(typeof r.say === "string" ? { say: r.say } : {}),
       ...(Array.isArray(r.cardIds) ? { cardIds: r.cardIds.filter((x): x is string => typeof x === "string") } : {}),
+      ...(typeof r.open === "string" ? { open: r.open } : {}),
     });
   }
   return out.slice(-MO_MAX_MESSAGES);
@@ -54,7 +55,7 @@ export async function appendMoUserMessage(boardId: string, content: string, at: 
 }
 
 /** Ends a turn: parses the answer, lays the new cards on the board, stores the message with what to say. */
-export async function appendMoAnswer(boardId: string, text: string, at: string): Promise<{ say: string; cardIds: string[] } | null> {
+export async function appendMoAnswer(boardId: string, text: string, at: string): Promise<{ say: string; cardIds: string[]; open?: string } | null> {
   const row = await prisma.moBoard.findUnique({ where: { id: boardId }, select: { cardsJson: true, messagesJson: true } });
   if (!row) return null;
   const cards = parseMoCards(row.cardsJson);
@@ -64,9 +65,16 @@ export async function appendMoAnswer(boardId: string, text: string, at: string):
   const placed = layoutNewCards(cards, answer, turn, at);
   const cardIds = placed.map((c) => c.id);
   const all = [...cards, ...placed].slice(-MO_MAX_CARDS);
-  const msgs = [...messages, { role: "assistant" as const, content: text, at, say: answer.say, cardIds }].slice(-MO_MAX_MESSAGES);
+  const msgs = [...messages, { role: "assistant" as const, content: text, at, say: answer.say, cardIds, ...(answer.open ? { open: answer.open } : {}) }].slice(-MO_MAX_MESSAGES);
   await prisma.moBoard.update({ where: { id: boardId }, data: { cardsJson: JSON.stringify(all), messagesJson: JSON.stringify(msgs) } });
-  return { say: answer.say, cardIds };
+  return { say: answer.say, cardIds, ...(answer.open ? { open: answer.open } : {}) };
+}
+
+/** The « Mo partout » board of a consultant (the orb on every page): one per user, created on first use. */
+export async function getOrCreateDockBoard(userId: string) {
+  const existing = await prisma.moBoard.findFirst({ where: { userId, dock: true }, orderBy: { updatedAt: "desc" } });
+  if (existing) return existing;
+  return prisma.moBoard.create({ data: { userId, dock: true, title: "Mo partout" } });
 }
 
 /** Geometry only: the consultant moved, resized, folded or removed cards. */

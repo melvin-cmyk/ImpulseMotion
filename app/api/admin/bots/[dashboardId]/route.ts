@@ -33,6 +33,7 @@ const botSelect = {
   ingestTokenHash: true,
   lastIngestAt: true,
   lastIngestRows: true,
+  dailyMessages: true,
   createdAt: true,
   updatedAt: true,
   accesses: {
@@ -82,7 +83,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   });
 }
 
-/** Upsert du bot : { enabled?, name?, clientKey?, businessContext?, sources?, driveFolderId? (lien ou identifiant Drive, "" pour retirer) }. */
+/** Upsert du bot : { enabled?, name?, clientKey?, businessContext?, sources?, driveFolderId? (lien ou identifiant Drive, "" pour retirer), dailyMessages? (null = défaut agence, 0 = illimité) }. */
 export async function PUT(req: Request, { params }: Ctx) {
   const guard = await requireRealAdmin();
   if ("error" in guard) return guard.error;
@@ -98,6 +99,8 @@ export async function PUT(req: Request, { params }: Ctx) {
   const data: Prisma.ClientBotUpdateInput = {};
 
   if (typeof body.enabled === "boolean") data.enabled = body.enabled;
+  if (body.dailyMessages === null) data.dailyMessages = null;
+  else if (typeof body.dailyMessages === "number" && Number.isFinite(body.dailyMessages) && body.dailyMessages >= 0) data.dailyMessages = Math.round(Math.min(100_000, body.dailyMessages));
   if (typeof body.name === "string") {
     const name = body.name.trim().slice(0, 80);
     if (!name) return NextResponse.json({ error: "name required" }, { status: 400 });

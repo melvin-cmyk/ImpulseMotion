@@ -1,6 +1,8 @@
 /**
  * POST /api/mo/[id]/chat → one turn of Mo on this board, detached (lib/ai-jobs).
- *   body { message, model?, effort?, account? } → 202 { jobId }
+ *   body { message, model?, effort?, account?, page? } → 202 { jobId }
+ *   `page` = the path the person is on (sent by the orb present on every page), so
+ *   "ouvre l'analyse de ce client" resolves against the page.
  *
  * Staff tool belt (same as the console: ads servers within the ACL scope, HQ,
  * Sheets, web, sandbox, client warehouses); the session is resumed per board
@@ -39,7 +41,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const board = await loadBoard(id, guard.session.userId);
   if (!board) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const body = (await req.json().catch(() => ({}))) as { message?: unknown; model?: unknown; effort?: unknown; account?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { message?: unknown; model?: unknown; effort?: unknown; account?: unknown; page?: unknown };
+  const page = typeof body.page === "string" && /^\/[A-Za-z0-9\-_./?=&%:+,]{0,300}$/.test(body.page) ? body.page : null;
   const message = typeof body.message === "string" ? body.message.trim().slice(0, MAX_MESSAGE_CHARS) : "";
   if (!message) return NextResponse.json({ error: "message requis" }, { status: 400 });
 
@@ -65,7 +68,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const at = new Date().toISOString();
   // The board's inventory travels with the question (never into storage) so
   // "compare with that" resolves to a card id.
-  const context = `\n\n[Cartes à l'écran :\n${describeCards(cards)}]`;
+  const context = `\n\n[${page ? `Page actuelle de la personne : ${page}\n` : ""}Cartes à l'écran :\n${describeCards(cards)}]`;
   const relayMessages: RelayMessage[] = [
     ...history.map((m) => ({ role: m.role, content: m.content.slice(0, 12_000) })),
     { role: "user", content: `${message}${context}` },

@@ -29,6 +29,7 @@ import { loadBotCoverage, loadBotDatasets } from "@/lib/bot-context";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import type { RelayChatBody, RelayMessage } from "@/lib/relay-chat";
 import { appendBotMessages, jobTitle, runningJobCount, runningJobOf, startAiJob } from "@/lib/ai-jobs";
+import { botDailyCap, botMessagesToday, readQuotas } from "@/lib/quotas";
 
 const MAX_RUNNING_JOBS_PER_USER = 3;
 
@@ -68,6 +69,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   // Every detached turn is a model call of up to ten minutes: a person gets a few at a time, not an unbounded fan-out.
   if (await runningJobCount(guard.session.userId) >= MAX_RUNNING_JOBS_PER_USER) {
     return NextResponse.json({ error: `${MAX_RUNNING_JOBS_PER_USER} réponses sont déjà en cours sur votre compte. Attendez qu'une se termine.` }, { status: 429 });
+  }
+
+  // Daily cap of the bot (its own, else the agency's — Admin → Quotas): all its users together, Paris day.
+  const cap = botDailyCap(bot, await readQuotas());
+  if (cap > 0 && (await botMessagesToday(bot.id)) >= cap) {
+    return NextResponse.json({ error: `Le quota du jour de cet assistant est atteint (${cap} message${cap > 1 ? "s" : ""}). Il sera de nouveau disponible demain.` }, { status: 429 });
   }
 
   const sources = parseSources(bot.sourcesJson);

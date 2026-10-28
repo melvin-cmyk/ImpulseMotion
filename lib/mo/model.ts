@@ -57,6 +57,8 @@ export interface MoMessage {
   /** Assistant: the spoken sentence and the cards the turn produced. */
   say?: string;
   cardIds?: string[];
+  /** Assistant: the page of the app Mo opened for the person ("/analyse?client=…"). */
+  open?: string;
 }
 
 export interface MoBoardData {
@@ -84,7 +86,23 @@ export const ROW_GAP = 70;
 export const COL_GAP = 40;
 
 /** What the model is asked to produce (parsed by `parseMoAnswer`). */
-export interface MoAnswer { say: string; cards: MoCardSpec[] }
+export interface MoAnswer { say: string; cards: MoCardSpec[]; open?: string }
+
+/**
+ * Pages Mo may open by voice (prefixes). Anything else in « open » is dropped:
+ * the model never sends the browser outside the app or into the admin.
+ */
+export const MO_OPEN_PREFIXES = ["/cockpit", "/portfolio", "/analyse", "/d", "/reports", "/pilotage", "/design", "/studio", "/creas", "/dashboards", "/routines", "/me/alerts", "/me/budgets", "/ai", "/bot", "/mo"] as const;
+
+/** A path of the app the browser may navigate to, or null. Relative, no host, no admin, printable characters only. */
+export function sanitizeOpen(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const path = v.trim();
+  if (!path.startsWith("/") || path.startsWith("//") || path.length > 300) return null;
+  if (!/^\/[A-Za-z0-9\-_./?=&%:+,]*$/.test(path)) return null;
+  const base = path.split(/[?#]/)[0];
+  return MO_OPEN_PREFIXES.some((p) => base === p || base.startsWith(`${p}/`)) ? path : null;
+}
 
 const MAX_SAY = 400;
 const MAX_TITLE = 90;
@@ -178,8 +196,9 @@ export function parseMoAnswer(text: string): MoAnswer {
     if (!parsed || typeof parsed !== "object") continue;
     const o = parsed as Record<string, unknown>;
     const cards = (Array.isArray(o.cards) ? o.cards : []).map(sanitizeCard).filter((x): x is MoCardSpec => !!x).slice(0, 8);
-    const say = str(o.say, MAX_SAY) || (cards.length ? `Voilà, ${cards.length === 1 ? "la carte est" : "les cartes sont"} à l'écran.` : "Je n'ai rien trouvé à afficher.");
-    return { say, cards };
+    const open = sanitizeOpen(o.open);
+    const say = str(o.say, MAX_SAY) || (cards.length ? `Voilà, ${cards.length === 1 ? "la carte est" : "les cartes sont"} à l'écran.` : open ? "J'ouvre la page." : "Je n'ai rien trouvé à afficher.");
+    return { say, cards, ...(open ? { open } : {}) };
   }
   // Prose fallback.
   const outside = trimmed.replace(/```[\s\S]*?```/g, "").trim();

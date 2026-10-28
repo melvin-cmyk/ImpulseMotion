@@ -33,6 +33,8 @@ type Bot = {
   driveFolderId: string | null;
   lastIngestAt: string | null;
   lastIngestRows: number | null;
+  /** Messages par jour pour ce bot ; null = défaut de l'agence (Admin → Quotas), 0 = illimité. */
+  dailyMessages: number | null;
   updatedAt: string;
 };
 type Access = { userId: string; email: string | null; name: string | null; role: string; createdAt: string };
@@ -52,6 +54,8 @@ type FormState = {
   sources: BotSources;
   /** Lien ou identifiant du dossier Drive (normalisé en identifiant par l'API). */
   driveFolderId: string;
+  /** "" = défaut de l'agence, "0" = illimité, sinon le nombre de messages par jour. */
+  dailyMessages: string;
 };
 
 type DatasetColumn = { name: string; type: "text" | "number" | "date"; sample?: string | null };
@@ -98,6 +102,7 @@ function formToState(bot: Bot | null, dashboard: Dashboard, suggestedClientKey: 
       // Sans compte TikTok rattaché, le bot ne lit rien de TikTok : la case s'affiche décochée.
       sources: { ...bot.sources, tiktok: Boolean(bot.sources.tiktok) && dashboard.tiktokAccounts > 0 },
       driveFolderId: bot.driveFolderId ?? "",
+      dailyMessages: bot.dailyMessages === null || bot.dailyMessages === undefined ? "" : String(bot.dailyMessages),
     };
   }
   return {
@@ -111,6 +116,7 @@ function formToState(bot: Bot | null, dashboard: Dashboard, suggestedClientKey: 
       data: false,
     },
     driveFolderId: "",
+    dailyMessages: "",
   };
 }
 
@@ -205,6 +211,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
         businessContext: form.businessContext,
         sources: form.sources,
         driveFolderId: form.driveFolderId,
+        dailyMessages: form.dailyMessages.trim() === "" ? null : Math.max(0, Math.round(Number(form.dailyMessages) || 0)),
       }),
     });
     const json = await res.json().catch(() => ({}));
@@ -341,6 +348,19 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
               />
               <span className="text-sm text-white font-medium">Bot activé</span>
               <span className="text-xs text-gray-500">Désactivé : invisible pour les clients, même avec un accès.</span>
+            </label>
+
+            <label className="flex flex-wrap items-center gap-3">
+              <span className="text-sm text-white font-medium">Quota journalier</span>
+              <input
+                type="number"
+                min={0}
+                value={form.dailyMessages}
+                onChange={(e) => setForm({ ...form, dailyMessages: e.target.value })}
+                placeholder="défaut agence"
+                className={`${inputCls} w-36`}
+              />
+              <span className="text-xs text-gray-500">messages par jour, tous les utilisateurs du bot ensemble · vide = défaut de l&apos;agence (Admin → Quotas), 0 = illimité.</span>
             </label>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

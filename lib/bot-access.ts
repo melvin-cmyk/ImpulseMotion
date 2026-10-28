@@ -34,6 +34,8 @@ export type BotWithDashboard = {
   id: string;
   dashboardId: string;
   enabled: boolean;
+  /** Messages a day for this bot; null = agency default (lib/quotas.ts), 0 = unlimited. */
+  dailyMessages: number | null;
   name: string;
   clientKey: string;
   businessContext: string;
@@ -47,6 +49,7 @@ const BOT_SELECT = {
   id: true,
   dashboardId: true,
   enabled: true,
+  dailyMessages: true,
   name: true,
   clientKey: true,
   businessContext: true,

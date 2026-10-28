@@ -92,7 +92,9 @@ export function MoPage() {
     if (last?.say && !muted) speakRef.current(last.say);
     const rects = j.board.cards.filter((c) => ids.has(c.id)).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
     if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90), 60);
-  }, [loadBoard, muted]);
+    // Mo was asked to open a page: the board stays (reopened from the menu), the page comes up once the sentence is said.
+    if (last?.open && !last.cardIds?.length) window.setTimeout(() => router.push(last.open!), 900);
+  }, [loadBoard, muted, router]);
 
   const follow = useCallback((jobId: string, boardId: string) => {
     follower.current?.abort();

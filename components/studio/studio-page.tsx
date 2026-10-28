@@ -72,6 +72,10 @@ export function StudioPage() {
   const [error, setError] = useState<string | null>(null);
   const [assets, setAssets] = useState<Asset[] | null>(null);
   const [hd, setHd] = useState<{ usedToday: number; perDay: number; usdPerSecond: number } | null>(null);
+  // Price reminder: the admin caps and what was spent today (lib/quotas.ts), refreshed after each generation.
+  const [quota, setQuota] = useState<{ quotas: { teamDailyUsd: number; userDailyUsd: number; teamDailyImages: number; warnAtPct: number }; today: { team: { usd: number; images: number }; user: { usd: number; images: number } } } | null>(null);
+  const loadQuota = useCallback(() => { fetch("/api/studio/quota", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j) setQuota(j); }).catch(() => undefined); }, []);
+  useEffect(() => { loadQuota(); }, [loadQuota]);
   const [filter, setFilter] = useState<{ mine: boolean; clientId: string; kind: "" | Kind }>({ mine: false, clientId: "", kind: "" });
   const [open, setOpen] = useState<Asset | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -157,6 +161,7 @@ export function StudioPage() {
       if (!res.ok || !j.asset) throw new Error(j.error ?? `Erreur ${res.status}`);
       const created: Asset[] = j.assets ?? [j.asset];
       setAssets((list) => [...created, ...(list ?? [])]);
+      loadQuota();
       if (kind === "image" && created.length === 1) setOpen(created[0]);
       if (j.failed) setError(`${j.failed} variante(s) sur ${created.length + j.failed} n'ont pas pu être générées.`);
     } catch (e) {
@@ -174,6 +179,22 @@ export function StudioPage() {
 
   const shown = (assets ?? []).filter((a) => !filter.kind || a.kind === filter.kind);
   const hdCost = hd ? Math.round(hd.usdPerSecond * seconds * 100) / 100 : 0;
+  // What this generation will cost (list price) and where the team / the consultant stand against the daily caps.
+  const unitUsd = kind === "image" ? (currentEngine?.usd ?? 0) : quality === "hd" ? hdCost : 0;
+  const estimateUsd = kind === "image" ? unitUsd * variants : unitUsd;
+  const reminder = useMemo(() => {
+    if (!quota) return null;
+    const { quotas: q, today } = quota;
+    const fmt = (v: number) => `${v.toFixed(2).replace(".", ",")} $`;
+    const teamAfter = today.team.usd + estimateUsd;
+    const userAfter = today.user.usd + estimateUsd;
+    const over = (q.teamDailyUsd > 0 && teamAfter > q.teamDailyUsd) || (q.userDailyUsd > 0 && userAfter > q.userDailyUsd) || (q.teamDailyImages > 0 && today.team.images + (kind === "image" ? variants : 1) > q.teamDailyImages);
+    const warn = !over && ((q.teamDailyUsd > 0 && (teamAfter / q.teamDailyUsd) * 100 >= q.warnAtPct) || (q.userDailyUsd > 0 && (userAfter / q.userDailyUsd) * 100 >= q.warnAtPct));
+    const cost = estimateUsd > 0 ? (kind === "image" && variants > 1 ? `${variants} × ${fmt(unitUsd)} = ${fmt(estimateUsd)}` : fmt(estimateUsd)) : "gratuit";
+    const team = `équipe ${fmt(today.team.usd)}${q.teamDailyUsd > 0 ? ` / ${fmt(q.teamDailyUsd)}` : ""}`;
+    const me = `toi ${fmt(today.user.usd)}${q.userDailyUsd > 0 ? ` / ${fmt(q.userDailyUsd)}` : ""}`;
+    return { text: `Coût estimé : ${cost} · Aujourd'hui : ${team} · ${me}${q.teamDailyImages > 0 ? ` · ${today.team.images} / ${q.teamDailyImages} images` : ""}`, over, warn };
+  }, [quota, estimateUsd, unitUsd, variants, kind]);
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-5">
@@ -289,12 +310,17 @@ export function StudioPage() {
               </div>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" multiple={kind === "image"} className="hidden" onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
             </div>
-            <button type="button" onClick={() => void generate()} disabled={busy || prompt.trim().length < 3}
+            <button type="button" onClick={() => void generate()} disabled={busy || prompt.trim().length < 3 || !!reminder?.over}
               className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white font-medium">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
               {busy ? (kind === "image" ? "Génération… (jusqu'à une minute)" : "Lancement…") : kind === "image" ? "Générer l'image" : "Générer la vidéo"}
             </button>
           </div>
+          {reminder && (
+            <p className={`text-[12px] ${reminder.over ? "text-rose-300" : reminder.warn ? "text-amber-300" : "text-gray-400"}`} title="Plafonds journaliers posés par les admins (Admin → Quotas)">
+              {reminder.over ? "Plafond du jour atteint — " : reminder.warn ? "Proche du plafond — " : ""}{reminder.text}
+            </p>
+          )}
           <div className="flex flex-wrap gap-4 text-xs text-gray-400">
             <label className="flex items-center gap-1.5" title="Votre demande est réécrite en consigne précise (ce qui reste identique, ce qui change, une seule image) par le modèle texte d'Agnes, gratuit."><input type="checkbox" checked={enhance} onChange={(e) => setEnhance(e.target.checked)} /> Améliorer ma consigne (recommandé)</label>
             {kind === "image" && <label className="flex items-center gap-1.5" title="L'IA dessine mal les textes et les logos : posez-les ensuite exactement avec « Textes & logo »."><input type="checkbox" checked={textless} onChange={(e) => setTextless(e.target.checked)} /> Sans texte ni logo dans l&apos;image (je les pose ensuite)</label>}

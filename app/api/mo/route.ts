@@ -1,20 +1,25 @@
 /**
  * Mo boards of the signed-in consultant (staff only).
- *   GET  → { boards: [{ id, title, updatedAt, cards }] } (most recent first)
- *   POST → 201 { board } : a new empty board
+ *   GET         → { boards: [{ id, title, updatedAt, cards }] } (most recent first, without the « Mo partout » board)
+ *   GET ?dock=1 → { board } : the « Mo partout » board of the orb (created on first use)
+ *   POST        → 201 { board } : a new empty board
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
-import { parseMoCards } from "@/lib/mo/thread";
+import { getOrCreateDockBoard, parseMoCards, toBoardData } from "@/lib/mo/thread";
 
 const NO_STORE = { headers: { "Cache-Control": "no-store" } };
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;
-  const rows = await prisma.moBoard.findMany({ where: { userId: guard.session.userId }, orderBy: { updatedAt: "desc" }, take: 30, select: { id: true, title: true, updatedAt: true, cardsJson: true } });
+  if (req.nextUrl.searchParams.get("dock") === "1") {
+    const row = await getOrCreateDockBoard(guard.session.userId);
+    return NextResponse.json({ board: toBoardData(row) }, NO_STORE);
+  }
+  const rows = await prisma.moBoard.findMany({ where: { userId: guard.session.userId, dock: false }, orderBy: { updatedAt: "desc" }, take: 30, select: { id: true, title: true, updatedAt: true, cardsJson: true } });
   return NextResponse.json({ boards: rows.map((r) => ({ id: r.id, title: r.title || "Session Mo", updatedAt: r.updatedAt.toISOString(), cards: parseMoCards(r.cardsJson).length })) }, NO_STORE);
 }
 

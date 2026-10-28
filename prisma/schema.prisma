@@ -474,6 +474,8 @@ model ClientBot {
   ingestTokenHash String?
   lastIngestAt    DateTime?
   lastIngestRows  Int?
+  /// Messages a day for this bot, all its users together; null = the agency default (admin quotas, lib/quotas.ts), 0 = unlimited.
+  dailyMessages   Int?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   dashboard       Dashboard         @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
@@ -1064,6 +1066,13 @@ model CreativeAsset {
   providerId    String?
   /// The image this video animates (Studio asset), when there is one.
   sourceId      String?
+  /// Template (swipe file) the visual was made from, when there is one (CreativeTemplate.id).
+  templateId    String?
+  /// studio | template | variation | asset (a brand asset uploaded as a reference, never generated)
+  origin        String    @default("studio")
+  /// Consultant's verdict on the board: keep | cut (null = not judged yet) and a free note; both go to the client's HQ context.
+  feedback      String?
+  feedbackNote  String?   @db.Text
   error         String?   @db.Text
   /// Estimated price in USD at generation (0 while Agnes offers it).
   costUsd       Float     @default(0)
@@ -1074,6 +1083,49 @@ model CreativeAsset {
   @@index([createdAt])
   @@index([alertClientId, createdAt])
   @@index([status])
+  @@index([templateId])
+}
+
+/// Swipe file: an ad kept as a template — a competitor's (Meta Ad Library, pasted or uploaded),
+/// one of the client's own winners (Analyse Ads) or an upload. Starting point of « Copier à la marque »,
+/// FigCraft and PhotoCraft. alertClientId null = shared by the whole agency.
+model CreativeTemplate {
+  id            String    @id @default(cuid())
+  alertClientId String?
+  clientName    String    @default("")
+  name          String
+  /// competitor | own | upload
+  source        String
+  /// Brand or page the ad comes from (competitor), the client (own).
+  brand         String    @default("")
+  /// Platform ad id ("meta:123…"), Ad Library id, or null.
+  sourceRef     String?
+  sourceUrl     String?   @db.Text
+  /// HTTPS picture of the template (platform link) and/or the relay's copy (media file).
+  imageUrl      String?   @db.Text
+  file          String?
+  title         String?   @db.Text
+  body          String?   @db.Text
+  /// JSON (lib/creas/analysis.ts): {hook, structure, textZones[], style, palette[], cta, whyItWorks, brief}
+  analysisJson  String    @default("{}") @db.Text
+  /// Comma-separated free tags ("ugc, promo, avant-après").
+  tags          String    @default("")
+  createdById   String
+  createdByName String    @default("")
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([alertClientId, createdAt])
+  @@index([createdAt])
+}
+
+/// Application-wide settings edited by the admins (one JSON document per key): "quotas" (lib/quotas.ts), …
+model AppSetting {
+  key       String   @id
+  valueJson String   @default("{}") @db.Text
+  updatedBy String?
+  updatedAt DateTime @updatedAt
 }
 
 /// Failed sign-ins, by email and by IP (lib/login-throttle.ts): too many in a window → locked for a while.
@@ -1409,6 +1461,8 @@ model MoBoard {
   id           String   @id @default(cuid())
   userId       String
   title        String   @default("")
+  /// The consultant's "Mo partout" board: fed by the orb present on every page (one per user), hidden from the session list.
+  dock         Boolean  @default(false)
   /// JSON MoCard[] (lib/mo/model.ts): the cards on the board with their positions
   cardsJson    String   @default("[]") @db.Text
   /// JSON MoMessage[] (lib/mo/model.ts): what was said, what Mo answered (raw), the cards each turn produced

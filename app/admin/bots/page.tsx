@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Search } from "lucide-react";
 import { PageHeader, Pill, Card, Section } from "@/components/ui/surface";
+import { QuotasPanel } from "@/components/admin/quotas-panel";
 import type { BotClientAccount, BotClientRow, BotDashboard, BotListCounts, BotPlatform } from "@/lib/bot-clients";
 
 type Payload = { clients: BotClientRow[]; orphans: BotDashboard[]; counts: BotListCounts };
@@ -209,6 +210,9 @@ export default function AdminBotsPage() {
         title="Bots clients"
         subtitle="Tous les clients de l'agence, leurs comptes liés et leur assistant IA privé. Un bot ne lit que les comptes du dashboard auquel il est rattaché."
       />
+
+      {/* Daily caps (generation $ and images, messages per bot): lib/quotas.ts, also on /admin/quotas. */}
+      <QuotasPanel compact />
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <label className="relative w-full sm:w-64">

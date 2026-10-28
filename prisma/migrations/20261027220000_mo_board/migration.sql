@@ -3,6 +3,7 @@ CREATE TABLE "MoBoard" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "title" TEXT NOT NULL DEFAULT '',
+    "dock" BOOLEAN NOT NULL DEFAULT false,
     "cardsJson" TEXT NOT NULL DEFAULT '[]',
     "messagesJson" TEXT NOT NULL DEFAULT '[]',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

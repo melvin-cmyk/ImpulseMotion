@@ -6,6 +6,7 @@ import { SessionProvider } from "next-auth/react";
 import { AclWatcher } from "@/components/acl-watcher";
 import { AiJobsWatcher } from "@/components/ai-jobs-watcher";
 import { GuideBot } from "@/components/guide-bot";
+import { MoDock } from "@/components/mo/mo-dock";
 import { auth } from "@/auth";
 import { UserNav } from "@/components/user-nav";
 import { CommandPalette } from "@/components/command-palette";
@@ -80,6 +81,8 @@ export default async function RootLayout({
               <div className="flex h-screen bg-gray-950 text-gray-100">
                 {/* Staff only: clients get their own chrome above, without the guide. */}
                 <GuideBot />
+                {/* Mo on every staff page: hold the orb, speak, Mo answers and opens the page asked for (components/mo/mo-dock.tsx). */}
+                <MoDock />
                 <Sidebar />
                 <div className="flex-1 flex flex-col overflow-hidden">
                   <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
