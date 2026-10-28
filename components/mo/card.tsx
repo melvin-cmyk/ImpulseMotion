@@ -232,7 +232,7 @@ function CreativeImage({ src, alt }: { src: string; alt: string }) {
       {state === "loading" && <div className="absolute inset-0 animate-pulse bg-white/[0.04]" />}
       {state === "error" ? <ImageIcon className="w-6 h-6 text-gray-600" /> : (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/media/proxy-image?url=${encodeURIComponent(src)}`} alt={alt} className={`w-full h-full object-cover transition-opacity ${state === "ok" ? "opacity-100" : "opacity-0"}`} loading="lazy" onLoad={() => setState("ok")} onError={() => setState("error")} />
+        <img src={src.startsWith("/") ? src : `/api/media/proxy-image?url=${encodeURIComponent(src)}`} alt={alt} className={`w-full h-full object-cover transition-opacity ${state === "ok" ? "opacity-100" : "opacity-0"}`} loading="lazy" onLoad={() => setState("ok")} onError={() => setState("error")} />
       )}
     </div>
   );
@@ -246,7 +246,7 @@ function Creatives({ items, width }: { items: Extract<MoCard, { type: "creatives
         <div key={i} className="rounded-xl overflow-hidden border border-white/5 bg-white/[0.03]">
           {it.image ? <CreativeImage src={it.image} alt={it.name} /> : <div className="aspect-[4/5] bg-black/40 flex items-center justify-center"><ImageIcon className="w-6 h-6 text-gray-600" /></div>}
           <div className="px-2.5 py-2">
-            <div className="text-[12px] font-medium truncate" title={it.name}>{it.name}</div>
+            <div className="text-[12px] font-medium truncate" title={it.name}>{it.link ? <a href={it.link} target="_blank" rel="noreferrer" className="hover:underline" onClick={(e) => e.stopPropagation()}>{it.name}</a> : it.name}</div>
             <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5">
               {Object.entries(it.metrics).map(([k, v]) => <span key={k} className="text-[11px] text-gray-300 truncate"><span className="text-gray-500">{k}</span> <span className="tabular-nums font-medium">{v}</span></span>)}
             </div>

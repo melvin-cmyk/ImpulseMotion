@@ -4,7 +4,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { boardTitleFrom, layoutNewCards, parseMoAnswer, MO_MAX_CARDS, MO_MAX_MESSAGES, type MoBoardData, type MoCard, type MoCardPatch, type MoMessage } from "@/lib/mo/model";
+import { applyCardUpdates, boardTitleFrom, layoutNewCards, parseMoAnswer, MO_MAX_CARDS, MO_MAX_MESSAGES, type MoBoardData, type MoCard, type MoCardPatch, type MoMessage } from "@/lib/mo/model";
 import { MAX_SIZE, MIN_SIZES } from "@/lib/mo/geometry";
 
 export const BOARD_ID_RE = /^[a-z0-9]{10,40}$/i;
@@ -55,16 +55,18 @@ export async function appendMoUserMessage(boardId: string, content: string, at: 
   await prisma.moBoard.update({ where: { id: boardId }, data: { messagesJson: JSON.stringify(all.slice(-MO_MAX_MESSAGES)), ...(row.title ? {} : { title: boardTitleFrom(all) }) } });
 }
 
-/** Ends a turn: parses the answer, lays the new cards on the board, stores the message with what to say. */
+/** Ends a turn: parses the answer, rewrites / removes the cards it names, lays the new ones on the board, stores the message with what to say. */
 export async function appendMoAnswer(boardId: string, text: string, at: string): Promise<{ say: string; cardIds: string[]; open?: string } | null> {
   const row = await prisma.moBoard.findUnique({ where: { id: boardId }, select: { cardsJson: true, messagesJson: true } });
   if (!row) return null;
-  const cards = parseMoCards(row.cardsJson);
   const messages = parseMoMessages(row.messagesJson);
   const answer = parseMoAnswer(text);
   const turn = messages.filter((m) => m.role === "assistant").length;
+  const updated = applyCardUpdates(parseMoCards(row.cardsJson), answer, turn, at);
+  const cards = updated.cards;
   const placed = layoutNewCards(cards, answer, turn, at);
-  const cardIds = placed.map((c) => c.id);
+  // The cards the person should look at: the new ones and the rewritten ones (a removed id is not on the board any more).
+  const cardIds = [...updated.touched.filter((id) => cards.some((c) => c.id === id)), ...placed.map((c) => c.id)];
   const all = [...cards, ...placed].slice(-MO_MAX_CARDS);
   const msgs = [...messages, { role: "assistant" as const, content: text, at, say: answer.say, cardIds, ...(answer.open ? { open: answer.open } : {}) }].slice(-MO_MAX_MESSAGES);
   await prisma.moBoard.update({ where: { id: boardId }, data: { cardsJson: JSON.stringify(all), messagesJson: JSON.stringify(msgs) } });

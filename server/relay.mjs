@@ -208,6 +208,10 @@ const FIGCRAFT_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-figcraft.mjs";
 // source, même équipe que FigCraft), headless, sur les fichiers du workspace.
 const PHOTOCRAFT_SERVER = "photocraft";
 const PHOTOCRAFT_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-photocraft.mjs";
+// Mo's hands (server/mcp-mo.mjs): the application's own tools (créas, génération, publication)
+// run as the consultant speaking to Mo — the app names them in the request, the model never does.
+const MO_SERVER = "mo";
+const MO_MCP_SCRIPT = "/root/ImpulseMotion/server/mcp-mo.mjs";
 const PHOTOCRAFT_CLI = process.env.PHOTOCRAFT_CLI || "/usr/local/bin/photocraft-cli";
 function photocraftConfigured() { return fs.existsSync(PHOTOCRAFT_CLI); }
 const WORKSPACES_DIR = path.join(RELAY_CLAUDE_CWD, "workspaces");
@@ -542,6 +546,7 @@ const ALLOWED_MCP_SERVERS = new Set([
   N8N_SERVER,
   FIGCRAFT_SERVER,
   PHOTOCRAFT_SERVER,
+  MO_SERVER,
 ]);
 
 // Per-server explicit tool allowlist for the CHAT (handleChat). Servers absent
@@ -758,7 +763,7 @@ function hqLocalEntry(token) {
   return { type: "http", url: HQ_MCP_URL, headers: { Authorization: `Bearer ${token}` } };
 }
 
-function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null, figcraftLink = null, photocraft = false }) {
+function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountScope, ga4PropertyId, hqToken = null, n8nToken = null, workspaceDir = null, gwsAuthState = null, clientBot = false, dataTools = null, figcraftLink = null, photocraft = false, mo = null }) {
   let base;
   try { base = JSON.parse(fs.readFileSync(MCP_CONFIG, "utf8")); }
   catch (err) { console.error("[chat] mcp-config illisible:", err.message); return null; }
@@ -797,6 +802,17 @@ function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountSc
         command: "node",
         args: [FIGCRAFT_MCP_SCRIPT],
         env: { FIGCRAFT_JOIN_LINK: figcraftLink, FIGCRAFT_CLI: figcraft.FIGCRAFT_CLI, WORKSPACE_DIR: workspaceDir },
+      };
+      kept.push(name);
+      continue;
+    }
+    if (name === MO_SERVER) {
+      // Mo's tools, pinned to the consultant and the board the app named.
+      if (!mo) continue;
+      mcpServers[name] = {
+        command: "node",
+        args: [MO_MCP_SCRIPT],
+        env: { MO_TOOLS_URL: `${mo.appUrl}/api/mo/tools`, MO_TOKEN: RELAY_SHARED_SECRET, MO_USER: mo.userId, MO_BOARD: mo.boardId },
       };
       kept.push(name);
       continue;
@@ -885,6 +901,7 @@ function buildScopedMcpConfig({ servers, clientKey, clientKeys = null, accountSc
     const e = mcpServers[n];
     if (e.args?.[0] === SCOPED_ADS_MCP_SCRIPT) return `${n}[${e.env.SCOPED_ACCOUNTS}]`;
     if (n === CLIENT_DATA_SERVER) return `${n}[${e.env.CLIENT_KEYS}]`;
+    if (n === MO_SERVER) return `${n}[${e.env.MO_USER.slice(-6)}]`;
     return `${n}[non restreint]`;
   });
   console.log(`[chat] MCP: ${summary.join(" ") || "(aucun serveur)"}`);
@@ -1186,7 +1203,18 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       }
     }
   }
-  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, clientKeys, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools, figcraftLink, photocraft: photocraftOn });
+  // Mo: staff only, and only when the app pinned the consultant and the board in the request.
+  let moCtx = null;
+  if (servers.includes(MO_SERVER)) {
+    const m = options.mo;
+    const idOk = (v) => typeof v === "string" && /^[A-Za-z0-9_-]{6,60}$/.test(v);
+    const appUrl = (RELAY_APP_URL || process.env.APP_URL || "").replace(/\/$/, "");
+    if (clientBot || !m || !idOk(m.userId) || !idOk(m.boardId) || !/^https?:\/\//.test(appUrl) || RELAY_SHARED_SECRET.length < 16) {
+      servers = servers.filter((s) => s !== MO_SERVER);
+      console.error(`[chat] mo retiré — ${clientBot ? "requête de bot client" : !m ? "contexte mo absent" : !appUrl ? "RELAY_APP_URL absent" : "contexte mo invalide"}`);
+    } else moCtx = { userId: m.userId, boardId: m.boardId, appUrl };
+  }
+  const scopedMcp = buildScopedMcpConfig({ servers, clientKey, clientKeys, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools, figcraftLink, photocraft: photocraftOn, mo: moCtx });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
   const cleanupScopedMcp = () => scopedMcp?.cleanup();
@@ -1922,6 +1950,8 @@ const server = http.createServer(async (req, res) => {
         hqGuidance: body.hqGuidance,
         // Design conversation: { link } = the edit link of its FigCraft file.
         figcraft: body.figcraft,
+        // Mo: { userId, boardId } = who speaks and on which board (server "mo").
+        mo: body.mo,
       };
       // Detached turn: the CLI writes into a job log the caller reads back
       // (GET /api/jobs/:id); the answer here is only the job id. Closing a

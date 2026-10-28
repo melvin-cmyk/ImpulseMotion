@@ -118,3 +118,11 @@ export const CLIENT_DATA_SERVER = "client-data" as const;
 export function toolPatternForServer(server: string): string {
   return `mcp__${server}__*`;
 }
+
+/**
+ * Mo's hands (server/mcp-mo.mjs → POST /api/mo/tools): créas of a client,
+ * generation with fal.ai, Meta publication through the Pilotage. Only the Mo
+ * chat route asks for it, with the consultant and the board pinned in the
+ * request; the relay drops it for anyone else.
+ */
+export const MO_SERVER = "mo" as const;

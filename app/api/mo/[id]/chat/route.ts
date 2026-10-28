@@ -15,7 +15,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { getAllowedAccountIds } from "@/lib/acl";
 import { getAccountScope } from "@/lib/scope";
 import { listClientRegistry } from "@/lib/clients/registry";
-import { CLIENT_DATA_SERVER, HQ_SERVER, MCP_SERVER_WHITELIST, SANDBOX_SERVER, STAFF_MCP_SERVERS, TIKTOK_SERVER } from "@/lib/mcp-whitelist";
+import { CLIENT_DATA_SERVER, HQ_SERVER, MCP_SERVER_WHITELIST, MO_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS, TIKTOK_SERVER } from "@/lib/mcp-whitelist";
 import { staffDataScopeForAll } from "@/lib/staff-data-scope";
 import { MO_PROFILE } from "@/lib/ai-profiles";
 import type { RelayChatBody, RelayEffort, RelayMessage, RelayModel } from "@/lib/relay-chat";
@@ -37,7 +37,8 @@ const MAX_TURNS = MO_PROFILE.maxTurns ?? 12;
  */
 function serversFor(message: string, dataScope: boolean): string[] {
   const t = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  const servers = new Set<string>([...MCP_SERVER_WHITELIST, TIKTOK_SERVER]);
+  // Mo's own tools always (créas, génération, publication : the heart of the board), the ads platforms for live figures.
+  const servers = new Set<string>([MO_SERVER, ...MCP_SERVER_WHITELIST, TIKTOK_SERVER]);
   if (/\b(hq|contexte|historique|objectifs?|brief|memoire|persona|strategie)\b/.test(t)) servers.add(HQ_SERVER);
   if (/\b(sheet|sheets|tableur|excel|feuille|notion|merchant|magento|drive|gmail|agenda|calendar|web|internet|cherche sur)\b/.test(t)) for (const s of STAFF_MCP_SERVERS) servers.add(s);
   if (/\b(calcul|python|script|graphique avance|fichier|csv|sandbox)\b/.test(t)) servers.add(SANDBOX_SERVER);
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     maxTurns: MAX_TURNS,
     budgetMs: BUDGET_MS,
     allowedServers: serversFor(message, !!dataScope),
+    mo: { userId: guard.session.userId, boardId: board.id },
     ...(dataScope ? { dataScope } : {}),
     accountScope: { meta: metaIds, google: googleIds, tiktok: tiktokIds, unrestricted: guard.session.role === "admin" },
   };

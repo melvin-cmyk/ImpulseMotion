@@ -74,6 +74,12 @@ export interface RelayChatBody {
    * with the consultant; the server is dropped without a link.
    */
   figcraft?: { link: string };
+  /**
+   * Mo (lib/mo): the consultant speaking and their board. The relay's "mo"
+   * MCP server runs the application's tools (lib/mo/tools.ts) as that person;
+   * the server is dropped without this.
+   */
+  mo?: { userId: string; boardId: string };
 }
 
 export type RelayModel = "sonnet" | "opus" | "fable";
