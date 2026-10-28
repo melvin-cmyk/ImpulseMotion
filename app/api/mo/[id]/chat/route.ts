@@ -35,17 +35,25 @@ const MAX_TURNS = MO_PROFILE.maxTurns ?? 12;
  * the heavy belt (sheets, Notion, sandbox, warehouses…) only on explicit
  * words. Fewer servers = seconds saved at every start of the CLI.
  */
-function serversFor(message: string, dataScope: boolean): string[] {
+/**
+ * Two stable tool belts, each with its own relay session, so a turn always
+ * RESUMES (the relay drops a session whose server list changed — the old
+ * per-sentence list restarted Mo almost every turn):
+ *   - « mo » (default): Mo's own tools only — warehouse, generation, Drive, publication, Ad Library. Starts in a second.
+ *   - « wide »: the same plus the live ads platforms, HQ, the staff belt, the sandbox and the client warehouses,
+ *     when the sentence clearly asks for them (live insights, audiences, HQ context, sheets, Python…).
+ */
+function beltFor(message: string, dataScope: boolean): { name: "mo" | "wide"; servers: string[] } {
   const t = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  // Mo's own tools always (créas, chiffres de l'entrepôt, génération, publication): one stdio server, 3-second answers.
-  // The live ads servers (n8n, seconds to start, hundreds of tools to discover) only when the sentence needs them.
-  const servers = new Set<string>([MO_SERVER]);
-  if (/\b(en direct|temps reel|insights?|ga4|analytics|trafic|sessions?|audiences?|ciblages?|encheres?|placements?|frequence|statuts?|google|tiktok|adset|ensembles? de pub|enchere|pixel|evenements? de conversion|catalogue)\b/.test(t)) { for (const s of MCP_SERVER_WHITELIST) servers.add(s); servers.add(TIKTOK_SERVER); }
-  if (/\b(hq|contexte|historique|objectifs?|brief|memoire|persona|strategie)\b/.test(t)) servers.add(HQ_SERVER);
-  if (/\b(sheet|sheets|tableur|excel|feuille|notion|merchant|magento|drive|gmail|agenda|calendar|web|internet|cherche sur)\b/.test(t)) for (const s of STAFF_MCP_SERVERS) servers.add(s);
-  if (/\b(calcul|python|script|graphique avance|fichier|csv|sandbox)\b/.test(t)) servers.add(SANDBOX_SERVER);
-  if (dataScope && /\b(commandes?|entrepot|dataset|datasets|ventes? en base|panier|clients? finaux)\b/.test(t)) servers.add(CLIENT_DATA_SERVER);
-  return [...servers];
+  const live = /\b(en direct|temps reel|insights?|ga4|analytics|trafic|sessions?|audiences?|ciblages?|encheres?|placements?|frequence|statuts?|google ads|tiktok|adset|ensembles? de pub|pixel|evenements? de conversion|catalogue)\b/.test(t);
+  const hq = /\b(hq|contexte|historique|objectifs?|brief|memoire|persona|strategie)\b/.test(t);
+  const staff = /\b(sheet|sheets|tableur|excel|feuille|notion|merchant|magento|drive|gmail|agenda|calendar|web|internet|cherche sur)\b/.test(t);
+  const sandbox = /\b(calcul|python|script|graphique avance|fichier|csv|sandbox)\b/.test(t);
+  const data = dataScope && /\b(commandes?|entrepot|dataset|datasets|ventes? en base|panier|clients? finaux)\b/.test(t);
+  if (!live && !hq && !staff && !sandbox && !data) return { name: "mo", servers: [MO_SERVER] };
+  const servers = new Set<string>([MO_SERVER, ...MCP_SERVER_WHITELIST, TIKTOK_SERVER, HQ_SERVER, ...STAFF_MCP_SERVERS, SANDBOX_SERVER]);
+  if (dataScope) servers.add(CLIENT_DATA_SERVER);
+  return { name: "wide", servers: [...servers] };
 }
 /** A voice answer should come fast; the relay cuts a runaway turn. */
 const BUDGET_MS = 5 * 60_000;
@@ -97,17 +105,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const effort: RelayEffort = EFFORTS.has(body.effort as RelayEffort) ? (body.effort as RelayEffort) : MO_PROFILE.effort;
   const account = typeof body.account === "string" && ACCOUNT_RE.test(body.account) && body.account !== "auto" ? body.account : undefined;
 
+  const belt = beltFor(message, !!dataScope);
   const relayBody: RelayChatBody = {
     messages: relayMessages,
     systemPrompt,
     hqGuidance: "caller",
-    sessionKey: moSessionKey(board.id),
+    sessionKey: belt.name === "wide" ? `${moSessionKey(board.id)}:wide` : moSessionKey(board.id),
     model,
     effort,
     ...(account ? { account } : {}),
     maxTurns: MAX_TURNS,
     budgetMs: BUDGET_MS,
-    allowedServers: serversFor(message, !!dataScope),
+    allowedServers: belt.servers,
     mo: { userId: guard.session.userId, boardId: board.id },
     ...(dataScope ? { dataScope } : {}),
     accountScope: { meta: metaIds, google: googleIds, tiktok: tiktokIds, unrestricted: guard.session.role === "admin" },
