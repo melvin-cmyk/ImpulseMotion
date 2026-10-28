@@ -29,6 +29,7 @@ import { accountsOfTikTokCall, prepareTikTokArgs } from "./mcp-tiktok-args.mjs";
 import * as agnes from "./agnes.mjs";
 import * as fal from "./fal.mjs";
 import * as jobs from "./jobs.mjs";
+import * as sessionPool from "./sessions.mjs";
 import * as figcraft from "./figcraft.mjs";
 import * as drive from "./drive-direct.mjs";
 import { timingSafeEqual } from "node:crypto";
@@ -1028,7 +1029,7 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   if (!account && provider !== "bedrock") account = preferredAccount ?? maxAccounts.HOST_ACCOUNT;
   const fallback = false;
   const useBedrock = provider === "bedrock";
-  const accountMonitor = account ? maxAccounts.monitor(account) : null;
+  let accountMonitor = account ? maxAccounts.monitor(account) : null;
   const model = resolveModel(options.model, useBedrock);
   const effort = resolveEffort(options.effort);
   // Tool-driven sessions may cap the agentic loop lower than the default: a
@@ -1218,7 +1219,8 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   const scopedMcp = buildScopedMcpConfig({ servers, clientKey, clientKeys, accountScope, ga4PropertyId, hqToken, n8nToken, workspaceDir, gwsAuthState, clientBot, dataTools, figcraftLink, photocraft: photocraftOn, mo: moCtx });
   if (scopedMcp) servers = scopedMcp.servers;
   const mcpConfigPath = scopedMcp ? scopedMcp.path : MCP_CONFIG;
-  const cleanupScopedMcp = () => scopedMcp?.cleanup();
+  // A persistent process takes the file over for its whole life (below).
+  let cleanupScopedMcp = () => scopedMcp?.cleanup();
 
   // Read-only tool allowlists: the GA4 MCP also exposes mutations
   // (create/update/archive custom dimensions, key events, retention…). No chat
@@ -1280,9 +1282,26 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     saveSessions();
   }
 
+  // Persistent process (server/sessions.mjs): Mo's conversations keep their
+  // CLI alive between turns; the user message then always travels on stdin.
+  const persistent = !!sessionKey && !useBedrock && sessionPool.persistentEnabled(sessionKey);
+  // Everything a warm process must share with this turn besides the session
+  // id: the scope fingerprint, the system prompt, and the run parameters.
+  const poolSignature = persistent ? scopeFingerprint({ fingerprint, systemPrompt: crypto.createHash("sha256").update(scopedSystemPrompt).digest("hex"), effort, maxTurns, useWeb }) : null;
+  const accountOk = (id) => !excludedAccounts.includes(id) && !!maxAccounts.monitor(id) && !maxAccounts.monitor(id).exhausted();
+  if (persistent) {
+    // A warm process answers with the account it was started on.
+    const warm = sessionPool.warmAccount({ key: sessionKey, sessionId, signature: poolSignature, accountOk });
+    if (warm && warm !== account) { account = warm; accountMonitor = maxAccounts.monitor(account); }
+  }
+  const promptOnStdin = persistent || promptImages.length > 0;
+  // One-shot calls leave nothing on disk; named conversations persist so
+  // the next turn can --resume them.
+  const sessionArgs = sessionKey ? (canResume ? ["--resume", sessionId] : ["--session-id", sessionId]) : ["--no-session-persistence"];
+
   const args = [
-    // With images the prompt travels on stdin as content blocks instead.
-    ...(promptImages.length ? ["--print", "--input-format", "stream-json"] : ["--print", prompt]),
+    // With images (or a persistent process) the prompt travels on stdin as content blocks instead.
+    ...(promptOnStdin ? ["--print", "--input-format", "stream-json"] : ["--print", prompt]),
     "--output-format", "stream-json",
     "--verbose",
     "--include-partial-messages",
@@ -1296,9 +1315,6 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     // On Bedrock the connectors never load; HQ is then the declared "hq" entry.
     "--strict-mcp-config",
     "--system-prompt", scopedSystemPrompt,
-    // One-shot calls leave nothing on disk; named conversations persist so
-    // the next turn can --resume them.
-    ...(sessionKey ? (canResume ? ["--resume", sessionId] : ["--session-id", sessionId]) : ["--no-session-persistence"]),
     "--max-turns", String(maxTurns),
     // The CLI runs as root with the host's HOME, whose settings allow
     // Read/Write/Edit(*): without this, any chat — a client bot included, one
@@ -1315,11 +1331,9 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     args.push("--disallowedTools", "mcp__*");
   }
 
-  console.log(`[chat] Prompt: "${RELAY_LOG_PROMPTS ? promptLogExcerpt(lastUser?.content ?? prompt) : `${String(lastUser?.content ?? prompt).length} car.`}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${servers.includes(MAGENTO_SERVER) ? " | magento" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${scopedMcp && (clientKeys?.length || clientKey) ? ` | client-data=${clientKeys?.length ? clientKeys.join(",") : clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
-
   // Dedicated empty cwd: keeps the spawned CLI away from any project
   // CLAUDE.md/hooks that would inject non-deterministic context.
-  const child = spawn("claude", args, {
+  const spawnOptions = {
     cwd: RELAY_CLAUDE_CWD,
     env: {
       ...childBaseEnv(),
@@ -1335,7 +1349,16 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
         : maxAccounts.envFor(account)),
     },
     stdio: ["pipe", "pipe", "pipe"],
-  });
+  };
+  // Persistent conversation: the turn runs on the warm process of this key
+  // (or starts it); the handle reads like a ChildProcess. A full pool means
+  // this turn runs one-shot, as before.
+  const pooled = persistent
+    ? sessionPool.acquire({ key: sessionKey, sessionId, signature: poolSignature, account, accountOk, args, spawnOptions, transcriptPath: transcriptPath(sessionId), mcpCleanup: () => scopedMcp?.cleanup() })
+    : null;
+  if (pooled) cleanupScopedMcp = () => {};
+  const child = pooled ? pooled.child : spawn("claude", [...args, ...sessionArgs], spawnOptions);
+  console.log(`[chat] Prompt: "${RELAY_LOG_PROMPTS ? promptLogExcerpt(lastUser?.content ?? prompt) : `${String(lastUser?.content ?? prompt).length} car.`}"${turn.contextSent ? ` | contexte=${turn.contextChars}c${turn.contextTruncated ? " (tronqué)" : ""}` : ""} | model=${model}${effort ? `/${effort}` : ""}${sessionKey ? ` | session=${canResume ? "resume" : "new"}${pooled ? (pooled.warm ? " (warm)" : " (persistant, démarrage)") : ""}` : ""}${useHq ? " | hq" : ""}${servers.includes(NOTION_SERVER) ? " | notion" : ""}${servers.includes(MERCHANT_SERVER) ? " | merchant" : ""}${servers.includes(MAGENTO_SERVER) ? " | magento" : ""}${n8nToken ? " | n8n" : ""}${useWeb ? " | web" : ""}${gwsAuthState ? ` | gws${gwsAuthState.token ? "" : " (sans jeton)"}` : ""}${scopedMcp && (clientKeys?.length || clientKey) ? ` | client-data=${clientKeys?.length ? clientKeys.join(",") : clientKey}` : ""}${useBedrock ? ` | bedrock@${BEDROCK_REGION}${fallback ? " (fallback quota)" : ""}` : ` | compte=${account}`}`);
   if (promptImages.length) {
     const content = [{ type: "text", text: prompt }];
     for (const im of promptImages) {
@@ -1343,6 +1366,8 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
       content.push({ type: "image", source: { type: "base64", media_type: im.mediaType, data: im.data } });
     }
     child.stdin.write(JSON.stringify({ type: "user", message: { role: "user", content } }) + "\n");
+  } else if (promptOnStdin) {
+    child.stdin.write(JSON.stringify({ type: "user", message: { role: "user", content: prompt } }) + "\n");
   }
   child.stdin.end();
 
@@ -2459,7 +2484,7 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", capabilities: CAPABILITIES, jobsRunning: jobs.runningJobs().length }));
+      res.end(JSON.stringify({ status: "ok", capabilities: CAPABILITIES, jobsRunning: jobs.runningJobs().length, persistentSessions: sessionPool.snapshot() }));
       return;
     }
 
