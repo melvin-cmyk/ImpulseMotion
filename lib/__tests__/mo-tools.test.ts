@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyCardUpdates, describeCards, parseMoAnswer, type MoCard } from "@/lib/mo/model";
-import { periodRange, frMetrics } from "@/lib/mo/tools";
+import { periodRange, frMetrics, shortName } from "@/lib/mo/tools";
 import { deriveMetrics } from "@/lib/ads-warehouse/query";
 
 const at = "2026-10-28T10:00:00.000Z";
@@ -63,5 +63,16 @@ describe("Mo — periods said out loud (Paris, Monday → Sunday)", () => {
     expect(fr["Dépense"]).toMatch(/412/);
     expect(fr.CPL).toMatch(/13,3/);
     expect(fr.ROAS).toBeUndefined();
+  });
+});
+
+describe("Mo — readable ad names", () => {
+  it("keeps the format and the telling parts of the naming convention", () => {
+    const a = shortName("SGL_IMG_S-Pulse_V-CAD_C-Parent_Visu-Fille_Co-Checklist_M-AiderMonEnfant");
+    expect(a).toContain("IMG");
+    expect(a).toContain("Aider Mon Enfant");
+    expect(a.length).toBeLessThanOrEqual(60);
+    expect(shortName("Vidéo UGC Lisa - Copie")).toBe("Vidéo UGC Lisa");
+    console.log(a, "|", shortName("SGL_UGC_S-Autre_V-Ingénieur_C-Parent_Visu-Pancarte_H-3RaisonsDe - Copie"));
   });
 });
