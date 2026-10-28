@@ -19,6 +19,13 @@ describe("Mo — client names said out loud", () => {
     expect(matchClientName("le barth", clients)?.id).toBe("c4");
     expect(matchClientName("saveurs et vie", clients)?.id).toBe("c5");
   });
+  it("survives what the recogniser actually returns", () => {
+    expect(matchClientName("va sur l'analysade de courtle gendre", clients)?.id).toBe("c2");
+    expect(matchClientName("ouvrons les rapports de cours le jendin", clients)?.id).toBe("c2");
+    expect(matchClientName("cpa de court legendre cette semaine", clients)?.id).toBe("c2");
+    expect(matchClientName("ouvre le copie de naturalya", clients)?.id).toBe("c1");
+    expect(matchClientName("ouvre le barre villa", clients)?.id).toBe("c4");
+  });
   it("gives up when nothing or several match", () => {
     expect(matchClientName("ouvre le cockpit", clients)).toBeNull();
     expect(matchClientName("ouvre le client", clients)).toBeNull();
@@ -39,6 +46,13 @@ describe("Mo — navigation intents", () => {
     expect(parseNavIntent("va sur la liste des clients", clients)?.path).toBe("/portfolio");
     expect(parseNavIntent("ouvre mon tableau", clients)?.path).toBe("/mo");
     expect(parseNavIntent("ouvre le cockpit", clients)?.path).toBe("/cockpit");
+  });
+  it("understands misheard pages and names", () => {
+    expect(parseNavIntent("Ouvre le copie de Naturalia.", clients)?.path).toBe("/portfolio/c1");
+    expect(parseNavIntent("Va sur l'analysade de courtle Gendre.", clients)?.path).toBe("/analyse?client=c2");
+    expect(parseNavIntent("Ouvrons les rapports de cours le jendin.", clients)?.path).toBe("/reports?dashboardId=d2");
+    expect(parseNavIntent("Ouvre mon table.", clients)?.path).toBe("/mo");
+    expect(parseNavIntent("CPA de court Legendre cette semaine.", clients)).toBeNull();
   });
   it("leaves data questions to the model", () => {
     expect(parseNavIntent("montre-moi les créas Meta de Naturalia postées vendredi avec CPA, CPL et leads", clients)).toBeNull();

@@ -22,7 +22,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MODELS = process.env.VOICE_MODELS_DIR || "/opt/impulsemotion/models";
 /** Where sherpa-onnx-node is installed (outside the app's node_modules: Vercel must not download the native addon). */
 const NODE_DIR = process.env.VOICE_NODE_DIR || "/opt/impulsemotion/voice";
-const IDLE_MS = Math.max(60_000, Number(process.env.VOICE_IDLE_MS) || 45 * 60_000);
+/** Idle unload of the worker: disabled by default (0) — reloading Parakeet costs ~26 s on the VPS's single core, which is exactly the "Mo is slow" the staff would feel on the first sentence. Set VOICE_IDLE_MS (ms, ≥ 60 000) to unload anyway. */
+const IDLE_MS = Number(process.env.VOICE_IDLE_MS) > 0 ? Math.max(60_000, Number(process.env.VOICE_IDLE_MS)) : 0;
 const MAX_AUDIO_SECONDS = 60;
 
 export const voiceConfigured = () =>
@@ -41,6 +42,7 @@ function log(msg) { console.log(`[voice] ${msg}`); }
 
 function touch() {
   if (idleTimer) clearTimeout(idleTimer);
+  if (!IDLE_MS) return;
   idleTimer = setTimeout(() => { if (worker && !pending.size) { log("arrêt du worker (inactif)"); worker.kill(); } }, IDLE_MS);
 }
 
@@ -95,7 +97,7 @@ function serial(fn) {
 /** Loads both models in the background (relay start). */
 export function preload() {
   if (!voiceConfigured()) { log("modèles absents, voix désactivée"); return; }
-  serial(() => call({ op: "preload" }, 180_000)).then((m) => log(`modèles préchargés en ${m.ms} ms`)).catch((e) => log(`préchargement impossible : ${e.message}`));
+  serial(() => call({ op: "preload" }, 180_000)).then((m) => log(`modèles préchargés en ${m.ms} ms${IDLE_MS ? ` (déchargés après ${Math.round(IDLE_MS / 60_000)} min d'inactivité)` : " (gardés en mémoire)"}`)).catch((e) => log(`préchargement impossible : ${e.message}`));
 }
 
 /** Browser audio → 16 kHz mono 16-bit WAV file (ffmpeg sniffs the container). */

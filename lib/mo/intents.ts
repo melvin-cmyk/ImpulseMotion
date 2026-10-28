@@ -11,14 +11,14 @@ export interface NavIntent { path: string; say: string; label: string; clientNam
 
 export const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[’']/g, " ").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
-const NAV_VERBS = /\b(ouvre|ouvrir|ouvres|va sur|vas sur|aller sur|allons sur|emmene moi|amene moi|montre moi|montre|affiche|afficher|lance|accede a|acceder a|direction|on va sur)\b/;
+const NAV_VERBS = /\b(ouvre|ouvrir|ouvres|ouvrons|ouvrez|va sur|vas sur|va dans|aller sur|allons sur|allons dans|emmene moi|amene moi|montre moi|montre|affiche|afficher|lance|accede a|acceder a|direction|on va sur)\b/;
 /** Words that make it a data question, not a navigation. */
 const DATA_WORDS = /\b(cpa|cpl|cpm|cpc|ctr|roas|lead|leads|depense|depenses|budget|conversion|conversions|achat|achats|vente|ventes|impression|impressions|clic|clics|resultat|resultats|chiffre|chiffres|combien|compare|comparer|comparaison|evolution|hier|aujourd hui|semaine|mois|jour|jours|vendredi|lundi|mardi|mercredi|jeudi|samedi|dimanche|periode|depuis|entre|top|meilleur|meilleure|meilleurs|pire|baisse|hausse|tendance|poste|postees|postes|lancees|lancee|creees|creee|performance|performances|kpi|kpis|tableau de bord|courbe|graphique|note|resume)\b/;
 
 interface Target { re: RegExp; label: string; path: (c: IntentClient | null) => string | null; root: string }
 const TARGETS: Target[] = [
-  { re: /\b(cockpit|fiche client|fiche|hub|tout le client)\b/, label: "le cockpit", path: (c) => (c ? `/portfolio/${c.id}` : "/cockpit"), root: "/cockpit" },
-  { re: /\b(analyse ads|analyse|analyses|creas? ads|ads)\b/, label: "l'Analyse Ads", path: (c) => (c ? `/analyse?client=${c.id}` : "/analyse"), root: "/analyse" },
+  { re: /\b(cockpit|cockpite|cokpit|cock pit|coque pit|copie|fiche client|fiche|hub|tout le client)\b/, label: "le cockpit", path: (c) => (c ? `/portfolio/${c.id}` : "/cockpit"), root: "/cockpit" },
+  { re: /\b(analyse ads|analyse ad|analysade|analyse adds|analyse|analyses|creas? ads|ads)\b/, label: "l'Analyse Ads", path: (c) => (c ? `/analyse?client=${c.id}` : "/analyse"), root: "/analyse" },
   { re: /\b(creas?|creatives?|visuels|templates?|swipe)\b/, label: "les Créas", path: (c) => (c ? `/creas?client=${c.id}` : "/creas"), root: "/creas" },
   { re: /\b(dashboards?|dash|tableaux? de bord)\b/, label: "le dashboard", path: (c) => (c ? (c.dashboardId ? `/d/${c.dashboardId}` : `/d/${c.id}`) : "/dashboards"), root: "/dashboards" },
   { re: /\b(rapports?|reporting|report)\b/, label: "les rapports IA", path: (c) => (c ? `/reports?dashboardId=${c.dashboardId ?? c.id}` : "/reports"), root: "/reports" },
@@ -29,7 +29,7 @@ const TARGETS: Target[] = [
   { re: /\b(design|designs|figcraft|photocraft)\b/, label: "le Design", path: (c) => (c ? `/design?client=${c.dashboardId ?? c.id}` : "/design"), root: "/design" },
   { re: /\b(clients|portefeuille|portfolio|liste des clients)\b/, label: "la liste des clients", path: () => "/portfolio", root: "/portfolio" },
   { re: /\b(assistant|console|ai assistant|chat)\b/, label: "l'assistant IA", path: () => "/ai", root: "/ai" },
-  { re: /\b(tableau|board|mon tableau|mo)\b/, label: "ton tableau Mo", path: () => "/mo", root: "/mo" },
+  { re: /\b(tableau|table|board|mon tableau|mo)\b/, label: "ton tableau Mo", path: () => "/mo", root: "/mo" },
   { re: /\b(quotas?)\b/, label: "les quotas", path: () => "/admin/quotas", root: "/admin/quotas" },
 ];
 
@@ -46,15 +46,44 @@ function levenshtein(a: string, b: string): number {
   return prev[n];
 }
 
-/** The client named in the text (exact, token-prefix or one typo), or null when none / ambiguous. */
+/** Edits tolerated between a spoken name and a client name, once spaces are removed. */
+const compactTolerance = (len: number) => (len <= 7 ? 1 : len <= 11 ? 2 : 3);
+
+/**
+ * Speech recognisers split or glue words at will ("court Legendre", "cours le
+ * jendin", "courtle Gendre"): compare without spaces, sliding over the
+ * sentence, and return the smallest edit distance (or null when too far).
+ */
+function compactDistance(compactText: string, compactName: string): number | null {
+  const n = compactName.length;
+  if (n < 6 || compactText.length < n - 1) return null;
+  const tol = compactTolerance(n);
+  let best: number | null = null;
+  for (const len of [n, n - 1, n + 1]) {
+    if (len < 1) continue;
+    for (let i = 0; i + len <= compactText.length; i++) {
+      const d = levenshtein(compactText.slice(i, i + len), compactName);
+      if (d <= tol && (best === null || d < best)) best = d;
+      if (best === 0) return 0;
+    }
+  }
+  return best;
+}
+
+/** The client named in the text (exact, token-prefix, one typo, or a close match once spaces are ignored), or null when none / ambiguous. */
 export function matchClientName(text: string, clients: IntentClient[]): IntentClient | null {
   const t = fold(text);
   const words = t.split(" ").filter(Boolean);
+  const compactText = t.replace(/ /g, "");
   const best: { c: IntentClient; score: number }[] = [];
   for (const c of clients) {
     const names = [c.name, ...(c.aliases ?? [])].map(fold).filter(Boolean);
     let score = 0;
     for (const name of names) {
+      if (!score) {
+        const d = compactDistance(compactText, name.replace(/ /g, ""));
+        if (d !== null) score = Math.max(score, 30 + name.length - d * 3);
+      }
       if (name.length >= 3 && t.includes(name)) { score = Math.max(score, 100 + name.length); continue; }
       const toks = name.split(" ").filter((w) => w.length >= 3);
       if (!toks.length) continue;
@@ -73,6 +102,19 @@ export function matchClientName(text: string, clients: IntentClient[]): IntentCl
   return best[0].c;
 }
 
+/** The sentence without the client's name (as said, even misheard) so the page noun can be judged alone. */
+function stripClientName(t: string, client: IntentClient): string {
+  const names = [client.name, ...(client.aliases ?? [])].map(fold).filter(Boolean);
+  let out = t;
+  for (const name of names) if (name.length >= 3 && out.includes(name)) out = out.replace(name, " ");
+  if (out === t) {
+    // Fuzzy match: drop the words that resemble the name's tokens.
+    const toks = names.flatMap((n) => n.split(" ")).filter((w) => w.length >= 3);
+    out = t.split(" ").filter((w) => !toks.some((tok) => w.length >= 3 && (tok.startsWith(w) || w.startsWith(tok) || levenshtein(w, tok) <= 1))).join(" ");
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
+
 /**
  * A navigation intent, or null when the sentence is for the model.
  * Rules: a navigation verb, a page noun, no data word; "ouvre/va sur" are
@@ -86,7 +128,7 @@ export function parseNavIntent(text: string, clients: IntentClient[]): NavIntent
   if (DATA_WORDS.test(t)) return null;
   const client = matchClientName(t, clients);
   // Remove the client's name to judge the rest of the sentence.
-  const rest = client ? t.replace(fold(client.name), " ").replace(/\s+/g, " ") : t;
+  const rest = client ? stripClientName(t, client) : t;
   const target = TARGETS.find((x) => x.re.test(rest));
   if (!target) return null;
   const soft = /^(montre|montre moi|affiche|afficher|lance|direction)$/.test(verb);
