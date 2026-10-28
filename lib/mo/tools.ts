@@ -170,7 +170,9 @@ const adImage = (platform: string, adId: string) => `/api/mo/ad-image/${platform
 // ── Tools ──────────────────────────────────────────────────────────────────
 
 export async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+  const t0 = Date.now();
   const { client } = await resolveClient(ctx, a.client);
+  const tClient = Date.now() - t0;
   const range = periodRange(a);
   const { platforms, accountIds, accounts } = platformsOf(client, a.platform);
   if (!accountIds.length) throw new MoToolError(`${client.name} n'a pas de compte ${str(a.platform) || "publicitaire"} rattaché.`, 404);
@@ -184,6 +186,7 @@ export async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult
     sort: { key: sortKey === "launch" ? "launch" : sortKey, dir }, limit,
   });
   let res = await run(launched);
+  const tQuery = Date.now() - t0 - tClient;
   let note = "";
   // « Les créas de cette semaine » with nothing launched this week: the ones that ran, said so — never an empty board.
   if (launched && !res.rows.length) { res = await run(false); launched = false; note = "Aucune créa lancée sur la période : voici celles qui ont diffusé (dis-le)."; }
@@ -205,7 +208,9 @@ export async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult
     items: items.map((it) => ({ name: shortName(it.name), ...(it.image ? { image: it.image } : {}), adId: it.adId, metrics: full ? it.metrics : { Dépense: it.metrics.Dépense, ...(it.metrics.CPA ? { CPA: it.metrics.CPA } : it.metrics.CPL ? { CPL: it.metrics.CPL } : {}) } })),
   };
   // The card goes on the board now (the person sees it while the model is still writing its sentence).
+  const tPost0 = Date.now();
   const posted = items.length && a.post !== false ? await postMoCards(ctx.boardId, [card]) : [];
+  console.log(`[mo/tools] creatives phases: client ${tClient} ms · entrepôt ${tQuery} ms · carte ${Date.now() - tPost0} ms · total ${Date.now() - t0} ms`);
   const coverage = res.coverage.complete ? "complète" : res.coverage.loading ? "synchronisation en cours (chiffres partiels)" : res.coverage.missing ? `${res.coverage.missing} compte(s) jamais synchronisé(s)` : res.coverage.errors ? `données jusqu'au ${res.coverage.until ?? "?"} (la dernière synchronisation a échoué, elle reprend chaque heure)` : "partielle";
   return {
     client: { id: client.id, name: client.name }, period: { ...range }, platforms, currency: cur, launched_in_period: launched, ...(note ? { note } : {}),
