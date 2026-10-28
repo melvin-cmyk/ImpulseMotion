@@ -37,7 +37,7 @@ describe("Créas — prompts", () => {
     expect(withText).toContain("Aucun visuel de marque");
   });
   it("editor asks name the uploaded file and the client", () => {
-    expect(buildEditorAsk({ editor: "figcraft", file: "template-1.jpg", template: { name: "Pub X", brand: "Emma" }, analysis, clientName: "LPEV" })).toMatch(/uploads\/template-1\.jpg.*« LPEV ».*calques/s);
-    expect(buildEditorAsk({ editor: "photocraft", file: "t.png", template: { name: "Pub X", brand: "" }, analysis, clientName: null })).toMatch(/pour l'agence.*out\/template\.psd/s);
+    expect(buildEditorAsk({ editor: "figcraft", file: "template-1.jpg", template: { name: "Pub X", brand: "Emma" }, analysis, clientName: "LPEV" })).toMatch(/uploads\/template-1\.jpg[\s\S]*« LPEV »[\s\S]*calques/);
+    expect(buildEditorAsk({ editor: "photocraft", file: "t.png", template: { name: "Pub X", brand: "" }, analysis, clientName: null })).toMatch(/pour l'agence[\s\S]*out\/template\.psd/);
   });
 });

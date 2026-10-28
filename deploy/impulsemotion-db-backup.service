@@ -1,0 +1,6 @@
+[Unit]
+Description=ImpulseMotion — sauvegarde nocturne de la base PostgreSQL (pg_dump + Drive)
+
+[Service]
+Type=oneshot
+ExecStart=/root/ImpulseMotion/deploy/impulsemotion-db-backup.sh
