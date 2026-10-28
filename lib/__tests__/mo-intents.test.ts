@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchClientName, parseNavIntent } from "@/lib/mo/intents";
+import { matchClientName, parseNavIntent, parseQuickIntent } from "@/lib/mo/intents";
 
 const clients = [
   { id: "c1", name: "Naturalia", dashboardId: "d1" },
@@ -60,5 +60,29 @@ describe("Mo — navigation intents", () => {
     expect(parseNavIntent("compare ça avec la semaine d'avant", clients)).toBeNull();
     expect(parseNavIntent("affiche le top des créas de LPEV", clients)).toBeNull();
     expect(parseNavIntent("bonjour Mo", clients)).toBeNull();
+  });
+});
+
+describe("Mo — quick path (no model)", () => {
+  it("creatives of a client over a period", () => {
+    const q = parseQuickIntent("Affiche-moi les créas de cette semaine sur Cours Legendre", clients);
+    expect(q).toMatchObject({ kind: "creatives", args: { client: "c2", period: "this_week" } });
+    expect(q?.say).toContain("Cours Legendre");
+  });
+  it("the N latest, the top spenders, launched this week", () => {
+    expect(parseQuickIntent("sors-moi les 10 dernières créas qu'on a mises sur Meta pour Cours Legendre", clients)?.args).toMatchObject({ client: "c2", sort: "launch", order: "desc", limit: 10, platform: "meta" });
+    expect(parseQuickIntent("montre les créas de LPEV qui ont le plus dépensé ces 7 derniers jours", clients)?.args).toMatchObject({ client: "c3", sort: "spend", period: "last_7d" });
+    expect(parseQuickIntent("les créas lancées cette semaine chez Naturalia", clients)?.args).toMatchObject({ launched_in_period: true, period: "this_week" });
+  });
+  it("figures of a client", () => {
+    expect(parseQuickIntent("le CPA de Naturalia cette semaine", clients)).toMatchObject({ kind: "metrics", args: { client: "c1", period: "this_week" } });
+    expect(parseQuickIntent("ça donne quoi sur LPEV ce mois-ci par campagne ?", clients)?.args).toMatchObject({ period: "this_month", by: "campaign" });
+  });
+  it("leaves the rest to the model", () => {
+    expect(parseQuickIntent("compare les créas de Naturalia avec la semaine dernière", clients)).toBeNull();
+    expect(parseQuickIntent("crée-moi deux créas pour Naturalia", clients)).toBeNull();
+    expect(parseQuickIntent("pourquoi le CPA de LPEV monte cette semaine ?", clients)).toBeNull();
+    expect(parseQuickIntent("ouvre le cockpit de Naturalia", clients)).toBeNull();
+    expect(parseQuickIntent("affiche les créas", clients)).toBeNull();
   });
 });

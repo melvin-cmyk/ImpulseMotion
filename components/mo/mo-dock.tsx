@@ -16,7 +16,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AudioLines, Loader2, Mic, RotateCcw, Square, Volume2, X } from "lucide-react";
 import { useVoice } from "@/components/mo/use-voice";
 import type { MoBoardData } from "@/lib/mo/model";
-import { parseNavIntent, type IntentClient } from "@/lib/mo/intents";
+import { parseNavIntent, parseQuickIntent, type IntentClient } from "@/lib/mo/intents";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 import { INITIAL_ACTIVITY, activityLabel, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
@@ -116,6 +116,21 @@ export function MoDock() {
     showBubble({ you: t, mo: null, cards: 0, open: null }, 0);
     const id = await ensureBoard();
     if (!id) { showBubble({ you: t, mo: null, cards: 0, open: null, error: "Mo est indisponible.", retry: t }); return; }
+    // Créas or figures of a named client over a period: run by the app at once, no model.
+    if (parseQuickIntent(t, clientsRef.current)) {
+      setRun({ jobId: "quick", activity: INITIAL_ACTIVITY, startedAt: Date.now() });
+      try {
+        const res = await fetch(`/api/mo/${id}/quick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
+        if (res.status === 200) {
+          const j = (await res.json()) as { say: string; cardIds: string[] };
+          setRun(null);
+          showBubble({ you: t, mo: j.say, cards: j.cardIds.length, open: null }, j.cardIds.length ? 0 : BUBBLE_MS);
+          speakRef.current(j.say);
+          return;
+        }
+      } catch { /* the normal way below */ }
+      setRun(null);
+    }
     try {
       const res = await fetch(`/api/mo/${id}/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t, page: pathRef.current }) });
       const j = (await res.json().catch(() => ({}))) as { jobId?: string; error?: string };

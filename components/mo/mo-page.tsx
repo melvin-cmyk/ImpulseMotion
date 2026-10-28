@@ -19,7 +19,7 @@ import { CARD_SIZES, type MoBoardData, type MoCard, type MoCardPatch } from "@/l
 import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
 
 const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
-import { parseNavIntent, type IntentClient } from "@/lib/mo/intents";
+import { parseNavIntent, parseQuickIntent, type IntentClient } from "@/lib/mo/intents";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 import { INITIAL_ACTIVITY, activityLabel, formatToolName, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
@@ -231,6 +231,29 @@ export function MoPage() {
       return;
     }
     setBoard((b) => (b ? { ...b, messages: [...b.messages, { role: "user", content: t, at: new Date().toISOString() }] } : b));
+    // « Les créas de Cours Legendre cette semaine », « le CPA de Naturalia ce mois-ci » : the app runs the tool itself, no model, 3 seconds.
+    if (parseQuickIntent(t, clientsRef.current)) {
+      setRun({ jobId: "quick", startedAt: Date.now(), activity: INITIAL_ACTIVITY, tools: ["mo"] });
+      try {
+        const res = await fetch(`/api/mo/${board.id}/quick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
+        if (res.status === 200) {
+          const j = (await res.json()) as { say: string; cardIds: string[] };
+          setRun(null);
+          setLastSaid({ you: t, mo: j.say });
+          if (!muted) speakRef.current(j.say);
+          const loaded = await loadBoard(board.id);
+          seenTurns.current = loaded.board.messages.filter((m) => m.role === "assistant").length;
+          const ids = new Set(j.cardIds);
+          setFresh(ids);
+          const rects = loaded.board.cards.filter((c) => ids.has(c.id)).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
+          if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
+          void listBoards();
+          return;
+        }
+        if (res.status !== 204) { const j = (await res.json().catch(() => ({}))) as { error?: string }; if (res.status === 409) { setRun(null); setError(j.error ?? "Mo répond déjà."); return; } }
+      } catch { /* the normal way below */ }
+      setRun(null);
+    }
     try {
       const res = await fetch(`/api/mo/${board.id}/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
       const j = (await res.json().catch(() => ({}))) as { jobId?: string; error?: string };
@@ -243,7 +266,7 @@ export function MoPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Mo n'a pas démarré");
     }
-  }, [board, run, follow, listBoards, muted, router]);
+  }, [board, run, follow, listBoards, loadBoard, muted, router]);
 
   const voice = useVoice(send);
   useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);

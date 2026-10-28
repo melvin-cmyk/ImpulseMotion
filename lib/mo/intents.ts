@@ -138,3 +138,74 @@ export function parseNavIntent(text: string, clients: IntentClient[]): NavIntent
   const say = client ? `J'ouvre ${target.label} de ${client.name}.` : `J'ouvre ${target.label}.`;
   return { path, say, label: target.label, clientName: client?.name ?? null };
 }
+
+// ── Quick path: the most frequent asks run without the model ─────────────────
+
+export type QuickPeriod = "today" | "yesterday" | "this_week" | "last_week" | "last_7d" | "last_14d" | "last_30d" | "this_month" | "last_month";
+export interface QuickIntent {
+  kind: "creatives" | "metrics";
+  client: IntentClient;
+  args: Record<string, unknown>;
+  /** What Mo says while the card lands. */
+  say: string;
+  periodLabel: string;
+}
+
+const PERIOD_WORDS: Array<[RegExp, QuickPeriod, string]> = [
+  [/\b(aujourd hui|ce jour|today)\b/, "today", "aujourd'hui"],
+  [/\bhier\b/, "yesterday", "hier"],
+  [/\b(cette semaine|la semaine|semaine en cours)\b/, "this_week", "cette semaine"],
+  [/\b(semaine derniere|la semaine passee|semaine passee|semaine d avant|semaine precedente)\b/, "last_week", "la semaine dernière"],
+  [/\b(7|sept) derniers jours\b/, "last_7d", "sur 7 jours"],
+  [/\b(14|quatorze|15|quinze) derniers jours\b/, "last_14d", "sur 14 jours"],
+  [/\b(30|trente) derniers jours\b/, "last_30d", "sur 30 jours"],
+  [/\b(ce mois|ce mois ci|le mois en cours)\b/, "this_month", "ce mois-ci"],
+  [/\b(mois dernier|le mois passe|mois precedent)\b/, "last_month", "le mois dernier"],
+];
+const CREA_WORDS = /\b(creas?|creatives?|visuels?|pubs?|publicites?|annonces?|ads)\b/;
+const SHOW_VERBS = /\b(affiche|montre|sors|sort|donne|liste|voir|vois|mets|met|ouvre|regarde|recupere|ressors|balance|fais voir|je veux voir|je veux|il me faut)\b/;
+const METRIC_WORDS = /\b(cpa|cpl|cpm|cpc|ctr|roas|leads?|conversions?|achats?|ventes?|depenses?|chiffres?|resultats?|performances?|perf|kpis?|ca donne quoi|comment ca va|comment ca se passe|ou en est|bilan|point)\b/;
+const NOT_QUICK = /\b(compare|comparer|comparaison|versus|vs|pourquoi|explique|analyse|analyser|recommand|conseil|avis|penses|genere|generer|cree|creer|publie|publier|variante|modifie|change|ajoute|retire|supprime|enleve|en direct|google|tiktok|ga4|audience|ciblage|placement|enchere|budget)\b/;
+
+/**
+ * « Affiche-moi les créas de cette semaine sur Cours Legendre », « les 10
+ * dernières créas Meta de LPEV », « le CPA de Naturalia cette semaine » : a
+ * named client + a thing to show + a period → the tool is run at once by the
+ * app (no model), Mo says a short sentence. Null for anything else.
+ */
+export function parseQuickIntent(text: string, clients: IntentClient[]): QuickIntent | null {
+  const t = fold(text);
+  if (!t || t.length > 160 || NOT_QUICK.test(t)) return null;
+  const client = matchClientName(t, clients);
+  if (!client) return null;
+  const rest = t.replace(fold(client.name), " ").replace(/\s+/g, " ");
+  const period = PERIOD_WORDS.find(([re]) => re.test(rest));
+  const latest = rest.match(/\b(\d{1,2})\s+dernieres?\b/);
+  const top = rest.match(/\b(top|meilleures?|plus (?:depense|performantes?|rentables?)|qui (?:ont|a) le plus depense|qui marchent? le mieux)\b/);
+  const worst = /\b(pires?|moins bonnes?|qui marchent? le moins)\b/.test(rest);
+  const launched = /\b(lancees?|postees?|mises? en ligne|sorties?|nouvelles?)\b/.test(rest);
+  const n = rest.match(/\b(\d{1,2})\b/);
+  const platform = /\bmeta|facebook|insta(gram)?\b/.test(rest) ? "meta" : /\bgoogle\b/.test(rest) ? "google" : /\btiktok\b/.test(rest) ? "tiktok" : undefined;
+
+  if (CREA_WORDS.test(rest) && (SHOW_VERBS.test(rest) || latest || top || period)) {
+    if (!period && !latest && !top && !worst) return null;
+    const args: Record<string, unknown> = { client: client.id, ...(platform ? { platform } : {}) };
+    let label = period ? period[2] : "sur 7 jours";
+    if (period) args.period = period[1];
+    if (latest) { args.sort = "launch"; args.order = "desc"; args.limit = Math.min(24, Math.max(1, Number(latest[1]))); label = `les ${latest[1]} dernières`; }
+    else if (n) args.limit = Math.min(24, Math.max(1, Number(n[1])));
+    if (top) { args.sort = /cpa|cpl/.test(rest) ? "cpa" : /ctr/.test(rest) ? "ctr" : /roas/.test(rest) ? "roas" : "spend"; args.order = /cpa|cpl/.test(rest) ? "asc" : "desc"; }
+    if (worst) { args.sort = /cpa|cpl/.test(rest) ? "cpa" : "ctr"; args.order = /cpa|cpl/.test(rest) ? "desc" : "asc"; }
+    if (launched && period) args.launched_in_period = true;
+    const say = latest ? `Voilà les ${latest[1]} dernières créas de ${client.name}.` : top ? `Voilà les créas de ${client.name} qui ${/cpa|cpl/.test(rest) ? "ont le meilleur coût" : "ont le plus dépensé"} ${label}.` : `Voilà les créas de ${client.name} ${label}.`;
+    return { kind: "creatives", client, args, say, periodLabel: label };
+  }
+  if (METRIC_WORDS.test(rest) && !CREA_WORDS.test(rest)) {
+    if (!period && !/\b(ca donne quoi|comment ca va|ou en est|bilan|point)\b/.test(rest)) return null;
+    const by = /\bpar campagne\b/.test(rest) ? "campaign" : /\bpar (ensemble|adset|ad set)\b/.test(rest) ? "adset" : /\bpar format\b/.test(rest) ? "format" : undefined;
+    const args: Record<string, unknown> = { client: client.id, period: period ? period[1] : "last_7d", ...(by ? { by } : {}), ...(platform ? { platform } : {}) };
+    const label = period ? period[2] : "sur 7 jours";
+    return { kind: "metrics", client, args, say: `Voilà les chiffres de ${client.name} ${label}${by ? `, par ${by === "campaign" ? "campagne" : by === "adset" ? "ensemble" : "format"}` : ""}.`, periodLabel: label };
+  }
+  return null;
+}
