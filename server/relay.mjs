@@ -423,7 +423,7 @@ const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // fields, announced by /health. The application reads it before relying on a
 // field an older relay would silently ignore (lib/dashboard-copilot.ts), so
 // the relay and the application can be deployed in any order.
-const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft", "photocraft", "voice", "adlib"];
+const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft", "photocraft", "voice", "adlib", "chatWarm"];
 // Detached turns (jobs) hold no HTTP response open: they may run longer than
 // a streamed one, up to this cap.
 const DETACHED_MAX_BUDGET_MS = Number(process.env.RELAY_DETACHED_MAX_BUDGET_MS || 15 * 60 * 1000);
@@ -1011,6 +1011,50 @@ async function handleChat(messages, allowedServers, accountScope, res, systemPro
   }
 }
 
+/** The per-turn options a /api/chat body carries (shared with /api/chat/warm). */
+function chatOptionsOf(body) {
+  return {
+    model: body.model,
+    effort: body.effort,
+    maxTurns: body.maxTurns,
+    sessionKey: body.sessionKey,
+    account: body.account,
+    clientBot: body.clientBot === true,
+    turnContext: body.turnContext,
+    hqGuidance: body.hqGuidance,
+    // Design conversation: { link } = the edit link of its FigCraft file.
+    figcraft: body.figcraft,
+    // Mo: { userId, boardId } = who speaks and on which board (server "mo").
+    mo: body.mo,
+  };
+}
+
+// ── Warm-up of a persistent conversation ────────────────────────────────────
+// POST /api/chat/warm (or /api/chat with warmOnly: true): the same body as a
+// turn without its messages. The process of the conversation is started now
+// (scoped MCP config, system prompt, Max account chosen like for a turn) so
+// the first turn finds it warm. Nothing is sent to the model.
+async function handleWarm(body) {
+  const sessionKey = typeof body.sessionKey === "string" && SESSION_KEY_RE.test(body.sessionKey) ? body.sessionKey : null;
+  if (!sessionKey) return { status: 400, warm: false, created: false, reason: "sessionKey requise" };
+  if (body.provider === "bedrock" || !sessionPool.persistentEnabled(sessionKey)) return { status: 200, warm: false, created: false, reason: "conversation non persistante" };
+  if (sessionLocks.has(sessionKey)) return { status: 200, warm: false, created: false, reason: "un tour est en cours" };
+  const lock = await acquireSessionLock(sessionKey);
+  if (!lock) return { status: 200, warm: false, created: false, reason: "un tour est en cours" };
+  // runChat writes nothing on a warm-up but its early refusals (failChat): swallowed here.
+  const sink = { headersSent: true, writableEnded: false, flushHeaders() {}, writeHead() {}, write() { return true; }, end() { this.writableEnded = true; }, on() { return this; }, once() { return this; } };
+  try {
+    const out = await runChat([], body.allowedServers, body.accountScope, sink, body.systemPrompt, body.budgetMs, body.dataScope, body.provider, { ...chatOptionsOf(body), warmOnly: true });
+    if (!out || typeof out !== "object") return { status: 200, warm: false, created: false, reason: "préparation refusée (voir le journal du relay)" };
+    return { status: out.warm ? 202 : 200, ...out };
+  } catch (err) {
+    console.error(`[mo-session] ${sessionKey} : préchauffage en échec — ${err.message || err}`);
+    return { status: 200, warm: false, created: false, reason: "erreur interne du relay" };
+  } finally {
+    lock.release();
+  }
+}
+
 async function runChat(messages, allowedServers, accountScope, res, systemPromptOverride, budgetMs, dataScope, provider, options = {}) {
   const lock = options.lock ?? null;
   // Tokens and cost of the attempts this one replaces (account that ran dry
@@ -1255,10 +1299,25 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   // single-message thread = "nouvelle conversation"). Anything else starts a
   // fresh session, replaying whatever history the caller sent.
   const fingerprint = scopeFingerprint({ servers, toolPatterns, accountScope: accountScope ?? null, clientKey, ga4PropertyId, dataTools, useBedrock, model });
+  // Persistent process (server/sessions.mjs): Mo's conversations keep their
+  // CLI alive between turns; the user message then always travels on stdin.
+  const persistent = !!sessionKey && !useBedrock && sessionPool.persistentEnabled(sessionKey);
+  // Everything a warm process must share with this turn besides the session
+  // id: the scope fingerprint, the system prompt, and the run parameters.
+  const poolSignature = persistent ? scopeFingerprint({ fingerprint, systemPrompt: crypto.createHash("sha256").update(scopedSystemPrompt).digest("hex"), effort, maxTurns, useWeb }) : null;
+  // Warm-up only (POST /api/chat/warm): the process is started for the next
+  // turn, nothing is sent, and the stored session is left as it is.
+  const warmOnly = options.warmOnly === true;
   const existing = sessionKey ? sessions[sessionKey] : null;
-  const canResume = !!existing && messages.length > 1 && existing.fingerprint === fingerprint && fs.existsSync(transcriptPath(existing.id));
-  if (sessionKey && existing && !canResume) forgetSession(sessionKey);
-  const sessionId = canResume ? existing.id : (sessionKey ? crypto.randomUUID() : null);
+  const resumable = !!existing && existing.fingerprint === fingerprint && fs.existsSync(transcriptPath(existing.id));
+  const canResume = resumable && messages.length > 1;
+  if (sessionKey && existing && !canResume && !warmOnly) forgetSession(sessionKey);
+  // A process pre-warmed for this conversation was started on a fresh id: the
+  // first turn adopts that id instead of drawing one (else the warm-up is lost).
+  const prewarmedId = persistent && !canResume ? sessionPool.freshSessionId(sessionKey, poolSignature) : null;
+  const sessionId = warmOnly
+    ? (resumable ? existing.id : (prewarmedId ?? crypto.randomUUID()))
+    : canResume ? existing.id : (sessionKey ? (prewarmedId ?? crypto.randomUUID()) : null);
   // Today's date and the caller's turn context (what moves during the
   // conversation, e.g. the dashboard's widgets) travel with the user message:
   // a resumed session keeps the system prompt of its first turn. The context
@@ -1277,17 +1336,11 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
     log: (message) => console.error(`[usage] ${sessionKey ?? "sans session"} : ${message}`),
   });
   const promptImages = canResume && lastUser ? imagesOf(lastUser).map((im) => ({ ...im, index: messages.length })) : historyImages();
-  if (sessionKey) {
+  if (sessionKey && !warmOnly) {
     sessions[sessionKey] = { id: sessionId, fingerprint, updatedAt: Date.now(), ...(turn.contextHash ? { contextHash: turn.contextHash } : {}), ...meter.sessionFields() };
     saveSessions();
   }
 
-  // Persistent process (server/sessions.mjs): Mo's conversations keep their
-  // CLI alive between turns; the user message then always travels on stdin.
-  const persistent = !!sessionKey && !useBedrock && sessionPool.persistentEnabled(sessionKey);
-  // Everything a warm process must share with this turn besides the session
-  // id: the scope fingerprint, the system prompt, and the run parameters.
-  const poolSignature = persistent ? scopeFingerprint({ fingerprint, systemPrompt: crypto.createHash("sha256").update(scopedSystemPrompt).digest("hex"), effort, maxTurns, useWeb }) : null;
   const accountOk = (id) => !excludedAccounts.includes(id) && !!maxAccounts.monitor(id) && !maxAccounts.monitor(id).exhausted();
   if (persistent) {
     // A warm process answers with the account it was started on.
@@ -1353,6 +1406,10 @@ async function runChat(messages, allowedServers, accountScope, res, systemPrompt
   // Persistent conversation: the turn runs on the warm process of this key
   // (or starts it); the handle reads like a ChildProcess. A full pool means
   // this turn runs one-shot, as before.
+  if (warmOnly) {
+    if (!persistent) { scopedMcp?.cleanup(); return { warm: false, created: false, reason: "conversation non persistante" }; }
+    return sessionPool.warm({ key: sessionKey, sessionId, signature: poolSignature, account, accountOk, args, spawnOptions, transcriptPath: transcriptPath(sessionId), mcpCleanup: () => scopedMcp?.cleanup() });
+  }
   const pooled = persistent
     ? sessionPool.acquire({ key: sessionKey, sessionId, signature: poolSignature, account, accountOk, args, spawnOptions, transcriptPath: transcriptPath(sessionId), mcpCleanup: () => scopedMcp?.cleanup() })
     : null;
@@ -1953,32 +2010,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (url.pathname === "/api/chat" && req.method === "POST") {
+    if ((url.pathname === "/api/chat/warm" || url.pathname === "/api/chat") && req.method === "POST") {
       if (!authorized(req)) {
         res.writeHead(401, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "unauthorized" }));
         return;
       }
       const body = await readBody(req);
+      if (url.pathname === "/api/chat/warm" || body.warmOnly === true) {
+        const { status, ...out } = await handleWarm(body);
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(out));
+        return;
+      }
       if (!body.messages?.length) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "messages required" }));
         return;
       }
-      const chatOptions = {
-        model: body.model,
-        effort: body.effort,
-        maxTurns: body.maxTurns,
-        sessionKey: body.sessionKey,
-        account: body.account,
-        clientBot: body.clientBot === true,
-        turnContext: body.turnContext,
-        hqGuidance: body.hqGuidance,
-        // Design conversation: { link } = the edit link of its FigCraft file.
-        figcraft: body.figcraft,
-        // Mo: { userId, boardId } = who speaks and on which board (server "mo").
-        mo: body.mo,
-      };
+      const chatOptions = chatOptionsOf(body);
       // Detached turn: the CLI writes into a job log the caller reads back
       // (GET /api/jobs/:id); the answer here is only the job id. Closing a
       // reader never stops the turn — only POST /api/jobs/:id/stop does.
