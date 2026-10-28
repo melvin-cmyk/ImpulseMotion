@@ -180,11 +180,15 @@
 .no-scrollbar::-webkit-scrollbar { display: none; }
 
 /* ── Mo (/mo) ─────────────────────────────────────────────────────────── */
+/* Entrance of a new card: opacity only. The card's place on the board is its inline
+   transform (translate(x, y)); a keyframe that set `transform` kept overriding it
+   after the animation (fill-mode both), so every new card was drawn at the origin,
+   out of the camera's view — « rien ne s'affiche ». */
 @keyframes mo-card-in {
-  0% { opacity: 0; transform: translateY(18px) scale(0.96); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
+  0% { opacity: 0; filter: blur(6px); }
+  100% { opacity: 1; filter: blur(0); }
 }
-.mo-card-in { animation: mo-card-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.mo-card-in { animation: mo-card-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 @keyframes mo-intro-title {
   0% { opacity: 0; letter-spacing: 0.3em; filter: blur(12px); }
   40% { opacity: 1; letter-spacing: -0.02em; filter: blur(0); }
