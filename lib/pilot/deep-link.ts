@@ -7,7 +7,9 @@
  *   /pilotage?client=<alertClientId>
  *   /pilotage?platform=meta|google&account=<id>          the client is found from the account
  *   &object=campaign:<id> | adset:<id> | ad:<id>          the object is shown
+ *   &ad=<id>                                              the same as object=ad:<id> (shorter, from the journal)
  *   &do=pause|activate|budget&value=<amount>              a change is put in « Modifier », not sent
+ *   &do=activate&ad=<id>                                  « Mettre en ligne »: the preview of the activation is prepared at once (not sent)
  *   &prompt=<text>                                        the AI of the page gets this question
  *   &step=<reportId>:<stepId>                             the report's step is ticked once a change is sent
  *   &preview=<actionId>                                   a prepared action (an undo) is opened
@@ -59,6 +61,8 @@ export function readPilotLink(search: string | URLSearchParams): PilotLink {
   const object = q.get("object");
   const m = object ? /^(campaign|adset|ad):(\d{1,25})$/.exec(object) : null;
   if (m) out.object = { type: m[1] as "campaign" | "adset" | "ad", id: m[2] };
+  const ad = q.get("ad");
+  if (!out.object && ad && /^\d{1,25}$/.test(ad)) out.object = { type: "ad", id: ad };
   const act = q.get("do");
   if (act === "pause" || act === "activate" || act === "budget") out.do = act;
   const value = q.get("value");
@@ -71,6 +75,19 @@ export function readPilotLink(search: string | URLSearchParams): PilotLink {
   const preview = q.get("preview");
   if (preview && isId(preview)) out.preview = preview;
   return out;
+}
+
+/**
+ * The object in the platform's own interface (Meta: the Ads Manager, filtered
+ * on the object); null when no such link is known (Google Ads needs an
+ * internal « ocid », TikTok has none that is stable).
+ */
+export function platformObjectUrl(platform: string, accountId: string, type: "campaign" | "adset" | "ad", id: string): string | null {
+  const digits = accountId.replace(/^act_/, "");
+  if (platform !== "meta" || !/^\d{5,25}$/.test(digits) || !/^\d{5,25}$/.test(id)) return null;
+  const page = type === "campaign" ? "campaigns" : type === "adset" ? "adsets" : "ads";
+  const param = type === "campaign" ? "selected_campaign_ids" : type === "adset" ? "selected_adset_ids" : "selected_ad_ids";
+  return `https://adsmanager.facebook.com/adsmanager/manage/${page}?act=${digits}&${param}=${id}`;
 }
 
 /** The platform an alert's account id belongs to (AlertEvent.clientId): act_… is Meta, ten digits Google Ads. */

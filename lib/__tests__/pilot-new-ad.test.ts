@@ -69,7 +69,7 @@ describe("Pilotage — nouvelle publicité Meta (AdSpec v2 et première forme)",
     expect(prepareOperation(req, adset, "EUR", new Date(), "google").ok).toBe(false);
     expect(prepareOperation({ ...req, objectType: "campaign" }, { ...adset, type: "campaign" }, "EUR").ok).toBe(false);
     if (!p.ok) return;
-    expect(describeOperation(p.op, "EUR")).toBe("🆕 Ensemble de publicités « IA - Broad » (Campagne A) — nouvelle publicité « Gourde plage » (créée en pause)");
+    expect(describeOperation(p.op, "EUR")).toBe("🆕 Ensemble de publicités « IA - Broad » (Campagne A) — nouvelle publicité image « Gourde plage » (créée en pause)");
     expect(inverseRequest(p.op, "EUR")).toBeNull();
   });
 

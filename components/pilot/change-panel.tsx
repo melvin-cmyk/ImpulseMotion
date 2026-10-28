@@ -14,10 +14,11 @@
  */
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Send, Trash2, X, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Play, Send, Trash2, X, XCircle } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { GOAL_METRICS, GOAL_METRIC_FR, PLATFORM_FR, type GoalMetric } from "@/lib/pilot/ops";
-import { readJson, type PendingChange, type PilotActionView } from "@/components/pilot/model";
+import { GOAL_METRICS, GOAL_METRIC_FR, PLATFORM_FR, dateText, isActivation, type GoalMetric } from "@/lib/pilot/ops";
+import { platformObjectUrl } from "@/lib/pilot/deep-link";
+import { readJson, type PendingChange, type PilotActionView, type PilotOperationView } from "@/components/pilot/model";
 
 const OP_STATUS: Record<string, { text: string; tone: "emerald" | "red" | "amber" | "default" }> = {
   done: { text: "appliqué", tone: "emerald" },
@@ -30,11 +31,35 @@ const OP_STATUS: Record<string, { text: string; tone: "emerald" | "red" | "amber
   pending: { text: "à envoyer", tone: "default" },
 };
 
-export function OperationLines({ action, showStatus }: { action: PilotActionView; showStatus: boolean }) {
+/** The ad an operation is about: the one it changes, or the one a « new_ad » created (its id read back). */
+export function adOfOperation(op: PilotOperationView): string | null {
+  if (op.field === "new_ad") return op.status === "done" && typeof op.readBack === "string" ? op.readBack : null;
+  return op.objectType === "ad" ? op.objectId : null;
+}
+
+/**
+ * Each operation of an action, as a line; with its outcome (journal, result)
+ * or with what asks for a second confirmation (preview). An ad created here
+ * links to the Ads Manager and offers « Mettre en ligne » (onActivate: the
+ * activation is prepared as a preview, confirmed twice, never sent from here)
+ * until an activation sent from Pilotage is known.
+ */
+export function OperationLines({ action, showStatus, onActivate, activating = null }: {
+  action: PilotActionView;
+  showStatus: boolean;
+  /** « Mettre en ligne » on an ad created by this action (a « new_ad » done). */
+  onActivate?: (op: PilotOperationView) => void;
+  /** The operation whose activation is being prepared. */
+  activating?: string | null;
+}) {
   return (
     <ul className="space-y-1.5">
       {action.operations.map((op) => {
         const s = OP_STATUS[op.status] ?? OP_STATUS.pending;
+        const adId = adOfOperation(op);
+        const manager = adId ? platformObjectUrl(action.platform, action.accountId, "ad", adId) : null;
+        const created = op.field === "new_ad" && op.status === "done" && !!adId;
+        const activation = op.activation ?? null;
         return (
           <li key={op.id} className="text-sm text-gray-200">
             <div className="flex items-start gap-2">
@@ -48,11 +73,40 @@ export function OperationLines({ action, showStatus }: { action: PilotActionView
               </div>
             )}
             {showStatus && op.error && op.status !== "done" && <p className="text-xs text-gray-400 mt-0.5">{op.error}</p>}
+            {(created || (!showStatus && isActivation(op))) && (
+              <div className="flex flex-wrap items-center gap-3 mt-1 text-xs">
+                {created && <span className="text-gray-500">Publicité créée en pause{activation?.status === "done" ? "" : " : elle ne dépense rien tant qu'elle n'est pas mise en ligne"}.</span>}
+                {manager && (
+                  <a href={manager} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-gray-300 hover:text-white">
+                    <ExternalLink className="w-3.5 h-3.5" /> Voir dans le Gestionnaire
+                  </a>
+                )}
+                {created && activation?.status === "done" && <Pill tone="emerald" className="text-[10px] normal-case">mise en ligne{activation.at ? ` le ${dateText(activation.at)}` : ""}</Pill>}
+                {created && activation && activation.status !== "done" && <Pill tone="violet" className="text-[10px] normal-case">mise en ligne {activation.status === "scheduled" ? "programmée" : "en cours"}{activation.at ? ` (${dateText(activation.at)})` : ""}</Pill>}
+                {created && !activation && onActivate && (
+                  <button type="button" disabled={activating !== null} onClick={() => onActivate(op)} className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-emerald-500/50 text-emerald-200 hover:bg-emerald-500/10 disabled:opacity-40">
+                    {activating === op.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />} Mettre en ligne
+                  </button>
+                )}
+              </div>
+            )}
           </li>
         );
       })}
     </ul>
   );
+}
+
+/** « Mettre en ligne »: the activation of the ad a « new_ad » created, prepared as a preview (POST …/activate), never sent from here. */
+export async function prepareActivationOf(actionId: string, operationId: string): Promise<{ action?: PilotActionView; error?: string }> {
+  try {
+    const res = await fetch(`/api/pilot/actions/${actionId}/activate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ operationId }) });
+    const j = await readJson<{ action?: PilotActionView }>(res);
+    if (!res.ok || !j.action) return { error: j.errors?.join(" ") || j.error || `Erreur ${res.status}` };
+    return { action: j.action };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 const words = (v: string) => new Set(v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3));
@@ -92,11 +146,26 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
   const [planning, setPlanning] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [revertAt, setRevertAt] = useState("");
-  const [busy, setBusy] = useState<"prepare" | "send" | null>(null);
+  const [busy, setBusy] = useState<"prepare" | "send" | "activate" | null>(null);
+  const [activating, setActivating] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const [result, setResult] = useState<PilotActionView | null>(null);
 
-  useEffect(() => { setHqProject(hqDefault ?? ""); }, [hqDefault]);
+  // The client's HQ folder arrives with the account: taken when it changes (state adjusted while rendering, not in an effect).
+  const [seenHqDefault, setSeenHqDefault] = useState(hqDefault);
+  if (seenHqDefault !== hqDefault) { setSeenHqDefault(hqDefault); setHqProject(hqDefault ?? ""); }
+  // A new preview (prepared here, an undo, a proposal of the AI, an activation) starts clean and brings its own reason.
+  const [seenPreview, setSeenPreview] = useState<string | null>(preview?.id ?? null);
+  if ((preview?.id ?? null) !== seenPreview) {
+    setSeenPreview(preview?.id ?? null);
+    if (preview) {
+      setConfirmDouble(false);
+      setErrors([]);
+      setResult(null);
+      if (preview.why) setWhy(preview.why);
+      if (preview.hqProject) setHqProject(preview.hqProject);
+    }
+  }
   useEffect(() => {
     let cancelled = false;
     fetch("/api/relay/hq-projects")
@@ -105,16 +174,6 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
       .catch(() => { if (!cancelled) setProjects([]); });
     return () => { cancelled = true; };
   }, []);
-  // A preview from the journal (an undo) brings its own reason.
-  useEffect(() => {
-    if (!preview) return;
-    setConfirmDouble(false);
-    setErrors([]);
-    setResult(null);
-    // An undo or a proposal of the AI brings its own reason.
-    if (preview.why) setWhy(preview.why);
-    if (preview.hqProject) setHqProject(preview.hqProject);
-  }, [preview]);
 
   const goal = { metric: metric || null, target: target.trim() ? Number(target.replace(",", ".")) : null, note: note.trim() };
 
@@ -187,6 +246,20 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
     }
   }
 
+  /** « Mettre en ligne » on an ad just created (result block): its activation becomes the preview. */
+  async function activate(op: PilotOperationView) {
+    if (!result) return;
+    setBusy("activate");
+    setActivating(op.id);
+    setErrors([]);
+    const out = await prepareActivationOf(result.id, op.id);
+    setActivating(null);
+    setBusy(null);
+    if (!out.action) { setErrors([out.error ?? "La mise en ligne n'a pas pu être préparée."]); return; }
+    setResult(null);
+    onPreview(out.action);
+  }
+
   async function dropPreview() {
     if (!preview) return;
     await fetch(`/api/pilot/actions/${preview.id}`, { method: "DELETE" }).catch(() => {});
@@ -232,10 +305,11 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
 
   if (preview) {
     const expires = preview.expiresAt ? new Date(preview.expiresAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : null;
+    const activation = preview.operations.length > 0 && preview.operations.every(isActivation);
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white">{preview.undoOfId ? "Aperçu de l'annulation" : "Aperçu"} — rien n&apos;est encore envoyé</h3>
+          <h3 className="text-sm font-semibold text-white">{preview.undoOfId ? "Aperçu de l'annulation" : activation ? "Aperçu de la mise en ligne" : "Aperçu"} — rien n&apos;est encore envoyé</h3>
           {expires && <span className="text-[11px] text-gray-500">valable jusqu&apos;à {expires}</span>}
         </div>
         <p className="text-xs text-gray-400">Valeurs lues sur {PLATFORM_FR[preview.platform] ?? preview.platform} à l&apos;instant, compte « {preview.accountName || preview.accountId} » de {preview.clientName}.</p>
@@ -298,7 +372,8 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
             </p>
             <button type="button" onClick={() => setResult(null)} className="text-gray-500 hover:text-white" aria-label="Fermer"><X className="w-4 h-4" /></button>
           </div>
-          <OperationLines action={result} showStatus />
+          <OperationLines action={result} showStatus onActivate={(op) => void activate(op)} activating={activating} />
+          {errors.length > 0 && <ul className="text-sm text-red-300 space-y-1">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
           <p className="text-xs text-gray-400">
             {result.hqWrittenAt ? `Consigné dans HQ (projects/${result.hqProject}).` : result.hqError ? `HQ : ${result.hqError} — réessayez depuis le journal.` : "Rien à consigner dans HQ."}
           </p>

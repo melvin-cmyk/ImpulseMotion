@@ -4,7 +4,9 @@
  * What was changed on the client's accounts from Pilotage: who, when, each
  * change with its outcome, why, and whether HQ has it. An action sent can be
  * put back (« Annuler cette modification » prepares the undo, confirmed like
- * any other change); an HQ entry that failed can be written again.
+ * any other change); an ad created paused can be put online (« Mettre en
+ * ligne » prepares its activation, confirmed twice); an HQ entry that failed
+ * can be written again.
  */
 
 import { useState } from "react";
@@ -12,8 +14,8 @@ import { CheckCircle2, Loader2, RotateCcw, Undo2 } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import { PLATFORM_FR, goalText } from "@/lib/pilot/ops";
 import { ImpactCards } from "@/components/pilot/impact";
-import { OperationLines } from "@/components/pilot/change-panel";
-import { readJson, type PilotActionView } from "@/components/pilot/model";
+import { OperationLines, prepareActivationOf } from "@/components/pilot/change-panel";
+import { readJson, type PilotActionView, type PilotOperationView } from "@/components/pilot/model";
 
 const STATUS: Record<string, { text: string; tone: "emerald" | "red" | "amber" | "default" | "violet" }> = {
   done: { text: "envoyée", tone: "emerald" },
@@ -36,6 +38,16 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  /** « Mettre en ligne »: the activation of the ad this action created, opened as a preview in « Modifier ». */
+  async function activate(op: PilotOperationView) {
+    setBusy(`activate:${op.id}`);
+    setError(null);
+    const out = await prepareActivationOf(a.id, op.id);
+    setBusy(null);
+    if (!out.action) { setError(out.error ?? "La mise en ligne n'a pas pu être préparée."); return; }
+    onUndo(out.action);
+  }
 
   async function post(path: "undo" | "hq" | "unschedule") {
     setBusy(path);
@@ -71,7 +83,7 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
         {a.revertAt && !a.revertedAt && <span className="text-violet-200">retour en arrière le {when(a.revertAt)}</span>}
         {a.revertedAt && <span>retour fait le {when(a.revertedAt)}</span>}
       </div>
-      <OperationLines action={a} showStatus />
+      <OperationLines action={a} showStatus onActivate={(op) => void activate(op)} activating={busy?.startsWith("activate:") ? busy.slice("activate:".length) : null} />
       <p className="text-xs text-gray-400"><span className="text-gray-500">Pourquoi :</span> {a.why || "—"}{goal ? <> · <span className="text-gray-500">Objectif :</span> {goal}</> : null}</p>
       <ImpactCards impacts={a.impacts ?? []} platform={a.platform} subject={(a.status === "done" || a.status === "partial") && !a.undoOfId ? { kind: "action", id: a.id } : undefined} />
       <div className="flex flex-wrap items-center gap-3 text-xs">

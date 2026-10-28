@@ -124,7 +124,8 @@ vi.mock("@/lib/pilot/meta", () => ({
   },
 }));
 
-import { executeAction, listActions, prepareAction, prepareUndo, recoverStale, retryHq, writeHq } from "@/lib/pilot/service";
+import { executeAction, listActions, markActivations, prepareAction, prepareActivation, prepareUndo, recoverStale, retryHq, writeHq } from "@/lib/pilot/service";
+import { ACTIVATION_DOUBLE } from "@/lib/pilot/ops";
 
 const LEA = { userId: "u-lea", role: "admin", baseRole: "consultant", user: { email: "lea@impulse-analytics.com" } };
 const SAM = { userId: "u-sam", role: "admin", baseRole: "consultant", user: { email: "sam@impulse-analytics.com" } };
@@ -289,7 +290,10 @@ describe("pilotage — annulation et journal", () => {
     if (!undo.ok) throw new Error(undo.error);
     expect(undo.action.undoOfId).toBe(a.id);
     expect(undo.action.operations.map((o) => [o.field, o.before, o.after])).toEqual([["status", "PAUSED", "ACTIVE"], ["daily_budget", 15000, 12000]]);
-    const sent = await executeAction(SAM, undo.action.id, { why: undo.action.why, hqProject: "lpev" });
+    // Putting the ad back online is an activation: the second confirmation is asked, as for any ad put online.
+    expect(undo.action.needsDouble).toBe(true);
+    expect(await executeAction(SAM, undo.action.id, { why: undo.action.why, hqProject: "lpev" })).toMatchObject({ ok: false, status: 409 });
+    const sent = await executeAction(SAM, undo.action.id, { why: undo.action.why, hqProject: "lpev", confirmDouble: true });
     expect(sent.ok).toBe(true);
     expect(actions.find((x) => x.id === a.id)!.undoneById).toBe(undo.action.id);
     expect(metaObjects.get("1200001")!.dailyBudget).toBe(12000);
@@ -340,7 +344,7 @@ describe("pilotage — après relecture", () => {
     if (!undo.ok) throw new Error(undo.error);
     expect(undo.action.operations.map((o) => o.field)).toEqual(["status"]);
     expect(undo.action.why).toContain("modifié depuis");
-    await executeAction(SAM, undo.action.id, { why: undo.action.why, hqProject: "lpev" });
+    await executeAction(SAM, undo.action.id, { why: undo.action.why, hqProject: "lpev", confirmDouble: true });
     expect(metaObjects.get("1200001")!.dailyBudget).toBe(20000);
     // Not everything was put back: the original stays open in the journal.
     expect(actions.find((x) => x.id === a.id)!.undoneById).toBeNull();
@@ -381,5 +385,73 @@ describe("pilotage — après relecture", () => {
     metaDown = true;
     const r = await prepareAction(LEA, { alertClientId: "c-lpev", accountId: "act_5550001111", requests: [pauseAd] });
     expect(r).toMatchObject({ ok: false, status: 503, error: expect.stringContaining("limite d'appels") });
+  });
+});
+
+describe("pilotage — « Mettre en ligne » (lot 3)", () => {
+  /** A creation sent from Pilotage: its « new_ad » operation done, the ad's id read back; the ad is paused on Meta. */
+  async function createdAd() {
+    const a = await prepared([pauseAd]);
+    const spec = JSON.stringify({ name: "Gourde plage", primaryText: "Fraîcheur", linkUrl: "https://naturalia.fr/g", imageUrl: "https://cdn.example.org/a.jpg", pageId: "123456789" });
+    Object.assign(actions.find((x) => x.id === a.id)!, { status: "done", why: "nouvelle créa", hqProject: "lpev", executedAt: new Date("2026-10-28T09:00:00Z"), hqWrittenAt: new Date() });
+    Object.assign(operations.find((o) => o.actionId === a.id)!, { kind: "create_ad", objectType: "adset", objectId: "1200002", objectName: "Retargeting 30j", field: "new_ad", beforeJson: "null", afterJson: JSON.stringify(spec), status: "done", readBackJson: JSON.stringify("1200003") });
+    metaObjects.get("1200003")!.status = "PAUSED";
+    metaObjects.get("1200003")!.effectiveStatus = "PAUSED";
+    return a.id;
+  }
+
+  it("prépare l'activation de l'annonce créée : seconde confirmation, lien vers l'annonce, raison écrite", async () => {
+    const creation = await createdAd();
+    const r = await prepareActivation(LEA, creation);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.action.status).toBe("draft");
+    expect(r.action.needsDouble).toBe(true);
+    expect(r.action.doubleReasons).toEqual([ACTIVATION_DOUBLE]);
+    expect(r.action.operations).toHaveLength(1);
+    expect(r.action.operations[0]).toMatchObject({ kind: "set_status", objectType: "ad", objectId: "1200003", field: "status", before: "PAUSED", after: "ACTIVE", double: ACTIVATION_DOUBLE });
+    expect(r.action.operations[0].line).toContain("mise en ligne de la publicité « UGC Julie v3 »");
+    expect(r.action.why).toContain("Mise en ligne de la publicité « Gourde plage »");
+    expect(r.action.why).toContain("Léa Martin");
+    expect(metaWrites).toEqual([]);
+  });
+
+  it("l'envoi exige la seconde confirmation, relit « active », consigne dans HQ, et le journal marque la création « mise en ligne »", async () => {
+    const creation = await createdAd();
+    const r = await prepareActivation(LEA, creation);
+    if (!r.ok) throw new Error(r.error);
+    expect(await executeAction(LEA, r.action.id, { why: "créa validée par le client", hqProject: "lpev" })).toMatchObject({ ok: false, status: 409 });
+    expect(metaWrites).toEqual([]);
+    const sent = await executeAction(LEA, r.action.id, { why: "créa validée par le client", hqProject: "lpev", confirmDouble: true });
+    if (!sent.ok) throw new Error(sent.error);
+    expect(sent.action.status).toBe("done");
+    expect(sent.action.operations[0]).toMatchObject({ status: "done", readBack: "ACTIVE" });
+    expect(metaWrites).toEqual([{ objectId: "1200003", field: "status", value: "ACTIVE" }]);
+    expect(metaObjects.get("1200003")!.status).toBe("ACTIVE");
+    expect(hqEntries).toHaveLength(1);
+    expect(hqEntries[0].content).toContain("mise en ligne de la publicité « UGC Julie v3 » : en pause → active — ✅ appliqué");
+    const journal = await listActions(LEA, { alertClientId: "c-lpev" });
+    const created = journal.find((a) => a.id === creation)!.operations[0];
+    expect(created.activation).toMatchObject({ actionId: r.action.id, status: "done" });
+    expect(created.activation?.at).toBeTruthy();
+  });
+
+  it("refuse quand rien n'a été créé, ou quand l'annonce est déjà active", async () => {
+    const plain = await prepared([pauseAd]);
+    expect(await prepareActivation(LEA, plain.id)).toMatchObject({ ok: false, status: 409, error: expect.stringContaining("aucune publicité") });
+    const creation = await createdAd();
+    metaObjects.get("1200003")!.status = "ACTIVE";
+    expect(await prepareActivation(LEA, creation)).toMatchObject({ ok: false, status: 422, errors: [expect.stringContaining("déjà active")] });
+    expect(await prepareActivation(LEA, creation, "op_nope")).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("markActivations : une activation programmée ou en cours est dite, une annulée ne compte pas", () => {
+    const creation = { id: "a1", platform: "meta", accountId: "555", status: "done", executedAt: "2026-10-28T09:00:00.000Z", scheduledAt: null, operations: [{ id: "o1", field: "new_ad", status: "done", readBack: "1200003", objectType: "adset", objectId: "1200002", after: "{}" }] };
+    const scheduled = { id: "a2", platform: "meta", accountId: "555", status: "scheduled", executedAt: null, scheduledAt: "2026-10-29T07:00:00.000Z", operations: [{ id: "o2", field: "status", status: "pending", objectType: "ad", objectId: "1200003", after: "ACTIVE", readBack: null }] };
+    const cancelled = { ...scheduled, id: "a3", status: "cancelled" };
+    const marked = markActivations([creation, scheduled, cancelled] as never[]);
+    expect(marked[0].operations[0].activation).toEqual({ actionId: "a2", status: "scheduled", at: "2026-10-29T07:00:00.000Z" });
+    expect(markActivations([creation, cancelled] as never[])[0].operations[0].activation).toBeNull();
+    // Another account's ad with the same id is not confused.
+    expect(markActivations([creation, { ...scheduled, accountId: "777" }] as never[])[0].operations[0].activation).toBeNull();
   });
 });

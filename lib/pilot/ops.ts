@@ -9,7 +9,9 @@
  *
  * Second confirmation (decided with Melvin, 2026-10-02): a budget raised by
  * more than 50 % or by more than 300 (account currency) a day, a whole
- * campaign stopped, any deletion.
+ * campaign stopped, any deletion. Since the « Publication » work (2026-10-28):
+ * an ad put online (set_status ACTIVE on an ad) too — the ads created here
+ * are born PAUSED, and activating one is the moment money starts to spend.
  *
  * Platforms: Meta and Google Ads. The same three levels are used for both
  * (campaign, adset, ad); on Google Ads an « adset » is an ad group, and its
@@ -59,6 +61,13 @@ export const DOUBLE_RAISE_ABSOLUTE = 300;
  * Instagram account, campaign of the ad set, media) before the preview.
  */
 export type { AdSpec, NewAdSpec } from "@/lib/pilot/ad-spec";
+
+/** The format of an existing ad as the tree reads it (badge); « dynamic » is read-only here. */
+export type AdObjectFormat = "image" | "video" | "carousel" | "dynamic";
+export const AD_OBJECT_FORMAT_FR: Record<AdObjectFormat, string> = { image: "image", video: "vidéo", carousel: "carrousel", dynamic: "dynamique" };
+/** Why putting an ad online asks for a second confirmation. */
+export const ACTIVATION_DOUBLE = "mise en ligne d'une annonce (la dépense commence)";
+export const DYNAMIC_TEXTS_LOCKED = "Les textes d'une annonce dynamique (plusieurs variantes) se modifient dans le Gestionnaire pour l'instant.";
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+$/, "").slice(0, max) : "");
 
@@ -146,8 +155,8 @@ export interface PilotObjectState {
   /** Meta ad: the creative it shows, and its texts as JSON (null when not an image/video link ad: a carousel has a creativeId and no adTexts). */
   creativeId?: string | null;
   adTexts?: string | null;
-  /** Meta ad: image | video | carousel when its creative is read; null for a dynamic ad or a post. */
-  format?: "image" | "video" | "carousel" | null;
+  /** Meta ad: image | video | carousel | dynamic (asset_feed_spec) when its creative is read; null for a post or anything else. */
+  format?: AdObjectFormat | null;
   /** Google ad: the responsive search ad as JSON (null when another ad type). */
   rsa?: string | null;
   parentName: string;
@@ -253,6 +262,8 @@ export function doubleReason(op: { objectType: string; field: string; before: Pi
   if (op.field === "status") {
     if (op.after === "DELETED") return "suppression";
     if (op.objectType === "campaign" && op.after === "PAUSED") return "arrêt d'une campagne entière";
+    // An ad put online: created paused here, this is when it starts to spend.
+    if (op.objectType === "ad" && op.after === "ACTIVE") return ACTIVATION_DOUBLE;
     return null;
   }
   if (op.field === "daily_budget" || op.field === "lifetime_budget") return budgetDouble(Number(op.before) || 0, Number(op.after) || 0, currency);
@@ -343,6 +354,7 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
     case "set_ad_texts": {
       if (platform !== "meta" || req.objectType !== "ad") return { ok: false, error: "Les textes se changent sur une annonce Meta." };
       if (state.format === "carousel") return { ok: false, error: `${label} : ${CAROUSEL_TEXTS_LOCKED}` };
+      if (state.format === "dynamic") return { ok: false, error: `${label} : ${DYNAMIC_TEXTS_LOCKED}` };
       if (!state.adTexts || !state.creativeId) return { ok: false, error: `${label} n'est pas une annonce image ou vidéo avec un lien : ses textes se changent dans le Gestionnaire de publicités.` };
       const read = readMetaAdTexts(req.value);
       if (!read.ok) return { ok: false, error: `${label} : ${read.error}` };
@@ -355,6 +367,7 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
     case "set_ad_creative": {
       if (platform !== "meta" || req.objectType !== "ad") return { ok: false, error: "Une créa se remet sur une annonce Meta." };
       if (state.format === "carousel") return { ok: false, error: `${label} : ${CAROUSEL_TEXTS_LOCKED}` };
+      if (state.format === "dynamic") return { ok: false, error: `${label} : ${DYNAMIC_TEXTS_LOCKED}` };
       const id = String(req.value).trim();
       if (!/^\d{5,25}$/.test(id)) return { ok: false, error: `Créa invalide pour ${label}.` };
       if (id === state.creativeId) return { ok: false, error: `${label} montre déjà cette créa.` };
@@ -577,14 +590,16 @@ export function newAdFormat(value: PilotValue): AdSpec["format"] {
   return read.ok ? read.spec.format : "image";
 }
 
-/** « nouvelle publicité » for an image, « nouvelle publicité vidéo », « nouvelle publicité carrousel (3 cartes) »: the same in the tree, the preview and HQ. */
+/** « nouvelle publicité image », « nouvelle publicité vidéo », « nouvelle publicité carrousel (3 cartes) », « nouvelle publicité dynamique »: the same in the tree, the preview and HQ. */
 export function newAdLabel(value: PilotValue): string {
   const read = readNewAd(value);
   const format = read.ok ? read.spec.format : "image";
-  if (format === "image") return "nouvelle publicité";
   if (format === "carousel" && read.ok) { const n = read.spec.cards?.length ?? 0; return `nouvelle publicité carrousel (${n} carte${n > 1 ? "s" : ""})`; }
   return `nouvelle publicité ${FORMAT_FR[format]}`;
 }
+
+/** An operation that puts an ad online (what « Mettre en ligne » prepares). */
+export const isActivation = (op: { objectType: string; field: string; after: PilotValue }) => op.objectType === "ad" && op.field === "status" && op.after === "ACTIVE";
 
 function valueText(field: string, value: PilotValue, currency: string): string {
   if (field === "new_ad") return value === null ? "—" : `« ${newAdName(value)} » (créée en pause)`;
@@ -651,6 +666,7 @@ export function describeOperation(
   const icon = op.kind === "set_status" ? (op.after === "PAUSED" ? "⏸" : op.after === "ACTIVE" ? "▶️" : "🗑") : ICON[op.kind as PilotKind] ?? "•";
   const object = `${objectLabel(platform, op.objectType)} « ${op.objectName} »${op.parentName ? ` (${op.parentName})` : ""}`;
   if (op.field === "new_ad") return `${icon} ${object} — ${newAdLabel(op.after)} ${valueText(op.field, op.after, currency)}`;
+  if (isActivation(op)) return `${icon} ${object} — mise en ligne de la publicité « ${op.objectName} » : ${valueText("status", op.before, currency)} → ${valueText("status", op.after, currency)}`;
   if (op.field === "copy") return `${icon} ${object} — dupliqué en ${valueText(op.field, op.after, currency)}`;
   if (op.field === "targeting") {
     const after = parseTargeting(op.after);

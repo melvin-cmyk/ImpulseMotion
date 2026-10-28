@@ -29,7 +29,7 @@ import { buildHqEntry, hqEntrySlug } from "@/lib/pilot/hq-entry";
 import { readMetaAdTexts, readRsa } from "@/lib/pilot/creative";
 import { IMPACT_HORIZONS, IMPACT_SETTLE_DAYS, addDays, impactWindows } from "@/lib/pilot/impact";
 import {
-  PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, readCopy, readKeyword, readNewAd, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
+  PILOT_DRAFT_TTL_MS, PILOT_MAX_OPERATIONS, PLATFORM_FR, describeOperation, isActivation, newAdName, readCopy, readKeyword, readNewAd, doubleReason, inverseRequest, prepareOperation, readGoal, readRequest,
   sameValue, stateValue, type PilotGoal, type PilotObjectState, type PilotRequest, type PilotValue, type PreparedOperation,
 } from "@/lib/pilot/ops";
 
@@ -522,6 +522,14 @@ export interface PilotOperationView {
   id: string; kind: string; objectType: string; objectId: string; objectName: string; parentName: string; field: string;
   before: PilotValue; after: PilotValue; readBack: PilotValue; status: string; error: string | null;
   line: string; double: string | null; irreversible: boolean;
+  /**
+   * A « new_ad » done: the activation of the ad it created, when one was sent
+   * (or is scheduled) from Pilotage — set by markActivations on a list of
+   * actions. Undefined when not computed, null when the ad was never put
+   * online from here (it may have been in the Ads Manager: the preview says
+   * « déjà active » then).
+   */
+  activation?: { actionId: string; status: string; at: string | null } | null;
 }
 
 export interface PilotActionView {
@@ -615,7 +623,70 @@ export async function listActions(session: PilotSession, opts: { alertClientId?:
     take: scope.all ? Math.min(opts.take ?? 50, 200) : 500,
     include: { operations: { orderBy: { position: "asc" } }, impacts: true },
   });
-  return rows.filter((r) => platformAccountInScope(scope, r.platform, r.accountId)).slice(0, Math.min(opts.take ?? 50, 200)).map((r) => toActionView(r, session.userId));
+  return markActivations(rows.filter((r) => platformAccountInScope(scope, r.platform, r.accountId)).slice(0, Math.min(opts.take ?? 50, 200)).map((r) => toActionView(r, session.userId)));
+}
+
+/**
+ * On each « new_ad » operation done (readBack = the ad's id), the activation
+ * of that ad sent from Pilotage, read among the actions given: applied
+ * (operation done), running, or scheduled. Pure.
+ */
+export function markActivations(views: PilotActionView[]): PilotActionView[] {
+  const byAd = new Map<string, { actionId: string; status: string; at: string | null }>();
+  for (const a of views) {
+    if (a.status === "draft" || a.status === "expired" || a.status === "cancelled" || a.status === "failed") continue;
+    for (const o of a.operations) {
+      if (!isActivation(o) || !(o.status === "done" || o.status === "pending")) continue;
+      const key = `${a.platform}:${a.accountId}:${o.objectId}`;
+      const prev = byAd.get(key);
+      if (!prev || (prev.status !== "done" && (o.status === "done" || a.status === "running"))) byAd.set(key, { actionId: a.id, status: o.status === "done" ? "done" : a.status, at: a.executedAt ?? a.scheduledAt });
+    }
+  }
+  return views.map((a) => ({
+    ...a,
+    operations: a.operations.map((o) => (o.field === "new_ad" && o.status === "done" && typeof o.readBack === "string" ? { ...o, activation: byAd.get(`${a.platform}:${a.accountId}:${o.readBack}`) ?? null } : o)),
+  }));
+}
+
+/** The ads created from Pilotage among `adIds` (a « new_ad » operation done read back their id): who prepared it and when it was sent. */
+export async function pilotCreatedAds(adIds: string[]): Promise<Map<string, { actionId: string; by: string; at: string | null }>> {
+  const out = new Map<string, { actionId: string; by: string; at: string | null }>();
+  const ids = adIds.filter((id) => /^\d{5,25}$/.test(id));
+  if (!ids.length) return out;
+  const rows = await prisma.pilotOperation.findMany({
+    where: { field: "new_ad", status: "done", readBackJson: { in: ids.map((id) => JSON.stringify(id)) } },
+    select: { readBackJson: true, action: { select: { id: true, createdByName: true, executedAt: true } } },
+  });
+  for (const r of rows) {
+    const id = parse(r.readBackJson);
+    if (typeof id === "string" && !out.has(id)) out.set(id, { actionId: r.action.id, by: r.action.createdByName, at: r.action.executedAt?.toISOString() ?? null });
+  }
+  return out;
+}
+
+// ── « Mettre en ligne » (activation of an ad created here) ────────────────
+
+/**
+ * The preview that puts online an ad created by this action (a « new_ad »
+ * operation done, its id read back): one set_status ACTIVE on that ad, through
+ * prepareAction like any change — read on the platform now (refused when the
+ * ad is already active or gone), second confirmation (ACTIVATION_DOUBLE),
+ * then execute, re-read and HQ as usual. `operationId` chooses one creation
+ * when the action made several; every created ad otherwise.
+ */
+export async function prepareActivation(session: PilotSession, id: string, operationId?: string | null): Promise<{ ok: true; action: PilotActionView } | Fail> {
+  const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
+  if (!action?.alertClientId) return { ok: false, status: 404, error: "Modification introuvable." };
+  const created = action.operations.filter((o) => o.field === "new_ad" && o.status === "done" && typeof parse(o.readBackJson) === "string" && (!operationId || o.id === operationId));
+  if (!created.length) return { ok: false, status: 409, error: operationId ? "Cette publicité n'a pas été créée (ou pas encore) : rien à mettre en ligne." : "Cette modification n'a créé aucune publicité : rien à mettre en ligne." };
+  const requests: PilotRequest[] = created.map((o) => ({ kind: "set_status", objectType: "ad", objectId: String(parse(o.readBackJson)), value: "ACTIVE" }));
+  const date = (action.executedAt ?? action.createdAt).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" });
+  const names = created.map((o) => `« ${newAdName(parse(o.afterJson))} »`).join(", ");
+  return prepareAction(session, {
+    alertClientId: action.alertClientId, accountId: action.accountId, platform: action.platform, requests,
+    why: `Mise en ligne de la publicité ${names} créée en pause le ${date} (${action.createdByName}).`,
+    goal: readGoal(JSON.parse(action.goalJson || "{}")),
+  });
 }
 
 /** A guard for a side effect of Pilotage (a rule's Slack word): minted here, as every guard is, revoked after. */

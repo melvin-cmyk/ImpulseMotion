@@ -13,7 +13,7 @@ import { metaAccountDigits } from "@/lib/routines/accounts";
 import { metaGraphPost } from "@/lib/meta-api";
 import { CAROUSEL_TEXTS_LOCKED, metaStoryWithTexts, readMetaCreative, type MetaAdCreative, type MetaAdTexts } from "@/lib/pilot/creative";
 import type { WriteGuard } from "@/lib/routines/types";
-import type { PilotObjectState, PilotObjectType } from "@/lib/pilot/ops";
+import type { AdObjectFormat, PilotObjectState, PilotObjectType } from "@/lib/pilot/ops";
 
 const SPEND_7D = "insights.date_preset(last_7d){spend}";
 const LIVE_STATUSES = JSON.stringify([{ field: "effective_status", operator: "NOT_IN", value: ["DELETED", "ARCHIVED"] }]);
@@ -22,7 +22,7 @@ const FIELDS: Record<Exclude<PilotObjectType, "keyword">, string> = {
   // bid_constraints is not a campaign field at Meta (the ROAS floor is read on the ad set).
   campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,spend_cap,bid_strategy,bid_amount",
   adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,targeting,campaign{name}",
-  ad: "id,account_id,name,status,effective_status,adset{name},creative{id,name,object_story_spec}",
+  ad: "id,account_id,name,status,effective_status,adset{name},creative{id,name,object_story_spec,asset_feed_spec}",
 };
 /** Meta's « no cap » marker on spend_cap. */
 const NO_SPEND_CAP = 922337203685478;
@@ -32,7 +32,7 @@ type Raw = Record<string, unknown> & {
   daily_budget?: string; lifetime_budget?: string; stop_time?: string; end_time?: string; start_time?: string; bid_amount?: number | string;
   spend_cap?: string | number; bid_strategy?: string; bid_constraints?: { roas_average_floor?: number | string }; targeting?: Record<string, unknown>; campaign_id?: string; adset_id?: string;
   campaign?: { name?: string }; adset?: { name?: string };
-  creative?: { id?: string; name?: string; object_story_spec?: Record<string, unknown> };
+  creative?: { id?: string; name?: string; object_story_spec?: Record<string, unknown>; asset_feed_spec?: Record<string, unknown> };
   insights?: { data?: Array<{ spend?: string }> };
 };
 
@@ -41,10 +41,18 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
-/** image | video | carousel for an ad whose creative is read; null for anything else (dynamic, post…). */
-function adFormat(creative: Raw["creative"]): "image" | "video" | "carousel" | null {
+/** A creative whose assets live in asset_feed_spec (dynamic creative, flexible format): read for the badge only. */
+export function isDynamicCreative(creative: Raw["creative"]): boolean {
+  const feed = creative?.asset_feed_spec;
+  if (!feed || typeof feed !== "object") return false;
+  return ["images", "videos", "bodies", "titles", "descriptions", "link_urls"].some((k) => Array.isArray(feed[k]) && (feed[k] as unknown[]).length > 0);
+}
+
+/** image | video | carousel for an ad whose creative is read, dynamic when its assets are an asset feed; null for anything else (a post…). */
+export function adFormat(creative: Raw["creative"]): AdObjectFormat | null {
   const c = readMetaCreative(creative as Parameters<typeof readMetaCreative>[0]);
-  return c ? (c.kind === "video" ? "video" : c.kind === "carousel" ? "carousel" : "image") : null;
+  if (c) return c.kind === "video" ? "video" : c.kind === "carousel" ? "carousel" : "image";
+  return isDynamicCreative(creative) ? "dynamic" : null;
 }
 
 /** The editable texts of an ad's creative as JSON; null when the creative is not an image/video link ad (a carousel: read, not rewritten). */

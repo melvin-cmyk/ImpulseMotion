@@ -1,6 +1,6 @@
 /** Pilotage — what the page holds (types shared by its components). */
 
-import type { PilotKind, PilotObjectType } from "@/lib/pilot/ops";
+import type { AdObjectFormat, PilotKind, PilotObjectType } from "@/lib/pilot/ops";
 export type { PilotActionView, PilotOperationView } from "@/lib/pilot/service";
 
 export interface PilotClient {
@@ -34,8 +34,10 @@ export interface TreeRow {
   rsa?: string | null;
   /** Meta ad: the creative shown (read with the ad). */
   creativeId?: string | null;
-  /** Meta ad: image | video | carousel when readable (badge in the tree). */
-  format?: "image" | "video" | "carousel" | null;
+  /** Meta ad: image | video | carousel | dynamic when readable (badge in the tree). */
+  format?: AdObjectFormat | null;
+  /** An ad created from Pilotage (its « new_ad » operation read back this id): who and when; « Mettre en ligne » is offered while it is paused. */
+  pilot?: { actionId: string; by: string; at: string | null } | null;
   /** Why the budget cannot be changed here (a shared Google Ads budget). */
   budgetLock?: string | null;
   /** Why the end date cannot be changed here. */

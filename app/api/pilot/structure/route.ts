@@ -1,13 +1,14 @@
 /**
  * GET /api/pilot/structure?clientId=…&accountId=…&platform=meta|google            → campaigns and ad sets (ad groups)
- * GET /api/pilot/structure?clientId=…&accountId=…&platform=…&adsetId=…[&currency=] → the ads of one ad set (Meta) or the keywords of one ad group (Google Ads)
+ * GET /api/pilot/structure?clientId=…&accountId=…&platform=…&adsetId=…[&currency=] → the ads of one ad set (Meta) or the keywords of one ad group (Google Ads);
+ *     an ad created from Pilotage carries `pilot` (who, when), read on its « new_ad » operation
  * Read on the platform now (staff, account of the client and of the person's scope),
  * with the client's HQ folder, where the changes will be written.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
-import { hqProjectOf, pilotWritesOpen, resolveAccount } from "@/lib/pilot/service";
+import { hqProjectOf, pilotCreatedAds, pilotWritesOpen, resolveAccount } from "@/lib/pilot/service";
 
 export const maxDuration = 60;
 
@@ -24,7 +25,9 @@ export async function GET(req: NextRequest) {
     if (adsetId) {
       if (!adapter.readAds) return NextResponse.json({ ads: [] }, { headers });
       const currency = q.get("currency") && /^[A-Z]{3}$/.test(q.get("currency")!) ? q.get("currency")! : await adapter.readCurrency(account.digits);
-      return NextResponse.json({ ads: await adapter.readAds(account.digits, adsetId, currency) }, { headers });
+      const ads = await adapter.readAds(account.digits, adsetId, currency);
+      const created = await pilotCreatedAds(ads.filter((a) => a.type === "ad").map((a) => a.id)).catch(() => new Map());
+      return NextResponse.json({ ads: ads.map((a) => ({ ...a, pilot: created.get(a.id) ?? null })) }, { headers });
     }
     const currency = await adapter.readCurrency(account.digits);
     const structure = await adapter.readStructure(account.digits, currency);

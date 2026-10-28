@@ -9,9 +9,9 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CheckSquare, Loader2, Pencil, Search, Square } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { KEYWORD_MATCH_TYPES, MATCH_FR, copyName, currencyOffset, dateText, money, newAdLabel, newAdName, newKeywordText, objectLabel, statusText, strategyText, type KeywordMatchType, type PilotKind } from "@/lib/pilot/ops";
+import { AD_OBJECT_FORMAT_FR, KEYWORD_MATCH_TYPES, MATCH_FR, copyName, currencyOffset, dateText, money, newAdLabel, newAdName, newKeywordText, objectLabel, statusText, strategyText, type KeywordMatchType, type PilotKind } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
-import { NewAdForm, type StudioPick } from "@/components/pilot/new-ad-form";
+import { NewAdForm, type StudioPick } from "@/components/pilot/ad-form";
 import { TargetingForm } from "@/components/pilot/targeting-form";
 import { MetaAdTextsForm, RsaTextsForm } from "@/components/pilot/ad-texts-form";
 import type { RsaSpec } from "@/lib/pilot/creative";
@@ -43,7 +43,8 @@ function choices(row: TreeRow, platform: string = "meta"): Array<{ kind: PilotKi
   if (row.type === "adset" && platform === "google") out.push({ kind: "add_keyword", label: "Ajouter un mot-clé", value: "" });
   if (row.type === "campaign" && platform === "google") out.push({ kind: "add_negative_keyword", label: "Ajouter un mot-clé négatif", value: "" });
   if (row.status === "ACTIVE") out.push({ kind: "set_status", label: "Mettre en pause", value: "PAUSED" });
-  if (row.status === "PAUSED") out.push({ kind: "set_status", label: "Activer", value: "ACTIVE" });
+  // An ad created from Pilotage is born paused: putting it online is the moment it starts to spend (second confirmation).
+  if (row.status === "PAUSED") out.push({ kind: "set_status", label: row.type === "ad" && row.pilot ? "Mettre en ligne (seconde confirmation)" : "Activer", value: "ACTIVE" });
   if (row.dailyBudget && !row.budgetLock) out.push({ kind: "set_daily_budget", label: "Budget journalier", value: "" });
   if (row.lifetimeBudget && !row.budgetLock) out.push({ kind: "set_lifetime_budget", label: "Budget total", value: "" });
   if (row.type === "ad") {
@@ -98,7 +99,7 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
   const object = `${objectLabel(platform, row.type)} « ${row.name} »`;
   const unit = currencyOffset(currency);
   switch (kind) {
-    case "set_status": return `${object} : ${value === "DELETED" ? "supprimer" : value === "PAUSED" ? "mettre en pause" : "activer"}`;
+    case "set_status": return `${object} : ${value === "DELETED" ? "supprimer" : value === "PAUSED" ? "mettre en pause" : row.type === "ad" ? "mettre en ligne" : "activer"}`;
     case "set_daily_budget": return `${object} : budget journalier ${money(row.dailyBudget, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "set_lifetime_budget": return `${object} : budget total ${money(row.lifetimeBudget, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "set_bid_amount": return `${object} : ${row.type === "keyword" ? "CPC max" : "enchère"} ${money(row.bidAmount, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
@@ -261,7 +262,8 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
           <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "meta" ? "Ens." : "Groupe") : row.type === "keyword" ? (row.negative ? "Négatif" : "Mot-clé") : "Annonce"}</span>
           <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
           {hasPending && <Pill tone="violet" className="text-[10px]">à envoyer</Pill>}
-          {row.type === "ad" && row.format && <Pill tone="default" className="text-[10px] normal-case">{row.format === "video" ? "vidéo" : row.format === "carousel" ? "carrousel" : "image"}</Pill>}
+          {row.type === "ad" && row.format && <Pill tone="default" className="text-[10px] normal-case">{AD_OBJECT_FORMAT_FR[row.format] ?? row.format}</Pill>}
+          {row.type === "ad" && row.pilot && <span title={`Créée depuis le Pilotage par ${row.pilot.by}${row.pilot.at ? ` le ${dateText(row.pilot.at)}` : ""}`}><Pill tone="violet" className="text-[10px] normal-case">Pilotage</Pill></span>}
           {statusPill(row)}
           <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{row.type === "keyword" && row.bidAmount ? `CPC ${money(row.bidAmount, currency)}` : budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
           <span className="text-xs text-gray-500 w-20 text-right hidden md:inline" title="Dépense des 7 derniers jours">{money(Math.round(row.spend7d * (currencyOffset(currency))), currency)}</span>
@@ -330,6 +332,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
           clientId={clientId}
           accountId={accountId}
           adsetName={newAdFor.name}
+          platform={platform}
           preset={studioPick}
           onCancel={() => setNewAdFor(null)}
           onDone={(spec, label) => { onAdd({ kind: "create_ad", objectType: "adset", objectId: newAdFor.id, value: JSON.stringify(spec), label }); setNewAdFor(null); }}

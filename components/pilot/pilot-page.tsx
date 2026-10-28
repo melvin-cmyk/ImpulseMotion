@@ -18,7 +18,7 @@ import { CreativesPanel } from "@/components/pilot/creatives-panel";
 import { RulesPanel } from "@/components/pilot/rules-panel";
 import type { HistoryView, PlatformChangeView } from "@/lib/pilot/history";
 import { PilotAssistant } from "@/components/pilot/assistant-panel";
-import type { StudioPick } from "@/components/pilot/new-ad-form";
+import type { StudioPick } from "@/components/pilot/ad-form";
 import { PLATFORM_FR } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type PilotActionView, type PilotClient, type TreeRow } from "@/components/pilot/model";
 import { readPilotLink, type PilotLink } from "@/lib/pilot/deep-link";
@@ -124,11 +124,25 @@ export function PilotPage() {
   }, [clients]);
 
   // The object of the link, once the account is read: shown, and its change put in « Modifier » (not sent).
+  // « Mettre en ligne » (do=activate on an ad): the preview is prepared at once — read on the platform, second confirmation to tick, nothing sent.
   useEffect(() => {
-    if (linkUsed.current.object || !structure || !link.object || !account) return;
+    if (linkUsed.current.object || !structure || !link.object || !account || !client) return;
     linkUsed.current.object = true;
     const row = (link.object.type === "campaign" ? structure.campaigns : link.object.type === "adset" ? structure.adsets : []).find((r) => r.id === link.object!.id);
-    const label = row ? `${link.object.type === "campaign" ? "Campagne" : "Ensemble"} « ${row.name} »` : `${link.object.type} ${link.object.id}`;
+    const label = row ? `${link.object.type === "campaign" ? "Campagne" : "Ensemble"} « ${row.name} »` : `${link.object.type === "ad" ? "Annonce" : link.object.type} ${link.object.id}`;
+    if (link.do === "activate" && link.object.type === "ad") {
+      const req = { kind: "set_status" as const, objectType: "ad" as const, objectId: link.object.id, value: "ACTIVE" };
+      void (async () => {
+        try {
+          const res = await fetch("/api/pilot/actions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: client.id, accountId: account.accountId, platform: account.platform, requests: [req], why: "Mise en ligne de la publicité (créée en pause depuis le Pilotage)." }) });
+          const j = await readJson<{ action?: PilotActionView }>(res);
+          if (res.ok && j.action) { setPending([]); setPreview(j.action); setTimeout(() => modifyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); return; }
+        } catch { /* fallen back to the panel below */ }
+        // Not prepared (already active, gone…): the change waits in « Modifier », where « Préparer l'aperçu » says why.
+        add({ ...req, label: `${label} → mettre en ligne` });
+      })();
+      return;
+    }
     if (link.do === "pause" || link.do === "activate") {
       add({ kind: "set_status", objectType: link.object.type, objectId: link.object.id, value: link.do === "pause" ? "PAUSED" : "ACTIVE", label: `${label} → ${link.do === "pause" ? "en pause" : "active"}` });
     } else if (link.do === "budget" && link.value && row) {
@@ -257,9 +271,11 @@ export function PilotPage() {
 
       {studioPick && (
         <div className="flex items-center gap-3 rounded-xl border border-violet-500/40 bg-violet-500/5 p-3">
-          <img src={studioPick.url} alt="" className="w-14 h-14 rounded object-cover" />
+          {studioPick.kind === "video"
+            ? <video src={studioPick.url} muted playsInline preload="metadata" className="w-14 h-14 rounded object-cover bg-black" />
+            : <img src={studioPick.url} alt="" className="w-14 h-14 rounded object-cover" />}
           <p className="text-sm text-gray-200 flex-1">
-            Visuel du Studio prêt à pousser sur Meta : choisissez le compte Meta, puis « Modifier » → « Nouvelle publicité » sur l&apos;ensemble de publicités voulu.
+            {studioPick.kind === "video" ? "Vidéo du Studio prête" : "Image du Studio prête"} à pousser sur Meta (format {studioPick.kind === "video" ? "vidéo" : "image"}) : choisissez le compte Meta, puis « Modifier » → « Nouvelle publicité » sur l&apos;ensemble de publicités voulu.
           </p>
           <button type="button" onClick={() => setStudioPick(null)} className="text-xs text-gray-400 hover:text-white">Ignorer</button>
         </div>
