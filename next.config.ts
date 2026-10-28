@@ -58,7 +58,8 @@ const nextConfig: NextConfig = {
           // The app is never embedded by another site (clickjacking on the admin and pilot pages).
           { key: "X-Frame-Options", value: "SAMEORIGIN" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+          // The microphone is Mo's (components/mo/use-voice.ts): allowed for this origin only, still denied to any embedded frame.
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=(), payment=(), usb=()" },
           {
             key: "Content-Security-Policy",
             // Allow Facebook iframes for Meta video embedding (facebook.com/video/embed)
