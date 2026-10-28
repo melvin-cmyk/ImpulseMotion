@@ -33,7 +33,7 @@ export type JobOutcome = "done" | "stopped" | "failed" | "unknown" | "aborted";
 
 export interface PublicAiJob {
   id: string;
-  surface: "bot" | "console" | "design" | "analyse";
+  surface: "bot" | "console" | "design" | "analyse" | "mo";
   conversationId: string;
   botId: string | null;
   status: "running" | "done" | "stopped" | "failed";

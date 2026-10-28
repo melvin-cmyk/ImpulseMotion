@@ -1,0 +1,224 @@
+/**
+ * Mo — the voice assistant of the staff (/mo). A session is a BOARD: an
+ * infinite canvas of floating cards. Mo never answers in prose: each turn it
+ * returns one short sentence to say out loud and a few cards to put on the
+ * board (tables, KPIs, charts, creatives, notes). The browser speaks the
+ * sentence and lays the cards next to the previous ones.
+ *
+ * This module is client-safe (types + pure parsing); storage is in ./thread.
+ */
+
+export type MoCardType = "kpis" | "table" | "chart" | "creatives" | "note";
+export type MoTone = "good" | "bad" | "neutral";
+
+export interface MoKpi { label: string; value: string; delta?: string; tone?: MoTone; hint?: string }
+export interface MoCreative { name: string; image?: string; metrics: Record<string, string>; note?: string }
+export interface MoSeries { name: string; values: Array<number | null> }
+
+interface MoCardBase {
+  id: string;
+  title: string;
+  /** Period / source line under the title ("Meta · Naturalia · 24 oct"). */
+  subtitle?: string;
+  /** Id of the card this one compares with or follows (drawn as a link). */
+  ref?: string;
+  /** World coordinates and size on the board. */
+  x: number;
+  y: number;
+  w: number;
+  h?: number;
+  minimized?: boolean;
+  /** Turn that produced the card (index of the assistant message). */
+  turn: number;
+  at: string;
+}
+
+/** The content of a card, by type. */
+export type MoCardPayload =
+  | { type: "kpis"; items: MoKpi[] }
+  | { type: "table"; columns: string[]; rows: string[][]; align?: Array<"left" | "right"> }
+  | { type: "chart"; kind: "line" | "bar"; x: string[]; series: MoSeries[]; unit?: string }
+  | { type: "creatives"; items: MoCreative[] }
+  | { type: "note"; markdown: string };
+
+export type MoCard = MoCardBase & MoCardPayload;
+
+/** What the model writes for one card (before it gets an id and a place). */
+export type MoCardSpec = { title: string; subtitle?: string; ref?: string } & MoCardPayload;
+
+/** Geometry patch sent by the browser. */
+export interface MoCardPatch { x?: number; y?: number; w?: number; h?: number; minimized?: boolean; removed?: boolean }
+
+export interface MoMessage {
+  role: "user" | "assistant";
+  /** What was said (user) or Mo's raw answer (assistant, the ```mo block included). */
+  content: string;
+  at: string;
+  /** Assistant: the spoken sentence and the cards the turn produced. */
+  say?: string;
+  cardIds?: string[];
+}
+
+export interface MoBoardData {
+  id: string;
+  title: string;
+  cards: MoCard[];
+  messages: MoMessage[];
+  updatedAt: string;
+}
+
+export const MO_MAX_CARDS = 120;
+export const MO_MAX_MESSAGES = 80;
+export const moSessionKey = (boardId: string) => `mo:${boardId}`;
+
+/** Default size of a card by type (world units = CSS px at zoom 1). */
+export const CARD_SIZES: Record<MoCardType, { w: number; h: number }> = {
+  kpis: { w: 440, h: 220 },
+  table: { w: 640, h: 380 },
+  chart: { w: 560, h: 360 },
+  creatives: { w: 660, h: 440 },
+  note: { w: 440, h: 320 },
+};
+
+export const ROW_GAP = 70;
+export const COL_GAP = 40;
+
+/** What the model is asked to produce (parsed by `parseMoAnswer`). */
+export interface MoAnswer { say: string; cards: MoCardSpec[] }
+
+const MAX_SAY = 400;
+const MAX_TITLE = 90;
+const MAX_ROWS = 60;
+const MAX_COLS = 10;
+const MAX_ITEMS = 24;
+const MAX_POINTS = 120;
+const MAX_MD = 6000;
+
+const str = (v: unknown, max: number): string => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "").trim().slice(0, max);
+const tone = (v: unknown): MoTone | undefined => (v === "good" || v === "bad" || v === "neutral" ? v : undefined);
+
+function sanitizeCard(raw: unknown): MoCardSpec | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const title = str(r.title, MAX_TITLE) || "Sans titre";
+  const subtitle = str(r.subtitle, 160) || undefined;
+  const ref = /^[a-z0-9]{3,24}$/i.test(String(r.ref ?? "")) ? String(r.ref) : undefined;
+  const base = { title, ...(subtitle ? { subtitle } : {}), ...(ref ? { ref } : {}) };
+  switch (r.type) {
+    case "kpis": {
+      const items = (Array.isArray(r.items) ? r.items : []).slice(0, MAX_ITEMS).map((it): MoKpi | null => {
+        if (!it || typeof it !== "object") return null;
+        const k = it as Record<string, unknown>;
+        const label = str(k.label, 60); const value = str(k.value, 40);
+        if (!label || !value) return null;
+        const delta = str(k.delta, 30); const hint = str(k.hint, 120);
+        return { label, value, ...(delta ? { delta } : {}), ...(tone(k.tone) ? { tone: tone(k.tone) } : {}), ...(hint ? { hint } : {}) };
+      }).filter((x): x is MoKpi => !!x);
+      return items.length ? { ...base, type: "kpis", items } : null;
+    }
+    case "table": {
+      const columns = (Array.isArray(r.columns) ? r.columns : []).slice(0, MAX_COLS).map((c) => str(c, 60));
+      if (!columns.length) return null;
+      const rows = (Array.isArray(r.rows) ? r.rows : []).slice(0, MAX_ROWS)
+        .map((row) => (Array.isArray(row) ? row : []).slice(0, columns.length).map((c) => str(c, 160)))
+        .filter((row) => row.some(Boolean))
+        .map((row) => { while (row.length < columns.length) row.push(""); return row; });
+      const align = Array.isArray(r.align) ? r.align.slice(0, columns.length).map((a) => (a === "right" ? "right" as const : "left" as const)) : undefined;
+      return { ...base, type: "table", columns, rows, ...(align ? { align } : {}) };
+    }
+    case "chart": {
+      const kind = r.kind === "bar" ? "bar" as const : "line" as const;
+      const x = (Array.isArray(r.x) ? r.x : []).slice(0, MAX_POINTS).map((v) => str(v, 40));
+      const series = (Array.isArray(r.series) ? r.series : []).slice(0, 6).map((s): MoSeries | null => {
+        if (!s || typeof s !== "object") return null;
+        const o = s as Record<string, unknown>;
+        const values = (Array.isArray(o.values) ? o.values : []).slice(0, x.length).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() && Number.isFinite(Number(v.replace(",", "."))) ? Number(v.replace(",", ".")) : null));
+        return values.length ? { name: str(o.name, 40) || "Série", values } : null;
+      }).filter((s): s is MoSeries => !!s);
+      if (!x.length || !series.length) return null;
+      const unit = str(r.unit, 10);
+      return { ...base, type: "chart", kind, x, series, ...(unit ? { unit } : {}) };
+    }
+    case "creatives": {
+      const items = (Array.isArray(r.items) ? r.items : []).slice(0, MAX_ITEMS).map((it): MoCreative | null => {
+        if (!it || typeof it !== "object") return null;
+        const k = it as Record<string, unknown>;
+        const name = str(k.name, 120);
+        if (!name) return null;
+        const image = str(k.image, 1500);
+        const metrics: Record<string, string> = {};
+        if (k.metrics && typeof k.metrics === "object") for (const [mk, mv] of Object.entries(k.metrics as Record<string, unknown>).slice(0, 8)) { const key = str(mk, 30); const val = str(mv, 40); if (key && val) metrics[key] = val; }
+        const note = str(k.note, 200);
+        return { name, ...(/^https:\/\//.test(image) ? { image } : {}), metrics, ...(note ? { note } : {}) };
+      }).filter((x): x is MoCreative => !!x);
+      return items.length ? { ...base, type: "creatives", items } : null;
+    }
+    case "note": {
+      const markdown = str(r.markdown ?? r.text ?? r.content, MAX_MD);
+      return markdown ? { ...base, type: "note", markdown } : null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Reads Mo's answer: the JSON of the ```mo fence (or the whole text when it
+ * is bare JSON). Without a usable block, the text becomes one note card and
+ * the first sentence is what gets said — so a stray prose answer still lands
+ * on the board.
+ */
+export function parseMoAnswer(text: string): MoAnswer {
+  const trimmed = text.trim();
+  const fence = trimmed.match(/```(?:mo|json)?\s*\n([\s\S]*?)\n```/);
+  const candidates = [fence?.[1], trimmed].filter((c): c is string => !!c);
+  for (const c of candidates) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(c); } catch { continue; }
+    if (!parsed || typeof parsed !== "object") continue;
+    const o = parsed as Record<string, unknown>;
+    const cards = (Array.isArray(o.cards) ? o.cards : []).map(sanitizeCard).filter((x): x is MoCardSpec => !!x).slice(0, 8);
+    const say = str(o.say, MAX_SAY) || (cards.length ? `Voilà, ${cards.length === 1 ? "la carte est" : "les cartes sont"} à l'écran.` : "Je n'ai rien trouvé à afficher.");
+    return { say, cards };
+  }
+  // Prose fallback.
+  const outside = trimmed.replace(/```[\s\S]*?```/g, "").trim();
+  const firstSentence = outside.split(/(?<=[.!?])\s/)[0]?.slice(0, MAX_SAY) || "Voilà ce que j'ai trouvé.";
+  return { say: firstSentence, cards: outside ? [{ type: "note", title: "Réponse de Mo", markdown: outside.slice(0, MAX_MD) }] : [] };
+}
+
+/** Places the cards of one turn on a new row under everything already on the board. */
+export function layoutNewCards(existing: MoCard[], answer: MoAnswer, turn: number, at: string): MoCard[] {
+  const bottom = existing.reduce((m, c) => Math.max(m, c.y + (c.h ?? CARD_SIZES[c.type].h)), 0);
+  const y = existing.length ? bottom + ROW_GAP : 0;
+  let x = 0;
+  const ids = new Set(existing.map((c) => c.id));
+  const out: MoCard[] = [];
+  for (const c of answer.cards) {
+    const size = CARD_SIZES[c.type];
+    let id = newCardId();
+    while (ids.has(id)) id = newCardId();
+    ids.add(id);
+    const ref = c.ref && ids.has(c.ref) ? c.ref : undefined;
+    const { ref: _ref, ...rest } = c; void _ref;
+    out.push({ ...rest, ...(ref ? { ref } : {}), id, x, y, w: size.w, h: size.h, turn, at } as MoCard);
+    x += size.w + COL_GAP;
+  }
+  return out;
+}
+
+export function newCardId(): string {
+  return Math.random().toString(36).slice(2, 8);
+}
+
+/** Compact inventory of the board for the model ("c3f2a « CPA créas » table"). */
+export function describeCards(cards: MoCard[]): string {
+  const visible = cards.slice(-24);
+  if (!visible.length) return "Aucune carte à l'écran pour l'instant.";
+  return visible.map((c) => `- ${c.id} · ${c.type} · « ${c.title} »${c.subtitle ? ` (${c.subtitle})` : ""}`).join("\n");
+}
+
+export function boardTitleFrom(messages: MoMessage[]): string {
+  const first = messages.find((m) => m.role === "user")?.content.replace(/\s+/g, " ").trim() ?? "";
+  return first.length > 60 ? first.slice(0, 59).trimEnd() + "…" : first || "Session Mo";
+}

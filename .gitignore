@@ -42,3 +42,4 @@ next-env.d.ts
 screenshots/
 test-deck*.mjs
 .env*.local
+AGENTS.md

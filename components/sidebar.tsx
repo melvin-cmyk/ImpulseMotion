@@ -20,7 +20,8 @@ import {
   MessageSquare,
   Repeat,
   SlidersHorizontal,
-  Wand2, PenTool, PanelLeftClose, PanelLeftOpen, ChevronDown } from "lucide-react"
+  Wand2, PenTool, PanelLeftClose, PanelLeftOpen, ChevronDown, AudioLines,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
 import { useAiJobs } from "@/components/ai-jobs-watcher"
@@ -98,6 +99,8 @@ const NAV_SECTIONS: NavSection[] = [
       // Design files (FigCraft editor + AI copilot), staff only: proxy.ts keeps /design out of the client prefixes.
       { href: "/design", icon: PenTool, label: "Design", match: (p) => p === "/design" || p.startsWith("/design/") },
       { href: "/ai", icon: Bot, label: "AI Assistant", match: (p) => p.startsWith("/ai") },
+      // Mo: voice assistant on a full-screen board of cards (staff only, app/mo/layout.tsx).
+      { href: "/mo", icon: AudioLines, label: "Mo", match: (p) => p === "/mo" || p.startsWith("/mo/") },
     ],
   },
   {
@@ -174,7 +177,7 @@ export function Sidebar() {
     try { localStorage.setItem("im:sidebar-folded", JSON.stringify(next)) } catch { /* fine */ }
     return next
   })
-  const runningFor = (href: string) => running.filter((j) => (href === "/ai" ? j.surface === "console" : href === "/bot" ? j.surface === "bot" : href === "/design" ? j.surface === "design" : false)).length
+  const runningFor = (href: string) => running.filter((j) => (href === "/ai" ? j.surface === "console" : href === "/bot" ? j.surface === "bot" : href === "/design" ? j.surface === "design" : href === "/mo" ? j.surface === "mo" : false)).length
 
   return (
     <div className={cn("bg-gray-950 border-r border-gray-800 flex flex-col py-4 gap-1 shrink-0 overflow-y-auto overflow-x-hidden no-scrollbar transition-[width] duration-150", collapsed ? "w-14 px-2" : "w-52 px-3")}>

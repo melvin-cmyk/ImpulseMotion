@@ -13,8 +13,8 @@
  *   lists    → `listJobs` reconciles the caller's running jobs with the relay
  *              before answering (a webhook that never came, a relay restart).
  *
- * Two surfaces today: the private client bots (BotConversation) and the
- * staff console (ConsoleConversation).
+ * Surfaces: the private client bots (BotConversation), the staff console
+ * (ConsoleConversation), designs, the Analyse Ads copilot and Mo (MoBoard).
  */
 
 import { prisma } from "@/lib/prisma";
@@ -26,8 +26,9 @@ import { conversationTitle, parseStoredMessages, type StoredConsoleMessage } fro
 import { appendDesignMessages } from "@/lib/design/thread";
 import { appendAnalyseMessages } from "@/lib/ads-warehouse/copilot-thread";
 import { syncDesignOutputsToDrive } from "@/lib/design/drive-sync";
+import { appendMoAnswer } from "@/lib/mo/thread";
 
-export type AiJobSurface = "bot" | "console" | "design" | "analyse";
+export type AiJobSurface = "bot" | "console" | "design" | "analyse" | "mo";
 export type AiJobStatus = "running" | "done" | "stopped" | "failed";
 
 export const JOB_ID_RE = /^[a-f0-9]{32}$/;
@@ -164,6 +165,9 @@ export async function finalizeAiJob(
       void syncDesignOutputsToDrive(row.conversationId, row.startedAt.getTime() - 60_000).catch((e) => console.error(`[design-drive] ${row.conversationId} : ${e instanceof Error ? e.message : e}`));
     } else if (row.surface === "analyse") {
       await appendAnalyseMessages(row.conversationId, [{ role: "assistant", content: text, at }]);
+    } else if (row.surface === "mo") {
+      // Mo answers in cards: parsed and laid on the board here (lib/mo/model.ts).
+      await appendMoAnswer(row.conversationId, text, at);
     } else if (row.surface === "console") {
       const toolCalls = summary.toolCalls.filter((t) => t.name);
       await appendConsoleMessages(row.conversationId, row.userId, [{
@@ -279,6 +283,7 @@ export function jobHref(job: Pick<AiJobRow, "surface" | "conversationId" | "botI
   if (job.surface === "bot" && job.botId) return `/bot/${job.botId}?c=${job.conversationId}`;
   if (job.surface === "design") return `/design/${job.conversationId}`;
   if (job.surface === "analyse") return `/analyse?thread=${job.conversationId}`;
+  if (job.surface === "mo") return `/mo?b=${job.conversationId}`;
   return `/ai?c=${job.conversationId}`;
 }
 
