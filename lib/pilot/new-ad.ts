@@ -1,7 +1,7 @@
 /**
  * Pilotage — a new Meta ad in an ad set (kind "create_ad"), on the same
- * writes as the routines (lib/meta-write.ts): an image or a video ad, always
- * created PAUSED, read back, paused again if it is not.
+ * writes as the routines (lib/meta-write.ts): an image, a video or a carousel
+ * ad, always created PAUSED, read back, paused again if it is not.
  *
  *   identities  the Pages the ad account may promote and its Instagram
  *               accounts, to fill the form;
@@ -15,7 +15,10 @@
  *               processes it for a few minutes;
  *   create      at the send, with the guard of the action. A video not yet
  *               « ready » gives the outcome `uploading`: the service keeps the
- *               operation open and the media pass finishes the creation.
+ *               operation open and the media pass finishes the creation. A
+ *               carousel may carry several videos (one PilotMedia row each,
+ *               all attached to the operation): the ad is created only when
+ *               every one of them is ready.
  */
 
 import { getMetaSystemToken, metaGraphGetOnce } from "@/lib/meta-api";
@@ -26,7 +29,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import { publicMediaUrl } from "@/lib/studio";
 import type { WriteGuard } from "@/lib/routines/types";
-import { adTextsOf, metaAdSpecError, type AdSpec, type MediaRef } from "@/lib/pilot/ad-spec";
+import { adTextsOf, metaAdSpecError, type AdSpec, type CarouselCard, type MediaRef } from "@/lib/pilot/ad-spec";
 import type { WriteOutcome } from "@/lib/pilot/meta";
 
 /** A signed link must outlive the preview (30 min), the send and Meta's processing (minutes, hours when Meta is slow). */
@@ -54,12 +57,29 @@ async function adsetCampaign(account: string, adsetId: string): Promise<string> 
 
 /** What createPausedAd takes, from the spec. */
 export const toInput = (account: string, adsetId: string, spec: AdSpec & { campaignId: string }): PausedAdInput => {
-  const media = spec.media[0];
   const texts = adTextsOf(spec);
-  return {
+  const base = {
     accountId: account, campaignId: spec.campaignId, adsetId, pageId: spec.identity.pageId, instagramUserId: spec.identity.instagramUserId,
-    name: spec.name, primaryText: texts.primaryText, headline: texts.headline, description: texts.description,
-    linkUrl: spec.linkUrl, callToAction: spec.callToAction,
+    name: spec.name, primaryText: texts.primaryText, linkUrl: spec.linkUrl, callToAction: spec.callToAction,
+  };
+  if (spec.format === "carousel") {
+    return {
+      ...base, format: "carousel",
+      cards: (spec.cards ?? []).map((c) => ({
+        link: c.link,
+        pictureUrl: c.media.kind === "video" ? c.media.thumbUrl ?? "" : c.media.url,
+        ...(c.media.kind === "video" && c.media.remoteId ? { videoId: c.media.remoteId } : {}),
+        ...(c.headline ? { name: c.headline } : {}),
+        ...(c.description ? { description: c.description } : {}),
+        ...(c.callToAction ? { callToAction: c.callToAction } : {}),
+      })),
+      multiShareOptimized: spec.options?.multiShareOptimized === true,
+      endCard: spec.options?.endCard !== false,
+    };
+  }
+  const media = spec.media[0];
+  return {
+    ...base, headline: texts.headline, description: texts.description,
     format: spec.format === "video" ? "video" : "image",
     imageUrl: spec.format === "video" ? media?.thumbUrl ?? "" : media?.url ?? "",
     ...(spec.format === "video" && media?.remoteId ? { videoId: media.remoteId } : {}),
@@ -117,6 +137,7 @@ async function refreshMedia(media: MediaRef): Promise<{ ok: true; media: MediaRe
 export type GuardLender = <T>(key: string, fn: (guard: WriteGuard) => Promise<T>) => Promise<T>;
 
 export const MEDIA_UPLOADING_NOTE = "Vidéo envoyée à Meta, en traitement (quelques minutes). Si elle n'est pas prête à l'envoi, la publicité sera créée automatiquement dès qu'elle l'est.";
+const mediaUploadingNote = (n: number) => (n > 1 ? `${n} vidéos envoyées à Meta, en traitement (quelques minutes). Si elles ne sont pas toutes prêtes à l'envoi, la publicité sera créée automatiquement dès qu'elles le sont.` : MEDIA_UPLOADING_NOTE);
 
 /** Starts the upload on Meta and keeps the PilotMedia row following it. Throws MetaWriteError. */
 async function startVideoUpload(guard: WriteGuard, account: string, spec: AdSpec, media: MediaRef, createdById: string | null): Promise<{ mediaId: string; videoId: string }> {
@@ -131,6 +152,27 @@ async function startVideoUpload(guard: WriteGuard, account: string, spec: AdSpec
   return { mediaId: row.id, videoId };
 }
 
+/**
+ * A video the ad needs in Meta's library before its creation: the one of a
+ * video ad (its PilotMedia id lives on the spec, `mediaId`) or the one of a
+ * carousel card (on the card's media, `MediaRef.mediaId`). `label` names it
+ * in French for the messages.
+ */
+interface PendingVideo { media: MediaRef; label: string; mediaId: () => string | undefined; setMediaId: (id: string | undefined) => void }
+
+function pendingVideos(spec: AdSpec): PendingVideo[] {
+  if (spec.format === "video" && spec.media[0]) {
+    const media = spec.media[0];
+    return [{ media, label: "Vidéo", mediaId: () => spec.mediaId, setMediaId: (id) => { spec.mediaId = id; } }];
+  }
+  if (spec.format === "carousel") {
+    return (spec.cards ?? []).flatMap((card, i) => card.media.kind === "video"
+      ? [{ media: card.media, label: `Vidéo de la carte ${i + 1}`, mediaId: () => card.media.mediaId, setMediaId: (id: string | undefined) => { card.media.mediaId = id; } }]
+      : []);
+  }
+  return [];
+}
+
 export type CheckedAd = { ok: true; spec: AdSpec & { campaignId: string }; notes: string[] } | { ok: false; error: string };
 
 /**
@@ -141,9 +183,21 @@ export type CheckedAd = { ok: true; spec: AdSpec & { campaignId: string }; notes
 export async function checkNewAd(account: string, adsetId: string, spec: AdSpec, lend?: GuardLender, createdById: string | null = null): Promise<CheckedAd> {
   let campaignId: string;
   try { campaignId = await adsetCampaign(account, adsetId); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
-  const media = spec.media[0] ? await refreshMedia(spec.media[0]) : { ok: true as const, media: undefined };
-  if (!media.ok) return media;
-  const full: AdSpec & { campaignId: string } = { ...spec, media: media.media ? [media.media] : [], campaignId };
+  // Fresh links for every media: the one of the ad, or those of the cards of a carousel.
+  let full: AdSpec & { campaignId: string };
+  if (spec.format === "carousel") {
+    const cards: CarouselCard[] = [];
+    for (const [i, card] of (spec.cards ?? []).entries()) {
+      const m = await refreshMedia(card.media);
+      if (!m.ok) return { ok: false, error: `Carte ${i + 1} : ${m.error}` };
+      cards.push({ ...card, media: m.media });
+    }
+    full = { ...spec, media: [], cards, campaignId };
+  } else {
+    const media = spec.media[0] ? await refreshMedia(spec.media[0]) : { ok: true as const, media: undefined };
+    if (!media.ok) return media;
+    full = { ...spec, media: media.media ? [media.media] : [], campaignId };
+  }
   const invalid = metaAdSpecError(full);
   if (invalid) return { ok: false, error: invalid.endsWith(".") ? invalid : `${invalid}.` };
   // The same input as the send, checked with the same rule (a video has no id yet: that one is skipped).
@@ -156,70 +210,94 @@ export async function checkNewAd(account: string, adsetId: string, spec: AdSpec,
   }
   const identity = await checkAdIdentity(account, spec.identity.pageId, spec.identity.instagramUserId);
   const notes = [...identity.notes];
-  if (full.format === "video") {
-    const video = full.media[0];
-    if (full.mediaId) {
+  const pending = pendingVideos(full);
+  const toUpload: PendingVideo[] = [];
+  let processing = 0;
+  for (const v of pending) {
+    const id = v.mediaId();
+    if (id) {
       // Prepared again with the same video (an undo, a second preview): the upload is not repeated.
-      const row = await prisma.pilotMedia.findUnique({ where: { id: full.mediaId }, select: { status: true, remoteId: true, accountId: true } });
-      if (!row || row.accountId !== account || row.status === "failed" || !row.remoteId) { full.mediaId = undefined; delete video.remoteId; }
-      else { video.remoteId = row.remoteId; if (row.status !== "ready") notes.push(MEDIA_UPLOADING_NOTE); }
+      const row = await prisma.pilotMedia.findUnique({ where: { id }, select: { status: true, remoteId: true, accountId: true } });
+      if (row && row.accountId === account && row.status !== "failed" && row.remoteId) {
+        v.media.remoteId = row.remoteId;
+        if (row.status !== "ready") processing++;
+        continue;
+      }
+      v.setMediaId(undefined);
+      delete v.media.remoteId;
     }
-    if (!full.mediaId) {
-      if (!lend) notes.push("L'envoi vers Meta est fermé (page en essai) : la vidéo sera envoyée à Meta au moment de l'envoi, puis traitée quelques minutes.");
-      else {
-        try {
-          const up = await lend(`media:${account}:${adsetId}`, (guard) => startVideoUpload(guard, account, full, video, createdById));
-          full.mediaId = up.mediaId;
-          video.remoteId = up.videoId;
-          notes.push(MEDIA_UPLOADING_NOTE);
-        } catch (e) {
-          if (isMetaWriteError(e)) return { ok: false, error: e.kind === "uncertain" ? `${e.message} — la vidéo a peut-être été reçue par Meta ; préparez l'aperçu à nouveau dans une minute.` : e.message };
-          return { ok: false, error: `Envoi de la vidéo impossible : ${e instanceof Error ? e.message : String(e)}` };
-        }
+    toUpload.push(v);
+  }
+  if (toUpload.length) {
+    if (!lend) notes.push(`L'envoi vers Meta est fermé (page en essai) : ${toUpload.length > 1 ? "les vidéos seront envoyées" : "la vidéo sera envoyée"} à Meta au moment de l'envoi, puis traitée${toUpload.length > 1 ? "s" : ""} quelques minutes.`);
+    else {
+      let current: PendingVideo = toUpload[0];
+      try {
+        await lend(`media:${account}:${adsetId}`, async (guard) => {
+          for (const v of toUpload) {
+            current = v;
+            const up = await startVideoUpload(guard, account, full, v.media, createdById);
+            v.setMediaId(up.mediaId);
+            v.media.remoteId = up.videoId;
+            processing++;
+          }
+        });
+      } catch (e) {
+        const where = full.format === "carousel" ? `${current.label.replace(/^Vidéo de la /, "")} : ` : "";
+        if (isMetaWriteError(e)) return { ok: false, error: `${where}${e.kind === "uncertain" ? `${e.message} — la vidéo a peut-être été reçue par Meta ; préparez l'aperçu à nouveau dans une minute.` : e.message}` };
+        return { ok: false, error: `${where}Envoi de la vidéo impossible : ${e instanceof Error ? e.message : String(e)}` };
       }
     }
   }
+  if (processing) notes.push(mediaUploadingNote(processing));
   return { ok: true, spec: full, notes };
 }
 
-export type NewAdOutcome = (WriteOutcome & { adId?: string }) | { kind: "uploading"; mediaId: string; error: string };
+export type NewAdOutcome = (WriteOutcome & { adId?: string }) | { kind: "uploading"; mediaIds: string[]; error: string };
 
-const MEDIA_WAIT_TEXT = "Vidéo en traitement chez Meta : la publicité sera créée automatiquement dès qu'elle est prête (quelques minutes).";
+const mediaWaitText = (n: number) => (n > 1 ? "Vidéos en traitement chez Meta : la publicité sera créée automatiquement dès qu'elles sont toutes prêtes (quelques minutes)." : "Vidéo en traitement chez Meta : la publicité sera créée automatiquement dès qu'elle est prête (quelques minutes).");
 
 /**
  * At the send. Never throws: the outcome says what happened; `adId` when the
- * ad exists; `uploading` when the video is not ready yet (the media pass
- * finishes the creation).
+ * ad exists; `uploading` when a video is not ready yet (the media pass
+ * finishes the creation once every video of the operation is ready;
+ * `mediaIds` are all the PilotMedia rows of the operation).
  */
 export async function createNewAd(guard: WriteGuard, account: string, adsetId: string, spec: AdSpec, createdById: string | null = null): Promise<NewAdOutcome> {
   if (!spec.campaignId) return { kind: "refused", error: "Campagne de l'ensemble inconnue : préparez l'aperçu à nouveau." };
   const full = spec as AdSpec & { campaignId: string };
   try {
-    if (full.format === "video") {
-      const video = full.media[0];
-      let row = full.mediaId ? await prisma.pilotMedia.findUnique({ where: { id: full.mediaId } }) : null;
+    const pending = pendingVideos(full);
+    const mediaIds: string[] = [];
+    let waiting = 0;
+    for (const v of pending) {
+      const id = v.mediaId();
+      let row = id ? await prisma.pilotMedia.findUnique({ where: { id } }) : null;
       if (row && row.accountId !== account) row = null;
       if (!row || !row.remoteId) {
         // Writes were closed at the preview: the video goes to Meta now.
-        const up = await startVideoUpload(guard, account, full, video, createdById);
+        const up = await startVideoUpload(guard, account, full, v.media, createdById);
         row = await prisma.pilotMedia.findUniqueOrThrow({ where: { id: up.mediaId } });
       }
-      if (row.status === "failed") return { kind: "refused", error: `Vidéo refusée par Meta : ${row.error ?? "traitement en erreur"}.` };
+      if (row.status === "failed") return { kind: "refused", error: `${v.label} refusée par Meta : ${row.error ?? "traitement en erreur"}.` };
       if (row.status !== "ready") {
         const st = await readVideoStatus(row.remoteId!);
         if (st.kind === "error") {
           await prisma.pilotMedia.update({ where: { id: row.id }, data: { status: "failed", error: st.detail, checkedAt: new Date() } });
-          return { kind: "refused", error: `Vidéo refusée par Meta : ${st.detail}.` };
+          return { kind: "refused", error: `${v.label} refusée par Meta : ${st.detail}.` };
         }
         if (st.kind === "processing") {
           await prisma.pilotMedia.update({ where: { id: row.id }, data: { checkedAt: new Date() } });
-          return { kind: "uploading", mediaId: row.id, error: MEDIA_WAIT_TEXT };
+          waiting++;
+        } else {
+          row = await prisma.pilotMedia.update({ where: { id: row.id }, data: { status: "ready", error: null, checkedAt: new Date() } });
         }
-        row = await prisma.pilotMedia.update({ where: { id: row.id }, data: { status: "ready", error: null, checkedAt: new Date() } });
       }
-      video.remoteId = row.remoteId!;
-      full.mediaId = row.id;
+      v.media.remoteId = row.remoteId!;
+      v.setMediaId(row.id);
+      mediaIds.push(row.id);
     }
+    if (waiting) return { kind: "uploading", mediaIds, error: mediaWaitText(pending.length) };
     const out = await createPausedAd(guard, toInput(account, adsetId, full));
     return { kind: "done", adId: out.adId };
   } catch (e) {

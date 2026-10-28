@@ -261,7 +261,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
           <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "meta" ? "Ens." : "Groupe") : row.type === "keyword" ? (row.negative ? "Négatif" : "Mot-clé") : "Annonce"}</span>
           <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
           {hasPending && <Pill tone="violet" className="text-[10px]">à envoyer</Pill>}
-          {row.type === "ad" && row.format && <Pill tone="default" className="text-[10px] normal-case">{row.format === "video" ? "vidéo" : "image"}</Pill>}
+          {row.type === "ad" && row.format && <Pill tone="default" className="text-[10px] normal-case">{row.format === "video" ? "vidéo" : row.format === "carousel" ? "carrousel" : "image"}</Pill>}
           {statusPill(row)}
           <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{row.type === "keyword" && row.bidAmount ? `CPC ${money(row.bidAmount, currency)}` : budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
           <span className="text-xs text-gray-500 w-20 text-right hidden md:inline" title="Dépense des 7 derniers jours">{money(Math.round(row.spend7d * (currencyOffset(currency))), currency)}</span>

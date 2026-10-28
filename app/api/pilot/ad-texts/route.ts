@@ -3,13 +3,15 @@
  * ad's creative as Meta holds them now (primary text, headline, description,
  * link, button), for the editor « Textes » of Pilotage (staff, account of the
  * client and of the scope). Null `texts` when the ad is not an image or video
- * link ad: those are edited in Ads Manager. Read only.
+ * link ad: those are edited in Ads Manager; a carousel says so in `locked`
+ * (its texts live card by card). Read only.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { resolveAccount } from "@/lib/pilot/service";
 import { readAdCreative } from "@/lib/pilot/meta";
+import { CAROUSEL_TEXTS_LOCKED } from "@/lib/pilot/creative";
 
 export const maxDuration = 60;
 
@@ -25,6 +27,9 @@ export async function GET(req: NextRequest) {
     const read = await readAdCreative(adId);
     if (!read || read.accountId !== resolved.account.digits) return NextResponse.json({ error: "Cette annonce n'appartient pas au compte." }, { status: 404 });
     const c = read.creative;
+    if (c && (c.kind === "carousel" || !c.editable)) {
+      return NextResponse.json({ adName: read.adName, texts: null, creativeId: c.creativeId, media: `carrousel (${c.cardCount} cartes)`, locked: CAROUSEL_TEXTS_LOCKED }, { headers: { "Cache-Control": "no-store" } });
+    }
     return NextResponse.json({
       adName: read.adName,
       texts: c ? { kind: c.kind, primaryText: c.primaryText, headline: c.headline, description: c.description, linkUrl: c.linkUrl, callToAction: c.callToAction } : null,

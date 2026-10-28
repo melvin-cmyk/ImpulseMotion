@@ -598,3 +598,67 @@ describe("uploadVideo / readVideoStatus — video ads", () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe("createPausedAd — carousel (link_data.child_attachments)", () => {
+  const VIDEO = "1234567890123456";
+  const cards = () => [
+    { link: "https://www.example.org/p/1", pictureUrl: "https://cdn.example.org/1.jpg", name: "Gourde 50 cl", description: "Inox, 24 h au frais" },
+    { link: "https://www.example.org/p/2", pictureUrl: "https://cdn.example.org/2.jpg", name: "Gourde 75 cl", description: "Grande soif", callToAction: "BUY_NOW" },
+    { link: "https://www.example.org/p/3", pictureUrl: "https://cdn.example.org/3-thumb.jpg", videoId: VIDEO, name: "En vidéo" },
+  ];
+  const carousel = () => ({ ...input(), imageUrl: undefined, headline: undefined, description: undefined, format: "carousel" as const, cards: cards() });
+
+  it("builds child_attachments in the order given, the see-more link and the primary text, order kept and end card by default, still PAUSED", async () => {
+    const { write, guard } = await load();
+    const ad = await write.createPausedAd(guard, carousel());
+    expect(ad.status).toBe("PAUSED");
+    const [creative, created] = posts();
+    expect(creative.path).toBe(`/act_${ACCOUNT}/adcreatives`);
+    const story = JSON.parse(creative.body!.get("object_story_spec")!);
+    expect(story.video_data).toBeUndefined();
+    expect(story.link_data).toEqual({
+      link: "https://www.example.org/produit?utm_source=meta",
+      message: "Découvrez la nouvelle gamme.",
+      child_attachments: [
+        { link: "https://www.example.org/p/1", picture: "https://cdn.example.org/1.jpg", name: "Gourde 50 cl", description: "Inox, 24 h au frais", call_to_action: { type: "SHOP_NOW", value: { link: "https://www.example.org/p/1" } } },
+        { link: "https://www.example.org/p/2", picture: "https://cdn.example.org/2.jpg", name: "Gourde 75 cl", description: "Grande soif", call_to_action: { type: "BUY_NOW", value: { link: "https://www.example.org/p/2" } } },
+        { link: "https://www.example.org/p/3", picture: "https://cdn.example.org/3-thumb.jpg", video_id: VIDEO, name: "En vidéo", call_to_action: { type: "SHOP_NOW", value: { link: "https://www.example.org/p/3" } } },
+      ],
+      multi_share_optimized: false,
+      multi_share_end_card: true,
+    });
+    // No top-level picture, name or call_to_action: a carousel's cards carry them.
+    expect(story.link_data.picture).toBeUndefined();
+    expect(created.body?.get("status")).toBe("PAUSED");
+    expect(created.body?.get("creative")).toBe(JSON.stringify({ creative_id: CREATIVE }));
+    expect(creative.body?.get("status")).toBeNull();
+  });
+
+  it("pausedAdStory: optimised order and no end card when asked; NO_BUTTON on the ad gives button-less cards", async () => {
+    const { write } = await load();
+    const story = write.pausedAdStory({ ...carousel(), multiShareOptimized: true, endCard: false, callToAction: "NO_BUTTON" }) as { link_data: Record<string, unknown> & { child_attachments: Array<Record<string, unknown>> } };
+    expect(story.link_data.multi_share_optimized).toBe(true);
+    expect(story.link_data.multi_share_end_card).toBe(false);
+    expect(story.link_data.child_attachments[0].call_to_action).toEqual({ type: "NO_BUTTON" });
+    expect(story.link_data.child_attachments[1].call_to_action).toEqual({ type: "BUY_NOW", value: { link: "https://www.example.org/p/2" } });
+  });
+
+  it("refuses 1 card, 11 cards, two cards of the same title, a card without a public link, before any request", async () => {
+    const { write, guard } = await load();
+    const one = { ...carousel(), cards: cards().slice(0, 1) };
+    await expect(write.createPausedAd(guard, one)).rejects.toThrow(/2 cartes au moins/);
+    const eleven = { ...carousel(), cards: Array.from({ length: 11 }, (_, i) => ({ link: `https://www.example.org/p/${i}`, pictureUrl: `https://cdn.example.org/${i}.jpg`, name: `Carte ${i}` })) };
+    expect(write.pausedAdInputError(eleven)).toMatch(/10 cartes au plus/);
+    const twice = { ...carousel(), cards: [cards()[0], { ...cards()[1], name: "gourde 50 cl" }] };
+    expect(write.pausedAdInputError(twice)).toMatch(/même titre « gourde 50 cl »/);
+    expect(write.pausedAdInputError({ ...carousel(), cards: [cards()[0], { ...cards()[1], link: "http://www.example.org/p/2" }] })).toMatch(/carte 2 : lien refusé/);
+    expect(write.pausedAdInputError({ ...carousel(), cards: [cards()[0], { ...cards()[1], link: "" }] })).toMatch(/carte 2 : lien refusé/);
+    expect(write.pausedAdInputError({ ...carousel(), cards: [cards()[0], { ...cards()[1], pictureUrl: "https://10.0.0.1/x.jpg" }] })).toMatch(/carte 2 : image refusée/);
+    expect(write.pausedAdInputError({ ...carousel(), cards: [cards()[0], { ...cards()[2], videoId: "abc" }] })).toMatch(/carte 2 : vidéo non prête/);
+    expect(write.pausedAdInputError({ ...carousel(), cards: [cards()[0], { ...cards()[1], callToAction: "FLY" }] })).toMatch(/carte 2 : bouton d'action inconnu/);
+    // Media belong to the cards; cards belong to a carousel.
+    expect(write.pausedAdInputError({ ...carousel(), imageUrl: "https://cdn.example.org/x.jpg" })).toMatch(/médias sur ses cartes/);
+    expect(write.pausedAdInputError({ ...input(), cards: cards() })).toMatch(/cartes inattendues/);
+    expect(calls).toHaveLength(0);
+  });
+});

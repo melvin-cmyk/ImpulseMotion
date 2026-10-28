@@ -11,7 +11,7 @@ import { getMetaSystemToken, metaGraphGetAll, metaGraphGetOnce, metaGraphUpdate,
 import { isMetaApiError } from "@/lib/meta-errors";
 import { metaAccountDigits } from "@/lib/routines/accounts";
 import { metaGraphPost } from "@/lib/meta-api";
-import { metaStoryWithTexts, readMetaCreative, type MetaAdCreative, type MetaAdTexts } from "@/lib/pilot/creative";
+import { CAROUSEL_TEXTS_LOCKED, metaStoryWithTexts, readMetaCreative, type MetaAdCreative, type MetaAdTexts } from "@/lib/pilot/creative";
 import type { WriteGuard } from "@/lib/routines/types";
 import type { PilotObjectState, PilotObjectType } from "@/lib/pilot/ops";
 
@@ -41,16 +41,16 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
-/** image | video for an ad whose creative is read; null for anything else (carousel, dynamic, post…). */
-function adFormat(creative: Raw["creative"]): "image" | "video" | null {
+/** image | video | carousel for an ad whose creative is read; null for anything else (dynamic, post…). */
+function adFormat(creative: Raw["creative"]): "image" | "video" | "carousel" | null {
   const c = readMetaCreative(creative as Parameters<typeof readMetaCreative>[0]);
-  return c ? (c.kind === "video" ? "video" : "image") : null;
+  return c ? (c.kind === "video" ? "video" : c.kind === "carousel" ? "carousel" : "image") : null;
 }
 
-/** The editable texts of an ad's creative as JSON; null when the creative is not an image/video link ad. */
+/** The editable texts of an ad's creative as JSON; null when the creative is not an image/video link ad (a carousel: read, not rewritten). */
 function adTextsJson(creative: Raw["creative"]): string | null {
   const c = readMetaCreative(creative as Parameters<typeof readMetaCreative>[0]);
-  if (!c) return null;
+  if (!c || !c.editable || c.kind === "carousel") return null;
   const texts: MetaAdTexts = { kind: c.kind, primaryText: c.primaryText, headline: c.headline, description: c.description, linkUrl: c.linkUrl, callToAction: c.callToAction };
   return JSON.stringify(texts);
 }
@@ -232,6 +232,7 @@ export async function rewriteAdTexts(guard: WriteGuard, accountId: string, adId:
   const read = await readAdCreative(adId).catch(() => null);
   if (!read || read.accountId !== accountId) return { kind: "refused", error: "Annonce introuvable sur Meta : rien n'a été envoyé." };
   if (!read.creative) return { kind: "refused", error: "Cette annonce n'est pas une annonce image ou vidéo avec un lien : ses textes se changent dans le Gestionnaire de publicités." };
+  if (read.creative.kind === "carousel" || !read.creative.editable) return { kind: "refused", error: CAROUSEL_TEXTS_LOCKED };
   const story = metaStoryWithTexts(read.creative, { ...texts, kind: read.creative.kind });
   let creativeId: string;
   try {

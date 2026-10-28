@@ -19,15 +19,21 @@
  *   not_paused the ad exists but is not confirmed PAUSED (a pause was attempted)
  *   infra      a read failed (network, quota, token): nothing was created
  *
- * Image ads (link_data, picture by URL) and video ads (video_data). A video is
- * uploaded first with uploadVideo (POST /act_X/advideos with a public file_url
- * Meta downloads itself), processed asynchronously by Meta — readVideoStatus
- * says when it is ready — and shown with a thumbnail (image_url), mandatory.
+ * Image ads (link_data, picture by URL), video ads (video_data) and carousels
+ * (link_data.child_attachments, 2 to 10 cards, each a picture by URL with or
+ * without a video). A video is uploaded first with uploadVideo (POST
+ * /act_X/advideos with a public file_url Meta downloads itself), processed
+ * asynchronously by Meta — readVideoStatus says when it is ready — and shown
+ * with a thumbnail (image_url, or the picture of its card), mandatory.
+ *
+ * Everything travels inside object_story_spec, one JSON field of the closed
+ * list of metaGraphPost: no new write target for a carousel.
  *
  * Docs: https://developers.facebook.com/docs/marketing-api/reference/ad-account/adcreatives/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-creative-link-data/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-creative-video-data/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-account/advideos/
+ *       https://developers.facebook.com/docs/marketing-api/guides/carousel-ads/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-account/ads/
  */
 
@@ -158,7 +164,25 @@ export function publicHttpsUrlError(value: unknown): string | null {
   return null;
 }
 
-export type PausedAdFormat = "image" | "video";
+export type PausedAdFormat = "image" | "video" | "carousel";
+
+/** Carousel: 2 to 10 cards. */
+export const CAROUSEL_CARDS = { min: 2, max: 10 } as const;
+
+/** One card of a carousel (object_story_spec.link_data.child_attachments[]). */
+export interface PausedAdCard {
+  /** Where the card leads (public https). */
+  link: string;
+  /** Public https URL of the card's picture (a video card: its thumbnail); Meta downloads it. */
+  pictureUrl: string;
+  /** Video card: a video of the account's library, uploaded with uploadVideo and read « ready ». */
+  videoId?: string;
+  /** Card title (name) and description. */
+  name?: string;
+  description?: string;
+  /** Button of the card; the ad's button when absent. */
+  callToAction?: string;
+}
 
 /** What one ad is made of. No status, no budget, no bid: there is nothing to pass. */
 export interface PausedAdInput {
@@ -174,12 +198,18 @@ export interface PausedAdInput {
   description?: string;
   linkUrl: string;
   callToAction?: string;
-  /** Image ad (default) or video ad. */
+  /** Image ad (default), video ad or carousel. */
   format?: PausedAdFormat;
-  /** Public https URL of the image (video: its thumbnail); Meta downloads it, the application never does. */
-  imageUrl: string;
+  /** Public https URL of the image (video: its thumbnail); Meta downloads it, the application never does. Unused by a carousel (its cards carry theirs). */
+  imageUrl?: string;
   /** Video ad: the id of a video of the account's library, uploaded with uploadVideo and read « ready ». */
   videoId?: string;
+  /** Carousel: its cards, in the order shown (unless multiShareOptimized). */
+  cards?: PausedAdCard[];
+  /** Carousel: Meta shows the best cards first (default false: the order is kept). */
+  multiShareOptimized?: boolean;
+  /** Carousel: the end card with the Page's picture and the link (default true, Meta's). */
+  endCard?: boolean;
 }
 
 export interface PausedAdResult {
@@ -208,12 +238,48 @@ export function pausedAdInputError(input: PausedAdInput): string | null {
   const link = publicHttpsUrlError(input.linkUrl);
   if (link) return `lien refusé : ${link}`;
   const video = input.format === "video";
-  if (input.format !== undefined && input.format !== "image" && !video) return "format de publicité inconnu";
+  const carousel = input.format === "carousel";
+  if (input.format !== undefined && input.format !== "image" && !video && !carousel) return "format de publicité inconnu";
+  if (input.callToAction !== undefined && !isCallToAction(input.callToAction)) return "bouton d'action inconnu";
+  if (carousel) {
+    if (input.videoId !== undefined || input.imageUrl) return "un carrousel porte ses médias sur ses cartes";
+    return carouselCardsInputError(input.cards);
+  }
+  if (input.cards !== undefined) return "cartes inattendues sur une publicité image ou vidéo";
   const image = publicHttpsUrlError(input.imageUrl);
   if (image) return `${video ? "vignette" : "image"} refusée : ${image}`;
   if (video && !isMetaId(input.videoId)) return "vidéo non prête : identifiant de vidéo Meta manquant";
   if (!video && input.videoId !== undefined) return "identifiant de vidéo inattendu sur une publicité image";
-  if (input.callToAction !== undefined && !isCallToAction(input.callToAction)) return "bouton d'action inconnu";
+  return null;
+}
+
+/** The cards of a carousel as Meta takes them: count, public links and pictures, ready videos, bounded texts, distinct titles. */
+function carouselCardsInputError(cards: unknown): string | null {
+  if (!Array.isArray(cards)) return "cartes du carrousel manquantes";
+  if (cards.length < CAROUSEL_CARDS.min) return `un carrousel compte ${CAROUSEL_CARDS.min} cartes au moins`;
+  if (cards.length > CAROUSEL_CARDS.max) return `un carrousel compte ${CAROUSEL_CARDS.max} cartes au plus`;
+  const names = new Set<string>();
+  for (const [i, raw] of cards.entries()) {
+    const n = i + 1;
+    if (!raw || typeof raw !== "object") return `carte ${n} invalide`;
+    const card = raw as PausedAdCard;
+    const link = publicHttpsUrlError(card.link);
+    if (link) return `carte ${n} : lien refusé : ${link}`;
+    const picture = publicHttpsUrlError(card.pictureUrl);
+    if (picture) return `carte ${n} : image refusée : ${picture}`;
+    if (card.videoId !== undefined && !isMetaId(card.videoId)) return `carte ${n} : vidéo non prête : identifiant de vidéo Meta manquant`;
+    for (const [label, value] of [["titre", card.name], ["description", card.description]] as const) {
+      if (value === undefined) continue;
+      if (typeof value !== "string") return `carte ${n} : ${label} invalide`;
+      if (value.length > MAX_HEADLINE_CHARS) return `carte ${n} : ${label} trop long (${MAX_HEADLINE_CHARS} caractères au plus)`;
+    }
+    if (card.callToAction !== undefined && !isCallToAction(card.callToAction)) return `carte ${n} : bouton d'action inconnu`;
+    if (typeof card.name === "string" && card.name.trim()) {
+      const key = card.name.trim().toLowerCase();
+      if (names.has(key)) return `deux cartes portent le même titre « ${card.name.trim()} »`;
+      names.add(key);
+    }
+  }
   return null;
 }
 
@@ -618,16 +684,48 @@ async function tryPause(guard: WriteGuard, adId: string): Promise<boolean> {
   }
 }
 
-/** The object_story_spec of the ad: link_data (image) or video_data (video). Pure. */
+/** A button as link_data takes it: with its link, or NO_BUTTON alone. */
+function ctaOf(type: string | undefined, link: string): Record<string, unknown> | null {
+  if (!type) return null;
+  return type === "NO_BUTTON" ? { type: "NO_BUTTON" } : { type, value: { link } };
+}
+
+/**
+ * The object_story_spec of the ad: link_data (image), video_data (video) or
+ * link_data with child_attachments (carousel: one attachment per card, in the
+ * order given; `link` is the « see more » link, `message` the primary text;
+ * multi_share_optimized false keeps the order; multi_share_end_card shows the
+ * end card). Pure.
+ */
 export function pausedAdStory(input: PausedAdInput): Record<string, unknown> {
   const link = input.linkUrl.trim();
   const story: Record<string, unknown> = { page_id: input.pageId };
   if (input.instagramUserId) story.instagram_user_id = input.instagramUserId;
+  if (input.format === "carousel") {
+    const cards = (input.cards ?? []).map((card) => {
+      const cardLink = card.link.trim();
+      const child: Record<string, unknown> = { link: cardLink, picture: card.pictureUrl.trim() };
+      if (card.videoId) child.video_id = card.videoId;
+      if (card.name?.trim()) child.name = card.name;
+      if (card.description?.trim()) child.description = card.description;
+      const cta = ctaOf(card.callToAction ?? input.callToAction, cardLink);
+      if (cta) child.call_to_action = cta;
+      return child;
+    });
+    story.link_data = {
+      link,
+      message: input.primaryText,
+      child_attachments: cards,
+      multi_share_optimized: input.multiShareOptimized === true,
+      multi_share_end_card: input.endCard !== false,
+    };
+    return story;
+  }
   if (input.format === "video") {
     // A video ad carries its link in the button; without a button Meta still wants the link there.
     const videoData: Record<string, unknown> = {
       video_id: input.videoId,
-      image_url: input.imageUrl.trim(),
+      image_url: (input.imageUrl ?? "").trim(),
       message: input.primaryText,
       call_to_action: { type: input.callToAction && input.callToAction !== "NO_BUTTON" ? input.callToAction : "NO_BUTTON", value: { link } },
     };
@@ -639,7 +737,7 @@ export function pausedAdStory(input: PausedAdInput): Record<string, unknown> {
   const linkData: Record<string, unknown> = {
     link,
     message: input.primaryText,
-    picture: input.imageUrl.trim(),
+    picture: (input.imageUrl ?? "").trim(),
   };
   if (input.headline?.trim()) linkData.name = input.headline;
   if (input.description?.trim()) linkData.description = input.description;

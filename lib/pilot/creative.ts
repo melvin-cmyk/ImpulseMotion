@@ -6,8 +6,10 @@
  *              is switched to (kind "set_ad_texts", field "ad_texts"); the old
  *              creative stays, and putting it back is one write (kind
  *              "set_ad_creative", field "creative"). Only image (link_data) and
- *              video (video_data) ads: a carousel or a dynamic ad is edited in
- *              Ads Manager.
+ *              video (video_data) ads are rewritten: a carousel is read (for
+ *              the format badge: link_data.child_attachments) but its texts
+ *              live card by card and are refused here with
+ *              CAROUSEL_TEXTS_LOCKED; a dynamic ad is edited in Ads Manager.
  *   Google Ads a responsive search ad is immutable: new headlines or descriptions
  *              mean a NEW ad in the ad group, the old one paused (kind
  *              "set_rsa_texts", field "rsa").
@@ -22,6 +24,9 @@ export const CALL_TO_ACTIONS = [
 ] as const;
 export const MAX_PRIMARY_TEXT_CHARS = 2000;
 export const MAX_HEADLINE_CHARS = 255;
+
+/** Why a carousel's texts are not rewritten from here (said at the preview and at the send). */
+export const CAROUSEL_TEXTS_LOCKED = "Les textes d'un carrousel se modifient carte par carte dans le Gestionnaire pour l'instant.";
 
 /** Null when the URL can be handed to a platform (public https host), the reason otherwise. */
 export function publicHttpsUrlError(value: unknown): string | null {
@@ -50,8 +55,17 @@ export interface MetaAdTexts {
   callToAction: string;
 }
 
-/** What the current creative holds, with what is carried over unchanged to the new one. */
-export interface MetaAdCreative extends MetaAdTexts {
+/**
+ * What the current creative holds, with what is carried over unchanged to the
+ * new one. `editable` is false for a carousel: read for the badge and the
+ * card count, never rewritten (CAROUSEL_TEXTS_LOCKED).
+ */
+export interface MetaAdCreative extends Omit<MetaAdTexts, "kind"> {
+  /** link (image) | video | carousel */
+  kind: "link" | "video" | "carousel";
+  editable: boolean;
+  /** Carousel: how many cards. */
+  cardCount: number;
   creativeId: string;
   creativeName: string;
   pageId: string;
@@ -64,19 +78,27 @@ export interface MetaAdCreative extends MetaAdTexts {
   videoImageHash: string;
 }
 
-type Story = { page_id?: string; instagram_user_id?: string; instagram_actor_id?: string; link_data?: Record<string, unknown>; video_data?: Record<string, unknown> };
+type Story = { page_id?: string; instagram_user_id?: string; instagram_actor_id?: string; link_data?: Record<string, unknown> & { child_attachments?: unknown[] }; video_data?: Record<string, unknown> };
 
 const s = (v: unknown) => (typeof v === "string" ? v : v === undefined || v === null ? "" : String(v));
 
-/** The creative of an ad as Pilotage edits it; null when it is not an image or video ad with a link. */
+/** The creative of an ad as Pilotage reads it; null when it is neither an image or video ad with a link nor a carousel. */
 export function readMetaCreative(creative: { id?: string; name?: string; object_story_spec?: Story } | null | undefined): MetaAdCreative | null {
   const story = creative?.object_story_spec;
   if (!creative?.id || !story || !story.page_id) return null;
   if (story.link_data) {
     const d = story.link_data;
     const cta = d.call_to_action as { type?: string } | undefined;
+    const cards = Array.isArray(d.child_attachments) ? d.child_attachments : null;
+    if (cards && cards.length > 0) {
+      return {
+        kind: "carousel", editable: false, cardCount: cards.length, creativeId: s(creative.id), creativeName: s(creative.name), pageId: s(story.page_id), instagramUserId: s(story.instagram_user_id ?? story.instagram_actor_id),
+        primaryText: s(d.message), headline: s(d.name), description: s(d.description), linkUrl: s(d.link), callToAction: s(cta?.type) || "NO_BUTTON",
+        imageHash: "", picture: "", videoId: "", videoImageUrl: "", videoImageHash: "",
+      };
+    }
     return {
-      kind: "link", creativeId: s(creative.id), creativeName: s(creative.name), pageId: s(story.page_id), instagramUserId: s(story.instagram_user_id ?? story.instagram_actor_id),
+      kind: "link", editable: true, cardCount: 0, creativeId: s(creative.id), creativeName: s(creative.name), pageId: s(story.page_id), instagramUserId: s(story.instagram_user_id ?? story.instagram_actor_id),
       primaryText: s(d.message), headline: s(d.name), description: s(d.description), linkUrl: s(d.link), callToAction: s(cta?.type) || "NO_BUTTON",
       imageHash: s(d.image_hash), picture: s(d.picture), videoId: "", videoImageUrl: "", videoImageHash: "",
     };
@@ -85,7 +107,7 @@ export function readMetaCreative(creative: { id?: string; name?: string; object_
     const d = story.video_data;
     const cta = d.call_to_action as { type?: string; value?: { link?: string } } | undefined;
     return {
-      kind: "video", creativeId: s(creative.id), creativeName: s(creative.name), pageId: s(story.page_id), instagramUserId: s(story.instagram_user_id ?? story.instagram_actor_id),
+      kind: "video", editable: true, cardCount: 0, creativeId: s(creative.id), creativeName: s(creative.name), pageId: s(story.page_id), instagramUserId: s(story.instagram_user_id ?? story.instagram_actor_id),
       primaryText: s(d.message), headline: s(d.title), description: s(d.link_description), linkUrl: s(cta?.value?.link), callToAction: s(cta?.type) || "NO_BUTTON",
       imageHash: "", picture: "", videoId: s(d.video_id), videoImageUrl: s(d.image_url), videoImageHash: s(d.image_hash),
     };
@@ -115,8 +137,9 @@ export function readMetaAdTexts(value: unknown): { ok: true; texts: MetaAdTexts 
   return { ok: true, texts };
 }
 
-/** The object_story_spec of the new creative: the current one with the new texts, nothing else moved. */
+/** The object_story_spec of the new creative: the current one with the new texts, nothing else moved. Throws on a carousel (never rewritten here). */
 export function metaStoryWithTexts(current: MetaAdCreative, texts: MetaAdTexts): Record<string, unknown> {
+  if (!current.editable) throw new Error(CAROUSEL_TEXTS_LOCKED);
   const cta = texts.callToAction === "NO_BUTTON" ? { type: "NO_BUTTON" } : { type: texts.callToAction, value: { link: texts.linkUrl } };
   const story: Record<string, unknown> = { page_id: current.pageId };
   if (current.instagramUserId) story.instagram_user_id = current.instagramUserId;
@@ -139,7 +162,7 @@ export function metaStoryWithTexts(current: MetaAdCreative, texts: MetaAdTexts):
 const clip = (v: string, n = 60) => (v.length > n ? `${v.slice(0, n - 1)}…` : v);
 
 /** What changes between two sets of Meta texts, in French. */
-export function metaTextsDiff(before: Partial<MetaAdTexts> | null, after: MetaAdTexts): string[] {
+export function metaTextsDiff(before: Partial<Omit<MetaAdTexts, "kind">> | null, after: MetaAdTexts): string[] {
   const out: string[] = [];
   const b = before ?? {};
   if ((b.primaryText ?? "") !== after.primaryText) out.push(`texte principal « ${clip(b.primaryText ?? "")} » → « ${clip(after.primaryText)} »`);

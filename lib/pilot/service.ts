@@ -258,9 +258,9 @@ async function sendOperations(adapter: PilotAdapter, actionId: string, accountId
         if (created.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", error: created.error }); continue; }
         if (created.kind === "refused") { await setOp(op.id, { status: "failed", error: created.error }); continue; }
         if (created.kind === "uploading") {
-          // The video is still processed by Meta: the operation stays open, the media pass creates the ad when it is ready.
+          // A video is still processed by Meta: the operation stays open, the media pass creates the ad once every video of it is ready.
           await setOp(op.id, { status: "uploading", error: created.error });
-          await prisma.pilotMedia.update({ where: { id: created.mediaId }, data: { actionId, operationId: op.id } });
+          await prisma.pilotMedia.updateMany({ where: { id: { in: created.mediaIds } }, data: { actionId, operationId: op.id } });
           continue;
         }
         await setOp(op.id, { status: "done", readBackJson: JSON.stringify(created.adId ?? null), error: null });
@@ -631,8 +631,10 @@ export interface MediaPassSummary { checked: number; ready: number; failed: numb
 /**
  * Follows the videos sent to Meta (PilotMedia `uploading`) and finishes the
  * creations waiting for them (operations `uploading`): the ad is created with
- * a guard minted for the action, like a scheduled send; when nothing of the
- * action waits any more, finishAction closes it and writes HQ, once.
+ * a guard minted for the action, like a scheduled send, once EVERY video of
+ * the operation is ready (a carousel may wait for several: createNewAd
+ * answers `uploading` again until then); when nothing of the action waits
+ * any more, finishAction closes it and writes HQ, once.
  *
  * Run by the browser (POST /api/pilot/actions/[id]/media while a creation
  * waits), by the routines cron every hour, and by /api/cron/pilot-media (a
@@ -671,8 +673,9 @@ export async function runPilotMediaPass(now: Date = new Date(), budgetMs = 45_00
     const guard = mintWriteGuard("live", id);
     try {
       for (const op of ops) {
-        const media = medias.find((m) => m.operationId === op.id)!;
-        if (media.status === "failed") { summary.refused++; await setOp(op.id, { status: "failed", error: `Vidéo refusée par Meta : ${media.error ?? "traitement en erreur"}.` }); continue; }
+        // One video refused is the ad refused (a carousel waits for several): createNewAd checks the others are ready.
+        const failed = medias.find((m) => m.operationId === op.id && m.status === "failed");
+        if (failed) { summary.refused++; await setOp(op.id, { status: "failed", error: `Vidéo refusée par Meta : ${failed.error ?? "traitement en erreur"}.` }); continue; }
         const read = readNewAd(parse(op.afterJson));
         if (!read.ok) { summary.refused++; await setOp(op.id, { status: "failed", error: read.error }); continue; }
         const created = await createNewAd(guard, action.accountId, op.objectId, read.spec, action.createdById);

@@ -43,6 +43,7 @@ export function MetaAdTextsForm({ clientId, accountId, adId, adName, onCancel, o
 }) {
   const [current, setCurrent] = useState<MetaAdTexts | null | undefined>(undefined);
   const [media, setMedia] = useState<string | null>(null);
+  const [locked, setLocked] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [f, setF] = useState<MetaAdTexts | null>(null);
 
@@ -50,7 +51,7 @@ export function MetaAdTextsForm({ clientId, accountId, adId, adName, onCancel, o
     let cancelled = false;
     fetch(`/api/pilot/ad-texts?clientId=${encodeURIComponent(clientId)}&accountId=${encodeURIComponent(accountId)}&adId=${encodeURIComponent(adId)}`)
       .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error ?? `Erreur ${r.status}`); return j; })
-      .then((j) => { if (cancelled) return; setCurrent(j.texts ?? null); setF(j.texts ?? null); setMedia(j.media ?? null); })
+      .then((j) => { if (cancelled) return; setCurrent(j.texts ?? null); setF(j.texts ?? null); setMedia(j.media ?? null); setLocked(typeof j.locked === "string" ? j.locked : null); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
   }, [clientId, accountId, adId]);
@@ -68,7 +69,8 @@ export function MetaAdTextsForm({ clientId, accountId, adId, adName, onCancel, o
     <Shell title={`Textes — « ${adName} »`} onCancel={onCancel}>
       {error && <p className="text-sm text-red-300">{error}</p>}
       {current === undefined && !error && <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture de la créa sur Meta…</p>}
-      {current === null && <p className="text-sm text-amber-300">Cette annonce n&apos;est pas une annonce image ou vidéo avec un lien (carrousel, catalogue, publication existante…) : ses textes se changent dans le Gestionnaire de publicités.</p>}
+      {current === null && locked && <p className="text-sm text-amber-300">{locked}</p>}
+      {current === null && !locked && <p className="text-sm text-amber-300">Cette annonce n&apos;est pas une annonce image ou vidéo avec un lien (catalogue, publication existante…) : ses textes se changent dans le Gestionnaire de publicités.</p>}
       {current && f && (
         <>
           <p className="text-xs text-gray-400">Même {current.kind === "video" ? "vidéo" : "image"}{media ? ` (${media})` : ""}, même Page : Meta reçoit une nouvelle créa avec ces textes et l&apos;annonce bascule dessus. L&apos;ancienne créa reste disponible pour revenir en arrière.</p>

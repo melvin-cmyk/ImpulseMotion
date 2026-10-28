@@ -1,13 +1,17 @@
 "use client";
 
 /**
- * Pilotage — « Nouvelle publicité » on a Meta ad set, image or video:
- *   Image  a visual of the Studio créa, or one sent now;
- *   Vidéo  a video of the Studio créa (the client's first), or the public https
- *          address of an mp4; its thumbnail is the Studio image the video was
- *          animated from when there is one, else an image sent now (Meta
- *          requires one). The video is sent to Meta at the preview and
- *          processed for a few minutes: the preview says so.
+ * Pilotage — « Nouvelle publicité » on a Meta ad set, image, video or carousel:
+ *   Image      a visual of the Studio créa, or one sent now;
+ *   Vidéo      a video of the Studio créa (the client's first), or the public https
+ *              address of an mp4; its thumbnail is the Studio image the video was
+ *              animated from when there is one, else an image sent now (Meta
+ *              requires one). The video is sent to Meta at the preview and
+ *              processed for a few minutes: the preview says so.
+ *   Carrousel  2 to 10 cards (carousel-editor.tsx), each an image or a video
+ *              with its own title, description, link and button; the ad's
+ *              link is the « see more » one; order kept unless « ordre
+ *              optimisé par Meta ».
  * Then the texts, the link, the button, the Page and the Instagram account.
  * The ad goes to the panel « Modifier » like any other change: preview checked
  * on Meta, confirmation, HQ. Created PAUSED. Emits an AdSpec v2.
@@ -16,7 +20,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { prepareImage } from "@/lib/ai-chat-shared";
-import type { AdSpec } from "@/lib/pilot/ad-spec";
+import type { AdSpec, CarouselCard, CarouselOptions } from "@/lib/pilot/ad-spec";
+import { CarouselEditor, carouselFormError, emptyCard, studioMediaRef, type StudioMedia } from "@/components/pilot/carousel-editor";
 
 const CTA_FR: Array<[string, string]> = [
   ["LEARN_MORE", "En savoir plus"], ["SHOP_NOW", "Acheter"], ["BUY_NOW", "Acheter maintenant"], ["ORDER_NOW", "Commander"],
@@ -46,7 +51,9 @@ export function NewAdForm({ clientId, accountId, adsetName, preset, onCancel, on
   const [identities, setIdentities] = useState<{ pages: Array<{ id: string; name: string }>; instagram: Array<{ id: string; name: string }> } | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [studio, setStudio] = useState<StudioAsset[] | null>(null);
-  const [format, setFormat] = useState<"image" | "video">(preset?.kind === "video" ? "video" : "image");
+  const [format, setFormat] = useState<"image" | "video" | "carousel">(preset?.kind === "video" ? "video" : "image");
+  const [cards, setCards] = useState<CarouselCard[]>([]);
+  const [carouselOptions, setCarouselOptions] = useState<CarouselOptions>({ multiShareOptimized: false, endCard: true });
   const [image, setImage] = useState<Media | null>(preset && preset.kind !== "video" ? { url: preset.url, studioAssetId: preset.id, label: preset.prompt } : null);
   const [video, setVideo] = useState<Media | null>(preset?.kind === "video" ? { url: preset.url, studioAssetId: preset.id, label: preset.prompt, sourceId: preset.sourceId ?? null } : null);
   const [videoUrl, setVideoUrl] = useState("");
@@ -76,6 +83,17 @@ export function NewAdForm({ clientId, accountId, adsetName, preset, onCancel, on
   const byClient = (list: StudioAsset[]) => [...list].sort((a, b) => Number(b.clientId === clientId) - Number(a.clientId === clientId)).slice(0, 24);
   const studioImages = useMemo(() => byClient((studio ?? []).filter((a) => a.kind === "image")), [studio, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
   const studioVideos = useMemo(() => byClient((studio ?? []).filter((a) => a.kind === "video")), [studio, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const studioMedia = useMemo<StudioMedia[] | null>(() => (studio === null ? null : [...studioImages, ...studioVideos].map((a) => ({ id: a.id, url: a.url!, prompt: a.prompt, kind: a.kind === "video" ? "video" : "image", sourceId: a.sourceId, clientName: a.clientName }))), [studio, studioImages, studioVideos]);
+
+  /** Opening the carousel tab: the chosen image or video becomes the first card, a second empty card waits. */
+  function openCarousel() {
+    setFormat("carousel");
+    if (cards.length) return;
+    const first = format === "video" && video ? (studioMedia?.find((a) => a.id === video.studioAssetId) ? studioMediaRef(studioMedia.find((a) => a.id === video.studioAssetId)!, studioMedia) : { kind: "video" as const, url: video.url, ...(shownThumb ? { thumbUrl: shownThumb.url, ...(shownThumb.studioAssetId ? { thumbStudioAssetId: shownThumb.studioAssetId } : {}) } : {}) })
+      : image ? { kind: "image" as const, url: image.url, ...(image.studioAssetId ? { studioAssetId: image.studioAssetId } : {}) } : null;
+    const link = f.linkUrl.trim();
+    setCards(first ? [{ ...emptyCard(link), media: first }, emptyCard(link)] : [emptyCard(link), emptyCard(link)]);
+  }
 
   // The thumbnail of a Studio video, unless one was chosen: the image it was animated from, when the Studio still has it.
   const sourceThumb = useMemo<Thumb | null>(() => {
@@ -111,6 +129,7 @@ export function NewAdForm({ clientId, accountId, adsetName, preset, onCancel, on
 
   function submit() {
     setError(null);
+    if (format === "carousel") return submitCarousel();
     const media = format === "video" ? video : image;
     if (!media) return setError(format === "video" ? "Choisissez une vidéo du Studio ou collez l'adresse https d'un mp4." : "Choisissez une image.");
     if (format === "video" && !media.studioAssetId && !/\.(mp4|mov|m4v)(\?|$)/i.test(media.url)) return setError("L'adresse doit être celle d'un fichier mp4 (ou choisissez une vidéo du Studio).");
@@ -130,6 +149,25 @@ export function NewAdForm({ clientId, accountId, adsetName, preset, onCancel, on
       identity: { pageId: f.pageId, ...(f.instagramUserId ? { instagramUserId: f.instagramUserId } : {}) },
     };
     onDone(spec, `Ensemble « ${adsetName} » : nouvelle publicité${format === "video" ? " vidéo" : ""} « ${name} » (créée en pause)`);
+  }
+
+  function submitCarousel() {
+    const bad = carouselFormError(cards);
+    if (bad) return setError(bad);
+    if (!f.primaryText.trim()) return setError("Écrivez le texte principal.");
+    if (!/^https:\/\//i.test(f.linkUrl.trim())) return setError("Le lien « voir plus » doit commencer par https://.");
+    if (!f.pageId) return setError("Choisissez la Page Facebook.");
+    const name = f.name.trim() || `${adsetName} — ${today}`;
+    const spec: AdSpec = {
+      v: 2, platform: "meta", format: "carousel", name,
+      linkUrl: f.linkUrl.trim(), callToAction: f.callToAction,
+      texts: { primary: [f.primaryText.trim()], headline: [], description: [] },
+      media: [],
+      cards: cards.map((c) => ({ ...c, link: c.link.trim(), headline: c.headline?.trim() || undefined, description: c.description?.trim() || undefined })),
+      options: carouselOptions,
+      identity: { pageId: f.pageId, ...(f.instagramUserId ? { instagramUserId: f.instagramUserId } : {}) },
+    };
+    onDone(spec, `Ensemble « ${adsetName} » : nouvelle publicité carrousel (${cards.length} cartes) « ${name} » (créée en pause)`);
   }
 
   const thumbBlock = (
@@ -157,18 +195,21 @@ export function NewAdForm({ clientId, accountId, adsetName, preset, onCancel, on
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onCancel}>
-      <div className="bg-gray-950 border border-gray-800 rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+      <div className={`bg-gray-950 border border-gray-800 rounded-2xl ${format === "carousel" ? "max-w-5xl" : "max-w-3xl"} w-full max-h-[92vh] overflow-auto`} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
           <span className="text-sm text-white font-semibold">Nouvelle publicité · ensemble « {adsetName} »</span>
           <button type="button" onClick={onCancel} className="text-gray-400 hover:text-white" aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
-        <div className="p-4 grid md:grid-cols-[220px_minmax(0,1fr)] gap-4">
+        <div className={`p-4 grid gap-4 ${format === "carousel" ? "" : "md:grid-cols-[220px_minmax(0,1fr)]"}`}>
           <div className="space-y-2">
             <div className="flex gap-1.5" role="tablist" aria-label="Format">
               <button type="button" role="tab" aria-selected={format === "image"} onClick={() => setFormat("image")} className={tab(format === "image")}>Image</button>
               <button type="button" role="tab" aria-selected={format === "video"} onClick={() => setFormat("video")} className={tab(format === "video")}>Vidéo</button>
+              <button type="button" role="tab" aria-selected={format === "carousel"} onClick={openCarousel} className={tab(format === "carousel")}>Carrousel</button>
             </div>
-            {format === "image" ? (
+            {format === "carousel" ? (
+              <CarouselEditor cards={cards} onChange={setCards} options={carouselOptions} onOptionsChange={setCarouselOptions} studio={studioMedia} defaultLink={f.linkUrl.trim()} ctas={CTA_FR.filter(([v]) => v !== "NO_BUTTON")} />
+            ) : format === "image" ? (
               <>
                 <div className="aspect-square rounded-lg border border-gray-800 bg-gray-900 flex items-center justify-center overflow-hidden">
                   {image ? <img src={image.url} alt="" className="w-full h-full object-cover" /> : <span className="text-xs text-gray-500 px-3 text-center">Choisissez un visuel du Studio ou envoyez une image</span>}
@@ -221,13 +262,15 @@ export function NewAdForm({ clientId, accountId, adsetName, preset, onCancel, on
           <div className="space-y-3">
             <label className="block text-xs text-gray-400">Nom de la publicité<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
             <label className="block text-xs text-gray-400">Texte principal<textarea value={f.primaryText} onChange={(e) => setF({ ...f, primaryText: e.target.value })} rows={4} className={`${input} mt-1 resize-y`} maxLength={2000} placeholder="Le texte au-dessus du visuel" /></label>
-            <div className="grid sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-gray-400">Titre (facultatif)<input value={f.headline} onChange={(e) => setF({ ...f, headline: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
-              <label className="block text-xs text-gray-400">Description (facultatif)<input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
-            </div>
+            {format !== "carousel" && (
+              <div className="grid sm:grid-cols-2 gap-3">
+                <label className="block text-xs text-gray-400">Titre (facultatif)<input value={f.headline} onChange={(e) => setF({ ...f, headline: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
+                <label className="block text-xs text-gray-400">Description (facultatif)<input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
+              </div>
+            )}
             <div className="grid sm:grid-cols-[minmax(0,1fr)_180px] gap-3">
-              <label className="block text-xs text-gray-400">Lien de destination<input value={f.linkUrl} onChange={(e) => setF({ ...f, linkUrl: e.target.value })} className={`${input} mt-1`} placeholder="https://…" /></label>
-              <label className="block text-xs text-gray-400">Bouton
+              <label className="block text-xs text-gray-400">{format === "carousel" ? "Lien « voir plus » (carte de fin, obligatoire)" : "Lien de destination"}<input value={f.linkUrl} onChange={(e) => setF({ ...f, linkUrl: e.target.value })} className={`${input} mt-1`} placeholder="https://…" /></label>
+              <label className="block text-xs text-gray-400">{format === "carousel" ? "Bouton des cartes (par défaut)" : "Bouton"}
                 <select value={f.callToAction} onChange={(e) => setF({ ...f, callToAction: e.target.value })} className={`${input} mt-1`}>
                   {CTA_FR.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>

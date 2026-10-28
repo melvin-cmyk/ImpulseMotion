@@ -240,7 +240,7 @@ function previewOf(input: PausedAdInput, key: string): Record<string, Cell> {
     description: input.description ?? null,
     lien: input.linkUrl,
     bouton: input.callToAction ?? null,
-    media: input.imageUrl,
+    media: input.imageUrl ?? "",
     type_media: "image",
     statut: "PAUSED",
     compte: input.accountId,

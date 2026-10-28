@@ -20,7 +20,7 @@
  */
 
 import { canonicalTargeting, readTargeting, targetingDiff, type Targeting } from "@/lib/pilot/targeting";
-import { metaTextsDiff, readMetaAdTexts, readRsa, rsaDiff, rsaSummary, type MetaAdTexts, type RsaSpec } from "@/lib/pilot/creative";
+import { CAROUSEL_TEXTS_LOCKED, metaTextsDiff, readMetaAdTexts, readRsa, rsaDiff, rsaSummary, type MetaAdTexts, type RsaSpec } from "@/lib/pilot/creative";
 import { FORMAT_FR, adSpecFromLegacy, readAdSpec, type AdSpec } from "@/lib/pilot/ad-spec";
 
 export const PILOT_PLATFORMS = ["meta", "google", "tiktok"] as const;
@@ -143,11 +143,11 @@ export interface PilotObjectState {
   negative?: boolean;
   /** Meta ad set: the targeting spec as JSON, read when the object is read alone. */
   targeting?: string | null;
-  /** Meta ad: the creative it shows, and its texts as JSON (null when not an image/video link ad). */
+  /** Meta ad: the creative it shows, and its texts as JSON (null when not an image/video link ad: a carousel has a creativeId and no adTexts). */
   creativeId?: string | null;
   adTexts?: string | null;
-  /** Meta ad: image | video when its creative is read; null for a carousel, a dynamic ad or a post. */
-  format?: "image" | "video" | null;
+  /** Meta ad: image | video | carousel when its creative is read; null for a dynamic ad or a post. */
+  format?: "image" | "video" | "carousel" | null;
   /** Google ad: the responsive search ad as JSON (null when another ad type). */
   rsa?: string | null;
   parentName: string;
@@ -342,6 +342,7 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
     }
     case "set_ad_texts": {
       if (platform !== "meta" || req.objectType !== "ad") return { ok: false, error: "Les textes se changent sur une annonce Meta." };
+      if (state.format === "carousel") return { ok: false, error: `${label} : ${CAROUSEL_TEXTS_LOCKED}` };
       if (!state.adTexts || !state.creativeId) return { ok: false, error: `${label} n'est pas une annonce image ou vidéo avec un lien : ses textes se changent dans le Gestionnaire de publicités.` };
       const read = readMetaAdTexts(req.value);
       if (!read.ok) return { ok: false, error: `${label} : ${read.error}` };
@@ -353,6 +354,7 @@ export function prepareOperation(req: PilotRequest, state: PilotObjectState, cur
     }
     case "set_ad_creative": {
       if (platform !== "meta" || req.objectType !== "ad") return { ok: false, error: "Une créa se remet sur une annonce Meta." };
+      if (state.format === "carousel") return { ok: false, error: `${label} : ${CAROUSEL_TEXTS_LOCKED}` };
       const id = String(req.value).trim();
       if (!/^\d{5,25}$/.test(id)) return { ok: false, error: `Créa invalide pour ${label}.` };
       if (id === state.creativeId) return { ok: false, error: `${label} montre déjà cette créa.` };
@@ -575,10 +577,13 @@ export function newAdFormat(value: PilotValue): AdSpec["format"] {
   return read.ok ? read.spec.format : "image";
 }
 
-/** « nouvelle publicité » for an image, « nouvelle publicité vidéo » otherwise: the same in the tree, the preview and HQ. */
+/** « nouvelle publicité » for an image, « nouvelle publicité vidéo », « nouvelle publicité carrousel (3 cartes) »: the same in the tree, the preview and HQ. */
 export function newAdLabel(value: PilotValue): string {
-  const format = newAdFormat(value);
-  return format === "image" ? "nouvelle publicité" : `nouvelle publicité ${FORMAT_FR[format]}`;
+  const read = readNewAd(value);
+  const format = read.ok ? read.spec.format : "image";
+  if (format === "image") return "nouvelle publicité";
+  if (format === "carousel" && read.ok) { const n = read.spec.cards?.length ?? 0; return `nouvelle publicité carrousel (${n} carte${n > 1 ? "s" : ""})`; }
+  return `nouvelle publicité ${FORMAT_FR[format]}`;
 }
 
 function valueText(field: string, value: PilotValue, currency: string): string {

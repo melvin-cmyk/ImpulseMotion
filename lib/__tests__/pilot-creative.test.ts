@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { metaStoryWithTexts, metaTextsDiff, readMetaAdTexts, readMetaCreative, readRsa, readRsaFromAd, rsaCreateAd, rsaDiff, type MetaAdCreative } from "@/lib/pilot/creative";
+import { CAROUSEL_TEXTS_LOCKED, metaStoryWithTexts, metaTextsDiff, readMetaAdTexts, readMetaCreative, readRsa, readRsaFromAd, rsaCreateAd, rsaDiff, type MetaAdCreative } from "@/lib/pilot/creative";
 import { describeOperation, inverseRequest, prepareOperation, type PilotObjectState } from "@/lib/pilot/ops";
 import { googleMutation, googleRsaCreation } from "@/lib/pilot/google";
 
@@ -15,6 +15,22 @@ describe("créas Meta — lecture, nouvelle créa, différence", () => {
     expect(readMetaCreative({ id: "1", object_story_spec: { page_id: "259", template_data: { link: "x" } } as never })).toBeNull();
     const video = readMetaCreative({ id: "2", object_story_spec: { page_id: "259", video_data: { video_id: "v1", image_url: "https://x.fr/i.jpg", message: "Regardez", title: "T", call_to_action: { type: "LEARN_MORE", value: { link: "https://x.fr" } } } } })!;
     expect(video).toMatchObject({ kind: "video", videoId: "v1", videoImageUrl: "https://x.fr/i.jpg", linkUrl: "https://x.fr", headline: "T" });
+  });
+
+  it("lit un carrousel pour le badge (child_attachments), jamais pour le réécrire : set_ad_texts et set_ad_creative le refusent proprement", () => {
+    const carousel = { id: "900000002", name: "Carrousel gourdes", object_story_spec: { page_id: "259", link_data: { link: "https://naturalia.fr/gourdes", message: "Trois tailles", multi_share_optimized: false, child_attachments: [
+      { link: "https://naturalia.fr/p/1", picture: "https://cdn.example.org/1.jpg", name: "50 cl" }, { link: "https://naturalia.fr/p/2", picture: "https://cdn.example.org/2.jpg", name: "75 cl" }, { link: "https://naturalia.fr/p/3", video_id: "v3", picture: "https://cdn.example.org/3.jpg", name: "Vidéo" },
+    ] } } };
+    const c = readMetaCreative(carousel)!;
+    expect(c).toMatchObject({ kind: "carousel", editable: false, cardCount: 3, creativeId: "900000002", pageId: "259", primaryText: "Trois tailles", linkUrl: "https://naturalia.fr/gourdes" });
+    // An empty child_attachments is a plain link ad.
+    expect(readMetaCreative({ ...carousel, object_story_spec: { page_id: "259", link_data: { link: "https://x.fr", message: "m", picture: "https://x.fr/i.jpg", child_attachments: [] } } })).toMatchObject({ kind: "link", editable: true });
+    expect(() => metaStoryWithTexts(c, { kind: "link", primaryText: "x", headline: "", description: "", linkUrl: "https://x.fr", callToAction: "NO_BUTTON" })).toThrow(CAROUSEL_TEXTS_LOCKED);
+    const ad: PilotObjectState = { id: "1200009", type: "ad", accountId: "555", name: "Carrousel gourdes", status: "ACTIVE", effectiveStatus: "ACTIVE", dailyBudget: null, lifetimeBudget: null, endTime: null, bidAmount: null, parentName: "Retargeting 30j", creativeId: "900000002", adTexts: null, format: "carousel" };
+    const texts = JSON.stringify({ primaryText: "Nouveau texte", headline: "", description: "", linkUrl: "https://naturalia.fr/gourdes", callToAction: "SHOP_NOW" });
+    expect(prepareOperation({ kind: "set_ad_texts", objectType: "ad", objectId: ad.id, value: texts }, ad, "EUR", NOW, "meta")).toEqual({ ok: false, error: `l'annonce « Carrousel gourdes » : ${CAROUSEL_TEXTS_LOCKED}` });
+    expect(prepareOperation({ kind: "set_ad_creative", objectType: "ad", objectId: ad.id, value: "900000001" }, ad, "EUR", NOW, "meta")).toEqual({ ok: false, error: `l'annonce « Carrousel gourdes » : ${CAROUSEL_TEXTS_LOCKED}` });
+    expect(CAROUSEL_TEXTS_LOCKED).toBe("Les textes d'un carrousel se modifient carte par carte dans le Gestionnaire pour l'instant.");
   });
 
   it("la nouvelle créa garde la Page, l'image et change les textes ; la différence est dite", () => {

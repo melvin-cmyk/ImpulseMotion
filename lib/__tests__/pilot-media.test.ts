@@ -58,7 +58,7 @@ const h = vi.hoisted(() => {
     updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => { const hit = rows.filter((r) => matches(r, where)); for (const r of hit) Object.assign(r, data, { updatedAt: new Date() }); return { count: hit.length }; },
   });
   /** Meta as the test wants it: the status it answers for a video, what the upload does. */
-  const meta = { videoStatus: "processing" as "processing" | "ready" | "error", uploadRefused: null as string | null };
+  const meta = { videoStatus: "processing" as "processing" | "ready" | "error", uploadRefused: null as string | null, statusById: {} as Record<string, "processing" | "ready" | "error">, nextVideoIds: [] as string[] };
   const uploads: Array<{ account: string; fileUrl: string; name: string }> = [];
   const creations: Array<Record<string, unknown>> = [];
   const statusReads: string[] = [];
@@ -128,9 +128,9 @@ vi.mock("@/lib/meta-write", async (importOriginal) => {
       check(guard);
       h.uploads.push({ account, fileUrl, name });
       if (h.meta.uploadRefused) throw new actual.MetaWriteError("refused", h.meta.uploadRefused);
-      return { videoId: h.VIDEO };
+      return { videoId: h.meta.nextVideoIds.shift() ?? h.VIDEO };
     },
-    readVideoStatus: async (videoId: string) => { h.statusReads.push(videoId); return h.meta.videoStatus === "error" ? { kind: "error", detail: "Your video is too long." } : { kind: h.meta.videoStatus, detail: h.meta.videoStatus }; },
+    readVideoStatus: async (videoId: string) => { h.statusReads.push(videoId); const st = h.meta.statusById[videoId] ?? h.meta.videoStatus; return st === "error" ? { kind: "error", detail: "Your video is too long." } : { kind: st, detail: st }; },
     createPausedAd: async (guard: unknown, input: Record<string, unknown>) => {
       const check = (await import("@/lib/routines/write-guard-check")).assertWriteGuard as unknown as (g: unknown) => void;
       check(guard);
@@ -167,7 +167,7 @@ const opOf = (actionId: string) => operations.find((o) => o.actionId === actionI
 
 beforeEach(() => {
   actions.length = 0; operations.length = 0; medias.length = 0; assets.length = 0; hqEntries.length = 0; uploads.length = 0; creations.length = 0; h.statusReads.length = 0;
-  metaObjects.clear(); state.nextId = 1; meta.videoStatus = "processing"; meta.uploadRefused = null;
+  metaObjects.clear(); state.nextId = 1; meta.videoStatus = "processing"; meta.uploadRefused = null; meta.statusById = {}; meta.nextVideoIds = [];
   vi.stubEnv("PILOT_WRITES", "1");
   metaObjects.set(ADSET, { ...adsetState } as never);
   assets.push({ id: "vid1", kind: "video", status: "completed", deletedAt: null, file: "video_abc.mp4", url: null, sourceId: "img1" });
@@ -310,5 +310,100 @@ describe("pilotage — publicité vidéo : envoi, attente et passage média", ()
     expect(sent.ok && sent.action.status).toBe("done");
     expect(creations[0]).toMatchObject({ format: "image", imageUrl: "https://cdn.example.org/x.png" });
     expect(creations[0]).not.toHaveProperty("videoId");
+  });
+});
+
+describe("pilotage — carrousel : plusieurs médias par opération", () => {
+  const VIDEO_2 = "1234567890123457";
+  const carousel: AdSpec = {
+    v: 2, platform: "meta", format: "carousel", name: "Gourdes (carrousel)", linkUrl: "https://naturalia.fr/gourdes", callToAction: "SHOP_NOW",
+    texts: { primary: ["Trois gourdes, trois tailles"], headline: [], description: [] },
+    media: [],
+    cards: [
+      { media: { kind: "image", url: "https://app.impulse-analytics.com/api/studio/media/img_one.png?exp=old&sig=0", studioAssetId: "img1" }, link: "https://naturalia.fr/p/1", headline: "50 cl", description: "Inox" },
+      { media: { kind: "image", url: "https://cdn.example.org/2.jpg" }, link: "https://naturalia.fr/p/2", headline: "75 cl", callToAction: "BUY_NOW" },
+      { media: { kind: "video", url: "https://app.impulse-analytics.com/api/studio/media/video_abc.mp4?exp=old&sig=0", studioAssetId: "vid1" }, link: "https://naturalia.fr/p/3", headline: "En vidéo" },
+    ],
+    options: { multiShareOptimized: false, endCard: true },
+    identity: { pageId: "123456789" },
+  };
+
+  it("2 images + 1 vidéo : la vidéo part à l'aperçu, l'envoi attend « uploading », le passage crée le carrousel dans l'ordre", async () => {
+    const a = await prepared([request(carousel)]);
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0].fileUrl).toBe("https://app.impulse-analytics.com/api/studio/media/video_abc.mp4?exp=86400&sig=0");
+    expect(medias).toHaveLength(1);
+    const kept = JSON.parse(String(a.operations[0].after)) as AdSpec;
+    expect(kept.mediaId).toBeUndefined();
+    // The Studio image of card 1 (img1 → img_abc.png) gets a fresh 24 h link too; the https image of card 2 is kept as given.
+    expect(kept.cards![0].media.url).toBe("https://app.impulse-analytics.com/api/studio/media/img_abc.png?exp=86400&sig=0");
+    expect(kept.cards![1].media.url).toBe("https://cdn.example.org/2.jpg");
+    expect(kept.cards![2].media).toMatchObject({ remoteId: VIDEO, mediaId: medias[0].id, thumbUrl: "https://app.impulse-analytics.com/api/studio/media/img_abc.png?exp=86400&sig=0", thumbStudioAssetId: "img1" });
+    expect(a.notes?.some((n) => n.includes(MEDIA_UPLOADING_NOTE))).toBe(true);
+    expect(a.operations[0].line).toContain("nouvelle publicité carrousel (3 cartes) « Gourdes (carrousel) »");
+
+    const sent = await send(a.id);
+    expect(sent.ok && sent.action.status).toBe("running");
+    expect(opOf(a.id)).toMatchObject({ status: "uploading", error: expect.stringContaining("en traitement chez Meta") });
+    expect(medias[0]).toMatchObject({ actionId: a.id, operationId: opOf(a.id).id });
+    expect(creations).toHaveLength(0);
+
+    meta.videoStatus = "ready";
+    expect(await runPilotMediaPass()).toMatchObject({ ready: 1, created: 1, refused: 0 });
+    expect(creations).toHaveLength(1);
+    expect(creations[0]).toMatchObject({ format: "carousel", adsetId: ADSET, campaignId: CAMPAIGN, multiShareOptimized: false, endCard: true });
+    expect(creations[0]).not.toHaveProperty("videoId");
+    expect((creations[0].cards as Array<Record<string, unknown>>).map((c) => [c.link, c.name, c.videoId ?? null, c.callToAction ?? null])).toEqual([
+      ["https://naturalia.fr/p/1", "50 cl", null, null],
+      ["https://naturalia.fr/p/2", "75 cl", null, "BUY_NOW"],
+      ["https://naturalia.fr/p/3", "En vidéo", VIDEO, null],
+    ]);
+    expect((creations[0].cards as Array<Record<string, unknown>>)[2].pictureUrl).toContain("img_abc.png");
+    expect(opOf(a.id)).toMatchObject({ status: "done", readBackJson: JSON.stringify(AD) });
+    expect(actions.find((x) => x.id === a.id)!.status).toBe("done");
+    expect(hqEntries).toHaveLength(1);
+    expect(hqEntries[0].content).toContain("nouvelle publicité carrousel (3 cartes) « Gourdes (carrousel) »");
+  });
+
+  it("deux vidéos : la création n'a lieu que lorsque TOUTES sont prêtes ; une seule refusée = carrousel refusé", async () => {
+    assets.push({ id: "vid2", kind: "video", status: "completed", deletedAt: null, file: "video_two.mp4", url: null, sourceId: "img1" });
+    const two: AdSpec = { ...carousel, cards: [carousel.cards![2], { media: { kind: "video", url: "https://x/old.mp4", studioAssetId: "vid2" }, link: "https://naturalia.fr/p/4", headline: "Vidéo 2" }] };
+    meta.nextVideoIds = [VIDEO, VIDEO_2];
+    const a = await prepared([request(two)]);
+    expect(uploads).toHaveLength(2);
+    expect(medias.map((m) => m.remoteId)).toEqual([VIDEO, VIDEO_2]);
+    expect(a.notes?.some((n) => n.includes("2 vidéos envoyées à Meta"))).toBe(true);
+    const sent = await send(a.id);
+    expect(sent.ok && sent.action.status).toBe("running");
+    expect(medias.every((m) => m.operationId === opOf(a.id).id)).toBe(true);
+
+    // The first is ready, the second still processed: nothing is created.
+    meta.statusById = { [VIDEO]: "ready", [VIDEO_2]: "processing" };
+    expect(await runPilotMediaPass()).toMatchObject({ ready: 1, created: 0 });
+    expect(opOf(a.id).status).toBe("uploading");
+    expect(creations).toHaveLength(0);
+    expect(hqEntries).toHaveLength(0);
+
+    meta.statusById = { [VIDEO]: "ready", [VIDEO_2]: "ready" };
+    expect(await runPilotMediaPass()).toMatchObject({ created: 1 });
+    expect((creations[0].cards as Array<Record<string, unknown>>).map((c) => c.videoId)).toEqual([VIDEO, VIDEO_2]);
+    expect(actions.find((x) => x.id === a.id)!.status).toBe("done");
+
+    // Another carousel whose second video Meta gives up: refused, said by card, nothing created.
+    meta.statusById = {}; meta.videoStatus = "processing"; meta.nextVideoIds = ["1234567890123458", "1234567890123459"];
+    const b = await prepared([request(two)]);
+    await send(b.id);
+    meta.statusById = { "1234567890123458": "ready", "1234567890123459": "error" };
+    expect(await runPilotMediaPass()).toMatchObject({ failed: 1, refused: 1, created: 0 });
+    expect(opOf(b.id)).toMatchObject({ status: "failed", error: expect.stringContaining("Your video is too long.") });
+    expect(actions.find((x) => x.id === b.id)!.status).toBe("failed");
+    expect(creations).toHaveLength(1);
+  });
+
+  it("une carte dont l'image du Studio a disparu est refusée à l'aperçu, en nommant la carte", async () => {
+    assets.splice(assets.findIndex((x) => x.id === "img1"), 1);
+    const r = await prepareAction(LEA, { alertClientId: "c-nat", accountId: `act_${ACCOUNT}`, requests: [request(carousel)], why: "", goal: {} });
+    expect(r.ok === false && r.errors?.[0]).toMatch(/Carte 1 : L'image du Studio n'existe plus/);
+    expect(uploads).toHaveLength(0);
   });
 });
