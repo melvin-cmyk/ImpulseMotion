@@ -65,8 +65,9 @@ export async function appendMoAnswer(boardId: string, text: string, at: string):
   const updated = applyCardUpdates(parseMoCards(row.cardsJson), answer, turn, at);
   const cards = updated.cards;
   const placed = layoutNewCards(cards, answer, turn, at);
-  // The cards the person should look at: the new ones and the rewritten ones (a removed id is not on the board any more).
-  const cardIds = [...updated.touched.filter((id) => cards.some((c) => c.id === id)), ...placed.map((c) => c.id)];
+  // The cards the person should look at: the ones the tools posted during this turn, the rewritten ones, the new ones (a removed id is not on the board any more).
+  const postedByTools = cards.filter((c) => c.turn === turn && !messages.some((m) => m.cardIds?.includes(c.id))).map((c) => c.id);
+  const cardIds = [...new Set([...postedByTools, ...updated.touched.filter((id) => cards.some((c) => c.id === id)), ...placed.map((c) => c.id)])];
   const all = [...cards, ...placed].slice(-MO_MAX_CARDS);
   const msgs = [...messages, { role: "assistant" as const, content: text, at, say: answer.say, cardIds, ...(answer.open ? { open: answer.open } : {}) }].slice(-MO_MAX_MESSAGES);
   await prisma.moBoard.update({ where: { id: boardId }, data: { cardsJson: JSON.stringify(all), messagesJson: JSON.stringify(msgs) } });

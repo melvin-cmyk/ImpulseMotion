@@ -185,7 +185,7 @@ async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const platformLabel = platforms.map((p) => p === "meta" ? "Meta" : p === "google" ? "Google" : p === "tiktok" ? "TikTok" : p).join(" + ");
   const full = a.with_metrics !== false;
   const card: MoCardSpec = {
-    type: "creatives", title: str(a.title, 90) || `Créas ${client.name} — ${range.label}`, subtitle: `${platformLabel} · ${client.name} · ${range.since} → ${range.until}${res.coverage.until && res.coverage.until < range.until ? ` · données jusqu'au ${res.coverage.until}` : ""}`,
+    type: "creatives", title: str(a.title, 90) || (sortKey === "launch" && dir === "desc" ? `${items.length} dernières créas ${client.name}` : `Créas ${client.name} — ${range.label}`), subtitle: `${platformLabel} · ${client.name} · ${range.since} → ${range.until}${res.coverage.until && res.coverage.until < range.until ? ` · données jusqu'au ${res.coverage.until}` : ""}`,
     items: items.map((it) => ({ name: shortName(it.name), ...(it.image ? { image: it.image } : {}), adId: it.adId, metrics: full ? it.metrics : { Dépense: it.metrics.Dépense, ...(it.metrics.CPA ? { CPA: it.metrics.CPA } : it.metrics.CPL ? { CPL: it.metrics.CPL } : {}) } })),
   };
   // The card goes on the board now (the person sees it while the model is still writing its sentence).
@@ -201,13 +201,20 @@ async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   };
 }
 
-/** Ad names of the agency are naming-convention strings of 150 characters: the readable part. */
-function shortName(name: string): string {
+/**
+ * Ad names of the agency follow a naming convention of 150 characters
+ * ("SGL_IMG_S-Pulse_V-CAD_C-Parent_Visu-Fille_Co-Checklist_M-AiderMonEnfant"):
+ * the readable part = the format tag and the three most descriptive values.
+ */
+export function shortName(name: string): string {
   const n = name.replace(/\s*-\s*Copie$/i, "").trim();
   if (n.length <= 60) return n;
   const parts = n.split("_").filter(Boolean);
-  const words = parts.map((p) => p.replace(/^[A-Za-z]{1,4}-/, "")).filter((p) => p.length > 2);
-  const out = words.slice(0, 4).join(" · ");
+  const format = parts.find((p) => /^(IMG|VID|UGC|CAR|CAROUSEL|STAT|STATIC|VIDEO|IMAGE)$/i.test(p));
+  const values = parts.map((p) => p.replace(/^[A-Za-z]{1,4}-/, "")).filter((p) => p.length >= 4 && !/^(IMG|VID|UGC|CAR|SGL|NoCta|NoPersona)$/i.test(p));
+  const best = [...values].sort((a, b) => b.length - a.length).slice(0, 3);
+  const kept = values.filter((v) => best.includes(v)).map((v) => v.replace(/([a-z])([A-Z])/g, "$1 $2"));
+  const out = [format ? format.toUpperCase() : null, ...kept].filter(Boolean).join(" · ");
   return (out.length > 60 ? out.slice(0, 57) + "…" : out) || n.slice(0, 57) + "…";
 }
 
