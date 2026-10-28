@@ -39,7 +39,8 @@ export function PriceLine({ quota, unitUsd, n }: { quota: QuotaInfo | null; unit
 
 // ── Add a template ────────────────────────────────────────────────────────
 
-interface LibraryAd { id: string; pageName: string; bodies: string[]; titles: string[]; snapshotUrl: string | null; startedAt: string | null; platforms: string[]; euReach: number | null }
+interface LibraryAd { id: string; pageName: string; bodies: string[]; titles: string[]; snapshotUrl: string | null; startedAt: string | null; platforms: string[]; euReach: number | null; imageUrl?: string | null; videoUrl?: string | null; domain?: string | null }
+const startedLabel = (s: string | null) => (!s ? "" : /^\d{4}-\d{2}-\d{2}/.test(s) ? ` · depuis le ${new Date(s).toLocaleDateString("fr-FR")}` : ` · depuis le ${s}`);
 
 export function AddTemplateDialog({ client, clients, onClose, onCreated }: { client: ClientOption | null; clients: ClientOption[]; onClose: () => void; onCreated: (t: Template) => void }) {
   const [mode, setMode] = useState<"file" | "link" | "library">("file");
@@ -79,7 +80,7 @@ export function AddTemplateDialog({ client, clients, onClose, onCreated }: { cli
     finally { setSearching(false); }
   }
 
-  async function create(extra?: { title?: string; body?: string; sourceRef?: string; sourceUrl?: string; brand?: string; source?: string }) {
+  async function create(extra?: { title?: string; body?: string; sourceRef?: string; sourceUrl?: string; brand?: string; source?: string; imageUrl?: string }) {
     setBusy(true); setError(null);
     try {
       const body = {
@@ -124,13 +125,17 @@ export function AddTemplateDialog({ client, clients, onClose, onCreated }: { cli
             <ul className="divide-y divide-gray-800 border border-gray-800 rounded-lg max-h-72 overflow-auto">
               {library.ads.map((ad) => (
                 <li key={ad.id} className="p-2.5 flex items-start gap-3">
+                  {ad.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={`/api/media/proxy-image?url=${encodeURIComponent(ad.imageUrl)}`} alt="" className="w-16 h-20 object-cover rounded-md border border-gray-800 shrink-0 bg-black/40" loading="lazy" />
+                  )}
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm text-white">{ad.pageName} <span className="text-[11px] text-gray-500">· {ad.platforms.join(", ")}{ad.startedAt ? ` · depuis le ${new Date(ad.startedAt).toLocaleDateString("fr-FR")}` : ""}{ad.euReach ? ` · ${ad.euReach.toLocaleString("fr-FR")} pers. UE` : ""}</span></div>
+                    <div className="text-sm text-white">{ad.pageName} <span className="text-[11px] text-gray-500">{ad.platforms.length ? `· ${ad.platforms.join(", ")}` : ""}{startedLabel(ad.startedAt)}{ad.euReach ? ` · ${ad.euReach.toLocaleString("fr-FR")} pers. UE` : ""}{ad.videoUrl ? " · vidéo" : ""}{ad.domain ? ` · ${ad.domain}` : ""}</span></div>
                     {ad.titles[0] && <div className="text-xs text-gray-300">{ad.titles[0]}</div>}
                     {ad.bodies[0] && <div className="text-[11px] text-gray-500 line-clamp-2">{ad.bodies[0]}</div>}
-                    {ad.snapshotUrl && <a href={ad.snapshotUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-300 hover:text-white">Voir la pub (capture à coller ensuite) →</a>}
+                    {ad.snapshotUrl && <a href={ad.snapshotUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-300 hover:text-white">{ad.imageUrl ? "Voir dans la bibliothèque →" : "Voir la pub (capture à coller ensuite) →"}</a>}
                   </div>
-                  <button type="button" disabled={busy} onClick={() => void create({ source: "competitor", brand: ad.pageName, title: ad.titles[0], body: ad.bodies[0], sourceRef: `adlib:${ad.id}`, sourceUrl: ad.snapshotUrl ?? undefined })} className={BTN}>Garder</button>
+                  <button type="button" disabled={busy} onClick={() => void create({ source: "competitor", brand: ad.pageName, title: ad.titles[0], body: ad.bodies[0], sourceRef: `adlib:${ad.id}`, sourceUrl: ad.snapshotUrl ?? undefined, ...(ad.imageUrl ? { imageUrl: ad.imageUrl } : {}) })} className={BTN}>Garder</button>
                 </li>
               ))}
             </ul>

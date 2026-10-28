@@ -123,6 +123,18 @@ server.registerTool("meta_publish_ad", {
   },
 }, async (args) => call("meta_publish_ad", args, 180_000));
 
+server.registerTool("competitor_ads", {
+  title: "Pubs d'une marque (bibliothèque Meta)",
+  description: "Les publicités qu'une marque (un concurrent) diffuse EN CE MOMENT, lues dans la bibliothèque publicitaire Meta (page publique, 15 à 20 s) : visuel, texte, date de début, plateformes. POSE LUI-MÊME la carte (posted_card). La réponse à « montre-moi les pubs de La Fourche », « qu'est-ce que font les concurrents de Naturalia » (cherche alors chaque marque). Les libraryId servent ensuite à keep_template.",
+  inputSchema: { query: z.string().min(2).max(100).describe("Marque ou mot-clé."), country: z.string().length(2).optional().describe("Pays (défaut FR)."), limit: z.number().int().min(1).max(24).optional().describe("Défaut 12."), all: z.boolean().optional().describe("true = aussi les pubs inactives."), title: z.string().max(90).optional(), post: z.boolean().optional() },
+}, async (args) => call("competitor_ads", args, 120_000));
+
+server.registerTool("keep_template", {
+  title: "Garder une pub comme template",
+  description: "Garde une pub de la bibliothèque (libraryId de competitor_ads + la query de la recherche) ou n'importe quelle image https comme TEMPLATE du client (Créas › Templates & concurrents) : l'image est copiée, l'IA l'analyse (accroche, structure, zones de texte, style, brief). Ensuite generate_creatives avec references=[templateId] en fait une version à la marque du client.",
+  inputSchema: { libraryId: z.string().max(40).optional(), query: z.string().max(100).optional().describe("La marque cherchée dans competitor_ads (pour retrouver la pub)."), imageUrl: z.string().max(2000).optional(), client: z.string().max(120).optional().describe("Le client pour qui on garde ce template (sinon template d'agence)."), brand: z.string().max(120).optional(), name: z.string().max(120).optional(), title: z.string().max(500).optional(), body: z.string().max(4000).optional(), tags: z.string().max(300).optional(), country: z.string().length(2).optional() },
+}, async (args) => call("keep_template", args, 120_000));
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(`[mcp-mo] prêt (board ${BOARD})`);

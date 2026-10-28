@@ -6,6 +6,9 @@
  * API — the snapshot page is (ad_snapshot_url, rendered with the token).
  */
 
+import { RELAY_URLS } from "@/lib/relay-server";
+import { relayHeaders } from "@/lib/relay-headers";
+
 export interface AdLibraryAd {
   id: string;
   pageId: string;
@@ -13,20 +16,57 @@ export interface AdLibraryAd {
   bodies: string[];
   titles: string[];
   snapshotUrl: string | null;
+  /** ISO date (API) or the page's wording ("5 jan 2026") when read from the public page. */
   startedAt: string | null;
   platforms: string[];
   euReach: number | null;
+  /** Picture of the ad (or the video's poster) — only the public page gives it. */
+  imageUrl?: string | null;
+  videoUrl?: string | null;
+  domain?: string | null;
+}
+
+interface RelayAd { id: string; pageName: string; body: string; started: string | null; platforms: string[]; image: string | null; video: string | null; poster: string | null; domain: string | null; snapshot: string }
+
+/**
+ * The public page of the Ad Library, read by the relay's headless Chromium
+ * (server/adlib.mjs): no token, pictures included. Null when the relay cannot.
+ */
+async function searchViaRelay(opts: { q: string; country: string; limit: number; active: boolean }): Promise<{ ads: AdLibraryAd[]; total: number | null } | null> {
+  const qs = new URLSearchParams({ q: opts.q, country: opts.country, limit: String(opts.limit), ...(opts.active ? {} : { all: "1" }) });
+  for (const url of RELAY_URLS) {
+    try {
+      const res = await fetch(`${url}/api/adlib/search?${qs}`, { headers: relayHeaders(), signal: AbortSignal.timeout(url.includes("localhost") && RELAY_URLS.length > 1 ? 4000 : 75_000) });
+      if (res.status === 503) return null;
+      if (!res.ok) continue;
+      const j = (await res.json()) as { ads?: RelayAd[]; total?: number | null };
+      return {
+        total: j.total ?? null,
+        ads: (j.ads ?? []).filter((a) => a && typeof a.id === "string").map((a) => ({
+          id: a.id, pageId: "", pageName: a.pageName || "", bodies: a.body ? [a.body] : [], titles: [], snapshotUrl: a.snapshot, startedAt: a.started, platforms: a.platforms ?? [], euReach: null,
+          imageUrl: a.image ?? a.poster ?? null, videoUrl: a.video ?? null, domain: a.domain ?? null,
+        })),
+      };
+    } catch { /* next relay */ }
+  }
+  return null;
 }
 
 const API = "https://graph.facebook.com/v21.0/ads_archive";
 const FIELDS = "id,page_id,page_name,ad_creative_bodies,ad_creative_link_titles,ad_snapshot_url,ad_delivery_start_time,publisher_platforms,eu_total_reach";
 
-export const adLibraryConfigured = () => !!process.env.META_AD_LIBRARY_TOKEN;
+/** True when a search can be done: the relay reads the public page, or the API token is there. */
+export const adLibraryConfigured = () => RELAY_URLS.length > 0 || !!process.env.META_AD_LIBRARY_TOKEN;
 
 /** The one-time steps the admin has to do before the search works. */
 export const AD_LIBRARY_SETUP = "La recherche dans la bibliothèque publicitaire Meta demande un jeton d'une personne ayant confirmé son identité : 1) facebook.com/ID → confirmer l'identité ; 2) facebook.com/ads/library/api → accepter les conditions ; 3) générer un jeton utilisateur (Graph API Explorer, app ImpulseMotion) et le poser dans META_AD_LIBRARY_TOKEN sur Vercel. En attendant : importez la pub (capture, fichier ou lien de l'image).";
 
-export async function searchAdLibrary(opts: { q?: string; pageIds?: string[]; country?: string; limit?: number; active?: boolean }): Promise<{ ads: AdLibraryAd[]; error?: string }> {
+export async function searchAdLibrary(opts: { q?: string; pageIds?: string[]; country?: string; limit?: number; active?: boolean }): Promise<{ ads: AdLibraryAd[]; total?: number | null; error?: string }> {
+  // The public page first (pictures, no token); the API only with a token when the relay cannot.
+  if (opts.q?.trim() && !opts.pageIds?.length) {
+    const viaRelay = await searchViaRelay({ q: opts.q.trim().slice(0, 100), country: opts.country ?? "FR", limit: Math.min(60, Math.max(1, opts.limit ?? 24)), active: opts.active !== false });
+    if (viaRelay) return viaRelay;
+  }
   const token = process.env.META_AD_LIBRARY_TOKEN;
   if (!token) return { ads: [], error: AD_LIBRARY_SETUP };
   const params = new URLSearchParams({

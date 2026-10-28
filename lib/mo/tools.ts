@@ -9,6 +9,8 @@
  *   generate_creatives new visuals with fal.ai (Agnes as fallback), kept as CreativeAsset (origin "mo") and filed in the client's Drive folder « Créas »
  *   meta_targets       campaigns and ad sets of the client's Meta account (to choose where an ad goes)
  *   meta_publish_ad    a new Meta ad from a generated visual: a Pilotage action, prepared then sent on an explicit « oui » (created PAUSED, journaled in HQ)
+ *   competitor_ads     the ads a brand runs right now (Meta Ad Library, public page read by the relay), posted as a card
+ *   keep_template      one of them kept as a template (swipe file) of the client, analysed by the AI
  *
  * Every tool takes `client` = a name said out loud or an id; it is resolved
  * against the registry the consultant may see. Nothing here trusts an account
@@ -31,9 +33,13 @@ import { executeAction, hqProjectOf, pilotWritesOpen, prepareAction, type PilotS
 import { adIdentities } from "@/lib/pilot/new-ad";
 import { CALL_TO_ACTIONS } from "@/lib/meta-write";
 import { mergeCreativeMetrics, postMoCards } from "@/lib/mo/thread";
+import { searchAdLibrary } from "@/lib/creas/ad-library";
+import { analyseTemplate } from "@/lib/creas/analysis";
+import { dataUriToRelayImage } from "@/lib/creas/media";
+import { relayUpload } from "@/lib/studio";
 import type { MoCardSpec } from "@/lib/mo/model";
 
-export const MO_TOOL_NAMES = ["creatives", "metrics", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad"] as const;
+export const MO_TOOL_NAMES = ["creatives", "metrics", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad", "competitor_ads", "keep_template"] as const;
 export type MoToolName = (typeof MO_TOOL_NAMES)[number];
 
 export interface MoToolContext { userId: string; boardId: string; role: string; email: string | null; name: string | null }
@@ -322,6 +328,8 @@ async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResul
     if (/^https:\/\//.test(r)) { const got = await fetchImageBytes(r); if (got) refs.push(toDataUri(got.buf, got.mediaType)); continue; }
     const asset = await prisma.creativeAsset.findFirst({ where: { id: r, deletedAt: null }, select: { file: true, url: true } });
     if (asset) { const d = asset.file ? await mediaFileDataUri(asset.file) : asset.url ? await fetchImageBytes(asset.url).then((g) => (g ? toDataUri(g.buf, g.mediaType) : null)) : null; if (d) refs.push(d); continue; }
+    const template = await prisma.creativeTemplate.findFirst({ where: { id: r, deletedAt: null }, select: { file: true, imageUrl: true } });
+    if (template) { const d = template.file ? await mediaFileDataUri(template.file) : template.imageUrl ? await fetchImageBytes(template.imageUrl).then((g) => (g ? toDataUri(g.buf, g.mediaType) : null)) : null; if (d) refs.push(d); continue; }
     const ad = await prisma.adCatalog.findFirst({ where: { adId: r.replace(/^(meta|google|tiktok|linkedin):/, "") }, select: { imageUrl: true, thumbnailUrl: true } });
     const pic = ad?.imageUrl ?? ad?.thumbnailUrl;
     if (pic) { const got = await fetchImageBytes(pic); if (got) refs.push(toDataUri(got.buf, got.mediaType)); }
@@ -476,6 +484,58 @@ async function metaPublishAd(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   };
 }
 
+/** The ads a brand runs now, from the Meta Ad Library (public page through the relay, ~15-20 s): a creatives card, and the ids to keep one as template. */
+async function competitorAds(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+  const query = str(a.query ?? a.brand, 100);
+  if (query.length < 2) throw new MoToolError("Dis-moi la marque ou le mot-clé à chercher (query).");
+  const country = /^[A-Za-z]{2}$/.test(str(a.country, 2)) ? str(a.country, 2).toUpperCase() : "FR";
+  const limit = Math.min(24, Math.max(1, Math.round(num(a.limit) ?? 12)));
+  const res = await searchAdLibrary({ q: query, country, limit, active: a.all !== true });
+  if (res.error && !res.ads.length) throw new MoToolError(res.error, 502);
+  const ads = res.ads.slice(0, limit);
+  const items = ads.map((ad, i) => ({ name: `${ad.pageName || query}${ad.startedAt ? ` · depuis le ${/^\d{4}-/.test(ad.startedAt) ? fmtDay(ad.startedAt.slice(0, 10)) : ad.startedAt}` : ""}`, ...(ad.imageUrl ? { image: ad.imageUrl } : {}), adId: `adlib:${ad.id}`, metrics: { ...(ad.videoUrl ? { Format: "vidéo" } : { Format: "image" }), ...(ad.platforms.length ? { Plateformes: ad.platforms.join(", ") } : {}), ...(ad.domain ? { Site: ad.domain } : {}) }, ...(ad.bodies[0] ? { note: ad.bodies[0].slice(0, 160) } : {}), link: ad.snapshotUrl ?? `https://www.facebook.com/ads/library/?id=${ad.id}`, n: i + 1 }));
+  const card: MoCardSpec = { type: "creatives", title: str(a.title, 90) || `Pubs ${query} en ce moment`, subtitle: `Bibliothèque publicitaire Meta · ${country} · ${res.total ? `${res.total} pubs actives, ` : ""}${ads.length} affichées`, items: items.map(({ n: _n, ...it }) => { void _n; return it; }) };
+  const posted = ads.length && a.post !== false ? await postMoCards(ctx.boardId, [card]) : [];
+  return {
+    query, country, total: res.total ?? null, count: ads.length,
+    ...(posted.length ? { posted_card: posted[0], posted: "La carte est DÉJÀ sur le tableau : dis juste la phrase (combien de pubs, depuis quand, ce qui ressort)." } : {}),
+    ads: ads.map((ad, i) => ({ n: i + 1, libraryId: ad.id, page: ad.pageName, started: ad.startedAt, video: !!ad.videoUrl, image: ad.imageUrl ?? null, text: ad.bodies[0]?.slice(0, 200) ?? null, domain: ad.domain ?? null })),
+    next: "Pour garder une pub comme template du client : keep_template avec son libraryId (et le client).",
+  };
+}
+
+/** One ad of the library (or any https picture) kept as a template of the client: picture copied on the relay, analysed (hook, structure, text zones, brief). */
+async function keepTemplate(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+  const libraryId = str(a.libraryId, 40).replace(/^adlib:/, "");
+  let imageUrl = /^https:\/\//.test(str(a.imageUrl, 2000)) ? str(a.imageUrl, 2000) : "";
+  let brand = str(a.brand, 120);
+  let text = str(a.body ?? a.text, 4000);
+  let sourceUrl = libraryId ? `https://www.facebook.com/ads/library/?id=${libraryId}` : str(a.sourceUrl, 2000);
+  if (libraryId && !imageUrl) {
+    // The picture comes from the last search (cached on the relay for 10 min): the query is needed to find the ad again.
+    const query = str(a.query ?? a.brand, 100);
+    if (!query) throw new MoToolError("Donne imageUrl, ou query (la marque cherchée) pour retrouver la pub dans la bibliothèque.");
+    const res = await searchAdLibrary({ q: query, country: /^[A-Za-z]{2}$/.test(str(a.country, 2)) ? str(a.country, 2).toUpperCase() : "FR", limit: 60, active: true });
+    const ad = res.ads.find((x) => x.id === libraryId);
+    if (!ad) throw new MoToolError(`Pub ${libraryId} introuvable dans la recherche « ${query} ».`, 404);
+    imageUrl = ad.imageUrl ?? ""; brand = brand || ad.pageName; text = text || ad.bodies[0] || ""; sourceUrl = ad.snapshotUrl ?? sourceUrl;
+  }
+  if (!imageUrl && !text) throw new MoToolError("Il faut l'image (imageUrl) ou au moins le texte de la pub.");
+  const client = a.client ? (await resolveClient(ctx, a.client)).client : null;
+  let dataUri: string | null = null;
+  if (imageUrl) { const got = await fetchImageBytes(imageUrl); if (got) dataUri = toDataUri(got.buf, got.mediaType); }
+  let file: string | null = null;
+  if (dataUri) { try { file = (await relayUpload(dataUri)).file; } catch (e) { throw new MoToolError(`L'image n'a pas pu être enregistrée : ${e instanceof Error ? e.message : String(e)}`, 502); } }
+  const author = await prisma.user.findUnique({ where: { id: ctx.userId }, select: { name: true, email: true } });
+  const analysis = await analyseTemplate({ image: dataUri ? dataUriToRelayImage(dataUri, "template") : null, title: str(a.title, 500) || null, body: text || null, brand: brand || null, user: { id: ctx.userId, email: ctx.email, role: ctx.role } });
+  const name = str(a.name, 120) || analysis?.hook || (brand ? `Pub ${brand}` : "Template");
+  const row = await prisma.creativeTemplate.create({ data: {
+    alertClientId: client?.clientId ?? null, clientName: client?.name ?? "", name, source: "competitor", brand, sourceRef: libraryId ? `adlib:${libraryId}` : null, sourceUrl: sourceUrl || null, imageUrl: imageUrl || null, file,
+    title: str(a.title, 500) || null, body: text || null, analysisJson: JSON.stringify(analysis ?? {}), tags: str(a.tags, 300), createdById: ctx.userId, createdByName: (author?.name ?? "").trim() || author?.email || "Consultant",
+  } });
+  return { templateId: row.id, name: row.name, brand, client: client ? { id: client.id, name: client.name } : null, open: `/creas?${client ? `client=${client.id}&` : ""}tab=templates&template=${row.id}`, analysis: analysis ? { hook: analysis.hook, structure: analysis.structure, style: analysis.style, brief: analysis.brief } : null, note: "Template enregistré dans Créas › Templates & concurrents ; la personne peut dire « copie-le pour <client> » (generate_creatives avec references=[templateId] … ou ouvrir la page)." };
+}
+
 export async function runMoTool(ctx: MoToolContext, tool: string, args: unknown): Promise<ToolResult> {
   const a: Args = args && typeof args === "object" ? (args as Args) : {};
   switch (tool as MoToolName) {
@@ -485,6 +545,8 @@ export async function runMoTool(ctx: MoToolContext, tool: string, args: unknown)
     case "generate_creatives": return generateCreatives(ctx, a);
     case "meta_targets": return metaTargets(ctx, a);
     case "meta_publish_ad": return metaPublishAd(ctx, a);
+    case "competitor_ads": return competitorAds(ctx, a);
+    case "keep_template": return keepTemplate(ctx, a);
     default: throw new MoToolError(`Outil inconnu : ${tool}`, 404);
   }
 }

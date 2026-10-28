@@ -21,6 +21,7 @@ import { HOST_CREDENTIALS, startAuthWatch } from "./auth-watch.mjs";
 import { hqToolCall } from "./hq-client.mjs";
 import * as maxAccounts from "./max-accounts.mjs";
 import * as voice from "./voice.mjs";
+import * as adlib from "./adlib.mjs";
 import * as gwsAuth from "./gws-auth.mjs";
 import { handleSheetsRequest } from "./sheets-direct.mjs";
 import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promptLogExcerpt } from "./relay-prompt.mjs";
@@ -421,7 +422,7 @@ const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // fields, announced by /health. The application reads it before relying on a
 // field an older relay would silently ignore (lib/dashboard-copilot.ts), so
 // the relay and the application can be deployed in any order.
-const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft", "photocraft", "voice"];
+const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft", "photocraft", "voice", "adlib"];
 // Detached turns (jobs) hold no HTTP response open: they may run longer than
 // a streamed one, up to this cap.
 const DETACHED_MAX_BUDGET_MS = Number(process.env.RELAY_DETACHED_MAX_BUDGET_MS || 15 * 60 * 1000);
@@ -2087,6 +2088,18 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith("/media/") && req.method === "GET") {
       agnes.serveMedia(req, res, url);
       return;
+    }
+    // ── Bibliothèque publicitaire Meta (server/adlib.mjs) : pubs des concurrents lues sur la page publique ──
+    if (url.pathname === "/api/adlib/search" && req.method === "GET") {
+      if (!authorized(req)) return send(401, { error: "unauthorized" });
+      if (!adlib.adLibraryConfigured()) return send(503, { error: "bibliothèque Meta non configurée sur le relay" });
+      try {
+        const out = await adlib.searchAdLibrary({ q: url.searchParams.get("q") || "", country: (url.searchParams.get("country") || "FR").toUpperCase().slice(0, 2), limit: Math.min(60, Math.max(1, Number(url.searchParams.get("limit")) || 24)), active: url.searchParams.get("all") !== "1" });
+        return send(200, out);
+      } catch (e) {
+        console.error("[adlib]", e.message || e);
+        return send(502, { error: `bibliothèque Meta indisponible : ${String(e.message || e).slice(0, 200)}` });
+      }
     }
     // ── Mo : voix locale (server/voice.mjs) — STT (audio du navigateur) et TTS (WAV) ──
     if (url.pathname.startsWith("/api/voice/")) {
