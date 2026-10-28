@@ -396,24 +396,31 @@ const READ_ONCE_TIMEOUT_MS = 15_000;
 
 /**
  * The only writes the application knows: a creative, a paused ad, pausing an
- * ad, and a video of the account's library (POST /act_X/advideos with a public
- * `file_url` Meta downloads itself: the application never sends bytes).
+ * ad, a video of the account's library (POST /act_X/advideos with a public
+ * `file_url` Meta downloads itself: the application never sends bytes) and an
+ * image of the library (POST /act_X/adimages with a public `url`, same rule:
+ * Meta downloads it and answers its hash, which a dynamic creative needs).
  */
 export type MetaWriteTarget =
   | { kind: "adcreative"; accountId: string }
   | { kind: "ad"; accountId: string }
   | { kind: "advideo"; accountId: string }
+  | { kind: "adimage"; accountId: string }
   | { kind: "pause_ad"; adId: string };
 
 const WRITE_FIELDS: Record<MetaWriteTarget["kind"], readonly string[]> = {
-  adcreative: ["name", "object_story_spec"],
+  // object_story_spec always (the Page lives there, with or without an asset feed); asset_feed_spec only for a dynamic creative.
+  adcreative: ["name", "object_story_spec", "asset_feed_spec"],
   ad: ["name", "adset_id", "creative"],
   advideo: ["file_url", "name"],
+  adimage: ["url"],
   pause_ad: [],
 };
-/** Targets that can deliver: they are written PAUSED. A creative and a video have no delivery status. */
+/** Fields of the closed list a write may leave out (every other allowed field is required). */
+const WRITE_OPTIONAL: ReadonlySet<string> = new Set(["adcreative:asset_feed_spec"]);
+/** Targets that can deliver: they are written PAUSED. A creative, a video and an image have no delivery status. */
 const DELIVERABLE: ReadonlySet<MetaWriteTarget["kind"]> = new Set(["ad", "pause_ad"]);
-const EDGE: Record<Exclude<MetaWriteTarget["kind"], "pause_ad">, string> = { ad: "ads", adcreative: "adcreatives", advideo: "advideos" };
+const EDGE: Record<Exclude<MetaWriteTarget["kind"], "pause_ad">, string> = { ad: "ads", adcreative: "adcreatives", advideo: "advideos", adimage: "adimages" };
 
 /** The write may or may not have been applied (timeout, network, 5xx). Never retry it blindly. */
 export class MetaWriteUncertainError extends Error {
@@ -499,11 +506,11 @@ export async function metaGraphPost<T>(
     if (typeof value !== "string") throw new Error(`Écriture refusée : champ « ${key} » invalide`);
   }
   for (const key of allowed) {
-    if (!fields[key]) throw new Error(`Écriture refusée : champ « ${key} » manquant pour ${target.kind}`);
+    if (!fields[key] && !WRITE_OPTIONAL.has(`${target.kind}:${key}`)) throw new Error(`Écriture refusée : champ « ${key} » manquant pour ${target.kind}`);
   }
   const bodyFor = (token: string) => {
     const body = new URLSearchParams();
-    for (const key of allowed) body.set(key, fields[key]);
+    for (const key of allowed) if (fields[key]) body.set(key, fields[key]);
     // A creative and a video have no delivery status; everything that can deliver is paused.
     if (DELIVERABLE.has(target.kind)) body.set("status", "PAUSED");
     body.set("access_token", token);

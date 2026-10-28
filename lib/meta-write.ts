@@ -29,12 +29,22 @@
  * Everything travels inside object_story_spec, one JSON field of the closed
  * list of metaGraphPost: no new write target for a carousel.
  *
+ * Dynamic creative (format "dynamic", Lot 4): the assets travel in
+ * asset_feed_spec (images by hash, videos by id with their thumbnail, up to 5
+ * bodies / titles / descriptions / buttons, ONE link, the formats Meta may
+ * assemble) next to an object_story_spec reduced to the Page (and Instagram
+ * account). An image gets its hash with uploadImage (POST /act_X/adimages with
+ * a public `url`, Meta downloads it). Only an ad set created in dynamic
+ * creative and still empty takes such an ad: the caller checks that.
+ *
  * Docs: https://developers.facebook.com/docs/marketing-api/reference/ad-account/adcreatives/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-creative-link-data/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-creative-video-data/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-account/advideos/
  *       https://developers.facebook.com/docs/marketing-api/guides/carousel-ads/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-account/ads/
+ *       https://developers.facebook.com/docs/marketing-api/ad-creative/asset-feed-spec/
+ *       https://developers.facebook.com/docs/marketing-api/reference/ad-image/
  */
 
 import { getMetaSystemToken, getMetaTokens, isMetaWriteUncertain, metaGraphGetOnce, metaGraphPost } from "@/lib/meta-api";
@@ -164,7 +174,27 @@ export function publicHttpsUrlError(value: unknown): string | null {
   return null;
 }
 
-export type PausedAdFormat = "image" | "video" | "carousel";
+export type PausedAdFormat = "image" | "video" | "carousel" | "dynamic";
+
+/** Dynamic creative: what one asset feed may hold (Meta's limits for dynamic creative). */
+export const DYNAMIC_LIMITS = { images: 10, videos: 10, bodies: 5, titles: 5, descriptions: 5, callToActions: 5 } as const;
+/** The hash of an image of the account's library (adimages): 32 hexadecimal characters. */
+const IMAGE_HASH_RE = /^[a-f0-9]{32}$/i;
+export const isImageHash = (value: unknown): value is string => typeof value === "string" && IMAGE_HASH_RE.test(value);
+
+/** The assets of a dynamic creative (asset_feed_spec), already uploaded: hashes and video ids, never files. */
+export interface DynamicAssets {
+  /** Hashes of images of the library (uploadImage). */
+  images: string[];
+  /** Videos of the library (uploadVideo, read « ready ») with their thumbnail (public https). */
+  videos: Array<{ videoId: string; thumbnailUrl: string }>;
+  /** Primary texts (1 to 5), headlines (0 to 5), descriptions (0 to 5). */
+  bodies: string[];
+  titles: string[];
+  descriptions: string[];
+  /** Buttons Meta may pick (0 to 5, distinct); none = Meta's default. */
+  callToActions: string[];
+}
 
 /** Carousel: 2 to 10 cards. */
 export const CAROUSEL_CARDS = { min: 2, max: 10 } as const;
@@ -210,6 +240,8 @@ export interface PausedAdInput {
   multiShareOptimized?: boolean;
   /** Carousel: the end card with the Page's picture and the link (default true, Meta's). */
   endCard?: boolean;
+  /** Dynamic creative: its assets; `primaryText` is then the first body, `linkUrl` the only link, `callToAction` unused. */
+  dynamic?: DynamicAssets;
 }
 
 export interface PausedAdResult {
@@ -239,8 +271,14 @@ export function pausedAdInputError(input: PausedAdInput): string | null {
   if (link) return `lien refusé : ${link}`;
   const video = input.format === "video";
   const carousel = input.format === "carousel";
-  if (input.format !== undefined && input.format !== "image" && !video && !carousel) return "format de publicité inconnu";
+  const dynamic = input.format === "dynamic";
+  if (input.format !== undefined && input.format !== "image" && !video && !carousel && !dynamic) return "format de publicité inconnu";
   if (input.callToAction !== undefined && !isCallToAction(input.callToAction)) return "bouton d'action inconnu";
+  if (dynamic) {
+    if (input.videoId !== undefined || input.imageUrl || input.cards !== undefined) return "une publicité dynamique porte ses médias dans son flux d'éléments";
+    return dynamicAssetsInputError(input.dynamic, input.primaryText);
+  }
+  if (input.dynamic !== undefined) return "flux d'éléments inattendu sur une publicité qui n'est pas dynamique";
   if (carousel) {
     if (input.videoId !== undefined || input.imageUrl) return "un carrousel porte ses médias sur ses cartes";
     return carouselCardsInputError(input.cards);
@@ -280,6 +318,42 @@ function carouselCardsInputError(cards: unknown): string | null {
       names.add(key);
     }
   }
+  return null;
+}
+
+/**
+ * The assets of a dynamic creative as Meta takes them: 1 to 10 images (by
+ * hash) and/or 0 to 10 videos (ready, with a public thumbnail), 1 to 5 bodies
+ * (the first being the primary text), 0 to 5 titles and descriptions, 0 to 5
+ * distinct known buttons. No file, no URL of an image.
+ */
+function dynamicAssetsInputError(assets: unknown, primaryText: string): string | null {
+  if (!assets || typeof assets !== "object") return "flux d'éléments de la publicité dynamique manquant";
+  const a = assets as DynamicAssets;
+  const lists: Array<[keyof DynamicAssets, string]> = [["images", "images"], ["videos", "vidéos"], ["bodies", "textes"], ["titles", "titres"], ["descriptions", "descriptions"], ["callToActions", "boutons"]];
+  for (const [key, label] of lists) if (!Array.isArray(a[key])) return `${label} de la publicité dynamique illisibles`;
+  if (!a.images.length && !a.videos.length) return "une publicité dynamique porte au moins une image ou une vidéo";
+  if (a.images.length > DYNAMIC_LIMITS.images) return `${DYNAMIC_LIMITS.images} images au plus dans une publicité dynamique`;
+  if (a.videos.length > DYNAMIC_LIMITS.videos) return `${DYNAMIC_LIMITS.videos} vidéos au plus dans une publicité dynamique`;
+  for (const [i, hash] of a.images.entries()) if (!isImageHash(hash)) return `image ${i + 1} non prête : empreinte Meta manquante`;
+  for (const [i, v] of a.videos.entries()) {
+    if (!v || typeof v !== "object" || !isMetaId(v.videoId)) return `vidéo ${i + 1} non prête : identifiant de vidéo Meta manquant`;
+    const thumb = publicHttpsUrlError(v.thumbnailUrl);
+    if (thumb) return `vidéo ${i + 1} : vignette refusée : ${thumb}`;
+  }
+  if (!a.bodies.length || a.bodies.length > DYNAMIC_LIMITS.bodies) return `une publicité dynamique porte de 1 à ${DYNAMIC_LIMITS.bodies} textes principaux`;
+  if (a.bodies[0] !== primaryText) return "le texte principal doit être le premier texte du flux";
+  if (a.titles.length > DYNAMIC_LIMITS.titles) return `${DYNAMIC_LIMITS.titles} titres au plus dans une publicité dynamique`;
+  if (a.descriptions.length > DYNAMIC_LIMITS.descriptions) return `${DYNAMIC_LIMITS.descriptions} descriptions au plus dans une publicité dynamique`;
+  for (const [label, values, max] of [["texte", a.bodies, MAX_PRIMARY_TEXT_CHARS], ["titre", a.titles, MAX_HEADLINE_CHARS], ["description", a.descriptions, MAX_HEADLINE_CHARS]] as const) {
+    for (const [i, value] of values.entries()) {
+      if (typeof value !== "string" || !value.trim()) return `${label} ${i + 1} vide`;
+      if (value.length > max) return `${label} ${i + 1} trop long (${max} caractères au plus)`;
+    }
+  }
+  if (a.callToActions.length > DYNAMIC_LIMITS.callToActions) return `${DYNAMIC_LIMITS.callToActions} boutons au plus dans une publicité dynamique`;
+  for (const cta of a.callToActions) if (!isCallToAction(cta) || cta === "NO_BUTTON") return "bouton d'action inconnu dans le flux";
+  if (new Set(a.callToActions).size !== a.callToActions.length) return "deux boutons identiques dans le flux";
   return null;
 }
 
@@ -634,6 +708,42 @@ export async function uploadVideo(guard: WriteGuard, accountId: string, fileUrl:
   return { videoId };
 }
 
+export interface UploadedImage { hash: string }
+
+/** What POST /adimages answers: the images keyed by name or address, each with its hash. */
+type RawAdImages = { images?: Record<string, { hash?: string; url?: string }> };
+
+/**
+ * Puts an image in the account's library from a public https address (POST
+ * /act_X/adimages, `url`): Meta downloads the file itself and answers the hash
+ * a dynamic creative refers to. Same bytes, same hash: sending an image twice
+ * creates nothing new. An image in the library delivers nothing by itself.
+ *
+ *   refused    the address is not public https, or Meta could not read it or refused it
+ *   uncertain  the POST timed out: the image may be in the library, nothing is sent again
+ *   infra      token or quota: try again later
+ */
+export async function uploadImage(guard: WriteGuard, accountId: string, imageUrl: string): Promise<UploadedImage> {
+  assertWriteGuard(guard);
+  const account = bareAccount(String(accountId ?? ""));
+  if (!account) throw new MetaWriteError("refused", "Compte publicitaire invalide");
+  const bad = publicHttpsUrlError(imageUrl);
+  if (bad) throw new MetaWriteError("refused", `Image refusée : ${bad}`);
+  let hash = "";
+  try {
+    const res = await metaGraphPost<RawAdImages>(guard, { kind: "adimage", accountId: account }, getMetaSystemToken(), { url: imageUrl.trim() });
+    const first = Object.values(res?.images ?? {}).find((img) => isImageHash(img?.hash));
+    hash = String(first?.hash ?? "");
+  } catch (err) {
+    if (isMetaApiError(err) && (err.code === VIDEO_FETCH_FAILED || err.code === 100)) {
+      throw new MetaWriteError("refused", `Image refusée : Meta n'a pas pu la télécharger ou l'a refusée (${cleanMetaMessage(err.message)}). Choisissez une image du Studio ou une adresse https publique d'un jpg/png.`);
+    }
+    throw fromWriteError(err, "Envoi de l'image");
+  }
+  if (!isImageHash(hash)) throw new MetaWriteError("uncertain", "Envoi de l'image : réponse de Meta sans empreinte");
+  return { hash: hash.toLowerCase() };
+}
+
 export type VideoStatusKind = "ready" | "processing" | "error";
 export interface VideoStatus { kind: VideoStatusKind; /** Meta's word (video_status) and, on error, what it said. */ detail: string }
 
@@ -701,6 +811,8 @@ export function pausedAdStory(input: PausedAdInput): Record<string, unknown> {
   const link = input.linkUrl.trim();
   const story: Record<string, unknown> = { page_id: input.pageId };
   if (input.instagramUserId) story.instagram_user_id = input.instagramUserId;
+  // A dynamic creative keeps the Page here and everything else in asset_feed_spec.
+  if (input.format === "dynamic") return story;
   if (input.format === "carousel") {
     const cards = (input.cards ?? []).map((card) => {
       const cardLink = card.link.trim();
@@ -751,6 +863,39 @@ export function pausedAdStory(input: PausedAdInput): Record<string, unknown> {
 }
 
 /**
+ * The ad_formats of a dynamic creative: what Meta may assemble from the assets
+ * given — images only, videos only, or AUTOMATIC_FORMAT when both are there
+ * (Meta mixes them by placement).
+ */
+export function dynamicAdFormats(assets: Pick<DynamicAssets, "images" | "videos">): string[] {
+  if (assets.images.length && assets.videos.length) return ["AUTOMATIC_FORMAT"];
+  return assets.videos.length ? ["SINGLE_VIDEO"] : ["SINGLE_IMAGE"];
+}
+
+/**
+ * The asset_feed_spec of a dynamic creative: images by hash, videos by id with
+ * their thumbnail, bodies, titles, descriptions, ONE link, the buttons Meta
+ * may pick, the formats, optimization_type REGULAR (dynamic creative, no
+ * customization rules). Pure; null for any other format.
+ */
+export function pausedAdAssetFeed(input: PausedAdInput): Record<string, unknown> | null {
+  if (input.format !== "dynamic" || !input.dynamic) return null;
+  const a = input.dynamic;
+  const feed: Record<string, unknown> = {
+    images: a.images.map((hash) => ({ hash })),
+    videos: a.videos.map((v) => ({ video_id: v.videoId, thumbnail_url: v.thumbnailUrl.trim() })),
+    bodies: a.bodies.map((text) => ({ text })),
+    titles: a.titles.map((text) => ({ text })),
+    descriptions: a.descriptions.map((text) => ({ text })),
+    link_urls: [{ website_url: input.linkUrl.trim() }],
+    ad_formats: dynamicAdFormats(a),
+    optimization_type: "REGULAR",
+  };
+  if (a.callToActions.length) feed.call_to_action_types = a.callToActions;
+  return feed;
+}
+
+/**
  * Creates one ad, PAUSED, in the ad set of the routine: creative first, then
  * the ad, then a re-read of the ad. The ad set is re-read and compared with
  * the account and the campaign before anything is sent.
@@ -767,12 +912,14 @@ export async function createPausedAd(guard: WriteGuard, input: PausedAdInput): P
 
   const token = getMetaSystemToken();
   const story = pausedAdStory(input);
+  const feed = pausedAdAssetFeed(input);
 
   let creativeId: string;
   try {
     const res = await metaGraphPost<{ id?: string }>(guard, { kind: "adcreative", accountId: account }, token, {
       name: input.name,
       object_story_spec: JSON.stringify(story),
+      ...(feed ? { asset_feed_spec: JSON.stringify(feed) } : {}),
     });
     creativeId = String(res?.id ?? "");
   } catch (err) {

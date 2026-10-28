@@ -19,17 +19,23 @@
  *               carousel may carry several videos (one PilotMedia row each,
  *               all attached to the operation): the ad is created only when
  *               every one of them is ready.
+ *   dynamic     (asset_feed_spec) only in an ad set created in dynamic
+ *               creative and still empty — read on Meta at the preview and at
+ *               the send; refused otherwise, as is any other format in such an
+ *               ad set. Its images go to the library at the preview too
+ *               (uploadImage → hash kept on the media, `remoteId`); its videos
+ *               follow the same path as a carousel's.
  */
 
 import { getMetaSystemToken, metaGraphGetOnce } from "@/lib/meta-api";
 import {
-  checkAdIdentity, createPausedAd, isMetaWriteError, listPromotablePages, pausedAdInputError, readVideoStatus, uploadVideo, verifyPagePromotable,
+  MetaWriteError, checkAdIdentity, createPausedAd, isMetaWriteError, listPromotablePages, pausedAdInputError, readVideoStatus, uploadImage, uploadVideo, verifyPagePromotable,
   type PausedAdInput, type PromotablePage,
 } from "@/lib/meta-write";
 import { prisma } from "@/lib/prisma";
 import { publicMediaUrl } from "@/lib/studio";
 import type { WriteGuard } from "@/lib/routines/types";
-import { adTextsOf, metaAdSpecError, type AdSpec, type CarouselCard, type MediaRef } from "@/lib/pilot/ad-spec";
+import { adTextsOf, dynamicMedia, metaAdSpecError, type AdSpec, type CarouselCard, type MediaRef } from "@/lib/pilot/ad-spec";
 import type { WriteOutcome } from "@/lib/pilot/meta";
 
 /** A signed link must outlive the preview (30 min), the send and Meta's processing (minutes, hours when Meta is slow). */
@@ -47,12 +53,40 @@ export async function adIdentities(account: string): Promise<AdIdentities> {
   return { pages: pages.pages, pagesComplete: pages.complete, instagram: ig };
 }
 
-/** The campaign of an ad set of the account; throws when it is not one of the account. */
-async function adsetCampaign(account: string, adsetId: string): Promise<string> {
-  const data = await metaGraphGetOnce<{ id?: string; account_id?: string; campaign_id?: string }>(`/${adsetId}`, getMetaSystemToken(), { fields: "id,account_id,campaign_id" });
+/** The campaign of an ad set of the account, and whether the ad set was created in dynamic creative; throws when it is not one of the account. */
+async function adsetInfo(account: string, adsetId: string): Promise<{ campaignId: string; dynamic: boolean }> {
+  const data = await metaGraphGetOnce<{ id?: string; account_id?: string; campaign_id?: string; is_dynamic_creative?: boolean }>(`/${adsetId}`, getMetaSystemToken(), { fields: "id,account_id,campaign_id,is_dynamic_creative" });
   if (String(data?.id ?? "") !== adsetId || String(data.account_id ?? "").replace(/^act_/, "") !== account) throw new Error("Cet ensemble de publicités n'appartient pas au compte.");
   if (!/^\d{5,25}$/.test(String(data.campaign_id ?? ""))) throw new Error("Campagne de l'ensemble illisible.");
-  return String(data.campaign_id);
+  return { campaignId: String(data.campaign_id), dynamic: data.is_dynamic_creative === true };
+}
+
+/** Said when a dynamic creative is asked outside an ad set created in dynamic creative, or in one that already holds an ad. */
+export const DYNAMIC_ADSET_REQUIRED = "choisissez un ensemble créé en création dynamique et vide";
+/** Said when an image, video or carousel ad is asked in a dynamic creative ad set. */
+export const DYNAMIC_ADSET_ONLY = "Cet ensemble est en création dynamique : seul le format Dynamique y entre.";
+
+/** True when the ad set already holds an ad that is neither deleted nor archived (a dynamic creative ad set takes one ad only). */
+async function adsetHoldsAnAd(adsetId: string): Promise<boolean> {
+  const data = await metaGraphGetOnce<{ data?: Array<{ id?: string }> }>(`/${adsetId}/ads`, getMetaSystemToken(), {
+    fields: "id", limit: "1", filtering: JSON.stringify([{ field: "effective_status", operator: "NOT_IN", value: ["DELETED", "ARCHIVED"] }]),
+  });
+  return Array.isArray(data?.data) && data.data.length > 0;
+}
+
+/**
+ * The ad set against the format asked: a dynamic creative needs an ad set
+ * created in dynamic creative and still empty; such an ad set takes nothing
+ * else. Null when they match, the reason otherwise. Throws when Meta cannot
+ * be read.
+ */
+async function adsetFormatError(adsetId: string, dynamicAdset: boolean, format: AdSpec["format"]): Promise<string | null> {
+  if (format === "dynamic") {
+    if (!dynamicAdset) return `Cet ensemble n'a pas été créé en création dynamique : ${DYNAMIC_ADSET_REQUIRED} (le Gestionnaire ne convertit pas un ensemble existant).`;
+    if (await adsetHoldsAnAd(adsetId)) return `Cet ensemble porte déjà une publicité (une seule par ensemble dynamique) : ${DYNAMIC_ADSET_REQUIRED}.`;
+    return null;
+  }
+  return dynamicAdset ? DYNAMIC_ADSET_ONLY : null;
 }
 
 /** What createPausedAd takes, from the spec. */
@@ -75,6 +109,18 @@ export const toInput = (account: string, adsetId: string, spec: AdSpec & { campa
       })),
       multiShareOptimized: spec.options?.multiShareOptimized === true,
       endCard: spec.options?.endCard !== false,
+    };
+  }
+  if (spec.format === "dynamic") {
+    const { images, videos } = dynamicMedia(spec);
+    return {
+      ...base, callToAction: undefined, format: "dynamic",
+      dynamic: {
+        images: images.map((m) => m.remoteId ?? ""),
+        videos: videos.map((m) => ({ videoId: m.remoteId ?? "", thumbnailUrl: m.thumbUrl ?? "" })),
+        bodies: spec.texts.primary, titles: spec.texts.headline, descriptions: spec.texts.description,
+        callToActions: spec.callToActions ?? [],
+      },
     };
   }
   const media = spec.media[0];
@@ -170,7 +216,36 @@ function pendingVideos(spec: AdSpec): PendingVideo[] {
       ? [{ media: card.media, label: `Vidéo de la carte ${i + 1}`, mediaId: () => card.media.mediaId, setMediaId: (id: string | undefined) => { card.media.mediaId = id; } }]
       : []);
   }
+  if (spec.format === "dynamic") {
+    return dynamicMedia(spec).videos.map((media, i) => ({ media, label: `Vidéo ${i + 1}`, mediaId: () => media.mediaId, setMediaId: (id: string | undefined) => { media.mediaId = id; } }));
+  }
   return [];
+}
+
+/** The images of a dynamic creative that are not in Meta's library yet (no hash). */
+const pendingImages = (spec: AdSpec): MediaRef[] => (spec.format === "dynamic" ? dynamicMedia(spec).images.filter((m) => !m.remoteId) : []);
+
+/** Puts the images in the library and keeps the hash on each media. Throws MetaWriteError (said with the image's rank). */
+async function uploadImages(guard: WriteGuard, account: string, images: MediaRef[], allImages: MediaRef[]): Promise<void> {
+  for (const m of images) {
+    try {
+      const { hash } = await uploadImage(guard, account, m.url);
+      m.remoteId = hash;
+    } catch (e) {
+      const n = allImages.indexOf(m) + 1;
+      throw isMetaWriteError(e) ? new MetaWriteError(e.kind, `Image ${n} : ${e.message}`) : e;
+    }
+  }
+}
+
+/** The input of the send, with placeholders where an upload has not happened yet (checked with the same rule at the preview). */
+function previewInput(account: string, adsetId: string, spec: AdSpec & { campaignId: string }): PausedAdInput {
+  const input = toInput(account, adsetId, spec);
+  if (spec.format === "video") return { ...input, videoId: "00000" };
+  if (spec.format === "dynamic" && input.dynamic) {
+    return { ...input, dynamic: { ...input.dynamic, images: input.dynamic.images.map((h) => h || "0".repeat(32)), videos: input.dynamic.videos.map((v) => ({ ...v, videoId: v.videoId || "00000" })) } };
+  }
+  return input;
 }
 
 export type CheckedAd = { ok: true; spec: AdSpec & { campaignId: string }; notes: string[] } | { ok: false; error: string };
@@ -182,10 +257,23 @@ export type CheckedAd = { ok: true; spec: AdSpec & { campaignId: string }; notes
  */
 export async function checkNewAd(account: string, adsetId: string, spec: AdSpec, lend?: GuardLender, createdById: string | null = null): Promise<CheckedAd> {
   let campaignId: string;
-  try { campaignId = await adsetCampaign(account, adsetId); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
-  // Fresh links for every media: the one of the ad, or those of the cards of a carousel.
+  try {
+    const adset = await adsetInfo(account, adsetId);
+    campaignId = adset.campaignId;
+    const mismatch = await adsetFormatError(adsetId, adset.dynamic, spec.format);
+    if (mismatch) return { ok: false, error: mismatch };
+  } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  // Fresh links for every media: the one of the ad, those of the cards of a carousel, every one of a dynamic creative.
   let full: AdSpec & { campaignId: string };
-  if (spec.format === "carousel") {
+  if (spec.format === "dynamic") {
+    const media: MediaRef[] = [];
+    for (const [i, m] of spec.media.entries()) {
+      const r = await refreshMedia(m);
+      if (!r.ok) return { ok: false, error: `${m.kind === "video" ? "Vidéo" : "Image"} ${i + 1} : ${r.error}` };
+      media.push(r.media);
+    }
+    full = { ...spec, media, campaignId };
+  } else if (spec.format === "carousel") {
     const cards: CarouselCard[] = [];
     for (const [i, card] of (spec.cards ?? []).entries()) {
       const m = await refreshMedia(card.media);
@@ -200,8 +288,8 @@ export async function checkNewAd(account: string, adsetId: string, spec: AdSpec,
   }
   const invalid = metaAdSpecError(full);
   if (invalid) return { ok: false, error: invalid.endsWith(".") ? invalid : `${invalid}.` };
-  // The same input as the send, checked with the same rule (a video has no id yet: that one is skipped).
-  const inputError = pausedAdInputError({ ...toInput(account, adsetId, full), ...(full.format === "video" ? { videoId: "00000" } : {}) });
+  // The same input as the send, checked with the same rule (a video has no id, an image no hash yet: placeholders there).
+  const inputError = pausedAdInputError(previewInput(account, adsetId, full));
   if (inputError) return { ok: false, error: `Publicité refusée : ${inputError}.` };
   try {
     await verifyPagePromotable(account, spec.identity.pageId);
@@ -210,6 +298,19 @@ export async function checkNewAd(account: string, adsetId: string, spec: AdSpec,
   }
   const identity = await checkAdIdentity(account, spec.identity.pageId, spec.identity.instagramUserId);
   const notes = [...identity.notes];
+  // Dynamic: the images go to the library now (their hash is what the creative refers to). A hash already kept is not asked again.
+  const images = pendingImages(full);
+  if (images.length) {
+    if (!lend) notes.push(`L'envoi vers Meta est fermé (page en essai) : ${images.length > 1 ? "les images seront envoyées" : "l'image sera envoyée"} à Meta au moment de l'envoi.`);
+    else {
+      try {
+        await lend(`media:${account}:${adsetId}`, (guard) => uploadImages(guard, account, images, dynamicMedia(full).images));
+      } catch (e) {
+        if (isMetaWriteError(e)) return { ok: false, error: e.kind === "uncertain" ? `${e.message} — l'image a peut-être été reçue par Meta ; préparez l'aperçu à nouveau dans une minute.` : e.message };
+        return { ok: false, error: `Envoi de l'image impossible : ${e instanceof Error ? e.message : String(e)}` };
+      }
+    }
+  }
   const pending = pendingVideos(full);
   const toUpload: PendingVideo[] = [];
   let processing = 0;
@@ -243,7 +344,7 @@ export async function checkNewAd(account: string, adsetId: string, spec: AdSpec,
           }
         });
       } catch (e) {
-        const where = full.format === "carousel" ? `${current.label.replace(/^Vidéo de la /, "")} : ` : "";
+        const where = full.format === "carousel" ? `${current.label.replace(/^Vidéo de la /, "")} : ` : full.format === "dynamic" ? `${current.label} : ` : "";
         if (isMetaWriteError(e)) return { ok: false, error: `${where}${e.kind === "uncertain" ? `${e.message} — la vidéo a peut-être été reçue par Meta ; préparez l'aperçu à nouveau dans une minute.` : e.message}` };
         return { ok: false, error: `${where}Envoi de la vidéo impossible : ${e instanceof Error ? e.message : String(e)}` };
       }
@@ -267,6 +368,13 @@ export async function createNewAd(guard: WriteGuard, account: string, adsetId: s
   if (!spec.campaignId) return { kind: "refused", error: "Campagne de l'ensemble inconnue : préparez l'aperçu à nouveau." };
   const full = spec as AdSpec & { campaignId: string };
   try {
+    // The ad set is read again: a dynamic creative ad set may have received an ad since the preview.
+    const adset = await adsetInfo(account, adsetId);
+    const mismatch = await adsetFormatError(adsetId, adset.dynamic, full.format);
+    if (mismatch) return { kind: "refused", error: mismatch };
+    // Writes were closed at the preview: the images go to Meta now.
+    const images = pendingImages(full);
+    if (images.length) await uploadImages(guard, account, images, dynamicMedia(full).images);
     const pending = pendingVideos(full);
     const mediaIds: string[] = [];
     let waiting = 0;

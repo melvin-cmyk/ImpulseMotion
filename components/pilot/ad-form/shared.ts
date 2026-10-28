@@ -40,8 +40,24 @@ export const AD_FORMAT_TABS: Array<{ id: AdFormatTab; label: string; soon: strin
   { id: "image", label: "Image", soon: null },
   { id: "video", label: "Vidéo", soon: null },
   { id: "carousel", label: "Carrousel", soon: null },
-  { id: "dynamic", label: "Dynamique", soon: "Bientôt : création dynamique (plusieurs visuels et textes, Meta choisit la combinaison) — lot suivant." },
+  { id: "dynamic", label: "Dynamique", soon: null },
 ];
+
+/** What the ad set allows: a dynamic creative ad set takes one dynamic ad and nothing else; any other ad set takes everything but dynamic. */
+export type AdsetFit = { dynamic: boolean; /** Ads already in the ad set (null while unknown). */ adCount: number | null };
+export const DYNAMIC_TAB_LOCKED = "Création dynamique : choisissez un ensemble créé en création dynamique et vide (le Gestionnaire ne convertit pas un ensemble existant).";
+export const DYNAMIC_TAB_OCCUPIED = "Cet ensemble dynamique porte déjà sa publicité (une seule par ensemble).";
+export const DYNAMIC_ADSET_ONLY_FORMAT = "Cet ensemble est en création dynamique : seul le format Dynamique y entre.";
+
+/** Why a format tab is greyed for this ad set; null when it is open. */
+export function formatLock(format: AdFormatTab, fit: AdsetFit): string | null {
+  if (format === "dynamic") {
+    if (!fit.dynamic) return DYNAMIC_TAB_LOCKED;
+    if (fit.adCount === null) return "Lecture des publicités de l'ensemble…";
+    return fit.adCount > 0 ? DYNAMIC_TAB_OCCUPIED : null;
+  }
+  return fit.dynamic ? DYNAMIC_ADSET_ONLY_FORMAT : null;
+}
 
 export const input = "w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-sm text-white outline-none focus:border-violet-500";
 export const tabClass = (on: boolean, disabled = false) =>

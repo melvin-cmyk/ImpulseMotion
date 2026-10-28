@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { describeOperation, inverseRequest, newAdLabel, prepareOperation, readNewAd, readRequest, type PilotObjectState } from "@/lib/pilot/ops";
-import { adSpecFromLegacy, adSpecMedia, carouselCardsError, metaAdSpecError, readAdSpec, type AdSpec, type CarouselCard } from "@/lib/pilot/ad-spec";
+import { adSpecFromLegacy, adSpecMedia, carouselCardsError, dynamicCombinations, dynamicSpecError, metaAdSpecError, readAdSpec, type AdSpec, type CarouselCard } from "@/lib/pilot/ad-spec";
 import { extractPilotProposals } from "@/lib/pilot/assistant";
 
 const adset: PilotObjectState = { id: "120200000000001", type: "adset", accountId: "1668772300254268", name: "IA - Broad", status: "ACTIVE", effectiveStatus: "ACTIVE", dailyBudget: 1000, lifetimeBudget: null, endTime: null, bidAmount: null, parentName: "Campagne A" };
@@ -39,7 +39,7 @@ describe("Pilotage — nouvelle publicité Meta (AdSpec v2 et première forme)",
   it("lit un AdSpec v2 vidéo, garde la vignette et l'identifiant Meta, refuse un format fermé", () => {
     const read = readNewAd(JSON.stringify({ ...video, mediaId: "pm_1", media: [{ ...video.media[0], remoteId: "1234567890123" }] }));
     expect(read).toMatchObject({ ok: true, spec: { format: "video", mediaId: "pm_1", media: [{ kind: "video", remoteId: "1234567890123", thumbUrl: video.media[0].thumbUrl, studioAssetId: "asset1" }] } });
-    expect(readAdSpec({ ...video, format: "dynamic" } as unknown as Record<string, unknown>)).toMatchObject({ ok: false, error: /dynamique/ });
+    expect(readAdSpec({ ...video, format: "story" } as unknown as Record<string, unknown>)).toMatchObject({ ok: false, error: /Format de publicité inconnu/ });
     // A video spec switched to carousel has no cards: refused by the card count, not by the format.
     expect(readAdSpec({ ...video, format: "carousel" } as unknown as Record<string, unknown>)).toMatchObject({ ok: false, error: /2 cartes au moins/ });
     expect(readAdSpec({ ...video, v: 3 } as unknown as Record<string, unknown>)).toMatchObject({ ok: false });
@@ -130,6 +130,74 @@ describe("Pilotage — nouvelle publicité Meta (AdSpec v2 et première forme)",
     if (!p.ok) return;
     expect(newAdLabel(p.op.after)).toBe("nouvelle publicité carrousel (3 cartes)");
     expect(describeOperation(p.op, "EUR")).toBe("🆕 Ensemble de publicités « IA - Broad » (Campagne A) — nouvelle publicité carrousel (3 cartes) « Gourdes (carrousel) » (créée en pause)");
+    expect(inverseRequest(p.op, "EUR")).toBeNull();
+  });
+
+  // ── Dynamic creative (asset_feed_spec) ──────────────────────────────────
+  const img = (n: number) => ({ kind: "image" as const, url: `https://cdn.example.org/${n}.jpg` });
+  const vid = (n: number) => ({ kind: "video" as const, url: `https://cdn.example.org/${n}.mp4`, thumbUrl: `https://cdn.example.org/${n}.jpg` });
+  const dynamic: AdSpec = {
+    v: 2, platform: "meta", format: "dynamic", name: "Gourdes (dynamique)", linkUrl: "https://naturalia.fr/gourdes", callToActions: ["SHOP_NOW", "LEARN_MORE"],
+    texts: { primary: ["Fraîcheur garantie", "Trois tailles"], headline: ["Nouveau", "Bio"], description: ["Livraison offerte"] },
+    media: [img(1), img(2), vid(3)],
+    identity: { pageId: "123456789" },
+  };
+  const dyn = (patch: Record<string, unknown>) => readAdSpec({ ...dynamic, ...patch } as unknown as Record<string, unknown>);
+
+  it("lit une publicité dynamique v2 : visuels de chaque sorte, listes de textes, boutons, empreinte d'image gardée ; sans visuel refusée", () => {
+    const read = readAdSpec({ ...dynamic, media: [{ ...img(1), remoteId: "0123456789abcdef0123456789abcdef" }, img(2), { ...vid(3), remoteId: "1234567890123", mediaId: "pm_3" }] } as unknown as Record<string, unknown>);
+    expect(read).toMatchObject({ ok: true, spec: { format: "dynamic", callToAction: "SHOP_NOW", callToActions: ["SHOP_NOW", "LEARN_MORE"], texts: { primary: ["Fraîcheur garantie", "Trois tailles"], headline: ["Nouveau", "Bio"], description: ["Livraison offerte"] } } });
+    if (read.ok) {
+      expect(read.spec.media.map((m) => m.kind)).toEqual(["image", "image", "video"]);
+      expect(read.spec.media[0].remoteId).toBe("0123456789abcdef0123456789abcdef");
+      expect(read.spec.media[2]).toMatchObject({ remoteId: "1234567890123", mediaId: "pm_3", thumbUrl: "https://cdn.example.org/3.jpg" });
+      expect(adSpecMedia(read.spec)).toHaveLength(3);
+      expect(metaAdSpecError(read.spec)).toBeNull();
+    }
+    expect(dyn({ media: [] })).toMatchObject({ ok: false, error: "Choisissez au moins une image ou une vidéo pour la publicité dynamique." });
+    expect(dyn({ texts: { primary: [] } })).toMatchObject({ ok: false, error: /texte principal/ });
+    // Beyond the limits, the lists are read whole enough to be refused by name, never silently cut.
+    const eleven = dyn({ media: Array.from({ length: 11 }, (_, i) => img(i + 1)) });
+    expect(eleven.ok && eleven.spec.media.length).toBe(11);
+    const six = dyn({ texts: { primary: ["a", "b", "c", "d", "e", "f"] } });
+    expect(six.ok && six.spec.texts.primary.length).toBe(6);
+  });
+
+  it("règles Meta dynamique : ≤ 10 images, ≤ 10 vidéos avec vignette, 1 à 5 textes, ≤ 5 titres/descriptions/boutons distincts, un seul lien public", () => {
+    expect(dynamicSpecError(dynamic)).toBeNull();
+    expect(dynamicSpecError({ ...dynamic, media: Array.from({ length: 10 }, (_, i) => img(i + 1)) })).toBeNull();
+    expect(dynamicSpecError({ ...dynamic, media: Array.from({ length: 11 }, (_, i) => img(i + 1)) })).toBe("Une publicité dynamique porte 10 images au plus.");
+    expect(dynamicSpecError({ ...dynamic, media: [...Array.from({ length: 10 }, (_, i) => img(i + 1)), ...Array.from({ length: 10 }, (_, i) => vid(i + 20))] })).toBeNull();
+    expect(dynamicSpecError({ ...dynamic, media: Array.from({ length: 11 }, (_, i) => vid(i + 1)) })).toBe("Une publicité dynamique porte 10 vidéos au plus.");
+    expect(dynamicSpecError({ ...dynamic, media: [] })).toMatch(/au moins une image ou une vidéo/);
+    expect(dynamicSpecError({ ...dynamic, media: [img(1), { kind: "video", url: "https://cdn.example.org/3.mp4" }] })).toBe("Vidéo 1 : choisissez une vignette (image du Studio ou image envoyée) : Meta l'exige.");
+    expect(dynamicSpecError({ ...dynamic, media: [img(1), { ...vid(3), url: "https://cdn.example.org/page.html" }] })).toMatch(/Vidéo 1 : l'adresse doit être celle d'un fichier mp4/);
+    expect(dynamicSpecError({ ...dynamic, media: [img(1), { kind: "image", url: "https://10.0.0.4/x.jpg" }] })).toMatch(/Image 2 refusée/);
+    expect(dynamicSpecError({ ...dynamic, texts: { ...dynamic.texts, primary: [] } })).toBe("Écrivez au moins un texte principal.");
+    expect(dynamicSpecError({ ...dynamic, texts: { ...dynamic.texts, primary: ["a", "b", "c", "d", "e", "f"] } })).toBe("Une publicité dynamique porte 5 textes principaux au plus.");
+    expect(dynamicSpecError({ ...dynamic, texts: { ...dynamic.texts, headline: ["a", "b", "c", "d", "e", "f"] } })).toBe("Une publicité dynamique porte 5 titres au plus.");
+    expect(dynamicSpecError({ ...dynamic, texts: { ...dynamic.texts, description: ["a", "b", "c", "d", "e", "f"] } })).toBe("Une publicité dynamique porte 5 descriptions au plus.");
+    expect(dynamicSpecError({ ...dynamic, texts: { ...dynamic.texts, headline: ["ok", "x".repeat(256)] } })).toBe("Titre 2 trop long (255 caractères au plus).");
+    expect(dynamicSpecError({ ...dynamic, callToActions: ["SHOP_NOW", "SHOP_NOW"] })).toBe("Deux boutons identiques : gardez-en un seul.");
+    expect(dynamicSpecError({ ...dynamic, callToActions: ["NO_BUTTON"] })).toMatch(/sans bouton/);
+    expect(dynamicSpecError({ ...dynamic, callToActions: ["FLY"] })).toBe("Bouton d'action inconnu.");
+    expect(dynamicSpecError({ ...dynamic, callToActions: ["SHOP_NOW", "LEARN_MORE", "SIGN_UP", "BUY_NOW", "ORDER_NOW", "DOWNLOAD"] })).toBe("Une publicité dynamique porte 5 boutons au plus.");
+    expect(dynamicSpecError({ ...dynamic, callToActions: [] })).toBeNull();
+    expect(dynamicSpecError({ ...dynamic, linkUrl: "https://intranet.local/x" })).toMatch(/Lien refusé/);
+    expect(metaAdSpecError({ ...dynamic, linkUrl: "" })).toMatch(/lien de la publicité doit commencer par https/);
+    // 3 visuals × 2 texts × 2 titles × 1 description × 2 buttons.
+    expect(dynamicCombinations(dynamic)).toBe(24);
+    expect(dynamicCombinations({ media: [img(1)], texts: { primary: ["a"], headline: [], description: [] } })).toBe(1);
+  });
+
+  it("une publicité dynamique se décrit « nouvelle publicité dynamique (3 visuels, 2 textes) » dans l'aperçu, le journal et HQ", () => {
+    const req = readRequest({ kind: "create_ad", objectType: "adset", objectId: adset.id, value: JSON.stringify(dynamic) })!;
+    const p = prepareOperation(req, adset, "EUR", new Date(), "meta");
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(newAdLabel(p.op.after)).toBe("nouvelle publicité dynamique (3 visuels, 2 textes)");
+    expect(describeOperation(p.op, "EUR")).toBe("🆕 Ensemble de publicités « IA - Broad » (Campagne A) — nouvelle publicité dynamique (3 visuels, 2 textes) « Gourdes (dynamique) » (créée en pause)");
+    expect(newAdLabel(JSON.stringify({ ...dynamic, media: [img(1)], texts: { ...dynamic.texts, primary: ["a"] } }))).toBe("nouvelle publicité dynamique (1 visuel, 1 texte)");
     expect(inverseRequest(p.op, "EUR")).toBeNull();
   });
 });

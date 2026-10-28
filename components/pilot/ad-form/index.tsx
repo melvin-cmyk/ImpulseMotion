@@ -4,11 +4,15 @@
  * Pilotage — « Nouvelle publicité » on an ad set (components/pilot/ad-form):
  *   platform   deduced from the ad set (Meta today; Google Ads and TikTok Ads
  *              are shown greyed with why they wait);
- *   format     Image · Vidéo · Carrousel · Dynamique (greyed, next lot);
+ *   format     Image · Vidéo · Carrousel · Dynamique — the last one only in an
+ *              ad set created in dynamic creative and still empty (such an ad
+ *              set takes nothing else: the other tabs are greyed there);
  *   media      the shared picker (media-picker.tsx): Studio visuals of the
  *              client, an image sent now, an https address; a video shows in
  *              a player and takes a thumbnail;
  *   carrousel  2 to 10 cards (carousel-editor.tsx);
+ *   dynamique  up to 10 images and 10 videos, 1–5 texts, ≤ 5 titles,
+ *              descriptions and buttons, one link (dynamic-editor.tsx);
  *   texts      name, primary text, headline, description, link, button, Page,
  *              Instagram account;
  *   preview    a simplified feed / story rendering (ad-preview.tsx).
@@ -22,18 +26,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { AdSpec, CarouselCard, CarouselOptions, MediaRef } from "@/lib/pilot/ad-spec";
 import { CarouselEditor, carouselFormError, emptyCard } from "@/components/pilot/ad-form/carousel-editor";
+import { DynamicEditor, dynamicFormError, emptyVariants, type DynamicVariants } from "@/components/pilot/ad-form/dynamic-editor";
 import { MediaPicker } from "@/components/pilot/ad-form/media-picker";
 import { AdPreview } from "@/components/pilot/ad-form/ad-preview";
-import { AD_FORMAT_TABS, AD_PLATFORM_TABS, CTA_FR, input, studioMediaRef, tabClass, tabKeyNav, type AdFormatTab, type AdPlatform, type StudioMedia, type StudioPick } from "@/components/pilot/ad-form/shared";
+import { AD_FORMAT_TABS, AD_PLATFORM_TABS, CTA_FR, formatLock, input, studioMediaRef, tabClass, tabKeyNav, type AdFormatTab, type AdPlatform, type AdsetFit, type StudioMedia, type StudioPick } from "@/components/pilot/ad-form/shared";
 
 export type { StudioPick } from "@/components/pilot/ad-form/shared";
 
 type StudioAsset = { id: string; url: string | null; prompt: string; clientId: string | null; clientName: string; kind: string; status: string; sourceId: string | null };
 
-export function NewAdForm({ clientId, accountId, adsetName, platform = "meta", preset, onCancel, onDone }: {
+export function NewAdForm({ clientId, accountId, adsetId, adsetName, adsetDynamic = false, platform = "meta", preset, onCancel, onDone }: {
   clientId: string;
   accountId: string;
+  /** The ad set the ad goes to (its ads are counted when it is a dynamic creative ad set). */
+  adsetId?: string;
   adsetName: string;
+  /** The ad set was created in dynamic creative (is_dynamic_creative): one dynamic ad, nothing else. */
+  adsetDynamic?: boolean;
   /** The platform of the ad set: only Meta creates ads from here today. */
   platform?: AdPlatform;
   /** A Studio visual chosen beforehand (« Pousser sur Meta »), image or video. */
@@ -44,8 +53,11 @@ export function NewAdForm({ clientId, accountId, adsetName, platform = "meta", p
   const [identities, setIdentities] = useState<{ pages: Array<{ id: string; name: string }>; instagram: Array<{ id: string; name: string }> } | null>(null);
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [studio, setStudio] = useState<StudioMedia[] | null>(null);
-  const [format, setFormat] = useState<AdFormatTab>(preset?.kind === "video" ? "video" : "image");
+  const [format, setFormat] = useState<AdFormatTab>(adsetDynamic ? "dynamic" : preset?.kind === "video" ? "video" : "image");
+  const [fit, setFit] = useState<AdsetFit>({ dynamic: adsetDynamic, adCount: adsetDynamic ? null : 0 });
   const [cards, setCards] = useState<CarouselCard[]>([]);
+  const [dynMedia, setDynMedia] = useState<MediaRef[]>(preset ? [preset.kind === "video" ? { kind: "video", url: preset.url, studioAssetId: preset.id } : { kind: "image", url: preset.url, studioAssetId: preset.id }] : []);
+  const [variants, setVariants] = useState<DynamicVariants>(emptyVariants());
   const [carouselOptions, setCarouselOptions] = useState<CarouselOptions>({ multiShareOptimized: false, endCard: true });
   const [image, setImage] = useState<MediaRef | null>(preset && preset.kind !== "video" ? { kind: "image", url: preset.url, studioAssetId: preset.id } : null);
   const [video, setVideo] = useState<MediaRef | null>(preset?.kind === "video" ? { kind: "video", url: preset.url, studioAssetId: preset.id } : null);
@@ -74,6 +86,17 @@ export function NewAdForm({ clientId, accountId, adsetName, platform = "meta", p
     return () => { cancelled = true; };
   }, [clientId, accountId]);
 
+  // A dynamic creative ad set takes one ad only: its ads are counted to open or grey the Dynamique tab.
+  useEffect(() => {
+    if (!adsetDynamic || !adsetId) return;
+    let cancelled = false;
+    fetch(`/api/pilot/structure?clientId=${encodeURIComponent(clientId)}&accountId=${encodeURIComponent(accountId)}&platform=${platform}&adsetId=${encodeURIComponent(adsetId)}`)
+      .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error ?? `Erreur ${r.status}`); return j as { ads?: Array<{ type: string }> }; })
+      .then((j) => { if (!cancelled) setFit({ dynamic: true, adCount: (j.ads ?? []).filter((a) => a.type === "ad").length }); })
+      .catch(() => { if (!cancelled) setFit({ dynamic: true, adCount: 0 }); });
+    return () => { cancelled = true; };
+  }, [adsetDynamic, adsetId, clientId, accountId, platform]);
+
   // Escape closes; the first tab takes the focus when the dialog opens.
   useEffect(() => {
     firstTab.current?.focus();
@@ -90,7 +113,8 @@ export function NewAdForm({ clientId, accountId, adsetName, platform = "meta", p
   }, [video, studio]);
 
   const pageName = identities?.pages.find((p) => p.id === f.pageId)?.name ?? "";
-  const formats = AD_FORMAT_TABS.filter((t) => !t.soon).map((t) => t.id);
+  const lockOf = (id: AdFormatTab) => AD_FORMAT_TABS.find((t) => t.id === id)?.soon ?? formatLock(id, fit);
+  const formats = AD_FORMAT_TABS.filter((t) => !lockOf(t.id)).map((t) => t.id);
 
   /** Opening the carousel tab: the chosen image or video becomes the first card, a second empty card waits. */
   function pickFormat(next: AdFormatTab) {
@@ -105,6 +129,7 @@ export function NewAdForm({ clientId, accountId, adsetName, platform = "meta", p
   function submit() {
     setError(null);
     if (format === "carousel") return submitCarousel();
+    if (format === "dynamic") return submitDynamic();
     const media = format === "video" ? shownVideo : image;
     if (!media) return setError(format === "video" ? "Choisissez une vidéo du Studio ou collez l'adresse https d'un mp4." : "Choisissez une image.");
     if (format === "video" && !media.studioAssetId && !/\.(mp4|mov|m4v)(\?|$)/i.test(media.url)) return setError("L'adresse doit être celle d'un fichier mp4 (ou choisissez une vidéo du Studio).");
@@ -144,10 +169,34 @@ export function NewAdForm({ clientId, accountId, adsetName, platform = "meta", p
     onDone(spec, `Ensemble « ${adsetName} » : nouvelle publicité carrousel (${cards.length} cartes) « ${name} » (créée en pause)`);
   }
 
-  const wide = format === "carousel";
+  function submitDynamic() {
+    const lock = lockOf("dynamic");
+    if (lock) return setError(lock);
+    const bad = dynamicFormError(dynMedia, variants);
+    if (bad) return setError(bad);
+    if (!/^https:\/\//i.test(f.linkUrl.trim())) return setError("Le lien doit commencer par https://.");
+    if (!f.pageId) return setError("Choisissez la Page Facebook.");
+    const name = f.name.trim() || `${adsetName} — ${today}`;
+    const clean = (list: string[]) => list.map((t) => t.trim()).filter(Boolean);
+    const spec: AdSpec = {
+      v: 2, platform: "meta", format: "dynamic", name,
+      linkUrl: f.linkUrl.trim(), callToAction: variants.ctas[0], callToActions: variants.ctas,
+      texts: { primary: clean(variants.primary), headline: clean(variants.headline), description: clean(variants.description) },
+      media: dynMedia.map((m) => (m.kind === "video"
+        ? { kind: "video", url: m.url, ...(m.studioAssetId ? { studioAssetId: m.studioAssetId } : {}), thumbUrl: m.thumbUrl!, ...(m.thumbStudioAssetId ? { thumbStudioAssetId: m.thumbStudioAssetId } : {}) }
+        : { kind: "image", url: m.url, ...(m.studioAssetId ? { studioAssetId: m.studioAssetId } : {}) })),
+      identity: { pageId: f.pageId, ...(f.instagramUserId ? { instagramUserId: f.instagramUserId } : {}) },
+    };
+    const t = spec.texts.primary.length;
+    onDone(spec, `Ensemble « ${adsetName} » : nouvelle publicité dynamique (${dynMedia.length} visuel${dynMedia.length > 1 ? "s" : ""}, ${t} texte${t > 1 ? "s" : ""}) « ${name} » (créée en pause)`);
+  }
+
+  const wide = format === "carousel" || format === "dynamic";
+  const dynamic = format === "dynamic";
   const preview = (
-    <AdPreview format={format} pageName={pageName} primaryText={f.primaryText} headline={f.headline} description={f.description} cta={f.callToAction} linkUrl={f.linkUrl}
-      media={format === "video" ? shownVideo : image} cards={cards} />
+    <AdPreview format={format} pageName={pageName} primaryText={dynamic ? variants.primary[0] ?? "" : f.primaryText} headline={dynamic ? variants.headline[0] ?? "" : f.headline} description={dynamic ? variants.description[0] ?? "" : f.description}
+      cta={dynamic ? variants.ctas[0] ?? "LEARN_MORE" : f.callToAction} linkUrl={f.linkUrl}
+      media={dynamic ? dynMedia[0] ?? null : format === "video" ? shownVideo : image} cards={cards} />
   );
 
   return (
@@ -173,20 +222,25 @@ export function NewAdForm({ clientId, accountId, adsetName, platform = "meta", p
             ))}
           </div>
           <div className="flex items-center gap-1.5" role="tablist" aria-label="Format">
-            {AD_FORMAT_TABS.map((t, i) => (
-              <button key={t.id} ref={i === 0 ? firstTab : undefined} type="button" role="tab" data-tab={t.id} aria-selected={format === t.id} aria-controls="new-ad-media" tabIndex={t.soon ? -1 : format === t.id ? 0 : -1}
-                disabled={!!t.soon} title={t.soon ?? undefined} onClick={() => pickFormat(t.id)} onKeyDown={(e) => tabKeyNav(e, formats, format, pickFormat)} className={tabClass(format === t.id, !!t.soon)}>
-                {t.label}{t.soon ? <span className="ml-1 text-[10px] text-gray-500">bientôt</span> : null}
-              </button>
-            ))}
+            {AD_FORMAT_TABS.map((t, i) => {
+              const lock = lockOf(t.id);
+              return (
+                <button key={t.id} ref={i === 0 ? firstTab : undefined} type="button" role="tab" data-tab={t.id} aria-selected={format === t.id} aria-controls="new-ad-media" tabIndex={lock ? -1 : format === t.id ? 0 : -1}
+                  disabled={!!lock} title={lock ?? undefined} onClick={() => pickFormat(t.id)} onKeyDown={(e) => tabKeyNav(e, formats, format, pickFormat)} className={tabClass(format === t.id, !!lock)}>
+                  {t.label}{t.soon ? <span className="ml-1 text-[10px] text-gray-500">bientôt</span> : null}
+                </button>
+              );
+            })}
           </div>
-          <span className="text-[11px] text-gray-500">{AD_PLATFORM_TABS.find((t) => t.id === platform)?.soon ?? AD_FORMAT_TABS.find((t) => t.id === format)?.soon ?? (format === "video" ? "mp4, du 16:9 au 9:16, 1 200 px de large conseillés. La vidéo part chez Meta à l'aperçu et y est traitée quelques minutes." : format === "carousel" ? "2 à 10 cartes, image ou vidéo, chacune avec son lien." : "Image carrée 1:1 ou 4:5, 1 080 px conseillés.")}</span>
+          <span className="text-[11px] text-gray-500">{AD_PLATFORM_TABS.find((t) => t.id === platform)?.soon ?? lockOf(format) ?? (format === "video" ? "mp4, du 16:9 au 9:16, 1 200 px de large conseillés. La vidéo part chez Meta à l'aperçu et y est traitée quelques minutes." : format === "carousel" ? "2 à 10 cartes, image ou vidéo, chacune avec son lien." : format === "dynamic" ? "Jusqu'à 10 images et 10 vidéos, 5 textes, 5 titres, 5 descriptions, 5 boutons : Meta assemble et montre les meilleures combinaisons. Les visuels partent chez Meta à l'aperçu." : "Image carrée 1:1 ou 4:5, 1 080 px conseillés.")}</span>
         </div>
 
         <div className={`p-4 grid gap-4 ${wide ? "lg:grid-cols-[minmax(0,1fr)_280px]" : "md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[240px_minmax(0,1fr)_280px]"}`}>
           <div id="new-ad-media" role="tabpanel" className={`space-y-2 ${wide ? "lg:col-span-2" : ""}`}>
             {format === "carousel" ? (
               <CarouselEditor cards={cards} onChange={setCards} options={carouselOptions} onOptionsChange={setCarouselOptions} studio={studio} clientId={clientId} defaultLink={f.linkUrl.trim()} ctas={CTA_FR.filter(([v]) => v !== "NO_BUTTON")} />
+            ) : format === "dynamic" ? (
+              <DynamicEditor media={dynMedia} onMediaChange={setDynMedia} variants={variants} onVariantsChange={setVariants} studio={studio} clientId={clientId} ctas={CTA_FR.filter(([v]) => v !== "NO_BUTTON")} />
             ) : format === "video" ? (
               <MediaPicker kind="video" clientId={clientId} studio={studio} value={shownVideo} onChange={setVideo} idPrefix="ad-video" />
             ) : (
@@ -196,20 +250,22 @@ export function NewAdForm({ clientId, accountId, adsetName, platform = "meta", p
 
           <div className="space-y-3">
             <label className="block text-xs text-gray-400">Nom de la publicité<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
-            <label className="block text-xs text-gray-400">Texte principal<textarea value={f.primaryText} onChange={(e) => setF({ ...f, primaryText: e.target.value })} rows={4} className={`${input} mt-1 resize-y`} maxLength={2000} placeholder="Le texte au-dessus du visuel" /></label>
-            {format !== "carousel" && (
+            {!dynamic && <label className="block text-xs text-gray-400">Texte principal<textarea value={f.primaryText} onChange={(e) => setF({ ...f, primaryText: e.target.value })} rows={4} className={`${input} mt-1 resize-y`} maxLength={2000} placeholder="Le texte au-dessus du visuel" /></label>}
+            {format !== "carousel" && !dynamic && (
               <div className="grid sm:grid-cols-2 gap-3">
                 <label className="block text-xs text-gray-400">Titre (facultatif)<input value={f.headline} onChange={(e) => setF({ ...f, headline: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
                 <label className="block text-xs text-gray-400">Description (facultatif)<input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
               </div>
             )}
-            <div className="grid sm:grid-cols-[minmax(0,1fr)_180px] gap-3">
-              <label className="block text-xs text-gray-400">{format === "carousel" ? "Lien « voir plus » (carte de fin, obligatoire)" : "Lien de destination"}<input value={f.linkUrl} onChange={(e) => setF({ ...f, linkUrl: e.target.value })} className={`${input} mt-1`} placeholder="https://…" inputMode="url" /></label>
-              <label className="block text-xs text-gray-400">{format === "carousel" ? "Bouton des cartes (par défaut)" : "Bouton"}
-                <select value={f.callToAction} onChange={(e) => setF({ ...f, callToAction: e.target.value })} className={`${input} mt-1`}>
-                  {CTA_FR.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
-              </label>
+            <div className={`grid gap-3 ${dynamic ? "" : "sm:grid-cols-[minmax(0,1fr)_180px]"}`}>
+              <label className="block text-xs text-gray-400">{format === "carousel" ? "Lien « voir plus » (carte de fin, obligatoire)" : dynamic ? "Lien de destination (un seul pour toutes les combinaisons)" : "Lien de destination"}<input value={f.linkUrl} onChange={(e) => setF({ ...f, linkUrl: e.target.value })} className={`${input} mt-1`} placeholder="https://…" inputMode="url" /></label>
+              {!dynamic && (
+                <label className="block text-xs text-gray-400">{format === "carousel" ? "Bouton des cartes (par défaut)" : "Bouton"}
+                  <select value={f.callToAction} onChange={(e) => setF({ ...f, callToAction: e.target.value })} className={`${input} mt-1`}>
+                    {CTA_FR.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               <label className="block text-xs text-gray-400">Page Facebook

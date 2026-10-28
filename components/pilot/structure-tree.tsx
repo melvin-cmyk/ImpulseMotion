@@ -263,6 +263,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
           <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
           {hasPending && <Pill tone="violet" className="text-[10px]">à envoyer</Pill>}
           {row.type === "ad" && row.format && <Pill tone="default" className="text-[10px] normal-case">{AD_OBJECT_FORMAT_FR[row.format] ?? row.format}</Pill>}
+          {row.type === "adset" && row.dynamicCreative && <span title="Ensemble créé en création dynamique : il prend une seule publicité, dynamique (plusieurs visuels et textes)"><Pill tone="default" className="text-[10px] normal-case">dynamique</Pill></span>}
           {row.type === "ad" && row.pilot && <span title={`Créée depuis le Pilotage par ${row.pilot.by}${row.pilot.at ? ` le ${dateText(row.pilot.at)}` : ""}`}><Pill tone="violet" className="text-[10px] normal-case">Pilotage</Pill></span>}
           {statusPill(row)}
           <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{row.type === "keyword" && row.bidAmount ? `CPC ${money(row.bidAmount, currency)}` : budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
@@ -331,7 +332,9 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
         <NewAdForm
           clientId={clientId}
           accountId={accountId}
+          adsetId={newAdFor.id}
           adsetName={newAdFor.name}
+          adsetDynamic={newAdFor.dynamicCreative === true}
           platform={platform}
           preset={studioPick}
           onCancel={() => setNewAdFor(null)}

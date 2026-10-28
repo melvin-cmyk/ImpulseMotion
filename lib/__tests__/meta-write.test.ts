@@ -190,10 +190,17 @@ describe("createPausedAd — write capability", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("metaGraphPost knows four targets and their fields, nothing else", async () => {
+  it("metaGraphPost knows five targets and their fields, nothing else", async () => {
     const { api, guard } = await load();
     const ad = { name: "a", adset_id: ADSET, creative: "{}" };
     const refused: Array<[unknown, Record<string, string>]> = [
+      [{ kind: "adimage", accountId: ACCOUNT }, { url: "https://cdn.example.org/v.jpg", bytes: "AAAA" }],
+      [{ kind: "adimage", accountId: ACCOUNT }, { url: "https://cdn.example.org/v.jpg", status: "ACTIVE" }],
+      [{ kind: "adimage", accountId: ACCOUNT }, { name: "v" }],
+      [{ kind: "adimage", accountId: ACCOUNT }, {}],
+      // The Page lives in object_story_spec: an asset feed never travels without it.
+      [{ kind: "adcreative", accountId: ACCOUNT }, { name: "a", asset_feed_spec: "{}" }],
+      [{ kind: "adcreative", accountId: ACCOUNT }, { name: "a", object_story_spec: "{}", asset_feed_spec: "{}", asset_customization_rules: "[]" }],
       [{ kind: "advideo", accountId: ACCOUNT }, { file_url: "https://cdn.example.org/v.mp4", name: "v", status: "ACTIVE" }],
       [{ kind: "advideo", accountId: ACCOUNT }, { file_url: "https://cdn.example.org/v.mp4", name: "v", source: "bytes" }],
       [{ kind: "advideo", accountId: ACCOUNT }, { name: "v" }],
@@ -659,6 +666,104 @@ describe("createPausedAd — carousel (link_data.child_attachments)", () => {
     // Media belong to the cards; cards belong to a carousel.
     expect(write.pausedAdInputError({ ...carousel(), imageUrl: "https://cdn.example.org/x.jpg" })).toMatch(/médias sur ses cartes/);
     expect(write.pausedAdInputError({ ...input(), cards: cards() })).toMatch(/cartes inattendues/);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("createPausedAd — dynamic creative (asset_feed_spec)", () => {
+  const HASH_A = "0123456789abcdef0123456789abcdef";
+  const HASH_B = "fedcba9876543210fedcba9876543210";
+  const VIDEO = "1234567890123456";
+  const dynamic = () => ({
+    accountId: `act_${ACCOUNT}`, campaignId: CAMPAIGN, adsetId: ADSET, pageId: PAGE, instagramUserId: "17841400000000001",
+    name: "W40 - Dynamique", primaryText: "Découvrez la nouvelle gamme.", linkUrl: "https://www.example.org/gamme",
+    format: "dynamic" as const,
+    dynamic: {
+      images: [HASH_A, HASH_B], videos: [{ videoId: VIDEO, thumbnailUrl: "https://cdn.example.org/thumb.jpg" }],
+      bodies: ["Découvrez la nouvelle gamme.", "Livrée chez vous en 48 h"], titles: ["Nouveau", "Gamme bio"], descriptions: ["Livraison offerte"],
+      callToActions: ["SHOP_NOW", "LEARN_MORE"],
+    },
+  });
+
+  it("uploadImage sends the public url only, under the guard, and answers the hash Meta gives", async () => {
+    const { write, guard } = await load();
+    reply = (c) => (c.method === "POST" && c.path === `/act_${ACCOUNT}/adimages` ? json({ images: { "visuel.jpg": { hash: HASH_A.toUpperCase(), url: "https://scontent.example/x.jpg" } } }) : happy(c));
+    const up = await write.uploadImage(guard, `act_${ACCOUNT}`, "https://cdn.example.org/visuel.jpg");
+    expect(up).toEqual({ hash: HASH_A });
+    expect(posts()).toHaveLength(1);
+    expect(posts()[0].path).toBe(`/act_${ACCOUNT}/adimages`);
+    expect([...posts()[0].body!.entries()].sort()).toEqual([["access_token", PRIMARY], ["url", "https://cdn.example.org/visuel.jpg"]]);
+    expect(posts()[0].url).not.toContain("access_token");
+    await expect(write.uploadImage({} as never, `act_${ACCOUNT}`, "https://cdn.example.org/v.jpg")).rejects.toThrow();
+    await expect(write.uploadImage(guard, `act_${ACCOUNT}`, "https://10.0.0.4/v.jpg")).rejects.toMatchObject({ kind: "refused", message: /Image refusée/ });
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("uploadImage: a refusal by Meta is clean and in French, an answer without a hash is uncertain", async () => {
+    const { write, guard } = await load();
+    reply = (c) => (c.method === "POST" && c.path === `/act_${ACCOUNT}/adimages` ? metaError(100, `Invalid image url access_token=${PRIMARY}`) : happy(c));
+    const refused = await write.uploadImage(guard, `act_${ACCOUNT}`, "https://cdn.example.org/v.jpg").catch((e) => e);
+    expect(refused).toMatchObject({ kind: "refused", message: /Image refusée : Meta n'a pas pu la télécharger/ });
+    expectNoToken(refused.message);
+    reply = (c) => (c.method === "POST" && c.path === `/act_${ACCOUNT}/adimages` ? json({ images: {} }) : happy(c));
+    await expect(write.uploadImage(guard, `act_${ACCOUNT}`, "https://cdn.example.org/v.jpg")).rejects.toMatchObject({ kind: "uncertain" });
+  });
+
+  it("builds asset_feed_spec (hashes, videos with thumbnail, texts, one link, buttons, AUTOMATIC_FORMAT when mixed) next to a Page-only object_story_spec, still PAUSED", async () => {
+    const { write, guard } = await load();
+    const res = await write.createPausedAd(guard, dynamic());
+    expect(res).toEqual({ adId: AD, creativeId: CREATIVE, status: "PAUSED" });
+    const creative = posts().find((c) => c.path === `/act_${ACCOUNT}/adcreatives`)!;
+    expect(JSON.parse(creative.body!.get("object_story_spec")!)).toEqual({ page_id: PAGE, instagram_user_id: "17841400000000001" });
+    expect(JSON.parse(creative.body!.get("asset_feed_spec")!)).toEqual({
+      images: [{ hash: HASH_A }, { hash: HASH_B }],
+      videos: [{ video_id: VIDEO, thumbnail_url: "https://cdn.example.org/thumb.jpg" }],
+      bodies: [{ text: "Découvrez la nouvelle gamme." }, { text: "Livrée chez vous en 48 h" }],
+      titles: [{ text: "Nouveau" }, { text: "Gamme bio" }],
+      descriptions: [{ text: "Livraison offerte" }],
+      link_urls: [{ website_url: "https://www.example.org/gamme" }],
+      call_to_action_types: ["SHOP_NOW", "LEARN_MORE"],
+      ad_formats: ["AUTOMATIC_FORMAT"],
+      optimization_type: "REGULAR",
+    });
+    expect([...creative.body!.keys()].sort()).toEqual(["access_token", "asset_feed_spec", "name", "object_story_spec"]);
+    const ad = posts().find((c) => c.path === `/act_${ACCOUNT}/ads`)!;
+    expect(ad.body!.get("status")).toBe("PAUSED");
+    expect(ad.body!.get("creative")).toBe(JSON.stringify({ creative_id: CREATIVE }));
+    // Images only → SINGLE_IMAGE, videos only → SINGLE_VIDEO, no button → no call_to_action_types; an image ad sends no asset feed.
+    const imagesOnly = write.pausedAdAssetFeed({ ...dynamic(), dynamic: { ...dynamic().dynamic, videos: [], callToActions: [] } })!;
+    expect(imagesOnly.ad_formats).toEqual(["SINGLE_IMAGE"]);
+    expect(imagesOnly.call_to_action_types).toBeUndefined();
+    expect(write.pausedAdAssetFeed({ ...dynamic(), dynamic: { ...dynamic().dynamic, images: [] } })!.ad_formats).toEqual(["SINGLE_VIDEO"]);
+    expect(write.pausedAdAssetFeed(input())).toBeNull();
+    expect(write.pausedAdStory(dynamic())).toEqual({ page_id: PAGE, instagram_user_id: "17841400000000001" });
+  });
+
+  it("refuses before any request: no media, 11 images, 6 bodies, a missing hash, a video without id, a duplicate or unknown button, a feed on an image ad", async () => {
+    const { write, guard } = await load();
+    const d = dynamic();
+    const cases: Array<[Record<string, unknown>, RegExp]> = [
+      [{ ...d, dynamic: { ...d.dynamic, images: [], videos: [] } }, /au moins une image ou une vidéo/],
+      [{ ...d, dynamic: { ...d.dynamic, images: Array.from({ length: 11 }, () => HASH_A) } }, /10 images au plus/],
+      [{ ...d, dynamic: { ...d.dynamic, videos: Array.from({ length: 11 }, () => d.dynamic.videos[0]) } }, /10 vidéos au plus/],
+      [{ ...d, dynamic: { ...d.dynamic, bodies: ["Découvrez la nouvelle gamme.", "b", "c", "d", "e", "f"] } }, /1 à 5 textes principaux/],
+      [{ ...d, dynamic: { ...d.dynamic, bodies: [] } }, /1 à 5 textes principaux/],
+      [{ ...d, dynamic: { ...d.dynamic, bodies: ["Autre texte"] } }, /premier texte du flux/],
+      [{ ...d, dynamic: { ...d.dynamic, titles: ["a", "b", "c", "d", "e", "f"] } }, /5 titres au plus/],
+      [{ ...d, dynamic: { ...d.dynamic, images: ["not-a-hash"] } }, /image 1 non prête/],
+      [{ ...d, dynamic: { ...d.dynamic, videos: [{ videoId: "", thumbnailUrl: "https://cdn.example.org/t.jpg" }] } }, /vidéo 1 non prête/],
+      [{ ...d, dynamic: { ...d.dynamic, videos: [{ videoId: VIDEO, thumbnailUrl: "http://cdn.example.org/t.jpg" }] } }, /vidéo 1 : vignette refusée/],
+      [{ ...d, dynamic: { ...d.dynamic, callToActions: ["SHOP_NOW", "SHOP_NOW"] } }, /deux boutons identiques/],
+      [{ ...d, dynamic: { ...d.dynamic, callToActions: ["NO_BUTTON"] } }, /bouton d'action inconnu/],
+      [{ ...d, dynamic: { ...d.dynamic, callToActions: ["SHOP_NOW", "LEARN_MORE", "SIGN_UP", "BUY_NOW", "ORDER_NOW", "DOWNLOAD"] } }, /5 boutons au plus/],
+      [{ ...d, imageUrl: "https://cdn.example.org/x.jpg" }, /porte ses médias dans son flux/],
+      [{ ...d, dynamic: undefined }, /flux d'éléments .* manquant/],
+      [{ ...input(), dynamic: d.dynamic }, /flux d'éléments inattendu/],
+    ];
+    for (const [bad, re] of cases) {
+      expect(write.pausedAdInputError(bad as never)).toMatch(re);
+      await expect(write.createPausedAd(guard, bad as never)).rejects.toMatchObject({ kind: "refused" });
+    }
     expect(calls).toHaveLength(0);
   });
 });

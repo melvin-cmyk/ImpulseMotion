@@ -36,6 +36,8 @@ export interface TreeRow {
   creativeId?: string | null;
   /** Meta ad: image | video | carousel | dynamic when readable (badge in the tree). */
   format?: AdObjectFormat | null;
+  /** Meta ad set created in dynamic creative: badge « dynamique », and only the Dynamique format of « Nouvelle publicité » enters it. */
+  dynamicCreative?: boolean;
   /** An ad created from Pilotage (its « new_ad » operation read back this id): who and when; « Mettre en ligne » is offered while it is paused. */
   pilot?: { actionId: string; by: string; at: string | null } | null;
   /** Why the budget cannot be changed here (a shared Google Ads budget). */

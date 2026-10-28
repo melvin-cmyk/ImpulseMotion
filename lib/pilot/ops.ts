@@ -152,6 +152,8 @@ export interface PilotObjectState {
   negative?: boolean;
   /** Meta ad set: the targeting spec as JSON, read when the object is read alone. */
   targeting?: string | null;
+  /** Meta ad set: created in dynamic creative (is_dynamic_creative): it takes one dynamic ad and nothing else. */
+  dynamicCreative?: boolean;
   /** Meta ad: the creative it shows, and its texts as JSON (null when not an image/video link ad: a carousel has a creativeId and no adTexts). */
   creativeId?: string | null;
   adTexts?: string | null;
@@ -590,11 +592,16 @@ export function newAdFormat(value: PilotValue): AdSpec["format"] {
   return read.ok ? read.spec.format : "image";
 }
 
-/** « nouvelle publicité image », « nouvelle publicité vidéo », « nouvelle publicité carrousel (3 cartes) », « nouvelle publicité dynamique »: the same in the tree, the preview and HQ. */
+/** « nouvelle publicité image », « nouvelle publicité vidéo », « nouvelle publicité carrousel (3 cartes) », « nouvelle publicité dynamique (3 visuels, 2 textes) »: the same in the tree, the preview and HQ. */
 export function newAdLabel(value: PilotValue): string {
   const read = readNewAd(value);
   const format = read.ok ? read.spec.format : "image";
   if (format === "carousel" && read.ok) { const n = read.spec.cards?.length ?? 0; return `nouvelle publicité carrousel (${n} carte${n > 1 ? "s" : ""})`; }
+  if (format === "dynamic" && read.ok) {
+    const m = read.spec.media.length;
+    const t = read.spec.texts.primary.length;
+    return `nouvelle publicité dynamique (${m} visuel${m > 1 ? "s" : ""}, ${t} texte${t > 1 ? "s" : ""})`;
+  }
   return `nouvelle publicité ${FORMAT_FR[format]}`;
 }
 

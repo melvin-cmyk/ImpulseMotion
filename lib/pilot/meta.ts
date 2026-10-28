@@ -21,7 +21,7 @@ const LIVE_STATUSES = JSON.stringify([{ field: "effective_status", operator: "NO
 const FIELDS: Record<Exclude<PilotObjectType, "keyword">, string> = {
   // bid_constraints is not a campaign field at Meta (the ROAS floor is read on the ad set).
   campaign: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,stop_time,spend_cap,bid_strategy,bid_amount",
-  adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,targeting,campaign{name}",
+  adset: "id,account_id,name,status,effective_status,daily_budget,lifetime_budget,start_time,end_time,bid_amount,bid_strategy,bid_constraints,is_dynamic_creative,targeting,campaign{name}",
   ad: "id,account_id,name,status,effective_status,adset{name},creative{id,name,object_story_spec,asset_feed_spec}",
 };
 /** Meta's « no cap » marker on spend_cap. */
@@ -31,6 +31,7 @@ type Raw = Record<string, unknown> & {
   id: string; name?: string; status?: string; effective_status?: string; account_id?: string;
   daily_budget?: string; lifetime_budget?: string; stop_time?: string; end_time?: string; start_time?: string; bid_amount?: number | string;
   spend_cap?: string | number; bid_strategy?: string; bid_constraints?: { roas_average_floor?: number | string }; targeting?: Record<string, unknown>; campaign_id?: string; adset_id?: string;
+  is_dynamic_creative?: boolean;
   campaign?: { name?: string }; adset?: { name?: string };
   creative?: { id?: string; name?: string; object_story_spec?: Record<string, unknown>; asset_feed_spec?: Record<string, unknown> };
   insights?: { data?: Array<{ spend?: string }> };
@@ -83,6 +84,7 @@ export function toState(raw: Raw, type: Exclude<PilotObjectType, "keyword">): Pi
     spendCap: type === "campaign" && num(raw.spend_cap) && Number(raw.spend_cap) < NO_SPEND_CAP ? num(raw.spend_cap) : null,
     strategyLock: null,
     targeting: type === "adset" && raw.targeting && typeof raw.targeting === "object" ? JSON.stringify(raw.targeting) : null,
+    ...(type === "adset" ? { dynamicCreative: raw.is_dynamic_creative === true } : {}),
     creativeId: type === "ad" && raw.creative?.id ? String(raw.creative.id) : null,
     adTexts: type === "ad" ? adTextsJson(raw.creative) : null,
     format: type === "ad" ? adFormat(raw.creative) : undefined,
