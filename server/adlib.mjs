@@ -4,7 +4,8 @@
  * video, text, start date — no token, no login (the API needs a person who
  * confirmed their identity, and gives no picture anyway).
  *
- *   searchAdLibrary({ q, country = "FR", limit = 24, active = true }) → { ads, total, ms, cached }
+ *   searchAdLibrary({ q, country = "FR", limit = 24, active = true, brandOnly = true }) → { ads, total, brandAds, ms, cached }
+ *     brandOnly: when the advertiser named in q is among the results, only its ads are kept
  *     ad = { id, pageName, body, started, platforms, image, video, poster, domain, snapshot }
  *
  * One Chromium at a time (1 vCPU), kept open between searches for 5 minutes,
@@ -93,7 +94,9 @@ function extractInPage(max) {
   return { ads: out, total: results ? Number(String(results).replace(/[^\d]/g, "")) || null : null };
 }
 
-export async function searchAdLibrary({ q, country = "FR", limit = 24, active = true } = {}) {
+const fold = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+export async function searchAdLibrary({ q, country = "FR", limit = 24, active = true, brandOnly = true } = {}) {
   if (!adLibraryConfigured()) throw new Error("bibliothèque Meta non configurée sur le relay (chromium ou puppeteer-core absent)");
   const term = String(q || "").trim().slice(0, 100);
   if (!term) return { ads: [], total: 0, ms: 0, cached: false };
@@ -116,15 +119,18 @@ export async function searchAdLibrary({ q, country = "FR", limit = 24, active = 
         if (ok) break;
       }
       await new Promise((r) => setTimeout(r, 2500));
-      const scrolls = limit > 10 ? 2 : 1;
-      for (let i = 0; i < scrolls; i++) { await page.evaluate(() => window.scrollBy(0, 2200)); await new Promise((r) => setTimeout(r, 1800)); }
-      const out = await page.evaluate(extractInPage, Math.min(60, Math.max(1, limit)));
-      // The advertiser named in the query first (a keyword search also lists ads that only mention it).
-      const t = term.toLowerCase();
-      out.ads.sort((a, b) => Number((b.pageName || "").toLowerCase().includes(t)) - Number((a.pageName || "").toLowerCase().includes(t)));
-      const value = { ads: out.ads, total: out.total, ms: Date.now() - t0 };
+      const scrolls = limit > 10 ? 3 : 1;
+      for (let i = 0; i < scrolls; i++) { await page.evaluate(() => window.scrollBy(0, 2400)); await new Promise((r) => setTimeout(r, 1600)); }
+      const out = await page.evaluate(extractInPage, 80);
+      // A keyword search also lists ads of other advertisers that only mention the word: when the
+      // advertiser itself is there, keep its ads only (brandOnly); otherwise everything, brand first.
+      const t = fold(term);
+      const isBrand = (a) => { const p = fold(a.pageName); return !!p && (p.includes(t) || t.includes(p)); };
+      const own = out.ads.filter(isBrand);
+      const ads = (brandOnly && own.length ? own : [...own, ...out.ads.filter((a) => !isBrand(a))]).slice(0, Math.min(60, Math.max(1, limit)));
+      const value = { ads, total: out.total, brandAds: own.length, brandOnly: brandOnly && own.length > 0, ms: Date.now() - t0 };
       cache.set(key, { at: Date.now(), value });
-      log(`« ${term} » (${country}) : ${out.ads.length} pubs sur ${out.total ?? "?"} en ${value.ms} ms`);
+      log(`« ${term} » (${country}) : ${ads.length} pubs (${own.length} de la marque) sur ${out.total ?? "?"} en ${value.ms} ms`);
       return { ...value, cached: false };
     } finally {
       try { await page.close(); } catch { /* fine */ }

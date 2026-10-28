@@ -494,10 +494,11 @@ async function competitorAds(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   if (res.error && !res.ads.length) throw new MoToolError(res.error, 502);
   const ads = res.ads.slice(0, limit);
   const items = ads.map((ad, i) => ({ name: `${ad.pageName || query}${ad.startedAt ? ` · depuis le ${/^\d{4}-/.test(ad.startedAt) ? fmtDay(ad.startedAt.slice(0, 10)) : ad.startedAt}` : ""}`, ...(ad.imageUrl ? { image: ad.imageUrl } : {}), adId: `adlib:${ad.id}`, metrics: { ...(ad.videoUrl ? { Format: "vidéo" } : { Format: "image" }), ...(ad.platforms.length ? { Plateformes: ad.platforms.join(", ") } : {}), ...(ad.domain ? { Site: ad.domain } : {}) }, ...(ad.bodies[0] ? { note: ad.bodies[0].slice(0, 160) } : {}), link: ad.snapshotUrl ?? `https://www.facebook.com/ads/library/?id=${ad.id}`, n: i + 1 }));
-  const card: MoCardSpec = { type: "creatives", title: str(a.title, 90) || `Pubs ${query} en ce moment`, subtitle: `Bibliothèque publicitaire Meta · ${country} · ${res.total ? `${res.total} pubs actives, ` : ""}${ads.length} affichées`, items: items.map(({ n: _n, ...it }) => { void _n; return it; }) };
+  const onlyBrand = (res.brandAds ?? 0) > 0;
+  const card: MoCardSpec = { type: "creatives", title: str(a.title, 90) || `Pubs ${query} en ce moment`, subtitle: `Bibliothèque publicitaire Meta · ${country} · ${onlyBrand ? `${ads.length} pubs de la marque affichées${res.total ? ` (${res.total} résultats au total)` : ""}` : `${res.total ? `${res.total} résultats, ` : ""}${ads.length} affichées (la marque n'apparaît pas comme annonceur : pubs qui la citent)`}`, items: items.map(({ n: _n, ...it }) => { void _n; return it; }) };
   const posted = ads.length && a.post !== false ? await postMoCards(ctx.boardId, [card]) : [];
   return {
-    query, country, total: res.total ?? null, count: ads.length,
+    query, country, total: res.total ?? null, count: ads.length, brand_ads: res.brandAds ?? null, only_brand: onlyBrand,
     ...(posted.length ? { posted_card: posted[0], posted: "La carte est DÉJÀ sur le tableau : dis juste la phrase (combien de pubs, depuis quand, ce qui ressort)." } : {}),
     ads: ads.map((ad, i) => ({ n: i + 1, libraryId: ad.id, page: ad.pageName, started: ad.startedAt, video: !!ad.videoUrl, image: ad.imageUrl ?? null, text: ad.bodies[0]?.slice(0, 200) ?? null, domain: ad.domain ?? null })),
     next: "Pour garder une pub comme template du client : keep_template avec son libraryId (et le client).",

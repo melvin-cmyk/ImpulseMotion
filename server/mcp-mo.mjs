@@ -131,7 +131,7 @@ server.registerTool("competitor_ads", {
 
 server.registerTool("keep_template", {
   title: "Garder une pub comme template",
-  description: "Garde une pub de la bibliothèque (libraryId de competitor_ads + la query de la recherche) ou n'importe quelle image https comme TEMPLATE du client (Créas › Templates & concurrents) : l'image est copiée, l'IA l'analyse (accroche, structure, zones de texte, style, brief). Ensuite generate_creatives avec references=[templateId] en fait une version à la marque du client.",
+  description: "Garde une pub de la bibliothèque (donne son imageUrl reçu de competitor_ads — le plus rapide — ou libraryId + la query de la recherche) ou n'importe quelle image https comme TEMPLATE du client (Créas › Templates & concurrents) : l'image est copiée, l'IA l'analyse (accroche, structure, zones de texte, style, brief). Ensuite generate_creatives avec references=[templateId] en fait une version à la marque du client.",
   inputSchema: { libraryId: z.string().max(40).optional(), query: z.string().max(100).optional().describe("La marque cherchée dans competitor_ads (pour retrouver la pub)."), imageUrl: z.string().max(2000).optional(), client: z.string().max(120).optional().describe("Le client pour qui on garde ce template (sinon template d'agence)."), brand: z.string().max(120).optional(), name: z.string().max(120).optional(), title: z.string().max(500).optional(), body: z.string().max(4000).optional(), tags: z.string().max(300).optional(), country: z.string().length(2).optional() },
 }, async (args) => call("keep_template", args, 120_000));
 

@@ -2095,7 +2095,7 @@ const server = http.createServer(async (req, res) => {
       if (!authorized(req)) return reply(401, { error: "unauthorized" });
       if (!adlib.adLibraryConfigured()) return reply(503, { error: "bibliothèque Meta non configurée sur le relay" });
       try {
-        const out = await adlib.searchAdLibrary({ q: url.searchParams.get("q") || "", country: (url.searchParams.get("country") || "FR").toUpperCase().slice(0, 2), limit: Math.min(60, Math.max(1, Number(url.searchParams.get("limit")) || 24)), active: url.searchParams.get("all") !== "1" });
+        const out = await adlib.searchAdLibrary({ q: url.searchParams.get("q") || "", country: (url.searchParams.get("country") || "FR").toUpperCase().slice(0, 2), limit: Math.min(60, Math.max(1, Number(url.searchParams.get("limit")) || 24)), active: url.searchParams.get("all") !== "1", brandOnly: url.searchParams.get("brand") !== "0" });
         return reply(200, out);
       } catch (e) {
         console.error("[adlib]", e.message || e);
