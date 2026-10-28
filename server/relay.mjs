@@ -2091,14 +2091,15 @@ const server = http.createServer(async (req, res) => {
     }
     // ── Bibliothèque publicitaire Meta (server/adlib.mjs) : pubs des concurrents lues sur la page publique ──
     if (url.pathname === "/api/adlib/search" && req.method === "GET") {
-      if (!authorized(req)) return send(401, { error: "unauthorized" });
-      if (!adlib.adLibraryConfigured()) return send(503, { error: "bibliothèque Meta non configurée sur le relay" });
+      const reply = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (!authorized(req)) return reply(401, { error: "unauthorized" });
+      if (!adlib.adLibraryConfigured()) return reply(503, { error: "bibliothèque Meta non configurée sur le relay" });
       try {
         const out = await adlib.searchAdLibrary({ q: url.searchParams.get("q") || "", country: (url.searchParams.get("country") || "FR").toUpperCase().slice(0, 2), limit: Math.min(60, Math.max(1, Number(url.searchParams.get("limit")) || 24)), active: url.searchParams.get("all") !== "1" });
-        return send(200, out);
+        return reply(200, out);
       } catch (e) {
         console.error("[adlib]", e.message || e);
-        return send(502, { error: `bibliothèque Meta indisponible : ${String(e.message || e).slice(0, 200)}` });
+        return reply(502, { error: `bibliothèque Meta indisponible : ${String(e.message || e).slice(0, 200)}` });
       }
     }
     // ── Mo : voix locale (server/voice.mjs) — STT (audio du navigateur) et TTS (WAV) ──
