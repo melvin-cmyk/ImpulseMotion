@@ -1,7 +1,7 @@
 /**
  * Voice of Mo on the relay: speech-to-text and text-to-speech, free and
  * local (sherpa-onnx: Parakeet-TDT v3 for French recognition, Piper
- * fr_FR-upmc-medium for the voice). The models live in a child process
+ * fr_FR-siwis-medium — a clear female voice — for the voice, upmc as spare). The models live in a child process
  * (server/voice-worker.mjs) started on first use — or at boot with
  * VOICE_PRELOAD=1 — and kept warm; requests are serialised (1 vCPU).
  *
@@ -26,9 +26,10 @@ const NODE_DIR = process.env.VOICE_NODE_DIR || "/opt/impulsemotion/voice";
 const IDLE_MS = Number(process.env.VOICE_IDLE_MS) > 0 ? Math.max(60_000, Number(process.env.VOICE_IDLE_MS)) : 0;
 const MAX_AUDIO_SECONDS = 60;
 
+export const VOICE_NAMES = ["siwis", "jessica", "pierre"];
 export const voiceConfigured = () =>
   fs.existsSync(path.join(MODELS, "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", "encoder.int8.onnx")) &&
-  fs.existsSync(path.join(MODELS, "vits-piper-fr_FR-upmc-medium", "fr_FR-upmc-medium.onnx")) &&
+  (fs.existsSync(path.join(MODELS, "vits-piper-fr_FR-siwis-medium", "fr_FR-siwis-medium.onnx")) || fs.existsSync(path.join(MODELS, "vits-piper-fr_FR-upmc-medium", "fr_FR-upmc-medium.onnx"))) &&
   fs.existsSync(path.join(NODE_DIR, "node_modules", "sherpa-onnx-node"));
 
 let worker = null;
@@ -123,12 +124,12 @@ export async function transcribe(buffer) {
   return { text: m.text, seconds: m.seconds, ms: Date.now() - t0 };
 }
 
-export async function synthesize(text, speaker = "pierre") {
+export async function synthesize(text, speaker = "siwis") {
   if (!voiceConfigured()) throw new Error("voix non configurée sur le relay (modèles ou module absents)");
   const clean = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 1200);
   if (!clean) throw new Error("texte vide");
   const t0 = Date.now();
-  const m = await serial(() => call({ op: "tts", text: clean, speaker }));
+  const m = await serial(() => call({ op: "tts", text: clean, speaker: VOICE_NAMES.includes(speaker) ? speaker : "siwis" }));
   try {
     const wav = fs.readFileSync(m.path);
     return { wav, seconds: m.seconds, ms: Date.now() - t0 };

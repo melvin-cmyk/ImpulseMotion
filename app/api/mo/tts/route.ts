@@ -1,6 +1,6 @@
 /**
  * POST /api/mo/tts { text, speaker? } → audio/wav — Mo's voice (staff), made
- * locally on the relay (Piper fr_FR-upmc-medium via sherpa-onnx). The browser
+ * locally on the relay (Piper fr_FR-siwis-medium, female, via sherpa-onnx). The browser
  * falls back to its own speechSynthesis when this fails.
  */
 
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => ({}))) as { text?: unknown; speaker?: unknown };
   const text = typeof body.text === "string" ? body.text.trim().slice(0, 1200) : "";
   if (!text) return NextResponse.json({ error: "Texte vide." }, { status: 400 });
-  const speaker = body.speaker === "jessica" ? "jessica" : "pierre";
+  const speaker = body.speaker === "jessica" || body.speaker === "pierre" ? body.speaker : "siwis";
   let last = "relay indisponible";
   for (const url of RELAY_URLS) {
     try {

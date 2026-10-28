@@ -37,8 +37,10 @@ const MAX_TURNS = MO_PROFILE.maxTurns ?? 12;
  */
 function serversFor(message: string, dataScope: boolean): string[] {
   const t = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  // Mo's own tools always (créas, génération, publication : the heart of the board), the ads platforms for live figures.
-  const servers = new Set<string>([MO_SERVER, ...MCP_SERVER_WHITELIST, TIKTOK_SERVER]);
+  // Mo's own tools always (créas, chiffres de l'entrepôt, génération, publication): one stdio server, 3-second answers.
+  // The live ads servers (n8n, seconds to start, hundreds of tools to discover) only when the sentence needs them.
+  const servers = new Set<string>([MO_SERVER]);
+  if (/\b(en direct|temps reel|insights?|ga4|analytics|trafic|sessions?|audiences?|ciblages?|encheres?|placements?|frequence|statuts?|google|tiktok|adset|ensembles? de pub|enchere|pixel|evenements? de conversion|catalogue)\b/.test(t)) { for (const s of MCP_SERVER_WHITELIST) servers.add(s); servers.add(TIKTOK_SERVER); }
   if (/\b(hq|contexte|historique|objectifs?|brief|memoire|persona|strategie)\b/.test(t)) servers.add(HQ_SERVER);
   if (/\b(sheet|sheets|tableur|excel|feuille|notion|merchant|magento|drive|gmail|agenda|calendar|web|internet|cherche sur)\b/.test(t)) for (const s of STAFF_MCP_SERVERS) servers.add(s);
   if (/\b(calcul|python|script|graphique avance|fichier|csv|sandbox)\b/.test(t)) servers.add(SANDBOX_SERVER);

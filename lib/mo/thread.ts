@@ -4,7 +4,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { applyCardUpdates, boardTitleFrom, layoutNewCards, parseMoAnswer, MO_MAX_CARDS, MO_MAX_MESSAGES, type MoBoardData, type MoCard, type MoCardPatch, type MoMessage } from "@/lib/mo/model";
+import { applyCardUpdates, boardTitleFrom, layoutNewCards, parseMoAnswer, MO_MAX_CARDS, MO_MAX_MESSAGES, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec, type MoMessage } from "@/lib/mo/model";
 import { MAX_SIZE, MIN_SIZES } from "@/lib/mo/geometry";
 
 export const BOARD_ID_RE = /^[a-z0-9]{10,40}$/i;
@@ -95,4 +95,47 @@ export async function updateMoCards(boardId: string, patch: Array<MoCardPatch & 
   });
   await prisma.moBoard.update({ where: { id: boardId }, data: { cardsJson: JSON.stringify(cards) } });
   return cards;
+}
+
+/**
+ * A tool of Mo puts cards on the board itself, while the turn is still running
+ * (the model then only has the sentence to say). Laid out like a turn's cards,
+ * marked with the turn in progress. Returns the ids.
+ */
+export async function postMoCards(boardId: string, specs: MoCardSpec[], at = new Date().toISOString()): Promise<string[]> {
+  if (!specs.length) return [];
+  const row = await prisma.moBoard.findUnique({ where: { id: boardId }, select: { cardsJson: true, messagesJson: true } });
+  if (!row) return [];
+  const cards = parseMoCards(row.cardsJson);
+  const turn = parseMoMessages(row.messagesJson).filter((m) => m.role === "assistant").length;
+  const placed = layoutNewCards(cards, { cards: specs }, turn, at);
+  await prisma.moBoard.update({ where: { id: boardId }, data: { cardsJson: JSON.stringify([...cards, ...placed].slice(-MO_MAX_CARDS)) } });
+  return placed.map((c) => c.id);
+}
+
+/**
+ * Metrics put under visuals already on the board: every creatives card holding
+ * one of these adIds / assetIds gets its items' metrics replaced (names and
+ * pictures kept). Returns the ids of the cards touched.
+ */
+export async function mergeCreativeMetrics(boardId: string, metrics: Map<string, Record<string, string>>, subtitle?: string): Promise<string[]> {
+  const row = await prisma.moBoard.findUnique({ where: { id: boardId }, select: { cardsJson: true } });
+  if (!row) return [];
+  const touched: string[] = [];
+  const at = new Date().toISOString();
+  const cards = parseMoCards(row.cardsJson).map((c): MoCard => {
+    if (c.type !== "creatives") return c;
+    let hit = false;
+    const items = c.items.map((it) => {
+      const m = (it.adId && metrics.get(it.adId)) || (it.assetId && metrics.get(it.assetId));
+      if (!m) return it;
+      hit = true;
+      return { ...it, metrics: m };
+    });
+    if (!hit) return c;
+    touched.push(c.id);
+    return { ...c, items, at, minimized: false, ...(subtitle ? { subtitle } : {}) };
+  });
+  if (touched.length) await prisma.moBoard.update({ where: { id: boardId }, data: { cardsJson: JSON.stringify(cards) } });
+  return touched;
 }

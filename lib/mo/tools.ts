@@ -4,6 +4,7 @@
  * ACL. Called by POST /api/mo/tools (bearer = the relay's shared secret).
  *
  *   creatives          the ads of a client over a period, with their metrics and visuals (warehouse AdCatalog / AdDaily)
+ *   metrics            the figures of a client over a period (vs the previous one), by campaign / ad set / format on demand
  *   creative_metrics   metrics of named ads over a period (to put the figures under visuals already on the board)
  *   generate_creatives new visuals with fal.ai (Agnes as fallback), kept as CreativeAsset (origin "mo") and filed in the client's Drive folder « Créas »
  *   meta_targets       campaigns and ad sets of the client's Meta account (to choose where an ad goes)
@@ -29,8 +30,10 @@ import { ensureClientSubfolder, uploadToFolder } from "@/lib/clients/drive";
 import { executeAction, hqProjectOf, pilotWritesOpen, prepareAction, type PilotSession } from "@/lib/pilot/service";
 import { adIdentities } from "@/lib/pilot/new-ad";
 import { CALL_TO_ACTIONS } from "@/lib/meta-write";
+import { mergeCreativeMetrics, postMoCards } from "@/lib/mo/thread";
+import type { MoCardSpec } from "@/lib/mo/model";
 
-export const MO_TOOL_NAMES = ["creatives", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad"] as const;
+export const MO_TOOL_NAMES = ["creatives", "metrics", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad"] as const;
 export type MoToolName = (typeof MO_TOOL_NAMES)[number];
 
 export interface MoToolContext { userId: string; boardId: string; role: string; email: string | null; name: string | null }
@@ -179,13 +182,81 @@ async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
       raw: { spend: r.metrics.spend, impressions: r.metrics.impressions, clicks: r.metrics.linkClicks || r.metrics.clicks, ctr: r.metrics.ctr, conversions: r.metrics.conversions, cpa: r.metrics.cpa, leads: r.metrics.leads, purchases: r.metrics.purchases, roas: r.metrics.roasUnavailable ? null : r.metrics.roas },
     };
   });
+  const platformLabel = platforms.map((p) => p === "meta" ? "Meta" : p === "google" ? "Google" : p === "tiktok" ? "TikTok" : p).join(" + ");
+  const full = a.with_metrics !== false;
+  const card: MoCardSpec = {
+    type: "creatives", title: str(a.title, 90) || `Créas ${client.name} — ${range.label}`, subtitle: `${platformLabel} · ${client.name} · ${range.since} → ${range.until}${res.coverage.until && res.coverage.until < range.until ? ` · données jusqu'au ${res.coverage.until}` : ""}`,
+    items: items.map((it) => ({ name: shortName(it.name), ...(it.image ? { image: it.image } : {}), adId: it.adId, metrics: full ? it.metrics : { Dépense: it.metrics.Dépense, ...(it.metrics.CPA ? { CPA: it.metrics.CPA } : it.metrics.CPL ? { CPL: it.metrics.CPL } : {}) } })),
+  };
+  // The card goes on the board now (the person sees it while the model is still writing its sentence).
+  const posted = items.length && a.post !== false ? await postMoCards(ctx.boardId, [card]) : [];
+  const coverage = res.coverage.complete ? "complète" : res.coverage.loading ? "synchronisation en cours (chiffres partiels)" : res.coverage.missing ? `${res.coverage.missing} compte(s) jamais synchronisé(s)` : res.coverage.errors ? `données jusqu'au ${res.coverage.until ?? "?"} (la dernière synchronisation a échoué, elle reprend chaque heure)` : "partielle";
   return {
     client: { id: client.id, name: client.name }, period: { ...range }, platforms, currency: cur, launched_in_period: launched, ...(note ? { note } : {}),
-    count: items.length, total: res.total, items,
-    account_total: { metrics: frMetrics(res.benchmark, cur), spend: res.benchmark.spend },
-    data_until: res.coverage.until,
-    coverage: res.coverage.complete ? "complète" : res.coverage.loading ? "synchronisation en cours (chiffres partiels)" : res.coverage.missing ? `${res.coverage.missing} compte(s) jamais synchronisé(s)` : res.coverage.errors ? `données jusqu'au ${res.coverage.until ?? "?"} (la dernière synchronisation a échoué, elle reprend chaque heure)` : "partielle",
-    card_hint: { type: "creatives", title: `Créas ${client.name} — ${range.label}`, subtitle: `${platforms.map((p) => p === "meta" ? "Meta" : p === "google" ? "Google" : p === "tiktok" ? "TikTok" : p).join(" + ")} · ${client.name} · ${range.since} → ${range.until}`, items: items.map((it) => ({ name: it.name, image: it.image, adId: it.adId, metrics: { Dépense: it.metrics.Dépense, ...(it.metrics.CPA ? { CPA: it.metrics.CPA } : it.metrics.CPL ? { CPL: it.metrics.CPL } : {}) } })) },
+    ...(posted.length ? { posted_card: posted[0], posted: "La carte est DÉJÀ sur le tableau : ne la recopie pas dans « cards », dis juste la phrase (et son id si on te demande de la modifier)." } : {}),
+    count: items.length, total: res.total,
+    items: items.map((it) => ({ adId: it.adId, name: shortName(it.name), format: it.format, status: it.status, launched: it.launched, campaign: it.campaign, metrics: it.metrics, ...(it.title ? { title: it.title } : {}), ...(it.landing ? { landing: it.landing } : {}) })),
+    account_total: frMetrics(res.benchmark, cur),
+    data_until: res.coverage.until, coverage,
+  };
+}
+
+/** Ad names of the agency are naming-convention strings of 150 characters: the readable part. */
+function shortName(name: string): string {
+  const n = name.replace(/\s*-\s*Copie$/i, "").trim();
+  if (n.length <= 60) return n;
+  const parts = n.split("_").filter(Boolean);
+  const words = parts.map((p) => p.replace(/^[A-Za-z]{1,4}-/, "")).filter((p) => p.length > 2);
+  const out = words.slice(0, 4).join(" · ");
+  return (out.length > 60 ? out.slice(0, 57) + "…" : out) || n.slice(0, 57) + "…";
+}
+
+const GROUPS = { campaign: "campaign", adset: "adset", format: "format", platform: null } as const;
+
+/** The client's figures over a period, against the previous period of the same length: a KPI card, and a table by campaign / ad set / format when asked. */
+async function metrics(ctx: MoToolContext, a: Args): Promise<ToolResult> {
+  const { client } = await resolveClient(ctx, a.client);
+  const range = periodRange(a);
+  const { platforms, accountIds, accounts } = platformsOf(client, a.platform ?? "all");
+  if (!accountIds.length) throw new MoToolError(`${client.name} n'a pas de compte publicitaire rattaché.`, 404);
+  const days = Math.round((Date.parse(range.until) - Date.parse(range.since)) / 86_400_000) + 1;
+  const compare = a.compare === false ? null : { since: shift(range.since, -days), until: shift(range.since, -1) };
+  const byKey = str(a.by, 20) as keyof typeof GROUPS;
+  const by = byKey in GROUPS ? byKey : null;
+  const res = await queryAds({ platforms, accountIds, accounts, range: { since: range.since, until: range.until }, compare, groupBy: by && GROUPS[by] ? GROUPS[by]! : "campaign", sort: { key: "spend", dir: "desc" }, limit: by ? 12 : 1 });
+  const cur = res.currency;
+  const m = res.benchmark, p = res.benchmarkPrevious;
+  const delta = (now: number, before: number | undefined, lowerIsBetter = false) => {
+    if (!before || !now) return {};
+    const d = Math.round(((now - before) / before) * 100);
+    if (!Number.isFinite(d) || d === 0) return { delta: "= période préc." };
+    const good = lowerIsBetter ? d < 0 : d > 0;
+    return { delta: `${d > 0 ? "+" : ""}${d} % vs période préc.`, tone: good ? "good" as const : "bad" as const };
+  };
+  const main: Array<{ label: string; value: string; delta?: string; tone?: "good" | "bad" | "neutral" }> = [{ label: "Dépense", value: money(m.spend, cur), ...delta(m.spend, p?.spend) }];
+  if (m.leads) main.push({ label: "Leads", value: int(m.leads), ...delta(m.leads, p?.leads) }, { label: "CPL", value: money(m.spend / m.leads, cur), ...delta(m.spend / m.leads, p?.leads ? p.spend / p.leads : undefined, true) });
+  if (m.conversions) main.push({ label: m.purchases ? "Achats" : "Conversions", value: int(m.conversions), ...delta(m.conversions, p?.conversions) }, { label: "CPA", value: m.cpa ? money(m.cpa, cur) : "—", ...delta(m.cpa, p?.cpa, true) });
+  if (m.roas && !m.roasUnavailable) main.push({ label: "ROAS", value: `${x(m.roas)}${m.estimated ? " (est.)" : ""}`, ...delta(m.roas, p?.roas) });
+  if (m.ctr) main.push({ label: "CTR", value: pct(m.ctr), ...delta(m.ctr, p?.ctr) });
+  if (m.cpm) main.push({ label: "CPM", value: money(m.cpm, cur), ...delta(m.cpm, p?.cpm, true) });
+  if (m.impressions) main.push({ label: "Impressions", value: int(m.impressions), ...delta(m.impressions, p?.impressions) });
+  const platformLabel = platforms.map((q) => q === "meta" ? "Meta" : q === "google" ? "Google" : q === "tiktok" ? "TikTok" : q).join(" + ");
+  const subtitle = `${platformLabel} · ${client.name} · ${range.since} → ${range.until}${compare ? ` · vs ${compare.since} → ${compare.until}` : ""}`;
+  const cards: MoCardSpec[] = [{ type: "kpis", title: str(a.title, 90) || `${client.name} — ${range.label}`, subtitle, items: main.slice(0, 8) }];
+  let rows: Array<Record<string, string>> = [];
+  if (by && res.rows.length) {
+    const cols = ["Dépense", m.leads ? "Leads" : "Conv.", m.leads ? "CPL" : "CPA", "CTR", ...(m.roas && !m.roasUnavailable ? ["ROAS"] : [])];
+    rows = res.rows.map((r) => ({ [by === "campaign" ? "Campagne" : by === "adset" ? "Ensemble" : "Format"]: r.label.slice(0, 60), Dépense: money(r.metrics.spend, cur), [m.leads ? "Leads" : "Conv."]: int(m.leads ? r.metrics.leads : r.metrics.conversions), [m.leads ? "CPL" : "CPA"]: m.leads ? (r.metrics.leads ? money(r.metrics.spend / r.metrics.leads, cur) : "—") : (r.metrics.cpa ? money(r.metrics.cpa, cur) : "—"), CTR: r.metrics.ctr ? pct(r.metrics.ctr) : "—", ...(m.roas && !m.roasUnavailable ? { ROAS: r.metrics.roas ? x(r.metrics.roas) : "—" } : {}) }));
+    const first = Object.keys(rows[0])[0];
+    cards.push({ type: "table", title: `Par ${by === "campaign" ? "campagne" : by === "adset" ? "ensemble" : "format"} — ${client.name}`, subtitle, columns: [first, ...cols], rows: rows.map((r) => [r[first], ...cols.map((c) => r[c] ?? "")]), align: ["left", ...cols.map(() => "right" as const)] });
+  }
+  const posted = a.post !== false ? await postMoCards(ctx.boardId, cards) : [];
+  return {
+    client: { id: client.id, name: client.name }, period: { ...range }, compare, platforms, currency: cur,
+    ...(posted.length ? { posted_cards: posted, posted: "Les cartes sont DÉJÀ sur le tableau : ne les recopie pas, dis juste la phrase (la conclusion, un ou deux chiffres)." } : {}),
+    totals: Object.fromEntries(main.map((k) => [k.label, `${k.value}${k.delta ? ` (${k.delta})` : ""}`])),
+    ...(rows.length ? { rows } : {}), data_until: res.coverage.until,
+    coverage: res.coverage.complete ? "complète" : res.coverage.errors ? `données jusqu'au ${res.coverage.until ?? "?"} (dernière synchronisation en échec)` : res.coverage.loading ? "synchronisation en cours" : "partielle",
   };
 }
 
@@ -210,7 +281,8 @@ async function creativeMetrics(ctx: MoToolContext, a: Args): Promise<ToolResult>
     const metrics = s ? deriveMetrics({ spend: s.spend ?? 0, impressions: s.impressions ?? 0, reach: s.reach ?? 0, clicks: s.clicks ?? 0, linkClicks: s.linkClicks ?? 0, conversions: s.conversions ?? 0, conversionValue: s.conversionValue ?? 0, purchases: s.purchases ?? 0, purchaseValue: s.purchaseValue ?? 0, leads: s.leads ?? 0, videoPlays: s.videoPlays ?? 0, video3s: s.video3s ?? 0, thruPlays: s.thruPlays ?? 0, p25: s.videoP25 ?? 0, p50: s.videoP50 ?? 0, p75: s.videoP75 ?? 0, p100: s.videoP100 ?? 0 }, null) : null;
     return { adId: bare, name: c?.name ?? null, image: c?.imageUrl || c?.thumbnailUrl ? adImage(c?.platform ?? "meta", bare) : null, found: !!r, metrics: metrics ? frMetrics(metrics, cur) : { Dépense: "0 €" }, raw: metrics ? { spend: metrics.spend, impressions: metrics.impressions, ctr: metrics.ctr, conversions: metrics.conversions, cpa: metrics.cpa, leads: metrics.leads, roas: metrics.roasUnavailable ? null : metrics.roas } : null };
   });
-  return { client: { id: client.id, name: client.name }, period: { ...range }, currency: cur, items };
+  const merged = await mergeCreativeMetrics(ctx.boardId, new Map(items.filter((it) => it.found).map((it) => [it.adId, it.metrics])), undefined);
+  return { client: { id: client.id, name: client.name }, period: { ...range }, currency: cur, ...(merged.length ? { updated_cards: merged, updated: "Les chiffres sont DÉJÀ sous les visuels sur le tableau : ne renvoie pas de carte, dis juste la phrase." } : {}), items: items.map((it) => ({ adId: it.adId, name: it.name ? shortName(it.name) : null, found: it.found, metrics: it.metrics })) };
 }
 
 const slug = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "crea";
@@ -295,11 +367,13 @@ async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResul
     }
     items.push({ assetId: asset.id, image: assetImage(asset.id), model: out.model, usd: Math.round(out.usd * 1000) / 1000, drive: drive?.webViewLink ?? null });
   }
+  const card: MoCardSpec = { type: "creatives", title: str(a.title, 90) || `Nouvelles créas ${client.name}`, subtitle: `Générées par Mo · ${via.replace("fal-ai/", "")} · ${day}${folder?.webViewLink ? " · dans le Drive du client" : ""}`, items: items.map((it, k) => ({ name: str((Array.isArray(a.names) ? a.names[k] : null) ?? "", 60) || `Proposition ${k + 1}`, image: it.image, assetId: it.assetId, metrics: { Moteur: via.replace("fal-ai/", ""), Coût: it.usd ? `${it.usd} $` : "gratuit" }, ...(it.drive ? { link: it.drive } : {}) })) };
+  const posted = a.post !== false ? await postMoCards(ctx.boardId, [card]) : [];
   return {
     client: { id: client.id, name: client.name }, generated: items.length, engine: via, ratio, references: refs.length, ...(note ? { note } : {}),
+    ...(posted.length ? { posted_card: posted[0], posted: "La carte est DÉJÀ sur le tableau : ne la recopie pas, dis juste la phrase." } : {}),
     drive_folder: folder?.webViewLink ?? null, ...(driveError ? { drive_error: driveError } : {}),
     items,
-    card_hint: { type: "creatives", title: `Nouvelles créas ${client.name}`, subtitle: `Générées par Mo · ${via.replace("fal-ai/", "")} · ${day}`, items: items.map((it, k) => ({ name: `Proposition ${k + 1}`, image: it.image, assetId: it.assetId, metrics: { Moteur: via.replace("fal-ai/", ""), Coût: it.usd ? `${it.usd} $` : "gratuit" }, ...(it.drive ? { link: it.drive } : {}) })) },
   };
 }
 
@@ -385,6 +459,7 @@ export async function runMoTool(ctx: MoToolContext, tool: string, args: unknown)
   const a: Args = args && typeof args === "object" ? (args as Args) : {};
   switch (tool as MoToolName) {
     case "creatives": return creatives(ctx, a);
+    case "metrics": return metrics(ctx, a);
     case "creative_metrics": return creativeMetrics(ctx, a);
     case "generate_creatives": return generateCreatives(ctx, a);
     case "meta_targets": return metaTargets(ctx, a);

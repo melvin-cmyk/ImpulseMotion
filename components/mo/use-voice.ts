@@ -77,6 +77,21 @@ export interface Voice extends VoiceState {
 
 const SERVER_TTS = true;
 
+/**
+ * A natural FEMALE French voice of the browser, when it has one: Edge's neural
+ * voices (Denise, Eloise, Vivienne « Online (Natural) »), Chrome's « Google
+ * français », Apple's enhanced Amélie / Audrey. Null otherwise.
+ */
+function premiumBrowserVoice(): SpeechSynthesisVoice | null {
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+  if (!synth) return null;
+  const fr = synth.getVoices().filter((v) => /^fr([-_]|$)/i.test(v.lang));
+  return fr.find((v) => /online.*natural|natural/i.test(v.name) && /denise|eloise|vivienne|charline|sylvie|ariane|fabienne|coralie|jacqueline|eloise/i.test(v.name))
+    ?? fr.find((v) => /google/i.test(v.name) && /fran/i.test(v.name))
+    ?? fr.find((v) => /am[ée]lie|audrey/i.test(v.name) && /enhanced|premium|am[ée]lior/i.test(v.name))
+    ?? null;
+}
+
 export function useVoice(onFinal: (text: string) => void): Voice {
   const [state, setState] = useState<VoiceState>({ supported: false, listening: false, interim: "", level: 0, transcribing: false, speaking: false, error: null });
   const levelRef = useRef(0);
@@ -257,8 +272,7 @@ export function useVoice(onFinal: (text: string) => void): Voice {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "fr-FR";
     u.rate = 1.04;
-    const voices = synth.getVoices().filter((v) => v.lang.toLowerCase().startsWith("fr"));
-    const preferred = voices.find((v) => /google/i.test(v.name) && /fran/i.test(v.name)) ?? voices.find((v) => /am[ée]lie|thomas|audrey|aurelie|siri|denise|henri/i.test(v.name)) ?? voices[0];
+    const preferred = premiumBrowserVoice() ?? synth.getVoices().filter((v) => v.lang.toLowerCase().startsWith("fr")).find((v) => /am[ée]lie|audrey|aurelie|denise|eloise|vivienne|marie|julie|siri/i.test(v.name)) ?? synth.getVoices().find((v) => v.lang.toLowerCase().startsWith("fr"));
     if (preferred) u.voice = preferred;
     u.onstart = () => setState((s) => ({ ...s, speaking: true }));
     u.onend = () => setState((s) => ({ ...s, speaking: false }));
@@ -271,7 +285,9 @@ export function useVoice(onFinal: (text: string) => void): Voice {
     if (!clean) return;
     window.speechSynthesis?.cancel();
     player.current?.pause();
-    if (!SERVER_TTS) { speakWithBrowser(clean); return; }
+    // The browser's own natural female French voice (Edge's neural voices, Chrome's Google voice, Apple's enhanced ones)
+    // is better and instant; the relay's Piper voice is for the browsers without one (Brave, Firefox…).
+    if (!SERVER_TTS || premiumBrowserVoice()) { speakWithBrowser(clean); return; }
     const mySession = ++session.current;
     setState((s) => ({ ...s, speaking: true }));
     fetch("/api/mo/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: clean }) })

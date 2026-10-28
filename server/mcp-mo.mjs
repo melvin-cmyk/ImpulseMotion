@@ -51,7 +51,7 @@ const until = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Derni
 
 server.registerTool("creatives", {
   title: "Créas d'un client",
-  description: "Les annonces (créas) d'un client sur une période, avec leurs visuels (image https) et leurs chiffres déjà formatés en français (Dépense, CTR, CPA/CPL, ROAS…), depuis l'entrepôt de l'agence (Meta, Google, TikTok). Réponse immédiate. `card_hint` est une carte « creatives » prête à poser sur le tableau (garde les adId : ils servent ensuite à ajouter des chiffres, générer des variantes, publier). launched_in_period=true pour « les créas lancées / postées cette semaine » (date de création), sinon = celles qui ont diffusé sur la période.",
+  description: "Les annonces (créas) d'un client sur une période, avec leurs visuels et leurs chiffres formatés en français (Dépense, CTR, CPA/CPL, ROAS…), depuis l'entrepôt de l'agence (Meta par défaut, 3 s). POSE LUI-MÊME la carte « creatives » sur le tableau (posted_card) : tu n'as que la phrase à dire, ne recopie pas les items. Les adId de la réponse servent ensuite (chiffres, variantes, publication). launched_in_period=true pour « lancées / postées cette semaine » (date de création) ; « les 10 dernières créas » = sort launch, order desc, limit 10.",
   inputSchema: {
     client, period, since, until,
     platform: z.enum(["meta", "google", "tiktok", "all"]).optional().describe("Défaut : toutes les plateformes du client."),
@@ -61,12 +61,21 @@ server.registerTool("creatives", {
     limit: z.number().int().min(1).max(24).optional().describe("Défaut 12."),
     min_spend: z.number().min(0).optional(),
     name_contains: z.string().max(80).optional(),
+    with_metrics: z.boolean().optional().describe("false = seulement la dépense sous chaque visuel (défaut : tous les chiffres)."),
+    title: z.string().max(90).optional().describe("Titre de la carte (défaut : généré)."),
+    post: z.boolean().optional().describe("false = ne pose pas la carte (rare)."),
   },
 }, async (args) => call("creatives", args, 60_000));
 
+server.registerTool("metrics", {
+  title: "Chiffres d'un client",
+  description: "Les chiffres d'un client sur une période (dépense, leads/conversions, CPL/CPA, CTR, CPM, ROAS) avec l'écart contre la période précédente de même longueur, depuis l'entrepôt (Meta + Google + TikTok, 3 s). POSE LUI-MÊME la carte KPI (et un tableau par campagne / ensemble / format avec `by`) : tu n'as que la phrase à dire. La réponse à « le CPA de Naturalia cette semaine », « ça donne quoi sur LPEV ce mois-ci », « par campagne ».",
+  inputSchema: { client, period, since, until, platform: z.enum(["meta", "google", "tiktok", "all"]).optional().describe("Défaut : toutes."), by: z.enum(["campaign", "adset", "format"]).optional().describe("Ajoute un tableau par campagne / ensemble / format."), compare: z.boolean().optional().describe("false = sans comparaison (défaut : période précédente)."), title: z.string().max(90).optional(), post: z.boolean().optional().describe("false = ne pose pas la carte (rare).") },
+}, async (args) => call("metrics", args, 60_000));
+
 server.registerTool("creative_metrics", {
   title: "Chiffres d'annonces précises",
-  description: "Les chiffres (formatés en français) d'annonces désignées par leur adId sur une période — pour « mets les chiffres sous chaque créa » quand les visuels sont déjà sur le tableau : réécris alors la carte existante (update) avec ces metrics.",
+  description: "Les chiffres (formatés en français) d'annonces désignées par leur adId sur une période — « mets les chiffres sous chaque créa » : ils sont ÉCRITS DIRECTEMENT sous les visuels des cartes du tableau (updated_cards). Tu n'as que la phrase à dire.",
   inputSchema: { client, adIds: z.array(z.string().max(40)).min(1).max(40), period, since, until, platform: z.enum(["meta", "google", "tiktok", "all"]).optional() },
 }, async (args) => call("creative_metrics", args, 60_000));
 
@@ -80,6 +89,9 @@ server.registerTool("generate_creatives", {
     ratio: z.enum(["1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2"]).optional().describe("Défaut 1:1 ; 3:4 pour le feed vertical, 9:16 pour les stories."),
     references: z.array(z.string().max(500)).max(3).optional(),
     engine: z.string().max(60).optional().describe("Modèle fal (fal-ai/flux/schnell, fal-ai/nano-banana, fal-ai/nano-banana/edit, fal-ai/flux-pro/v1.1-ultra, fal-ai/ideogram/v3). Défaut : celui de l'application."),
+    names: z.array(z.string().max(60)).max(4).optional().describe("Un nom court par visuel, pour la carte."),
+    title: z.string().max(90).optional(),
+    post: z.boolean().optional(),
   },
 }, async (args) => call("generate_creatives", args, 240_000));
 

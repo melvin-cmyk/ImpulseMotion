@@ -38,6 +38,9 @@ export function MoDock() {
   const follower = useRef<AbortController | null>(null);
   const bubbleTimer = useRef<number | null>(null);
   const speakRef = useRef<(text: string) => void>(() => undefined);
+  /** Sentence already spoken from the stream (not said twice at the end). */
+  const earlySaid = useRef<string | null>(null);
+  const streamText = useRef("");
   const pathRef = useRef(pathname);
   const clientsRef = useRef<IntentClient[]>([]);
   const seenTurns = useRef(0);
@@ -94,7 +97,8 @@ export function MoDock() {
     const cards = last?.cardIds?.length ?? 0;
     // A result with cards stays until dismissed.
     showBubble({ you, mo: say, cards, open }, cards ? 0 : open ? 6_000 : BUBBLE_MS);
-    if (say) speakRef.current(say);
+    if (say && earlySaid.current !== say) speakRef.current(say);
+    earlySaid.current = null;
     if (open) window.setTimeout(() => router.push(open), 700);
   }, [router, showBubble]);
 
@@ -122,7 +126,24 @@ export function MoDock() {
       follower.current = ctl;
       const jobId = j.jobId;
       setRun({ jobId, activity: INITIAL_ACTIVITY, startedAt: Date.now() });
-      const onEvent = (e: JobEvent) => { if (e.type !== "job") setRun((r) => (r && r.jobId === jobId ? { ...r, activity: reduceActivity(r.activity, e) } : r)); };
+      streamText.current = "";
+      earlySaid.current = null;
+      const onEvent = (e: JobEvent) => {
+        if (e.type === "job") return;
+        // « say » comes first in the answer: spoken as soon as it is complete.
+        if ((e.type === "delta" || e.type === "content") && typeof e.text === "string") {
+          streamText.current = e.type === "content" && !streamText.current ? e.text : streamText.current + (e.type === "delta" ? e.text : "");
+          if (!earlySaid.current) {
+            const m = streamText.current.match(/"say"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            if (m) {
+              let sentence = "";
+              try { sentence = String(JSON.parse(`"${m[1]}"`)); } catch { sentence = m[1]; }
+              if (sentence.trim()) { earlySaid.current = sentence; showBubble({ you: t, mo: sentence, cards: 0, open: null }, 0); speakRef.current(sentence); }
+            }
+          }
+        }
+        setRun((r) => (r && r.jobId === jobId ? { ...r, activity: reduceActivity(r.activity, e) } : r));
+      };
       void followJob(jobId, onEvent, ctl.signal).then(async (outcome) => {
         if (outcome === "aborted") return;
         follower.current = null;

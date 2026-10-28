@@ -26,6 +26,8 @@ import { INITIAL_ACTIVITY, activityLabel, formatToolName, reduceActivity, type A
 interface BoardSummary { id: string; title: string; updatedAt: string; cards: number }
 interface Run { jobId: string; startedAt: number; activity: ActivityState; tools: string[] }
 
+/** Said when the answer takes more than a moment to start (one of them, at random). */
+const ACKS = ["Je regarde.", "Un instant.", "Je m'en occupe."];
 const SUGGESTIONS = [
   "Hello Mo, montre-moi les créas Meta de Naturalia postées vendredi avec CPA, CPL et leads.",
   "Compare ça avec les créas de la semaine d'avant.",
@@ -55,6 +57,13 @@ export function MoPage() {
   const flushTimer = useRef<number | null>(null);
   /** Mo's voice (set once the voice hook is up; it is used by the reply handler above it). */
   const speakRef = useRef<(text: string) => void>(() => undefined);
+  /** The sentence spoken as soon as it appeared in the stream (finishTurn then does not say it twice). */
+  const earlySaid = useRef<string | null>(null);
+  /** Streamed answer of the running turn, to catch « say » before the JSON is complete. */
+  const streamText = useRef("");
+  /** Ids of the cards the person already has (new ones found by the live refresh get the spotlight). */
+  const knownIds = useRef<Set<string>>(new Set());
+  const ackTimer = useRef<number | null>(null);
 
   // ── Loading ───────────────────────────────────────────────────────────
   const loadBoard = useCallback(async (id: string) => {
@@ -62,6 +71,7 @@ export function MoPage() {
     if (!r.ok) throw new Error(r.status === 404 ? "Session introuvable" : `Erreur ${r.status}`);
     const j = (await r.json()) as { board: MoBoardData; jobId: string | null };
     setBoard(j.board);
+    knownIds.current = new Set(j.board.cards.map((c) => c.id));
     return j;
   }, []);
 
@@ -99,8 +109,10 @@ export function MoPage() {
     const last = [...j.board.messages].reverse().find((m) => m.role === "assistant");
     const ids = new Set(last?.cardIds ?? []);
     setFresh(ids);
+    knownIds.current = new Set(j.board.cards.map((c) => c.id));
     setLastSaid((s) => ({ you: s?.you ?? "", mo: last?.say ?? null }));
-    if (last?.say && !muted) speakRef.current(last.say);
+    if (last?.say && !muted && earlySaid.current !== last.say) speakRef.current(last.say);
+    earlySaid.current = null;
     const rects = j.board.cards.filter((c) => ids.has(c.id)).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
     if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
     // Mo was asked to open a page: the board stays (reopened from the menu), the page comes up once the sentence is said.
@@ -112,8 +124,44 @@ export function MoPage() {
     const ctl = new AbortController();
     follower.current = ctl;
     setRun({ jobId, startedAt: Date.now(), activity: INITIAL_ACTIVITY, tools: [] });
+    streamText.current = "";
+    earlySaid.current = null;
+    // A short word if Mo has not started answering after a moment (the voice assistants people know do this).
+    if (ackTimer.current) window.clearTimeout(ackTimer.current);
+    ackTimer.current = window.setTimeout(() => { ackTimer.current = null; if (!muted && !streamText.current) speakRef.current(ACKS[Math.floor(Math.random() * ACKS.length)]); }, 2500);
+    // The cards a tool posts land on the board while the turn still runs: look every 2 s, light the new ones up.
+    const live = window.setInterval(() => {
+      if (ctl.signal.aborted) { window.clearInterval(live); return; }
+      fetch(`/api/mo/${boardId}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j: { board: MoBoardData } | null) => {
+        if (!j || ctl.signal.aborted) return;
+        const added = j.board.cards.filter((c) => !knownIds.current.has(c.id));
+        if (!added.length) return;
+        for (const c of added) knownIds.current.add(c.id);
+        setBoard(j.board);
+        setFresh((f) => new Set([...f, ...added.map((c) => c.id)]));
+        const rects = added.map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
+        window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
+      }).catch(() => undefined);
+    }, 2000);
     const onEvent = (e: JobEvent) => {
       if (e.type === "job") return;
+      // « say » is the first field of the answer: spoken the moment it is complete, cards or not.
+      if ((e.type === "delta" || e.type === "content") && typeof e.text === "string") {
+        streamText.current = e.type === "content" && !streamText.current ? e.text : streamText.current + (e.type === "delta" ? e.text : "");
+        if (!earlySaid.current) {
+          const m = streamText.current.match(/"say"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+          if (m) {
+            let sentence = "";
+            try { sentence = String(JSON.parse(`"${m[1]}"`)); } catch { sentence = m[1]; }
+            if (sentence.trim()) {
+              earlySaid.current = sentence;
+              if (ackTimer.current) { window.clearTimeout(ackTimer.current); ackTimer.current = null; }
+              setLastSaid((s) => ({ you: s?.you ?? "", mo: sentence }));
+              if (!muted) speakRef.current(sentence);
+            }
+          }
+        }
+      }
       setRun((r) => {
         if (!r || r.jobId !== jobId) return r;
         const activity = reduceActivity(r.activity, e);
@@ -123,12 +171,14 @@ export function MoPage() {
       if (e.type === "error" && e.message) setError(e.message);
     };
     void followJob(jobId, onEvent, ctl.signal).then(async (outcome) => {
+      window.clearInterval(live);
+      if (ackTimer.current) { window.clearTimeout(ackTimer.current); ackTimer.current = null; }
       if (outcome === "aborted") return;
       follower.current = null;
       setRun(null);
       await finishTurn(boardId);
-    }).catch((e) => { follower.current = null; setRun(null); setError(e instanceof Error ? e.message : "Suivi interrompu"); });
-  }, [finishTurn]);
+    }).catch((e) => { window.clearInterval(live); follower.current = null; setRun(null); setError(e instanceof Error ? e.message : "Suivi interrompu"); });
+  }, [finishTurn, muted]);
 
   // First load: the wanted board, else the latest, else a new one.
   useEffect(() => {
