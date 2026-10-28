@@ -280,9 +280,7 @@ async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResul
   } else driveError = "client sans dashboard : pas de dossier Drive";
   const day = isoParis(new Date());
   const items = [];
-  let i = 0;
   for (const out of outs) {
-    i++;
     const asset = await prisma.creativeAsset.create({ data: {
       createdById: ctx.userId, createdByName, alertClientId: client.clientId, clientName: client.name, prompt, kind: "image", model: out.model, origin: "mo",
       paramsJson: JSON.stringify({ ratio, engine: via, references: refs.length, group, board: ctx.boardId, promptSent: prompt, note }), status: "completed", progress: 100, url: out.url, file: out.file, costUsd: out.usd,

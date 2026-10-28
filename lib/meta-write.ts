@@ -343,10 +343,44 @@ export async function listPromotablePages(accountId: string): Promise<{ pages: P
   const pages = (Array.isArray(data?.data) ? data.data : [])
     .filter((p) => isMetaId(p?.id))
     .map((p) => ({ id: String(p.id), name: String(p.name ?? p.id).slice(0, 120) }));
+  // Nothing promotable through the agency's token: the Pages the account already advertises under.
+  if (!pages.length && !data?.paging?.next) return { pages: await listPagesUsedByAccount(account), complete: true };
   return { pages, complete: !data?.paging?.next };
 }
 
 const PROMOTE_MAX_PAGES = 10;
+
+/**
+ * Pages already carrying ads of the account, read from its ad creatives
+ * (object_story_spec.page_id). The agency's system user often cannot list a
+ * client's Pages through promote_pages (the Pages live in the client's
+ * Business Manager) while it reads and writes the ads: a Page under which
+ * this very account already advertises is, by construction, one of its own.
+ * Best effort: an error or an empty answer gives [], never throws.
+ */
+export async function listPagesUsedByAccount(accountId: string): Promise<PromotablePage[]> {
+  const account = bareAccount(String(accountId ?? ""));
+  if (!account) return [];
+  const token = getMetaSystemToken();
+  const ids = new Set<string>();
+  let after: string | undefined;
+  try {
+    for (let page = 0; page < 3; page++) {
+      const data = await metaGraphGetOnce<{ data?: Array<{ object_story_spec?: { page_id?: string } }>; paging?: { cursors?: { after?: string }; next?: string } }>(
+        `/act_${account}/adcreatives`, token, { fields: "object_story_spec", limit: "200", ...(after ? { after } : {}) });
+      for (const c of Array.isArray(data?.data) ? data.data : []) { const id = c?.object_story_spec?.page_id; if (isMetaId(id)) ids.add(String(id)); }
+      after = data?.paging?.next ? data.paging.cursors?.after : undefined;
+      if (!after) break;
+    }
+  } catch { return []; }
+  const pages: PromotablePage[] = [];
+  for (const id of [...ids].slice(0, 8)) {
+    let name = id;
+    try { const p = await metaGraphGetOnce<{ name?: string }>(`/${id}`, token, { fields: "name" }); if (typeof p?.name === "string" && p.name.trim()) name = p.name.trim().slice(0, 120); } catch { /* name unknown: the id is shown */ }
+    pages.push({ id, name });
+  }
+  return pages;
+}
 
 /**
  * The Page is one of those the ad account can promote. Throws `refused` when
@@ -367,6 +401,9 @@ export async function verifyPagePromotable(accountId: string, pageId: string): P
       if (found) return { id: pageId, name: String(found.name ?? pageId).slice(0, 120) };
       after = data?.paging?.next ? data.paging.cursors?.after : undefined;
       if (!after) {
+        // Not in promote_pages: still the account's own Page when its ads already run under it (see listPagesUsedByAccount).
+        const used = (await listPagesUsedByAccount(account)).find((p) => p.id === pageId);
+        if (used) return used;
         throw new MetaWriteError("refused", `La Page ${pageId} n'est pas de celles que le compte publicitaire de la routine peut promouvoir : aucune publicité n'est créée sous cette Page`);
       }
     }
