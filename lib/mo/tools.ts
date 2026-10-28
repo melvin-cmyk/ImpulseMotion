@@ -313,7 +313,9 @@ async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResul
   if (prompt.length < 3) throw new MoToolError("Décris le visuel à créer (prompt).");
   const n = Math.min(4, Math.max(1, Math.round(num(a.n) ?? 1)));
   const ratio = (IMAGE_RATIOS as readonly string[]).includes(str(a.ratio)) ? str(a.ratio) : "4:5" === str(a.ratio) ? "3:4" : "1:1";
-  const engine = isFalModel(a.engine) ? str(a.engine, 60) : (process.env.MO_FAL_MODEL || "fal-ai/flux/schnell");
+  // Nano Banana 2 (the model the agency's fal key opens): edit when references are given, text-to-image otherwise.
+  const wantRefs = Array.isArray(a.references) && a.references.length > 0;
+  const engine = isFalModel(a.engine) ? str(a.engine, 60) : (process.env.MO_FAL_MODEL || (wantRefs ? "fal-ai/nano-banana-2/edit" : "fal-ai/nano-banana-2"));
   // References: ads of the warehouse (their picture), assets of the Studio, or https pictures — at most 3.
   const refs: string[] = [];
   for (const r of (Array.isArray(a.references) ? a.references : []).map((v) => str(v, 500)).filter(Boolean).slice(0, 3)) {
@@ -327,20 +329,32 @@ async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResul
   // Daily caps (Admin → Quotas), the price of a fal batch counted before it is spent.
   const quotas = await readQuotas();
   const spent = await spentToday(ctx.userId);
-  const unit = engine.includes("schnell") ? 0.003 : engine.includes("ultra") || engine.includes("ideogram") ? 0.06 : 0.039;
+  const unit = engine.includes("schnell") ? 0.003 : engine.includes("ultra") || engine.includes("ideogram") || engine.includes("banana-2") ? 0.06 : 0.039;
   const gate = checkGeneration(quotas, spent, unit * n, n);
   if (!gate.ok) throw new MoToolError(gate.reason ?? "Quota du jour atteint.", 429);
 
   const outs: Array<{ url: string | null; file: string | null; model: string; usd: number }> = [];
   let via = engine;
   let note = "";
+  let falError = "";
   try {
     const out = await relayFalImage({ prompt, model: engine, ratio, images: refs, n });
     via = out.model;
     out.urls.forEach((url, i) => outs.push({ url, file: out.files[i] ?? null, model: out.model, usd: out.usd / Math.max(1, out.urls.length) }));
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    // The key does not allow the model (or fal is down): Agnes (free, takes references) rather than nothing.
+    falError = msg;
+    // The key does not allow the model: another fal model first (schnell without references), Agnes (free, takes references) last.
+    if (/n'autorise pas ce modele|n'autorise pas ce modèle|does not have access/i.test(msg) && !refs.length && !engine.includes("schnell")) {
+      try {
+        const out = await relayFalImage({ prompt, model: "fal-ai/flux/schnell", ratio, images: [], n });
+        via = out.model; note = `${engine.replace("fal-ai/", "")} refusé par la clé fal → FLUX Schnell`;
+        out.urls.forEach((url, i) => outs.push({ url, file: out.files[i] ?? null, model: out.model, usd: out.usd / Math.max(1, out.urls.length) }));
+      } catch { /* Agnes below */ }
+    }
+  }
+  if (!outs.length) {
+    const msg = falError || "fal.ai indisponible";
     note = `fal.ai indisponible (${msg.slice(0, 140)}) → Agnes 2.5 Flash`;
     const results = await Promise.allSettled(Array.from({ length: n }, () => relayImage({ prompt, ratio, size: "1K", images: refs })));
     for (const r of results) if (r.status === "fulfilled") outs.push({ url: r.value.url, file: r.value.file, model: r.value.model, usd: 0 });

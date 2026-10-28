@@ -24,11 +24,15 @@ export const FAL_MODELS = {
   "fal-ai/flux/schnell": { label: "FLUX Schnell — très rapide, économique", refs: false, usd: 0.003, ratios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"] },
   "fal-ai/nano-banana": { label: "Nano Banana (Google) — rapide, texte propre", refs: false, usd: 0.039, ratios: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16"] },
   "fal-ai/nano-banana/edit": { label: "Nano Banana Edit — à partir de vos images (produit, template)", refs: true, usd: 0.039, ratios: ["auto", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16"] },
+  "fal-ai/nano-banana-2": { label: "Nano Banana 2 (Google) — qualité supérieure, texte propre", refs: false, usd: 0.06, ratios: ["21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16"] },
+  "fal-ai/nano-banana-2/edit": { label: "Nano Banana 2 Edit — à partir de vos images, qualité supérieure", refs: true, usd: 0.06, ratios: ["auto", "21:9", "16:9", "3:2", "4:3", "5:4", "1:1", "4:5", "3:4", "2:3", "9:16"] },
   "fal-ai/flux-pro/v1.1-ultra": { label: "FLUX 1.1 Pro Ultra — photoréalisme haute définition", refs: false, usd: 0.06, ratios: ["21:9", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16", "9:21"] },
   "fal-ai/ideogram/v3": { label: "Ideogram 3 — typographie et affiches", refs: false, usd: 0.06, ratios: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"] },
 };
 // Default = the model every key may use; the richer ones need the key to allow them (fal dashboard → API keys → model access).
 export const DEFAULT_MODEL = process.env.FAL_DEFAULT_MODEL || "fal-ai/flux/schnell";
+/** The edit model used when references are given to a text-only model (the agency's key opens nano-banana-2/edit). */
+const EDIT_MODEL = process.env.FAL_EDIT_MODEL || "fal-ai/nano-banana-2/edit";
 const FLUX_SIZES = { "1:1": "square_hd", "16:9": "landscape_16_9", "9:16": "portrait_16_9", "4:3": "landscape_4_3", "3:4": "portrait_4_3", "3:2": "landscape_4_3", "2:3": "portrait_4_3" };
 const IDEOGRAM_SIZES = { "1:1": "square_hd", "16:9": "landscape_16_9", "9:16": "portrait_16_9", "4:3": "landscape_4_3", "3:4": "portrait_4_3", "3:2": "landscape_4_3", "2:3": "portrait_4_3" };
 
@@ -88,6 +92,8 @@ function inputFor(model, prompt, ratio, images, n) {
     case "fal-ai/flux/schnell": return { ...base, image_size: FLUX_SIZES[ratio] || "square_hd", num_inference_steps: 4, enable_safety_checker: true };
     case "fal-ai/nano-banana": return { ...base, aspect_ratio: ratio, output_format: "png" };
     case "fal-ai/nano-banana/edit": return { ...base, image_urls: images, aspect_ratio: images.length && !ratio ? "auto" : ratio, output_format: "png" };
+    case "fal-ai/nano-banana-2": return { ...base, aspect_ratio: ratio, output_format: "png" };
+    case "fal-ai/nano-banana-2/edit": return { ...base, image_urls: images, aspect_ratio: images.length && !ratio ? "auto" : ratio, output_format: "png" };
     case "fal-ai/flux-pro/v1.1-ultra": return { ...base, aspect_ratio: ratio, output_format: "png", safety_tolerance: "2", ...(images[0] ? { image_url: images[0], image_prompt_strength: 0.35 } : {}) };
     case "fal-ai/ideogram/v3": return { ...base, image_size: IDEOGRAM_SIZES[ratio] || "square_hd", rendering_speed: "BALANCED", style: "AUTO" };
     default: return base;
@@ -103,8 +109,8 @@ export async function generateImage(body) {
   if (!prompt) throw Object.assign(new Error("prompt requis"), { status: 400 });
   let model = FAL_MODELS[body?.model] ? body.model : DEFAULT_MODEL;
   const images = Array.isArray(body?.images) ? body.images.filter((s) => typeof s === "string" && /^(data:image\/(png|jpe?g|webp);base64,|https:\/\/)/.test(s)).slice(0, 4) : [];
-  // References with a text-only model: switch to the edit model that takes them.
-  if (images.length && !FAL_MODELS[model].refs) model = "fal-ai/nano-banana/edit";
+  // References with a text-only model: switch to the edit model that takes them (the key's, see FAL_EDIT_MODEL).
+  if (images.length && !FAL_MODELS[model].refs) model = FAL_MODELS[EDIT_MODEL] ? EDIT_MODEL : "fal-ai/nano-banana-2/edit";
   const ratio = ratioFor(model, clean(body?.ratio, 10) || "1:1");
   const n = Math.min(4, Math.max(1, Math.round(Number(body?.n) || 1)));
   const t0 = Date.now();
