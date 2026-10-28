@@ -527,6 +527,7 @@ model ConsoleConversation {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, updatedAt])
+  @@index([userId, kind])
 }
 
 /// Billing ledger of the AI run on Amazon Bedrock (today: the private client
@@ -1498,6 +1499,13 @@ model MoBoard {
   title        String   @default("")
   /// The consultant's "Mo partout" board: fed by the orb present on every page (one per user), hidden from the session list.
   dock         Boolean  @default(false)
+  /// Page of the consultant's workspace: home (« Aujourd'hui », one per user) | client (one client's page) | free (any other board, the old sessions included)
+  kind         String   @default("free")
+  /// Registry client id (lib/clients/registry.ts) of a client page
+  clientId     String?
+  archivedAt   DateTime?
+  /// Order in the pages rail
+  position     Int      @default(0)
   /// JSON MoCard[] (lib/mo/model.ts): the cards on the board with their positions
   cardsJson    String   @default("[]") @db.Text
   /// JSON MoMessage[] (lib/mo/model.ts): what was said, what Mo answered (raw), the cards each turn produced
