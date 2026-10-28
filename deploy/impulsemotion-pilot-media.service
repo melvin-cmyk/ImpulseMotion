@@ -1,0 +1,14 @@
+# Media pass of the Pilotage (videos processed by Meta → ads created when ready).
+# The Vercel plan refuses sub-daily crons: this timer calls the route every two minutes.
+# Install: cp deploy/impulsemotion-pilot-media.{service,timer} /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now impulsemotion-pilot-media.timer
+# Needs CRON_SECRET and APP_URL (https://…) in /etc/impulsemotion-cron.env (mode 600).
+[Unit]
+Description=ImpulseMotion — passage média du Pilotage (vidéos Meta)
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/impulsemotion-cron.env
+ExecStart=/usr/bin/curl -fsS --max-time 70 -H "Authorization: Bearer ${CRON_SECRET}" "${APP_URL}/api/cron/pilot-media"
+TimeoutStartSec=90
+Nice=10

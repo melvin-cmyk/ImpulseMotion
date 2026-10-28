@@ -24,7 +24,7 @@ import { mintWriteGuard, revokeWriteGuard } from "@/lib/routines/write-guard";
 import type { WriteGuard } from "@/lib/routines/types";
 import { HQ_PROJECT_RE, appendHqJournal, listHqProjects } from "@/lib/hq-journal";
 import { pilotAdapter, type PilotAdapter } from "@/lib/pilot/adapters";
-import { checkNewAd, createNewAd } from "@/lib/pilot/new-ad";
+import { checkNewAd, createNewAd, refreshMediaStatus } from "@/lib/pilot/new-ad";
 import { buildHqEntry, hqEntrySlug } from "@/lib/pilot/hq-entry";
 import { readMetaAdTexts, readRsa } from "@/lib/pilot/creative";
 import { IMPACT_HORIZONS, IMPACT_SETTLE_DAYS, addDays, impactWindows } from "@/lib/pilot/impact";
@@ -111,6 +111,7 @@ export async function prepareAction(session: PilotSession, input: {
   }
 
   const errors: string[] = [];
+  const notes: string[] = [];
   const ops: PreparedOperation[] = [];
   const seen = new Set<string>();
   for (const req of list) {
@@ -121,11 +122,14 @@ export async function prepareAction(session: PilotSession, input: {
     if (!prepared.ok) { errors.push(prepared.error); continue; }
     if (prepared.op.field === "copy" || prepared.op.field === "new_keyword" || prepared.op.field === "new_negative" || prepared.op.field === "ad_texts" || prepared.op.field === "rsa") { ops.push(prepared.op); continue; }
     if (prepared.op.field === "new_ad") {
-      // The ad set, its campaign, the Page and every field, checked on Meta now; the campaign is kept for the send.
+      // The ad set, its campaign, the Page, the media and every field, checked on Meta now; the campaign is kept for the send.
+      // A video is sent to Meta at once (under a guard of its own) so that its processing is over by the send; not when writes are closed.
       const read = readNewAd(prepared.op.after);
-      const checked = read.ok ? await checkNewAd(account.digits, req.objectId, read.spec) : read;
+      const lend = adapter.writesOpen() ? withPilotGuard : undefined;
+      const checked = read.ok ? await checkNewAd(account.digits, req.objectId, read.spec, lend, session.userId) : read;
       if (!checked.ok) { errors.push(`« ${state.name} » : ${checked.error}`); continue; }
       prepared.op.after = JSON.stringify(checked.spec);
+      notes.push(...checked.notes.map((n) => `« ${state.name} » : ${n}`));
       ops.push(prepared.op);
       continue;
     }
@@ -161,7 +165,7 @@ export async function prepareAction(session: PilotSession, input: {
     },
     include: { operations: { orderBy: { position: "asc" } }, impacts: true },
   });
-  return { ok: true, action: toActionView(action, session.userId) };
+  return { ok: true, action: { ...toActionView(action, session.userId), notes } };
 }
 
 // ── Execute ───────────────────────────────────────────────────────────────
@@ -219,7 +223,7 @@ export async function executeAction(session: PilotSession, id: string, input: {
   if (claimed.count !== 1) return { ok: false, status: 409, error: "Cette modification est déjà en cours d'envoi." };
 
   try {
-    await sendOperations(resolved.adapter, action.id, action.accountId, action.currency, action.operations);
+    await sendOperations(resolved.adapter, action.id, action.accountId, action.currency, action.operations, action.createdById);
   } catch (e) {
     // Whatever stopped the loop (a database write that failed right after a platform accepted the change…),
     // the outcome of what is left is not known: it may have been applied. Said so, never « non envoyé ».
@@ -235,7 +239,7 @@ type OpRow = { id: string; objectId: string; objectType: string; field: string; 
 /** No write is started past this (the function is cut at 300 s): what is left is said « non envoyé ». */
 const SEND_BUDGET_MS = 240_000;
 
-async function sendOperations(adapter: PilotAdapter, actionId: string, accountId: string, currency: string, operations: OpRow[]) {
+async function sendOperations(adapter: PilotAdapter, actionId: string, accountId: string, currency: string, operations: OpRow[], createdById: string | null = null) {
   const name = adapter.name;
   const started = Date.now();
   const guard = mintWriteGuard("live", actionId);
@@ -250,9 +254,15 @@ async function sendOperations(adapter: PilotAdapter, actionId: string, accountId
         // A creation: nothing to compare with, the ad set is checked again by createPausedAd.
         const read = readNewAd(after);
         if (!read.ok) { await setOp(op.id, { status: "failed", error: read.error }); continue; }
-        const created = await createNewAd(guard, accountId, op.objectId, read.spec);
+        const created = await createNewAd(guard, accountId, op.objectId, read.spec, createdById);
         if (created.kind === "uncertain") { stopped = true; await setOp(op.id, { status: "uncertain", error: created.error }); continue; }
         if (created.kind === "refused") { await setOp(op.id, { status: "failed", error: created.error }); continue; }
+        if (created.kind === "uploading") {
+          // The video is still processed by Meta: the operation stays open, the media pass creates the ad when it is ready.
+          await setOp(op.id, { status: "uploading", error: created.error });
+          await prisma.pilotMedia.update({ where: { id: created.mediaId }, data: { actionId, operationId: op.id } });
+          continue;
+        }
         await setOp(op.id, { status: "done", readBackJson: JSON.stringify(created.adId ?? null), error: null });
         continue;
       }
@@ -343,11 +353,16 @@ async function sendOperations(adapter: PilotAdapter, actionId: string, accountId
   }
 }
 
-/** Final status, the undo it completes, and the HQ entry. Safe to run again on an action cut short. */
-async function finishAction(id: string) {
+/**
+ * Final status, the undo it completes, and the HQ entry. Safe to run again on
+ * an action cut short. An operation still `uploading` (a video processed by
+ * Meta) keeps the action `running`: the media pass calls this again.
+ */
+export async function finishAction(id: string) {
   const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } }, impacts: true } });
   if (!action) return;
   const ops = action.operations;
+  if (ops.some((o) => o.status === "uploading")) return;
   const done = ops.filter((o) => o.status === "done").length;
   const settled = done + ops.filter((o) => o.status === "unchanged").length;
   const status = settled === ops.length ? "done" : done === 0 && !ops.some((o) => o.status === "uncertain") ? "failed" : "partial";
@@ -369,10 +384,14 @@ async function markUndone(originalId: string, undoId: string) {
   }
 }
 
-/** Sends cut short (function killed, timeout) are closed: what was not confirmed is unknown, and HQ is told. */
+/**
+ * Sends cut short (function killed, timeout) are closed: what was not
+ * confirmed is unknown, and HQ is told. An action waiting for a video
+ * (an operation `uploading`) is not cut short: the media pass owns it.
+ */
 export async function recoverStale(now: Date = new Date()) {
   const stale = await prisma.pilotAction.findMany({
-    where: { status: "running", executedAt: { lt: new Date(now.getTime() - STALE_RUNNING_MS) } },
+    where: { status: "running", executedAt: { lt: new Date(now.getTime() - STALE_RUNNING_MS) }, operations: { none: { status: "uploading" } } },
     select: { id: true }, take: 20,
   });
   for (const { id } of stale) {
@@ -514,6 +533,8 @@ export interface PilotActionView {
   operations: PilotOperationView[];
   /** J+7 and J+14 analyses (lib/pilot/impact-run.ts), computed or not yet. */
   impacts: PilotImpactView[];
+  /** Said with the preview only: what was checked and could not be concluded, a video sent to Meta… */
+  notes?: string[];
 }
 
 export interface PilotImpactView {
@@ -601,6 +622,82 @@ export async function listActions(session: PilotSession, opts: { alertClientId?:
 export async function withPilotGuard<T>(key: string, fn: (guard: WriteGuard) => Promise<T>): Promise<T> {
   const guard = mintWriteGuard("live", key);
   try { return await fn(guard); } finally { revokeWriteGuard(guard); }
+}
+
+// ── Media pass (videos processed by Meta) ─────────────────────────────────
+
+export interface MediaPassSummary { checked: number; ready: number; failed: number; created: number; refused: number; left: number }
+
+/**
+ * Follows the videos sent to Meta (PilotMedia `uploading`) and finishes the
+ * creations waiting for them (operations `uploading`): the ad is created with
+ * a guard minted for the action, like a scheduled send; when nothing of the
+ * action waits any more, finishAction closes it and writes HQ, once.
+ *
+ * Run by the browser (POST /api/pilot/actions/[id]/media while a creation
+ * waits), by the routines cron every hour, and by /api/cron/pilot-media (a
+ * timer on the VPS every two minutes: the Vercel plan refuses sub-daily crons).
+ * `actionId` limits the pass to one action.
+ */
+export async function runPilotMediaPass(now: Date = new Date(), budgetMs = 45_000, actionId?: string): Promise<MediaPassSummary> {
+  const started = Date.now();
+  const summary: MediaPassSummary = { checked: 0, ready: 0, failed: 0, created: 0, refused: 0, left: 0 };
+  const waiting = await prisma.pilotMedia.findMany({
+    where: { status: "uploading", ...(actionId ? { actionId } : {}) },
+    orderBy: { createdAt: "asc" }, take: 20,
+    select: { id: true, remoteId: true, status: true, createdAt: true },
+  });
+  for (const [i, m] of waiting.entries()) {
+    if (Date.now() - started > budgetMs) { summary.left += waiting.length - i; return summary; }
+    const check = await refreshMediaStatus(m, now);
+    summary.checked++;
+    if (check.status === "ready") summary.ready++;
+    if (check.status === "failed") summary.failed++;
+  }
+  // Creations whose video is settled: one guard per action, the creation, then the close.
+  const settled = await prisma.pilotMedia.findMany({
+    where: { status: { in: ["ready", "failed"] }, operationId: { not: null }, ...(actionId ? { actionId } : {}) },
+    orderBy: { createdAt: "asc" }, take: 20,
+    select: { id: true, status: true, error: true, actionId: true, operationId: true },
+  });
+  const byAction = new Map<string, typeof settled>();
+  for (const m of settled) if (m.actionId) byAction.set(m.actionId, [...(byAction.get(m.actionId) ?? []), m]);
+  for (const [id, medias] of byAction) {
+    if (Date.now() - started > budgetMs) { summary.left += medias.length; continue; }
+    const action = await prisma.pilotAction.findUnique({ where: { id }, include: { operations: { orderBy: { position: "asc" } } } });
+    if (!action) continue;
+    const ops = action.operations.filter((o) => o.status === "uploading" && medias.some((m) => m.operationId === o.id));
+    if (!ops.length) { await finishAction(id); continue; }
+    const guard = mintWriteGuard("live", id);
+    try {
+      for (const op of ops) {
+        const media = medias.find((m) => m.operationId === op.id)!;
+        if (media.status === "failed") { summary.refused++; await setOp(op.id, { status: "failed", error: `Vidéo refusée par Meta : ${media.error ?? "traitement en erreur"}.` }); continue; }
+        const read = readNewAd(parse(op.afterJson));
+        if (!read.ok) { summary.refused++; await setOp(op.id, { status: "failed", error: read.error }); continue; }
+        const created = await createNewAd(guard, action.accountId, op.objectId, read.spec, action.createdById);
+        if (created.kind === "uploading") continue;
+        if (created.kind === "uncertain") { await setOp(op.id, { status: "uncertain", error: created.error }); continue; }
+        if (created.kind === "refused") { summary.refused++; await setOp(op.id, { status: "failed", error: created.error }); continue; }
+        summary.created++;
+        await setOp(op.id, { status: "done", readBackJson: JSON.stringify(created.adId ?? null), error: null });
+      }
+    } finally {
+      revokeWriteGuard(guard);
+    }
+    await finishAction(id);
+  }
+  return summary;
+}
+
+/** The media pass for one action, asked by the page that waits for it (staff, account in scope). */
+export async function continueActionMedia(session: PilotSession, id: string): Promise<{ ok: true; action: PilotActionView } | Fail> {
+  const action = await prisma.pilotAction.findUnique({ where: { id }, select: { alertClientId: true, accountId: true, platform: true, status: true } });
+  if (!action?.alertClientId) return { ok: false, status: 404, error: "Modification introuvable." };
+  const resolved = await resolveAccount(session, action.alertClientId, action.accountId, action.platform);
+  if (!resolved.ok) return resolved;
+  if (action.status === "running") await runPilotMediaPass(new Date(), 40_000, id).catch((e) => console.error("[pilot] media pass failed", id, e));
+  return { ok: true, action: await loadView(id, session.userId) };
 }
 
 // ── Scheduled sends and automatic reverts ─────────────────────────────────

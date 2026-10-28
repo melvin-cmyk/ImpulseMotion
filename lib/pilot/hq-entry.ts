@@ -11,6 +11,7 @@ const OUTCOME_FR: Record<string, string> = {
   done: "✅ appliqué",
   failed: "❌ refusé",
   uncertain: "⚠️ issue inconnue",
+  uploading: "⏳ vidéo en traitement chez Meta",
   conflict: "⏭ non envoyé (valeur changée entre-temps)",
   unchanged: "➖ déjà à cette valeur",
   skipped: "⏭ non envoyé",

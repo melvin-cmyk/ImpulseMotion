@@ -41,6 +41,12 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
+/** image | video for an ad whose creative is read; null for anything else (carousel, dynamic, post…). */
+function adFormat(creative: Raw["creative"]): "image" | "video" | null {
+  const c = readMetaCreative(creative as Parameters<typeof readMetaCreative>[0]);
+  return c ? (c.kind === "video" ? "video" : "image") : null;
+}
+
 /** The editable texts of an ad's creative as JSON; null when the creative is not an image/video link ad. */
 function adTextsJson(creative: Raw["creative"]): string | null {
   const c = readMetaCreative(creative as Parameters<typeof readMetaCreative>[0]);
@@ -71,6 +77,7 @@ export function toState(raw: Raw, type: Exclude<PilotObjectType, "keyword">): Pi
     targeting: type === "adset" && raw.targeting && typeof raw.targeting === "object" ? JSON.stringify(raw.targeting) : null,
     creativeId: type === "ad" && raw.creative?.id ? String(raw.creative.id) : null,
     adTexts: type === "ad" ? adTextsJson(raw.creative) : null,
+    format: type === "ad" ? adFormat(raw.creative) : undefined,
     parentName: type === "adset" ? raw.campaign?.name ?? "" : type === "ad" ? raw.adset?.name ?? "" : "",
   };
 }

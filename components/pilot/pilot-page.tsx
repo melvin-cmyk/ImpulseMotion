@@ -51,7 +51,7 @@ export function PilotPage() {
     if (!id) return;
     fetch(`/api/studio/assets/${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null)).then((j) => {
       const a = j?.asset;
-      if (a?.kind === "image" && a.url) setStudioPick({ id: a.id, url: a.url, prompt: a.prompt, clientId: a.clientId ?? null });
+      if ((a?.kind === "image" || a?.kind === "video") && a.url) setStudioPick({ id: a.id, url: a.url, prompt: a.prompt, clientId: a.clientId ?? null, kind: a.kind, sourceId: a.sourceId ?? null });
     }).catch(() => {});
   }, []);
   // /pilotage?client=…&platform=…&account=…&object=…&do=…&prompt=…&step=…&preview=… (lib/pilot/deep-link.ts)
@@ -168,6 +168,26 @@ export function PilotPage() {
       if (seq === historySeq.current) setLoadingJournal(false);
     }
   }, [historyDays]);
+
+  // A creation waiting for a video processed by Meta (operation « uploading »): the page asks the server to
+  // finish it every 30 s while it is open, then reloads the journal (the VPS timer does the same without the page).
+  useEffect(() => {
+    if (!client) return;
+    const waiting = journal.filter((a) => a.status === "running" && a.operations.some((o) => o.status === "uploading"));
+    if (!waiting.length) return;
+    const t = setTimeout(async () => {
+      let moved = false;
+      for (const a of waiting) {
+        try {
+          const res = await fetch(`/api/pilot/actions/${a.id}/media`, { method: "POST" });
+          const j = await readJson<{ action?: PilotActionView }>(res);
+          if (res.ok && j.action) { setJournal((list) => list.map((x) => (x.id === j.action!.id ? j.action! : x))); if (j.action.status !== "running") moved = true; }
+        } catch { /* asked again in 30 s */ }
+      }
+      if (moved) void loadJournal(client.id, account, historyDays, false);
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [journal, client, account, historyDays, loadJournal]);
 
   function pick(c: PilotClient, wanted: AccountRef | null = null) {
     setClient(c);

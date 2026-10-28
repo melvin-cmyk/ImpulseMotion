@@ -34,6 +34,8 @@ export interface TreeRow {
   rsa?: string | null;
   /** Meta ad: the creative shown (read with the ad). */
   creativeId?: string | null;
+  /** Meta ad: image | video when readable (badge in the tree). */
+  format?: "image" | "video" | null;
   /** Why the budget cannot be changed here (a shared Google Ads budget). */
   budgetLock?: string | null;
   /** Why the end date cannot be changed here. */

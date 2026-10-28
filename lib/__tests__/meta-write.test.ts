@@ -190,10 +190,13 @@ describe("createPausedAd — write capability", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("metaGraphPost knows three targets and their fields, nothing else", async () => {
+  it("metaGraphPost knows four targets and their fields, nothing else", async () => {
     const { api, guard } = await load();
     const ad = { name: "a", adset_id: ADSET, creative: "{}" };
     const refused: Array<[unknown, Record<string, string>]> = [
+      [{ kind: "advideo", accountId: ACCOUNT }, { file_url: "https://cdn.example.org/v.mp4", name: "v", status: "ACTIVE" }],
+      [{ kind: "advideo", accountId: ACCOUNT }, { file_url: "https://cdn.example.org/v.mp4", name: "v", source: "bytes" }],
+      [{ kind: "advideo", accountId: ACCOUNT }, { name: "v" }],
       [{ kind: "ad", accountId: ACCOUNT }, { ...ad, status: "ACTIVE" }],
       [{ kind: "ad", accountId: ACCOUNT }, { ...ad, status: "PAUSED" }],
       [{ kind: "ad", accountId: ACCOUNT }, { ...ad, daily_budget: "1000" }],
@@ -510,5 +513,88 @@ describe("metaGraphUpdate — Pilotage", () => {
     reply = (c) => { if (c.method === "POST") throw timeout(); return happy(c); };
     await expect(api.metaGraphUpdate(guard, AD, "status", "PAUSED", PRIMARY)).rejects.toMatchObject({ name: "MetaWriteUncertainError" });
     expect(posts()).toHaveLength(1);
+  });
+});
+
+describe("uploadVideo / readVideoStatus — video ads", () => {
+  const VIDEO = "1234567890123456";
+  const FILE = "https://app.example.org/api/studio/media/vid_abc.mp4?exp=1&sig=00";
+
+  it("uploads by file_url only (no status, no bytes), under the guard, and answers the video id", async () => {
+    const { write, guard } = await load();
+    reply = (c) => (c.method === "POST" && c.path === `/act_${ACCOUNT}/advideos` ? json({ id: VIDEO }) : metaError(100, "Unsupported request"));
+    const out = await write.uploadVideo(guard, `act_${ACCOUNT}`, FILE, "Gourde plage");
+    expect(out).toEqual({ videoId: VIDEO });
+    expect(posts()).toHaveLength(1);
+    const body = posts()[0].body!;
+    expect(body.get("file_url")).toBe(FILE);
+    expect(body.get("name")).toBe("Gourde plage");
+    expect(body.get("status")).toBeNull();
+    expect(body.get("access_token")).toBe(PRIMARY);
+    expect(posts()[0].url).not.toContain(PRIMARY);
+    await expect(write.uploadVideo({ runId: "x" } as never, `act_${ACCOUNT}`, FILE, "x")).rejects.toThrow(/Écriture refusée/);
+  });
+
+  it("refuses a private or non-https address before any request", async () => {
+    const { write, guard } = await load();
+    await expect(write.uploadVideo(guard, `act_${ACCOUNT}`, "http://cdn.example.org/v.mp4", "x")).rejects.toMatchObject({ kind: "refused" });
+    await expect(write.uploadVideo(guard, `act_${ACCOUNT}`, "https://10.0.0.4/v.mp4", "x")).rejects.toMatchObject({ kind: "refused" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("error 389 (Meta could not fetch the file) is a clean refusal, in French, without the address", async () => {
+    const { write, guard } = await load();
+    reply = () => metaError(389, `Unable to fetch video file from URL ${FILE}.`);
+    const err = await write.uploadVideo(guard, `act_${ACCOUNT}`, FILE, "x").catch((e) => e);
+    expect(err).toMatchObject({ kind: "refused" });
+    expect(err.message).toMatch(/Vidéo refusée : Meta n'a pas pu télécharger/);
+    expect(err.message).not.toContain(FILE);
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("a timeout is uncertain and never sent again", async () => {
+    const { write, guard } = await load();
+    reply = () => { throw timeout(); };
+    await expect(write.uploadVideo(guard, `act_${ACCOUNT}`, FILE, "x")).rejects.toMatchObject({ kind: "uncertain" });
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("follows the processing: processing → ready, and an error phase is an error with Meta's words", async () => {
+    const { write } = await load();
+    const answers = [
+      { id: VIDEO, status: { video_status: "processing", uploading_phase: { status: "complete" }, processing_phase: { status: "in_progress" } } },
+      { id: VIDEO, status: { video_status: "ready", processing_phase: { status: "complete" }, publishing_phase: { status: "complete" } } },
+      { id: VIDEO, status: { video_status: "error", processing_phase: { status: "error", errors: [{ code: 1363030, message: "Your video is too long." }] } } },
+    ];
+    let i = 0;
+    reply = (c) => (c.method === "GET" && c.path === `/${VIDEO}` ? json(answers[i++]) : metaError(100, "x"));
+    expect(await write.readVideoStatus(VIDEO)).toMatchObject({ kind: "processing" });
+    expect(await write.readVideoStatus(VIDEO)).toMatchObject({ kind: "ready" });
+    expect(await write.readVideoStatus(VIDEO)).toMatchObject({ kind: "error", detail: "Your video is too long." });
+    expect(gets().every((c) => c.auth === `Bearer ${PRIMARY}`)).toBe(true);
+    await expect(write.readVideoStatus("abc")).rejects.toMatchObject({ kind: "refused" });
+  });
+
+  it("createPausedAd builds video_data with the thumbnail and the link in the button, still PAUSED", async () => {
+    const { write, guard } = await load();
+    const ad = await write.createPausedAd(guard, { ...input(), format: "video", videoId: VIDEO, imageUrl: "https://cdn.example.org/thumb.jpg", callToAction: "NO_BUTTON" });
+    expect(ad.status).toBe("PAUSED");
+    const [creative, created] = posts();
+    const story = JSON.parse(creative.body!.get("object_story_spec")!);
+    expect(story.link_data).toBeUndefined();
+    expect(story.video_data).toEqual({
+      video_id: VIDEO, image_url: "https://cdn.example.org/thumb.jpg", message: "Découvrez la nouvelle gamme.",
+      title: "Nouveau", link_description: "Livraison offerte",
+      call_to_action: { type: "NO_BUTTON", value: { link: "https://www.example.org/produit?utm_source=meta" } },
+    });
+    expect(created.body?.get("status")).toBe("PAUSED");
+  });
+
+  it("a video ad without a video id, or an image ad with one, is refused before any request", async () => {
+    const { write, guard } = await load();
+    await expect(write.createPausedAd(guard, { ...input(), format: "video" })).rejects.toThrow(/identifiant de vidéo Meta manquant/);
+    await expect(write.createPausedAd(guard, { ...input(), videoId: VIDEO })).rejects.toThrow(/identifiant de vidéo inattendu/);
+    expect(write.pausedAdInputError({ ...input(), format: "video", videoId: VIDEO, imageUrl: "http://x.org/t.jpg" })).toMatch(/vignette refusée/);
+    expect(calls).toHaveLength(0);
   });
 });

@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CheckSquare, Loader2, Pencil, Search, Square } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { KEYWORD_MATCH_TYPES, MATCH_FR, copyName, currencyOffset, dateText, money, newAdName, newKeywordText, objectLabel, statusText, strategyText, type KeywordMatchType, type PilotKind } from "@/lib/pilot/ops";
+import { KEYWORD_MATCH_TYPES, MATCH_FR, copyName, currencyOffset, dateText, money, newAdLabel, newAdName, newKeywordText, objectLabel, statusText, strategyText, type KeywordMatchType, type PilotKind } from "@/lib/pilot/ops";
 import { changeKey, readJson, type PendingChange, type TreeRow } from "@/components/pilot/model";
 import { NewAdForm, type StudioPick } from "@/components/pilot/new-ad-form";
 import { TargetingForm } from "@/components/pilot/targeting-form";
@@ -109,7 +109,7 @@ function pendingLabel(platform: string, row: TreeRow, kind: PilotKind, value: st
     case "set_bid_strategy": return `${object} : ${row.bidStrategy ? strategyText(row.bidStrategy) : "enchère"} → enchère automatique`;
     case "set_spend_cap": return `${object} : plafond de dépense ${money(row.spendCap ?? null, currency)} → ${money(Number(value.replace(",", ".")) * unit, currency)}`;
     case "rename": return `${object} : renommer en « ${value} »`;
-    case "create_ad": return `${object} : nouvelle publicité « ${newAdName(value)} » (créée en pause)`;
+    case "create_ad": return `${object} : ${newAdLabel(value)} « ${newAdName(value)} » (créée en pause)`;
     case "duplicate": return `${object} : dupliquer en « ${copyName(value)} » (créée en pause)`;
     case "add_keyword": return `${object} : ajouter le mot-clé ${newKeywordText(value)}`;
     case "add_negative_keyword": return `${object} : ajouter le mot-clé négatif ${newKeywordText(value)}`;
@@ -261,6 +261,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
           <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "meta" ? "Ens." : "Groupe") : row.type === "keyword" ? (row.negative ? "Négatif" : "Mot-clé") : "Annonce"}</span>
           <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
           {hasPending && <Pill tone="violet" className="text-[10px]">à envoyer</Pill>}
+          {row.type === "ad" && row.format && <Pill tone="default" className="text-[10px] normal-case">{row.format === "video" ? "vidéo" : "image"}</Pill>}
           {statusPill(row)}
           <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{row.type === "keyword" && row.bidAmount ? `CPC ${money(row.bidAmount, currency)}` : budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
           <span className="text-xs text-gray-500 w-20 text-right hidden md:inline" title="Dépense des 7 derniers jours">{money(Math.round(row.spend7d * (currencyOffset(currency))), currency)}</span>

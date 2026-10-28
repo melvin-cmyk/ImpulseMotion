@@ -18,7 +18,9 @@ import { metaAccountDigits } from "@/lib/routines/accounts";
 import { assertWriteGuard } from "@/lib/routines/write-guard-check";
 import type { WriteGuard } from "@/lib/routines/types";
 
-const META_API_BASE = "https://graph.facebook.com/v22.0";
+/** Graph API version of every call of the application (one constant: a version bump is one change here). */
+export const META_GRAPH_VERSION = "v22.0";
+const META_API_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
 /**
  * Returns the shared Meta System User token used server-side for all clients.
@@ -392,17 +394,26 @@ export function metaGraphGet<T>(
 const WRITE_TIMEOUT_MS = 45_000;
 const READ_ONCE_TIMEOUT_MS = 15_000;
 
-/** The only writes the application knows: a creative, a paused ad, pausing an ad. */
+/**
+ * The only writes the application knows: a creative, a paused ad, pausing an
+ * ad, and a video of the account's library (POST /act_X/advideos with a public
+ * `file_url` Meta downloads itself: the application never sends bytes).
+ */
 export type MetaWriteTarget =
   | { kind: "adcreative"; accountId: string }
   | { kind: "ad"; accountId: string }
+  | { kind: "advideo"; accountId: string }
   | { kind: "pause_ad"; adId: string };
 
 const WRITE_FIELDS: Record<MetaWriteTarget["kind"], readonly string[]> = {
   adcreative: ["name", "object_story_spec"],
   ad: ["name", "adset_id", "creative"],
+  advideo: ["file_url", "name"],
   pause_ad: [],
 };
+/** Targets that can deliver: they are written PAUSED. A creative and a video have no delivery status. */
+const DELIVERABLE: ReadonlySet<MetaWriteTarget["kind"]> = new Set(["ad", "pause_ad"]);
+const EDGE: Record<Exclude<MetaWriteTarget["kind"], "pause_ad">, string> = { ad: "ads", adcreative: "adcreatives", advideo: "advideos" };
 
 /** The write may or may not have been applied (timeout, network, 5xx). Never retry it blindly. */
 export class MetaWriteUncertainError extends Error {
@@ -434,7 +445,7 @@ function writePath(target: MetaWriteTarget): string {
   // The one rule for an ad account id, shared with the creation of the routine (lib/routines/accounts.ts).
   const id = metaAccountDigits(target.accountId);
   if (!id) throw new Error("Écriture refusée : identifiant de compte invalide");
-  return `/act_${id}/${target.kind === "ad" ? "ads" : "adcreatives"}`;
+  return `/act_${id}/${EDGE[target.kind]}`;
 }
 
 /** Meta answered and refused: nothing was applied. Anything else is an unknown outcome. */
@@ -493,8 +504,8 @@ export async function metaGraphPost<T>(
   const bodyFor = (token: string) => {
     const body = new URLSearchParams();
     for (const key of allowed) body.set(key, fields[key]);
-    // A creative has no delivery status; everything that can deliver is paused.
-    if (target.kind !== "adcreative") body.set("status", "PAUSED");
+    // A creative and a video have no delivery status; everything that can deliver is paused.
+    if (DELIVERABLE.has(target.kind)) body.set("status", "PAUSED");
     body.set("access_token", token);
     return body;
   };

@@ -21,6 +21,7 @@
 
 import { canonicalTargeting, readTargeting, targetingDiff, type Targeting } from "@/lib/pilot/targeting";
 import { metaTextsDiff, readMetaAdTexts, readRsa, rsaDiff, rsaSummary, type MetaAdTexts, type RsaSpec } from "@/lib/pilot/creative";
+import { FORMAT_FR, adSpecFromLegacy, readAdSpec, type AdSpec } from "@/lib/pilot/ad-spec";
 
 export const PILOT_PLATFORMS = ["meta", "google", "tiktok"] as const;
 export type PilotPlatform = (typeof PILOT_PLATFORMS)[number];
@@ -51,55 +52,22 @@ export const DOUBLE_RAISE_RATIO = 1.5;
 export const DOUBLE_RAISE_ABSOLUTE = 300;
 
 /**
- * A new Meta ad (kind "create_ad", on an ad set): an image ad, created PAUSED
- * by lib/meta-write.ts createPausedAd. Checked again on the server (Page,
- * Instagram account, campaign of the ad set) before the preview.
+ * A new ad (kind "create_ad", on an ad set): an image or a video ad, created
+ * PAUSED by lib/meta-write.ts createPausedAd. Its model is AdSpec v2
+ * (lib/pilot/ad-spec.ts); a JSON without `v` is the first shape (NewAdSpec,
+ * one Meta image ad, still produced by Mo). Checked again on the server (Page,
+ * Instagram account, campaign of the ad set, media) before the preview.
  */
-export interface NewAdSpec {
-  name: string;
-  primaryText: string;
-  headline?: string;
-  description?: string;
-  linkUrl: string;
-  callToAction?: string;
-  /** Public https URL Meta downloads the image from. */
-  imageUrl: string;
-  pageId: string;
-  instagramUserId?: string;
-  /** The Studio créa visual, when the image comes from there. */
-  studioAssetId?: string;
-  /** Filled by the server at the preview: the campaign of the ad set. */
-  campaignId?: string;
-}
+export type { AdSpec, NewAdSpec } from "@/lib/pilot/ad-spec";
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+$/, "").slice(0, max) : "");
-const httpsOk = (v: string) => /^https:\/\/[a-z0-9.-]+\.[a-z]{2,}(\/|$|\?)/i.test(v);
 
-/** Reads a NewAdSpec from the value of a request (JSON); the reason in French when it is not one. */
-export function readNewAd(value: unknown): { ok: true; spec: NewAdSpec } | { ok: false; error: string } {
+/** Reads the new ad of a request (JSON, v2 or first shape); the reason in French when it is not one. */
+export function readNewAd(value: unknown): { ok: true; spec: AdSpec } | { ok: false; error: string } {
   let raw: Record<string, unknown>;
   try { raw = typeof value === "string" ? JSON.parse(value) : (value as Record<string, unknown>); } catch { return { ok: false, error: "Publicité illisible." }; }
   if (!raw || typeof raw !== "object") return { ok: false, error: "Publicité illisible." };
-  const spec: NewAdSpec = {
-    name: str(raw.name, 255).trim(),
-    primaryText: str(raw.primaryText, 2000).trim(),
-    headline: str(raw.headline, 255).trim() || undefined,
-    description: str(raw.description, 255).trim() || undefined,
-    linkUrl: str(raw.linkUrl, 2000).trim(),
-    callToAction: str(raw.callToAction, 40).trim() || undefined,
-    imageUrl: str(raw.imageUrl, 2000).trim(),
-    pageId: str(raw.pageId, 30).trim(),
-    instagramUserId: str(raw.instagramUserId, 30).trim() || undefined,
-    studioAssetId: str(raw.studioAssetId, 40).trim() || undefined,
-    campaignId: str(raw.campaignId, 30).trim() || undefined,
-  };
-  if (!spec.name) return { ok: false, error: "Donnez un nom à la publicité." };
-  if (!spec.primaryText) return { ok: false, error: "Le texte principal de la publicité est vide." };
-  if (!httpsOk(spec.linkUrl)) return { ok: false, error: "Le lien de la publicité doit commencer par https://." };
-  if (!httpsOk(spec.imageUrl)) return { ok: false, error: "Choisissez une image (Studio créa ou image envoyée)." };
-  if (!/^\d{5,25}$/.test(spec.pageId)) return { ok: false, error: "Choisissez la Page Facebook de la publicité." };
-  if (spec.instagramUserId && !/^\d{5,25}$/.test(spec.instagramUserId)) return { ok: false, error: "Compte Instagram invalide." };
-  return { ok: true, spec };
+  return raw.v === undefined ? adSpecFromLegacy(raw) : readAdSpec(raw);
 }
 
 export interface PilotRequest {
@@ -178,6 +146,8 @@ export interface PilotObjectState {
   /** Meta ad: the creative it shows, and its texts as JSON (null when not an image/video link ad). */
   creativeId?: string | null;
   adTexts?: string | null;
+  /** Meta ad: image | video when its creative is read; null for a carousel, a dynamic ad or a post. */
+  format?: "image" | "video" | null;
   /** Google ad: the responsive search ad as JSON (null when another ad type). */
   rsa?: string | null;
   parentName: string;
@@ -599,6 +569,18 @@ export function newAdName(value: PilotValue): string {
   return read.ok ? read.spec.name : "publicité";
 }
 
+/** The format of the new ad of a "new_ad" operation (image when unreadable: the first shape). */
+export function newAdFormat(value: PilotValue): AdSpec["format"] {
+  const read = readNewAd(value);
+  return read.ok ? read.spec.format : "image";
+}
+
+/** « nouvelle publicité » for an image, « nouvelle publicité vidéo » otherwise: the same in the tree, the preview and HQ. */
+export function newAdLabel(value: PilotValue): string {
+  const format = newAdFormat(value);
+  return format === "image" ? "nouvelle publicité" : `nouvelle publicité ${FORMAT_FR[format]}`;
+}
+
 function valueText(field: string, value: PilotValue, currency: string): string {
   if (field === "new_ad") return value === null ? "—" : `« ${newAdName(value)} » (créée en pause)`;
   if (field === "copy") return value === null ? "—" : `« ${copyName(value)} » (créée en pause)`;
@@ -663,7 +645,7 @@ export function describeOperation(
 ): string {
   const icon = op.kind === "set_status" ? (op.after === "PAUSED" ? "⏸" : op.after === "ACTIVE" ? "▶️" : "🗑") : ICON[op.kind as PilotKind] ?? "•";
   const object = `${objectLabel(platform, op.objectType)} « ${op.objectName} »${op.parentName ? ` (${op.parentName})` : ""}`;
-  if (op.field === "new_ad") return `${icon} ${object} — nouvelle publicité ${valueText(op.field, op.after, currency)}`;
+  if (op.field === "new_ad") return `${icon} ${object} — ${newAdLabel(op.after)} ${valueText(op.field, op.after, currency)}`;
   if (op.field === "copy") return `${icon} ${object} — dupliqué en ${valueText(op.field, op.after, currency)}`;
   if (op.field === "targeting") {
     const after = parseTargeting(op.after);

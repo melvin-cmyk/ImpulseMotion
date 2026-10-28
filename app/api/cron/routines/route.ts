@@ -28,7 +28,7 @@ import { checkCronAuth } from "@/lib/cron-auth"; // CRON_SECRET bearer, constant
 import { closeInterruptedRuns, runLocked } from "@/lib/routines/engine";
 import { dueRoutineIds } from "@/lib/routines/store";
 import { MIN_START_MS, RUN_BUDGET_MS } from "@/lib/routines/types";
-import { runScheduledActions } from "@/lib/pilot/service";
+import { runPilotMediaPass, runScheduledActions } from "@/lib/pilot/service";
 import { runPilotRules } from "@/lib/pilot/rules";
 
 export const maxDuration = 300;
@@ -52,6 +52,8 @@ export async function GET(req: NextRequest) {
   const pilot: Record<string, unknown> = {};
   if (process.env.PILOT_SCHEDULE_CRON?.trim().toLowerCase() !== "off") {
     try { pilot.scheduled = await runScheduledActions(new Date(), 60_000); } catch (e) { console.error("[cron/routines] pilot scheduled", e instanceof Error ? e.message : e); }
+    // Videos processed by Meta and the creations waiting for them (backstop of the two-minute timer on the VPS).
+    try { pilot.media = await runPilotMediaPass(new Date(), 30_000); } catch (e) { console.error("[cron/routines] pilot media", e instanceof Error ? e.message : e); }
     if (new Date().getUTCHours() === 7) {
       try { pilot.rules = await runPilotRules(new Date(), 90_000); } catch (e) { console.error("[cron/routines] pilot rules", e instanceof Error ? e.message : e); }
     }

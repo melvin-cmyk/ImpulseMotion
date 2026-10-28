@@ -19,12 +19,15 @@
  *   not_paused the ad exists but is not confirmed PAUSED (a pause was attempted)
  *   infra      a read failed (network, quota, token): nothing was created
  *
- * First version: image only. A video needs an upload of its own
- * (POST /act_X/advideos with file_url), processed asynchronously by Meta, and a
- * thumbnail; it is not done here.
+ * Image ads (link_data, picture by URL) and video ads (video_data). A video is
+ * uploaded first with uploadVideo (POST /act_X/advideos with a public file_url
+ * Meta downloads itself), processed asynchronously by Meta — readVideoStatus
+ * says when it is ready — and shown with a thumbnail (image_url), mandatory.
  *
  * Docs: https://developers.facebook.com/docs/marketing-api/reference/ad-account/adcreatives/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-creative-link-data/
+ *       https://developers.facebook.com/docs/marketing-api/reference/ad-creative-video-data/
+ *       https://developers.facebook.com/docs/marketing-api/reference/ad-account/advideos/
  *       https://developers.facebook.com/docs/marketing-api/reference/ad-account/ads/
  */
 
@@ -155,6 +158,8 @@ export function publicHttpsUrlError(value: unknown): string | null {
   return null;
 }
 
+export type PausedAdFormat = "image" | "video";
+
 /** What one ad is made of. No status, no budget, no bid: there is nothing to pass. */
 export interface PausedAdInput {
   accountId: string;
@@ -169,8 +174,12 @@ export interface PausedAdInput {
   description?: string;
   linkUrl: string;
   callToAction?: string;
-  /** Public https URL of the image; Meta downloads it, the application never does. */
+  /** Image ad (default) or video ad. */
+  format?: PausedAdFormat;
+  /** Public https URL of the image (video: its thumbnail); Meta downloads it, the application never does. */
   imageUrl: string;
+  /** Video ad: the id of a video of the account's library, uploaded with uploadVideo and read « ready ». */
+  videoId?: string;
 }
 
 export interface PausedAdResult {
@@ -198,8 +207,12 @@ export function pausedAdInputError(input: PausedAdInput): string | null {
   }
   const link = publicHttpsUrlError(input.linkUrl);
   if (link) return `lien refusé : ${link}`;
+  const video = input.format === "video";
+  if (input.format !== undefined && input.format !== "image" && !video) return "format de publicité inconnu";
   const image = publicHttpsUrlError(input.imageUrl);
-  if (image) return `image refusée : ${image}`;
+  if (image) return `${video ? "vignette" : "image"} refusée : ${image}`;
+  if (video && !isMetaId(input.videoId)) return "vidéo non prête : identifiant de vidéo Meta manquant";
+  if (!video && input.videoId !== undefined) return "identifiant de vidéo inattendu sur une publicité image";
   if (input.callToAction !== undefined && !isCallToAction(input.callToAction)) return "bouton d'action inconnu";
   return null;
 }
@@ -518,6 +531,83 @@ function fromWriteError(err: unknown, what: string, ids: { adId?: string; creati
   return new MetaWriteError("refused", `${what} : ${err instanceof Error ? err.message : String(err)}`, ids);
 }
 
+/** Meta could not fetch the file (code 389): said in French, without the address. */
+const VIDEO_FETCH_FAILED = 389;
+
+export interface UploadedVideo { videoId: string }
+
+/**
+ * Uploads a video to the account's library from a public https address
+ * (POST /act_X/advideos, file_url): one request, Meta downloads the file
+ * itself and processes it afterwards — readVideoStatus follows that. A video
+ * in the library delivers nothing by itself; the ad that uses it is created
+ * PAUSED like every other.
+ *
+ *   refused    the address is not public https, or Meta could not read the file (389) or refused it
+ *   uncertain  the POST timed out: the video may exist in the library, nothing is sent again
+ *   infra      token or quota: try again later
+ */
+export async function uploadVideo(guard: WriteGuard, accountId: string, fileUrl: string, name: string): Promise<UploadedVideo> {
+  assertWriteGuard(guard);
+  const account = bareAccount(String(accountId ?? ""));
+  if (!account) throw new MetaWriteError("refused", "Compte publicitaire invalide");
+  const bad = publicHttpsUrlError(fileUrl);
+  if (bad) throw new MetaWriteError("refused", `Vidéo refusée : ${bad}`);
+  const title = String(name ?? "").trim().slice(0, MAX_AD_NAME_CHARS) || "Vidéo ImpulseMotion";
+  let videoId: string;
+  try {
+    const res = await metaGraphPost<{ id?: string }>(guard, { kind: "advideo", accountId: account }, getMetaSystemToken(), { file_url: fileUrl.trim(), name: title });
+    videoId = String(res?.id ?? "");
+  } catch (err) {
+    if (isMetaApiError(err) && err.code === VIDEO_FETCH_FAILED) {
+      throw new MetaWriteError("refused", "Vidéo refusée : Meta n'a pas pu télécharger le fichier (adresse injoignable, lien expiré ou format non lu). Choisissez une vidéo du Studio ou une adresse https publique d'un mp4.");
+    }
+    throw fromWriteError(err, "Envoi de la vidéo");
+  }
+  if (!isMetaId(videoId)) throw new MetaWriteError("uncertain", "Envoi de la vidéo : réponse de Meta sans identifiant");
+  return { videoId };
+}
+
+export type VideoStatusKind = "ready" | "processing" | "error";
+export interface VideoStatus { kind: VideoStatusKind; /** Meta's word (video_status) and, on error, what it said. */ detail: string }
+
+type RawVideoStatus = {
+  id?: string;
+  status?: {
+    video_status?: string;
+    uploading_phase?: { status?: string; errors?: Array<{ code?: number; message?: string }> };
+    processing_phase?: { status?: string; errors?: Array<{ code?: number; message?: string }> };
+    publishing_phase?: { status?: string; errors?: Array<{ code?: number; message?: string }> };
+  };
+};
+
+/**
+ * Where Meta is with a video of the library: ready (usable in an ad),
+ * processing (ask again later), error (Meta gave it up: the ad will not be
+ * created with it). Read only. Throws `infra` when Meta could not be reached,
+ * `refused` when the video is unknown: not knowing is not « processing ».
+ */
+export async function readVideoStatus(videoId: string): Promise<VideoStatus> {
+  if (!isMetaId(videoId)) throw new MetaWriteError("refused", "Identifiant de vidéo invalide");
+  let raw: RawVideoStatus;
+  try {
+    raw = await metaGraphGetOnce<RawVideoStatus>(`/${videoId}`, getMetaSystemToken(), { fields: "id,status" });
+  } catch (err) {
+    throw fromReadError(err, `Vidéo ${videoId} illisible`);
+  }
+  if (String(raw?.id ?? "") !== videoId) throw new MetaWriteError("refused", `Vidéo ${videoId} introuvable`);
+  const st = raw.status ?? {};
+  const word = String(st.video_status ?? "").toLowerCase();
+  if (word === "ready") return { kind: "ready", detail: word };
+  const phases = [st.uploading_phase, st.processing_phase, st.publishing_phase];
+  const failedPhase = phases.find((p) => String(p?.status ?? "").toLowerCase() === "error");
+  if (word === "error" || word === "expired" || word === "upload_failed" || failedPhase) {
+    const said = phases.flatMap((p) => p?.errors ?? []).map((e) => e?.message).filter((m): m is string => typeof m === "string" && !!m.trim()).join(" ; ");
+    return { kind: "error", detail: cleanMetaMessage(said || word || "traitement en erreur") };
+  }
+  return { kind: "processing", detail: word || "processing" };
+}
+
 /** Best effort: asks Meta to pause the ad. True when Meta confirmed. */
 async function tryPause(guard: WriteGuard, adId: string): Promise<boolean> {
   try {
@@ -526,6 +616,40 @@ async function tryPause(guard: WriteGuard, adId: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** The object_story_spec of the ad: link_data (image) or video_data (video). Pure. */
+export function pausedAdStory(input: PausedAdInput): Record<string, unknown> {
+  const link = input.linkUrl.trim();
+  const story: Record<string, unknown> = { page_id: input.pageId };
+  if (input.instagramUserId) story.instagram_user_id = input.instagramUserId;
+  if (input.format === "video") {
+    // A video ad carries its link in the button; without a button Meta still wants the link there.
+    const videoData: Record<string, unknown> = {
+      video_id: input.videoId,
+      image_url: input.imageUrl.trim(),
+      message: input.primaryText,
+      call_to_action: { type: input.callToAction && input.callToAction !== "NO_BUTTON" ? input.callToAction : "NO_BUTTON", value: { link } },
+    };
+    if (input.headline?.trim()) videoData.title = input.headline;
+    if (input.description?.trim()) videoData.link_description = input.description;
+    story.video_data = videoData;
+    return story;
+  }
+  const linkData: Record<string, unknown> = {
+    link,
+    message: input.primaryText,
+    picture: input.imageUrl.trim(),
+  };
+  if (input.headline?.trim()) linkData.name = input.headline;
+  if (input.description?.trim()) linkData.description = input.description;
+  if (input.callToAction && input.callToAction !== "NO_BUTTON") {
+    linkData.call_to_action = { type: input.callToAction, value: { link } };
+  } else if (input.callToAction === "NO_BUTTON") {
+    linkData.call_to_action = { type: "NO_BUTTON" };
+  }
+  story.link_data = linkData;
+  return story;
 }
 
 /**
@@ -544,20 +668,7 @@ export async function createPausedAd(guard: WriteGuard, input: PausedAdInput): P
   await verifyAdsetInAccount(account, input.campaignId, input.adsetId);
 
   const token = getMetaSystemToken();
-  const linkData: Record<string, unknown> = {
-    link: input.linkUrl.trim(),
-    message: input.primaryText,
-    picture: input.imageUrl.trim(),
-  };
-  if (input.headline?.trim()) linkData.name = input.headline;
-  if (input.description?.trim()) linkData.description = input.description;
-  if (input.callToAction && input.callToAction !== "NO_BUTTON") {
-    linkData.call_to_action = { type: input.callToAction, value: { link: input.linkUrl.trim() } };
-  } else if (input.callToAction === "NO_BUTTON") {
-    linkData.call_to_action = { type: "NO_BUTTON" };
-  }
-  const story: Record<string, unknown> = { page_id: input.pageId, link_data: linkData };
-  if (input.instagramUserId) story.instagram_user_id = input.instagramUserId;
+  const story = pausedAdStory(input);
 
   let creativeId: string;
   try {

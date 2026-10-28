@@ -1,0 +1,10 @@
+[Unit]
+Description=ImpulseMotion — passage média du Pilotage, toutes les deux minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=20s
+
+[Install]
+WantedBy=timers.target

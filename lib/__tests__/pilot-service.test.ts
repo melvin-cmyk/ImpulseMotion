@@ -29,6 +29,8 @@ const matches = (row: Row, where: Record<string, unknown> = {}): boolean =>
   Object.entries(where).every(([k, v]) => {
     if (k === "OR") return (v as Array<Record<string, unknown>>).some((w) => matches(row, w));
     if (k === "NOT") return !matches(row, v as Record<string, unknown>);
+    // operations: { none: { status } } (recoverStale leaves an action waiting for a video alone)
+    if (k === "operations") { const cond = v as { none?: Record<string, unknown> }; return !cond.none || !operations.some((o) => o.actionId === row.id && matches(o, cond.none!)); }
     if (v && typeof v === "object" && "notIn" in (v as object)) return !(v as { notIn: unknown[] }).notIn.includes(row[k]);
     if (v && typeof v === "object" && "lt" in (v as object)) return row[k] instanceof Date && (row[k] as Date) < (v as { lt: Date }).lt;
     if (v && typeof v === "object" && "not" in (v as object)) return row[k] !== null && row[k] !== (v as { not: unknown }).not;

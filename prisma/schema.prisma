@@ -932,12 +932,47 @@ model PilotOperation {
   afterJson    String      @db.Text
   /// Value read back after the write, JSON; null until then.
   readBackJson String?     @db.Text
-  /// pending | done | unchanged | failed | uncertain | conflict | skipped
+  /// pending | uploading (a video still processed by Meta: the creation is finished by the media pass) | done | unchanged | failed | uncertain | conflict | skipped
   status       String      @default("pending")
   error        String?     @db.Text
   executedAt   DateTime?
 
   @@index([actionId, position])
+}
+
+/// Pilotage — a media sent to a platform ahead of an ad creation (a Meta video
+/// uploaded at the preview, processed asynchronously by Meta). Followed by the
+/// media pass (lib/pilot/service.ts runPilotMediaPass) until ready or failed.
+model PilotMedia {
+  id            String    @id @default(cuid())
+  /// meta
+  platform      String
+  /// Account digits, as PilotAction.accountId.
+  accountId     String
+  /// video | image
+  kind          String
+  /// Public https link the platform downloaded the file from (signed relay link, 24 h).
+  sourceUrl     String    @db.Text
+  /// The Studio asset the file comes from, when it does.
+  studioAssetId String?
+  /// Thumbnail given with the video (public https link).
+  thumbUrl      String?   @db.Text
+  /// The platform's id of the media (Meta video_id), once the upload was accepted.
+  remoteId      String?
+  /// uploading | ready | failed
+  status        String    @default("uploading")
+  error         String?   @db.Text
+  /// The action and the operation waiting for this media, once sent.
+  actionId      String?
+  operationId   String?
+  createdById   String?
+  /// Last time the platform was asked for the status.
+  checkedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([actionId])
 }
 
 /// What a PilotAction did to the results, N days after (7 and 14): the changed

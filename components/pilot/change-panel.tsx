@@ -24,6 +24,7 @@ const OP_STATUS: Record<string, { text: string; tone: "emerald" | "red" | "amber
   unchanged: { text: "déjà en place", tone: "default" },
   failed: { text: "refusé", tone: "red" },
   uncertain: { text: "issue inconnue", tone: "amber" },
+  uploading: { text: "vidéo en traitement chez Meta", tone: "amber" },
   conflict: { text: "non envoyé", tone: "amber" },
   skipped: { text: "non envoyé", tone: "default" },
   pending: { text: "à envoyer", tone: "default" },
@@ -239,6 +240,11 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
         </div>
         <p className="text-xs text-gray-400">Valeurs lues sur {PLATFORM_FR[preview.platform] ?? preview.platform} à l&apos;instant, compte « {preview.accountName || preview.accountId} » de {preview.clientName}.</p>
         <OperationLines action={preview} showStatus={false} />
+        {preview.notes && preview.notes.length > 0 && (
+          <ul className="text-xs text-amber-200/90 space-y-0.5">
+            {preview.notes.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
+        )}
         {reasonFields}
         {preview.needsDouble && (
           <label className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
