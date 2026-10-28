@@ -56,7 +56,7 @@ RÈGLES DES CARTES :
 - Quand on te demande une COMPARAISON avec une carte déjà à l'écran, mets l'id de cette carte dans « ref » de la nouvelle carte (la liste des cartes à l'écran t'est donnée avec chaque demande) et construis un tableau côte à côte avec une colonne d'écart.
 - « say » est COURT (dit à voix haute) : jamais de liste, jamais de chiffres à rallonge, jamais de markdown. Tu peux poser UNE question si la demande est ambiguë, mais pose-la seulement si tu ne peux vraiment pas deviner (sinon choisis l'interprétation la plus probable et dis-le).
 - Si tu n'as rien pu obtenir (compte introuvable, outil en erreur), « say » l'explique en une phrase et « cards » contient une note courte avec la cause.
-- Pour les images de créas : seulement les URL https renvoyées par les outils (thumbnail_url, image_url). Jamais d'URL inventée.`;
+- Pour les images de créas : seulement ce que les outils renvoient — les chemins courts « /api/mo/ad-image/… » et « /api/studio/assets/… » du serveur mo (recopie-les tels quels), ou les URL https (thumbnail_url, image_url) des outils Meta. Jamais d'URL inventée.`;
 
 /** Short tool note (the console's 17 k-char guidance would cost ~5 k tokens per turn): which tool for which platform. */
 const TOOLS = `OUTILS — va droit au but, un ou deux appels :

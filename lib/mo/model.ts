@@ -100,7 +100,7 @@ const CARD_ID_RE = /^[a-z0-9]{3,24}$/i;
 
 /** An image a card may show: an https link given by a tool, or a file of the application itself (/api/studio/assets/<id>/file). */
 export function cardImageOk(v: string): boolean {
-  return /^https:\/\//.test(v) || /^\/api\/studio\/assets\/[A-Za-z0-9_-]{6,40}\/file(\?inline=1)?$/.test(v);
+  return /^https:\/\//.test(v) || /^\/api\/studio\/assets\/[A-Za-z0-9_-]{6,40}\/file(\?inline=1)?$/.test(v) || /^\/api\/mo\/ad-image\/(meta|google|tiktok|linkedin)\/[A-Za-z0-9_-]{3,40}$/.test(v);
 }
 
 /**

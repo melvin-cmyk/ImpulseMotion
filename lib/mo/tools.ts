@@ -145,6 +145,8 @@ function platformsOf(client: ClientRef, wanted: unknown): { platforms: Warehouse
 }
 
 const assetImage = (id: string) => `/api/studio/assets/${id}/file?inline=1`;
+/** Short handle of a platform ad's picture (app/api/mo/ad-image): 40 characters instead of a 500-character CDN link the model would have to copy. */
+const adImage = (platform: string, adId: string) => `/api/mo/ad-image/${platform}/${adId}`;
 
 // ── Tools ──────────────────────────────────────────────────────────────────
 
@@ -172,7 +174,7 @@ async function creatives(ctx: MoToolContext, a: Args): Promise<ToolResult> {
     return {
       adId: s?.adId ?? r.key, platform: s?.platform ?? platforms[0], name: s?.name ?? r.label, format: s?.format ?? "Unknown", status: s?.status ?? null,
       launched: s?.createdTime ? s.createdTime.slice(0, 10) : r.launch, campaign: s?.campaignName ?? null, adset: s?.adsetName ?? null,
-      image: s?.imageUrl ?? s?.thumbnailUrl ?? null, title: s?.title ?? null, body: s?.body ? s.body.slice(0, 200) : null, landing: s?.landingUrl ?? null,
+      image: s?.imageUrl || s?.thumbnailUrl ? adImage(s?.platform ?? platforms[0], s?.adId ?? r.key) : null, title: s?.title ?? null, body: s?.body ? s.body.slice(0, 200) : null, landing: s?.landingUrl ?? null,
       metrics: frMetrics(r.metrics, cur),
       raw: { spend: r.metrics.spend, impressions: r.metrics.impressions, clicks: r.metrics.linkClicks || r.metrics.clicks, ctr: r.metrics.ctr, conversions: r.metrics.conversions, cpa: r.metrics.cpa, leads: r.metrics.leads, purchases: r.metrics.purchases, roas: r.metrics.roasUnavailable ? null : r.metrics.roas },
     };
@@ -206,7 +208,7 @@ async function creativeMetrics(ctx: MoToolContext, a: Args): Promise<ToolResult>
     const c = catalog.find((x) => x.adId === bare);
     const s = r?._sum;
     const metrics = s ? deriveMetrics({ spend: s.spend ?? 0, impressions: s.impressions ?? 0, reach: s.reach ?? 0, clicks: s.clicks ?? 0, linkClicks: s.linkClicks ?? 0, conversions: s.conversions ?? 0, conversionValue: s.conversionValue ?? 0, purchases: s.purchases ?? 0, purchaseValue: s.purchaseValue ?? 0, leads: s.leads ?? 0, videoPlays: s.videoPlays ?? 0, video3s: s.video3s ?? 0, thruPlays: s.thruPlays ?? 0, p25: s.videoP25 ?? 0, p50: s.videoP50 ?? 0, p75: s.videoP75 ?? 0, p100: s.videoP100 ?? 0 }, null) : null;
-    return { adId: bare, name: c?.name ?? null, image: c?.imageUrl ?? c?.thumbnailUrl ?? null, found: !!r, metrics: metrics ? frMetrics(metrics, cur) : { Dépense: "0 €" }, raw: metrics ? { spend: metrics.spend, impressions: metrics.impressions, ctr: metrics.ctr, conversions: metrics.conversions, cpa: metrics.cpa, leads: metrics.leads, roas: metrics.roasUnavailable ? null : metrics.roas } : null };
+    return { adId: bare, name: c?.name ?? null, image: c?.imageUrl || c?.thumbnailUrl ? adImage(c?.platform ?? "meta", bare) : null, found: !!r, metrics: metrics ? frMetrics(metrics, cur) : { Dépense: "0 €" }, raw: metrics ? { spend: metrics.spend, impressions: metrics.impressions, ctr: metrics.ctr, conversions: metrics.conversions, cpa: metrics.cpa, leads: metrics.leads, roas: metrics.roasUnavailable ? null : metrics.roas } : null };
   });
   return { client: { id: client.id, name: client.name }, period: { ...range }, currency: cur, items };
 }
@@ -289,7 +291,8 @@ async function generateCreatives(ctx: MoToolContext, a: Args): Promise<ToolResul
     if (folder) {
       try {
         const bytes = out.file ? await relayFileBytes(out.file) : out.url ? await fetchImageBytes(out.url).then((g) => (g ? { buf: g.buf, mimeType: g.mediaType } : null)) : null;
-        if (bytes) drive = await uploadToFolder(folder.id, { name: `mo-${day}-${slug(prompt).slice(0, 28)}-${i}.${bytes.mimeType.includes("jpeg") ? "jpg" : bytes.mimeType.includes("webp") ? "webp" : "png"}`, mimeType: bytes.mimeType, data: bytes.buf });
+        // The asset id in the name: two calls with the same prompt must not overwrite each other in Drive.
+        if (bytes) drive = await uploadToFolder(folder.id, { name: `mo-${day}-${slug(prompt).slice(0, 28)}-${asset.id.slice(-6)}.${bytes.mimeType.includes("jpeg") ? "jpg" : bytes.mimeType.includes("webp") ? "webp" : "png"}`, mimeType: bytes.mimeType, data: bytes.buf });
       } catch (e) { driveError = e instanceof Error ? e.message : String(e); }
     }
     items.push({ assetId: asset.id, image: assetImage(asset.id), model: out.model, usd: Math.round(out.usd * 1000) / 1000, drive: drive?.webViewLink ?? null });
