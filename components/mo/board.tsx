@@ -178,7 +178,10 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ children, u
   };
 
   return (
-    <div ref={el} className={`relative overflow-hidden touch-none select-none cursor-grab active:cursor-grabbing ${className ?? ""}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+    // The caller positions and sizes the board (« absolute inset-0 »). No `relative` here: Tailwind emits
+    // `.relative` after `.absolute`, so it won the position and the board, with no height of its own,
+    // was a 0 px strip whose overflow hid every card.
+    <div ref={el} className={`overflow-hidden touch-none select-none cursor-grab active:cursor-grabbing ${className ?? "relative w-full h-full"}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
       <div ref={layer} className="absolute left-0 top-0 origin-top-left will-change-transform" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
         {underlay}
         {children}
