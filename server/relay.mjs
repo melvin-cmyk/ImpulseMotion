@@ -20,6 +20,7 @@ import * as hqOauth from "./hq-oauth.mjs";
 import { HOST_CREDENTIALS, startAuthWatch } from "./auth-watch.mjs";
 import { hqToolCall } from "./hq-client.mjs";
 import * as maxAccounts from "./max-accounts.mjs";
+import * as voice from "./voice.mjs";
 import * as gwsAuth from "./gws-auth.mjs";
 import { handleSheetsRequest } from "./sheets-direct.mjs";
 import { buildSystemPrompt, buildTurnPrompt, cliTokenEnv, createTurnMeter, promptLogExcerpt } from "./relay-prompt.mjs";
@@ -416,7 +417,7 @@ const CLIENT_KEY_RE = /^[a-z0-9][a-z0-9_-]{1,39}$/;
 // fields, announced by /health. The application reads it before relying on a
 // field an older relay would silently ignore (lib/dashboard-copilot.ts), so
 // the relay and the application can be deployed in any order.
-const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft", "photocraft"];
+const CAPABILITIES = ["turnContext", "hqGuidance", "sheetsDirect", "toolAllowlist", "jobs", "figcraft", "photocraft", "voice"];
 // Detached turns (jobs) hold no HTTP response open: they may run longer than
 // a streamed one, up to this cap.
 const DETACHED_MAX_BUDGET_MS = Number(process.env.RELAY_DETACHED_MAX_BUDGET_MS || 15 * 60 * 1000);
@@ -1729,6 +1730,19 @@ function authorized(req) {
 const BODY_MAX_BYTES = Number(process.env.RELAY_MAX_BODY_BYTES || 16 * 1024 * 1024);
 const UPLOAD_BODY_MAX_BYTES = Math.ceil(UPLOAD_MAX_BYTES * 4 / 3) + 64 * 1024; // base64 of a full upload
 class BodyTooLarge extends Error { constructor() { super("body too large"); this.status = 413; } }
+/** Raw bytes of a request (audio uploads), capped. */
+function readRawBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const declared = Number(req.headers["content-length"] || 0);
+    if (declared > maxBytes) { req.resume(); reject(new BodyTooLarge()); return; }
+    const chunks = [];
+    let total = 0;
+    req.on("data", (c) => { total += c.length; if (total > maxBytes) { req.destroy(); reject(new BodyTooLarge()); return; } chunks.push(c); });
+    req.on("end", () => { if (total <= maxBytes) resolve(Buffer.concat(chunks)); });
+    req.on("error", reject);
+  });
+}
+
 function readBody(req, maxBytes = BODY_MAX_BYTES) {
   return new Promise((resolve, reject) => {
     const declared = Number(req.headers["content-length"] || 0);
@@ -2043,6 +2057,31 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith("/media/") && req.method === "GET") {
       agnes.serveMedia(req, res, url);
       return;
+    }
+    // ── Mo : voix locale (server/voice.mjs) — STT (audio du navigateur) et TTS (WAV) ──
+    if (url.pathname.startsWith("/api/voice/")) {
+      const send = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+      if (!authorized(req)) return send(401, { error: "unauthorized" });
+      if (url.pathname === "/api/voice/status" && req.method === "GET") return send(200, { configured: voice.voiceConfigured() });
+      try {
+        if (url.pathname === "/api/voice/stt" && req.method === "POST") {
+          const audio = await readRawBody(req, 8 * 1024 * 1024);
+          const out = await voice.transcribe(audio);
+          console.log(`[voice] stt ${out.seconds.toFixed(1)} s d'audio en ${out.ms} ms → « ${out.text.slice(0, 80)} »`);
+          return send(200, out);
+        }
+        if (url.pathname === "/api/voice/tts" && req.method === "POST") {
+          const body = await readBody(req);
+          const out = await voice.synthesize(body?.text, body?.speaker);
+          console.log(`[voice] tts ${out.seconds.toFixed(1)} s en ${out.ms} ms`);
+          res.writeHead(200, { "Content-Type": "audio/wav", "Content-Length": String(out.wav.length), "X-Voice-Seconds": out.seconds.toFixed(2), "Cache-Control": "no-store" });
+          res.end(out.wav);
+          return;
+        }
+      } catch (e) {
+        return send(e instanceof BodyTooLarge ? 413 : 500, { error: e instanceof Error ? e.message : String(e) });
+      }
+      return send(404, { error: "not found" });
     }
     // ── Studio créa : images fal.ai (server/fal.mjs) ──
     if (url.pathname.startsWith("/api/fal/")) {
@@ -2402,6 +2441,8 @@ process.on("uncaughtException", (err) => {
 
 // RELAY_HOST=127.0.0.1 once Caddy serves the relay in HTTPS (/etc/caddy/Caddyfile): nothing in clear on the network.
 server.listen(PORT, process.env.RELAY_HOST || undefined, () => {
+  // Mo's voice: the speech models (~1.1 GB, 20 s) load in the background so the first word is not kept waiting.
+  if (process.env.VOICE_PRELOAD !== "0") setTimeout(() => voice.preload(), 3000);
   console.log(`[relay] Running on :${PORT} | Model: ${CLAUDE_MODEL}`);
   getToolsList().then(t => console.log(`[relay] ${t.length} MCP tools ready`));
 });

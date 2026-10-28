@@ -46,6 +46,8 @@ function fromEnv(modelVar: string, effortVar: string, fallback: AiProfile): AiPr
 
 /** Staff chats with MCP tools: console /ai, copilote dashboard, chat rapport. */
 export const STAFF_CHAT_PROFILE: AiProfile = fromEnv("AI_STAFF_MODEL", "AI_STAFF_EFFORT", { model: "opus", effort: "low" });
+/** Mo (voice, cards): speed first — Sonnet low, few turns. */
+export const MO_PROFILE: AiProfile = fromEnv("AI_MO_MODEL", "AI_MO_EFFORT", { model: "sonnet", effort: "low", maxTurns: 12 });
 
 /** HQ client-context lookup before a report (lib/hq-client-context.ts). */
 export const HQ_CONTEXT_PROFILE: AiProfile = fromEnv("AI_HQ_MODEL", "AI_HQ_EFFORT", { model: "sonnet", effort: "low", maxTurns: 15 });

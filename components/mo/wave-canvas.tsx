@@ -11,7 +11,14 @@ import { useEffect, useRef } from "react";
 
 export type WaveMood = "intro" | "idle" | "listening" | "thinking" | "speaking";
 
-interface Props { mood: WaveMood; /** 0..1 microphone level (listening) */ level?: number; className?: string }
+interface Props {
+  mood: WaveMood;
+  /** 0..1 microphone level (listening), ~10 Hz. */
+  level?: number;
+  /** Same level read every frame without re-rendering (voice.levelRef); wins over `level` when given. */
+  levelRef?: { current: number };
+  className?: string;
+}
 
 const CELL = 14;
 const SQUARE = 9;
@@ -35,11 +42,12 @@ function colorAt(v: number): string {
   return "rgb(240,171,252)";
 }
 
-export function WaveCanvas({ mood, level = 0, className }: Props) {
+export function WaveCanvas({ mood, level = 0, levelRef: liveLevel, className }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const moodRef = useRef(mood);
   const levelRef = useRef(level);
-  useEffect(() => { moodRef.current = mood; levelRef.current = level; }, [mood, level]);
+  const liveRef = useRef(liveLevel);
+  useEffect(() => { moodRef.current = mood; levelRef.current = level; liveRef.current = liveLevel; }, [mood, level, liveLevel]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -54,6 +62,12 @@ export function WaveCanvas({ mood, level = 0, className }: Props) {
     const palette = Array.from({ length: 65 }, (_, i) => colorAt(i / 64));
     let smoothLevel = 0;
     let smoothMood = 0; // 0 idle … 1 thinking (eases the transitions)
+    // Reduced motion: one still frame of the dim grid, no animation at all.
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    let last = 0;
+    let hidden = document.hidden;
+    const onVisibility = () => { hidden = document.hidden; if (!hidden) raf = requestAnimationFrame(draw); };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const resize = () => {
       w = canvas.clientWidth; h = canvas.clientHeight;
@@ -66,9 +80,14 @@ export function WaveCanvas({ mood, level = 0, className }: Props) {
     ro.observe(canvas);
 
     const draw = (now: number) => {
-      const t = (now - start) / 1000;
+      if (hidden) return; // paused while the tab is in the background; resumed by visibilitychange
       const m = moodRef.current;
-      smoothLevel += (levelRef.current - smoothLevel) * 0.15;
+      // Idle breathes at 30 fps; listening / thinking / speaking at the display rate.
+      const idle = m === "idle";
+      if (idle && now - last < 33) { raf = requestAnimationFrame(draw); return; }
+      last = now;
+      const t = reduced ? 1.2 : (now - start) / 1000;
+      smoothLevel += ((liveRef.current?.current ?? levelRef.current) - smoothLevel) * 0.15;
       const targetMood = m === "thinking" ? 1 : m === "speaking" ? 0.6 : m === "listening" ? 0.35 : 0;
       smoothMood += (targetMood - smoothMood) * 0.04;
       ctx.clearRect(0, 0, w, h);
@@ -106,10 +125,10 @@ export function WaveCanvas({ mood, level = 0, className }: Props) {
         }
       }
       ctx.globalAlpha = 1;
-      raf = requestAnimationFrame(draw);
+      if (!reduced) raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); document.removeEventListener("visibilitychange", onVisibility); };
   }, []);
 
   return <canvas ref={ref} className={className} aria-hidden />;

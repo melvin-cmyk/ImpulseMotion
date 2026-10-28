@@ -70,24 +70,44 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
   };
 
+  // Lines are forwarded one by one; the relay's "done" is HELD until the
+  // answer is stored, then released with a "stored" marker — so a browser
+  // that reloads the conversation on "done" always finds the new message
+  // (Mo's cards, a design reply) instead of racing the write.
+  const forward = (controller: TransformStreamDefaultController<Uint8Array>, line: string) => controller.enqueue(encoder.encode(`${line}\n`));
+  const isDone = (line: string) => /^data:\s*\{"type":"done"/.test(line.trim());
+  let held: string | null = null;
+  const release = async (controller: TransformStreamDefaultController<Uint8Array>) => {
+    if (held === null) return;
+    const line = held;
+    held = null;
+    await finish();
+    forward(controller, line);
+    forward(controller, "");
+    forward(controller, `data: ${JSON.stringify({ type: "job", status: "done", stored: true })}`);
+    forward(controller, "");
+  };
   const stream = upstream.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "job", status: "running", job: publicJob(job) })}\n\n`));
       },
-      transform(chunk, controller) {
-        controller.enqueue(chunk);
+      async transform(chunk, controller) {
         buffer += decoder.decode(chunk, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
           summarizer.line(line);
-          if (/^data:\s*\{"type":"done"/.test(line.trim())) sawDone = true;
+          if (isDone(line)) { sawDone = true; held = line; continue; }
+          if (held !== null) continue; // nothing meaningful follows "done"
+          forward(controller, line);
         }
+        if (held !== null) await release(controller);
       },
-      async flush() {
-        if (buffer) { summarizer.line(buffer); if (/^data:\s*\{"type":"done"/.test(buffer.trim())) sawDone = true; }
-        await finish();
+      async flush(controller) {
+        if (buffer) { summarizer.line(buffer); if (isDone(buffer)) { sawDone = true; held = buffer; } else if (held === null) forward(controller, buffer); }
+        if (held !== null) await release(controller);
+        else await finish();
       },
       async cancel() {
         await finish();

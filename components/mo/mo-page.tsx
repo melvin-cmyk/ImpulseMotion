@@ -10,12 +10,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ChevronDown, Keyboard, Loader2, Maximize2, Mic, Plus, Square, Trash2, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, ChevronDown, Keyboard, LayoutGrid, Loader2, Maximize2, Mic, Plus, Square, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Board, type BoardHandle } from "@/components/mo/board";
 import { MoCardView } from "@/components/mo/card";
 import { WaveCanvas, type WaveMood } from "@/components/mo/wave-canvas";
 import { useVoice } from "@/components/mo/use-voice";
 import { CARD_SIZES, type MoBoardData, type MoCard, type MoCardPatch } from "@/lib/mo/model";
+import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
+
+const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
+import { parseNavIntent, type IntentClient } from "@/lib/mo/intents";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 import { INITIAL_ACTIVITY, activityLabel, formatToolName, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
@@ -83,7 +87,14 @@ export function MoPage() {
 
   // ── Following a reply ─────────────────────────────────────────────────
   const finishTurn = useCallback(async (id: string) => {
-    const j = await loadBoard(id).catch(() => null);
+    // The "done" event is released after the answer is stored; a short retry covers a slow write anyway.
+    let j: Awaited<ReturnType<typeof loadBoard>> | null = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      j = await loadBoard(id).catch(() => null);
+      const count = j?.board.messages.filter((m) => m.role === "assistant").length ?? 0;
+      if (j && count > seenTurns.current) { seenTurns.current = count; break; }
+      await new Promise((r) => window.setTimeout(r, 500 * (attempt + 1)));
+    }
     if (!j) return;
     const last = [...j.board.messages].reverse().find((m) => m.role === "assistant");
     const ids = new Set(last?.cardIds ?? []);
@@ -91,7 +102,7 @@ export function MoPage() {
     setLastSaid((s) => ({ you: s?.you ?? "", mo: last?.say ?? null }));
     if (last?.say && !muted) speakRef.current(last.say);
     const rects = j.board.cards.filter((c) => ids.has(c.id)).map((c) => ({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }));
-    if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90), 60);
+    if (rects.length) window.setTimeout(() => boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }), 60);
     // Mo was asked to open a page: the board stays (reopened from the menu), the page comes up once the sentence is said.
     if (last?.open && !last.cardIds?.length) window.setTimeout(() => router.push(last.open!), 900);
   }, [loadBoard, muted, router]);
@@ -148,11 +159,27 @@ export function MoPage() {
   }, []);
 
   // ── Sending ───────────────────────────────────────────────────────────
+  // Clients of the viewer (names → ids) for the instant navigation path (lib/mo/intents.ts).
+  const clientsRef = useRef<IntentClient[]>([]);
+  useEffect(() => {
+    fetch("/api/clients").then((r) => (r.ok ? r.json() : { clients: [] })).then((j: { clients: Array<{ id: string; name: string; dashboardId: string | null; aliasIds?: string[] }> }) => {
+      clientsRef.current = (j.clients ?? []).map((c) => ({ id: c.id, name: c.name, dashboardId: c.dashboardId }));
+    }).catch(() => undefined);
+  }, []);
+
   const send = useCallback(async (text: string) => {
     const t = text.trim();
     if (!t || !board || run) return;
     setError(null);
     setLastSaid({ you: t, mo: null });
+    // "Ouvre le cockpit de Naturalia": understood here, executed at once, no model call.
+    const nav = parseNavIntent(t, clientsRef.current);
+    if (nav) {
+      setLastSaid({ you: t, mo: nav.say });
+      if (!muted) speakRef.current(nav.say);
+      window.setTimeout(() => router.push(nav.path), 600);
+      return;
+    }
     setBoard((b) => (b ? { ...b, messages: [...b.messages, { role: "user", content: t, at: new Date().toISOString() }] } : b));
     try {
       const res = await fetch(`/api/mo/${board.id}/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t }) });
@@ -160,12 +187,13 @@ export function MoPage() {
       if (res.status === 409 && j.jobId) { follow(j.jobId, board.id); return; }
       if (!res.ok || !j.jobId) throw new Error(j.error ?? `Erreur ${res.status}`);
       window.dispatchEvent(new Event(AI_JOB_STARTED_EVENT));
+      seenTurns.current = board.messages.filter((m) => m.role === "assistant").length;
       follow(j.jobId, board.id);
       void listBoards();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Mo n'a pas démarré");
     }
-  }, [board, run, follow, listBoards]);
+  }, [board, run, follow, listBoards, muted, router]);
 
   const voice = useVoice(send);
   useEffect(() => { speakRef.current = voice.speak; }, [voice.speak]);
@@ -184,43 +212,186 @@ export function MoPage() {
   }, [voice, run]);
 
   // ── Cards geometry ────────────────────────────────────────────────────
+  // Snapped drag / resize with alignment guides, z-order, selection, keyboard,
+  // « Ranger »; geometry in lib/mo/geometry.ts, persisted by PATCH (debounced).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const [hoverLink, setHoverLink] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ cards: MoCard[]; timer: number } | null>(null);
+  const boardStateRef = useRef<MoBoardData | null>(null);
+  useEffect(() => { boardStateRef.current = board; }, [board]);
+  /** Live position of the card being dragged / resized (world), before the state commit. */
+  const live = useRef<{ id: string; x: number; y: number; w: number; h: number } | null>(null);
+  const resizeStart = useRef<Rect | null>(null);
+  /** Unsnapped position of the dragged card: the pointer's truth, so the card does not stick to a guide. */
+  const rawPos = useRef({ x: 0, y: 0 });
+  const commitRaf = useRef<number>(0);
+  const getK = useCallback(() => kRef.current, []);
+
   const flush = useCallback(() => {
-    if (!board || !pending.current.size) return;
+    const b = boardStateRef.current;
+    if (!b || !pending.current.size) return;
     const cards = Array.from(pending.current.entries()).map(([id, p]) => ({ id, ...p }));
     pending.current = new Map();
-    void fetch(`/api/mo/${board.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cards }) }).catch(() => undefined);
-  }, [board]);
+    void fetch(`/api/mo/${b.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cards }) }).catch(() => undefined);
+  }, []);
   const queue = useCallback((id: string, p: MoCardPatch) => {
     pending.current.set(id, { ...(pending.current.get(id) ?? {}), ...p });
     if (flushTimer.current) window.clearTimeout(flushTimer.current);
     flushTimer.current = window.setTimeout(flush, 500);
   }, [flush]);
 
-  const onMove = useCallback((id: string, dx: number, dy: number) => {
-    setBoard((b) => b ? { ...b, cards: b.cards.map((c): MoCard => (c.id === id ? { ...c, x: c.x + dx, y: c.y + dy } as MoCard : c)) } : b);
+  /** Applies the live rect of the dragged card to the state, at most once a frame. */
+  const commitLive = useCallback(() => {
+    if (commitRaf.current) return;
+    commitRaf.current = requestAnimationFrame(() => {
+      commitRaf.current = 0;
+      const l = live.current; if (!l) return;
+      setBoard((b) => (b ? { ...b, cards: b.cards.map((c): MoCard => (c.id === l.id ? { ...c, x: l.x, y: l.y, w: l.w, h: l.h } as MoCard : c)) } : b));
+    });
   }, []);
-  const onMoveEnd = useCallback((id: string) => {
-    setBoard((b) => { const c = b?.cards.find((x) => x.id === id); if (c) queue(id, { x: Math.round(c.x), y: Math.round(c.y) }); return b; });
-  }, [queue]);
-  const onToggle = useCallback((id: string) => {
-    setBoard((b) => { if (!b) return b; const c = b.cards.find((x) => x.id === id); if (c) queue(id, { minimized: !c.minimized }); return { ...b, cards: b.cards.map((x): MoCard => (x.id === id ? { ...x, minimized: !x.minimized } as MoCard : x)) }; });
-  }, [queue]);
-  const onClose = useCallback((id: string) => {
-    setBoard((b) => (b ? { ...b, cards: b.cards.filter((x) => x.id !== id) } : b));
-    queue(id, { removed: true });
-  }, [queue]);
-  const onFocusRef = useCallback((id: string) => {
-    const c = board?.cards.find((x) => x.id === id);
-    if (c) boardRef.current?.focus({ x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h });
-  }, [board]);
 
+  const onMove = useCallback((id: string, dx: number, dy: number, alt: boolean) => {
+    const b = boardStateRef.current;
+    const c = b?.cards.find((x) => x.id === id);
+    if (!b || !c) return { x: 0, y: 0 };
+    const cur = live.current?.id === id ? live.current : { id, x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h };
+    // Raw target from the accumulated deltas (kept apart from the snapped one so the card does not "stick").
+    const raw = { x: (live.current?.id === id ? rawPos.current.x : c.x) + dx, y: (live.current?.id === id ? rawPos.current.y : c.y) + dy };
+    rawPos.current = raw;
+    const others = b.cards.filter((x) => x.id !== id).map(rectOf);
+    const snapped = snapMove({ x: raw.x, y: raw.y, w: cur.w, h: cur.h }, others, SNAP_SCREEN_PX / (kRef.current || 1), alt ? null : GRID);
+    live.current = { ...cur, x: snapped.x, y: snapped.y };
+    setGuides((g) => (sameGuides(g, snapped.guides) ? g : snapped.guides));
+    commitLive();
+    return { x: snapped.x, y: snapped.y };
+  }, [commitLive]);
+  const onMoveEnd = useCallback((id: string, moved: boolean) => {
+    const l = live.current;
+    live.current = null;
+    setGuides([]);
+    if (!moved || !l || l.id !== id) return;
+    cancelAnimationFrame(commitRaf.current); commitRaf.current = 0;
+    setBoard((b) => (b ? { ...b, cards: b.cards.map((c): MoCard => (c.id === id ? { ...c, x: l.x, y: l.y } as MoCard : c)) } : b));
+    queue(id, { x: l.x, y: l.y });
+  }, [queue]);
+
+  const onResizeStart = useCallback((id: string) => {
+    const c = boardStateRef.current?.cards.find((x) => x.id === id);
+    if (c) { resizeStart.current = { x: c.x, y: c.y, w: c.w, h: c.h ?? CARD_SIZES[c.type].h }; live.current = { id, ...resizeStart.current }; }
+  }, []);
+  const onResize = useCallback((id: string, dir: HandleDir, dx: number, dy: number, alt: boolean) => {
+    const c = boardStateRef.current?.cards.find((x) => x.id === id);
+    const start = resizeStart.current;
+    if (!c || !start) return { x: c?.x ?? 0, y: c?.y ?? 0, w: c?.w ?? 300, h: c?.h ?? 200 };
+    const r = resizeRect(start, dir, dx, dy, c.type, alt ? null : GRID);
+    live.current = { id, ...r };
+    commitLive();
+    return r;
+  }, [commitLive]);
+  const onResizeEnd = useCallback((id: string) => {
+    const l = live.current;
+    live.current = null; resizeStart.current = null;
+    if (!l || l.id !== id) return;
+    cancelAnimationFrame(commitRaf.current); commitRaf.current = 0;
+    setBoard((b) => (b ? { ...b, cards: b.cards.map((c): MoCard => (c.id === id ? { ...c, x: l.x, y: l.y, w: l.w, h: l.h } as MoCard : c)) } : b));
+    queue(id, { x: l.x, y: l.y, w: l.w, h: l.h });
+  }, [queue]);
+
+  const onFront = useCallback((id: string) => {
+    const b = boardStateRef.current; if (!b) return;
+    const top = topZ(b.cards);
+    const c = b.cards.find((x) => x.id === id);
+    if (!c || (c.z ?? 0) === top && b.cards.filter((x) => (x.z ?? 0) === top).length === 1) return;
+    const z = top + 1;
+    setBoard((bb) => (bb ? { ...bb, cards: bb.cards.map((x): MoCard => (x.id === id ? { ...x, z } as MoCard : x)) } : bb));
+    queue(id, { z });
+  }, [queue]);
+  const onSelect = useCallback((id: string, additive: boolean) => {
+    setSelected((s) => { if (additive) { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; } return s.size === 1 && s.has(id) ? s : new Set([id]); });
+  }, []);
+  const clearSelection = useCallback(() => setSelected((s) => (s.size ? new Set() : s)), []);
+  const onToggle = useCallback((id: string) => {
+    const c = boardStateRef.current?.cards.find((x) => x.id === id);
+    if (!c) return;
+    queue(id, { minimized: !c.minimized });
+    setBoard((b) => (b ? { ...b, cards: b.cards.map((x): MoCard => (x.id === id ? { ...x, minimized: !x.minimized } as MoCard : x)) } : b));
+  }, [queue]);
+  /** Removes cards with a 5 s « Annuler »; the PATCH leaves when the toast expires. */
+  const removeCards = useCallback((ids: string[]) => {
+    const b = boardStateRef.current; if (!b || !ids.length) return;
+    const removed = b.cards.filter((c) => ids.includes(c.id));
+    if (!removed.length) return;
+    setBoard((bb) => (bb ? { ...bb, cards: bb.cards.filter((c) => !ids.includes(c.id)) } : bb));
+    setSelected((s) => { const n = new Set(s); ids.forEach((i) => n.delete(i)); return n; });
+    setUndo((u) => {
+      if (u) { window.clearTimeout(u.timer); u.cards.forEach((c) => queue(c.id, { removed: true })); }
+      const timer = window.setTimeout(() => { removed.forEach((c) => queue(c.id, { removed: true })); setUndo(null); }, 5000);
+      return { cards: removed, timer };
+    });
+  }, [queue]);
+  const undoRemove = useCallback(() => {
+    setUndo((u) => {
+      if (!u) return null;
+      window.clearTimeout(u.timer);
+      setBoard((b) => (b ? { ...b, cards: [...b.cards, ...u.cards.filter((c) => !b.cards.some((x) => x.id === c.id))] } : b));
+      return null;
+    });
+  }, []);
+  const onClose = useCallback((id: string) => removeCards([id]), [removeCards]);
+  const onFocusRef = useCallback((id: string) => {
+    const c = boardStateRef.current?.cards.find((x) => x.id === id);
+    if (c) { boardRef.current?.focus(rectOf(c)); onFront(id); }
+  }, [onFront]);
+  const onHoverRef = useCallback((id: string | null) => setHoverLink(id), []);
+
+  /** « Ranger » : masonry by turn, every card moved and saved, then fit. */
+  const arrange = useCallback(() => {
+    const b = boardStateRef.current; if (!b || !b.cards.length) return;
+    const pos = arrangeCards(b.cards);
+    const cards = b.cards.map((c): MoCard => { const p = pos.get(c.id); return p && (p.x !== c.x || p.y !== c.y) ? ({ ...c, x: p.x, y: p.y } as MoCard) : c; });
+    cards.forEach((c, i) => { if (c !== b.cards[i]) queue(c.id, { x: c.x, y: c.y }); });
+    setBoard({ ...b, cards });
+    window.setTimeout(() => boardRef.current?.fit(cards.map(rectOf), 90), 30);
+  }, [queue]);
+  const fitAll = useCallback(() => { const b = boardStateRef.current; if (b?.cards.length) boardRef.current?.fit(b.cards.map(rectOf), 90); }, []);
+  const fitFresh = useCallback(() => { const b = boardStateRef.current; const rects = (b?.cards ?? []).filter((c) => fresh.has(c.id)).map(rectOf); if (rects.length) boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }); else fitAll(); }, [fresh, fitAll]);
+
+  // Keyboard: Esc deselect · Delete/Backspace remove · arrows nudge (Shift = 20) · ⌘/Ctrl+0 fit all · F fit new cards · R ranger · ⌘/Ctrl +/− zoom.
+  useEffect(() => {
+    const isTyping = () => { const el = document.activeElement as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping()) return;
+      const meta = e.metaKey || e.ctrlKey;
+      if (e.key === "Escape") { clearSelection(); return; }
+      if (meta && e.key === "0") { e.preventDefault(); fitAll(); return; }
+      if (meta && (e.key === "=" || e.key === "+")) { e.preventDefault(); boardRef.current?.zoomBy(1.25); return; }
+      if (meta && e.key === "-") { e.preventDefault(); boardRef.current?.zoomBy(1 / 1.25); return; }
+      if (meta) return;
+      if (e.key === "f" || e.key === "F") { fitFresh(); return; }
+      if (e.key === "r" || e.key === "R") { arrange(); return; }
+      if (!selected.size) return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeCards([...selected]); return; }
+      const step = e.shiftKey ? 20 : 1;
+      const d = e.key === "ArrowLeft" ? [-step, 0] : e.key === "ArrowRight" ? [step, 0] : e.key === "ArrowUp" ? [0, -step] : e.key === "ArrowDown" ? [0, step] : null;
+      if (!d) return;
+      e.preventDefault();
+      setBoard((b) => (b ? { ...b, cards: b.cards.map((c): MoCard => (selected.has(c.id) ? { ...c, x: c.x + d[0], y: c.y + d[1] } as MoCard : c)) } : b));
+      for (const id of selected) { const c = boardStateRef.current?.cards.find((x) => x.id === id); if (c) queue(id, { x: c.x + d[0], y: c.y + d[1] }); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, clearSelection, fitAll, fitFresh, arrange, removeCards, queue]);
+  useEffect(() => () => { cancelAnimationFrame(commitRaf.current); if (undo) window.clearTimeout(undo.timer); }, [undo]);
+
+  const sortedCards = useMemo(() => [...(board?.cards ?? [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0) || a.turn - b.turn), [board]);
+  const freshOrder = useMemo(() => { const m = new Map<string, number>(); let i = 0; for (const c of board?.cards ?? []) if (fresh.has(c.id)) m.set(c.id, i++); return m; }, [board, fresh]);
   const titles = useMemo(() => new Map((board?.cards ?? []).map((c) => [c.id, c.title])), [board]);
   const links = useMemo(() => (board?.cards ?? []).flatMap((c) => {
     const r = c.ref ? board?.cards.find((x) => x.id === c.ref) : null;
     if (!r) return [];
-    const a = { x: r.x + r.w / 2, y: r.y + (r.minimized ? 28 : (r.h ?? CARD_SIZES[r.type].h) / 2) };
-    const b = { x: c.x + c.w / 2, y: c.y + (c.minimized ? 28 : (c.h ?? CARD_SIZES[c.type].h) / 2) };
-    return [{ id: c.id, a, b }];
+    const anchors = linkAnchors(rectOf(r), rectOf(c));
+    return [{ id: c.id, d: linkPath(anchors), mid: { x: (anchors.a.x + anchors.b.x) / 2, y: (anchors.a.y + anchors.b.y) / 2 } }];
   }), [board]);
 
   const mood: WaveMood = intro ? "intro" : voice.listening ? "listening" : run ? "thinking" : voice.speaking ? "speaking" : "idle";
@@ -228,7 +399,7 @@ export function MoPage() {
 
   return (
     <div className="fixed inset-0 z-[70] bg-[#07050f] text-gray-100 overflow-hidden">
-      <WaveCanvas mood={mood} level={voice.level} className="absolute inset-0 w-full h-full pointer-events-none" />
+      <WaveCanvas mood={mood} level={voice.level} levelRef={voice.levelRef} className="absolute inset-0 w-full h-full pointer-events-none" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(7,5,15,0)_0%,rgba(7,5,15,0.55)_70%,rgba(7,5,15,0.85)_100%)] pointer-events-none" />
 
       {/* Intro wordmark */}
@@ -238,17 +409,51 @@ export function MoPage() {
       </div>
 
       {/* Board */}
-      <Board ref={boardRef} className="absolute inset-0" onViewChange={(v) => { kRef.current = v.k; }}
+      <Board ref={boardRef} className="absolute inset-0" onViewChange={(v) => { kRef.current = v.k; }} onBackgroundClick={clearSelection}
         underlay={links.length ? (
           <svg className="absolute left-0 top-0 overflow-visible pointer-events-none" width={1} height={1}>
-            {links.map((l) => <path key={l.id} d={`M ${l.a.x} ${l.a.y} C ${(l.a.x + l.b.x) / 2} ${l.a.y}, ${(l.a.x + l.b.x) / 2} ${l.b.y}, ${l.b.x} ${l.b.y}`} stroke="rgba(167,139,250,0.45)" strokeWidth={2} strokeDasharray="6 6" fill="none" />)}
+            <defs>
+              <marker id="mo-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(167,139,250,0.7)" /></marker>
+              <marker id="mo-arrow-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#f0abfc" /></marker>
+            </defs>
+            {links.map((l) => {
+              const hot = hoverLink === l.id;
+              return (
+                <g key={l.id}>
+                  <path d={l.d} stroke={hot ? "#f0abfc" : "rgba(167,139,250,0.45)"} strokeWidth={hot ? 3 : 2} strokeDasharray={hot ? undefined : "6 6"} fill="none" markerEnd={`url(#${hot ? "mo-arrow-hot" : "mo-arrow"})`} />
+                  <circle cx={l.mid.x} cy={l.mid.y} r={11} fill="#100c1f" stroke={hot ? "#f0abfc" : "rgba(167,139,250,0.6)"} strokeWidth={1.5} />
+                  <text x={l.mid.x} y={l.mid.y + 4} textAnchor="middle" fontSize={12} fill={hot ? "#f0abfc" : "#c4b5fd"}>Δ</text>
+                </g>
+              );
+            })}
+          </svg>
+        ) : null}
+        overlay={guides.length ? (
+          <svg className="absolute left-0 top-0 overflow-visible pointer-events-none" width={1} height={1}>
+            {guides.map((g, i) => g.axis === "x"
+              ? <line key={i} x1={g.pos} x2={g.pos} y1={g.from} y2={g.to} stroke="rgba(167,139,250,0.6)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+              : <line key={i} y1={g.pos} y2={g.pos} x1={g.from} x2={g.to} stroke="rgba(167,139,250,0.6)" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}
           </svg>
         ) : null}
       >
-        {(board?.cards ?? []).map((c) => (
-          <MoCardView key={c.id} card={c} fresh={fresh.has(c.id)} refTitle={c.ref ? titles.get(c.ref) ?? null : null} getK={() => kRef.current} onMove={onMove} onMoveEnd={onMoveEnd} onToggle={onToggle} onClose={onClose} onFocusRef={onFocusRef} />
+        {sortedCards.map((c) => (
+          <MoCardView key={c.id} card={c} fresh={fresh.has(c.id)} delayMs={(freshOrder.get(c.id) ?? 0) * 60} selected={selected.has(c.id)} refTitle={c.ref ? titles.get(c.ref) ?? null : null} getK={getK}
+            onMove={onMove} onMoveEnd={onMoveEnd} onResizeStart={onResizeStart} onResize={onResize} onResizeEnd={onResizeEnd}
+            onFront={onFront} onSelect={onSelect} onToggle={onToggle} onClose={onClose} onFocusRef={onFocusRef} onHoverRef={onHoverRef} />
         ))}
       </Board>
+
+      {/* Board toolbar: ranger · fit · shortcuts — and the undo toast after a removal */}
+      <div className="absolute bottom-5 left-5 flex items-center gap-1.5 pointer-events-auto">
+        <button type="button" onClick={arrange} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Ranger les cartes (R)"><LayoutGrid className="w-3.5 h-3.5" /> Ranger</button>
+        <span className="hidden md:inline text-[10px] text-gray-600 ml-1">⌘0 tout voir · F nouvelles cartes · R ranger · Suppr retirer · Alt = sans aimant</span>
+      </div>
+      {undo && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 inline-flex items-center gap-3 rounded-full border border-white/10 bg-[#0d0a1a]/95 backdrop-blur px-4 py-2 text-xs text-gray-200 shadow-xl pointer-events-auto">
+          {undo.cards.length > 1 ? `${undo.cards.length} cartes retirées` : "Carte retirée"}
+          <button type="button" onClick={undoRemove} className="font-semibold text-violet-300 hover:text-white">Annuler</button>
+        </div>
+      )}
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 pointer-events-none">

@@ -93,7 +93,8 @@ export default async function RootLayout({
                     {session ? <UserNav session={session} /> : null}
                   </header>
                   <SecondaryNav />
-                  <main className="flex-1 overflow-auto min-h-0">
+                  {/* pb-16: the Mo orb floats over the bottom of the page (components/mo/mo-dock.tsx). */}
+                  <main className="flex-1 overflow-auto min-h-0 pb-16">
                     {children}
                   </main>
                 </div>

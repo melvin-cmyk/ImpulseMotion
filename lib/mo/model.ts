@@ -27,6 +27,8 @@ interface MoCardBase {
   y: number;
   w: number;
   h?: number;
+  /** Stacking order (higher on top); set when a card is brought to the front. */
+  z?: number;
   minimized?: boolean;
   /** Turn that produced the card (index of the assistant message). */
   turn: number;
@@ -47,7 +49,7 @@ export type MoCard = MoCardBase & MoCardPayload;
 export type MoCardSpec = { title: string; subtitle?: string; ref?: string } & MoCardPayload;
 
 /** Geometry patch sent by the browser. */
-export interface MoCardPatch { x?: number; y?: number; w?: number; h?: number; minimized?: boolean; removed?: boolean }
+export interface MoCardPatch { x?: number; y?: number; w?: number; h?: number; z?: number; minimized?: boolean; removed?: boolean }
 
 export interface MoMessage {
   role: "user" | "assistant";
@@ -84,6 +86,8 @@ export const CARD_SIZES: Record<MoCardType, { w: number; h: number }> = {
 
 export const ROW_GAP = 70;
 export const COL_GAP = 40;
+/** A turn's cards wrap to a new row beyond this width (world px), so a fit stays legible. */
+export const ROW_WRAP_WIDTH = 1400;
 
 /** What the model is asked to produce (parsed by `parseMoAnswer`). */
 export interface MoAnswer { say: string; cards: MoCardSpec[]; open?: string }
@@ -206,22 +210,26 @@ export function parseMoAnswer(text: string): MoAnswer {
   return { say: firstSentence, cards: outside ? [{ type: "note", title: "Réponse de Mo", markdown: outside.slice(0, MAX_MD) }] : [] };
 }
 
-/** Places the cards of one turn on a new row under everything already on the board. */
+/** Places the cards of one turn on new rows under everything already on the board (rows wrap at ROW_WRAP_WIDTH), on top of the stack. */
 export function layoutNewCards(existing: MoCard[], answer: MoAnswer, turn: number, at: string): MoCard[] {
   const bottom = existing.reduce((m, c) => Math.max(m, c.y + (c.h ?? CARD_SIZES[c.type].h)), 0);
-  const y = existing.length ? bottom + ROW_GAP : 0;
-  let x = 0;
+  let y = existing.length ? bottom + ROW_GAP : 0;
+  let x = 0, rowH = 0;
+  let z = existing.reduce((m, c) => Math.max(m, c.z ?? 0), 0);
   const ids = new Set(existing.map((c) => c.id));
   const out: MoCard[] = [];
   for (const c of answer.cards) {
     const size = CARD_SIZES[c.type];
+    if (x > 0 && x + size.w > ROW_WRAP_WIDTH) { y += rowH + ROW_GAP; x = 0; rowH = 0; }
     let id = newCardId();
     while (ids.has(id)) id = newCardId();
     ids.add(id);
     const ref = c.ref && ids.has(c.ref) ? c.ref : undefined;
     const { ref: _ref, ...rest } = c; void _ref;
-    out.push({ ...rest, ...(ref ? { ref } : {}), id, x, y, w: size.w, h: size.h, turn, at } as MoCard);
+    z += 1;
+    out.push({ ...rest, ...(ref ? { ref } : {}), id, x, y, w: size.w, h: size.h, z, turn, at } as MoCard);
     x += size.w + COL_GAP;
+    rowH = Math.max(rowH, size.h);
   }
   return out;
 }

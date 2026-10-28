@@ -5,6 +5,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { boardTitleFrom, layoutNewCards, parseMoAnswer, MO_MAX_CARDS, MO_MAX_MESSAGES, type MoBoardData, type MoCard, type MoCardPatch, type MoMessage } from "@/lib/mo/model";
+import { MAX_SIZE, MIN_SIZES } from "@/lib/mo/geometry";
 
 export const BOARD_ID_RE = /^[a-z0-9]{10,40}$/i;
 
@@ -87,7 +88,8 @@ export async function updateMoCards(boardId: string, patch: Array<MoCardPatch & 
     const p = byId.get(c.id);
     if (!p) return [c];
     if (p.removed) return [];
-    return [{ ...c, x: num(p.x, c.x, -50_000, 50_000), y: num(p.y, c.y, -50_000, 50_000), w: num(p.w, c.w, 240, 1600), h: num(p.h, c.h ?? 300, 120, 1400), ...(typeof p.minimized === "boolean" ? { minimized: p.minimized } : {}) } as MoCard];
+    const min = MIN_SIZES[c.type] ?? { w: 240, h: 120 };
+    return [{ ...c, x: num(p.x, c.x, -50_000, 50_000), y: num(p.y, c.y, -50_000, 50_000), w: num(p.w, c.w, min.w, MAX_SIZE.w), h: num(p.h, c.h ?? 300, min.h, MAX_SIZE.h), ...(typeof p.z === "number" ? { z: num(p.z, c.z ?? 0, 0, 1_000_000_000) } : {}), ...(typeof p.minimized === "boolean" ? { minimized: p.minimized } : {}) } as MoCard];
   });
   await prisma.moBoard.update({ where: { id: boardId }, data: { cardsJson: JSON.stringify(cards) } });
   return cards;

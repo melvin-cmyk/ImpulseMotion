@@ -15,9 +15,9 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { getAllowedAccountIds } from "@/lib/acl";
 import { getAccountScope } from "@/lib/scope";
 import { listClientRegistry } from "@/lib/clients/registry";
-import { CLIENT_DATA_SERVER, SANDBOX_SERVER, STAFF_MCP_SERVERS } from "@/lib/mcp-whitelist";
+import { CLIENT_DATA_SERVER, HQ_SERVER, MCP_SERVER_WHITELIST, SANDBOX_SERVER, STAFF_MCP_SERVERS, TIKTOK_SERVER } from "@/lib/mcp-whitelist";
 import { staffDataScopeForAll } from "@/lib/staff-data-scope";
-import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
+import { MO_PROFILE } from "@/lib/ai-profiles";
 import type { RelayChatBody, RelayEffort, RelayMessage, RelayModel } from "@/lib/relay-chat";
 import { runningJobCount, runningJobOf, startAiJob } from "@/lib/ai-jobs";
 import { describeCards, moSessionKey } from "@/lib/mo/model";
@@ -27,7 +27,23 @@ import { appendMoUserMessage, loadBoard, parseMoCards, parseMoMessages } from "@
 const MAX_RUNNING_JOBS_PER_USER = 3;
 const MAX_HISTORY = 16;
 const MAX_MESSAGE_CHARS = 4000;
-const MAX_TURNS = 25;
+const MAX_TURNS = MO_PROFILE.maxTurns ?? 12;
+
+/**
+ * Servers attached to the turn, by what the sentence asks for: the three ads
+ * platforms by default (plus GA4), HQ when the context of a client is asked,
+ * the heavy belt (sheets, Notion, sandbox, warehouses…) only on explicit
+ * words. Fewer servers = seconds saved at every start of the CLI.
+ */
+function serversFor(message: string, dataScope: boolean): string[] {
+  const t = message.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const servers = new Set<string>([...MCP_SERVER_WHITELIST, TIKTOK_SERVER]);
+  if (/\b(hq|contexte|historique|objectifs?|brief|memoire|persona|strategie)\b/.test(t)) servers.add(HQ_SERVER);
+  if (/\b(sheet|sheets|tableur|excel|feuille|notion|merchant|magento|drive|gmail|agenda|calendar|web|internet|cherche sur)\b/.test(t)) for (const s of STAFF_MCP_SERVERS) servers.add(s);
+  if (/\b(calcul|python|script|graphique avance|fichier|csv|sandbox)\b/.test(t)) servers.add(SANDBOX_SERVER);
+  if (dataScope && /\b(commandes?|entrepot|dataset|datasets|ventes? en base|panier|clients? finaux)\b/.test(t)) servers.add(CLIENT_DATA_SERVER);
+  return [...servers];
+}
 /** A voice answer should come fast; the relay cuts a runaway turn. */
 const BUDGET_MS = 5 * 60_000;
 const MODELS = new Set<RelayModel>(["sonnet", "opus", "fable"]);
@@ -74,8 +90,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     { role: "user", content: `${message}${context}` },
   ];
 
-  const model: RelayModel = MODELS.has(body.model as RelayModel) ? (body.model as RelayModel) : STAFF_CHAT_PROFILE.model;
-  const effort: RelayEffort = EFFORTS.has(body.effort as RelayEffort) ? (body.effort as RelayEffort) : STAFF_CHAT_PROFILE.effort;
+  const model: RelayModel = MODELS.has(body.model as RelayModel) ? (body.model as RelayModel) : MO_PROFILE.model;
+  const effort: RelayEffort = EFFORTS.has(body.effort as RelayEffort) ? (body.effort as RelayEffort) : MO_PROFILE.effort;
   const account = typeof body.account === "string" && ACCOUNT_RE.test(body.account) && body.account !== "auto" ? body.account : undefined;
 
   const relayBody: RelayChatBody = {
@@ -88,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     ...(account ? { account } : {}),
     maxTurns: MAX_TURNS,
     budgetMs: BUDGET_MS,
-    allowedServers: [...STAFF_MCP_SERVERS, SANDBOX_SERVER, ...(dataScope ? [CLIENT_DATA_SERVER] : [])],
+    allowedServers: serversFor(message, !!dataScope),
     ...(dataScope ? { dataScope } : {}),
     accountScope: { meta: metaIds, google: googleIds, tiktok: tiktokIds, unrestricted: guard.session.role === "admin" },
   };

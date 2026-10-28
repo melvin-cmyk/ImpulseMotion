@@ -63,7 +63,8 @@ export function AiJobsWatcher({ enabled, children }: { enabled: boolean; childre
         window.dispatchEvent(new CustomEvent(AI_JOB_FINISHED_EVENT, { detail: job }));
         if (ignored.current.has(job.id)) continue;
         const onIt = typeof window !== "undefined" && window.location.pathname + window.location.search === job.href;
-        if (!onIt) setNotices((prev) => (prev.some((n) => n.id === job.id) ? prev : [...prev, job]));
+        // Mo speaks its own result (orb or board): no notice for it.
+        if (!onIt && job.surface !== "mo") setNotices((prev) => (prev.some((n) => n.id === job.id) ? prev : [...prev, job]));
       }
       knownRunning.current = nowIds;
     } catch {
