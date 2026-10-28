@@ -7,7 +7,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Loader2, X } from "lucide-react";
+import { BookmarkPlus, ExternalLink, Loader2, X } from "lucide-react";
+import Link from "next/link";
 import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { AdsGroupRow, AdsQuery, DailyPoint, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRICS, METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
@@ -30,6 +31,20 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
   const [metric, setMetric] = useState<MetricKey>("cpc");
   const [tab, setTab] = useState<"apercu" | "performance" | "notes">("apercu");
   const ad = row.sample;
+  // « Garder comme template » → the swipe file of the client (Créas), picture and texts from the warehouse.
+  const [kept, setKept] = useState<{ busy: boolean; id?: string; clientId?: string | null; error?: string }>({ busy: false });
+  async function keepAsTemplate() {
+    if (!ad || kept.busy) return;
+    setKept({ busy: true });
+    try {
+      const res = await fetch("/api/creas/templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "own", adId: `${ad.platform}:${ad.adId}` }) });
+      const j = (await res.json().catch(() => ({}))) as { template?: { id: string; clientId: string | null }; error?: string };
+      if (!res.ok || !j.template) throw new Error(j.error ?? `Erreur ${res.status}`);
+      setKept({ busy: false, id: j.template.id, clientId: j.template.clientId });
+    } catch (e) {
+      setKept({ busy: false, error: e instanceof Error ? e.message : "Impossible" });
+    }
+  }
   const points = loaded && loaded.key === row.key ? loaded.points : null;
 
   useEffect(() => {
@@ -59,7 +74,16 @@ export function AdDrawer({ row, query, benchmark, currency, onClose }: Props) {
             <div className="flex items-center gap-2"><StatusDot status={ad?.status} /><h2 className="text-sm font-semibold text-white truncate" title={row.label}>{row.label}</h2></div>
             <div className="text-[11px] text-gray-500 truncate">{ad?.campaignName ?? ""}{ad?.adsetName ? ` · ${ad.adsetName}` : ""}{row.launch ? ` · lancée ${relativeDay(row.launch)} (${new Date(row.launch + "T00:00:00Z").toLocaleDateString("fr-FR")})` : ""}</div>
           </div>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800" aria-label="Fermer"><X className="w-4 h-4" /></button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {ad && (kept.id ? (
+              <Link href={`/creas?client=${kept.clientId ?? ""}&tab=templates&template=${kept.id}`} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-emerald-500/15 text-emerald-200 border border-emerald-500/30 hover:text-white" title="Ouvrir dans Créas">Template gardé → Créas</Link>
+            ) : (
+              <button type="button" onClick={() => void keepAsTemplate()} disabled={kept.busy} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-medium border border-violet-500/40 text-violet-200 hover:text-white hover:bg-violet-500/10 disabled:opacity-50" title={kept.error ?? "Garder cette créa comme template (swipe file du client) : l'IA en lit la structure, puis « Copier à la marque », FigCraft ou PhotoCraft"}>
+                {kept.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />} {kept.busy ? "Lecture…" : kept.error ? "Réessayer" : "Garder comme template"}
+              </button>
+            ))}
+            <button type="button" onClick={onClose} className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800" aria-label="Fermer"><X className="w-4 h-4" /></button>
+          </div>
         </div>
 
         <div className="px-4 pt-3 flex gap-1 border-b border-gray-800">

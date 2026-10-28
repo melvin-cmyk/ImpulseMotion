@@ -34,7 +34,8 @@ export type AiFeature =
   | "pilot_assistant"
   | "persona"
   | "design_copilot"
-  | "mo";
+  | "mo"
+  | "creas_template";
 
 export interface RelayUsage {
   provider: string;

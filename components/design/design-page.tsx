@@ -36,8 +36,10 @@ function when(iso: string): string {
   return isNaN(d.getTime()) ? "" : d.toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
 }
 
-export function DesignPage({ id }: { id: string }) {
+export function DesignPage({ id, ask }: { id: string; ask?: string }) {
   const router = useRouter();
+  /** A message to send as soon as the design is up (Créas → « Ouvrir dans FigCraft / PhotoCraft »); sent once. */
+  const askRef = useRef(ask ?? "");
   const jobs = useAiJobs();
   const [menuCollapsed, toggleMenu] = useSidebarCollapsed();
   const [design, setDesign] = useState<DesignDetail | null>(null);
@@ -180,9 +182,9 @@ export function DesignPage({ id }: { id: string }) {
     }
   }
 
-  async function send(e?: React.FormEvent) {
+  async function send(e?: React.FormEvent, override?: string) {
     e?.preventDefault();
-    const text = input.trim();
+    const text = (override ?? input).trim();
     if ((!text && !pending.files.length) || sending || run || foreignJob) return;
     setSending(true);
     setError(null);
@@ -208,6 +210,16 @@ export function DesignPage({ id }: { id: string }) {
       setSending(false);
     }
   }
+
+  // The opening message of a template lands once the design and the editor are up.
+  useEffect(() => {
+    if (!askRef.current || !design || run || foreignJob || sending) return;
+    const text = askRef.current;
+    askRef.current = "";
+    router.replace(`/design/${id}`);
+    void send(undefined, text);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design, run, foreignJob, sending]);
 
   async function stop() {
     if (!run) return;

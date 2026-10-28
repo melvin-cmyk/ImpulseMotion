@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Clapperboard, Download, ImageIcon, ImagePlus, Loader2, RotateCcw, Send, Trash2, Type, Wand2, X } from "lucide-react";
 import { TextEditor } from "@/components/studio/text-editor";
 import { Card, PageHeader, Pill, Section } from "@/components/ui/surface";
@@ -43,6 +44,8 @@ async function toDataUri(file: File): Promise<Ref> {
 }
 
 export function StudioPage() {
+  // ?client=<AlertClient id> (from Créas): the client is preselected for the next generation.
+  const searchParams = useSearchParams();
   const [kind, setKind] = useState<Kind>("image");
   const [prompt, setPrompt] = useState("");
   const [ratio, setRatio] = useState("1:1");
@@ -66,7 +69,7 @@ export function StudioPage() {
   const [quality, setQuality] = useState<Quality>("fast");
   const [refs, setRefs] = useState<Ref[]>([]);
   const [source, setSource] = useState<Asset | null>(null);
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(() => searchParams.get("client") ?? "");
   const [clients, setClients] = useState<Client[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +93,8 @@ export function StudioPage() {
     else setError(j.error ?? `Erreur ${res.status}`);
   }, [filter.mine, filter.clientId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // Reloaded when the filters change (the fetch sets the state once it answers).
+  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
   useEffect(() => {
     fetch("/api/pilot/clients").then((r) => (r.ok ? r.json() : { clients: [] })).then((j) => setClients((j.clients ?? []).map((c: Client) => ({ id: c.id, name: c.name })))).catch(() => {});
   }, []);

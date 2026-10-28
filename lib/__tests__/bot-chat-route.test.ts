@@ -39,6 +39,12 @@ vi.mock("@/lib/prisma", () => ({
     },
   },
 }));
+// Daily caps (lib/quotas.ts): none in these tests — the route reads them before building the turn.
+vi.mock("@/lib/quotas", () => ({
+  readQuotas: vi.fn(async () => ({ teamDailyUsd: 0, userDailyUsd: 0, teamDailyImages: 0, botDailyMessages: 0, warnAtPct: 80 })),
+  botMessagesToday: vi.fn(async () => 0),
+  botDailyCap: (bot: { dailyMessages: number | null }, q: { botDailyMessages: number }) => bot.dailyMessages ?? q.botDailyMessages,
+}));
 vi.mock("@/lib/ai-usage", () => ({
   recordBotUsage: async () => undefined,
   parseUsageEvent: () => null,

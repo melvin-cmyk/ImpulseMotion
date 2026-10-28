@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  AlertTriangle, BarChart3, Bot, ExternalLink, FileText, FolderOpen, Gauge, Loader2, PenTool, Plus, RefreshCw, Repeat, Sparkles,
+  AlertTriangle, BarChart3, Bot, ExternalLink, FileText, FolderOpen, Gauge, Images, Loader2, PenTool, Plus, RefreshCw, Repeat, Sparkles,
 } from "lucide-react";
 import { Section } from "@/components/ui/surface";
 import type { DesignListItem } from "@/lib/design/model";
@@ -31,6 +31,8 @@ function when(iso: string | null): string {
 
 export function ClientHub({ clientId, metaAccountId, isAdmin }: { clientId: string; metaAccountId: string | null; isAdmin: boolean }) {
   const [designs, setDesigns] = useState<DesignListItem[] | null>(null);
+  // Créas: the latest visuals the AI made for this client (/creas?client=…).
+  const [creas, setCreas] = useState<Array<{ id: string; url: string | null; prompt: string; feedback: string | null; params: { ratio?: string } }> | null>(null);
   const [drive, setDrive] = useState<DriveState | null>(null);
   const [driveBusy, setDriveBusy] = useState(false);
 
@@ -54,6 +56,15 @@ export function ClientHub({ clientId, metaAccountId, isAdmin }: { clientId: stri
         const j = await res.json();
         if (!cancelled) setDesigns(res.ok ? (j.designs as DesignListItem[]) : []);
       } catch { if (!cancelled) setDesigns([]); }
+      try {
+        const cl = await fetch("/api/clients").then((r) => (r.ok ? r.json() : { clients: [] })) as { clients: Array<{ id: string; clientId: string; aliasIds?: string[]; dashboardId: string | null }> };
+        const ref = cl.clients.find((c) => c.id === clientId || c.dashboardId === clientId || c.clientId === clientId || (c.aliasIds ?? []).includes(clientId));
+        if (ref) {
+          const res = await fetch(`/api/studio/assets?clientId=${ref.clientId}&origin=generated&take=12`, { cache: "no-store" });
+          const j = await res.json().catch(() => ({ assets: [] }));
+          if (!cancelled) setCreas(res.ok ? j.assets : []);
+        } else if (!cancelled) setCreas([]);
+      } catch { if (!cancelled) setCreas([]); }
       if (!cancelled) await loadDrive();
     });
     return () => { cancelled = true; };
@@ -77,6 +88,7 @@ export function ClientHub({ clientId, metaAccountId, isAdmin }: { clientId: stri
     { href: `/pilotage?dashboardId=${clientId}`, label: "Pilotage", hint: "modifications et impact", icon: <Gauge className="w-4 h-4 text-violet-300" /> },
     { href: `/me/alerts?dashboardId=${clientId}`, label: "Alertes", hint: "règles et historique", icon: <AlertTriangle className="w-4 h-4 text-violet-300" /> },
     { href: `/routines?dashboardId=${clientId}`, label: "Routines", hint: "automatisations", icon: <Repeat className="w-4 h-4 text-violet-300" /> },
+    { href: `/creas?client=${clientId}`, label: "Créas", hint: "visuels IA, templates, concurrents", icon: <Images className="w-4 h-4 text-violet-300" /> },
     { href: `/design?client=${clientId}`, label: "Designs", hint: "visuels FigCraft", icon: <PenTool className="w-4 h-4 text-violet-300" /> },
     ...(isAdmin ? [{ href: `/admin/bots/${clientId}`, label: "Bot client", hint: "assistant privé, sources", icon: <Bot className="w-4 h-4 text-violet-300" /> }] : []),
   ];
@@ -96,6 +108,22 @@ export function ClientHub({ clientId, metaAccountId, isAdmin }: { clientId: stri
             </Link>
           ))}
         </div>
+      </Section>
+
+      <Section title="Créas" action={<Link href={`/creas?client=${clientId}`} className="text-xs text-violet-400 hover:text-white inline-flex items-center gap-1">Tout voir <ExternalLink className="w-3 h-3" /></Link>}>
+        {creas === null ? (
+          <div className="px-4 py-6 text-xs text-gray-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement…</div>
+        ) : creas.length === 0 ? (
+          <div className="px-4 py-6 text-xs text-gray-500">Aucun visuel IA pour ce client. <Link href={`/creas?client=${clientId}&tab=templates`} className="text-violet-400">Partir d&apos;un template →</Link></div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2 p-3">
+            {creas.slice(0, 6).map((a) => (
+              <Link key={a.id} href={`/creas?client=${clientId}&asset=${a.id}`} className={`relative rounded-lg overflow-hidden border bg-gray-900 aspect-square ${a.feedback === "keep" ? "border-emerald-500/50" : a.feedback === "cut" ? "border-rose-500/40 opacity-70" : "border-gray-800 hover:border-violet-500/60"}`} title={a.prompt}>
+                {a.url ? <img src={a.url} alt={a.prompt} className="w-full h-full object-cover" loading="lazy" /> : null}
+              </Link>
+            ))}
+          </div>
+        )}
       </Section>
 
       <Section title="Designs" action={<Link href={`/design?client=${clientId}`} className="text-xs text-violet-400 hover:text-white inline-flex items-center gap-1"><Plus className="w-3 h-3" /> Nouveau</Link>}>

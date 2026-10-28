@@ -13,6 +13,8 @@ export interface AssetView {
   clientId: string | null; clientName: string; createdByName: string; createdAt: string; mine: boolean;
   params: Record<string, unknown>; url: string | null; downloadUrl: string | null; hasCopy: boolean;
   error: string | null; costUsd: number; sourceId: string | null;
+  /** Créas: the template it was made from, where it comes from (studio | template | variation | asset), the consultant's verdict. */
+  templateId: string | null; origin: string; feedback: string | null; feedbackNote: string | null;
 }
 
 export function assetView(a: Row, viewerId: string): AssetView {
@@ -26,6 +28,7 @@ export function assetView(a: Row, viewerId: string): AssetView {
     mine: a.createdById === viewerId, params, url: a.url ?? (a.file && a.status === "completed" ? publicMediaUrl(a.file, 6 * 3600) : null),
     downloadUrl: ready ? `/api/studio/assets/${a.id}/file` : null, hasCopy: !!a.file,
     error: a.error, costUsd: a.costUsd, sourceId: a.sourceId,
+    templateId: a.templateId, origin: a.origin, feedback: a.feedback, feedbackNote: a.feedbackNote,
   };
 }
 
