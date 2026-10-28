@@ -527,7 +527,6 @@ model ConsoleConversation {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, updatedAt])
-  @@index([userId, kind])
 }
 
 /// Billing ledger of the AI run on Amazon Bedrock (today: the private client
@@ -1515,4 +1514,5 @@ model MoBoard {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, updatedAt])
+  @@index([userId, kind])
 }
