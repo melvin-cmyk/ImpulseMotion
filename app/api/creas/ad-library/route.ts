@@ -8,6 +8,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth-helpers";
 import { adLibraryConfigured, searchAdLibrary } from "@/lib/creas/ad-library";
 
+/** A cold search (the relay starts its Chromium) takes up to ~80 s on a busy server. */
+export const maxDuration = 150;
+
 export async function GET(req: NextRequest) {
   const guard = await requireStaff();
   if ("error" in guard) return guard.error;

@@ -36,7 +36,7 @@ async function searchViaRelay(opts: { q: string; country: string; limit: number;
   const qs = new URLSearchParams({ q: opts.q, country: opts.country, limit: String(opts.limit), ...(opts.active ? {} : { all: "1" }) });
   for (const url of RELAY_URLS) {
     try {
-      const res = await fetch(`${url}/api/adlib/search?${qs}`, { headers: relayHeaders(), signal: AbortSignal.timeout(url.includes("localhost") && RELAY_URLS.length > 1 ? 4000 : 75_000) });
+      const res = await fetch(`${url}/api/adlib/search?${qs}`, { headers: relayHeaders(), signal: AbortSignal.timeout(url.includes("localhost") && RELAY_URLS.length > 1 ? 4000 : 120_000) });
       if (res.status === 503) return null;
       if (!res.ok) continue;
       const j = (await res.json()) as { ads?: RelayAd[]; total?: number | null; brandAds?: number };
