@@ -38,6 +38,7 @@ const FEATURE_LABEL: Record<string, string> = {
   analyse_copilot: "Copilote Analyse Ads",
   mo: "Mo (assistant vocal)",
   creas_template: "Lecture de templates (Créas)",
+  creas_copy: "Fabrique de statics (copys)",
   ai_tagging: "Tags IA des créas",
   recommend: "Plan d'action alertes",
   hq_context: "Contexte HQ client",

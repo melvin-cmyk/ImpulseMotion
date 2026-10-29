@@ -80,3 +80,90 @@ export function ratioFor(width: number | null, height: number | null): string {
   const candidates: Array<[string, number]> = [["1:1", 1], ["4:5", 0.8], ["3:4", 0.75], ["9:16", 9 / 16], ["16:9", 16 / 9], ["4:3", 4 / 3], ["2:3", 2 / 3], ["3:2", 1.5]];
   return candidates.reduce((best, c) => (Math.abs(c[1] - r) < Math.abs(best[1] - r) ? c : best))[0];
 }
+
+// ── Fabrique de statics (lib/creas/factory.ts, lib/creas/copy.ts) ────────────
+
+export const FACTORY_KINDS = ["offer", "evergreen", "iteration", "variation"] as const;
+export type FactoryKind = (typeof FACTORY_KINDS)[number];
+export const FACTORY_KIND_LABEL: Record<FactoryKind, string> = { offer: "Offre", evergreen: "Evergreen", iteration: "Itération", variation: "Variation" };
+
+export const RUN_STATUSES = ["draft", "copy_review", "approved", "generating", "review", "done", "failed"] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
+  draft: "Brouillon", copy_review: "Copys à valider", approved: "Prête à générer", generating: "Génération en cours", review: "À trier", done: "Terminée", failed: "Échec",
+};
+
+export const COPY_STATUSES = ["proposed", "approved", "rejected"] as const;
+export type CopyStatus = (typeof COPY_STATUSES)[number];
+
+export const FEEDBACK_LEVELS = ["asset", "template", "run", "client"] as const;
+export type FeedbackLevel = (typeof FEEDBACK_LEVELS)[number];
+export const FEEDBACK_LEVEL_LABEL: Record<FeedbackLevel, string> = { asset: "cette pub", template: "ce template", run: "cette fabrique", client: "ce client" };
+
+/** Where a piece of the run's context comes from (traced in FactoryRun.sourcesJson). */
+export interface ContextSource { kind: "hq_brief" | "templates" | "reviews" | "feedback" | "instructions"; ref: string; chars: number }
+
+export interface FactorySettings {
+  /** Visuals wanted in all. */
+  n: number;
+  engine: string;
+  ratio: string;
+  textless: boolean;
+  perTemplate: number;
+  persona?: string;
+  season?: string;
+  instructions?: string;
+  /** Progress of the generation: slots tried so far (success + failure) and failures. */
+  attempted: number;
+  failed: number;
+  /** Last error worth showing (a failed batch, Drive unreachable…). */
+  error?: string;
+}
+
+export interface FactoryCopyView {
+  id: string; runId: string; templateId: string | null; order: number;
+  headline: string; subline: string; cta: string; angle: string; persona: string; voiceSource: string;
+  status: CopyStatus; editedByHuman: boolean;
+}
+
+export interface FactoryRunView {
+  id: string; clientId: string; clientName: string; kind: FactoryKind; status: RunStatus;
+  templateIds: string[]; contextMd: string; sources: ContextSource[]; settings: FactorySettings;
+  estimatedUsd: number; costUsd: number; generated: number; kept: number; cut: number;
+  /** Visuals still to make (settings.n − attempted). */
+  remaining: number;
+  driveLink: string | null; createdByName: string; createdAt: string; updatedAt: string;
+  copies: FactoryCopyView[];
+}
+
+export interface FeedbackView { id: string; level: FeedbackLevel; clientId: string | null; assetId: string | null; templateId: string | null; runId: string | null; text: string; createdByName: string; createdAt: string }
+
+export const DEFAULT_FACTORY_ENGINE = "fal-ai/nano-banana-2/edit";
+export const DEFAULT_PER_TEMPLATE = 4;
+/** Images one HTTP call generates at most (Vercel 300 s), and one fal call (its own cap). */
+export const PASS_SIZE = 12;
+export const BATCH_SIZE = 4;
+export const PARALLEL_BATCHES = 3;
+export const MAX_RUN_IMAGES = 40;
+
+export function parseSettings(json: string | null | undefined): FactorySettings {
+  let raw: Record<string, unknown> = {};
+  try { raw = json ? (JSON.parse(json) as Record<string, unknown>) : {}; } catch { raw = {}; }
+  const int = (v: unknown, d: number, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.round(v))) : d);
+  const s = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  return {
+    n: int(raw.n, 0, 1000), engine: s(raw.engine, 80) || DEFAULT_FACTORY_ENGINE, ratio: s(raw.ratio, 8) || "1:1", textless: raw.textless === true,
+    perTemplate: int(raw.perTemplate, DEFAULT_PER_TEMPLATE, 12) || DEFAULT_PER_TEMPLATE,
+    ...(s(raw.persona, 200) ? { persona: s(raw.persona, 200) } : {}), ...(s(raw.season, 200) ? { season: s(raw.season, 200) } : {}), ...(s(raw.instructions, 1500) ? { instructions: s(raw.instructions, 1500) } : {}),
+    attempted: int(raw.attempted, 0, 100000), failed: int(raw.failed, 0, 100000), ...(s(raw.error, 500) ? { error: s(raw.error, 500) } : {}),
+  };
+}
+
+export function parseSources(json: string | null | undefined): ContextSource[] {
+  try {
+    const raw = json ? JSON.parse(json) : [];
+    return (Array.isArray(raw) ? raw : []).filter((x) => x && typeof x === "object" && typeof x.kind === "string").map((x) => ({ kind: x.kind, ref: String(x.ref ?? ""), chars: Number(x.chars) || 0 }));
+  } catch { return []; }
+}
+
+export const parseIdList = (json: string | null | undefined): string[] => { try { const raw = json ? JSON.parse(json) : []; return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : []; } catch { return []; } };

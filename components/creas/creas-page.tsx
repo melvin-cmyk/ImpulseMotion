@@ -8,20 +8,24 @@
  *   « Templates »         the swipe file: competitors' ads (capture, link, Meta Ad Library), the client's own
  *                         winners (Analyse Ads → « Garder comme template »), read by the AI → « Copier à la marque ».
  *   « Éléments de marque » logos and product photos kept as references for the copies.
- * Deep links: ?client=<id>&tab=templates&template=<id> · ?asset=<id>.
+ *   « Fabrique »          the statics factory: templates ticked → copies written by the AI and validated → a batch of
+ *                         visuals → a grid with verdicts and feedback (components/creas/factory-*.tsx).
+ * Deep links: ?client=<id>&tab=templates&template=<id> · ?asset=<id> · ?tab=fabrique&run=<id>.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookmarkPlus, Check, Download, ExternalLink, Images, Loader2, PenTool, Plus, RefreshCw, Scissors, Send, Sparkles, Trash2, Type, Wand2, X } from "lucide-react";
+import { BookmarkPlus, Check, Download, ExternalLink, Factory, Images, Loader2, PenTool, Plus, RefreshCw, Scissors, Send, Sparkles, Trash2, Type, Wand2, X } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui/surface";
 import { TextEditor } from "@/components/studio/text-editor";
 import { SOURCE_LABEL } from "@/lib/creas/model";
 import { AddTemplateDialog, CopyDialog, VariationDialog, BrandAssetUpload } from "./dialogs";
+import { FactoryTab } from "./factory-tab";
+import { TemplateFeedbackList } from "./factory-grid";
 import { BTN, BTN_PRIMARY, FIELD, ORIGIN_LABEL, aspect, matchClient, usd, when, type Asset, type ClientOption, type Engine, type QuotaInfo, type Template } from "./shared";
 
-type Tab = "creas" | "templates" | "assets";
+type Tab = "creas" | "templates" | "assets" | "fabrique";
 type Verdict = "all" | "keep" | "cut" | "todo";
 
 export function CreasPage() {
@@ -44,6 +48,10 @@ export function CreasPage() {
   const [editing, setEditing] = useState<Asset | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Fabrique: templates ticked on the Templates tab, the run open in the URL.
+  const [selected, setSelected] = useState<string[]>([]);
+  const [preselected, setPreselected] = useState<string[]>([]);
+  const [runId, setRunId] = useState<string | null>(params.get("run"));
 
   // Clients (registry): the one in the URL, else the first.
   useEffect(() => {
@@ -89,6 +97,23 @@ export function CreasPage() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client?.id]);
+
+  // The tab and the open fabrique live in the URL (deep links from HQ, Mo, Slack).
+  // Shallow (no server round-trip): the page already has everything, only the address changes.
+  const setRunUrl = useCallback((id: string | null) => {
+    setRunId(id);
+    const url = new URLSearchParams(window.location.search);
+    url.set("tab", "fabrique");
+    if (id) url.set("run", id); else url.delete("run");
+    window.history.replaceState(null, "", `/creas?${url.toString()}`);
+  }, []);
+  function switchTab(t: Tab) {
+    setTab(t);
+    const url = new URLSearchParams(window.location.search);
+    url.set("tab", t);
+    if (t !== "fabrique") url.delete("run");
+    window.history.replaceState(null, "", `/creas?${url.toString()}`);
+  }
 
   // Deep links to a template or an asset, once loaded.
   useEffect(() => {
@@ -139,7 +164,7 @@ export function CreasPage() {
   }
 
   const tabBtn = (t: Tab, label: string, count?: number) => (
-    <button key={t} type="button" onClick={() => setTab(t)} className={`px-3 py-1.5 rounded-lg text-sm border ${tab === t ? "bg-violet-600 border-violet-500 text-white" : "border-gray-800 text-gray-300 hover:text-white"}`}>{label}{typeof count === "number" ? <span className="ml-1.5 text-[11px] opacity-70">{count}</span> : null}</button>
+    <button key={t} type="button" onClick={() => switchTab(t)} data-tab={t} className={`px-3 py-1.5 rounded-lg text-sm border ${tab === t ? "bg-violet-600 border-violet-500 text-white" : "border-gray-800 text-gray-300 hover:text-white"}`}>{label}{typeof count === "number" ? <span className="ml-1.5 text-[11px] opacity-70">{count}</span> : null}</button>
   );
 
   return (
@@ -162,6 +187,7 @@ export function CreasPage() {
         {tabBtn("creas", "Créas générées", assets?.length)}
         {tabBtn("templates", "Templates & concurrents", templates?.length)}
         {tabBtn("assets", "Éléments de marque", brandAssets.length)}
+        {tabBtn("fabrique", "Fabrique")}
         <div className="ml-auto flex items-center gap-2">
           {quota && <span className="text-[11px] text-gray-500" title="Dépense du jour (jour de Paris) et plafonds posés par les admins">Aujourd&apos;hui : équipe {usd(quota.today.team.usd)}{quota.quotas.teamDailyUsd > 0 ? ` / ${usd(quota.quotas.teamDailyUsd)}` : ""} · toi {usd(quota.today.user.usd)}{quota.quotas.userDailyUsd > 0 ? ` / ${usd(quota.quotas.userDailyUsd)}` : ""}</span>}
           <button type="button" onClick={() => { if (client) void load(client); loadQuota(); }} className="text-gray-500 hover:text-white" title="Actualiser"><RefreshCw className="w-4 h-4" /></button>
@@ -226,24 +252,45 @@ export function CreasPage() {
             <button type="button" onClick={() => setAdding(true)} className={BTN_PRIMARY}><Plus className="w-4 h-4" /> Ajouter un template</button>
           </div>
         ) : (
-          <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {templates.map((t) => (
-              <li key={t.id}>
-                <button type="button" onClick={() => setOpenTemplate(t)} className="w-full text-left rounded-xl border border-gray-800 hover:border-violet-500/60 overflow-hidden bg-gray-950">
-                  <div className="relative bg-gray-900 aspect-[4/5]">
-                    {t.image ? <img src={t.image} alt={t.name} className="w-full h-full object-cover" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500 px-3 text-center">{t.title ?? "Sans image"}</div>}
-                    <span className="absolute top-1.5 left-1.5"><Pill tone={t.source === "competitor" ? "amber" : t.source === "own" ? "emerald" : "default"} className="text-[10px]">{t.source === "competitor" && t.brand ? t.brand : SOURCE_LABEL[t.source]}</Pill></span>
-                    {!t.clientId && <span className="absolute top-1.5 right-1.5"><Pill className="text-[10px]">Agence</Pill></span>}
-                  </div>
-                  <div className="px-2.5 py-2">
-                    <p className="text-xs text-gray-200 line-clamp-2">{t.name}</p>
-                    <p className="text-[10px] text-gray-500">{t.analysis.hook || "—"}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""}` : ""}</p>
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400" data-template-selection>
+              <span>Cochez des templates pour lancer une fabrique{selected.length ? ` — ${selected.length} sélectionné${selected.length > 1 ? "s" : ""}` : ""}.</span>
+              {selected.length > 0 && <button type="button" onClick={() => setSelected([])} className="hover:text-white">Tout décocher</button>}
+              {selected.length > 0 && <button type="button" onClick={() => { setPreselected(selected); setSelected([]); switchTab("fabrique"); }} className={`${BTN_PRIMARY} ml-auto`} data-factory-launch><Factory className="w-4 h-4" /> Lancer une fabrique ({selected.length})</button>}
+            </div>
+            <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {templates.map((t) => (
+                <li key={t.id} className={`relative rounded-xl border overflow-hidden bg-gray-950 ${selected.includes(t.id) ? "border-violet-500" : "border-gray-800 hover:border-violet-500/60"}`}>
+                  <button type="button" onClick={() => setOpenTemplate(t)} className="w-full text-left">
+                    <div className="relative bg-gray-900 aspect-[4/5]">
+                      {t.image ? <img src={t.image} alt={t.name} className="w-full h-full object-cover" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500 px-3 text-center">{t.title ?? "Sans image"}</div>}
+                      <span className="absolute top-1.5 left-9"><Pill tone={t.source === "competitor" ? "amber" : t.source === "own" ? "emerald" : "default"} className="text-[10px]">{t.source === "competitor" && t.brand ? t.brand : SOURCE_LABEL[t.source]}</Pill></span>
+                      {!t.clientId && <span className="absolute top-1.5 right-1.5"><Pill className="text-[10px]">Agence</Pill></span>}
+                    </div>
+                    <div className="px-2.5 py-2">
+                      <p className="text-xs text-gray-200 line-clamp-2">{t.name}</p>
+                      <p className="text-[10px] text-gray-500">{t.analysis.hook || "—"}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""}` : ""}</p>
+                    </div>
+                  </button>
+                  {t.image && (
+                    <label className={`absolute top-1.5 left-1.5 w-6 h-6 rounded-md inline-flex items-center justify-center cursor-pointer ${selected.includes(t.id) ? "bg-violet-600 text-white" : "bg-black/60 text-gray-300 hover:text-white"}`} title="Sélectionner pour une fabrique">
+                      <input type="checkbox" className="sr-only" checked={selected.includes(t.id)} onChange={(e) => setSelected((l) => (e.target.checked ? [...l, t.id] : l.filter((x) => x !== t.id)))} data-template-check={t.id} aria-label={`Sélectionner ${t.name}`} />
+                      <Check className={`w-3.5 h-3.5 ${selected.includes(t.id) ? "" : "opacity-40"}`} />
+                    </label>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
         )
+      )}
+
+      {/* ── Fabrique ──────────────────────────────────────────────────── */}
+      {tab === "fabrique" && client && (
+        templates === null ? <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
+        : <FactoryTab key={client.id} client={client} templates={templates} engines={engines} quota={quota} initialRunId={runId} preselected={preselected} onPreselectedUsed={() => setPreselected([])}
+            onRunUrl={setRunUrl} onNotice={setNotice} onError={setError} onOpenTemplate={(t) => setOpenTemplate(t)} onOpenIn={(editor, src) => void openIn(editor, src)} onVariation={(a) => setVarying(a)}
+            onAssetsCreated={(created) => { setAssets((l) => { const list = l ?? []; const ids = new Set(created.map((a) => a.id)); return [...created.filter((a) => !list.some((x) => x.id === a.id)), ...list.map((x) => (ids.has(x.id) ? created.find((a) => a.id === x.id)! : x))]; }); }} onQuotaChanged={loadQuota} />
       )}
 
       {/* ── Brand assets ──────────────────────────────────────────────── */}
@@ -274,7 +321,8 @@ export function CreasPage() {
 
       {/* ── Template drawer ───────────────────────────────────────────── */}
       {openTemplate && (
-        <TemplateDrawer template={openTemplate} onClose={() => setOpenTemplate(null)} onCopy={() => setCopying(openTemplate)} onOpenIn={(editor) => void openIn(editor, { templateId: openTemplate.id })} onReanalyse={() => void reanalyse(openTemplate)} onRemove={() => void removeTemplate(openTemplate)} />
+        <TemplateDrawer template={openTemplate} onClose={() => setOpenTemplate(null)} onCopy={() => setCopying(openTemplate)} onOpenIn={(editor) => void openIn(editor, { templateId: openTemplate.id })} onReanalyse={() => void reanalyse(openTemplate)} onRemove={() => void removeTemplate(openTemplate)}
+          onFactory={() => { setPreselected([openTemplate.id]); setOpenTemplate(null); switchTab("fabrique"); }} />
       )}
 
       {adding && <AddTemplateDialog client={client} clients={clients} onClose={() => setAdding(false)} onCreated={(t) => { setTemplates((l) => [t, ...(l ?? [])]); setAdding(false); setOpenTemplate(t); setNotice("Template gardé et lu par l'IA."); }} />}
@@ -340,7 +388,7 @@ function AssetDrawer({ asset: a, templateName, onClose, onFeedback, onVariation,
   );
 }
 
-function TemplateDrawer({ template: t, onClose, onCopy, onOpenIn, onReanalyse, onRemove }: { template: Template; onClose: () => void; onCopy: () => void; onOpenIn: (editor: "figcraft" | "photocraft") => void; onReanalyse: () => void; onRemove: () => void }) {
+function TemplateDrawer({ template: t, onClose, onCopy, onOpenIn, onReanalyse, onRemove, onFactory }: { template: Template; onClose: () => void; onCopy: () => void; onOpenIn: (editor: "figcraft" | "photocraft") => void; onReanalyse: () => void; onRemove: () => void; onFactory: () => void }) {
   const a = t.analysis;
   const [rereading, setRereading] = useState(false);
   const row = (label: string, value?: string | null) => (value ? <div><div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div><div className="text-sm text-gray-200">{value}</div></div> : null);
@@ -348,6 +396,7 @@ function TemplateDrawer({ template: t, onClose, onCopy, onOpenIn, onReanalyse, o
     <Drawer title={<span>{t.name} <span className="text-gray-500 font-normal">· {t.source === "competitor" && t.brand ? `concurrent ${t.brand}` : SOURCE_LABEL[t.source]}{t.clientName ? ` · ${t.clientName}` : " · agence"}</span></span>} onClose={onClose}>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={onCopy} className={BTN_PRIMARY} disabled={!t.image} title={t.image ? "Génère des visuels à la marque du client à partir de ce template (références + éléments de marque)" : "Ce template n'a pas d'image"}><Wand2 className="w-4 h-4" /> Copier à la marque</button>
+        <button type="button" onClick={onFactory} className={BTN} disabled={!t.image} title="Fabrique de statics : copys écrits par l'IA et validés, puis un lot de visuels"><Factory className="w-4 h-4" /> Lancer une fabrique</button>
         <button type="button" onClick={() => onOpenIn("figcraft")} className={BTN} disabled={!t.image} title="Reconstruit le template en calques modifiables (copilote IA)"><PenTool className="w-4 h-4" /> Modifier dans FigCraft</button>
         <button type="button" onClick={() => onOpenIn("photocraft")} className={BTN} disabled={!t.image} title="Retouche de l'image (copilote IA)"><PenTool className="w-4 h-4" /> Retoucher dans PhotoCraft</button>
       </div>
@@ -359,6 +408,7 @@ function TemplateDrawer({ template: t, onClose, onCopy, onOpenIn, onReanalyse, o
         {a.palette.length ? <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Palette</div><div className="flex flex-wrap gap-1.5 mt-1">{a.palette.map((c, i) => <span key={i} className="inline-flex items-center gap-1 text-[11px] text-gray-300"><span className="w-3.5 h-3.5 rounded-full border border-white/20" style={{ background: /^#|^rgb|^hsl/.test(c) ? c : undefined }} />{c}</span>)}</div></div> : null}
       </div>
       {row("Pourquoi ça marche", a.whyItWorks)}
+      <TemplateFeedbackList templateId={t.id} />
       {a.brief && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Brief pour une autre marque</div><p className="text-sm text-gray-200 whitespace-pre-wrap">{a.brief}</p></div>}
       <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
         <span>{t.createdByName} · {when(t.createdAt)}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""} généré${t.uses > 1 ? "s" : ""}` : ""}{t.tags.length ? ` · ${t.tags.join(", ")}` : ""}</span>

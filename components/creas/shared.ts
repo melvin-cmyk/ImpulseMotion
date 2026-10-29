@@ -1,10 +1,13 @@
 /** Shared bits of the Créas pages (client-side). */
 
 import type { AssetView } from "@/lib/studio-assets";
-import type { TemplateView } from "@/lib/creas/model";
+import type { FactoryCopyView, FactoryRunView, FeedbackView, TemplateView } from "@/lib/creas/model";
 
 export type Asset = AssetView;
 export type Template = TemplateView;
+export type FactoryRun = FactoryRunView;
+export type FactoryCopy = FactoryCopyView;
+export type Feedback = FeedbackView;
 export interface Engine { id: string; label: string; provider: "agnes" | "fal"; refs: boolean; usd: number }
 export interface QuotaInfo { quotas: { teamDailyUsd: number; userDailyUsd: number; teamDailyImages: number; warnAtPct: number }; today: { team: { usd: number; images: number }; user: { usd: number; images: number } } }
 export interface ClientOption { id: string; clientId: string; aliasIds: string[]; name: string; dashboardId: string | null; hqSlug: string | null }
@@ -13,7 +16,7 @@ export const usd = (v: number) => `${v.toFixed(2).replace(".", ",")} $`;
 export const when = (iso: string) => new Date(iso).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 export const aspect = (r?: unknown) => { const [w, h] = String(r ?? "1:1").split(":").map(Number); return w && h ? `${w} / ${h}` : "1 / 1"; };
 
-export const ORIGIN_LABEL: Record<string, string> = { studio: "Studio", template: "Depuis un template", variation: "Variante", asset: "Élément de marque" };
+export const ORIGIN_LABEL: Record<string, string> = { studio: "Studio", template: "Depuis un template", variation: "Variante", factory: "Fabrique", asset: "Élément de marque" };
 
 export const BTN = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-gray-700 text-gray-200 hover:text-white hover:border-gray-500 disabled:opacity-40";
 export const BTN_PRIMARY = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-violet-600 hover:bg-violet-500 text-white font-medium disabled:opacity-40";
@@ -38,4 +41,20 @@ export function priceReminder(quota: QuotaInfo | null, unitUsd: number, n: numbe
 export function matchClient(clients: ClientOption[], wanted: string | null): ClientOption | null {
   if (!wanted) return null;
   return clients.find((c) => c.id === wanted || c.clientId === wanted || c.dashboardId === wanted || c.aliasIds.includes(wanted)) ?? null;
+}
+
+/** What may still be spent today (the tightest of the team's and the consultant's USD caps), null when no cap is set. */
+export function remainingToday(quota: QuotaInfo | null): number | null {
+  if (!quota) return null;
+  const { quotas: q, today } = quota;
+  const caps = [q.teamDailyUsd > 0 ? q.teamDailyUsd - today.team.usd : null, q.userDailyUsd > 0 ? q.userDailyUsd - today.user.usd : null].filter((v): v is number => v !== null);
+  return caps.length ? Math.max(0, Math.min(...caps)) : null;
+}
+
+/** The price line of a fabrique: « 12 × 0,06 $ = 0,72 $ · reste aujourd'hui 4,28 $ ». */
+export function factoryPriceLine(quota: QuotaInfo | null, unitUsd: number, n: number): { text: string; over: boolean } {
+  const total = Math.round(unitUsd * n * 1000) / 1000;
+  const rest = remainingToday(quota);
+  const r = priceReminder(quota, unitUsd, n);
+  return { text: `${n} × ${usd(unitUsd)} = ${usd(total)} · reste aujourd'hui ${rest === null ? "sans plafond" : usd(rest)}`, over: r?.over ?? false };
 }

@@ -7,6 +7,8 @@ import { prisma } from "@/lib/prisma";
 import { dataUriOk, publicMediaUrl, relayPoll, relayUpload } from "@/lib/studio";
 import { appendHqJournal } from "@/lib/hq-journal";
 import { resolveAlertClient } from "@/lib/creas/templates";
+import { statusAfterVerdicts } from "@/lib/creas/copy";
+import type { RunStatus } from "@/lib/creas/model";
 
 type Row = NonNullable<Awaited<ReturnType<typeof prisma.creativeAsset.findUnique>>>;
 
@@ -15,8 +17,10 @@ export interface AssetView {
   clientId: string | null; clientName: string; createdByName: string; createdAt: string; mine: boolean;
   params: Record<string, unknown>; url: string | null; downloadUrl: string | null; hasCopy: boolean;
   error: string | null; costUsd: number; sourceId: string | null;
-  /** Créas: the template it was made from, where it comes from (studio | template | variation | asset), the consultant's verdict. */
+  /** Créas: the template it was made from, where it comes from (studio | template | variation | factory | asset), the consultant's verdict. */
   templateId: string | null; origin: string; feedback: string | null; feedbackNote: string | null;
+  /** Fabrique de statics: the run and the copy the visual was made for. */
+  factoryRunId: string | null; copyId: string | null;
 }
 
 export function assetView(a: Row, viewerId: string): AssetView {
@@ -31,6 +35,7 @@ export function assetView(a: Row, viewerId: string): AssetView {
     downloadUrl: ready ? `/api/studio/assets/${a.id}/file` : null, hasCopy: !!a.file,
     error: a.error, costUsd: a.costUsd, sourceId: a.sourceId,
     templateId: a.templateId, origin: a.origin, feedback: a.feedback, feedbackNote: a.feedbackNote,
+    factoryRunId: a.factoryRunId, copyId: a.copyId,
   };
 }
 
@@ -74,6 +79,7 @@ export async function setAssetFeedback(id: string, input: { feedback?: "keep" | 
   }
   if (!Object.keys(data).length) return { ok: false, status: 400, error: "Rien à enregistrer." };
   const updated = await prisma.creativeAsset.update({ where: { id }, data });
+  if (data.feedback !== undefined && updated.factoryRunId) await syncFactoryRunCounters(updated.factoryRunId).catch(() => undefined);
   // The verdict feeds the client's memory (HQ): a short dated entry, best effort.
   let hq: { ok: boolean; error?: string } = { ok: false };
   if ((data.feedback !== undefined || data.feedbackNote !== undefined) && updated.alertClientId && (updated.feedback || updated.feedbackNote)) {
@@ -122,4 +128,14 @@ export async function createBrandAsset(input: { userId: string; userEmail?: stri
   } catch (e) {
     return { ok: false, status: 502, error: `L'élément n'a pas pu être enregistré : ${e instanceof Error ? e.message : String(e)}` };
   }
+}
+
+/** Kept / cut counters of a fabrique from its visuals' verdicts; « review » becomes « done » once every visual is judged. */
+export async function syncFactoryRunCounters(runId: string): Promise<void> {
+  const run = await prisma.factoryRun.findUnique({ where: { id: runId }, select: { status: true, generated: true } });
+  if (!run) return;
+  const verdicts = await prisma.creativeAsset.groupBy({ by: ["feedback"], where: { factoryRunId: runId, deletedAt: null }, _count: { _all: true } });
+  const kept = verdicts.find((v) => v.feedback === "keep")?._count._all ?? 0;
+  const cut = verdicts.find((v) => v.feedback === "cut")?._count._all ?? 0;
+  await prisma.factoryRun.update({ where: { id: runId }, data: { kept, cut, status: statusAfterVerdicts({ status: run.status as RunStatus, generated: run.generated, kept, cut }) } });
 }
