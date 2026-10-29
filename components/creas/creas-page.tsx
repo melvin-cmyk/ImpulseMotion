@@ -16,12 +16,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookmarkPlus, Check, Download, ExternalLink, Factory, Images, Loader2, PenTool, Plus, RefreshCw, Scissors, Send, Sparkles, Trash2, Type, Wand2, X } from "lucide-react";
+import { BookOpen, BookmarkPlus, Check, Download, ExternalLink, Factory, Images, Loader2, PenTool, Plus, RefreshCw, Scissors, Send, Sparkles, Trash2, Type, Wand2, X } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui/surface";
 import { TextEditor } from "@/components/studio/text-editor";
 import { SOURCE_LABEL } from "@/lib/creas/model";
 import { AddTemplateDialog, CopyDialog, VariationDialog, BrandAssetUpload } from "./dialogs";
 import { FactoryTab } from "./factory-tab";
+import { PlaybookDialog } from "./playbook-dialog";
 import { TemplateFeedbackList } from "./factory-grid";
 import { BTN, BTN_PRIMARY, FIELD, ORIGIN_LABEL, aspect, matchClient, usd, when, type Asset, type ClientOption, type Engine, type QuotaInfo, type Template } from "./shared";
 
@@ -43,6 +44,7 @@ export function CreasPage() {
   const [openAsset, setOpenAsset] = useState<Asset | null>(null);
   const [openTemplate, setOpenTemplate] = useState<Template | null>(null);
   const [adding, setAdding] = useState(false);
+  const [studying, setStudying] = useState(false);
   const [copying, setCopying] = useState<Template | null>(null);
   const [varying, setVarying] = useState<Asset | null>(null);
   const [editing, setEditing] = useState<Asset | null>(null);
@@ -191,6 +193,7 @@ export function CreasPage() {
         <div className="ml-auto flex items-center gap-2">
           {quota && <span className="text-[11px] text-gray-500" title="Dépense du jour (jour de Paris) et plafonds posés par les admins">Aujourd&apos;hui : équipe {usd(quota.today.team.usd)}{quota.quotas.teamDailyUsd > 0 ? ` / ${usd(quota.quotas.teamDailyUsd)}` : ""} · toi {usd(quota.today.user.usd)}{quota.quotas.userDailyUsd > 0 ? ` / ${usd(quota.quotas.userDailyUsd)}` : ""}</span>}
           <button type="button" onClick={() => { if (client) void load(client); loadQuota(); }} className="text-gray-500 hover:text-white" title="Actualiser"><RefreshCw className="w-4 h-4" /></button>
+          {tab === "templates" && <button type="button" onClick={() => setStudying(true)} className={BTN} data-playbook-open><BookOpen className="w-4 h-4" /> Étudier une marque</button>}
           {tab === "templates" && <button type="button" onClick={() => setAdding(true)} className={BTN_PRIMARY}><Plus className="w-4 h-4" /> Ajouter un template</button>}
           {tab === "creas" && <Link href={`/studio${client ? `?client=${client.clientId}` : ""}`} className={BTN}><Wand2 className="w-4 h-4" /> Studio</Link>}
         </div>
@@ -325,6 +328,7 @@ export function CreasPage() {
           onFactory={() => { setPreselected([openTemplate.id]); setOpenTemplate(null); switchTab("fabrique"); }} />
       )}
 
+      {studying && <PlaybookDialog client={client} onClose={() => setStudying(false)} onKept={(n) => { setStudying(false); if (client) void load(client); setNotice(`${n} template${n > 1 ? "s" : ""} gardé${n > 1 ? "s" : ""} depuis l'étude de la marque.`); }} />}
       {adding && <AddTemplateDialog client={client} clients={clients} onClose={() => setAdding(false)} onCreated={(t) => { setTemplates((l) => [t, ...(l ?? [])]); setAdding(false); setOpenTemplate(t); setNotice("Template gardé et lu par l'IA."); }} />}
       {copying && <CopyDialog template={copying} client={client} clients={clients} engines={engines} quota={quota} brandAssets={brandAssets} onClose={() => setCopying(null)}
         onDone={(created, message) => { setCopying(null); setOpenTemplate(null); setAssets((l) => [...created, ...(l ?? [])]); setTemplates((l) => (l ?? []).map((t) => (t.id === created[0]?.templateId ? { ...t, uses: t.uses + created.length } : t))); setTab("creas"); setVerdict("all"); setNotice(message); loadQuota(); if (created[0] && created[0].clientId !== client?.clientId) { const c = clients.find((x) => x.clientId === created[0].clientId); if (c) setClient(c); } }} />}

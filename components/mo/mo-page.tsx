@@ -36,7 +36,7 @@ import { MAX_UPLOAD_BYTES, cardClientOf, fileKindOf, isSheetCard, type SheetCard
 import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
 
 const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
-import { PERIOD_OPTIONS, completeQuickAsk, ghostTitle, orderClientCandidates, parseFollowUpIntent, parseFollowUpQuick, parseNavIntent, parseQuickIntent, targetIndexes, withClientAliases, type IntentClient, type QuickAsk, type QuickFollowUp, type QuickResult } from "@/lib/mo/intents";
+import { PERIOD_OPTIONS, completeQuickAsk, ghostTitle, orderClientCandidates, parseFactoryIntent, parseFollowUpIntent, parseFollowUpQuick, parseNavIntent, parseQuickIntent, targetIndexes, withClientAliases, type IntentClient, type QuickAsk, type QuickFollowUp, type QuickResult } from "@/lib/mo/intents";
 import { cardRemovedTooSoon, misunderstoodBy } from "@/lib/mo/measure";
 import { nextSentences, sayProgress } from "@/lib/mo/voice";
 import { actStatusLabel, moStatusLabel } from "@/lib/mo/status";
@@ -388,8 +388,14 @@ export function MoPage() {
       window.setTimeout(() => router.push(nav.path), 600);
       return;
     }
+    // « Valide 1 à 5 », « génère 8 visuels », « repropose » over the copies table of a fabrique: the server runs it, no model.
+    // A verdict word (« valide la 3 ») goes to the copies table only when it is fresher than the creatives card at hand.
+    const fx = parseFactoryIntent(t);
+    const copiesTable = fx ? targetCopiesCard() : null;
+    const creativesAtHand = fx?.kind === "factory_approve" && copiesTable ? targetCreativesCard() : null;
+    const factory = fx && copiesTable && (!creativesAtHand || copiesTable.at >= creativesAtHand.at) ? { fx, card: copiesTable } : null;
     // « Mets ça dans un Google Sheet » over the table / KPI / creatives card at hand: an export, no model.
-    const followUp = parseFollowUpIntent(t);
+    const followUp = factory ? null : parseFollowUpIntent(t);
     if (followUp?.kind === "sheet") {
       const target = targetSheetCard();
       if (!target) { setLastSaid({ you: t, mo: "Je ne vois pas de tableau à exporter." }); if (!muted) speakRef.current("Je ne vois pas de tableau à exporter."); return; }
@@ -422,7 +428,7 @@ export function MoPage() {
         return;
       }
     }
-    const quick: QuickResult | null = parseQuickIntent(t, clientsRef.current);
+    const quick: QuickResult | null = factory ? null : parseQuickIntent(t, clientsRef.current);
     // « Créas cette semaine » without a client: Mo asks with chips, nothing leaves the browser.
     if (quick?.kind === "ask") {
       setAsk(quick);
@@ -434,18 +440,20 @@ export function MoPage() {
     }
     setAsk(null);
     // « Deux autres comme ça », « compare avec la semaine d'avant », « montre les pubs de La Fourche » : the server resolves them against the card at hand, without the model.
-    const fu: QuickFollowUp | null = quick ? null : parseFollowUpQuick(t, clientsRef.current);
+    const fu: QuickFollowUp | null = quick || factory ? null : parseFollowUpQuick(t, clientsRef.current);
     const plan: QuickResult | QuickFollowUp | null = quick ?? fu;
-    const hint = fu?.kind === "more_like_this" ? targetCreativesCard() : fu?.kind === "compare" ? targetKpiCard() : null;
+    const hint = factory ? factory.card : fu?.kind === "more_like_this" ? targetCreativesCard() : fu?.kind === "compare" ? targetKpiCard() : null;
     const hintClient = hint ? cardClientOf(hint, clientsRef.current) : null;
     setBoard((b) => (b ? { ...b, messages: [...b.messages, { role: "user", content: t, at: new Date().toISOString() }] } : b));
-    placeGhost(t, plan, hintClient);
+    // The copies table is rewritten in place: no ghost for a fabrique step.
+    if (!factory) placeGhost(t, plan, hintClient);
     // « Les créas de Cours Legendre cette semaine », « le CPA de Naturalia ce mois-ci » : the app runs the tool itself, no model, 3 seconds.
-    if (plan) {
+    if (plan || factory) {
       const turn = startTurn("quick");
       // A follow-up takes longer (a generation, the Ad Library): Mo announces it at once.
-      if (fu) { setLastSaid({ you: t, mo: fu.say }); if (!muted) speakRef.current(fu.say); }
-      setRun({ jobId: `quick:${plan.kind}`, startedAt: now, activity: INITIAL_ACTIVITY });
+      const announce = factory?.fx.say ?? fu?.say;
+      if (announce) { setLastSaid({ you: t, mo: announce }); if (!muted) speakRef.current(announce); }
+      setRun({ jobId: `quick:${(factory?.fx ?? plan)!.kind}`, startedAt: now, activity: INITIAL_ACTIVITY });
       try {
         const res = await fetch(`/api/mo/${board.id}/quick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: t, ...(hint ? { cardId: hint.id } : {}), retried }) });
         if (res.status === 200) {
@@ -697,6 +705,15 @@ export function MoPage() {
   const selectedRef = useRef(selected); useEffect(() => { selectedRef.current = selected; }, [selected]);
   const freshRef = useRef(fresh); useEffect(() => { freshRef.current = fresh; }, [fresh]);
   /** The creatives card a follow-up is about: the one selected, else the freshest, else the latest on the board. */
+  /** The « Copys à valider » table of a fabrique (a table carrying a runId): the selected one, else the freshest. */
+  const targetCopiesCard = useCallback((): Extract<MoCard, { type: "table" }> | null => {
+    const b = boardStateRef.current; if (!b) return null;
+    const tables = b.cards.filter((c): c is Extract<MoCard, { type: "table" }> => c.type === "table" && typeof c.runId === "string");
+    const sel = tables.filter((c) => selectedRef.current.has(c.id));
+    if (sel.length === 1) return sel[0];
+    return [...tables].sort((a, c) => (c.at > a.at ? 1 : c.at < a.at ? -1 : 0))[0] ?? null;
+  }, []);
+
   const targetCreativesCard = useCallback((): Extract<MoCard, { type: "creatives" }> | null => {
     const b = boardStateRef.current; if (!b) return null;
     const creatives = b.cards.filter((c): c is Extract<MoCard, { type: "creatives" }> => c.type === "creatives");

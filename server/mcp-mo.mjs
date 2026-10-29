@@ -135,6 +135,37 @@ server.registerTool("keep_template", {
   inputSchema: { libraryId: z.string().max(40).optional(), query: z.string().max(100).optional().describe("La marque cherchée dans competitor_ads (pour retrouver la pub)."), imageUrl: z.string().max(2000).optional(), client: z.string().max(120).optional().describe("Le client pour qui on garde ce template (sinon template d'agence)."), brand: z.string().max(120).optional(), name: z.string().max(120).optional(), title: z.string().max(500).optional(), body: z.string().max(4000).optional(), tags: z.string().max(300).optional(), country: z.string().length(2).optional() },
 }, async (args) => call("keep_template", args, 120_000));
 
+server.registerTool("brand_playbook", {
+  title: "Étudier une marque (playbook)",
+  description: "Étudie la bibliothèque publicitaire Meta d'une marque (ses pubs actives, complétées par les passées) : chaque pub avec image est lue par l'IA, puis regroupée en FORMATS récurrents (avant/après, témoignage, liste de bénéfices…) avec leur fréquence et s'ils sont polyvalents (réutilisables pour un autre client). 1 à 2 minutes la première fois (dis-le avant), immédiat ensuite (cache 7 jours). POSE LUI-MÊME deux cartes : les pubs numérotées (format sous chacune) et le playbook. La réponse à « étudie la bibliothèque de Huel », « quels formats fait Acadomia ». Ensuite « garde la 2 » sur la carte ou keep_template (imageUrl + client) en fait des templates du client.",
+  inputSchema: { brand: z.string().min(2).max(100).describe("La marque à étudier."), client: z.string().max(120).optional().describe("Le client pour qui on étudie (les templates gardés seront les siens)."), country: z.string().length(2).optional().describe("Défaut FR."), limit: z.number().int().min(4).max(30).optional().describe("Pubs lues par l'IA (défaut 18)."), fresh: z.boolean().optional().describe("true = refaire l'étude même si elle est en cache."), post: z.boolean().optional() },
+}, async (args) => call("brand_playbook", args, 280_000));
+
+server.registerTool("factory_propose", {
+  title: "Fabrique de statics : proposer des copys",
+  description: "Lance une FABRIQUE DE STATICS pour un client : à partir de ses templates (templateIds, sinon ses derniers templates gardés), l'IA lit le contexte du client (brief et fichiers HQ, gagnantes de l'entrepôt, angles jamais testés, retours passés) et propose des copys (titre, sous-titre, bouton, angle, source). 30 s à 1 min. POSE LUI-MÊME la table « Copys à valider » (numérotée), une note « Contexte lu » et des puces. Avec run (ou again=true) : repropose sur la fabrique en cours (les copys validés restent). Ne génère AUCUNE image : la personne valide d'abord.",
+  inputSchema: {
+    client: client.optional(), templateIds: z.array(z.string().max(40)).max(12).optional().describe("Templates choisis (keep_template / brand_playbook les donnent)."),
+    templates: z.number().int().min(1).max(12).optional().describe("Sans templateIds : combien des derniers templates du client (défaut 4)."), tag: z.string().max(60).optional().describe("Sans templateIds : seulement les templates portant ce tag (ex. playbook:huel)."),
+    kind: z.enum(["offer", "evergreen", "iteration"]).optional().describe("offer = une offre (donne-la dans instructions), evergreen (défaut), iteration = nouvelles formulations d'angles gagnants."),
+    per_template: z.number().int().min(1).max(6).optional().describe("Copys par template (défaut 3)."), instructions: z.string().max(1500).optional().describe("Ce que veut la personne : offre, produit, ton, interdits."),
+    persona: z.string().max(200).optional(), season: z.string().max(200).optional(), reviews: z.string().max(20000).optional().describe("Avis clients collés, s'il y en a."),
+    run: z.string().max(40).optional().describe("Reproposer sur cette fabrique."), again: z.boolean().optional().describe("true = reproposer sur la fabrique en cours du tableau."), post: z.boolean().optional(),
+  },
+}, async (args) => call("factory_propose", args, 280_000));
+
+server.registerTool("factory_approve", {
+  title: "Fabrique de statics : valider des copys",
+  description: "Valide des copys de la fabrique en cours (la table « Copys à valider » du tableau) : numbers = les numéros dits (« valide 1 à 5 » → [1,2,3,4,5], « valide 1, 4 et 7 » → [1,4,7]) ou all=true ; les autres sont écartés (reject_others=false pour les laisser). La table est réécrite en place (colonne ✓). Ensuite propose factory_generate en disant le prix (~0,06 $ l'image).",
+  inputSchema: { run: z.string().max(40).optional().describe("Défaut : la fabrique de la table du tableau."), numbers: z.array(z.number().int().min(1).max(60)).max(60).optional(), all: z.boolean().optional(), reject_others: z.boolean().optional() },
+}, async (args) => call("factory_approve", args, 60_000));
+
+server.registerTool("factory_generate", {
+  title: "Fabrique de statics : générer les visuels",
+  description: "Génère les visuels des copys validés de la fabrique en cours (fal Nano Banana 2, le template et les éléments de marque en référence), par passes de 12, rangés dans les Créas et le Drive du client ; respecte les quotas (refus sinon). 1 à 3 minutes (dis-le avant). POSE LUI-MÊME la grille des visuels (garder / couper / publier marchent dessus). n = visuels voulus (défaut 8, 40 max) — seulement après un accord explicite de la personne sur le nombre et le prix.",
+  inputSchema: { run: z.string().max(40).optional(), n: z.number().int().min(1).max(40).optional(), ratio: z.enum(["1:1", "3:4", "9:16", "16:9"]).optional().describe("Défaut 1:1."), engine: z.string().max(80).optional(), textless: z.boolean().optional().describe("true = sans texte dans l'image (textes posés ensuite dans FigCraft)."), post: z.boolean().optional() },
+}, async (args) => call("factory_generate", args, 290_000));
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error(`[mcp-mo] prêt (board ${BOARD})`);

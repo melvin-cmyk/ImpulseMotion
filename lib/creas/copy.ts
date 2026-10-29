@@ -14,6 +14,8 @@ export interface CopyProposal { templateId: string; order: number; headline: str
 const MAX_BRIEF = 1800;
 const MAX_REVIEWS = 6000;
 const MAX_FEEDBACK = 1200;
+/** The client's context document inside a run's context (the copy prompt stays under ~6 k tokens with the templates). */
+export const MAX_CLIENT_DOC = 14_000;
 
 /**
  * The context the model reads for one run (lot 1: the client's cached HQ
@@ -21,12 +23,19 @@ const MAX_FEEDBACK = 1200;
  * consultant pasted, the feedback of past runs). Each source is capped and
  * traced with its size, so the consultant sees what the AI was given.
  */
-export function assembleContext(input: { clientName: string; brief: string; templates: CopyTemplateInput[]; reviews: string; feedback: Array<{ level: string; text: string }>; instructions?: string }): { md: string; sources: ContextSource[] } {
+export function assembleContext(input: { clientName: string; brief: string; templates: CopyTemplateInput[]; reviews: string; feedback: Array<{ level: string; text: string }>; instructions?: string; client?: { md: string; sources: ContextSource[] } | null }): { md: string; sources: ContextSource[] } {
   const sources: ContextSource[] = [];
   const parts: string[] = [`# Contexte statics — ${input.clientName}`];
-  const brief = input.brief.trim().slice(0, MAX_BRIEF);
-  if (brief) { parts.push(`## Brief de marque (mémoire HQ, en cache)\n${brief}`); sources.push({ kind: "hq_brief", ref: "Dashboard.hqContextMd", chars: brief.length }); }
-  else parts.push("## Brief de marque\n(aucun brief HQ en cache pour ce client : reste générique et prudent, pas de promesse ni de prix.)");
+  const clientDoc = (input.client?.md ?? "").trim().replace(/^#\s[^\n]*\n+/, "").slice(0, MAX_CLIENT_DOC);
+  if (clientDoc) {
+    // The client's context document (lib/creas/context.ts: HQ brief and files, warehouse winners, comments, past feedback), as the consultant left it.
+    parts.push(clientDoc);
+    sources.push(...(input.client?.sources.length ? input.client.sources : [{ kind: "client_doc" as const, ref: "FactoryContext", chars: clientDoc.length }]));
+  } else {
+    const brief = input.brief.trim().slice(0, MAX_BRIEF);
+    if (brief) { parts.push(`## Brief de marque (mémoire HQ, en cache)\n${brief}`); sources.push({ kind: "hq_brief", ref: "Dashboard.hqContextMd", chars: brief.length }); }
+    else parts.push("## Brief de marque\n(aucun brief HQ en cache pour ce client : reste générique et prudent, pas de promesse ni de prix.)");
+  }
   const tpl = input.templates.map((t, i) => {
     const a = t.analysis;
     const zones = a.textZones.length ? a.textZones.map((z) => `${z.role}${z.text ? ` : « ${z.text} »` : ""}`).join(" ; ") : "aucune zone de texte lue";

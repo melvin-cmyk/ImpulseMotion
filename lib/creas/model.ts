@@ -101,7 +101,27 @@ export type FeedbackLevel = (typeof FEEDBACK_LEVELS)[number];
 export const FEEDBACK_LEVEL_LABEL: Record<FeedbackLevel, string> = { asset: "cette pub", template: "ce template", run: "cette fabrique", client: "ce client" };
 
 /** Where a piece of the run's context comes from (traced in FactoryRun.sourcesJson). */
-export interface ContextSource { kind: "hq_brief" | "templates" | "reviews" | "feedback" | "instructions"; ref: string; chars: number }
+export const CONTEXT_SOURCE_KINDS = ["hq_brief", "personas", "langage_client", "voix", "concurrents", "warehouse", "comments", "client_doc", "templates", "reviews", "feedback", "instructions"] as const;
+export type ContextSourceKind = (typeof CONTEXT_SOURCE_KINDS)[number];
+export interface ContextSource { kind: ContextSourceKind; ref: string; chars: number; /** e.g. « hypothèse » for personas not confirmed in HQ. */ note?: string }
+export const CONTEXT_SOURCE_LABEL: Record<ContextSourceKind, string> = {
+  hq_brief: "Brief HQ", personas: "Personas HQ", langage_client: "Langage client HQ", voix: "Voix de la marque HQ", concurrents: "Concurrents HQ", warehouse: "Gagnantes de l'entrepôt",
+  comments: "Commentaires des pubs", client_doc: "Document de contexte du client", templates: "Templates", reviews: "Avis collés", feedback: "Retours passés", instructions: "Consignes",
+};
+
+/** The client's statics context document (FactoryContext), as the UI shows it. */
+export interface FactoryContextView {
+  clientId: string;
+  md: string;
+  sources: ContextSource[];
+  /** Stored (edited by a consultant) or freshly assembled. */
+  stored: boolean;
+  updatedAt: string | null;
+  hqPath: string | null;
+  /** Where the mirror would be written in HQ (null: no HQ folder). */
+  hqTarget: string | null;
+  warnings: string[];
+}
 
 export interface FactorySettings {
   /** Visuals wanted in all. */
@@ -162,7 +182,7 @@ export function parseSettings(json: string | null | undefined): FactorySettings 
 export function parseSources(json: string | null | undefined): ContextSource[] {
   try {
     const raw = json ? JSON.parse(json) : [];
-    return (Array.isArray(raw) ? raw : []).filter((x) => x && typeof x === "object" && typeof x.kind === "string").map((x) => ({ kind: x.kind, ref: String(x.ref ?? ""), chars: Number(x.chars) || 0 }));
+    return (Array.isArray(raw) ? raw : []).filter((x) => x && typeof x === "object" && typeof x.kind === "string").map((x) => ({ kind: x.kind, ref: String(x.ref ?? ""), chars: Number(x.chars) || 0, ...(typeof x.note === "string" && x.note ? { note: x.note.slice(0, 80) } : {}) }));
   } catch { return []; }
 }
 

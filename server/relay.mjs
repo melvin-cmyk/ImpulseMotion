@@ -37,6 +37,7 @@ let hqProjectsCache = null;
 
 // Fichiers d'un dossier client HQ que l'app peut lire en direct : projects/{slug}/…
 // et le registre clients.yaml (jamais settings/, secrets ni un chemin remontant).
+const HQ_WRITABLE_FILES = ["brain/recherche/personas.md", "brain/contenu/statics-context.md"];
 const HQ_PROJECT_FILE_RE = /^(projects\/[a-z0-9][a-z0-9-]{0,79}(\/[A-Za-z0-9._-]{1,80}){1,6}|clients\.yaml)$/;
 
 /** « (customer_id=…) » / « (account_id=…) » for the tool log: the account targeted, nothing else. */
@@ -2337,8 +2338,15 @@ const server = http.createServer(async (req, res) => {
         res.end(JSON.stringify({ error: "project et content requis" }));
         return;
       }
+      // Deux fichiers seulement, jamais un chemin libre : le persona et le contexte de la fabrique de statics.
+      const file = body?.file === undefined || body?.file === null ? "brain/recherche/personas.md" : body.file;
+      if (!HQ_WRITABLE_FILES.includes(file)) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "fichier HQ non autorisé" }));
+        return;
+      }
       const company = process.env.HQ_COMPANY || "impulse-analytics";
-      const path = `projects/${project}/brain/recherche/personas.md`;
+      const path = `projects/${project}/${file}`;
       try {
         const stat = parseHqJson(await hqToolCall("hq_files_stat", { company, path }));
         const exists = !!stat && stat.found !== false;
@@ -2356,9 +2364,9 @@ const server = http.createServer(async (req, res) => {
           ? await hqToolCall("hq_files_update", { company, path, content, expectedEtag: etag })
           : await hqToolCall("hq_files_create", { company, path, content });
         const after = parseHqJson(await hqToolCall("hq_files_stat", { company, path }));
-        console.log(`[hq] persona ${company}/${project} ${exists ? "mis à jour" : "créé"} (${content.length} car.)`);
+        console.log(`[hq] ${file} ${company}/${project} ${exists ? "mis à jour" : "créé"} (${content.length} car.)`);
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true, created: !exists, etag: after?.etag ?? null, result: String(result).slice(0, 300) }));
+        res.end(JSON.stringify({ ok: true, created: !exists, file, etag: after?.etag ?? null, result: String(result).slice(0, 300) }));
       } catch (e) {
         console.error("[hq] persona échec:", project, e.message);
         res.writeHead(502, { "Content-Type": "application/json" });

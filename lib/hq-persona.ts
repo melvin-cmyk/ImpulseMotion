@@ -163,24 +163,36 @@ export async function readHqPersona(slug: string): Promise<HqPersona | null> {
 
 export type WriteOutcome = { ok: true; etag: string | null; created: boolean } | { ok: false; error: string; conflict?: boolean };
 
+/** The only HQ files the application writes in place (the relay holds the same list). */
+export const HQ_WRITABLE_FILES = ["brain/recherche/personas.md", "brain/contenu/statics-context.md"] as const;
+export type HqWritableFile = (typeof HQ_WRITABLE_FILES)[number];
+
 /**
  * Writes personas.md in HQ. `etag` = the one read just before (null for a
  * creation): the relay refuses when the file changed in between.
  */
-export async function writeHqPersona(slug: string, content: string, etag: string | null): Promise<WriteOutcome> {
+export function writeHqPersona(slug: string, content: string, etag: string | null): Promise<WriteOutcome> {
+  return writeHqFile(slug, "brain/recherche/personas.md", content, etag);
+}
+
+/** Writes one of the HQ_WRITABLE_FILES of a client folder, under the relay's ETag lock (same rules as personas.md). */
+export async function writeHqFile(slug: string, file: HqWritableFile, content: string, etag: string | null): Promise<WriteOutcome> {
   if (!HQ_PROJECT_RE.test(slug)) return { ok: false, error: "Dossier HQ invalide." };
+  if (!(HQ_WRITABLE_FILES as readonly string[]).includes(file)) return { ok: false, error: "Fichier HQ non autorisé." };
   let lastError = "relay indisponible";
   for (const url of RELAY_URLS) {
     try {
       const res = await fetch(`${url}/api/hq/persona`, {
         method: "PUT",
         headers: relayHeaders(),
-        body: JSON.stringify({ project: slug, content, etag }),
+        body: JSON.stringify({ project: slug, content, etag, file }),
         signal: AbortSignal.timeout(60_000),
       });
       const json = await res.json().catch(() => ({}));
       if (res.status === 409) return { ok: false, error: json.error ?? "Le fichier a changé dans HQ.", conflict: true };
       if (!res.ok) { lastError = json.error ?? `relay ${res.status}`; continue; }
+      // An old relay ignores `file` and would have written personas.md: say it rather than pretend.
+      if (file !== "brain/recherche/personas.md" && json.file !== file) return { ok: false, error: "Le relay n'accepte pas encore ce fichier (redémarrage du relay nécessaire)." };
       // Cached briefs predate this file: force a fresh read next time.
       await prisma.dashboard.updateMany({ where: { hqSlug: slug }, data: { hqContextAt: null } }).catch(() => {});
       return { ok: true, etag: json.etag ?? null, created: json.created === true };

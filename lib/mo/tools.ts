@@ -11,6 +11,7 @@
  *   meta_publish_ad    a new Meta ad from a generated visual: a Pilotage action, prepared then sent on an explicit « oui » (created PAUSED, journaled in HQ)
  *   competitor_ads     the ads a brand runs right now (Meta Ad Library, public page read by the relay), posted as a card
  *   keep_template      one of them kept as a template (swipe file) of the client, analysed by the AI
+ *   brand_playbook / factory_propose / factory_approve / factory_generate   the fabrique de statics (lib/mo/factory-tools.ts)
  *
  * Every tool takes `client` = a name said out loud or an id; it is resolved
  * against the registry the consultant may see. Nothing here trusts an account
@@ -42,8 +43,10 @@ import { ownAdTemplateSource } from "@/lib/creas/templates";
 import { dataUriToRelayImage } from "@/lib/creas/media";
 import { relayUpload } from "@/lib/studio";
 import type { MoCardSpec } from "@/lib/mo/model";
+import type { Playbook, PlaybookCandidate } from "@/lib/creas/playbook-doc";
+import { brandPlaybook, factoryApprove, factoryGenerate, factoryPropose, type FactoryToolDeps } from "@/lib/mo/factory-tools";
 
-export const MO_TOOL_NAMES = ["creatives", "metrics", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad", "competitor_ads", "keep_template"] as const;
+export const MO_TOOL_NAMES = ["creatives", "metrics", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad", "competitor_ads", "keep_template", "brand_playbook", "factory_propose", "factory_approve", "factory_generate"] as const;
 export type MoToolName = (typeof MO_TOOL_NAMES)[number];
 
 export interface MoToolContext {
@@ -566,6 +569,20 @@ export async function competitorAds(ctx: MoToolContext, a: Args): Promise<ToolRe
   };
 }
 
+/** The study (cached playbook) an Ad Library ad was read in, with its analysis and format; null when none. */
+async function playbookCandidate(libraryId: string): Promise<{ candidate: PlaybookCandidate; tag: string } | null> {
+  if (!/^\d{5,25}$/.test(libraryId)) return null;
+  const rows = await prisma.appSetting.findMany({ where: { key: { startsWith: "playbook:" }, valueJson: { contains: `"libraryId":"${libraryId}"` } }, orderBy: { updatedAt: "desc" }, take: 1 });
+  for (const r of rows) {
+    try {
+      const p = JSON.parse(r.valueJson) as Playbook;
+      const candidate = p.candidates.find((c) => c.libraryId === libraryId);
+      if (candidate) return { candidate, tag: `playbook:${p.brand.toLowerCase().replace(/[,\s]+/g, "-").slice(0, 40)}` };
+    } catch { /* unreadable study */ }
+  }
+  return null;
+}
+
 /** One ad of the library (or any https picture) kept as a template of the client: picture copied on the relay, analysed (hook, structure, text zones, brief). */
 export async function keepTemplate(ctx: MoToolContext, a: Args): Promise<ToolResult> {
   const libraryId = str(a.libraryId, 40).replace(/^adlib:/, "");
@@ -600,13 +617,24 @@ export async function keepTemplate(ctx: MoToolContext, a: Args): Promise<ToolRes
   let file: string | null = null;
   if (dataUri) { try { file = (await relayUpload(dataUri)).file; } catch (e) { throw new MoToolError(`L'image n'a pas pu être enregistrée : ${e instanceof Error ? e.message : String(e)}`, 502); } }
   const author = await prisma.user.findUnique({ where: { id: ctx.userId }, select: { name: true, email: true } });
-  const analysis = a.analyse === false ? null : await analyseTemplate({ image: dataUri ? dataUriToRelayImage(dataUri, "template") : null, title: title || null, body: text || null, brand: brand || null, user: { id: ctx.userId, email: ctx.email, role: ctx.role } });
+  // An ad read in a brand's study (brand_playbook) keeps the analysis and the format of the study: no second AI reading.
+  const studied = libraryId ? await playbookCandidate(libraryId) : null;
+  const tags = [str(a.tags, 300), ...(studied ? [studied.tag, studied.candidate.format.toLowerCase()] : [])].filter(Boolean).join(", ").slice(0, 300);
+  const analysis = studied ? studied.candidate.analysis : a.analyse === false ? null : await analyseTemplate({ image: dataUri ? dataUriToRelayImage(dataUri, "template") : null, title: title || null, body: text || null, brand: brand || null, user: { id: ctx.userId, email: ctx.email, role: ctx.role } });
   name = name || analysis?.hook || (brand ? `Pub ${brand}` : "Template");
   const row = await prisma.creativeTemplate.create({ data: {
     alertClientId: client?.clientId ?? own?.client?.id ?? null, clientName: client?.name ?? own?.client?.name ?? "", name, source: own ? "own" : "competitor", brand, sourceRef: own ? own.sourceRef : libraryId ? `adlib:${libraryId}` : null, sourceUrl: sourceUrl || null, imageUrl: imageUrl || null, file,
-    title: title || null, body: text || null, analysisJson: JSON.stringify(analysis ?? {}), tags: str(a.tags, 300), createdById: ctx.userId, createdByName: (author?.name ?? "").trim() || author?.email || "Consultant",
+    title: title || null, body: text || null, analysisJson: JSON.stringify(analysis ?? {}), tags, createdById: ctx.userId, createdByName: (author?.name ?? "").trim() || author?.email || "Consultant",
   } });
   return { templateId: row.id, name: row.name, brand, source: row.source, client: client ? { id: client.id, name: client.name } : null, open: `/creas?${client ? `client=${client.id}&` : ""}tab=templates&template=${row.id}`, analysis: analysis ? { hook: analysis.hook, structure: analysis.structure, style: analysis.style, brief: analysis.brief } : null, note: "Template enregistré dans Créas › Templates & concurrents ; la personne peut dire « copie-le pour <client> » (generate_creatives avec references=[templateId] … ou ouvrir la page)." };
+}
+
+function factoryDeps(ctx: MoToolContext): FactoryToolDeps {
+  return {
+    ctx,
+    resolve: async (raw) => { const { client } = await resolveClient(ctx, raw); return { id: client.id, clientId: client.clientId, name: client.name, hqSlug: client.hqSlug ?? null }; },
+    error: (message, status) => new MoToolError(message, status ?? 400),
+  };
 }
 
 export async function runMoTool(ctx: MoToolContext, tool: string, args: unknown): Promise<ToolResult> {
@@ -620,6 +648,10 @@ export async function runMoTool(ctx: MoToolContext, tool: string, args: unknown)
     case "meta_publish_ad": return metaPublishAd(ctx, a);
     case "competitor_ads": return competitorAds(ctx, a);
     case "keep_template": return keepTemplate(ctx, a);
+    case "brand_playbook": return brandPlaybook(factoryDeps(ctx), a);
+    case "factory_propose": return factoryPropose(factoryDeps(ctx), a);
+    case "factory_approve": return factoryApprove(factoryDeps(ctx), a);
+    case "factory_generate": return factoryGenerate(factoryDeps(ctx), a);
     default: throw new MoToolError(`Outil inconnu : ${tool}`, 404);
   }
 }

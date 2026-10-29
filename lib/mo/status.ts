@@ -22,6 +22,8 @@ export const MO_STATUS = {
   upload: "je range le fichier",
   send: "j'envoie la publicité (en pause)",
   sheet: "j'écris la feuille",
+  copy: "j'écris les copys",
+  study: "j'étudie la bibliothèque de la marque",
 } as const;
 
 export type MoStatusKey = keyof typeof MO_STATUS;
@@ -34,7 +36,9 @@ export function toolStatusKey(name: string | null | undefined): MoStatusKey {
     const tool = n.slice("mcp__mo__".length);
     if (/^(creatives|metrics|creative_metrics)/.test(tool)) return "warehouse";
     if (/^(competitor_ads|keep_template)/.test(tool)) return "library";
-    if (/^generate_creatives/.test(tool)) return "generate";
+    if (/^(generate_creatives|factory_generate)/.test(tool)) return "generate";
+    if (/^(factory_propose|factory_approve)/.test(tool)) return "copy";
+    if (/^brand_playbook/.test(tool)) return "study";
     if (/^(meta_publish_ad|meta_targets)/.test(tool)) return "publish";
     return "think";
   }
@@ -61,7 +65,8 @@ export function actStatusLabel(action: string): string {
 
 /** The action behind a quick intent (lib/mo/intents.ts kinds). */
 export function quickStatusKey(kind: string): MoStatusKey {
-  if (kind === "more_like_this" || kind === "generate_creatives") return "generate";
+  if (kind === "more_like_this" || kind === "generate_creatives" || kind === "factory_generate") return "generate";
+  if (kind === "factory_approve" || kind === "factory_repropose") return "copy";
   if (kind === "competitor_ads") return "library";
   return "warehouse";
 }

@@ -15,7 +15,8 @@ import { Check, Loader2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
 export const DEFAULT_RUN_IMAGES = 8;
 export const UI_MAX_RUN_IMAGES = 24;
 import { Pill } from "@/components/ui/surface";
-import { FACTORY_KIND_LABEL, type FactoryKind } from "@/lib/creas/model";
+import { ContextPanel } from "./context-panel";
+import { CONTEXT_SOURCE_LABEL, FACTORY_KIND_LABEL, type FactoryKind } from "@/lib/creas/model";
 import { BTN, BTN_PRIMARY, FIELD, factoryPriceLine, usd, type Asset, type ClientOption, type Engine, type FactoryCopy, type FactoryRun, type QuotaInfo, type Template } from "./shared";
 
 const KINDS: FactoryKind[] = ["offer", "evergreen", "iteration"];
@@ -123,8 +124,9 @@ function StepTemplates({ client, templates, preselected, onError, onCreated }: {
         <label className="flex flex-col gap-1 text-xs text-gray-400">Propositions de copy par template
           <select value={perTemplate} onChange={(e) => setPerTemplate(Number(e.target.value))} className={FIELD}>{[2, 3, 4, 5, 6].map((k) => <option key={k} value={k}>{k}</option>)}</select>
         </label>
-        <div className="text-xs text-gray-500 self-end pb-1">Contexte lu par l&apos;IA : brief HQ du client (en cache), ce que disent les templates, vos avis collés, les retours des fabriques passées.</div>
+        <div className="text-xs text-gray-500 self-end pb-1">L&apos;IA lit aussi ce que disent les templates choisis, vos avis collés et vos consignes.</div>
       </div>
+      <ContextPanel client={client} />
       <label className="flex flex-col gap-1 text-xs text-gray-400">Ce que vous voulez (offre, produit, ton — facultatif)
         <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} placeholder={kind === "offer" ? "Ex. : rentrée, 1er cours offert, cible parents de collégiens" : "Ex. : mettre en avant le suivi personnalisé, ton rassurant"} className={`${FIELD} resize-y`} />
       </label>
@@ -153,7 +155,7 @@ function StepCopies({ run, templates, onError, onUpdated, onValidated }: { run: 
   const byTemplate = useMemo(() => run.templateIds.map((id) => ({ template: templates.find((t) => t.id === id) ?? null, id, copies: run.copies.filter((c) => c.templateId === id) })), [run, templates]);
   const set = (id: string, patch: Partial<Draft>) => setEdits((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
   const setAll = (status: "approved" | "rejected") => setEdits((d) => { const next = { ...d }; for (const c of run.copies) next[c.id] = { ...next[c.id], status }; return next; });
-  const sourceSummary = run.sources.map((s) => ({ hq_brief: `brief HQ (${s.chars} car.)`, templates: `${s.ref.split(",").length} templates`, reviews: `avis collés (${s.chars} car.)`, feedback: `retours passés (${s.chars} car.)`, instructions: "vos consignes" }[s.kind] ?? s.kind)).join(" · ");
+  const sourceSummary = run.sources.map((s) => (s.kind === "templates" ? `${s.ref.split(",").length} templates` : s.kind === "instructions" ? "vos consignes" : `${CONTEXT_SOURCE_LABEL[s.kind] ?? s.kind}${s.note ? ` (${s.note})` : ""} · ${s.chars} car.`)).join(" · ");
 
   async function save(then: "validate" | "repropose") {
     setBusy(then === "validate" ? "save" : "repropose"); onError(null);

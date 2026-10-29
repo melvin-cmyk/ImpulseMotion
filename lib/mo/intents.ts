@@ -492,3 +492,58 @@ export function ghostTitle(text: string, quick: QuickResult | QuickFollowUp | nu
   const short = clean.length > 60 ? clean.slice(0, 59).trimEnd() + "…" : clean;
   return short ? short.charAt(0).toUpperCase() + short.slice(1) : "En cours";
 }
+
+// ── Fabrique de statics: the copies table at hand (lib/mo/factory-tools.ts) ──
+
+export type FactoryIntent =
+  /** « valide tout », « valide 1 à 5 », « valide 1, 4 et 7 », « valide les 3 premiers » */
+  | { kind: "factory_approve"; numbers: number[] | "all"; say: string }
+  /** « génère 8 visuels », « lance la génération » */
+  | { kind: "factory_generate"; n: number | null; say: string }
+  /** « repropose les copys », « d'autres copys » */
+  | { kind: "factory_repropose"; say: string };
+
+const NUMBER_WORDS: Record<string, number> = { un: 1, une: 1, deux: 2, trois: 3, quatre: 4, cinq: 5, six: 6, sept: 7, huit: 8, neuf: 9, dix: 10, onze: 11, douze: 12, quinze: 15, vingt: 20, trente: 30, quarante: 40 };
+const numOf = (w: string): number | null => (/^\d{1,2}$/.test(w) ? Number(w) : NUMBER_WORDS[w] ?? null);
+const APPROVE_VERBS = /\b(valide|valides|valider|validons|approuve|approuver|garde|gardes|garder|prends|prendre|retiens|ok pour)\b/;
+const GENERATE_VERBS = /\b(genere|generes|generer|lance|lancer|fabrique|fabriquer|produis|produire|cree|creer|fais|faire)\b/;
+const VISUAL_WORDS = /\b(visuels?|images?|creas?|statics?|generation|pubs?)\b/;
+
+/** The numbers a sentence lists: ranges (« 1 à 5 », « de 2 a 4 », « 1-3 »), « les 3 premiers », lists (« 1, 4 et 7 »). */
+export function saidNumbers(t: string): number[] {
+  const out: number[] = [];
+  const range = /(?:de |du )?\b(\d{1,2}|[a-z]+)\s*(?:a|au|jusqu a|-)\s*(\d{1,2}|[a-z]+)\b/g;
+  let rest = t;
+  for (const m of t.matchAll(range)) {
+    const a = numOf(m[1]), b = numOf(m[2]);
+    if (a !== null && b !== null && b >= a && b - a < 60) { for (let i = a; i <= b; i++) out.push(i); rest = rest.replace(m[0], " "); }
+  }
+  const first = rest.match(/\b(?:les |la )?(\d{1,2}|[a-z]+) premier(?:e|s|es)?\b/);
+  if (first && numOf(first[1]) !== null) { for (let i = 1; i <= numOf(first[1])!; i++) out.push(i); rest = rest.replace(first[0], " "); }
+  for (const w of rest.split(/[^a-z0-9]+/)) { if (/^\d{1,2}$/.test(w)) out.push(Number(w)); }
+  return [...new Set(out)].filter((n) => n >= 1 && n <= 60).sort((a, b) => a - b);
+}
+
+/**
+ * A sentence about the copies of a fabrique (said over its « Copys à valider »
+ * table): approve some or all, launch the generation, propose again. Null
+ * otherwise. The caller checks that such a table is on the board.
+ */
+export function parseFactoryIntent(text: string): FactoryIntent | null {
+  const t = fold(text);
+  if (!t || t.length > 140) return null;
+  if (/\b(repropose|reproposer|reproposes|d autres copys?|autres propositions|nouveaux copys?|refais les copys?)\b/.test(t)) return { kind: "factory_repropose", say: "Je repropose des copys, une minute." };
+  if (APPROVE_VERBS.test(t) && !/\b(comme ca|autres?)\b/.test(t)) {
+    if (/\b(tout|tous|toutes|l ensemble)\b/.test(t)) return { kind: "factory_approve", numbers: "all", say: "Je valide tous les copys." };
+    const numbers = saidNumbers(t);
+    if (numbers.length) return { kind: "factory_approve", numbers, say: numbers.length === 1 ? `Je valide le copy ${numbers[0]}.` : `Je valide ${numbers.length} copys.` };
+    return null;
+  }
+  if (GENERATE_VERBS.test(t) && (VISUAL_WORDS.test(t) || /\b(go|c est parti)\b/.test(t)) && !/\b(comme ca|autres?|variantes?|pour [a-z]{3,})\b/.test(t)) {
+    const m = t.match(/\b(\d{1,2}|un|une|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|quinze|vingt|trente|quarante)\s+(visuels?|images?|creas?|statics?|pubs?)\b/);
+    const n = m ? numOf(m[1]) : null;
+    return { kind: "factory_generate", n, say: n ? `Je lance ${n} visuels, une à trois minutes.` : "Je lance la génération, une à trois minutes." };
+  }
+  return null;
+}
+

@@ -24,6 +24,7 @@ import { appendHqJournal } from "@/lib/hq-journal";
 import { mediaFileDataUri } from "@/lib/creas/media";
 import { buildCopyPrompt } from "@/lib/creas/templates";
 import { DEFAULT_FACTORY_ENGINE, DEFAULT_PER_TEMPLATE, FACTORY_KINDS, MAX_RUN_IMAGES, PARALLEL_BATCHES, PASS_SIZE, parseAnalysis, parseIdList, parseSettings, parseSources, type FactoryCopyView, type FactoryKind, type FactoryRunView, type FactorySettings, type FeedbackLevel, type FeedbackView, type RunStatus } from "@/lib/creas/model";
+import { contextForRun } from "@/lib/creas/context";
 import { assembleContext, buildCopyProposalPrompt, buildFactoryImagePrompt, canTransition, estimateUsd, factoryFileName, factoryFolderName, parseCopyProposals, passPlan, planSlots, remainingOf, statusAfterPass, type CopyTemplateInput } from "@/lib/creas/copy";
 
 export interface FactoryClient { id: string; name: string; hqSlug: string | null }
@@ -118,11 +119,13 @@ export interface CreateRunInput { kind: FactoryKind; templateIds: string[]; perT
 export async function createRun(client: FactoryClient, user: FactoryUser, input: CreateRunInput): Promise<{ run: FactoryRunView; templates: CreativeTemplate[]; error?: string }> {
   const templates = (await loadRunTemplates(input.templateIds.slice(0, 12))).filter((t) => !!t.file);
   if (!templates.length) throw new FactoryError(400, "Choisissez au moins un template avec une image.");
-  const feedback = await prisma.creativeFeedback.findMany({
-    where: { OR: [{ alertClientId: client.id, level: { in: ["client", "run"] } }, { templateId: { in: templates.map((t) => t.id) } }] }, orderBy: { createdAt: "desc" }, take: 20, select: { level: true, text: true },
-  });
-  const brief = await clientBrandBrief(client);
-  const ctx = assembleContext({ clientName: client.name, brief, templates: templates.map(templateInput), reviews: input.reviews ?? "", feedback, instructions: input.instructions });
+  // The client's context document (HQ brief and files, warehouse winners, comments, client-level feedback: lib/creas/context.ts),
+  // then what is specific to this run: the feedback on the chosen templates.
+  const [clientDoc, feedback] = await Promise.all([
+    contextForRun(client),
+    prisma.creativeFeedback.findMany({ where: { templateId: { in: templates.map((t) => t.id) } }, orderBy: { createdAt: "desc" }, take: 12, select: { level: true, text: true } }),
+  ]);
+  const ctx = assembleContext({ clientName: client.name, brief: "", client: clientDoc, templates: templates.map(templateInput), reviews: input.reviews ?? "", feedback, instructions: input.instructions });
   const perTemplate = Math.min(12, Math.max(1, Math.round(input.perTemplate ?? DEFAULT_PER_TEMPLATE)));
   const settings: FactorySettings = { n: 0, engine: DEFAULT_FACTORY_ENGINE, ratio: "1:1", textless: false, perTemplate, attempted: 0, failed: 0, ...(input.persona ? { persona: input.persona } : {}), ...(input.season ? { season: input.season } : {}), ...(input.instructions ? { instructions: input.instructions } : {}) };
   const row = await prisma.factoryRun.create({ data: {

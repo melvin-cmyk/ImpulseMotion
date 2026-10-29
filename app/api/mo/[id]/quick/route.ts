@@ -24,7 +24,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { getAccountScope } from "@/lib/scope";
 import { listClientRegistry, type ClientRef } from "@/lib/clients/registry";
 import { runningJobOf } from "@/lib/ai-jobs";
-import { parseFollowUpQuick, parseQuickIntent, withClientAliases, type IntentClient, type QuickFollowUp, type QuickIntent } from "@/lib/mo/intents";
+import { parseFactoryIntent, parseFollowUpQuick, parseQuickIntent, withClientAliases, type FactoryIntent, type IntentClient, type QuickFollowUp, type QuickIntent } from "@/lib/mo/intents";
 import { cardClientOf, cardPeriodOf, warehouseAdOf } from "@/lib/mo/act";
 import { competitorsFromBrief, moreLikeThisPrompt } from "@/lib/mo/brief";
 import { newCardId, type MoCard, type MoCardSpec } from "@/lib/mo/model";
@@ -34,7 +34,8 @@ import { recordMoTurn } from "@/lib/mo/turns";
 import { MoToolError, runMoTool, periodRange, type MoToolContext } from "@/lib/mo/tools";
 import { isHqContextFresh } from "@/lib/hq-client-context";
 
-export const maxDuration = 120;
+// A fabrique generation runs passes of ≤ 12 images (1-3 min).
+export const maxDuration = 300;
 
 const NO_STORE = { headers: { "Cache-Control": "no-store" } };
 type ToolResult = Record<string, unknown>;
@@ -65,23 +66,54 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const registry = await listClientRegistry(scope);
   const clients = withClientAliases(registry.map((c) => ({ id: c.id, name: c.name, dashboardId: c.dashboardId, aliasIds: c.aliasIds })));
 
-  const quick = parseQuickIntent(message, clients);
-  // An « ask » (one element missing) is settled in the browser with chips: here it is not a quick ask.
-  if (quick?.kind === "ask") return new NextResponse(null, { status: 204 });
-  const plan: QuickIntent | QuickFollowUp | null = quick ?? parseFollowUpQuick(message, clients);
-  if (!plan) return new NextResponse(null, { status: 204 });
-
-  const ctx: MoToolContext = { userId: guard.session.userId, boardId: board.id, role: user?.role ?? guard.session.role ?? "", email: user?.email ?? null, name: user?.name ?? null, registry: { scope, clients: registry } };
   const cards = parseMoCards(board.cardsJson);
   const hinted = hintCardId ? cards.find((c) => c.id === hintCardId) ?? null : null;
+  // A fabrique step over its copies table (the browser hints the table; else the freshest one when nothing else matches).
+  const fx = parseFactoryIntent(message);
+  const copiesTables = cards.filter((c) => c.type === "table" && typeof c.runId === "string");
+  const factoryCard = fx ? (hinted?.type === "table" && hinted.runId ? hinted : null) : null;
+  const quick = factoryCard ? null : parseQuickIntent(message, clients);
+  // An « ask » (one element missing) is settled in the browser with chips: here it is not a quick ask.
+  if (quick?.kind === "ask") return new NextResponse(null, { status: 204 });
+  const plan: QuickIntent | QuickFollowUp | FactoryIntent | null = factoryCard && fx ? fx : quick ?? parseFollowUpQuick(message, clients) ?? (fx && copiesTables.length ? fx : null);
+  if (!plan) return new NextResponse(null, { status: 204 });
+  const copiesCard = factoryCard ?? freshest(copiesTables);
+
+  const ctx: MoToolContext = { userId: guard.session.userId, boardId: board.id, role: user?.role ?? guard.session.role ?? "", email: user?.email ?? null, name: user?.name ?? null, registry: { scope, clients: registry } };
   const refOf = (c: IntentClient) => registry.find((r) => r.id === c.id) ?? null;
 
   let say = plan.say;
   let detail = "";
   let specs: LayoutItem[] = [];
   let kind: string = plan.kind;
+  // The fabrique tools rewrite the copies table on the board themselves: the board is read again before the turn is stored.
+  let touched = false;
   try {
     switch (plan.kind) {
+      case "factory_approve": case "factory_generate": case "factory_repropose": {
+        const runId = copiesCard?.runId;
+        if (!runId) return new NextResponse(null, { status: 204 });
+        const clientName = copiesCard?.clientName ?? "le client";
+        if (plan.kind === "factory_approve") {
+          const r = await runMoTool(ctx, "factory_approve", { run: runId, ...(plan.numbers === "all" ? { all: true } : { numbers: plan.numbers }) }) as { approved?: number; total?: number; suggested_images?: number };
+          touched = true;
+          const n = r.suggested_images ?? 8;
+          say = `${r.approved ?? 0} copy${(r.approved ?? 0) > 1 ? "s" : ""} validé${(r.approved ?? 0) > 1 ? "s" : ""} sur ${r.total ?? 0}. Je génère ${n} visuels, environ ${(n * 0.06).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} dollars ?`;
+          specs = [{ type: "ask", title: "Combien de visuels ?", question: `Combien de visuels pour ${clientName} ?`, options: [`Génère ${n} visuels`, ...(n !== 4 ? ["Génère 4 visuels"] : []), ...(n < 16 ? ["Génère 16 visuels"] : []), "Repropose les copys"].slice(0, 4), runId, ...(copiesCard?.clientId ? { clientId: copiesCard.clientId, clientName } : {}) }];
+        } else if (plan.kind === "factory_generate") {
+          const r = await runMoTool(ctx, "factory_generate", { run: runId, ...(plan.n ? { n: plan.n } : {}), post: false }) as { generated?: number; failed?: number; remaining?: number; cost_usd?: number | null; warnings?: string[] };
+          specs = specsOf(r);
+          const cost = typeof r.cost_usd === "number" ? `, ${r.cost_usd.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} dollars` : "";
+          say = r.generated ? `${r.generated} visuels prêts pour ${clientName}${cost}${r.failed ? `, ${r.failed} en échec` : ""}${r.remaining ? `. Il en reste ${r.remaining} : dis « génère » pour continuer` : ""}.` : `Aucun visuel n'a pu être généré${r.warnings?.[0] ? ` : ${r.warnings[0]}` : ""}.`;
+          detail = (r.warnings ?? []).join(" · ");
+        } else {
+          const r = await runMoTool(ctx, "factory_propose", { run: runId }) as { proposed?: number; error?: string };
+          touched = true;
+          say = r.error ? `Je n'ai pas pu reproposer : ${r.error}` : `${r.proposed ?? 0} copys dans la table, les validés sont restés.`;
+        }
+        break;
+      }
+
       case "creatives": case "metrics": {
         const r = await runMoTool(ctx, plan.kind, { ...plan.args, post: false });
         specs = specsOf(r);
@@ -174,7 +206,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   // Stored like a model turn (the ```mo block keeps the thread readable for the model later), in one write.
-  const stored = await storeMoQuickTurn(board, { userText: message, askedAt, text: "```mo\n" + JSON.stringify({ say, cards: [], quick: kind, ...(detail ? { detail } : {}) }) + "\n```", specs, at: new Date().toISOString() });
+  const stored = await storeMoQuickTurn(touched ? (await loadBoard(id, guard.session.userId)) ?? board : board, { userText: message, askedAt, text: "```mo\n" + JSON.stringify({ say, cards: [], quick: kind, ...(detail ? { detail } : {}) }) + "\n```", specs, at: new Date().toISOString() });
   const totalMs = Date.now() - t0;
   const turnId = await recordMoTurn({ userId: guard.session.userId, boardId: board.id, path: "quick", kind, totalMs, firstCardMs: stored.cardIds.length ? totalMs : null, retried: body.retried === true });
   console.log(`[mo/quick] ${kind} ${totalMs} ms`);

@@ -51,6 +51,8 @@ interface MoCardBase {
   link?: string;
   /** What the link opens (« Google Sheet »). */
   linkLabel?: string;
+  /** The fabrique de statics this card belongs to (copies to validate, visuals generated): what « valide 1 à 5 » acts on. */
+  runId?: string;
 }
 
 /** A publication prepared by Mo (Pilotage draft): confirmed by a click, never sent otherwise. */
@@ -100,7 +102,7 @@ export type MoCardPayload =
 export type MoCard = MoCardBase & MoCardPayload;
 
 /** What the model writes for one card (before it gets an id and a place). */
-export type MoCardSpec = { title: string; subtitle?: string; ref?: string; clientId?: string; clientName?: string } & MoCardPayload;
+export type MoCardSpec = { title: string; subtitle?: string; ref?: string; clientId?: string; clientName?: string; runId?: string } & MoCardPayload;
 
 /** A card already on the board rewritten by the model: same id and place, new content (and title when given). */
 export type MoCardUpdate = { id: string; title?: string; subtitle?: string } & (MoCardPayload | { type?: undefined });
