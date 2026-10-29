@@ -636,11 +636,11 @@ describe("sending", () => {
     for (const e of h.events) expect(e).toMatchObject({ notifiedAt: NOW, notifyError: null, dryRun: false });
   });
 
-  it("gives no link when the address of the app is not set", async () => {
+  it("links to impulsemotion.ai when the address of the app is not set", async () => {
     seed("a");
     high("a");
     await runClientAlerts({ now: NOW });
-    expect(JSON.parse((h.send.mock.calls[0] as [string, string])[1]).pageUrl).toBeNull();
+    expect(JSON.parse((h.send.mock.calls[0] as [string, string])[1]).pageUrl).toBe("https://impulsemotion.ai/admin/alerts/assistant");
   });
 
   it("writes out a few alerts and counts the others in one line", async () => {

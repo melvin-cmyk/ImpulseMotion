@@ -24,6 +24,7 @@
 import { autoAlertWebhook, cleanChannel, postDigest } from "@/lib/auto-alerts/slack";
 import { assertWriteGuard } from "@/lib/routines/write-guard-check";
 import { MAX_EMAIL_RECIPIENTS, type Cell, type ErrorClass, type RowSet, type WriteGuard } from "@/lib/routines/types";
+import { appUrl } from "@/lib/app-url";
 
 export const EMAIL_NOT_CONFIGURED = "envoi d'e-mail non configuré (N8N_ROUTINES_WEBHOOK_URL absent)";
 export const SLACK_NOT_CONFIGURED = "envoi Slack non configuré (webhook n8n des alertes automatiques absent)";
@@ -249,7 +250,6 @@ export interface AutoDisabledNotice {
   channel: string | null;
 }
 
-const appUrl = () => (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://app.impulse-analytics.com").replace(/\/$/, "");
 const oneLine = (text: string, max: number) => {
   const line = text.replace(/\s+/g, " ").trim();
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;

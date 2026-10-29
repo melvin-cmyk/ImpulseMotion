@@ -655,7 +655,7 @@ maxAccounts.init({
     url: process.env.N8N_ALERT_WEBHOOK_URL,
     secret: process.env.N8N_ALERT_WEBHOOK_SECRET,
     slackChannel: process.env.RELAY_ALERT_SLACK_CHANNEL,
-    appUrl: (process.env.APP_URL || "https://impulsemotion.vercel.app").replace(/\/$/, ""),
+    appUrl: (process.env.APP_URL || "https://impulsemotion.ai").replace(/\/$/, ""),
   }),
   probeMs: Number(process.env.QUOTA_PROBE_MS || 300_000),
 });
@@ -666,7 +666,7 @@ const authNotifier = makeWebhookNotifier({
   url: process.env.N8N_ALERT_WEBHOOK_URL,
   secret: process.env.N8N_ALERT_WEBHOOK_SECRET,
   slackChannel: process.env.RELAY_ALERT_SLACK_CHANNEL,
-  appUrl: (process.env.APP_URL || "https://impulsemotion.vercel.app").replace(/\/$/, ""),
+  appUrl: (process.env.APP_URL || "https://impulsemotion.ai").replace(/\/$/, ""),
 });
 startAuthWatch({
   accounts: () => [{ id: maxAccounts.HOST_ACCOUNT, label: "compte serveur (bot@)", credentialsPath: HOST_CREDENTIALS }, ...maxAccounts.loginAccounts()],

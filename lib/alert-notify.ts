@@ -10,6 +10,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { appUrl as appBaseUrl } from "@/lib/app-url";
 
 export interface AlertNotify {
   /** "#alertes-lpev" or a channel id "C0…". */
@@ -118,7 +119,7 @@ export async function notifyAlertEvents(eventIds: string[]): Promise<{ sent: num
     ? await prisma.userAdAccount.findMany({ where: { accountId: { in: accountIds } }, select: { accountId: true, label: true } })
     : [];
   const labelOf = new Map(labels.filter((l) => l.label).map((l) => [l.accountId, l.label as string]));
-  const appUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://app.impulse-analytics.com").replace(/\/$/, "");
+  const appUrl = appBaseUrl();
 
   for (const e of events) {
     const notify = parseNotify(e.rule.notifyJson);

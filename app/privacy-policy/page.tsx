@@ -44,7 +44,7 @@ export default function PrivacyPolicyPage() {
           <section>
             <p>
               ImpulseMotion (&ldquo;nous&rdquo;, &ldquo;notre&rdquo;) exploite la plateforme d&rsquo;analyse de publicités
-              accessible à <strong style={{ color: "#e5e7eb" }}>impulse-motion.vercel.app</strong> (le &ldquo;Service&rdquo;).
+              accessible à <strong style={{ color: "#e5e7eb" }}>impulsemotion.ai</strong> (le &ldquo;Service&rdquo;).
               La présente politique décrit comment nous collectons, utilisons et protégeons vos données personnelles
               lorsque vous utilisez notre Service.
             </p>

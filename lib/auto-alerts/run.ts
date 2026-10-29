@@ -20,6 +20,7 @@ import { parseAlertAccounts, syncAlertClients, type AlertAccount } from "@/lib/a
 import { loadFx } from "@/lib/cockpit/fx";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { getHqClientContext, lookupHqClientContext } from "@/lib/hq-client-context";
+import { appUrl } from "@/lib/app-url";
 
 /**
  * What the agency's memory (HQ) says about the client, read before something
@@ -128,7 +129,6 @@ function within<T>(p: Promise<T>, what: string): Promise<T> {
   return Promise.race([p, clock]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
-const appUrl = () => (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "https://app.impulse-analytics.com").replace(/\/$/, "");
 const PLATFORM = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" } as const;
 
 export interface AccountOutcome { findings: Finding[]; evaluated: string[]; dormant: boolean }

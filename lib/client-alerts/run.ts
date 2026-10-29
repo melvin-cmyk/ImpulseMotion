@@ -55,6 +55,7 @@ import {
   ALERT_DEFAULTS, BACK_TO_NORMAL, CHECK_SLOTS_UTC, COOLDOWN_MAX_HOURS, DELIVERY_UNKNOWN, MAX_DM_PER_RUN, MAX_DM_PER_USER_PER_DAY, readDefinition, sendingEnabled,
   type AlertAccountRef, type AlertChecks, type AlertDefinition, type ClientSeries, type RunSummary,
 } from "@/lib/client-alerts/types";
+import { appUrl } from "@/lib/app-url";
 
 const PARIS = "Europe/Paris";
 const CONCURRENCY = 4;
@@ -293,7 +294,7 @@ export async function runClientAlerts(opts: { now?: Date; slot?: number | null; 
 
   const byUser = new Map<string, Pending[]>();
   for (const p of pending) byUser.set(p.userId, [...(byUser.get(p.userId) ?? []), p]);
-  const pageUrl = process.env.NEXTAUTH_URL ? `${process.env.NEXTAUTH_URL.replace(/\/$/, "")}/admin/alerts/assistant` : null;
+  const pageUrl = `${appUrl()}/admin/alerts/assistant`;
   const sendUntil = startedAt + SEND_DEADLINE_MS;
   let late = 0;
   /** Messages that left, or may have left: what the ceiling of the pass counts. */
