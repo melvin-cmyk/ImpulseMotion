@@ -6,7 +6,7 @@
  */
 
 import { CARD_SIZES, COL_GAP, ROW_GAP, type MoCard, type MoCardType } from "@/lib/mo/model";
-import { FRAME_FOLDED_H, arrangeWithFrames, isFrame, type ArrangedRect } from "@/lib/mo/frames";
+import { FRAME_FOLDED_H, arrangeWithFrames, isFrame, type ArrangeLayout, type ArrangedRect } from "@/lib/mo/frames";
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Guide { axis: "x" | "y"; pos: number; from: number; to: number }
@@ -114,11 +114,33 @@ export function resizeRect(start: Rect, dir: HandleDir, dx: number, dy: number, 
 
 /**
  * "Ranger": the frames side by side, each one's cards flowing inside, then
- * the free cards under them — frame by frame (lib/mo/frames.ts). Returns the
- * new position of every card, and the new size of the frames.
+ * the free cards under them — frame by frame (lib/mo/frames.ts). `layout`
+ * `row` puts everything on one line (« Ranger en ligne »), `column` in one
+ * column (« Ranger en colonne »), frames kept. Returns the new position of
+ * every card, and the new size of the frames.
  */
-export function arrangeCards(cards: MoCard[], maxWidth = MAX_ROW_WIDTH): Map<string, ArrangedRect> {
-  return arrangeWithFrames(cards, arrangeFree, maxWidth);
+export function arrangeCards(cards: MoCard[], maxWidth = MAX_ROW_WIDTH, layout: ArrangeLayout = "grid"): Map<string, ArrangedRect> {
+  const flow = layout === "row" ? arrangeRow : layout === "column" ? arrangeColumn : arrangeFree;
+  return arrangeWithFrames(cards, flow, maxWidth, layout);
+}
+
+/** Cards by turn (oldest first), the board's order kept within a turn. */
+const byTurnOrder = (cards: MoCard[]) => cards.map((c, i) => ({ c, i })).sort((a, b) => (a.c.turn ?? 0) - (b.c.turn ?? 0) || a.i - b.i).map((x) => x.c);
+
+/** One line, left to right by turn, aligned on top, COL_GAP between cards (no wrapping). */
+export function arrangeRow(cards: MoCard[]): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  let x = 0;
+  for (const c of byTurnOrder(cards)) { out.set(c.id, { x, y: 0 }); x += rectOf(c).w + COL_GAP; }
+  return out;
+}
+
+/** One column, top to bottom by turn, aligned on the left, ROW_GAP between cards. */
+export function arrangeColumn(cards: MoCard[]): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  let y = 0;
+  for (const c of byTurnOrder(cards)) { out.set(c.id, { x: 0, y }); y += rectOf(c).h + ROW_GAP; }
+  return out;
 }
 
 /**
@@ -179,6 +201,9 @@ export function linkPath(p: { a: { x: number; y: number }; b: { x: number; y: nu
   if (p.horizontal) { const mx = (a.x + b.x) / 2; return `M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`; }
   const my = (a.y + b.y) / 2; return `M ${a.x} ${a.y} C ${a.x} ${my}, ${b.x} ${my}, ${b.x} ${b.y}`;
 }
+
+/** The arrangements of « Ranger » (lib/mo/frames.ts). */
+export type { ArrangeLayout };
 
 /** Highest z on the board (0 when none). */
 export const topZ = (cards: Array<{ z?: number }>) => cards.reduce((m, c) => Math.max(m, c.z ?? 0), 0);

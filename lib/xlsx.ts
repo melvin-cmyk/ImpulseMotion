@@ -15,7 +15,6 @@ import type { SheetCell } from "@/lib/sheet-values";
 export const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 // XML 1.0 forbids most control characters, even escaped.
-// eslint-disable-next-line no-control-regex
 const INVALID_XML_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g;
 export const xmlEscape = (s: string): string =>
   s.replace(INVALID_XML_RE, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

@@ -197,13 +197,26 @@ export function moveFrameChildren(cards: MoCard[], frameId: string, dx: number, 
 export type ArrangedRect = { x: number; y: number; w?: number; h?: number };
 
 /**
- * « Ranger » with frames: frames side by side (rows of FRAME_ROW_WIDTH, in
- * their current order left to right, top to bottom), each one's cards flowing
- * inside by turn, the frame sized to its content; the free cards under the
- * frames, by turn (lib/mo/geometry.ts arrangeFree). Returns the new position
- * (and size, for frames) of every card.
+ * How « Ranger » lays the board out: `grid` = the masonry (rows wrapped);
+ * `row` = everything on one line, left to right, aligned on top; `column` =
+ * everything in one column, top to bottom, aligned on the left.
  */
-export function arrangeWithFrames(cards: MoCard[], arrangeFree: (cards: MoCard[], maxWidth?: number) => Map<string, { x: number; y: number }>, maxWidth?: number): Map<string, ArrangedRect> {
+export type ArrangeLayout = "grid" | "row" | "column";
+export const ARRANGE_LAYOUTS: readonly ArrangeLayout[] = ["grid", "row", "column"];
+export type ArrangeFlow = (cards: MoCard[], maxWidth?: number) => Map<string, { x: number; y: number }>;
+
+/**
+ * « Ranger » with frames. `grid`: frames side by side (rows of
+ * FRAME_ROW_WIDTH, in their current order left to right, top to bottom), each
+ * one's cards flowing inside, the frame sized to its content; the free cards
+ * under the frames. `row`: the frames on one line (never wrapped), their
+ * cards in one line inside, then the free cards on the same line after them.
+ * `column`: the frames stacked, their cards in one column inside, then the
+ * free cards under them. `flow` lays a set of cards out (lib/mo/geometry.ts
+ * arrangeFree / arrangeRow / arrangeColumn). Returns the new position (and
+ * size, for frames) of every card.
+ */
+export function arrangeWithFrames(cards: MoCard[], flow: ArrangeFlow, maxWidth?: number, layout: ArrangeLayout = "grid"): Map<string, ArrangedRect> {
   const out = new Map<string, ArrangedRect>();
   const fs = [...frames(cards)].sort((a, b) => (Math.round(a.y / 200) - Math.round(b.y / 200)) || a.x - b.x || (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   let fx = 0, fy = 0, rowH = 0;
@@ -212,18 +225,21 @@ export function arrangeWithFrames(cards: MoCard[], arrangeFree: (cards: MoCard[]
     const kids = frameChildren(cards, f.id);
     kids.forEach((k) => inFrames.add(k.id));
     // The flow inside, relative to the content origin; a folded frame keeps its cards tidy for when it opens.
-    const rel = arrangeFree(kids, FRAME_INNER_WIDTH);
+    const rel = flow(kids, FRAME_INNER_WIDTH);
     const w = Math.max(CARD_SIZES.frame.w, ...kids.map((k) => (rel.get(k.id)?.x ?? 0) + k.w + 2 * FRAME_PAD));
     const contentH = kids.length ? Math.max(...kids.map((k) => (rel.get(k.id)?.y ?? 0) + (k.minimized ? FRAME_FOLDED_H : k.h ?? CARD_SIZES[k.type].h))) : 0;
     const h = kids.length ? FRAME_HEADER + 2 * FRAME_PAD + contentH : CARD_SIZES.frame.h;
-    if (fx > 0 && fx + w > FRAME_ROW_WIDTH) { fy += rowH + FRAME_GAP; fx = 0; rowH = 0; }
+    const shownH = f.minimized ? FRAME_FOLDED_H : h;
+    // A new line of frames: when the grid's row is full, or after every frame in a column.
+    if (fx > 0 && (layout === "column" || (layout === "grid" && fx + w > FRAME_ROW_WIDTH))) { fy += rowH + FRAME_GAP; fx = 0; rowH = 0; }
     out.set(f.id, { x: fx, y: fy, w, h });
     for (const k of kids) { const r = rel.get(k.id) ?? { x: 0, y: 0 }; out.set(k.id, { x: fx + FRAME_PAD + r.x, y: fy + FRAME_HEADER + FRAME_PAD + r.y }); }
     fx += w + FRAME_GAP;
-    rowH = Math.max(rowH, f.minimized ? FRAME_FOLDED_H : h);
+    rowH = Math.max(rowH, shownH);
   }
   const free = cards.filter((c) => !isFrame(c) && !inFrames.has(c.id));
-  const top = fs.length ? fy + rowH + FRAME_GAP : 0;
-  for (const [id, p] of arrangeFree(free, maxWidth)) out.set(id, { x: p.x, y: p.y + top });
+  // The free cards: after the frames on the same line (row), else under them.
+  const origin = !fs.length ? { x: 0, y: 0 } : layout === "row" ? { x: fx, y: 0 } : { x: 0, y: fy + rowH + FRAME_GAP };
+  for (const [id, p] of flow(free, maxWidth)) out.set(id, { x: p.x + origin.x, y: p.y + origin.y });
   return out;
 }

@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Briefcase, ChevronDown, ChevronUp, FileOutput, Frame as FrameIcon, LayoutGrid, Maximize2, PanelLeft, PanelRight, Search, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, Briefcase, ChevronDown, ChevronUp, Columns3, FileOutput, Frame as FrameIcon, LayoutGrid, Maximize2, PanelLeft, PanelRight, Rows3, Search, Volume2, VolumeX, X } from "lucide-react";
 import { Board, type BoardHandle } from "@/components/mo/board";
 import { MoCardView, MoGhostCard, MoUploadCard, type CardBusy, type Ghost, type PublishEdits, type Upload, type WholeCardAction } from "@/components/mo/card";
 import { MoFrameView, MoGhostFrame } from "@/components/mo/frame";
@@ -33,13 +33,14 @@ import { WaveCanvas, type WaveMood } from "@/components/mo/wave-canvas";
 import { useVoice } from "@/components/mo/use-voice";
 import { CARD_SIZES, COL_GAP, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec } from "@/lib/mo/model";
 import { MAX_UPLOAD_BYTES, cardClientOf, fileKindOf, isSheetCard, type SheetCard } from "@/lib/mo/act";
-import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
+import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type ArrangeLayout, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
 
 const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
 import { PERIOD_OPTIONS, completeQuickAsk, ghostTitle, orderClientCandidates, parseFactoryIntent, parseFollowUpIntent, parseFollowUpQuick, parseNavIntent, parseQuickIntent, targetIndexes, withClientAliases, type IntentClient, type QuickAsk, type QuickFollowUp, type QuickResult } from "@/lib/mo/intents";
 import { cardRemovedTooSoon, misunderstoodBy } from "@/lib/mo/measure";
 import { nextSentences, sayProgress } from "@/lib/mo/voice";
 import { actStatusLabel, moStatusLabel } from "@/lib/mo/status";
+import { readLastPage, readView, saveLastPage, saveView, startPageId } from "@/lib/mo/last-page";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 import { INITIAL_ACTIVITY, reduceActivity, type ActivityState } from "@/lib/ai-activity";
 
@@ -77,6 +78,8 @@ export function MoPage() {
   const wanted = params.get("b");
   const boardRef = useRef<BoardHandle>(null);
   const kRef = useRef(1);
+  /** The page the camera belongs to (set once the page's view is placed): only then is it remembered for that page. */
+  const viewOwner = useRef<string | null>(null);
   const [board, setBoard] = useState<MoBoardData | null>(null);
   const [pages, setPages] = useState<MoPages | null>(null);
   const [run, setRun] = useState<Run | null>(null);
@@ -163,9 +166,12 @@ export function MoPage() {
   /** Shows a page: URL, board, running reply, view on its cards, last exchange. */
   const openPage = useCallback(async (id: string, focusIds?: string[]) => {
     setFresh(new Set()); setSelected(new Set()); setGhost(null); setMenu(null);
+    viewOwner.current = null;
     const home = pagesRef.current?.home.id;
     router.replace(id === home ? "/mo" : `/mo?b=${id}`);
     const j = await loadBoard(id);
+    // Back on /mo later, this page reopens (lib/mo/last-page.ts).
+    if (home) saveLastPage(home, id);
     seenTurns.current = j.board.messages.filter((m) => m.role === "assistant").length;
     if (j.jobId) followRef.current?.(j.jobId, id);
     const last = [...j.board.messages].reverse();
@@ -173,7 +179,11 @@ export function MoPage() {
     setLastSaid(you ? { you: you.content, mo: last.find((m) => m.role === "assistant")?.say ?? null } : null);
     window.setTimeout(() => {
       const wanted = focusIds?.length ? j.board.cards.filter((c) => focusIds.includes(c.id)) : [];
+      viewOwner.current = id;
       if (wanted.length) { setSelected(new Set(wanted.map((c) => c.id))); boardRef.current?.fit(wanted.map(rectOfCard), 90, { kMin: 0.5, kMax: 1 }); return; }
+      // The camera of last time on this page, else every card in view.
+      const saved = home && j.board.cards.length ? readView(home, id) : null;
+      if (saved) { boardRef.current?.setView(saved); return; }
       const rects = j.board.cards.map(rectOfCard);
       if (rects.length) boardRef.current?.fit(rects, 90);
     }, 60);
@@ -286,7 +296,7 @@ export function MoPage() {
   }, [finishTurn, muted, firstCardLanded]);
   useEffect(() => { followRef.current = follow; }, [follow]);
 
-  // First load: the wanted page (deep link), else « Aujourd'hui » (always there).
+  // First load: the wanted page (deep link), else the page opened last (still there, not archived), else « Aujourd'hui » (always there).
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => { setRailLeft(railPref(RAIL_LEFT_KEY, true)); setRailRight(railPref(RAIL_RIGHT_KEY, true)); });
@@ -295,7 +305,7 @@ export function MoPage() {
         const p = await loadPages();
         if (cancelled) return;
         if (!p) throw new Error("Espace indisponible");
-        const id = wanted ?? p.home.id;
+        const id = startPageId(p, wanted, readLastPage(p.home.id));
         try { await openPage(id); } catch { if (cancelled) return; if (id !== p.home.id) await openPage(p.home.id); else throw new Error("Page introuvable"); }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Chargement impossible");
@@ -530,6 +540,14 @@ export function MoPage() {
   const boardIdRef = useRef<string | null>(null);
   useEffect(() => { boardIdRef.current = board?.id ?? null; }, [board]);
   const warm = useCallback(() => warmMoBoard(boardIdRef.current), []);
+  /** The camera of the open page, kept for the next visit (debounced: the view changes at every frame of a pan). */
+  const viewSaveTimer = useRef<number | null>(null);
+  const rememberView = useCallback((v: { x: number; y: number; k: number }) => {
+    const id = viewOwner.current, home = pagesRef.current?.home.id;
+    if (!id || !home || id !== boardIdRef.current) return;
+    if (viewSaveTimer.current) window.clearTimeout(viewSaveTimer.current);
+    viewSaveTimer.current = window.setTimeout(() => { viewSaveTimer.current = null; saveView(home, id, v); }, 400);
+  }, []);
 
   // SPACE held = talk (outside text fields); Escape = quiet.
   useEffect(() => {
@@ -828,10 +846,10 @@ export function MoPage() {
     if (files.length > MAX_DROP_FILES) setError(`${MAX_DROP_FILES} fichiers à la fois au plus : les suivants n'ont pas été pris.`);
   }, [uploadOne]);
 
-  /** « Ranger » : frame by frame (each sized to its cards), then the free cards by turn; every card moved and saved, then fit. */
-  const arrange = useCallback(() => {
+  /** « Ranger » : frame by frame (each sized to its cards), then the free cards by turn — masonry, one line (`row`) or one column (`column`); every card moved and saved, then fit. */
+  const arrange = useCallback((layout: ArrangeLayout = "grid") => {
     const b = boardStateRef.current; if (!b || !b.cards.length) return;
-    const pos = arrangeCards(b.cards);
+    const pos = arrangeCards(b.cards, undefined, layout);
     const cards = b.cards.map((c): MoCard => { const p = pos.get(c.id); if (!p) return c; const w = p.w ?? c.w, h = p.h ?? c.h; return p.x !== c.x || p.y !== c.y || w !== c.w || h !== c.h ? ({ ...c, x: p.x, y: p.y, w, ...(h !== undefined ? { h } : {}) } as MoCard) : c; });
     cards.forEach((c, i) => { if (c !== b.cards[i]) queue(c.id, { x: c.x, y: c.y, ...(isFrame(c) ? { w: c.w, h: c.h } : {}) }); });
     setBoard({ ...b, cards });
@@ -840,7 +858,7 @@ export function MoPage() {
   const fitAll = useCallback(() => { const b = boardStateRef.current; if (b?.cards.length) boardRef.current?.fit(b.cards.map(rectOf), 90); }, []);
   const fitFresh = useCallback(() => { const b = boardStateRef.current; const rects = (b?.cards ?? []).filter((c) => fresh.has(c.id)).map(rectOf); if (rects.length) boardRef.current?.fit(rects, 90, { kMin: 0.5, kMax: 1 }); else fitAll(); }, [fresh, fitAll]);
 
-  // Keyboard: Esc deselect · Delete/Backspace remove · arrows nudge (Shift = 20) · ⌘/Ctrl+0 fit all · F fit new cards · R ranger · ⌘/Ctrl +/− zoom.
+  // Keyboard: Esc deselect · Delete/Backspace remove · arrows nudge (Shift = 20) · ⌘/Ctrl+0 fit all · F fit new cards · R ranger · H in a line · V in a column · ⌘/Ctrl +/− zoom.
   useEffect(() => {
     const isTyping = () => { const el = document.activeElement as HTMLElement | null; return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable); };
     const onKey = (e: KeyboardEvent) => {
@@ -853,6 +871,8 @@ export function MoPage() {
       if (meta) return;
       if (e.key === "f" || e.key === "F") { fitFresh(); return; }
       if (e.key === "r" || e.key === "R") { arrange(); return; }
+      if (e.key === "h" || e.key === "H") { arrange("row"); return; }
+      if (e.key === "v" || e.key === "V") { arrange("column"); return; }
       if (!selected.size) return;
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeCards([...selected]); return; }
       const step = e.shiftKey ? 20 : 1;
@@ -979,7 +999,7 @@ export function MoPage() {
 
       {/* Board — inset by the open rails, so « tout voir » and the focus on a card fit between them */}
       <div className="absolute inset-y-0" style={{ left: railLeft ? 272 : 0, right: railRight ? 320 : 0 }}>
-      <Board ref={boardRef} className="absolute inset-0" onViewChange={(v) => { kRef.current = v.k; }} onBackgroundClick={clearSelection} onDropFiles={dropFiles} onPasteFiles={dropFiles}
+      <Board ref={boardRef} className="absolute inset-0" onViewChange={(v) => { kRef.current = v.k; rememberView(v); }} onBackgroundClick={clearSelection} onDropFiles={dropFiles} onPasteFiles={dropFiles}
         underlay={links.length ? (
           <svg className="absolute left-0 top-0 overflow-visible pointer-events-none" width={1} height={1}>
             <defs>
@@ -1025,8 +1045,10 @@ export function MoPage() {
 
       {/* Board toolbar: ranger · fit · shortcuts — and the undo toast after a removal */}
       <div className="absolute bottom-5 left-5 flex items-center gap-1.5 pointer-events-auto">
-        <button type="button" onClick={arrange} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Ranger les cartes (R)"><LayoutGrid className="w-3.5 h-3.5" /> Ranger</button>
-        <span className="hidden md:inline text-[10px] text-gray-600 ml-1">⌘K clients, actions, pages · ⌘0 tout voir · F nouvelles cartes · R ranger · Suppr retirer · G garder · X couper · P publier · glisse un fichier</span>
+        <button type="button" onClick={() => arrange()} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Ranger les cartes (R)"><LayoutGrid className="w-3.5 h-3.5" /> Ranger</button>
+        <button type="button" onClick={() => arrange("row")} className="inline-flex items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur w-7 h-7 text-gray-300 hover:text-white hover:bg-white/10" title="Ranger en ligne, de gauche à droite (H)" aria-label="Ranger en ligne"><Columns3 className="w-3.5 h-3.5" /></button>
+        <button type="button" onClick={() => arrange("column")} className="inline-flex items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur w-7 h-7 text-gray-300 hover:text-white hover:bg-white/10" title="Ranger en colonne, de haut en bas (V)" aria-label="Ranger en colonne"><Rows3 className="w-3.5 h-3.5" /></button>
+        <span className="hidden md:inline text-[10px] text-gray-600 ml-1">⌘K clients, actions, pages · ⌘0 tout voir · F nouvelles cartes · R ranger · H en ligne · V en colonne · Suppr retirer · G garder · X couper · P publier · glisse un fichier</span>
       </div>
       {undo && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 inline-flex items-center gap-3 rounded-full border border-white/10 bg-[#0d0a1a]/95 backdrop-blur px-4 py-2 text-xs text-gray-200 shadow-xl pointer-events-auto">

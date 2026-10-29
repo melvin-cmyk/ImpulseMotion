@@ -4,13 +4,14 @@
  * ⌘K on Mo: the client palette of the app (components/client-palette.tsx)
  * with Mo's rows — clients (↵ focuses the client's frame on this page, else
  * opens its page), actions (« Créas de … cette semaine », « Chiffres de … ce
- * mois-ci », « Nouvelle page client », « Ranger », « Tout voir », « Publier la
+ * mois-ci », « Nouvelle page client », « Ranger » (en ligne, en colonne), « Tout voir », « Publier la
  * sélection »), pages. In « client page » mode (from the rail), picking a
  * client creates / opens its page.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { ClientPalette, type ClientRow, type PaletteCommand } from "@/components/client-palette";
+import type { ArrangeLayout } from "@/lib/mo/geometry";
 import { pageTitle, type MoPages } from "@/lib/mo/pages";
 
 export type PaletteMode = "all" | "client-page";
@@ -30,7 +31,8 @@ export interface MoPaletteProps {
   onOpenPage: (id: string) => void;
   onNewFree: () => void;
   onSend: (text: string) => void;
-  onArrange: () => void;
+  /** « Ranger » : the masonry by default, `row` = one line, `column` = one column. */
+  onArrange: (layout?: ArrangeLayout) => void;
   onFitAll: () => void;
   onPublishSelection: () => void;
 }
@@ -63,7 +65,9 @@ export function MoPalette({ open, mode, onMode, onClose, pages, currentId, frame
     }
     actions.push({ id: "new-client-page", group: "Actions", icon: "client", label: "Nouvelle page client", hint: "choisir le client à l'étape suivante", keywords: "page client nouvelle creer", onPick: () => onMode("client-page") });
     actions.push({ id: "new-free-page", group: "Actions", icon: "page", label: "Nouvelle page", hint: "une page libre", keywords: "page libre nouvelle creer", onPick: run(onNewFree) });
-    actions.push({ id: "arrange", group: "Actions", icon: "action", label: "Ranger", hint: "cadre par cadre, puis les cartes libres (R)", keywords: "ranger arrange tidy", onPick: run(onArrange) });
+    actions.push({ id: "arrange", group: "Actions", icon: "action", label: "Ranger", hint: "cadre par cadre, puis les cartes libres (R)", keywords: "ranger arrange tidy", onPick: run(() => onArrange()) });
+    actions.push({ id: "arrange-row", group: "Actions", icon: "action", label: "Ranger en ligne", hint: "toutes les cartes sur une ligne, de gauche à droite, cadres gardés (H)", keywords: "ranger ligne horizontal horizontalement row aligner", onPick: run(() => onArrange("row")) });
+    actions.push({ id: "arrange-column", group: "Actions", icon: "action", label: "Ranger en colonne", hint: "toutes les cartes en colonne, de haut en bas, cadres gardés (V)", keywords: "ranger colonne vertical verticalement column empiler", onPick: run(() => onArrange("column")) });
     actions.push({ id: "fit-all", group: "Actions", icon: "action", label: "Tout voir", hint: "⌘0", keywords: "tout voir fit zoom", onPick: run(onFitAll) });
     actions.push({ id: "publish-selection", group: "Actions", icon: "action", label: "Publier la sélection", hint: hasSelection ? "prépare la publication du visuel sélectionné (jamais sans confirmation)" : "sélectionne d'abord une carte de créas", keywords: "publier publication publish meta", onPick: run(onPublishSelection) });
     const pageRows: PaletteCommand[] = [];

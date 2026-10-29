@@ -159,3 +159,56 @@ describe("frames — moving and arranging", () => {
     expect(arrangeCards([note]).get("n")).toEqual({ x: 0, y: 0 });
   });
 });
+
+describe("« Ranger » en ligne / en colonne", () => {
+  const note = (id: string, w: number, h: number, turn = 0): MoCard => ({ id, type: "note", title: id, markdown: "x", x: 900 - w, y: 700 - h, w, h, turn, at: "t" });
+  it("puts the free cards on one line, by turn, aligned on top — never wrapped", () => {
+    const cards = [note("b", 400, 300, 1), note("a", 600, 200, 0), note("c", 900, 500, 1), note("d", 900, 200, 1)];
+    const pos = arrangeCards(cards, 1400, "row");
+    expect(pos.get("a")).toEqual({ x: 0, y: 0 });
+    expect(pos.get("b")).toEqual({ x: 600 + COL_GAP, y: 0 });
+    expect(pos.get("c")).toEqual({ x: 1000 + 2 * COL_GAP, y: 0 });
+    expect(pos.get("d")).toEqual({ x: 1900 + 3 * COL_GAP, y: 0 });
+  });
+  it("puts the free cards in one column, by turn, aligned on the left; a minimised card takes its header's height", () => {
+    const cards = [note("b", 400, 300, 1), note("a", 600, 200, 0), { ...note("c", 900, 500, 1), minimized: true } as MoCard, note("d", 300, 100, 2)];
+    const pos = arrangeCards(cards, 1400, "column");
+    expect(pos.get("a")).toEqual({ x: 0, y: 0 });
+    expect(pos.get("b")).toEqual({ x: 0, y: 200 + ROW_GAP });
+    expect(pos.get("c")).toEqual({ x: 0, y: 500 + 2 * ROW_GAP });
+    expect(pos.get("d")).toEqual({ x: 0, y: 556 + 3 * ROW_GAP });
+  });
+  it("keeps the frames: in line, each frame's cards in line and the free cards after them", () => {
+    let cards = layoutWithFrames([], [kpis("nat", "Naturalia"), kpis("nat", "Naturalia")], 0, "t", ids).cards;
+    cards = layoutWithFrames(cards, [creatives("cl", "Cours Legendre"), kpis()], 1, "t", ids).cards;
+    cards = cards.map((c) => ({ ...c, x: c.x + 555, y: c.y + 222 })) as MoCard[];
+    const pos = arrangeCards(cards, 1400, "row");
+    const [fa, fb] = frames(cards);
+    const pa = pos.get(fa.id)!, pb = pos.get(fb.id)!;
+    const [k1, k2] = frameChildren(cards, fa.id);
+    expect(pos.get(k1.id)).toEqual({ x: FRAME_PAD, y: FRAME_HEADER + FRAME_PAD });
+    expect(pos.get(k2.id)).toEqual({ x: FRAME_PAD + k1.w + COL_GAP, y: FRAME_HEADER + FRAME_PAD });
+    expect(pa).toMatchObject({ x: 0, y: 0, w: Math.max(CARD_SIZES.frame.w, k1.w + COL_GAP + k2.w + 2 * FRAME_PAD), h: FRAME_HEADER + 2 * FRAME_PAD + CARD_SIZES.kpis.h });
+    expect(pb).toMatchObject({ x: pa.w! + FRAME_GAP, y: 0 });
+    const free = cards.find((c) => c.type === "kpis" && !c.frame)!;
+    expect(pos.get(free.id)).toEqual({ x: pa.w! + FRAME_GAP + pb.w! + FRAME_GAP, y: 0 });
+  });
+  it("keeps the frames: in column, frames stacked, their cards stacked, the free cards under", () => {
+    let cards = layoutWithFrames([], [kpis("nat", "Naturalia"), kpis("nat", "Naturalia")], 0, "t", ids).cards;
+    cards = layoutWithFrames(cards, [creatives("cl", "Cours Legendre"), kpis()], 1, "t", ids).cards;
+    const pos = arrangeCards(cards, 1400, "column");
+    const [fa, fb] = frames(cards);
+    const pa = pos.get(fa.id)!, pb = pos.get(fb.id)!;
+    const [k1, k2] = frameChildren(cards, fa.id);
+    expect(pos.get(k2.id)).toEqual({ x: FRAME_PAD, y: FRAME_HEADER + FRAME_PAD + CARD_SIZES.kpis.h + ROW_GAP });
+    expect(pa).toMatchObject({ x: 0, y: 0, w: Math.max(CARD_SIZES.frame.w, k1.w + 2 * FRAME_PAD), h: FRAME_HEADER + 2 * FRAME_PAD + 2 * CARD_SIZES.kpis.h + ROW_GAP });
+    expect(pb).toMatchObject({ x: 0, y: pa.h! + FRAME_GAP });
+    const free = cards.find((c) => c.type === "kpis" && !c.frame)!;
+    expect(pos.get(free.id)).toEqual({ x: 0, y: pb.y + pb.h! + FRAME_GAP });
+  });
+  it("the default stays the masonry", () => {
+    const cards = [note("a", 800, 200), note("b", 800, 200)];
+    expect(arrangeCards(cards).get("b")).toEqual({ x: 0, y: 200 + ROW_GAP });
+    expect(arrangeCards(cards, 1400, "grid").get("b")).toEqual({ x: 0, y: 200 + ROW_GAP });
+  });
+});
