@@ -9,7 +9,8 @@
 import { prisma } from "@/lib/prisma";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
-import { toCsv } from "@/lib/csv";
+import type { SheetCell } from "@/lib/sheet-values";
+import { toXlsx, XLSX_MIME } from "@/lib/xlsx";
 
 export interface DriveFolderRef { id: string; name: string; webViewLink: string | null; created?: boolean }
 export interface DriveFileRef {
@@ -98,9 +99,14 @@ export async function uploadToFolder(folderId: string, file: { name: string; mim
   return relay("/api/drive/upload", { method: "POST", body: { folderId, name: file.name, mimeType: file.mimeType, data: file.data.toString("base64"), ...(file.convertTo ? { convertTo: file.convertTo } : {}) } }, 120_000);
 }
 
-/** A Google Sheet named `name` in `folderId` from a header and rows (CSV UTF-8 with BOM, converted by Drive). */
-export async function createSheetFromRows(folderId: string, name: string, columns: string[], rows: string[][]): Promise<{ id: string; webViewLink: string | null }> {
-  const up = await uploadToFolder(folderId, { name, mimeType: "text/csv", data: Buffer.from(toCsv(columns, rows), "utf8"), convertTo: GOOGLE_SHEET_MIME });
+/**
+ * A Google Sheet named `name` in `folderId` from a header and typed rows. Sent
+ * as an .xlsx (not a CSV) converted by Drive: the cells keep their type, so a
+ * number stays a number whatever the spreadsheet locale of the Drive account
+ * (a CSV is parsed with it: « 1245.3 » is text or a date in fr_FR).
+ */
+export async function createSheetFromRows(folderId: string, name: string, columns: string[], rows: SheetCell[][]): Promise<{ id: string; webViewLink: string | null }> {
+  const up = await uploadToFolder(folderId, { name, mimeType: XLSX_MIME, data: toXlsx(columns, rows), convertTo: GOOGLE_SHEET_MIME });
   return { id: up.id, webViewLink: up.webViewLink };
 }
 

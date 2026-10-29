@@ -308,7 +308,7 @@ describe("Mo act — export as a Google Sheet", () => {
     const { deps, store } = fakeDeps([table]);
     const r = await runMoAct({ action: "sheet", cardId: "tbl001", said: "mets ça dans un sheet" }, deps, "Mel");
     expect(deps.sheetFolder).toHaveBeenCalledWith("d_nat");
-    expect(deps.createSheet).toHaveBeenCalledWith("tables_d_nat", expect.stringMatching(/^Chiffres Naturalia · ce mois-ci — /), ["Campagne", "Dépense", "CPA"], [["Prospection, large", "1 200 €", "12 €"], ["Retargeting", "300 €", ""]]);
+    expect(deps.createSheet).toHaveBeenCalledWith("tables_d_nat", expect.stringMatching(/^Chiffres Naturalia · ce mois-ci — /), ["Campagne", "Dépense (€)", "CPA (€)"], [["Prospection, large", 1200, 12], ["Retargeting", 300, null]]);
     expect(r.say).toBe("C'est dans Google Sheets, le lien est sur la carte.");
     expect(r.card).toMatchObject({ id: "tbl001", type: "table", link: "https://docs.google.com/spreadsheets/d/sheet1/edit", linkLabel: "Google Sheet" });
     expect(store.cards[0]).toMatchObject({ link: "https://docs.google.com/spreadsheets/d/sheet1/edit", columns: ["Campagne", "Dépense", "CPA"] });
@@ -319,7 +319,7 @@ describe("Mo act — export as a Google Sheet", () => {
     const { deps } = fakeDeps([kpis, { ...table, id: "tbl002", clientId: undefined, title: "Chiffres LPEV", subtitle: undefined }]);
     await runMoAct({ action: "sheet", cardId: "kpi001" }, deps, "Mel");
     expect(deps.sheetFolder).toHaveBeenLastCalledWith(null);
-    expect(deps.createSheet).toHaveBeenLastCalledWith("root_tables", expect.any(String), ["Indicateur", "Valeur", "Variation"], expect.any(Array));
+    expect(deps.createSheet).toHaveBeenLastCalledWith("root_tables", expect.any(String), ["Indicateur", "Valeur", "Variation (%)"], [["CPA (€)", 12, -8], ["Leads", 140, null]]);
     await runMoAct({ action: "sheet", cardId: "tbl002" }, deps, "Mel");
     expect(deps.sheetFolder).toHaveBeenLastCalledWith(null);
   });
