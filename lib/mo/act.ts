@@ -15,6 +15,7 @@
 
 import { CARD_SIZES, COL_GAP, type MoActionKind, type MoCard, type MoCardSpec, type MoCreative, type MoVerdict } from "@/lib/mo/model";
 import { isClientId, matchClientName, type IntentClient } from "@/lib/mo/intents";
+import { typeKpiSheet, typeSheetColumns, type SheetCell } from "@/lib/sheet-values";
 
 // ── Requests ────────────────────────────────────────────────────────────────
 
@@ -234,6 +235,17 @@ export function sheetRowsOf(card: MoCard): { columns: string[]; rows: string[][]
   }
 }
 
+/**
+ * The rows of a card as the sheet receives them: numbers as numbers with the
+ * unit in the header (« Dépense (€) »), the KPIs' unit in their label
+ * (« CPA (€) »), text and mixed columns as shown, dashes as empty cells.
+ */
+export function sheetValuesOf(card: MoCard): { columns: string[]; rows: SheetCell[][] } | null {
+  const data = sheetRowsOf(card);
+  if (!data) return null;
+  return card.type === "kpis" ? typeKpiSheet(data.rows) : typeSheetColumns(data.columns, data.rows);
+}
+
 /** « Chiffres Naturalia — 29 oct. 2026 » : the sheet's name from the card's title and a date. */
 export function sheetFileName(title: string, at: Date = new Date()): string {
   const clean = title.replace(/[\u0000-\u001f/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Tableau Mo";
@@ -274,7 +286,7 @@ export interface ActDeps {
   /** The folder a sheet goes to: the client's « Tableaux » (ensureClientSubfolder) when a dashboard is given, else « Mo – Tableaux » under the root (ensureRootSubfolder); null when the client's folder cannot be made. */
   sheetFolder(dashboardId: string | null): Promise<{ id: string } | null>;
   /** lib/clients/drive createSheetFromRows */
-  createSheet(folderId: string, name: string, columns: string[], rows: string[][]): Promise<{ id: string; webViewLink: string | null }>;
+  createSheet(folderId: string, name: string, columns: string[], rows: SheetCell[][]): Promise<{ id: string; webViewLink: string | null }>;
 }
 
 export interface ActResult {
@@ -477,7 +489,7 @@ export async function runMoAct(req: ActRequest, deps: ActDeps, who: string): Pro
       const card = find(req.cardId);
       if (!card) throw new ActError("Cette carte n'est plus sur le tableau.", 404);
       if (!isSheetCard(card)) throw new ActError("Je n'exporte en Google Sheet que les tableaux, les KPI et les créas.", 400);
-      const data = sheetRowsOf(card);
+      const data = sheetValuesOf(card);
       if (!data || !data.columns.length) throw new ActError("Cette carte n'a pas de lignes à exporter.", 400);
       const client = cardClientOf(card, clients);
       let folder: { id: string } | null;

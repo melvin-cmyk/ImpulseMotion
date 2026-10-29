@@ -21,6 +21,8 @@ export interface BoardHandle {
   /** Centre the viewport on a rectangle (world). */
   focus(rect: Rect): void;
   getView(): View;
+  /** Put the camera there at once (k clamped), e.g. the page's camera of last time. */
+  setView(v: View): void;
   zoomBy(factor: number): void;
   /** World coordinates of a point of the viewport (CSS px from its top-left corner). */
   toWorld(px: number, py: number): { x: number; y: number };
@@ -104,10 +106,11 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ children, u
       if (v) setViewAnimated({ ...v, y: v.y - 20 });
     },
     getView: () => viewRef.current,
+    setView(v) { cancelAnimationFrame(anim.current); applyView({ x: v.x, y: v.y, k: Math.min(MAX_K, Math.max(MIN_K, v.k)) }, "now"); },
     zoomBy(f) { const host = el.current; if (!host) return; zoomAround(viewRef.current.k * f, host.clientWidth / 2, host.clientHeight / 2, true); },
     toWorld: (px, py) => toWorld(px, py),
     center() { const host = el.current; return toWorld((host?.clientWidth ?? 0) / 2, (host?.clientHeight ?? 0) / 2); },
-  }), [setViewAnimated, zoomAround]);
+  }), [applyView, setViewAnimated, zoomAround]);
 
   function toWorld(px: number, py: number) { const v = viewRef.current; return { x: (px - v.x) / v.k, y: (py - v.y) / v.k }; }
 
