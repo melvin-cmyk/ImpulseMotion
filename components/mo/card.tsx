@@ -11,10 +11,11 @@
  */
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronUp, ExternalLink, FileText, FileUp, Frame, HardDrive, Image as ImageIcon, LayoutGrid, Link2, Loader2, MessageCircleQuestion, Minus, Rocket, RotateCcw, Send, StickyNote, Table2, TrendingUp, X } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, BarChart3, Check, ChevronDown, ChevronUp, ExternalLink, FileSpreadsheet, FileText, FileUp, Frame, HardDrive, Image as ImageIcon, LayoutGrid, Link2, Loader2, MessageCircleQuestion, Minus, Rocket, RotateCcw, Send, StickyNote, Table2, TrendingUp, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AiMarkdown } from "@/components/ai/ai-markdown";
 import { CARD_SIZES, type MoCard } from "@/lib/mo/model";
+import { isSheetCard } from "@/lib/mo/act";
 import { MIN_HEADER_H, type HandleDir, type Rect } from "@/lib/mo/geometry";
 import { useCardDrag } from "@/components/mo/board";
 import { CardActions, VerdictBadge, actionForKey, actionsFor, type CreativeAction } from "@/components/mo/card-actions";
@@ -23,8 +24,10 @@ const SERIES_COLORS = ["#a78bfa", "#f0abfc", "#67e8f9", "#fde68a", "#86efac", "#
 
 const ICONS = { kpis: LayoutGrid, table: Table2, chart: TrendingUp, creatives: ImageIcon, note: StickyNote, ask: MessageCircleQuestion, file: FileUp, action: Send, frame: Frame } as const;
 
-/** What the page is doing on this card right now (a spinner on the button): `item:<index>:<action>` or `confirm`. */
+/** What the page is doing on this card right now (a spinner on the button): `item:<index>:<action>`, `confirm` or `sheet`. */
 export type CardBusy = string | null;
+/** An action on the whole card (header button, or S on the selected card): its rows exported as a Google Sheet. */
+export type WholeCardAction = "sheet";
 export interface PublishEdits { primaryText: string; headline: string; linkUrl: string }
 
 export interface MoCardViewProps {
@@ -56,6 +59,8 @@ export interface MoCardViewProps {
   onItemHover?: (id: string, index: number | null) => void;
   /** « Confirmer » on a publication card, with the texts as edited. */
   onConfirmPublish?: (id: string, edits: PublishEdits) => void;
+  /** « Google Sheet » in the header of a table / KPI / creatives card (or S on the selected card). */
+  onCardAction?: (id: string, action: WholeCardAction) => void;
   busy?: CardBusy;
 }
 
@@ -83,10 +88,22 @@ export function Handle({ dir, cls, cursor, cardId, getK, onStart, onResize, onEn
   return <div data-handle={dir} data-card-id={cardId} className={`absolute z-10 ${cls} ${cursor} touch-none`} {...drag} />;
 }
 
-export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, selected, refTitle, getK, onMove, onMoveEnd, onResizeStart, onResize, onResizeEnd, onFront, onSelect, onToggle, onClose, onFocusRef, onHoverRef, onAnswer, onItemAction, onItemHover, onConfirmPublish, busy = null }: MoCardViewProps) {
+export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, selected, refTitle, getK, onMove, onMoveEnd, onResizeStart, onResize, onResizeEnd, onFront, onSelect, onToggle, onClose, onFocusRef, onHoverRef, onAnswer, onItemAction, onItemHover, onConfirmPublish, onCardAction, busy = null }: MoCardViewProps) {
   const el = useRef<HTMLDivElement>(null);
   const Icon = ICONS[card.type] ?? BarChart3;
   const h = card.minimized ? MIN_HEADER_H : card.h ?? CARD_SIZES[card.type].h;
+  const sheetable = !!onCardAction && isSheetCard(card);
+  // S on the selected card: its rows go to Google Sheets.
+  useEffect(() => {
+    if (!selected || !sheetable) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping() || e.metaKey || e.ctrlKey || e.altKey || e.key.toLowerCase() !== "s") return;
+      e.preventDefault(); e.stopPropagation();
+      onCardAction!(card.id, "sheet");
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selected, sheetable, onCardAction, card.id]);
   // Width shown to the body while a resize is in progress (the state follows a frame later).
   const [liveWidth, setLiveWidth] = useState<number | null>(null);
   const width = liveWidth ?? card.w;
@@ -117,8 +134,19 @@ export const MoCardView = memo(function MoCardView({ card, fresh, delayMs = 0, s
               <Link2 className="w-3 h-3 shrink-0" /> comparé à « {refTitle} »
             </button>
           )}
+          {card.type !== "file" && card.link && (
+            <a data-card-link href={card.link} target="_blank" rel="noreferrer" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} title={card.link}
+              className="mt-1 inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-200 hover:bg-emerald-500/20 hover:text-white max-w-full">
+              <FileSpreadsheet className="w-3 h-3 shrink-0" /> <span className="truncate">{card.linkLabel || "Ouvrir"}</span> <ExternalLink className="w-2.5 h-2.5 shrink-0 opacity-70" />
+            </a>
+          )}
         </div>
         <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+          {sheetable && (
+            <button type="button" data-card-sheet disabled={!!busy} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onCardAction!(card.id, "sheet"); }} className="p-1 rounded-md text-gray-500 hover:text-emerald-200 hover:bg-emerald-500/15 disabled:opacity-50" title={card.link ? "Exporter à nouveau en Google Sheet (S)" : "Exporter en Google Sheet (S)"} aria-label="Exporter en Google Sheet">
+              {busy === "sheet" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileSpreadsheet className="w-3.5 h-3.5" />}
+            </button>
+          )}
           <button type="button" onClick={() => onToggle(card.id)} className="p-1 rounded-md text-gray-500 hover:text-white hover:bg-white/10" aria-label={card.minimized ? "Déplier" : "Replier"}>{card.minimized ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}</button>
           <button type="button" onClick={() => onClose(card.id)} className="p-1 rounded-md text-gray-500 hover:text-white hover:bg-white/10" aria-label="Fermer"><X className="w-3.5 h-3.5" /></button>
         </div>

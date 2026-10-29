@@ -290,7 +290,9 @@ export type FollowUpIntent =
   | { kind: "creative_metrics"; period?: QuickPeriod; say: string }
   | { kind: "verdict"; verdict: "keep" | "cut"; target: FollowUpTarget; say: string }
   /** « Publie la première » : a publication prepared for one visual of the card (confirmed by a click, never sent here). */
-  | { kind: "publish"; target: FollowUpTarget; say: string };
+  | { kind: "publish"; target: FollowUpTarget; say: string }
+  /** « Mets ça dans un Google Sheet », « exporte en tableur » : the card at hand (table, KPI, creatives) exported as a Google Sheet. */
+  | { kind: "sheet"; say: string };
 
 const METRICS_UNDER = /\b(chiffres?|metrics?|metriques?|resultats?|perfs?|performances?|stats?|cpa|cpl|roas|ctr)\b/;
 const UNDER_WORDS = /\b(dessous|en dessous|sous (chaque|les|ces|la|le|tous les)|sur (chaque|les|ces) (visuel|crea|image|pub)|de (chaque|ces|les) (visuel|crea|pub))/;
@@ -307,6 +309,9 @@ const ALL_ONES = /\b(toutes?|tous|les deux|le lot|tout)\b/;
 const LAST_ONES = /\b(?:les |la )?(deux|trois|quatre|2|3|4)?\s*dernieres?\b/;
 const PUBLISH_VERBS = /\b(publie|publies|publier|publions|poste|postes|poster|mets? en ligne|mettre en ligne|envoie en pub|lance la pub|diffuse|diffuser)\b/;
 const SMALL_NUMBERS: Record<string, number> = { un: 1, une: 1, "1": 1, deux: 2, "2": 2, trois: 3, "3": 3, quatre: 4, "4": 4 };
+/** Where the person wants the rows: a spreadsheet, however it is called. */
+const SHEET_WORDS = /\b(google ?sheets?|g ?sheets?|sheets?|spreadsheets?|tableur|excel|feuille de calcul|xlsx?|csv)\b/;
+const SHEET_VERBS = /\b(mets?|mettre|met|exporte|exporter|export|exportes|envoie|envoyer|envoies|sors|sortir|passe|passer|bascule|basculer|colle|coller|copie|copier|balance|balancer|range|ranger|pose|poser|fais|fait|faire|genere|generer|cree|creer|transforme|convertis|convertir)\b/;
 
 /** Which visual(s) of the card a sentence points at (ordinal, last N, all, this one), or null. */
 function followUpTarget(t: string, words: number): FollowUpTarget | null {
@@ -328,6 +333,10 @@ export function parseFollowUpIntent(text: string): FollowUpIntent | null {
   const t = fold(text);
   if (!t || t.length > 120) return null;
   const words = t.split(" ").filter(Boolean).length;
+  // « mets ça dans un google sheet », « exporte en tableur », « envoie ce tableau dans sheets », « google sheet ? » : the card at hand becomes a Sheet.
+  if (SHEET_WORDS.test(t) && (SHEET_VERBS.test(t) || words <= 4) && !/\b(ouvre|ouvrir|lis|lire|montre|affiche|importe|importer|depuis|a partir)\b/.test(t) && !/\b(de|pour|chez)\s+[a-z]{3,}\s+(cette|ce|la|le|sur|du|des|dans)\b/.test(t) && !/\b(compare|pourquoi|explique)\b/.test(t)) {
+    return { kind: "sheet", say: "Je l'envoie dans Google Sheets." };
+  }
   // « mets les chiffres sous chaque créa », « les chiffres dessous », « chiffres ? »
   if (METRICS_UNDER.test(t) && (UNDER_WORDS.test(t) || /\b(mets?|mettre|ajoute|affiche|montre)\b/.test(t) || words <= 3) && !/\b(de|pour|chez)\s+[a-z]{3,}\s+(cette|ce|la|le|sur|du|des)\b/.test(t) && !/\b(compare|pourquoi|explique)\b/.test(t)) {
     const period = PERIOD_WORDS.find(([re]) => re.test(t));

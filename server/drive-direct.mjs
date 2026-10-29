@@ -129,30 +129,37 @@ export async function getFolder(getToken, folderId) {
   return { id: f.id, name: f.name, webViewLink: f.webViewLink ?? null };
 }
 
+const GOOGLE_MIME_RE = /^application\/vnd\.google-apps\.(spreadsheet|document|presentation)$/;
+
 /**
- * Uploads (or replaces, same name) a file into `folderId`.
- * → { id, name, webViewLink, bytes, replaced }
+ * Uploads (or replaces, same name) a file into `folderId`. With `convertTo`
+ * (a Google type such as application/vnd.google-apps.spreadsheet) the
+ * metadata asks Drive for that type while the media part keeps the real one
+ * (text/csv…): Drive converts on the way in, so a CSV lands as a Google Sheet.
+ * → { id, name, mimeType, webViewLink, bytes, replaced }
  */
-export async function uploadFile(getToken, folderId, { name, mimeType, data }) {
+export async function uploadFile(getToken, folderId, { name, mimeType, data, convertTo }) {
   if (!ID_RE.test(folderId)) throw new DriveError("dossier invalide", 400);
   const clean = cleanName(name);
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data), "base64");
   if (!buf.length) throw new DriveError("fichier vide", 400);
   if (buf.length > MAX_UPLOAD_BYTES) throw new DriveError("fichier > 25 Mo", 413);
   const type = typeof mimeType === "string" && /^[\w.+-]+\/[\w.+-]+$/.test(mimeType) ? mimeType : "application/octet-stream";
-  // Same name already there → new version of that file (no duplicates in the folder).
-  const q = `name = '${esc(clean)}' and '${esc(folderId)}' in parents and trashed = false and mimeType != '${FOLDER_MIME}'`;
+  const target = typeof convertTo === "string" && GOOGLE_MIME_RE.test(convertTo) ? convertTo : null;
+  if (convertTo && !target) throw new DriveError("conversion demandée vers un type inconnu", 400);
+  // Same name already there → new version of that file (no duplicates in the folder); a conversion only replaces a file of the target type.
+  const q = `name = '${esc(clean)}' and '${esc(folderId)}' in parents and trashed = false and mimeType ${target ? `= '${target}'` : `!= '${FOLDER_MIME}'`}`;
   const existing = (await call(getToken, "GET", `${API}/files?q=${encodeURIComponent(q)}&fields=files(id)&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true`))?.files?.[0] ?? null;
   const boundary = `im-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  const meta = existing ? { name: clean } : { name: clean, parents: [folderId] };
+  const meta = { name: clean, ...(existing ? {} : { parents: [folderId] }), ...(target ? { mimeType: target } : {}) };
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: ${type}\r\n\r\n`),
     buf,
     Buffer.from(`\r\n--${boundary}--`),
   ]);
   const url = existing
-    ? `${UPLOAD_API}/files/${existing.id}?uploadType=multipart&fields=id,name,webViewLink&supportsAllDrives=true`
-    : `${UPLOAD_API}/files?uploadType=multipart&fields=id,name,webViewLink&supportsAllDrives=true`;
+    ? `${UPLOAD_API}/files/${existing.id}?uploadType=multipart&fields=id,name,mimeType,webViewLink&supportsAllDrives=true`
+    : `${UPLOAD_API}/files?uploadType=multipart&fields=id,name,mimeType,webViewLink&supportsAllDrives=true`;
   const out = await call(getToken, existing ? "PATCH" : "POST", url, { body, raw: true, headers: { "Content-Type": `multipart/related; boundary=${boundary}` } });
-  return { id: out.id, name: out.name, webViewLink: out.webViewLink ?? null, bytes: buf.length, replaced: !!existing };
+  return { id: out.id, name: out.name, mimeType: out.mimeType ?? (target || type), webViewLink: out.webViewLink ?? null, bytes: buf.length, replaced: !!existing };
 }

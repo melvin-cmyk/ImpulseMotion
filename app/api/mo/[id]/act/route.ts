@@ -1,6 +1,6 @@
 /**
  * POST /api/mo/[id]/act → one deterministic action on the board (no model):
- *   verdict | creative_metrics | open_editor | drive | competitor_ads | publish_prepare | publish_confirm | upload
+ *   verdict | creative_metrics | open_editor | drive | competitor_ads | publish_prepare | publish_confirm | upload | sheet
  * (lib/mo/act.ts). Staff only, board owned by the caller. Each action is
  * journaled as a « action » line of the board. Answers { say, cardIds, card?,
  * open?, needs?, hq? } or { error } with the status the action chose
@@ -12,11 +12,11 @@ import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { getAccountScope } from "@/lib/scope";
 import { listClientRegistry } from "@/lib/clients/registry";
-import { ensureClientSubfolder, uploadToFolder } from "@/lib/clients/drive";
+import { createSheetFromRows, ensureClientSubfolder, ensureRootSubfolder, uploadToFolder } from "@/lib/clients/drive";
 import { fetchImageBytes, mediaFileDataUri } from "@/lib/creas/media";
 import { openInEditor } from "@/lib/creas/open-editor";
 import { createBrandAsset, setAssetFeedback } from "@/lib/studio-assets";
-import { ActError, parseActRequest, runMoAct, type ActDeps } from "@/lib/mo/act";
+import { ActError, MO_TABLES_ROOT_FOLDER, parseActRequest, runMoAct, type ActDeps } from "@/lib/mo/act";
 import { appendMoAction, loadBoard, parseMoCards, placeMoCard, rewriteMoCard } from "@/lib/mo/thread";
 import { competitorAds, creativeMetrics, keepTemplate, metaPublishAd, metaTargets, MoToolError, type MoToolContext } from "@/lib/mo/tools";
 import { withClientAliases } from "@/lib/mo/intents";
@@ -78,6 +78,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const up = await uploadToFolder(f.id, file);
       return { link: up.webViewLink };
     },
+    sheetFolder: (dashboardId) => (dashboardId ? ensureClientSubfolder(dashboardId, "tables") : ensureRootSubfolder(MO_TABLES_ROOT_FOLDER.name, MO_TABLES_ROOT_FOLDER.description)),
+    createSheet: (folderId, name, columns, rows) => createSheetFromRows(folderId, name, columns, rows),
   };
 
   const t0 = Date.now();

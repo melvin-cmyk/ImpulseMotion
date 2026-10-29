@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { ActError, cardClientOf, cardPeriodOf, dropClientOf, fileKindOf, hitTestCard, parseActRequest, publishCardSpec, runMoAct, warehouseAdOf, withItemPatch, type ActClient, type ActDeps, type PreparedPublish } from "@/lib/mo/act";
+import { ActError, cardClientOf, cardPeriodOf, dropClientOf, fileKindOf, hitTestCard, isSheetCard, parseActRequest, publishCardSpec, runMoAct, sheetFileName, sheetRowsOf, warehouseAdOf, withItemPatch, type ActClient, type ActDeps, type PreparedPublish } from "@/lib/mo/act";
+import { CSV_BOM, csvCell, toCsv } from "@/lib/csv";
 import type { MoCard, MoCardSpec } from "@/lib/mo/model";
 
 const at = "2026-10-28T10:00:00.000Z";
@@ -29,6 +30,8 @@ describe("Mo act — reading the request", () => {
     expect(parseActRequest({ action: "publish_prepare", cardId: "abc123", item: 1, adsetId: "abc" })).not.toHaveProperty("adsetId");
     expect(parseActRequest({ action: "publish_confirm", cardId: "abc123", primaryText: "Hello" })).toEqual({ action: "publish_confirm", cardId: "abc123", primaryText: "Hello" });
     expect(parseActRequest({ action: "upload", name: "visuel.png", mime: "image/png", bytes: 1200, data: "data:image/png;base64,AAAA", x: 10.4, y: 20 })).toMatchObject({ action: "upload", name: "visuel.png", x: 10.4, y: 20 });
+    expect(parseActRequest({ action: "sheet", cardId: "abc123", said: "mets ça dans un sheet" })).toEqual({ action: "sheet", cardId: "abc123", said: "mets ça dans un sheet" });
+    expect(parseActRequest({ action: "sheet", cardId: "!!" })).toEqual({ error: "Carte inconnue." });
   });
   it("refuses what it cannot run", () => {
     expect(parseActRequest(null)).toHaveProperty("error");
@@ -112,6 +115,8 @@ function fakeDeps(cards: MoCard[], over: Partial<ActDeps> = {}) {
     assetBytes: vi.fn(async () => ({ buf: Buffer.from("png"), mimeType: "image/png" })),
     adImageBytes: vi.fn(async () => ({ buf: Buffer.from("jpg"), mimeType: "image/jpeg" })),
     driveUpload: vi.fn(async () => ({ link: "https://drive.google.com/file/d/xyz" })),
+    sheetFolder: vi.fn(async (dashboardId: string | null) => ({ id: dashboardId ? `tables_${dashboardId}` : "root_tables" })),
+    createSheet: vi.fn(async () => ({ id: "sheet1", webViewLink: "https://docs.google.com/spreadsheets/d/sheet1/edit" })),
     ...over,
   };
   return { deps, store };
@@ -264,5 +269,68 @@ describe("Mo act — dropped files", () => {
     const empty = fakeDeps([]);
     await expect(runMoAct(png, empty.deps, "Mel")).rejects.toMatchObject({ status: 428 });
     await expect(runMoAct({ ...png, clientId: "ac_nodash" }, empty.deps, "Mel")).resolves.toMatchObject({ say: expect.stringContaining("Drive : client sans dossier Drive") });
+  });
+});
+
+describe("Mo act — export as a Google Sheet", () => {
+  const table: Extract<MoCard, { type: "table" }> = { id: "tbl001", type: "table", title: "Chiffres Naturalia · ce mois-ci", subtitle: "Meta · Naturalia", clientId: "d_nat", x: 0, y: 0, w: 640, h: 380, turn: 0, at, columns: ["Campagne", "Dépense", "CPA"], rows: [["Prospection, large", "1 200 €", "12 €"], ["Retargeting", "300 €"]] };
+  const kpis: Extract<MoCard, { type: "kpis" }> = { id: "kpi001", type: "kpis", title: "Semaine", x: 0, y: 0, w: 440, turn: 0, at, items: [{ label: "CPA", value: "12 €", delta: "-8 %", tone: "good" }, { label: "Leads", value: "140" }] };
+  const chart: MoCard = { id: "cht001", type: "chart", title: "Courbe", x: 0, y: 0, w: 560, turn: 0, at, kind: "line", x_: undefined, series: [{ name: "CPA", values: [1, 2] }] } as unknown as MoCard;
+
+  it("writes RFC 4180 CSV with a BOM, commas and CRLF", () => {
+    expect(csvCell("plain")).toBe("plain");
+    expect(csvCell("a, b")).toBe('"a, b"');
+    expect(csvCell('say "hi"')).toBe('"say ""hi"""');
+    expect(csvCell("two\nlines")).toBe('"two\nlines"');
+    expect(csvCell(null)).toBe("");
+    const csv = toCsv(["A", "B"], [["1", "x, y"], ["2"]]);
+    expect(csv.startsWith(CSV_BOM)).toBe(true);
+    expect(csv.slice(1)).toBe('A,B\r\n1,"x, y"\r\n2,\r\n');
+  });
+  it("turns a table, the KPIs and the creatives into rows; a chart has none", () => {
+    expect(isSheetCard(table) && isSheetCard(kpis) && isSheetCard(creas)).toBe(true);
+    expect(isSheetCard(chart)).toBe(false);
+    expect(sheetRowsOf(table)).toEqual({ columns: ["Campagne", "Dépense", "CPA"], rows: [["Prospection, large", "1 200 €", "12 €"], ["Retargeting", "300 €", ""]] });
+    expect(sheetRowsOf(kpis)).toEqual({ columns: ["Indicateur", "Valeur", "Variation"], rows: [["CPA", "12 €", "-8 %"], ["Leads", "140", ""]] });
+    const judged = withItemPatch(creas, 0, { verdict: "keep" });
+    expect(sheetRowsOf(judged)).toEqual({
+      columns: ["Visuel", "Identifiant", "Dépense", "Format", "Verdict"],
+      rows: [["UGC Lisa", "120001", "120 €", "", "Gardée"], ["Proposition 2", "ckasset0000000001", "", "", ""], ["La Fourche · depuis le 3 oct.", "adlib:555", "", "image", ""]],
+    });
+    expect(sheetRowsOf(creas)?.columns).not.toContain("Verdict");
+    expect(sheetRowsOf(chart)).toBeNull();
+  });
+  it("names the sheet after the card and the day", () => {
+    expect(sheetFileName("Chiffres Naturalia / ce mois-ci", new Date("2026-10-29T10:00:00Z"))).toBe("Chiffres Naturalia ce mois-ci — 29 oct. 2026");
+    expect(sheetFileName("   ", new Date("2026-01-05T10:00:00Z"))).toBe("Tableau Mo — 5 janv. 2026");
+  });
+  it("exports a client's table into its « Tableaux » folder, puts the link on the card, journals it", async () => {
+    const { deps, store } = fakeDeps([table]);
+    const r = await runMoAct({ action: "sheet", cardId: "tbl001", said: "mets ça dans un sheet" }, deps, "Mel");
+    expect(deps.sheetFolder).toHaveBeenCalledWith("d_nat");
+    expect(deps.createSheet).toHaveBeenCalledWith("tables_d_nat", expect.stringMatching(/^Chiffres Naturalia · ce mois-ci — /), ["Campagne", "Dépense", "CPA"], [["Prospection, large", "1 200 €", "12 €"], ["Retargeting", "300 €", ""]]);
+    expect(r.say).toBe("C'est dans Google Sheets, le lien est sur la carte.");
+    expect(r.card).toMatchObject({ id: "tbl001", type: "table", link: "https://docs.google.com/spreadsheets/d/sheet1/edit", linkLabel: "Google Sheet" });
+    expect(store.cards[0]).toMatchObject({ link: "https://docs.google.com/spreadsheets/d/sheet1/edit", columns: ["Campagne", "Dépense", "CPA"] });
+    expect(store.journal[0]).toMatchObject({ kind: "sheet", cardIds: ["tbl001"], content: "mets ça dans un sheet" });
+    expect(store.journal[0].label).toBe("Tableau « Chiffres Naturalia · ce mois-ci » exporté dans Google Sheets (Naturalia)");
+  });
+  it("sends a card without a client (or whose client has no Drive) to « Mo – Tableaux » under the root", async () => {
+    const { deps } = fakeDeps([kpis, { ...table, id: "tbl002", clientId: undefined, title: "Chiffres LPEV", subtitle: undefined }]);
+    await runMoAct({ action: "sheet", cardId: "kpi001" }, deps, "Mel");
+    expect(deps.sheetFolder).toHaveBeenLastCalledWith(null);
+    expect(deps.createSheet).toHaveBeenLastCalledWith("root_tables", expect.any(String), ["Indicateur", "Valeur", "Variation"], expect.any(Array));
+    await runMoAct({ action: "sheet", cardId: "tbl002" }, deps, "Mel");
+    expect(deps.sheetFolder).toHaveBeenLastCalledWith(null);
+  });
+  it("builds the link from the id when Drive gives none, refuses a chart and a missing card", async () => {
+    const { deps, store } = fakeDeps([table, chart], { createSheet: vi.fn(async () => ({ id: "s9", webViewLink: null })) });
+    await runMoAct({ action: "sheet", cardId: "tbl001" }, deps, "Mel");
+    expect(store.cards[0].link).toBe("https://docs.google.com/spreadsheets/d/s9/edit");
+    await expect(runMoAct({ action: "sheet", cardId: "cht001" }, deps, "Mel")).rejects.toMatchObject({ status: 400 });
+    await expect(runMoAct({ action: "sheet", cardId: "nope00" }, deps, "Mel")).rejects.toBeInstanceOf(ActError);
+    const failing = fakeDeps([table], { createSheet: vi.fn(async () => { throw new Error("quota"); }) });
+    await expect(runMoAct({ action: "sheet", cardId: "tbl001" }, failing.deps, "Mel")).rejects.toMatchObject({ status: 502, message: "Google Sheets n'a pas répondu : quota" });
+    expect(failing.store.journal).toHaveLength(0);
   });
 });

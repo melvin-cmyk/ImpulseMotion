@@ -9,6 +9,7 @@
 import { prisma } from "@/lib/prisma";
 import { RELAY_URLS } from "@/lib/relay-server";
 import { relayHeaders } from "@/lib/relay-headers";
+import { toCsv } from "@/lib/csv";
 
 export interface DriveFolderRef { id: string; name: string; webViewLink: string | null; created?: boolean }
 export interface DriveFileRef {
@@ -86,20 +87,46 @@ export async function ensureSubfolder(parentId: string, name: string, descriptio
   return relay<DriveFolderRef>("/api/drive/folder", { method: "POST", body: { parentId, name, description } }, 30_000);
 }
 
-export async function uploadToFolder(folderId: string, file: { name: string; mimeType: string; data: Buffer }): Promise<{ id: string; name: string; webViewLink: string | null; bytes: number; replaced: boolean }> {
-  return relay("/api/drive/upload", { method: "POST", body: { folderId, name: file.name, mimeType: file.mimeType, data: file.data.toString("base64") } }, 120_000);
+export const GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+
+/**
+ * Uploads a file into a folder (same name = new version). With `convertTo`
+ * (a Google type, e.g. GOOGLE_SHEET_MIME) Drive converts the bytes on the way
+ * in: a CSV becomes a Google Sheet, `webViewLink` opens it in Sheets.
+ */
+export async function uploadToFolder(folderId: string, file: { name: string; mimeType: string; data: Buffer; convertTo?: string }): Promise<{ id: string; name: string; mimeType?: string; webViewLink: string | null; bytes: number; replaced: boolean }> {
+  return relay("/api/drive/upload", { method: "POST", body: { folderId, name: file.name, mimeType: file.mimeType, data: file.data.toString("base64"), ...(file.convertTo ? { convertTo: file.convertTo } : {}) } }, 120_000);
+}
+
+/** A Google Sheet named `name` in `folderId` from a header and rows (CSV UTF-8 with BOM, converted by Drive). */
+export async function createSheetFromRows(folderId: string, name: string, columns: string[], rows: string[][]): Promise<{ id: string; webViewLink: string | null }> {
+  const up = await uploadToFolder(folderId, { name, mimeType: "text/csv", data: Buffer.from(toCsv(columns, rows), "utf8"), convertTo: GOOGLE_SHEET_MIME });
+  return { id: up.id, webViewLink: up.webViewLink };
+}
+
+/** The agency's root folder (« ImpulseMotion – Clients »), created by the relay when missing. */
+export async function ensureRoot(): Promise<DriveFolderRef> {
+  return relay<DriveFolderRef>("/api/drive/root", { method: "GET" }, 30_000);
+}
+
+/** A folder directly under the root, for what belongs to no client (« Mo – Tableaux »). */
+export async function ensureRootSubfolder(name: string, description = ""): Promise<DriveFolderRef> {
+  const root = await ensureRoot();
+  return ensureSubfolder(root.id, name, description);
 }
 
 /**
  * Standard sub-folders of a client's Drive folder — everything the agency
  * produces for a client lives under ONE folder: « Dashboards » (files the
  * dashboards read), « Créas » (FigCraft and PhotoCraft exports, Mo's visuals),
- * « Briefs » (PDF / Word dropped in Mo), the root for the rest. Created on demand.
+ * « Briefs » (PDF / Word dropped in Mo), « Tableaux » (Mo's cards exported as
+ * Google Sheets), the root for the rest. Created on demand.
  */
 export const CLIENT_SUBFOLDERS = {
   dashboards: { name: "Dashboards", description: "Fichiers des dashboards du client (CSV, Excel, Google Sheets lus par le copilote). Dossier ImpulseMotion." },
   creas: { name: "Créas", description: "Créas du client : exports FigCraft (mise en page) et PhotoCraft (retouche), visuels générés ou déposés dans Mo. Dossier ImpulseMotion." },
   briefs: { name: "Briefs", description: "Briefs du client (PDF, Word) déposés par les consultants dans Mo. Dossier ImpulseMotion." },
+  tables: { name: "Tableaux", description: "Tableaux exportés depuis Mo en Google Sheets (chiffres, KPI, créas). Dossier ImpulseMotion." },
 } as const;
 
 export async function ensureClientSubfolder(dashboardId: string, kind: keyof typeof CLIENT_SUBFOLDERS): Promise<DriveFolderRef | null> {

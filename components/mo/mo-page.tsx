@@ -17,7 +17,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Briefcase, ChevronDown, ChevronUp, FileOutput, Frame as FrameIcon, LayoutGrid, Maximize2, PanelLeft, PanelRight, Search, Volume2, VolumeX, X } from "lucide-react";
 import { Board, type BoardHandle } from "@/components/mo/board";
-import { MoCardView, MoGhostCard, MoUploadCard, type CardBusy, type Ghost, type PublishEdits, type Upload } from "@/components/mo/card";
+import { MoCardView, MoGhostCard, MoUploadCard, type CardBusy, type Ghost, type PublishEdits, type Upload, type WholeCardAction } from "@/components/mo/card";
 import { MoFrameView, MoGhostFrame } from "@/components/mo/frame";
 import { PagesRail } from "@/components/mo/pages-rail";
 import { JournalRail } from "@/components/mo/journal-rail";
@@ -32,7 +32,7 @@ import { warmMoBoard } from "@/components/mo/warm";
 import { WaveCanvas, type WaveMood } from "@/components/mo/wave-canvas";
 import { useVoice } from "@/components/mo/use-voice";
 import { CARD_SIZES, COL_GAP, type MoBoardData, type MoCard, type MoCardPatch, type MoCardSpec } from "@/lib/mo/model";
-import { MAX_UPLOAD_BYTES, cardClientOf, fileKindOf } from "@/lib/mo/act";
+import { MAX_UPLOAD_BYTES, cardClientOf, fileKindOf, isSheetCard, type SheetCard } from "@/lib/mo/act";
 import { GRID, SNAP_SCREEN_PX, arrangeCards, linkAnchors, linkPath, rectOf, resizeRect, snapMove, topZ, type Guide, type HandleDir, type Rect } from "@/lib/mo/geometry";
 
 const sameGuides = (a: Guide[], b: Guide[]) => a.length === b.length && a.every((g, i) => g.axis === b[i].axis && g.pos === b[i].pos && g.from === b[i].from && g.to === b[i].to);
@@ -388,8 +388,17 @@ export function MoPage() {
       window.setTimeout(() => router.push(nav.path), 600);
       return;
     }
-    // « Mets les chiffres dessous », « garde celle-là », « coupe les deux dernières », « publie la première » over the creatives card at hand: an action, no model.
+    // « Mets ça dans un Google Sheet » over the table / KPI / creatives card at hand: an export, no model.
     const followUp = parseFollowUpIntent(t);
+    if (followUp?.kind === "sheet") {
+      const target = targetSheetCard();
+      if (!target) { setLastSaid({ you: t, mo: "Je ne vois pas de tableau à exporter." }); if (!muted) speakRef.current("Je ne vois pas de tableau à exporter."); return; }
+      setLastSaid({ you: t, mo: followUp.say });
+      const turn = startTurn("act");
+      void act({ action: "sheet", cardId: target.id, said: t }, { cardId: target.id, key: "sheet" }).then(withTurn(turn));
+      return;
+    }
+    // « Mets les chiffres dessous », « garde celle-là », « coupe les deux dernières », « publie la première » over the creatives card at hand: an action, no model.
     if (followUp) {
       const target = targetCreativesCard();
       if (target) {
@@ -697,6 +706,16 @@ export function MoPage() {
     return latest(creatives.filter((c) => freshRef.current.has(c.id))) ?? latest(creatives);
   }, []);
 
+  /** The card an export to Google Sheets is about (table, KPI, creatives): the one selected, else the freshest, else the latest on the board. */
+  const targetSheetCard = useCallback((): SheetCard | null => {
+    const b = boardStateRef.current; if (!b) return null;
+    const rows = b.cards.filter(isSheetCard);
+    const sel = rows.filter((c) => selectedRef.current.has(c.id));
+    if (sel.length === 1) return sel[0];
+    const latest = (list: SheetCard[]) => [...list].sort((a, c) => (c.at > a.at ? 1 : c.at < a.at ? -1 : 0))[0] ?? null;
+    return latest(rows.filter((c) => freshRef.current.has(c.id))) ?? latest(rows);
+  }, []);
+
   /** The KPI card a comparison is about: the one selected, else the freshest, else the latest on the board. */
   const targetKpiCard = useCallback((): Extract<MoCard, { type: "kpis" }> | null => {
     const b = boardStateRef.current; if (!b) return null;
@@ -745,6 +764,8 @@ export function MoPage() {
     void act({ ...body, cardId, item: index }, { cardId, key: `item:${index}:${action}` });
   }, [act]);
   const onConfirmPublish = useCallback((cardId: string, edits: PublishEdits) => { void act({ action: "publish_confirm", cardId, ...edits }, { cardId, key: "confirm" }); }, [act]);
+  /** « Google Sheet » in a card's header (or S on the selected card): its rows exported, the link lands on the card. */
+  const onCardAction = useCallback((cardId: string, action: WholeCardAction) => { if (action === "sheet") void act({ action: "sheet", cardId }, { cardId, key: "sheet" }); }, [act]);
   const onItemHover = useCallback((cardId: string, index: number | null) => { hotItem.current = index === null ? (hotItem.current?.cardId === cardId ? null : hotItem.current) : { cardId, index }; }, []);
 
   /** One dropped file sent to the board (POST act upload); 428 = Mo asks which client with chips, then sends again. */
@@ -978,7 +999,7 @@ export function MoPage() {
           <MoCardView key={c.id} card={c} fresh={fresh.has(c.id)} delayMs={(freshOrder.get(c.id) ?? 0) * 60} selected={selected.has(c.id)} refTitle={c.ref ? titles.get(c.ref) ?? null : null} getK={getK}
             onMove={onMove} onMoveEnd={onMoveEnd} onResizeStart={onResizeStart} onResize={onResize} onResizeEnd={onResizeEnd}
             onFront={onFront} onSelect={onSelect} onToggle={onToggle} onClose={onClose} onFocusRef={onFocusRef} onHoverRef={onHoverRef} onAnswer={onAnswer}
-            onItemAction={onItemAction} onItemHover={onItemHover} onConfirmPublish={onConfirmPublish} busy={acting?.cardId === c.id ? acting.key : null} />
+            onItemAction={onItemAction} onItemHover={onItemHover} onConfirmPublish={onConfirmPublish} onCardAction={onCardAction} busy={acting?.cardId === c.id ? acting.key : null} />
         ))}
         {ghost && <MoGhostCard ghost={ghost} onRetry={() => { setGhost(null); void send(ghost.text); }} onClose={() => setGhost(null)} />}
         {uploads.map((up) => <MoUploadCard key={up.id} up={up} onClose={() => { if (up.preview) URL.revokeObjectURL(up.preview); setUploads((u) => u.filter((x) => x.id !== up.id)); }} />)}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeCards, layoutNewCards, modelHistory, parseMoAnswer, parseMoEntries, sanitizeAsk, sanitizeOpen } from "@/lib/mo/model";
+import { applyCardUpdates, describeCards, layoutNewCards, modelHistory, parseMoAnswer, parseMoEntries, sanitizeAsk, sanitizeCardLink, sanitizeOpen, type MoCard } from "@/lib/mo/model";
 
 describe("Mo — parsing of an answer", () => {
   it("reads the ```mo block: say, cards, open", () => {
@@ -128,5 +128,30 @@ describe("Mo — the journal's action lines", () => {
     expect(all.map((m) => m.role)).toEqual(["user", "action", "assistant"]);
     expect(all[1].action).toMatchObject({ kind: "verdict", clientId: "d_cl", cardIds: ["abc123"], label: "Gardée : UGC Lisa" });
     expect(modelHistory(all).map((m) => m.role)).toEqual(["user", "assistant"]);
+  });
+});
+
+describe("Mo — export link on a card", () => {
+  it("keeps an https link only, with its label", () => {
+    expect(sanitizeCardLink("https://docs.google.com/spreadsheets/d/abc/edit")).toBe("https://docs.google.com/spreadsheets/d/abc/edit");
+    expect(sanitizeCardLink("http://docs.google.com/x")).toBeUndefined();
+    expect(sanitizeCardLink("javascript:alert(1)")).toBeUndefined();
+    expect(sanitizeCardLink("https://x.y/a b")).toBeUndefined();
+    expect(sanitizeCardLink(42)).toBeUndefined();
+    const a = parseMoAnswer(JSON.stringify({ say: "ok", cards: [
+      { type: "table", title: "T", columns: ["A"], rows: [["1"]], link: "https://docs.google.com/spreadsheets/d/abc/edit", linkLabel: "Google Sheet" },
+      { type: "table", title: "U", columns: ["A"], rows: [["1"]], link: "ftp://nope", linkLabel: "X" },
+    ] }));
+    expect(a.cards[0]).toMatchObject({ link: "https://docs.google.com/spreadsheets/d/abc/edit", linkLabel: "Google Sheet" });
+    expect(a.cards[1]).not.toHaveProperty("link");
+    expect(a.cards[1]).not.toHaveProperty("linkLabel");
+  });
+  it("survives a rewrite of the card by the model and shows in the inventory", () => {
+    const card: MoCard = { id: "abc123", type: "table", title: "T", x: 0, y: 0, w: 640, h: 380, turn: 0, at: "t", columns: ["A"], rows: [["1"]], link: "https://docs.google.com/spreadsheets/d/abc/edit", linkLabel: "Google Sheet" };
+    const { cards } = applyCardUpdates([card], { updates: [{ id: "abc123", type: "table", columns: ["A", "B"], rows: [["1", "2"]] }], remove: [] }, 2, "t2");
+    expect(cards[0]).toMatchObject({ columns: ["A", "B"], link: "https://docs.google.com/spreadsheets/d/abc/edit", linkLabel: "Google Sheet" });
+    const renamed = applyCardUpdates([card], { updates: [{ id: "abc123", title: "T2" }], remove: [] }, 3, "t3").cards[0];
+    expect(renamed).toMatchObject({ title: "T2", link: "https://docs.google.com/spreadsheets/d/abc/edit" });
+    expect(describeCards([card])).toContain("exportée (Google Sheet)");
   });
 });

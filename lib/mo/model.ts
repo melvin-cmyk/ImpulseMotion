@@ -47,6 +47,10 @@ interface MoCardBase {
   clientName?: string;
   /** The client frame (card of type « frame ») this card lives in; moves with it, hidden when it is folded. */
   frame?: string;
+  /** Where the card was exported (https): a Google Sheet of its rows, for instance — shown as a chip in the header. */
+  link?: string;
+  /** What the link opens (« Google Sheet »). */
+  linkLabel?: string;
 }
 
 /** A publication prepared by Mo (Pilotage draft): confirmed by a click, never sent otherwise. */
@@ -105,8 +109,8 @@ export type MoCardUpdate = { id: string; title?: string; subtitle?: string } & (
 export interface MoCardPatch { x?: number; y?: number; w?: number; h?: number; z?: number; minimized?: boolean; removed?: boolean; /** Joins a frame (its id) or leaves it (null). */ frame?: string | null }
 
 /** What the consultant did on the board without the model (journal, lib/mo/act.ts). */
-export type MoActionKind = "verdict" | "creative_metrics" | "open_editor" | "drive" | "competitor_ads" | "publish_prepare" | "publish_confirm" | "upload";
-export const MO_ACTION_KINDS: readonly MoActionKind[] = ["verdict", "creative_metrics", "open_editor", "drive", "competitor_ads", "publish_prepare", "publish_confirm", "upload"];
+export type MoActionKind = "verdict" | "creative_metrics" | "open_editor" | "drive" | "competitor_ads" | "publish_prepare" | "publish_confirm" | "upload" | "sheet";
+export const MO_ACTION_KINDS: readonly MoActionKind[] = ["verdict", "creative_metrics", "open_editor", "drive", "competitor_ads", "publish_prepare", "publish_confirm", "upload", "sheet"];
 export interface MoActionMeta { kind: MoActionKind; clientId?: string; cardIds: string[]; label: string; at: string }
 
 export interface MoMessage {
@@ -237,6 +241,12 @@ const MAX_ASK_OPTION = 60;
 const MAX_ASK_QUESTION = 200;
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "").trim().slice(0, max);
+
+/** The export link of a card: https only, printable, 500 chars at most; undefined otherwise. */
+export function sanitizeCardLink(v: unknown): string | undefined {
+  const link = str(v, 500);
+  return /^https:\/\/[^\s"'<>]+$/.test(link) ? link : undefined;
+}
 const tone = (v: unknown): MoTone | undefined => (v === "good" || v === "bad" || v === "neutral" ? v : undefined);
 
 function sanitizeCard(raw: unknown): MoCardSpec | null {
@@ -247,7 +257,9 @@ function sanitizeCard(raw: unknown): MoCardSpec | null {
   const ref = /^[a-z0-9]{3,24}$/i.test(String(r.ref ?? "")) ? String(r.ref) : undefined;
   const clientId = /^[A-Za-z0-9_-]{1,40}$/.test(String(r.clientId ?? "")) ? String(r.clientId) : undefined;
   const clientName = str(r.clientName, 80) || undefined;
-  const base = { title, ...(subtitle ? { subtitle } : {}), ...(ref ? { ref } : {}), ...(clientId ? { clientId } : {}), ...(clientName ? { clientName } : {}) };
+  const link = sanitizeCardLink(r.link);
+  const linkLabel = link ? str(r.linkLabel, 40) || undefined : undefined;
+  const base = { title, ...(subtitle ? { subtitle } : {}), ...(ref ? { ref } : {}), ...(clientId ? { clientId } : {}), ...(clientName ? { clientName } : {}), ...(link ? { link } : {}), ...(linkLabel ? { linkLabel } : {}) };
   switch (r.type) {
     case "kpis": {
       const items = (Array.isArray(r.items) ? r.items : []).slice(0, MAX_ITEMS).map((it): MoKpi | null => {
@@ -420,13 +432,13 @@ export function applyCardUpdates(cards: MoCard[], answer: Pick<MoAnswer, "update
     if (!u) { out.push(c); continue; }
     touched.push(c.id);
     const { id: _id, title, subtitle, ...rest } = u; void _id;
-    const base = { id: c.id, x: c.x, y: c.y, w: c.w, ...(c.h ? { h: c.h } : {}), ...(c.z !== undefined ? { z: c.z } : {}), ...(c.ref ? { ref: c.ref } : {}), ...(c.clientId ? { clientId: c.clientId } : {}), ...(c.clientName ? { clientName: c.clientName } : {}), ...(c.frame ? { frame: c.frame } : {}), minimized: false, turn, at, title: title ?? c.title, ...(subtitle ? { subtitle } : c.subtitle ? { subtitle: c.subtitle } : {}) };
+    const base = { id: c.id, x: c.x, y: c.y, w: c.w, ...(c.h ? { h: c.h } : {}), ...(c.z !== undefined ? { z: c.z } : {}), ...(c.ref ? { ref: c.ref } : {}), ...(c.clientId ? { clientId: c.clientId } : {}), ...(c.clientName ? { clientName: c.clientName } : {}), ...(c.frame ? { frame: c.frame } : {}), ...(c.link ? { link: c.link, ...(c.linkLabel ? { linkLabel: c.linkLabel } : {}) } : {}), minimized: false, turn, at, title: title ?? c.title, ...(subtitle ? { subtitle } : c.subtitle ? { subtitle: c.subtitle } : {}) };
     if ("type" in rest && rest.type) {
       // New content: same size unless the type changed (then the default size of the new type).
       const size = rest.type === c.type ? { w: c.w, h: c.h } : CARD_SIZES[rest.type];
       out.push({ ...base, ...rest, w: size.w, ...(size.h ? { h: size.h } : {}) } as MoCard);
     } else {
-      const { x: _x, y: _y, w: _w, h: _h, z: _z, ref: _r, minimized: _m, turn: _t, at: _a, title: _ti, subtitle: _su, id: _i, clientId: _ci, clientName: _cn, frame: _f, ...payload } = c; void [_x, _y, _w, _h, _z, _r, _m, _t, _a, _ti, _su, _i, _ci, _cn, _f];
+      const { x: _x, y: _y, w: _w, h: _h, z: _z, ref: _r, minimized: _m, turn: _t, at: _a, title: _ti, subtitle: _su, id: _i, clientId: _ci, clientName: _cn, frame: _f, link: _l, linkLabel: _ll, ...payload } = c; void [_x, _y, _w, _h, _z, _r, _m, _t, _a, _ti, _su, _i, _ci, _cn, _f, _l, _ll];
       out.push({ ...base, ...payload } as MoCard);
     }
   }
@@ -488,7 +500,7 @@ export function describeCards(cards: MoCard[]): string {
     }
   };
   const verdicts = (c: MoCard) => (c.type === "creatives" ? c.items.filter((it) => it.verdict).map((it) => `${it.name} ${it.verdict === "keep" ? "gardée" : "coupée"}`) : []);
-  return visible.map((c) => `- ${c.id} · ${c.type} · « ${c.title} »${c.subtitle ? ` (${c.subtitle})` : ""}${c.clientName ? ` [client ${c.clientName}]` : ""}${detail(c)}${verdicts(c).length ? ` — verdicts : ${verdicts(c).join(" ; ")}` : ""}`).join("\n");
+  return visible.map((c) => `- ${c.id} · ${c.type} · « ${c.title} »${c.subtitle ? ` (${c.subtitle})` : ""}${c.clientName ? ` [client ${c.clientName}]` : ""}${detail(c)}${verdicts(c).length ? ` — verdicts : ${verdicts(c).join(" ; ")}` : ""}${c.type !== "file" && c.link ? ` — exportée (${c.linkLabel ?? "lien"})` : ""}`).join("\n");
 }
 
 export function boardTitleFrom(messages: MoMessage[]): string {

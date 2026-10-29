@@ -2,8 +2,9 @@
  * Mo's deterministic actions (POST /api/mo/[id]/act): what the consultant
  * does on a card without the model — a verdict on a visual, the figures under
  * the visuals, an editor, the Drive, the Ad Library, a publication prepared
- * then confirmed, a file dropped on the board. Each one is journaled on the
- * board as a « action » line (never shown to the model).
+ * then confirmed, a file dropped on the board, a card exported as a Google
+ * Sheet. Each one is journaled on the board as a « action » line (never shown
+ * to the model).
  *
  * The pure parts (reading the request, finding the card's client, the verdict
  * on an item, the publish card) are at the top; `runMoAct` ties them to the
@@ -28,7 +29,9 @@ export type ActRequest =
   | { action: "competitor_ads"; query: string; clientId?: string; said?: string }
   | { action: "publish_prepare"; cardId: string; item: number; adsetId?: string; pageId?: string; primaryText?: string; headline?: string; linkUrl?: string; cta?: string; said?: string }
   | { action: "publish_confirm"; cardId: string; primaryText?: string; headline?: string; linkUrl?: string }
-  | { action: "upload"; name: string; mime: string; bytes: number; data: string; clientId?: string; x: number; y: number };
+  | { action: "upload"; name: string; mime: string; bytes: number; data: string; clientId?: string; x: number; y: number }
+  /** « Exporter en Google Sheet » : the rows of a table / KPI / creatives card become a Sheet in the Drive, its link lands on the card. */
+  | { action: "sheet"; cardId: string; said?: string };
 
 const CARD_ID_RE = /^[a-z0-9]{3,24}$/i;
 const CLIENT_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
@@ -83,6 +86,10 @@ export function parseActRequest(body: unknown): ActRequest | { error: string } {
       const bad = needCard(); if (bad) return bad;
       const primaryText = str(b.primaryText, 2000); const headline = str(b.headline, 255); const linkUrl = str(b.linkUrl, 2000);
       return { action: "publish_confirm", cardId, ...(primaryText ? { primaryText } : {}), ...(headline ? { headline } : {}), ...(linkUrl ? { linkUrl } : {}) };
+    }
+    case "sheet": {
+      const bad = needCard(); if (bad) return bad;
+      return { action: "sheet", cardId, ...(said ? { said } : {}) };
     }
     case "upload": {
       const name = str(b.name, 160) || "fichier";
@@ -192,6 +199,47 @@ export function publishCardSpec(prepared: PreparedPublish, src: { clientId: stri
 /** Where a publication card goes: right of its visual's card. */
 export const besideCard = (card: Pick<MoCard, "x" | "y" | "w">) => ({ x: card.x + card.w + COL_GAP, y: card.y });
 
+// ── Export as a Google Sheet ────────────────────────────────────────────────
+
+/** The card types whose content is rows. */
+export const SHEET_CARD_TYPES = ["table", "kpis", "creatives"] as const;
+export type SheetCard = Extract<MoCard, { type: (typeof SHEET_CARD_TYPES)[number] }>;
+export const isSheetCard = (card: Pick<MoCard, "type"> | null | undefined): card is SheetCard => !!card && (SHEET_CARD_TYPES as readonly string[]).includes(card.type);
+
+/** The Drive folder of the tables that belong to no client, under the agency root. */
+export const MO_TABLES_ROOT_FOLDER = { name: "Mo – Tableaux", description: "Tableaux exportés depuis Mo en Google Sheets quand aucun client n'est concerné. Dossier ImpulseMotion." } as const;
+
+/**
+ * The rows of a card as a sheet: a table as it is; the KPIs one per line
+ * (indicateur, valeur, variation); the creatives one per visual (name, id,
+ * the union of their metrics in order of first appearance, the verdict when
+ * one was given). Null for a card without rows (chart, note…).
+ */
+export function sheetRowsOf(card: MoCard): { columns: string[]; rows: string[][] } | null {
+  switch (card.type) {
+    case "table":
+      return { columns: card.columns, rows: card.rows.map((r) => card.columns.map((_, j) => r[j] ?? "")) };
+    case "kpis":
+      return { columns: ["Indicateur", "Valeur", "Variation"], rows: card.items.map((k) => [k.label, k.value, k.delta ?? ""]) };
+    case "creatives": {
+      const metrics: string[] = [];
+      for (const it of card.items) for (const k of Object.keys(it.metrics)) if (!metrics.includes(k)) metrics.push(k);
+      const verdicts = card.items.some((it) => it.verdict);
+      const columns = ["Visuel", "Identifiant", ...metrics, ...(verdicts ? ["Verdict"] : [])];
+      const rows = card.items.map((it) => [it.name, it.adId ?? it.assetId ?? "", ...metrics.map((k) => it.metrics[k] ?? ""), ...(verdicts ? [it.verdict === "keep" ? "Gardée" : it.verdict === "cut" ? "Coupée" : ""] : [])]);
+      return { columns, rows };
+    }
+    default:
+      return null;
+  }
+}
+
+/** « Chiffres Naturalia — 29 oct. 2026 » : the sheet's name from the card's title and a date. */
+export function sheetFileName(title: string, at: Date = new Date()): string {
+  const clean = title.replace(/[\u0000-\u001f/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Tableau Mo";
+  return `${clean} — ${at.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}`;
+}
+
 const shortLabel = (s: string, max = 60) => (s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s);
 
 // ── Running an action ───────────────────────────────────────────────────────
@@ -223,6 +271,10 @@ export interface ActDeps {
   adImageBytes(platform: string, adId: string): Promise<{ buf: Buffer; mimeType: string } | null>;
   /** lib/clients/drive */
   driveUpload(dashboardId: string, folder: "creas" | "briefs", file: { name: string; mimeType: string; data: Buffer }): Promise<{ link: string | null }>;
+  /** The folder a sheet goes to: the client's « Tableaux » (ensureClientSubfolder) when a dashboard is given, else « Mo – Tableaux » under the root (ensureRootSubfolder); null when the client's folder cannot be made. */
+  sheetFolder(dashboardId: string | null): Promise<{ id: string } | null>;
+  /** lib/clients/drive createSheetFromRows */
+  createSheet(folderId: string, name: string, columns: string[], rows: string[][]): Promise<{ id: string; webViewLink: string | null }>;
 }
 
 export interface ActResult {
@@ -419,6 +471,25 @@ export async function runMoAct(req: ActRequest, deps: ActDeps, who: string): Pro
       await deps.journal({ kind: "publish_confirm", clientId: client.id, cardIds: [card.id], label: sent ? `Publicité créée EN PAUSE dans ${card.adset} (${client.name})` : `Publication en échec : ${(error ?? "").slice(0, 80)} (${client.name})` });
       if (!sent) throw new ActError(`La publication n'est pas partie : ${error}`, 502);
       return { say: "C'est publié, en pause : rien ne dépense avant l'activation dans le Gestionnaire.", cardIds: [card.id], ...(updated ? { card: updated } : {}) };
+    }
+
+    case "sheet": {
+      const card = find(req.cardId);
+      if (!card) throw new ActError("Cette carte n'est plus sur le tableau.", 404);
+      if (!isSheetCard(card)) throw new ActError("Je n'exporte en Google Sheet que les tableaux, les KPI et les créas.", 400);
+      const data = sheetRowsOf(card);
+      if (!data || !data.columns.length) throw new ActError("Cette carte n'a pas de lignes à exporter.", 400);
+      const client = cardClientOf(card, clients);
+      let folder: { id: string } | null;
+      try { folder = await deps.sheetFolder(client?.dashboardId ?? null); } catch (e) { throw new ActError(`Le Drive n'a pas répondu : ${toolErrorMessage(e)}`, 502); }
+      if (!folder) throw new ActError("Je ne trouve pas de dossier Drive où poser la feuille.", 502);
+      const name = sheetFileName(card.title);
+      let sheet: { id: string; webViewLink: string | null };
+      try { sheet = await deps.createSheet(folder.id, name, data.columns, data.rows); } catch (e) { throw new ActError(`Google Sheets n'a pas répondu : ${toolErrorMessage(e)}`, 502); }
+      const link = sheet.webViewLink ?? `https://docs.google.com/spreadsheets/d/${sheet.id}/edit`;
+      const updated = await deps.rewriteCard(card.id, (c) => ({ ...c, link, linkLabel: "Google Sheet", at: new Date().toISOString() }) as MoCard);
+      await deps.journal({ kind: "sheet", ...(client ? { clientId: client.id } : {}), cardIds: [card.id], label: `Tableau « ${shortLabel(card.title)} » exporté dans Google Sheets${client ? ` (${client.name})` : ""}` }, req.said);
+      return { say: "C'est dans Google Sheets, le lien est sur la carte.", cardIds: [card.id], ...(updated ? { card: updated } : {}) };
     }
 
     case "upload": {

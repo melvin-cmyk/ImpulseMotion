@@ -201,6 +201,16 @@ describe("Mo — verdict verbs on the card at hand", () => {
   it("« garde-les toutes » → all", () => {
     expect(parseFollowUpIntent("garde-les toutes")).toMatchObject({ kind: "verdict", verdict: "keep", target: { which: "all" } });
   });
+  it("« mets ça dans un google sheet » → the card at hand exported as a Sheet", () => {
+    for (const said of ["mets ça dans un google sheet", "Mets ce tableau dans un Google Sheet", "exporte en sheet", "exporte en tableur", "exporte en excel", "envoie ce tableau dans sheets", "google sheet ?", "en tableur", "passe-moi ça en csv", "fais-en une feuille de calcul"]) {
+      expect(parseFollowUpIntent(said), said).toMatchObject({ kind: "sheet", say: "Je l'envoie dans Google Sheets." });
+    }
+    for (const said of ["ouvre le google sheet du client", "lis le sheet budgets", "montre le sheet", "les chiffres de naturalia dans un sheet", "importe le csv"]) {
+      expect(parseFollowUpIntent(said)?.kind ?? null, said).not.toBe("sheet");
+    }
+    // Figures under the visuals still win when no spreadsheet is named.
+    expect(parseFollowUpIntent("mets les chiffres dessous")).toMatchObject({ kind: "creative_metrics" });
+  });
   it("« publie la première » → a publication to prepare for the first visual", () => {
     expect(parseFollowUpIntent("publie la première")).toMatchObject({ kind: "publish", target: { which: "index", index: 0 } });
     expect(parseFollowUpIntent("poste celle-là")).toMatchObject({ kind: "publish", target: { which: "this" } });

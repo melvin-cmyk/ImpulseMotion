@@ -2443,6 +2443,11 @@ const server = http.createServer(async (req, res) => {
       const getToken = async () => (await gwsAuth.getAccessToken()).token;
       try {
         if (url.pathname === "/api/drive/root" && req.method === "GET") return send(200, await drive.ensureRoot(getToken));
+        // A folder directly under the root (« Mo – Tableaux » for tables without a client), created when missing.
+        if (url.pathname === "/api/drive/root-subfolder" && req.method === "GET") {
+          const root = await drive.ensureRoot(getToken);
+          return send(200, await drive.ensureFolder(getToken, root.id, url.searchParams.get("name") || "", url.searchParams.get("description") || ""));
+        }
         if (url.pathname === "/api/drive/client-folder" && req.method === "POST") {
           const body = await readBody(req);
           const out = await drive.ensureClientFolder(getToken, { name: body?.name, description: body?.description });
@@ -2463,8 +2468,8 @@ const server = http.createServer(async (req, res) => {
         }
         if (url.pathname === "/api/drive/upload" && req.method === "POST") {
           const body = await readBody(req, UPLOAD_BODY_MAX_BYTES);
-          const out = await drive.uploadFile(getToken, body?.folderId || "", { name: body?.name, mimeType: body?.mimeType, data: body?.data });
-          console.log(`[drive] ${out.replaced ? "remplacé" : "déposé"} « ${out.name} » (${out.bytes} o) dans ${body?.folderId}`);
+          const out = await drive.uploadFile(getToken, body?.folderId || "", { name: body?.name, mimeType: body?.mimeType, data: body?.data, convertTo: body?.convertTo });
+          console.log(`[drive] ${out.replaced ? "remplacé" : "déposé"} « ${out.name} » (${out.bytes} o${body?.convertTo ? ` → ${out.mimeType}` : ""}) dans ${body?.folderId}`);
           return send(200, out);
         }
         return send(404, { error: "not found" });

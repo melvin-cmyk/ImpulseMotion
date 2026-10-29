@@ -6,7 +6,7 @@
  * label; a click opens the page and focuses the cards. ‹ › move by day.
  */
 
-import { ChevronLeft, ChevronRight, Check, FileUp, HardDrive, Image as ImageIcon, LayoutGrid, PenTool, Scissors, Search, Send, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, FileSpreadsheet, FileUp, HardDrive, Image as ImageIcon, LayoutGrid, PenTool, Scissors, Search, Send, Sparkles } from "lucide-react";
 import type { JournalEntry, JournalKind } from "@/lib/mo/journal";
 import { localDay } from "@/lib/mo/journal";
 import { frameColorFor } from "@/lib/mo/frames";
@@ -20,7 +20,7 @@ interface Props {
   className?: string;
 }
 
-const ICONS: Record<JournalKind, typeof Check> = { verdict: Check, creative_metrics: LayoutGrid, open_editor: PenTool, drive: HardDrive, competitor_ads: Search, publish_prepare: Send, publish_confirm: Send, upload: FileUp, cards: Sparkles };
+const ICONS: Record<JournalKind, typeof Check> = { verdict: Check, creative_metrics: LayoutGrid, open_editor: PenTool, drive: HardDrive, competitor_ads: Search, publish_prepare: Send, publish_confirm: Send, upload: FileUp, sheet: FileSpreadsheet, cards: Sparkles };
 
 const shiftDay = (day: string, n: number) => { const d = new Date(`${day}T12:00:00`); d.setDate(d.getDate() + n); return localDay(d); };
 const dayLabel = (day: string) => { const today = localDay(); if (day === today) return "Aujourd'hui"; if (day === shiftDay(today, -1)) return "Hier"; return new Date(`${day}T12:00:00`).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" }); };

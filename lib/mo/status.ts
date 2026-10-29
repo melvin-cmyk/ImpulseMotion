@@ -21,6 +21,7 @@ export const MO_STATUS = {
   drive: "je range dans le Drive",
   upload: "je range le fichier",
   send: "j'envoie la publicité (en pause)",
+  sheet: "j'écris la feuille",
 } as const;
 
 export type MoStatusKey = keyof typeof MO_STATUS;
@@ -53,6 +54,7 @@ export function actStatusLabel(action: string): string {
     case "publish_prepare": return MO_STATUS.publish;
     case "publish_confirm": return MO_STATUS.send;
     case "upload": return MO_STATUS.upload;
+    case "sheet": return MO_STATUS.sheet;
     default: return MO_STATUS.think;
   }
 }
