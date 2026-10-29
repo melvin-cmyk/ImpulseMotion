@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 
-beforeAll(() => { process.env.RELAY_SHARED_SECRET = "test-secret-0123456789abcdef"; process.env.VERCEL_PROJECT_PRODUCTION_URL = "impulsemotion.vercel.app"; });
+beforeAll(() => { process.env.RELAY_SHARED_SECRET = "test-secret-0123456789abcdef"; process.env.VERCEL_PROJECT_PRODUCTION_URL = "impulsemotion.ai"; delete process.env.MEDIA_PUBLIC_URL; });
 
 describe("Studio créa — liens signés", () => {
   it("un lien signé se vérifie ; signature, fichier ou date faux → refusé", async () => {
@@ -13,6 +13,10 @@ describe("Studio créa — liens signés", () => {
     expect(verifyMediaSignature("up_abc123.png", 1000, sig)).toBe(false);
     expect(verifyMediaSignature("../etc/passwd", exp, sig)).toBe(false);
     expect(publicMediaUrl("up_abc123.png", 60)).toMatch(/^https:\/\/impulsemotion\.vercel\.app\/api\/studio\/media\/up_abc123\.png\?exp=\d+&sig=[a-f0-9]{64}$/);
+    // A custom domain whose DNS is not live yet must not leak into the links (broken pictures, 2026-10-29).
+    process.env.MEDIA_PUBLIC_URL = "media.example.com";
+    expect(publicMediaUrl("up_abc123.png", 60)).toMatch(/^https:\/\/media\.example\.com\/api\/studio\/media\//);
+    delete process.env.MEDIA_PUBLIC_URL;
     expect(videoCost("fast", 12)).toBe(0);
     expect(videoCost("hd", 5)).toBe(0.2);
     expect(dataUriOk("data:image/png;base64,iVBORw0KGgo=")).toBe(true);

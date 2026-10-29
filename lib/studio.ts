@@ -130,14 +130,29 @@ export function verifyMediaSignature(file: string, exp: number, sig: string): bo
 }
 
 /**
- * Where Agnes can download a file of the relay: the app's own HTTPS address
- * (/api/studio/media, Agnes refuses plain HTTP), else null.
+ * The HTTPS address that always serves this app, for media links read by the
+ * browser, Agnes, fal.ai and Meta. Not VERCEL_PROJECT_PRODUCTION_URL: Vercel
+ * fills it with the shortest custom domain as soon as one is attached
+ * (impulsemotion.ai, 2026-10-29) even while that domain's DNS still points to
+ * a parking page — every signed link then pointed to a « Coming Soon » page and
+ * every picture was broken. The vercel.app alias never moves; MEDIA_PUBLIC_URL
+ * overrides it.
+ */
+export const MEDIA_PUBLIC_BASE_DEFAULT = "https://impulsemotion.vercel.app";
+
+export function mediaPublicBase(): string {
+  const raw = (process.env.MEDIA_PUBLIC_URL ?? "").trim();
+  const base = raw ? (raw.startsWith("http") ? raw : `https://${raw}`).replace(/\/$/, "") : MEDIA_PUBLIC_BASE_DEFAULT;
+  return base.startsWith("https://") ? base : MEDIA_PUBLIC_BASE_DEFAULT;
+}
+
+/**
+ * Where Agnes (and the browser, Meta…) can download a file of the relay: the
+ * app's stable HTTPS address (/api/studio/media, Agnes refuses plain HTTP).
+ * Null only when links cannot be signed.
  */
 export function publicMediaUrl(file: string, ttlSeconds: number): string | null {
-  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.NEXTAUTH_URL ?? "";
-  const base = host ? (host.startsWith("http") ? host : `https://${host}`).replace(/\/$/, "") : "";
-  if (!base.startsWith("https://")) return null;
-  return mediaUrl(`${base}/api/studio`, file, ttlSeconds);
+  try { return mediaUrl(`${mediaPublicBase()}/api/studio`, file, ttlSeconds); } catch { return null; }
 }
 
 /** Estimated price of a video at generation. */
