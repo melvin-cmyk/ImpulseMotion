@@ -30,6 +30,7 @@ import { AdDrawer } from "./ad-drawer";
 import { tagKeyLabel } from "./shared";
 import { ReportSidebar, type SavedView } from "./report-sidebar";
 import { CopilotPanel } from "./copilot-panel";
+import { CompetitorsPanel } from "./competitors-panel";
 import { COPILOT_SUGGESTIONS } from "@/lib/ads-warehouse/copilot";
 import { MessageSquare } from "lucide-react";
 
@@ -111,6 +112,8 @@ export function TopPerforming() {
   const [open, setOpen] = useState<AdsGroupRow | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [copilot, setCopilot] = useState<{ open: boolean; prompt: string | null }>({ open: false, prompt: null });
+  // « Créas » (the client's own ads) or « Concurrents » (its competitors' ads in the Meta Ad Library); ?tab=concurrents opens the latter.
+  const [section, setSection] = useState<"ads" | "competitors">(() => (params.get("tab") === "concurrents" ? "competitors" : "ads"));
   // ?thread=<id> (the « réponse prête » notice): open the client of that thread and its copilot.
   useEffect(() => {
     if (!threadParam || threadClient?.thread === threadParam) return;
@@ -262,11 +265,16 @@ export function TopPerforming() {
         {/* ── Header ── */}
         <div className="px-6 pt-4 pb-2 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-white truncate">{title}{dirty && <span className="ml-2 text-[10px] font-normal text-amber-400 align-middle">modifié</span>}</h1>
-            <p className="text-xs text-gray-500">{client ? <span className="text-gray-300">{client.name}</span> : null}{client && subtitle ? " · " : ""}{subtitle}</p>
+            <h1 className="text-lg font-semibold text-white truncate">{section === "competitors" ? "Concurrents" : title}{section === "ads" && dirty && <span className="ml-2 text-[10px] font-normal text-amber-400 align-middle">modifié</span>}</h1>
+            <p className="text-xs text-gray-500">{client ? <span className="text-gray-300">{client.name}</span> : null}{section === "competitors" ? (client ? " · leurs pubs en ce moment dans la bibliothèque Meta" : "") : <>{client && subtitle ? " · " : ""}{subtitle}</>}</p>
           </div>
           <div className="flex items-center gap-2">
-            {accounts.length > 1 && (
+            <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5">
+              {([["ads", "Créas du client"], ["competitors", "Concurrents"]] as const).map(([v, l]) => (
+                <button key={v} type="button" onClick={() => setSection(v)} className={`px-2.5 py-1 rounded-md text-xs ${section === v ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"}`}>{l}</button>
+              ))}
+            </div>
+            {section === "ads" && accounts.length > 1 && (
               <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5" title="Plateformes incluses dans le rapport">
                 {(["meta", "google", "tiktok"] as const).filter((p) => accounts.some((a) => a.platform === p)).map((p) => (
                   <button key={p} type="button" onClick={() => setPlatformsOff((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else if (activeAccounts.filter((a) => a.platform !== p).length) n.add(p); return n; })} className={`px-2 py-1 rounded-md text-xs ${platformsOff.has(p) ? "text-gray-500 line-through" : p === "meta" ? "bg-blue-500/15 text-blue-200" : p === "google" ? "bg-emerald-500/15 text-emerald-200" : "bg-violet-500/15 text-violet-200"}`}>{p === "meta" ? "Meta" : p === "google" ? "Google" : "TikTok"}</button>
@@ -277,6 +285,7 @@ export function TopPerforming() {
           </div>
         </div>
 
+        {section === "competitors" ? <CompetitorsPanel key={client?.clientId ?? "none"} clientId={client?.clientId ?? null} clientName={clientName} /> : (<>
         {/* ── Control bar ── */}
         <div className="px-6 py-2 flex items-center gap-2 flex-wrap">
           <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5">
@@ -442,6 +451,7 @@ export function TopPerforming() {
             </div>
           )}
         </div>
+        </>)}
       </div>
 
       {copilot.open && query && <CopilotPanel query={query} accountKey={accountKey ?? ""} clientParam={client?.clientId ?? null} groupLabel={GROUPS.find((g) => g.value === config.groupBy)?.label ?? config.groupBy} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}

@@ -13,6 +13,7 @@
  *   → 204                        not a quick ask after all (the browser then goes the normal way)
  *   → 409                        Mo is already answering on this board
  *   → 428 { needs, question, options? }  one thing missing (the client, the brands, a creatives card): the browser asks with chips
+ *   (the competitors of a client nobody named: 200 with an « ask » card, the AI suggestions as chips — lib/competitors.ts)
  * The sentence is re-parsed here against the caller's own client list: the
  * browser's reading is a hint, never an authority. Each turn is measured
  * (MoTurn, path quick).
@@ -22,17 +23,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth-helpers";
 import { getAccountScope } from "@/lib/scope";
-import { listClientRegistry, type ClientRef } from "@/lib/clients/registry";
+import { listClientRegistry } from "@/lib/clients/registry";
 import { runningJobOf } from "@/lib/ai-jobs";
 import { parseFactoryIntent, parseFollowUpQuick, parseQuickIntent, withClientAliases, type FactoryIntent, type IntentClient, type QuickFollowUp, type QuickIntent } from "@/lib/mo/intents";
 import { cardClientOf, cardPeriodOf, warehouseAdOf } from "@/lib/mo/act";
-import { competitorsFromBrief, moreLikeThisPrompt } from "@/lib/mo/brief";
+import { moreLikeThisPrompt } from "@/lib/mo/brief";
+import { addClientCompetitor, getClientCompetitors } from "@/lib/competitors";
+import { competitorChips } from "@/lib/competitors-core";
 import { newCardId, type MoCard, type MoCardSpec } from "@/lib/mo/model";
 import type { LayoutItem } from "@/lib/mo/frames";
 import { loadBoard, parseMoCards, storeMoQuickTurn } from "@/lib/mo/thread";
 import { recordMoTurn } from "@/lib/mo/turns";
 import { MoToolError, runMoTool, periodRange, type MoToolContext } from "@/lib/mo/tools";
-import { isHqContextFresh } from "@/lib/hq-client-context";
 
 // A fabrique generation runs passes of ≤ 12 images (1-3 min).
 export const maxDuration = 300;
@@ -184,9 +186,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       case "competitor_ads": {
         let brands = plan.brands;
         const client = plan.client ? refOf(plan.client) : null;
+        const aiUser = { id: guard.session.userId, email: user?.email ?? null, role: user?.role ?? guard.session.role ?? "" };
         if (!brands.length && client) {
-          brands = competitorsFromBrief(await cachedBrief(client));
-          if (!brands.length) return NextResponse.json({ needs: "brands", question: `Quels concurrents de ${client.name} ? (la mémoire HQ n'en nomme aucun)` }, { status: 428, ...NO_STORE });
+          // The client's list (lib/competitors.ts): saved by the consultants, then named by HQ; the AI's names are only proposed.
+          const known = await getClientCompetitors({ id: client.clientId, name: client.name }, { user: aiUser });
+          brands = known.competitors.filter((c) => c.origin !== "suggested").map((c) => c.name);
+          if (!brands.length) {
+            // Nobody named any: the AI suggests (cached 30 days) and Mo asks with chips, each one a sentence of the quick path.
+            const proposed = known.needsSuggestions ? await getClientCompetitors({ id: client.clientId, name: client.name }, { suggest: true, user: aiUser }) : known;
+            const names = proposed.competitors.filter((c) => c.origin === "suggested").map((c) => c.name);
+            if (!names.length) return NextResponse.json({ needs: "brands", question: `Quels concurrents de ${client.name} ? (la mémoire HQ n'en nomme aucun)` }, { status: 428, ...NO_STORE });
+            say = `Personne n'a encore nommé les concurrents de ${client.name}. Je te propose ${names.slice(0, 3).join(", ")}${names.length > 3 ? "…" : ""} : lequel je regarde ?`;
+            specs = [{ type: "ask", title: `Concurrents de ${client.name}`, question: `Concurrents probables de ${client.name} (suggérés par l'IA, à vérifier) : lequel je regarde ?`, options: competitorChips(names, client.name), clientId: client.id, clientName: client.name }];
+            detail = `suggestions IA : ${names.join(", ")}`;
+            kind = "competitor_suggest";
+            break;
+          }
+        } else if (brands.length && client && /concurren/i.test(message)) {
+          // « pubs du concurrent X pour <client> » (a chip, or said out loud): X joins the client's competitors.
+          await Promise.all(brands.map((b) => addClientCompetitor(client.clientId, b, guard.session.userId).catch(() => undefined)));
         }
         if (!brands.length) return NextResponse.json({ needs: "brands", question: "Quelle marque ?" }, { status: 428, ...NO_STORE });
         const results = await Promise.allSettled(brands.slice(0, 3).map((brand) => runMoTool(ctx, "competitor_ads", { query: brand, post: false })));
@@ -212,12 +230,4 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const turnId = await recordMoTurn({ userId: guard.session.userId, boardId: board.id, path: "quick", kind, totalMs, firstCardMs: stored.cardIds.length ? totalMs : null, retried: body.retried === true });
   console.log(`[mo/quick] ${kind} ${totalMs} ms`);
   return NextResponse.json({ say: stored.say, cardIds: stored.cardIds, cards: stored.cards, messages: stored.messages, turnId }, NO_STORE);
-}
-
-/** The HQ brief cached on one of the client's dashboards (7 days), or null — never a new HQ call here. */
-async function cachedBrief(client: ClientRef): Promise<string | null> {
-  const ids = [client.dashboardId, ...client.dashboardIds].filter((v): v is string => !!v);
-  if (!ids.length) return null;
-  const rows = await prisma.dashboard.findMany({ where: { id: { in: ids }, hqContextMd: { not: null } }, select: { hqContextMd: true, hqContextAt: true }, orderBy: { hqContextAt: "desc" }, take: 3 });
-  return rows.find((d) => isHqContextFresh(d))?.hqContextMd ?? rows[0]?.hqContextMd ?? null;
 }

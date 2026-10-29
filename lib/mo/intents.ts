@@ -236,6 +236,8 @@ export const PERIOD_OPTIONS: QuickPeriodOption[] = [
 export function parseQuickIntent(text: string, clients: IntentClient[]): QuickResult | null {
   const t = fold(text);
   if (!t || t.length > 160 || NOT_QUICK.test(t)) return null;
+  // « les pubs du concurrent X pour <client> »: the competitor's ads, not the client's (parseFollowUpQuick).
+  if (/\bconcurren/.test(t)) return null;
   const client = matchClientName(t, clients);
   const rest = client ? t.replace(fold(client.name), " ").replace(/\s+/g, " ") : t;
   const period = PERIOD_WORDS.find(([re]) => re.test(rest));
@@ -385,6 +387,8 @@ const COUNT_WORDS = /\b(un|une|deux|trois|quatre|1|2|3|4|d autres|des autres|aut
 const COMPARE_WORDS = /\b(compare|compares|comparer|comparons|comparaison|versus|vs|par rapport a|par rapport au|et (la |le )?(semaine|mois) d avant|c etait comment|face a)\b/;
 const PREVIOUS_WORDS = /\b(periode d avant|periode precedente|d avant|precedente?|avant)\b/;
 const BRAND_ADS = /\b(pubs?|publicites?|annonces?|ads|campagnes?)\s+(?:de|du|des|d)\s+(.+)$/;
+// « pubs du concurrent Greenweez pour Naturalia » (the chips Mo offers, lib/competitors-core.ts competitorChips): the brand and the client.
+const COMPETITOR_FOR = /\bconcurrents?\s+(.+)\s+(?:pour|de|du|d|chez)\s+(.+)$/;
 const COMPETITORS_OF = /\b(?:concurrents?|concurrence|competiteurs?|competition)\s+(?:de|du|des|d|chez|pour)\s+(.+)$/;
 const EXTRA_PERIODS: Array<[RegExp, QuickPeriod, string]> = [[/\b(mois d avant|mois precedent)\b/, "last_month", "le mois dernier"], [/\b(semaine d avant|semaine precedente)\b/, "last_week", "la semaine dernière"]];
 
@@ -421,6 +425,13 @@ export function parseFollowUpQuick(text: string, clients: IntentClient[]): Quick
   }
 
   // The ads of a brand (Ad Library) or the competitors of a client.
+  const named = t.match(COMPETITOR_FOR);
+  if (named && !/^(de|du|d|des|pour|chez)\b/.test(named[1])) {
+    const client = matchClientName(named[2], clients);
+    const brands = client ? splitBrands(text, named[1], { whole: true }) : [];
+    // Another client of the agency can be the competitor named (« concurrent La Fourche pour Naturalia »), the client itself cannot.
+    if (client && brands.length && !brands.some((b) => fold(b) === fold(client.name))) return { kind: "competitor_ads", brands, client, say: `Je cherche les pubs de ${brands.join(" et ")} dans la bibliothèque Meta, quinze secondes.` };
+  }
   const comp = t.match(COMPETITORS_OF);
   if (comp) {
     const client = matchClientName(comp[1], clients);
@@ -439,7 +450,7 @@ export function parseFollowUpQuick(text: string, clients: IntentClient[]): Quick
 }
 
 /** The brand names in the tail of a sentence, with the case the person typed (« La Fourche et Aroma-Zone » → two brands). */
-export function splitBrands(original: string, foldedTail: string): string[] {
+export function splitBrands(original: string, foldedTail: string, opts: { whole?: boolean } = {}): string[] {
   const tail = foldedTail.replace(/\b(en ce moment|actuellement|aujourd hui|sur meta|sur facebook|sur insta(gram)?|dans la bibliotheque( meta| publicitaire)?|s il te plait|stp)\b/g, " ").replace(/\s+/g, " ").trim();
   if (!tail) return [];
   // Find the tail in the original sentence to keep the case (« Aroma-Zone » folds to two words: words are aligned on their folded tokens); fall back to the folded words capitalised.
@@ -454,7 +465,8 @@ export function splitBrands(original: string, foldedTail: string): string[] {
     if (acc.length === tailWords.length && acc.every((w, k) => w === tailWords[k])) kept = words.slice(i, j);
   }
   kept = kept ?? tailWords.map((w) => w.charAt(0).toUpperCase() + w.slice(1));
-  return kept.join(" ").replace(/[?.!…]+$/g, "").split(/\s*(?:,|\bet\b|&|\/)\s*/i).map((b) => b.trim()).filter((b) => b.length >= 2 && b.length <= 40).slice(0, 3);
+  // `whole`: one brand, « Nature et Découvertes » stays one name.
+  return kept.join(" ").replace(/[?.!…]+$/g, "").split(opts.whole ? /\s*,\s*/ : /\s*(?:,|\bet\b|&|\/)\s*/i).map((b) => b.trim()).filter((b) => b.length >= 2 && b.length <= 40).slice(0, 3);
 }
 
 /** The sentence completed with the chip picked, ready for the quick path again. */
