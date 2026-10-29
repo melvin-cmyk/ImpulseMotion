@@ -36,7 +36,8 @@ export type AiFeature =
   | "design_copilot"
   | "mo"
   | "creas_template"
-  | "creas_copy";
+  | "creas_copy"
+  | "competitors_suggest";
 
 export interface RelayUsage {
   provider: string;

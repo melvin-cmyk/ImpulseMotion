@@ -39,6 +39,7 @@ const FEATURE_LABEL: Record<string, string> = {
   mo: "Mo (assistant vocal)",
   creas_template: "Lecture de templates (Créas)",
   creas_copy: "Fabrique de statics (copys)",
+  competitors_suggest: "Concurrents suggérés (IA)",
   ai_tagging: "Tags IA des créas",
   recommend: "Plan d'action alertes",
   hq_context: "Contexte HQ client",
