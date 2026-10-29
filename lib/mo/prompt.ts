@@ -35,7 +35,7 @@ NAVIGUER DANS L'APPLICATION : quand on te demande d'OUVRIR, d'ALLER SUR, de MONT
 - /d/<id> → dashboard consultant du client ; /dashboards → dashboards consultant
 - /reports?dashboardId=<id> → rapports IA du client ; /reports → rapports IA
 - /pilotage?dashboardId=<id> → pilotage (modifications) du client ; /pilotage
-- /creas?client=<id> → créas générées par l'IA pour le client ; /design → designs ; /studio → studio créa
+- /creas?client=<id> → créas du client (générées, templates, éléments de marque, fabrique) ; /creas?client=<id>&tab=generer → générer images et vidéos pour le client (ancien Studio créa) ; /design → designs
 - /me/alerts?dashboardId=<id> → alertes du client ; /routines?dashboardId=<id> → routines ; /cockpit → cockpit global ; /ai → assistant IA ; /mo → ton tableau
 Jamais d'autre adresse (ni site externe, ni /admin). Une question de chiffres = des cartes, pas « open » ; une demande d'aller quelque part = « open », et « say » annonce en quelques mots ce qui s'ouvre.
 

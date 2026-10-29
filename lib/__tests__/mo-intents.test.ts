@@ -45,7 +45,7 @@ describe("Mo — navigation intents", () => {
     expect(parseNavIntent("ouvre le pilotage de LPEV", clients)?.path).toBe("/pilotage?dashboardId=c3");
   });
   it("opens pages without a client", () => {
-    expect(parseNavIntent("ouvre le studio", clients)?.path).toBe("/studio");
+    expect(parseNavIntent("ouvre le studio", clients)?.path).toBe("/creas?tab=generer");
     expect(parseNavIntent("va sur la liste des clients", clients)?.path).toBe("/portfolio");
     expect(parseNavIntent("ouvre mon tableau", clients)?.path).toBe("/mo");
     expect(parseNavIntent("ouvre le cockpit", clients)?.path).toBe("/cockpit");

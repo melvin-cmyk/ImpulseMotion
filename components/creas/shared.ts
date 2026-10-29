@@ -16,7 +16,7 @@ export const usd = (v: number) => `${v.toFixed(2).replace(".", ",")} $`;
 export const when = (iso: string) => new Date(iso).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 export const aspect = (r?: unknown) => { const [w, h] = String(r ?? "1:1").split(":").map(Number); return w && h ? `${w} / ${h}` : "1 / 1"; };
 
-export const ORIGIN_LABEL: Record<string, string> = { studio: "Studio", template: "Depuis un template", variation: "Variante", factory: "Fabrique", asset: "Élément de marque" };
+export const ORIGIN_LABEL: Record<string, string> = { studio: "Génération libre", template: "Depuis un template", variation: "Variante", factory: "Fabrique", asset: "Élément de marque" };
 
 export const BTN = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-gray-700 text-gray-200 hover:text-white hover:border-gray-500 disabled:opacity-40";
 export const BTN_PRIMARY = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-violet-600 hover:bg-violet-500 text-white font-medium disabled:opacity-40";
@@ -36,6 +36,20 @@ export function priceReminder(quota: QuotaInfo | null, unitUsd: number, n: numbe
     text: `Coût estimé : ${cost} · Aujourd'hui : équipe ${usd(today.team.usd)}${q.teamDailyUsd > 0 ? ` / ${usd(q.teamDailyUsd)}` : ""} · toi ${usd(today.user.usd)}${q.userDailyUsd > 0 ? ` / ${usd(q.userDailyUsd)}` : ""}${q.teamDailyImages > 0 ? ` · ${today.team.images} / ${q.teamDailyImages} images` : ""}`,
     over, warn,
   };
+}
+
+/** « 0,003 $ / image » or « gratuit »: the price shown next to each engine (the cheap ones cost less than a cent). */
+export const enginePrice = (e: Pick<Engine, "usd">) => (e.usd > 0 ? `${String(Math.round(e.usd * 1000) / 1000).replace(".", ",")} $ / image` : "gratuit");
+
+/**
+ * The engine used while the consultant has not chosen one: the cheapest fal.ai
+ * model that fits (FLUX Schnell without a reference image, the cheapest edit
+ * model with one), Agnes only when fal is not configured.
+ */
+export function cheapestEngine(engines: Engine[], withRefs: boolean): Engine | null {
+  const fits = engines.filter((e) => !withRefs || e.refs);
+  const pool = fits.some((e) => e.provider === "fal") ? fits.filter((e) => e.provider === "fal") : fits;
+  return pool.reduce<Engine | null>((best, e) => (!best || e.usd < best.usd ? e : best), null);
 }
 
 export function matchClient(clients: ClientOption[], wanted: string | null): ClientOption | null {

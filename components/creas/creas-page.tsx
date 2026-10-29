@@ -2,7 +2,9 @@
 
 /**
  * /creas — the creatives of a client, in one place:
- *   « Créas »             every visual the AI made for the client (Studio, copies of templates, variations),
+ *   « Générer »           free prompt → images (engine and price per image) or a video for the client
+ *                         (ex Studio créa: /studio redirects here, components/creas/generate-tab.tsx).
+ *   « Créas »          every visual the AI made for the client (Studio, copies of templates, variations),
  *                         with the consultant's verdict (garder / couper + note → HQ) and the next moves
  *                         (textes & logo, FigCraft, PhotoCraft, Meta, plus comme ça).
  *   « Templates »         the swipe file: competitors' ads (capture, link, Meta Ad Library), the client's own
@@ -10,23 +12,26 @@
  *   « Éléments de marque » logos and product photos kept as references for the copies.
  *   « Fabrique »          the statics factory: templates ticked → copies written by the AI and validated → a batch of
  *                         visuals → a grid with verdicts and feedback (components/creas/factory-*.tsx).
- * Deep links: ?client=<id>&tab=templates&template=<id> · ?asset=<id> · ?tab=fabrique&run=<id>.
+ * Deep links: ?client=<id>&tab=templates&template=<id> · ?asset=<id> · ?tab=fabrique&run=<id> · ?tab=generer.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpen, BookmarkPlus, Check, Download, ExternalLink, Factory, Images, Loader2, PenTool, Plus, RefreshCw, Scissors, Send, Sparkles, Trash2, Type, Wand2, X } from "lucide-react";
+import { BookOpen, BookmarkPlus, Check, Clapperboard, Download, ExternalLink, Factory, Images, Loader2, PenTool, Plus, RefreshCw, Scissors, Send, Sparkles, Trash2, Type, Wand2, X } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui/surface";
 import { TextEditor } from "@/components/studio/text-editor";
 import { SOURCE_LABEL, shouldSuggestRetire } from "@/lib/creas/model";
 import { AddTemplateDialog, CopyDialog, VariationDialog, BrandAssetUpload } from "./dialogs";
 import { FactoryTab } from "./factory-tab";
+import { GenerateTab } from "./generate-tab";
 import { PlaybookDialog } from "./playbook-dialog";
 import { TemplateFeedbackList } from "./factory-grid";
 import { BTN, BTN_PRIMARY, FIELD, ORIGIN_LABEL, aspect, matchClient, usd, when, type Asset, type ClientOption, type Engine, type QuotaInfo, type Template } from "./shared";
 
-type Tab = "creas" | "templates" | "assets" | "fabrique";
+type Tab = "generer" | "creas" | "templates" | "assets" | "fabrique";
+const TABS: readonly Tab[] = ["generer", "creas", "templates", "assets", "fabrique"];
+const pending = (a: Asset) => a.status === "queued" || a.status === "in_progress";
 type Verdict = "all" | "keep" | "cut" | "todo";
 
 export function CreasPage() {
@@ -34,7 +39,9 @@ export function CreasPage() {
   const params = useSearchParams();
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [client, setClient] = useState<ClientOption | null>(null);
-  const [tab, setTab] = useState<Tab>((params.get("tab") as Tab) || "creas");
+  const [tab, setTab] = useState<Tab>(() => { const t = params.get("tab") as Tab; return TABS.includes(t) ? t : "creas"; });
+  // « Animer en vidéo » from a créa: the « Générer » tab starts the video from it.
+  const [animate, setAnimate] = useState<Asset | null>(null);
   const [assets, setAssets] = useState<Asset[] | null>(null);
   const [brandAssets, setBrandAssets] = useState<Asset[]>([]);
   const [templates, setTemplates] = useState<Template[] | null>(null);
@@ -127,7 +134,20 @@ export function CreasPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templates, assets]);
 
-  useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(null), 6000); return () => clearTimeout(t); }, [notice]);
+  // Videos being generated: asked again every 6 seconds until they are ready.
+  const inProgress = useMemo(() => (assets ?? []).filter(pending).map((a) => a.id), [assets]);
+  useEffect(() => {
+    if (!inProgress.length) return;
+    const t = setInterval(async () => {
+      const fresh = await Promise.all(inProgress.map((id) => fetch(`/api/studio/assets/${id}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null))) as Array<{ asset?: Asset } | null>;
+      const byId = new Map(fresh.flatMap((f) => (f?.asset ? [[f.asset.id, f.asset] as const] : [])));
+      setAssets((l) => (l ?? []).map((a) => byId.get(a.id) ?? a));
+      setOpenAsset((o) => (o && byId.has(o.id) ? byId.get(o.id)! : o));
+    }, 6000);
+    return () => clearInterval(t);
+  }, [inProgress]);
+
+  useEffect(() => { if (!notice) return;const t = setTimeout(() => setNotice(null), 6000); return () => clearTimeout(t); }, [notice]);
 
   const shownAssets = useMemo(() => (assets ?? []).filter((a) => verdict === "all" ? true : verdict === "keep" ? a.feedback === "keep" : verdict === "cut" ? a.feedback === "cut" : !a.feedback), [assets, verdict]);
   const templateName = useCallback((id: string | null) => (id ? templates?.find((t) => t.id === id)?.name ?? null : null), [templates]);
@@ -194,6 +214,7 @@ export function CreasPage() {
       />
 
       <div className="flex flex-wrap items-center gap-2">
+        {tabBtn("generer", "Générer")}
         {tabBtn("creas", "Créas générées", assets?.length)}
         {tabBtn("templates", "Templates & concurrents", templates?.length)}
         {tabBtn("assets", "Éléments de marque", brandAssets.length)}
@@ -203,12 +224,19 @@ export function CreasPage() {
           <button type="button" onClick={() => { if (client) void load(client); loadQuota(); }} className="text-gray-500 hover:text-white" title="Actualiser"><RefreshCw className="w-4 h-4" /></button>
           {tab === "templates" && <button type="button" onClick={() => setStudying(true)} className={BTN} data-playbook-open><BookOpen className="w-4 h-4" /> Étudier une marque</button>}
           {tab === "templates" && <button type="button" onClick={() => setAdding(true)} className={BTN_PRIMARY}><Plus className="w-4 h-4" /> Ajouter un template</button>}
-          {tab === "creas" && <Link href={`/studio${client ? `?client=${client.clientId}` : ""}`} className={BTN}><Wand2 className="w-4 h-4" /> Studio</Link>}
+          {tab === "creas" && <button type="button" onClick={() => switchTab("generer")} className={BTN}><Wand2 className="w-4 h-4" /> Générer</button>}
         </div>
       </div>
 
       {notice && <p className="text-sm text-emerald-300">{notice}</p>}
       {error && <p className="text-sm text-rose-300">{error}</p>}
+
+      {/* ── Générer (ex Studio créa) ──────────────────────────────────── */}
+      {tab === "generer" && client && (
+        <GenerateTab key={client.id} client={client} engines={engines} quota={quota} brandAssets={brandAssets}
+          recent={(assets ?? []).filter((a) => a.origin === "studio")} source={animate} onSourceUsed={() => setAnimate(null)}
+          onCreated={(created) => setAssets((l) => [...created, ...(l ?? [])])} onOpen={(a) => setOpenAsset(a)} onQuotaChanged={loadQuota} />
+      )}
 
       {/* ── Créas ─────────────────────────────────────────────────────── */}
       {tab === "creas" && (
@@ -223,7 +251,7 @@ export function CreasPage() {
             <div className="rounded-xl border border-dashed border-gray-800 p-8 text-center text-sm text-gray-500 space-y-2">
               <Images className="w-6 h-6 mx-auto text-gray-600" />
               <p>{assets.length ? "Rien dans ce filtre." : `Aucun visuel généré pour ${client?.name ?? "ce client"} pour l'instant.`}</p>
-              {!assets.length && <p>Commencez par un template (onglet « Templates & concurrents » → « Copier à la marque ») ou par le <Link href="/studio" className="text-violet-400">Studio</Link>.</p>}
+              {!assets.length && <p>Commencez par un template (onglet « Templates & concurrents » → « Copier à la marque ») ou par l&apos;onglet <button type="button" onClick={() => switchTab("generer")} className="text-violet-400 hover:text-violet-300">Générer</button>.</p>}
             </div>
           ) : (
             <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
@@ -328,7 +356,8 @@ export function CreasPage() {
       {openAsset && (
         <AssetDrawer key={openAsset.id} asset={openAsset} templateName={templateName(openAsset.templateId)} onClose={() => setOpenAsset(null)}
           onFeedback={(f, note) => void setFeedback(openAsset, f, note)} onVariation={() => setVarying(openAsset)} onEditText={() => setEditing(openAsset)}
-          onOpenIn={(editor) => void openIn(editor, { assetId: openAsset.id })} onRemove={() => void removeAsset(openAsset)} />
+          onOpenIn={(editor) => void openIn(editor, { assetId: openAsset.id })} onRemove={() => void removeAsset(openAsset)}
+          onAnimate={() => { setAnimate(openAsset); setOpenAsset(null); switchTab("generer"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
       )}
 
       {/* ── Template drawer ───────────────────────────────────────────── */}
@@ -365,7 +394,7 @@ function Drawer({ title, onClose, children }: { title: React.ReactNode; onClose:
   );
 }
 
-function AssetDrawer({ asset: a, templateName, onClose, onFeedback, onVariation, onEditText, onOpenIn, onRemove }: { asset: Asset; templateName: string | null; onClose: () => void; onFeedback: (f: "keep" | "cut" | null, note?: string) => void; onVariation: () => void; onEditText: () => void; onOpenIn: (editor: "figcraft" | "photocraft") => void; onRemove: () => void }) {
+function AssetDrawer({ asset: a, templateName, onClose, onFeedback, onVariation, onEditText, onOpenIn, onRemove, onAnimate }: { asset: Asset; templateName: string | null; onClose: () => void; onFeedback: (f: "keep" | "cut" | null, note?: string) => void; onVariation: () => void; onEditText: () => void; onOpenIn: (editor: "figcraft" | "photocraft") => void; onRemove: () => void; onAnimate: () => void }) {
   // Remounted per asset (key) so the draft note starts from the stored one.
   const [note, setNote] = useState(a.feedbackNote ?? "");
   const p = a.params as { ratio?: string; engine?: string; promptSent?: string; templateName?: string };
@@ -395,6 +424,7 @@ function AssetDrawer({ asset: a, templateName, onClose, onFeedback, onVariation,
         {a.kind === "image" && a.status === "completed" && <button type="button" onClick={() => onOpenIn("figcraft")} className={BTN} title="Design FigCraft : calques modifiables, copilote IA"><PenTool className="w-4 h-4" /> FigCraft</button>}
         {a.kind === "image" && a.status === "completed" && <button type="button" onClick={() => onOpenIn("photocraft")} className={BTN} title="Retouche PhotoCraft"><PenTool className="w-4 h-4" /> PhotoCraft</button>}
         {a.kind === "image" && a.status === "completed" && <a href={`/pilotage?studioAsset=${a.id}`} className={BTN}><Send className="w-4 h-4" /> Pousser sur Meta</a>}
+        {a.kind === "image" && a.status === "completed" && <button type="button" onClick={onAnimate} className={BTN} title="Une vidéo qui part de ce visuel (onglet Générer)"><Clapperboard className="w-4 h-4" /> Animer en vidéo</button>}
         {a.mine && <button type="button" onClick={onRemove} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-rose-300 hover:text-rose-200"><Trash2 className="w-4 h-4" /> Retirer</button>}
       </div>
     </Drawer>

@@ -57,7 +57,8 @@ const TARGETS: Target[] = [
   { re: /\b(pilotage|pilote|modifs?|modifications?)\b/, label: "le pilotage", path: (c) => (c ? `/pilotage?dashboardId=${c.dashboardId ?? c.id}` : "/pilotage"), root: "/pilotage" },
   { re: /\b(alertes?|alerting)\b/, label: "les alertes", path: (c) => (c ? `/me/alerts?dashboardId=${c.dashboardId ?? c.id}` : "/me/alerts"), root: "/me/alerts" },
   { re: /\b(routines?|automatisations?)\b/, label: "les routines", path: (c) => (c ? `/routines?dashboardId=${c.dashboardId ?? c.id}` : "/routines"), root: "/routines" },
-  { re: /\b(studio|generateur d images?)\b/, label: "le Studio", path: () => "/studio", root: "/studio" },
+  // The Studio créa is now the « Générer » tab of the Créas (per client).
+  { re: /\b(studio|generateur d images?)\b/, label: "la génération de créas", path: (c) => (c ? `/creas?client=${c.id}&tab=generer` : "/creas?tab=generer"), root: "/creas" },
   { re: /\b(design|designs|figcraft|photocraft)\b/, label: "le Design", path: (c) => (c ? `/design?client=${c.dashboardId ?? c.id}` : "/design"), root: "/design" },
   { re: /\b(clients|portefeuille|portfolio|liste des clients)\b/, label: "la liste des clients", path: () => "/portfolio", root: "/portfolio" },
   { re: /\b(assistant|console|ai assistant|chat)\b/, label: "l'assistant IA", path: () => "/ai", root: "/ai" },

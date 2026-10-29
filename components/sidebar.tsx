@@ -20,7 +20,7 @@ import {
   MessageSquare,
   Repeat,
   SlidersHorizontal,
-  Wand2, PenTool, PanelLeftClose, PanelLeftOpen, ChevronDown, AudioLines, Images,
+  PenTool, PanelLeftClose, PanelLeftOpen, ChevronDown, AudioLines, Images,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
@@ -95,9 +95,8 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Analyse Ads",
         match: (p) => ANALYSE_ROUTES.some((r) => p === r || p.startsWith(r + "/")),
       },
-      { href: "/studio", icon: Wand2, label: "Studio créa", match: (p) => p === "/studio" || p.startsWith("/studio/") },
-      // Créas par client: generated visuals, swipe file of templates (competitors, winners), brand assets.
-      { href: "/creas", icon: Images, label: "Créas", match: (p) => p === "/creas" || p.startsWith("/creas/") },
+      // Créas par client: generation (ex Studio créa, /studio redirects here), generated visuals, swipe file of templates, brand assets.
+      { href: "/creas", icon: Images, label: "Créas", match: (p) => p === "/creas" || p.startsWith("/creas/") || p === "/studio" },
       // Design files (FigCraft editor + AI copilot), staff only: proxy.ts keeps /design out of the client prefixes.
       { href: "/design", icon: PenTool, label: "Design", match: (p) => p === "/design" || p.startsWith("/design/") },
       { href: "/ai", icon: Bot, label: "AI Assistant", match: (p) => p.startsWith("/ai") },
