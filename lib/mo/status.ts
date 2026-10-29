@@ -37,7 +37,8 @@ export function toolStatusKey(name: string | null | undefined): MoStatusKey {
     if (/^(creatives|metrics|creative_metrics)/.test(tool)) return "warehouse";
     if (/^(competitor_ads|keep_template)/.test(tool)) return "library";
     if (/^(generate_creatives|factory_generate)/.test(tool)) return "generate";
-    if (/^(factory_propose|factory_approve)/.test(tool)) return "copy";
+    if (/^(factory_propose|factory_approve|factory_variations)/.test(tool)) return "copy";
+    if (/^factory_publish/.test(tool)) return "publish";
     if (/^brand_playbook/.test(tool)) return "study";
     if (/^(meta_publish_ad|meta_targets)/.test(tool)) return "publish";
     return "think";

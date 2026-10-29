@@ -15,7 +15,7 @@ import { dataUriOk, relayUpload } from "@/lib/studio";
 import { TEMPLATE_SOURCES, type TemplateSource } from "@/lib/creas/model";
 import { dataUriToRelayImage, fetchImageBytes, toDataUri } from "@/lib/creas/media";
 import { analyseTemplate } from "@/lib/creas/analysis";
-import { OWN_AD_ID_RE, ownAdTemplateSource, resolveAlertClient, templateView } from "@/lib/creas/templates";
+import { OWN_AD_ID_RE, ownAdTemplateSource, resolveAlertClient, templateView, templateVerdicts } from "@/lib/creas/templates";
 
 const NO_STORE = { headers: { "Cache-Control": "no-store" } };
 const MAX_LIST = 200;
@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
   });
   const uses = await prisma.creativeAsset.groupBy({ by: ["templateId"], where: { templateId: { in: rows.map((r) => r.id) }, deletedAt: null }, _count: { _all: true } });
   const count = new Map(uses.map((u) => [u.templateId, u._count._all]));
-  return NextResponse.json({ templates: rows.map((r) => templateView(r, guard.session.userId, count.get(r.id) ?? 0)), client: client ? { id: client.id, name: client.name } : null }, NO_STORE);
+  const verdicts = await templateVerdicts(rows.map((r) => r.id));
+  return NextResponse.json({ templates: rows.map((r) => templateView(r, guard.session.userId, count.get(r.id) ?? 0, verdicts.get(r.id))), client: client ? { id: client.id, name: client.name } : null }, NO_STORE);
 }
 
 export async function POST(req: NextRequest) {

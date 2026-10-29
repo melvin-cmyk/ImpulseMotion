@@ -25,6 +25,7 @@ import { mediaFileDataUri } from "@/lib/creas/media";
 import { buildCopyPrompt } from "@/lib/creas/templates";
 import { DEFAULT_FACTORY_ENGINE, DEFAULT_PER_TEMPLATE, FACTORY_KINDS, MAX_RUN_IMAGES, PARALLEL_BATCHES, PASS_SIZE, parseAnalysis, parseIdList, parseSettings, parseSources, type FactoryCopyView, type FactoryKind, type FactoryRunView, type FactorySettings, type FeedbackLevel, type FeedbackView, type RunStatus } from "@/lib/creas/model";
 import { contextForRun } from "@/lib/creas/context";
+import { feedbackLines, variationReference } from "@/lib/creas/copy";
 import { assembleContext, buildCopyProposalPrompt, buildFactoryImagePrompt, canTransition, estimateUsd, factoryFileName, factoryFolderName, parseCopyProposals, passPlan, planSlots, remainingOf, statusAfterPass, type CopyTemplateInput } from "@/lib/creas/copy";
 
 export interface FactoryClient { id: string; name: string; hqSlug: string | null }
@@ -121,10 +122,12 @@ export async function createRun(client: FactoryClient, user: FactoryUser, input:
   if (!templates.length) throw new FactoryError(400, "Choisissez au moins un template avec une image.");
   // The client's context document (HQ brief and files, warehouse winners, comments, client-level feedback: lib/creas/context.ts),
   // then what is specific to this run: the feedback on the chosen templates.
-  const [clientDoc, feedback] = await Promise.all([
-    contextForRun(client),
-    prisma.creativeFeedback.findMany({ where: { templateId: { in: templates.map((t) => t.id) } }, orderBy: { createdAt: "desc" }, take: 12, select: { level: true, text: true } }),
-  ]);
+  // Plus the client- and run-level feedback written since the document was saved (« pas de -50 % » on the last fabrique is read by the next one).
+  const clientDoc = await contextForRun(client);
+  const feedback = await prisma.creativeFeedback.findMany({
+    where: { OR: [{ templateId: { in: templates.map((t) => t.id) }, level: "template" }, { alertClientId: client.id, level: { in: ["client", "run"] }, createdAt: { gt: clientDoc.since } }] },
+    orderBy: { createdAt: "desc" }, take: 16, select: { level: true, text: true },
+  });
   const ctx = assembleContext({ clientName: client.name, brief: "", client: clientDoc, templates: templates.map(templateInput), reviews: input.reviews ?? "", feedback, instructions: input.instructions });
   const perTemplate = Math.min(12, Math.max(1, Math.round(input.perTemplate ?? DEFAULT_PER_TEMPLATE)));
   const settings: FactorySettings = { n: 0, engine: DEFAULT_FACTORY_ENGINE, ratio: "1:1", textless: false, perTemplate, attempted: 0, failed: 0, ...(input.persona ? { persona: input.persona } : {}), ...(input.season ? { season: input.season } : {}), ...(input.instructions ? { instructions: input.instructions } : {}) };
@@ -137,10 +140,48 @@ export async function createRun(client: FactoryClient, user: FactoryUser, input:
   return { run: runView(updated, copies), templates, ...(error ? { error } : {}) };
 }
 
+export interface VariationInput { assetIds?: string[]; perTemplate?: number; persona?: string; season?: string; instructions?: string }
+
+/**
+ * Variations of the kept visuals of a run: a new run (kind « variation »,
+ * parentRunId) on the same templates, whose copies go through validation
+ * again; each visual is then made with the kept one as reference 1.
+ */
+export async function createVariationRun(parent: FactoryRun, client: FactoryClient, user: FactoryUser, input: VariationInput): Promise<{ run: FactoryRunView; templates: CreativeTemplate[]; error?: string }> {
+  const wanted = (input.assetIds ?? []).filter((id) => RUN_ID_RE.test(id));
+  const kept = await prisma.creativeAsset.findMany({
+    where: { factoryRunId: parent.id, deletedAt: null, status: "completed", templateId: { not: null }, ...(wanted.length ? { id: { in: wanted } } : { feedback: "keep" }) },
+    orderBy: { createdAt: "asc" }, take: 24, select: { id: true, templateId: true },
+  });
+  if (!kept.length) throw new FactoryError(400, wanted.length ? "Ces visuels n'appartiennent pas à cette fabrique." : "Gardez d'abord des visuels (bouton « Garder ») : les variations partent des gardées.");
+  if (!input.persona && !input.season && !(input.instructions ?? "").trim()) throw new FactoryError(400, "Dites ce qui change : une persona, une saison ou une consigne.");
+  const parentAssets: Record<string, string[]> = {};
+  for (const a of kept) (parentAssets[a.templateId!] ??= []).push(a.id);
+  const templates = (await loadRunTemplates(Object.keys(parentAssets))).filter((t) => !!t.file);
+  if (!templates.length) throw new FactoryError(400, "Les templates de ces visuels n'ont plus d'image.");
+  const parentSettings = parseSettings(parent.settingsJson);
+  const perTemplate = Math.min(6, Math.max(1, Math.round(input.perTemplate ?? 2)));
+  const instructions = [input.instructions?.trim(), parentSettings.instructions ? `(consignes de la fabrique d'origine : ${parentSettings.instructions})` : ""].filter(Boolean).join(" ").slice(0, 1500);
+  const settings: FactorySettings = { n: 0, engine: parentSettings.engine, ratio: parentSettings.ratio, textless: parentSettings.textless, perTemplate, attempted: 0, failed: 0, parentAssets, ...(input.persona ? { persona: input.persona.slice(0, 200) } : {}), ...(input.season ? { season: input.season.slice(0, 200) } : {}), ...(instructions ? { instructions } : {}) };
+  // The parent's frozen context, then what this variation asks.
+  const what = [input.persona ? `Persona visée : ${input.persona}` : "", input.season ? `Saison / moment : ${input.season}` : "", input.instructions?.trim() ? `Consigne : ${input.instructions.trim()}` : ""].filter(Boolean).join("\n");
+  const contextMd = `${parent.contextMd}\n\n## Variation demandée (${kept.length} visuel${kept.length > 1 ? "s" : ""} gardé${kept.length > 1 ? "s" : ""} de la fabrique du ${parent.createdAt.toLocaleDateString("fr-FR")})\n${what}`;
+  const row = await prisma.factoryRun.create({ data: {
+    alertClientId: client.id, clientName: client.name, kind: "variation", status: "draft", parentRunId: parent.id, templateIdsJson: JSON.stringify(templates.map((t) => t.id)),
+    contextMd, sourcesJson: JSON.stringify([...parseSources(parent.sourcesJson), { kind: "instructions", ref: "variation", chars: what.length }]), settingsJson: JSON.stringify(settings), createdById: user.id, createdByName: user.name,
+  } });
+  const { copies, error } = await proposeCopies(row, templates, user);
+  const updated = await prisma.factoryRun.update({ where: { id: row.id }, data: { status: "copy_review", ...(error ? { settingsJson: JSON.stringify({ ...settings, error }) } : {}) } });
+  return { run: runView(updated, copies), templates, ...(error ? { error } : {}) };
+}
+
 /** Sonnet (low, no tool) writes the copies; the rows replace the proposals not yet approved. */
 export async function proposeCopies(run: FactoryRun, templates: CreativeTemplate[], user: FactoryUser): Promise<{ copies: FactoryCopy[]; error?: string }> {
   const settings = parseSettings(run.settingsJson);
-  const { system, user: prompt } = buildCopyProposalPrompt({ clientName: run.clientName, kind: run.kind as FactoryKind, contextMd: run.contextMd, templates: templates.map(templateInput), perTemplate: settings.perTemplate, persona: settings.persona, season: settings.season });
+  // What the consultant said about this batch (« Reproposer » with a feedback), and for a variation the kept visuals to decline.
+  const runFeedback = feedbackLines(await prisma.creativeFeedback.findMany({ where: { runId: { in: [run.id, ...(run.parentRunId ? [run.parentRunId] : [])] }, level: "run" }, orderBy: { createdAt: "desc" }, take: 12, select: { text: true } }));
+  const keptCopies = settings.parentAssets ? await keptCopiesOf(settings.parentAssets, templates) : [];
+  const { system, user: prompt } = buildCopyProposalPrompt({ clientName: run.clientName, kind: run.kind as FactoryKind, contextMd: run.contextMd, templates: templates.map(templateInput), perTemplate: settings.perTemplate, persona: settings.persona, season: settings.season, feedback: runFeedback, kept: keptCopies });
   let proposals: ReturnType<typeof parseCopyProposals> = [];
   let error: string | undefined;
   try {
@@ -160,6 +201,16 @@ export async function proposeCopies(run: FactoryRun, templates: CreativeTemplate
     await prisma.factoryCopy.create({ data: { runId: run.id, templateId: p.templateId, order: kept + i, headline: p.headline, subline: p.subline, cta: p.cta, angle: p.angle, persona: p.persona, voiceSource: p.voiceSource } });
   }
   return { copies: await runCopies(run.id), ...(error ? { error } : {}) };
+}
+
+/** The copies behind the kept visuals of a parent run, numbered by template (T1, T2… of the variation run). */
+async function keptCopiesOf(parentAssets: Record<string, string[]>, templates: CreativeTemplate[]): Promise<Array<{ template: number; headline: string; subline: string; cta: string }>> {
+  const ids = Object.values(parentAssets).flat();
+  const assets = await prisma.creativeAsset.findMany({ where: { id: { in: ids } }, select: { templateId: true, copyId: true, prompt: true } });
+  const copies = await prisma.factoryCopy.findMany({ where: { id: { in: assets.map((a) => a.copyId).filter((x): x is string => !!x) } } });
+  const byId = new Map(copies.map((c) => [c.id, c]));
+  const index = new Map(templates.map((t, i) => [t.id, i + 1]));
+  return assets.map((a) => { const c = a.copyId ? byId.get(a.copyId) : null; return { template: index.get(a.templateId ?? "") ?? 0, headline: c?.headline ?? a.prompt.split(" — ")[0], subline: c?.subline ?? "", cta: c?.cta ?? "" }; }).filter((k) => k.template > 0 && k.headline).slice(0, 24);
 }
 
 // ── Validate the copies ────────────────────────────────────────────────────
@@ -232,18 +283,35 @@ export async function generatePass(run: FactoryRun, client: FactoryClient, user:
   const brandRefs = (await Promise.all(brandRows.map((r) => (r.file ? mediaFileDataUri(r.file) : null)))).filter((x): x is string => !!x);
   const templateRefs = new Map<string, string>();
   for (const t of templates) { const uri = t.file ? await mediaFileDataUri(t.file) : null; if (uri) templateRefs.set(t.id, uri); }
+  // What the consultants said about each template (template-level feedback, notes of cut visuals): written as « à éviter » in the image prompt.
+  const avoidBy = new Map<string, string[]>();
+  const [tplFeedback, cutNotes] = await Promise.all([
+    prisma.creativeFeedback.findMany({ where: { templateId: { in: templates.map((t) => t.id) }, level: "template" }, orderBy: { createdAt: "desc" }, take: 40, select: { templateId: true, text: true } }),
+    prisma.creativeAsset.findMany({ where: { templateId: { in: templates.map((t) => t.id) }, feedback: "cut", feedbackNote: { not: null }, deletedAt: null }, orderBy: { updatedAt: "desc" }, take: 40, select: { templateId: true, feedbackNote: true } }),
+  ]);
+  for (const t of templates) avoidBy.set(t.id, feedbackLines([...tplFeedback.filter((f) => f.templateId === t.id), ...cutNotes.filter((c) => c.templateId === t.id).map((c) => ({ text: c.feedbackNote ?? "" }))], 4));
+  // A variation: the kept visual of the parent run comes first among the references.
+  const parentRefs = new Map<string, string>();
+  for (const id of Object.values(settings.parentAssets ?? {}).flat()) {
+    const a = await prisma.creativeAsset.findUnique({ where: { id }, select: { file: true } });
+    const uri = a?.file ? await mediaFileDataUri(a.file) : null;
+    if (uri) parentRefs.set(id, uri);
+  }
 
   const plan = passPlan(planSlots(approved, settings.n), settings.attempted);
   const copyById = new Map(copies.map((c) => [c.id, c]));
   const created: CreativeAsset[] = [];
   let failed = 0;
   let lastError: string | undefined;
+  let batchNo = 0;
   const runBatch = async (b: (typeof plan)[number]) => {
     const t = byTemplate.get(b.templateId); const c = copyById.get(b.copyId); const ref = t && templateRefs.get(t.id);
     if (!t || !c || !ref) { failed += b.count; lastError = "template sans image exploitable"; return; }
     const analysis = parseAnalysis(t.analysisJson);
-    const refs = [ref, ...brandRefs].slice(0, 3);
-    const prompt = buildFactoryImagePrompt(buildCopyPrompt({ template: t, analysis, clientName: client.name, instructions: settings.instructions ?? "", assets: refs.length - 1, textless: settings.textless }), c, settings.textless);
+    const parentId = variationReference(settings.parentAssets, t.id, batchNo++);
+    const parentRef = parentId ? parentRefs.get(parentId) : undefined;
+    const refs = [...(parentRef ? [parentRef] : []), ref, ...brandRefs].slice(0, 3);
+    const prompt = buildFactoryImagePrompt(buildCopyPrompt({ template: t, analysis, clientName: client.name, instructions: settings.instructions ?? "", assets: refs.length - 1, textless: settings.textless }), c, settings.textless, avoidBy.get(t.id) ?? [], !!parentRef);
     try {
       const out = await relayFalImage({ prompt, model: settings.engine, ratio: settings.ratio, images: refs, n: b.count });
       const paramsJson = JSON.stringify({ ratio: settings.ratio, engine: settings.engine, references: refs.length, mode: "edit", textless: settings.textless, promptSent: prompt, group: `f_${run.id.slice(-6)}`, variants: b.count, templateId: t.id, templateName: t.name, factoryRunId: run.id, copyId: c.id, headline: c.headline });

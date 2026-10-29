@@ -10,9 +10,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, Columns2, ExternalLink, Loader2, MessageSquare, PenTool, Scissors, Sparkles, Wand2, X } from "lucide-react";
+import { ArrowLeft, Check, Columns2, ExternalLink, Loader2, MessageSquare, PenTool, Scissors, Send, Sparkles, Wand2, X } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
-import { FACTORY_KIND_LABEL, RUN_STATUS_LABEL, type FeedbackLevel } from "@/lib/creas/model";
+import { FACTORY_KIND_LABEL, RUN_STATUS_LABEL, shouldSuggestRetire, type FeedbackLevel } from "@/lib/creas/model";
+import { PublishDialog, VariationRunDialog } from "./factory-actions";
 import { BTN, BTN_PRIMARY, FIELD, aspect, usd, when, type Asset, type ClientOption, type FactoryCopy, type FactoryRun, type Feedback, type Template } from "./shared";
 import { runGenerationPasses } from "./factory-wizard";
 
@@ -20,9 +21,11 @@ type Verdict = "all" | "todo" | "keep" | "cut";
 
 export type Editor = "figcraft" | "photocraft";
 
-export function FactoryGrid({ runId, client, onBack, onOpenTemplate, onOpenIn, onVariation, onNotice, onError, onAssetsChanged, onRunChanged }: {
+export function FactoryGrid({ runId, client, onBack, onOpenTemplate, onOpenIn, onVariation, onNotice, onError, onAssetsChanged, onRunChanged, onNewRun }: {
   runId: string; client: ClientOption; onBack: () => void; onOpenTemplate: (t: Template) => void; onOpenIn: (editor: Editor, src: { assetId?: string; templateId?: string }) => void; onVariation: (a: Asset) => void;
   onNotice: (m: string) => void; onError: (m: string | null) => void; onAssetsChanged: (assets: Asset[]) => void; onRunChanged: (run: FactoryRun) => void;
+  /** A variation run was created: open it in the assistant (copies to validate). */
+  onNewRun?: (run: FactoryRun) => void;
 }) {
   const [run, setRun] = useState<FactoryRun | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -32,6 +35,7 @@ export function FactoryGrid({ runId, client, onBack, onOpenTemplate, onOpenIn, o
   const [templateFilter, setTemplateFilter] = useState<string>("all");
   const [open, setOpen] = useState<Asset | null>(null);
   const [resuming, setResuming] = useState(false);
+  const [dialog, setDialog] = useState<"variation" | "publish" | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/creas/factory/${runId}`, { cache: "no-store" });
@@ -40,6 +44,21 @@ export function FactoryGrid({ runId, client, onBack, onOpenTemplate, onOpenIn, o
     setRun(j.run); setAssets(j.assets ?? []); setTemplates(j.templates ?? []); setFeedback(j.feedback ?? []);
   }, [runId, onError]);
   useEffect(() => { queueMicrotask(() => { void load(); }); }, [load]);
+  // A generation chained in the background: the grid fills itself (read again every 10 s until it ends).
+  const inBackground = !!run?.settings.background && run.status === "generating";
+  useEffect(() => {
+    if (!inBackground) return;
+    const t = window.setInterval(() => { void load(); }, 10_000);
+    return () => window.clearInterval(t);
+  }, [inBackground, load]);
+
+  async function retireTemplate(t: Template, retired: boolean) {
+    const res = await fetch(`/api/creas/templates/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retired }) });
+    const j = (await res.json().catch(() => ({}))) as { template?: Template; error?: string };
+    if (!res.ok || !j.template) { onError(j.error ?? `Erreur ${res.status}`); return; }
+    setTemplates((l) => l.map((x) => (x.id === t.id ? j.template! : x)));
+    onNotice(retired ? `« ${t.name} » est écarté : il ne sera plus proposé dans les nouvelles fabriques (toujours visible dans Templates).` : `« ${t.name} » est remis dans le swipe file.`);
+  }
 
   const copyOf = useCallback((a: Asset): FactoryCopy | null => run?.copies.find((c) => c.id === a.copyId) ?? null, [run]);
   const templateOf = useCallback((id: string | null) => templates.find((t) => t.id === id) ?? null, [templates]);
@@ -89,9 +108,21 @@ export function FactoryGrid({ runId, client, onBack, onOpenTemplate, onOpenIn, o
         </div>
         <div className="ml-auto flex items-center gap-2">
           {run.driveLink && <a href={run.driveLink} target="_blank" rel="noopener noreferrer" className={BTN} data-factory-drive><ExternalLink className="w-4 h-4" /> Dossier Drive</a>}
-          {run.remaining > 0 && <button type="button" onClick={() => void resume()} disabled={resuming} className={BTN_PRIMARY}>{resuming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />} Reprendre ({run.remaining} restant{run.remaining > 1 ? "s" : ""})</button>}
+          {run.kept > 0 && <button type="button" onClick={() => setDialog("variation")} className={BTN} data-factory-variations><Sparkles className="w-4 h-4" /> Variations sur les gardées</button>}
+          {run.kept > 0 && <button type="button" onClick={() => setDialog("publish")} className={BTN_PRIMARY} data-factory-publish-open><Send className="w-4 h-4" /> Publier les gardées ({run.kept})</button>}
+          {run.remaining > 0 && !inBackground && <button type="button" onClick={() => void resume()} disabled={resuming} className={BTN_PRIMARY}>{resuming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />} Reprendre ({run.remaining} restant{run.remaining > 1 ? "s" : ""})</button>}
         </div>
       </div>
+
+      {inBackground && <p className="text-sm text-sky-200 inline-flex items-center gap-2" data-factory-background><Loader2 className="w-4 h-4 animate-spin" /> Génération en arrière-plan : {run.generated} sur {run.settings.n}. Vous pouvez fermer cette page, la grille se remplit toute seule.</p>}
+      {!inBackground && run.settings.error && run.status !== "review" && run.status !== "done" && <p className="text-sm text-amber-300">{run.settings.error}</p>}
+      {(run.settings.published ?? []).length > 0 && <p className="text-xs text-emerald-300">{(run.settings.published ?? []).reduce((s, p) => s + p.assetIds.length, 0)} visuel(s) publié(s) en pause sur Meta depuis cette fabrique.</p>}
+      {templates.filter((t) => shouldSuggestRetire(t)).map((t) => (
+        <p key={t.id} className="text-xs text-amber-200 flex flex-wrap items-center gap-2" data-factory-retire={t.id}>
+          « {t.name} » : {t.cut} coupée{t.cut > 1 ? "s" : ""} sur {t.kept + t.cut} verdicts. L&apos;écarter des prochaines fabriques ?
+          <button type="button" onClick={() => void retireTemplate(t, true)} className="underline hover:text-white">Écarter ce template</button>
+        </p>
+      ))}
 
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {([["all", "Toutes"], ["todo", "À trier"], ["keep", "Gardées"], ["cut", "Coupées"]] as const).map(([v, l]) => (
@@ -140,6 +171,8 @@ export function FactoryGrid({ runId, client, onBack, onOpenTemplate, onOpenIn, o
           onVerdict={(f, note) => void setAssetVerdict(open, f, note)} onVariation={() => { onVariation(open); setOpen(null); }} onOpenTemplate={(t) => { onOpenTemplate(t); setOpen(null); }} onOpenIn={onOpenIn}
           onFeedback={(text) => sendFeedback("asset", text, { assetId: open.id })} />
       )}
+      {dialog === "variation" && <VariationRunDialog run={run} onClose={() => setDialog(null)} onCreated={(r, err) => { setDialog(null); if (err) onError(err); onNotice("Variations : validez les copys proposés, puis lancez la génération."); onNewRun?.(r); }} />}
+      {dialog === "publish" && <PublishDialog run={run} onClose={() => { setDialog(null); void load(); }} onPublished={(m) => { onNotice(m); void load(); }} />}
     </div>
   );
 }

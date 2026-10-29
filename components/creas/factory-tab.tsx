@@ -36,7 +36,7 @@ export function FactoryTab({ client, templates, engines, quota, initialRunId, pr
   const upsertRun = (r: FactoryRun) => setRuns((l) => { const list = l ?? []; return list.some((x) => x.id === r.id) ? list.map((x) => (x.id === r.id ? { ...x, ...r } : x)) : [r, ...list]; });
 
   if (view.mode === "run") {
-    return <FactoryGrid runId={view.runId} client={client} onBack={() => { go({ mode: "list" }); void loadRuns(); }} onOpenTemplate={onOpenTemplate} onOpenIn={onOpenIn} onVariation={onVariation} onNotice={onNotice} onError={onError} onAssetsChanged={onAssetsCreated} onRunChanged={upsertRun} />;
+    return <FactoryGrid runId={view.runId} client={client} onBack={() => { go({ mode: "list" }); void loadRuns(); }} onOpenTemplate={onOpenTemplate} onOpenIn={onOpenIn} onVariation={onVariation} onNotice={onNotice} onError={onError} onAssetsChanged={onAssetsCreated} onRunChanged={upsertRun} onNewRun={(r) => { upsertRun(r); go({ mode: "wizard", preselected: [], run: r }); }} />;
   }
   if (view.mode === "wizard") {
     return <FactoryWizard client={client} templates={templates} engines={engines} quota={quota} preselected={view.preselected} run={view.run}

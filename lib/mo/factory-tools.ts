@@ -11,14 +11,21 @@
  *   factory_approve    « valide tout », « valide 1 à 5 », « valide 1, 4 et 7 »: those copies approved, the
  *                      others rejected; the table is rewritten in place (✓ column).
  *   factory_generate   the visuals of the approved copies (fal, passes of ≤ 12, quotas), until done or 200 s;
- *                      a creatives card of the visuals (keep / cut / publish work on it as on any card).
+ *                      a creatives card of the visuals (keep / cut / publish work on it as on any card). Above 12
+ *                      visuals: first pass here, the rest chained in the background, the grid posted at the end.
+ *   factory_variations variations of the kept visuals (persona / season / consigne): a new run, its copies table.
+ *   factory_publish    the kept visuals as Meta ads, PAUSED, in two steps: preview (nothing sent) then confirm=true.
  */
 
 import { prisma } from "@/lib/prisma";
 import { postMoCards, rewriteMoCard, parseMoCards } from "@/lib/mo/thread";
 import type { MoCard, MoCardSpec } from "@/lib/mo/model";
 import { CONTEXT_SOURCE_LABEL, FACTORY_KINDS, FACTORY_KIND_LABEL, MAX_RUN_IMAGES, type FactoryKind } from "@/lib/creas/model";
-import { FactoryError, createRun, generatePass, loadRun, loadRunTemplates, proposeCopies, runCopies, updateCopies, type FactoryClient, type FactoryUser } from "@/lib/creas/factory";
+import { startBackground } from "@/lib/creas/background";
+import { confirmPublish, preparePublish, publishTargets } from "@/lib/creas/publish";
+import { effectiveRole } from "@/lib/roles";
+import type { PilotSession } from "@/lib/pilot/service";
+import { FactoryError, createRun, createVariationRun, generatePass, loadRun, loadRunTemplates, proposeCopies, runCopies, updateCopies, type FactoryClient, type FactoryUser } from "@/lib/creas/factory";
 import { parseIdList } from "@/lib/creas/model";
 import { PlaybookError, studyBrand } from "@/lib/creas/playbook";
 import { pickByNumbers } from "@/lib/creas/playbook-doc";
@@ -28,7 +35,7 @@ type Args = Record<string, unknown>;
 type ToolResult = Record<string, unknown>;
 
 export interface FactoryToolDeps {
-  ctx: { userId: string; boardId: string; role: string; email: string | null; name: string | null };
+  ctx: { userId: string; boardId: string; role: string; email: string | null; name: string | null; origin?: string };
   /** The client named, resolved under the consultant's ACL (lib/mo/tools.ts resolveClient). */
   resolve: (raw: unknown) => Promise<{ id: string; clientId: string; name: string; hqSlug: string | null }>;
   error: (message: string, status?: number) => Error;
@@ -194,6 +201,21 @@ export async function factoryGenerate(d: FactoryToolDeps, a: Args): Promise<Tool
   const approved = (await runCopies(initial.id)).filter((c) => c.status === "approved").length;
   if (!approved) throw d.error("Aucun copy validé : dis d'abord lesquels (« valide 1 à 5 »).", 400);
   const n = Math.min(MAX_RUN_IMAGES, Math.max(1, Math.round(num(a.n) ?? Math.max(approved, MO_DEFAULT_IMAGES))));
+  // A long generation: the first pass here (it checks the quota on the whole run), the rest chained on the server; the grid lands on this board at the end.
+  if (n > 12 && d.ctx.origin && (initial.status === "copy_review" || initial.status === "approved")) {
+    let pass;
+    try { pass = await generatePass(initial, client, user, { n, engine: str(a.engine, 80) || undefined, ratio: str(a.ratio, 8) || undefined, textless: a.textless === true }); }
+    catch (e) { if (e instanceof FactoryError) throw d.error(e.message, e.status); throw e; }
+    if (pass.remaining > 0) {
+      const started = await startBackground(initial.id, { userId: d.ctx.userId, origin: d.ctx.origin, boardId: d.ctx.boardId, first: { n } });
+      const minutes = Math.max(1, Math.round((pass.remaining / 12) * 1.5));
+      return {
+        runId: initial.id, generated: pass.assets.length, remaining: pass.remaining, background: started, cost_usd: pass.run.costUsd,
+        say_hint: started ? `${pass.assets.length} visuels déjà faits ; les ${pass.remaining} autres se font en arrière-plan (environ ${minutes} min) et la grille se posera ici toute seule.` : "La suite n'a pas pu partir en arrière-plan : rappelle factory_generate pour continuer.",
+        open: `/creas?client=${client.id}&tab=fabrique&run=${initial.id}`,
+      };
+    }
+  }
   const t0 = Date.now();
   let run = initial;
   let first = true;
@@ -232,4 +254,63 @@ export async function factoryGenerate(d: FactoryToolDeps, a: Args): Promise<Tool
     ...(posted.length ? { posted_cards: posted, posted: "La grille est DÉJÀ sur le tableau : dis combien de visuels, le coût, et qu'on peut garder / couper / publier." } : { card_specs: assets.length ? [card] : [] }),
     ...(remaining ? { next: `Il reste ${remaining} visuels : rappelle factory_generate (même run) pour continuer.` } : {}),
   };
+}
+
+/** Posts the copies table of a run, a short note and the chips (shared by propose and variations). */
+async function postCopies(d: FactoryToolDeps, run: FactoryRun, ref: { id: string; name: string }, note: string): Promise<{ copies: FactoryCopy[]; posted: string[] }> {
+  const copies = await runCopies(run.id);
+  const table = copiesCard(run, copies, await templateNames(run), ref);
+  const n = copies.length;
+  const ask: MoCardSpec = { type: "ask", title: "Quels copys je garde ?", clientId: ref.id, clientName: ref.name, runId: run.id, question: `${n} copys proposés : lesquels je valide ?`, options: ["Valide tout", ...(n > 3 ? [`Valide 1 à ${Math.ceil(n / 2)}`] : []), "Repropose les copys"] };
+  const ctxNote: MoCardSpec = { type: "note", title: `Variation — ${ref.name}`, subtitle: "Ce qui change", clientId: ref.id, clientName: ref.name, runId: run.id, markdown: note };
+  const posted = n ? await postMoCards(d.ctx.boardId, [table, ctxNote, ask]) : [];
+  return { copies, posted };
+}
+
+export async function factoryVariations(d: FactoryToolDeps, a: Args): Promise<ToolResult> {
+  const { run: parent } = await runOf(d, a.run);
+  const user = await userOf(d);
+  const client: FactoryClient = { id: parent.alertClientId, name: parent.clientName, hqSlug: (await prisma.alertClient.findUnique({ where: { id: parent.alertClientId }, select: { hqSlug: true } }))?.hqSlug ?? null };
+  let out;
+  try { out = await createVariationRun(parent, client, user, { persona: str(a.persona, 200), season: str(a.season, 200), instructions: str(a.instructions, 1500), perTemplate: num(a.per_template) ?? 2 }); }
+  catch (e) { if (e instanceof FactoryError) throw d.error(e.message, e.status); throw e; }
+  const run = (await loadRun(out.run.id))!;
+  const ref = await clientRefOfCard(d, "", { id: parent.alertClientId, name: parent.clientName });
+  const what = [str(a.persona, 200) && `Persona : ${str(a.persona, 200)}`, str(a.season, 200) && `Saison : ${str(a.season, 200)}`, str(a.instructions, 1500) && `Consigne : ${str(a.instructions, 1500)}`].filter(Boolean).join("\n");
+  const { copies, posted } = await postCopies(d, run, ref, `${what}\n\nÀ partir des visuels gardés de la fabrique du ${parent.createdAt.toLocaleDateString("fr-FR")} : chaque nouveau visuel reprend son visuel gardé comme référence.`);
+  return {
+    runId: run.id, parentRunId: parent.id, copies: copies.map((c, i) => ({ n: i + 1, headline: c.headline, subline: c.subline, angle: c.angle })), ...(out.error ? { error: out.error } : {}),
+    posted_cards: posted, posted: "La table des copys de la variation est DÉJÀ sur le tableau : dis combien et demande lesquels valider (puis factory_approve, factory_generate).",
+  };
+}
+
+export async function factoryPublish(d: FactoryToolDeps, a: Args): Promise<ToolResult> {
+  const { run } = await runOf(d, a.run);
+  const client: FactoryClient = { id: run.alertClientId, name: run.clientName, hqSlug: (await prisma.alertClient.findUnique({ where: { id: run.alertClientId }, select: { hqSlug: true } }))?.hqSlug ?? null };
+  const session: PilotSession = { userId: d.ctx.userId, role: effectiveRole(d.ctx.role), baseRole: d.ctx.role, user: { email: d.ctx.email, name: d.ctx.name } };
+  try {
+    if (a.confirm === true) {
+      const actionId = str(a.actionId, 40);
+      if (!actionId) throw d.error("Il manque l'identifiant de l'aperçu (actionId).");
+      const done = await confirmPublish(run, client, session, actionId, str(a.why, 2000));
+      const ok = done.operations.filter((o) => o.status === "done").length;
+      return { created_paused: ok, failed: done.operations.filter((o) => o.status === "failed").map((o) => `${o.line} : ${o.error}`), hq: done.hqProject ? `consigné dans HQ projects/${done.hqProject}` : "non consigné", pilotage: `/pilotage?dashboardId=${client.id}` };
+    }
+    const targets = await publishTargets(run, client, str(a.accountId, 40) || null);
+    if (!targets.kept.length) throw d.error("Aucun visuel gardé dans cette fabrique : garde d'abord des visuels (« garde la 2 »).", 400);
+    const adsetId = str(a.adsetId, 30);
+    const pageId = str(a.pageId, 30) || (targets.pages.length === 1 ? targets.pages[0].id : "");
+    if (!/^\d{5,25}$/.test(adsetId) || !/^\d{5,25}$/.test(pageId)) {
+      return { needs: [!/^\d{5,25}$/.test(adsetId) ? "adsetId" : "", !/^\d{5,25}$/.test(pageId) ? "pageId" : ""].filter(Boolean), kept: targets.kept.length, adsets: targets.adsets.slice(0, 10), pages: targets.pages, defaults: targets.defaults, next: "Demande à la personne l'ensemble (et la Page s'il y en a plusieurs), puis rappelle factory_publish avec adsetId / pageId." };
+    }
+    const accountId = str(a.accountId, 40) || targets.adsets.find((x) => x.adsetId === adsetId)?.accountId || targets.accounts[0]?.id || "";
+    const action = await preparePublish(run, client, session, {
+      accountId, adsetId, pageId, primaryText: str(a.primaryText, 2000) || targets.defaults.primaryText, linkUrl: str(a.linkUrl, 2000) || targets.defaults.linkUrl, callToAction: str(a.callToAction, 40) || undefined, why: str(a.why, 2000) || undefined,
+    });
+    return {
+      prepared: true, actionId: action.id, needs_confirmation: true, writes_open: targets.writesOpen, ads: action.operations.map((o) => o.line),
+      ...(targets.defaults.from && !str(a.primaryText, 2000) ? { texts_note: `Texte et lien repris de la pub « ${targets.defaults.from} » (la plus dépensée sur 30 jours) : dis-le.` } : {}),
+      next: "Lis le résumé (combien de pubs, quel ensemble, en pause) et attends un « oui » explicite ; alors rappelle factory_publish avec confirm=true et cet actionId. L'aperçu expire dans 30 minutes.",
+    };
+  } catch (e) { if (e instanceof FactoryError) throw d.error(e.message, e.status); throw e; }
 }

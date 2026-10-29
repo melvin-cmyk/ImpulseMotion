@@ -58,13 +58,14 @@ export async function ownAdTemplateSource(adId: string): Promise<{ sourceRef: st
   return { sourceRef: ad.id, imageUrl: ad.imageUrl ?? ad.thumbnailUrl ?? null, title: ad.title ?? "", body: ad.body ?? "", name: ad.name.slice(0, 120), client: await clientOfAccount(ad.platform, ad.accountId) };
 }
 
-export function templateView(row: CreativeTemplate, viewerId: string, uses = 0): TemplateView {
+export function templateView(row: CreativeTemplate, viewerId: string, uses = 0, verdicts: { kept: number; cut: number } = { kept: 0, cut: 0 }): TemplateView {
   return {
     id: row.id, name: row.name, source: (row.source === "competitor" || row.source === "own" ? row.source : "upload"), brand: row.brand,
     clientId: row.alertClientId, clientName: row.clientName, sourceRef: row.sourceRef, sourceUrl: row.sourceUrl,
     image: row.file ? publicMediaUrl(row.file, 6 * 3600) ?? row.imageUrl : row.imageUrl,
     title: row.title, body: row.body, analysis: parseAnalysis(row.analysisJson), tags: parseTags(row.tags),
     createdByName: row.createdByName, createdAt: row.createdAt.toISOString(), mine: row.createdById === viewerId, uses,
+    kept: verdicts.kept, cut: verdicts.cut, retiredAt: row.retiredAt ? row.retiredAt.toISOString() : null,
   };
 }
 
@@ -99,4 +100,18 @@ export function buildEditorAsk(opts: { editor: "figcraft" | "photocraft"; file: 
     return `Le fichier uploads/${opts.file} est une publicité qui sert de template (« ${opts.template.name} »${opts.template.brand ? `, marque d'origine ${opts.template.brand}` : ""}). Reconstruis-la ${brand} en calques modifiables dans ce design : place l'image du template en calque de référence verrouillé en arrière-plan, puis recrée au-dessus chaque zone (fond, visuel, textes, bouton) en calques séparés, avec des textes en français adaptés à la marque.${keep ? ` À garder : ${keep}.` : ""} Termine par un export out/template.png et dis ce qui reste à remplacer (produit, logo).`;
   }
   return `Le fichier uploads/${opts.file} est une publicité qui sert de template (« ${opts.template.name} »${opts.template.brand ? `, marque d'origine ${opts.template.brand}` : ""}). Prépare-en une version ${brand} : ouvre-la, nettoie ce qui appartient à la marque d'origine (logo, mentions, produit si possible), garde la composition${keep ? ` (${keep})` : ""}, et enregistre le résultat en out/template.png et en out/template.psd pour la retouche à la main. Dis ce qui reste à remplacer.`;
+}
+
+/** Keep / cut counts of the visuals made from each template (feedback of the consultants). */
+export async function templateVerdicts(ids: string[]): Promise<Map<string, { kept: number; cut: number }>> {
+  const out = new Map<string, { kept: number; cut: number }>();
+  if (!ids.length) return out;
+  const rows = await prisma.creativeAsset.groupBy({ by: ["templateId", "feedback"], where: { templateId: { in: ids }, deletedAt: null, feedback: { in: ["keep", "cut"] } }, _count: { _all: true } });
+  for (const r of rows) {
+    if (!r.templateId) continue;
+    const v = out.get(r.templateId) ?? { kept: 0, cut: 0 };
+    if (r.feedback === "keep") v.kept += r._count._all; else v.cut += r._count._all;
+    out.set(r.templateId, v);
+  }
+  return out;
 }

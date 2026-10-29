@@ -44,13 +44,15 @@ import { dataUriToRelayImage } from "@/lib/creas/media";
 import { relayUpload } from "@/lib/studio";
 import type { MoCardSpec } from "@/lib/mo/model";
 import type { Playbook, PlaybookCandidate } from "@/lib/creas/playbook-doc";
-import { brandPlaybook, factoryApprove, factoryGenerate, factoryPropose, type FactoryToolDeps } from "@/lib/mo/factory-tools";
+import { brandPlaybook, factoryApprove, factoryGenerate, factoryPropose, factoryPublish, factoryVariations, type FactoryToolDeps } from "@/lib/mo/factory-tools";
 
-export const MO_TOOL_NAMES = ["creatives", "metrics", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad", "competitor_ads", "keep_template", "brand_playbook", "factory_propose", "factory_approve", "factory_generate"] as const;
+export const MO_TOOL_NAMES = ["creatives", "metrics", "creative_metrics", "generate_creatives", "meta_targets", "meta_publish_ad", "competitor_ads", "keep_template", "brand_playbook", "factory_propose", "factory_approve", "factory_generate", "factory_variations", "factory_publish"] as const;
 export type MoToolName = (typeof MO_TOOL_NAMES)[number];
 
 export interface MoToolContext {
   userId: string; boardId: string; role: string; email: string | null; name: string | null;
+  /** Origin of the application (https://…) when the route knows it: long generations chain their passes on it. */
+  origin?: string;
   /** The caller's registry when the route already read it (the quick path): no second read. */
   registry?: { scope: AccountScope; clients: ClientRef[] };
 }
@@ -652,6 +654,8 @@ export async function runMoTool(ctx: MoToolContext, tool: string, args: unknown)
     case "factory_propose": return factoryPropose(factoryDeps(ctx), a);
     case "factory_approve": return factoryApprove(factoryDeps(ctx), a);
     case "factory_generate": return factoryGenerate(factoryDeps(ctx), a);
+    case "factory_variations": return factoryVariations(factoryDeps(ctx), a);
+    case "factory_publish": return factoryPublish(factoryDeps(ctx), a);
     default: throw new MoToolError(`Outil inconnu : ${tool}`, 404);
   }
 }

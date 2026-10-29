@@ -66,7 +66,7 @@ export function zoneLengthHint(zones: TemplateAnalysis["textZones"]): string {
 }
 
 /** The prompt (system + user) asking Sonnet for `perTemplate` copies per template, as strict JSON. */
-export function buildCopyProposalPrompt(input: { clientName: string; kind: FactoryKind; contextMd: string; templates: CopyTemplateInput[]; perTemplate: number; persona?: string; season?: string }): { system: string; user: string } {
+export function buildCopyProposalPrompt(input: { clientName: string; kind: FactoryKind; contextMd: string; templates: CopyTemplateInput[]; perTemplate: number; persona?: string; season?: string; feedback?: string[]; kept?: Array<{ template: number; headline: string; subline: string; cta: string }> }): { system: string; user: string } {
   const system = [
     `Tu es concepteur-rédacteur senior dans une agence de publicité digitale française. On te donne le contexte d'une marque et des TEMPLATES de publicités (des mises en page qui marchent). Tu écris, pour chaque template, ${input.perTemplate} propositions de copy pour la marque « ${input.clientName} ».`,
     "Règles :",
@@ -85,6 +85,8 @@ export function buildCopyProposalPrompt(input: { clientName: string; kind: Facto
     input.season ? `Saison / moment : ${input.season}.` : "",
     `Templates (${input.templates.length}) :\n${tpl.join("\n")}`,
     `Contexte :\n${input.contextMd}`,
+    input.kept?.length ? `Visuels GARDÉS par le consultant dans la fabrique d'origine (à décliner : même promesse, nouvelle formulation selon la persona / saison demandée ; ne recopie pas mot pour mot) :\n${input.kept.map((k) => `- T${k.template} : « ${k.headline} »${k.subline ? ` / « ${k.subline} »` : ""}${k.cta ? ` [${k.cta}]` : ""}`).join("\n")}` : "",
+    input.feedback?.length ? `RETOURS DU CONSULTANT SUR LA FOURNÉE PRÉCÉDENTE (à appliquer en priorité) :\n${input.feedback.map((f) => `- ${f}`).join("\n")}` : "",
     `Écris ${input.perTemplate} propositions par template (${input.perTemplate * input.templates.length} en tout).`,
   ].filter(Boolean).join("\n\n");
   return { system, user };
@@ -121,10 +123,35 @@ export function parseCopyProposals(raw: unknown, templates: Array<{ id: string }
 }
 
 /** The generation brief of one visual: the template copy prompt, then the approved texts to write in the picture. */
-export function buildFactoryImagePrompt(base: string, copy: Pick<CopyProposal, "headline" | "subline" | "cta">, textless: boolean): string {
-  if (textless) return `${base}\nLes textes seront posés ensuite : garde libres les zones du template (titre « ${copy.headline} »).`;
+export function buildFactoryImagePrompt(base: string, copy: Pick<CopyProposal, "headline" | "subline" | "cta">, textless: boolean, avoid: string[] = [], variationOf = false): string {
+  const extra = [
+    variationOf ? "La PREMIÈRE image de référence est un visuel déjà validé par le consultant : garde sa composition, son produit et son style, change seulement ce que les textes ci-dessous demandent." : "",
+    avoid.length ? `À ÉVITER (retours des consultants sur ce template) : ${avoid.map((a) => a.replace(/\s+/g, " ").trim().slice(0, 200)).join(" ; ")}.` : "",
+  ].filter(Boolean).join("\n");
+  const tail = extra ? `\n${extra}` : "";
+  if (textless) return `${base}\nLes textes seront posés ensuite : garde libres les zones du template (titre « ${copy.headline} »).${tail}`;
   const lines = [`Titre : « ${copy.headline} »`, copy.subline ? `Sous-titre : « ${copy.subline} »` : "", copy.cta ? `Bouton : « ${copy.cta} »` : ""].filter(Boolean);
-  return `${base}\nTEXTES À ÉCRIRE DANS L'IMAGE, exactement, en français, sans faute, lisibles, aux emplacements que le template donne à ces rôles : ${lines.join(" ; ")}. Aucun autre texte.`;
+  return `${base}\nTEXTES À ÉCRIRE DANS L'IMAGE, exactement, en français, sans faute, lisibles, aux emplacements que le template donne à ces rôles : ${lines.join(" ; ")}. Aucun autre texte.${tail}`;
+}
+
+/** The feedback lines a run reads again: newest first, deduplicated, short. */
+export function feedbackLines(rows: Array<{ text: string }>, max = 8): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    const t = r.text.replace(/\s+/g, " ").trim().slice(0, 300);
+    const k = t.toLowerCase();
+    if (t.length < 3 || seen.has(k)) continue;
+    seen.add(k); out.push(t);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** Reference 1 of the i-th visual of a variation run: the kept visuals of its template, in turn. */
+export function variationReference(parentAssets: Record<string, string[]> | undefined, templateId: string, i: number): string | null {
+  const list = parentAssets?.[templateId] ?? [];
+  return list.length ? list[i % list.length] : null;
 }
 
 // ── Plan of a generation ───────────────────────────────────────────────────

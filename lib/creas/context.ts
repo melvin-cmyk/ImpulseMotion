@@ -125,11 +125,12 @@ export async function getClientContext(client: FactoryClient, opts: { fresh?: bo
 }
 
 /** The document a new run uses: the stored one, else freshly collected (and not stored: storing is the consultant's act). */
-export async function contextForRun(client: FactoryClient): Promise<{ md: string; sources: ContextSource[] }> {
+export async function contextForRun(client: FactoryClient): Promise<{ md: string; sources: ContextSource[]; since: Date }> {
   const row = await prisma.factoryContext.findUnique({ where: { alertClientId: client.id } });
-  if (row?.md.trim()) return { md: row.md, sources: [{ kind: "client_doc", ref: "FactoryContext", chars: row.md.length }, ...parseSources(row.sourcesJson).filter((s) => s.kind !== "client_doc")] };
+  // `since`: the feedback written after this moment is not in the document yet (the run adds it).
+  if (row?.md.trim()) return { md: row.md, sources: [{ kind: "client_doc", ref: "FactoryContext", chars: row.md.length }, ...parseSources(row.sourcesJson).filter((s) => s.kind !== "client_doc")], since: row.updatedAt };
   const fresh = await collectClientContext(client);
-  return { md: fresh.md, sources: fresh.sources };
+  return { md: fresh.md, sources: fresh.sources, since: new Date() };
 }
 
 export interface SaveContextResult { context: FactoryContextView; hq: { ok: boolean; written?: string; error?: string; conflict?: boolean } | null }

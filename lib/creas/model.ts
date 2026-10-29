@@ -69,7 +69,18 @@ export interface TemplateView {
   mine: boolean;
   /** Visuals generated from it. */
   uses: number;
+  /** Verdicts of the consultants on those visuals. */
+  kept: number;
+  cut: number;
+  /** Set aside (too many cuts): not proposed by default in a new fabrique. */
+  retiredAt: string | null;
 }
+
+/** Thresholds of the « set this template aside » suggestion: ≥ 8 verdicts, ≥ 80 % cut. Only a suggestion, a click decides. */
+export const RETIRE_MIN_VERDICTS = 8;
+export const RETIRE_CUT_SHARE = 0.8;
+export const shouldSuggestRetire = (t: { kept: number; cut: number; retiredAt?: string | null }) =>
+  !t.retiredAt && t.kept + t.cut >= RETIRE_MIN_VERDICTS && t.cut / (t.kept + t.cut) >= RETIRE_CUT_SHARE;
 
 export const parseTags = (s: string | null | undefined) => (s ?? "").split(",").map((t) => t.trim()).filter(Boolean).slice(0, 12);
 
@@ -138,6 +149,13 @@ export interface FactorySettings {
   failed: number;
   /** Last error worth showing (a failed batch, Drive unreachable…). */
   error?: string;
+  /** Variation run: the kept visuals of the parent run, by template (reference 1 of each visual). */
+  parentAssets?: Record<string, string[]>;
+  /** Generation chained on the server (no browser needed); the Mo board to post the grid on when it ends. */
+  background?: boolean;
+  boardId?: string;
+  /** Ads published from this run (Pilotage action ids). */
+  published?: Array<{ actionId: string; assetIds: string[]; at: string }>;
 }
 
 export interface FactoryCopyView {
@@ -164,7 +182,9 @@ export const DEFAULT_PER_TEMPLATE = 4;
 export const PASS_SIZE = 12;
 export const BATCH_SIZE = 4;
 export const PARALLEL_BATCHES = 3;
-export const MAX_RUN_IMAGES = 40;
+export const MAX_RUN_IMAGES = 100;
+/** Above this, a generation runs in the background (server passes chained on Vercel), the page can be closed. */
+export const BACKGROUND_FROM = 24;
 
 export function parseSettings(json: string | null | undefined): FactorySettings {
   let raw: Record<string, unknown> = {};
@@ -176,8 +196,19 @@ export function parseSettings(json: string | null | undefined): FactorySettings 
     perTemplate: int(raw.perTemplate, DEFAULT_PER_TEMPLATE, 12) || DEFAULT_PER_TEMPLATE,
     ...(s(raw.persona, 200) ? { persona: s(raw.persona, 200) } : {}), ...(s(raw.season, 200) ? { season: s(raw.season, 200) } : {}), ...(s(raw.instructions, 1500) ? { instructions: s(raw.instructions, 1500) } : {}),
     attempted: int(raw.attempted, 0, 100000), failed: int(raw.failed, 0, 100000), ...(s(raw.error, 500) ? { error: s(raw.error, 500) } : {}),
+    ...(parentAssetsOf(raw.parentAssets) ? { parentAssets: parentAssetsOf(raw.parentAssets)! } : {}),
+    ...(raw.background === true ? { background: true } : {}), ...(s(raw.boardId, 40) ? { boardId: s(raw.boardId, 40) } : {}),
+    ...(Array.isArray(raw.published) ? { published: (raw.published as unknown[]).filter((p): p is { actionId: string; assetIds: string[]; at: string } => !!p && typeof p === "object" && typeof (p as { actionId?: unknown }).actionId === "string" && Array.isArray((p as { assetIds?: unknown }).assetIds)).slice(-20) } : {}),
   };
 }
+
+function parseAssetsMap(v: unknown): Record<string, string[]> | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const out: Record<string, string[]> = {};
+  for (const [k, ids] of Object.entries(v as Record<string, unknown>)) if (/^[a-z0-9]{10,40}$/i.test(k) && Array.isArray(ids)) out[k] = ids.filter((x): x is string => typeof x === "string" && /^[a-z0-9]{10,40}$/i.test(x)).slice(0, 24);
+  return Object.keys(out).length ? out : null;
+}
+const parentAssetsOf = parseAssetsMap;
 
 export function parseSources(json: string | null | undefined): ContextSource[] {
   try {

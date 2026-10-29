@@ -19,7 +19,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, BookmarkPlus, Check, Download, ExternalLink, Factory, Images, Loader2, PenTool, Plus, RefreshCw, Scissors, Send, Sparkles, Trash2, Type, Wand2, X } from "lucide-react";
 import { PageHeader, Pill } from "@/components/ui/surface";
 import { TextEditor } from "@/components/studio/text-editor";
-import { SOURCE_LABEL } from "@/lib/creas/model";
+import { SOURCE_LABEL, shouldSuggestRetire } from "@/lib/creas/model";
 import { AddTemplateDialog, CopyDialog, VariationDialog, BrandAssetUpload } from "./dialogs";
 import { FactoryTab } from "./factory-tab";
 import { PlaybookDialog } from "./playbook-dialog";
@@ -159,6 +159,14 @@ export function CreasPage() {
     const res = await fetch(`/api/creas/templates/${t.id}`, { method: "DELETE" });
     if (res.ok) { setTemplates((l) => (l ?? []).filter((x) => x.id !== t.id)); setOpenTemplate(null); }
   }
+  async function retire(t: Template, retired: boolean) {
+    const res = await fetch(`/api/creas/templates/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ retired }) });
+    const j = (await res.json().catch(() => ({}))) as { template?: Template; error?: string };
+    if (!res.ok || !j.template) { setError(j.error ?? `Erreur ${res.status}`); return; }
+    setTemplates((l) => (l ?? []).map((x) => (x.id === j.template!.id ? j.template! : x))); setOpenTemplate(j.template);
+    setNotice(retired ? `« ${t.name} » ne sera plus proposé dans les nouvelles fabriques.` : `« ${t.name} » est de nouveau proposé dans les fabriques.`);
+  }
+
   async function reanalyse(t: Template) {
     const res = await fetch(`/api/creas/templates/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reanalyse: true }) });
     const j = (await res.json().catch(() => ({}))) as { template?: Template };
@@ -272,7 +280,8 @@ export function CreasPage() {
                     </div>
                     <div className="px-2.5 py-2">
                       <p className="text-xs text-gray-200 line-clamp-2">{t.name}</p>
-                      <p className="text-[10px] text-gray-500">{t.analysis.hook || "—"}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""}` : ""}</p>
+                      <p className="text-[10px] text-gray-500">{t.analysis.hook || "—"}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""}` : ""}{t.kept + t.cut ? <> · <span className="text-emerald-300">{t.kept} gardée{t.kept > 1 ? "s" : ""}</span> / <span className="text-rose-300">{t.cut} coupée{t.cut > 1 ? "s" : ""}</span></> : null}</p>
+                      {t.retiredAt ? <p className="text-[10px] text-amber-300">Écarté des fabriques</p> : shouldSuggestRetire(t) ? <p className="text-[10px] text-amber-300">Très coupé : à écarter ?</p> : null}
                     </div>
                   </button>
                   {t.image && (
@@ -324,7 +333,7 @@ export function CreasPage() {
 
       {/* ── Template drawer ───────────────────────────────────────────── */}
       {openTemplate && (
-        <TemplateDrawer template={openTemplate} onClose={() => setOpenTemplate(null)} onCopy={() => setCopying(openTemplate)} onOpenIn={(editor) => void openIn(editor, { templateId: openTemplate.id })} onReanalyse={() => void reanalyse(openTemplate)} onRemove={() => void removeTemplate(openTemplate)}
+        <TemplateDrawer template={openTemplate} onClose={() => setOpenTemplate(null)} onCopy={() => setCopying(openTemplate)} onOpenIn={(editor) => void openIn(editor, { templateId: openTemplate.id })} onReanalyse={() => void reanalyse(openTemplate)} onRemove={() => void removeTemplate(openTemplate)} onRetire={(retired) => void retire(openTemplate, retired)}
           onFactory={() => { setPreselected([openTemplate.id]); setOpenTemplate(null); switchTab("fabrique"); }} />
       )}
 
@@ -392,7 +401,7 @@ function AssetDrawer({ asset: a, templateName, onClose, onFeedback, onVariation,
   );
 }
 
-function TemplateDrawer({ template: t, onClose, onCopy, onOpenIn, onReanalyse, onRemove, onFactory }: { template: Template; onClose: () => void; onCopy: () => void; onOpenIn: (editor: "figcraft" | "photocraft") => void; onReanalyse: () => void; onRemove: () => void; onFactory: () => void }) {
+function TemplateDrawer({ template: t, onClose, onCopy, onOpenIn, onReanalyse, onRemove, onFactory, onRetire }: { template: Template; onClose: () => void; onCopy: () => void; onOpenIn: (editor: "figcraft" | "photocraft") => void; onReanalyse: () => void; onRemove: () => void; onFactory: () => void; onRetire: (retired: boolean) => void }) {
   const a = t.analysis;
   const [rereading, setRereading] = useState(false);
   const row = (label: string, value?: string | null) => (value ? <div><div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div><div className="text-sm text-gray-200">{value}</div></div> : null);
@@ -418,6 +427,10 @@ function TemplateDrawer({ template: t, onClose, onCopy, onOpenIn, onReanalyse, o
         <span>{t.createdByName} · {when(t.createdAt)}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""} généré${t.uses > 1 ? "s" : ""}` : ""}{t.tags.length ? ` · ${t.tags.join(", ")}` : ""}</span>
         {t.sourceUrl && <a href={t.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-violet-300 hover:text-white">Source <ExternalLink className="w-3 h-3" /></a>}
         <button type="button" onClick={() => { setRereading(true); onReanalyse(); setTimeout(() => setRereading(false), 20000); }} disabled={rereading} className="inline-flex items-center gap-1 hover:text-white disabled:opacity-50">{rereading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Relire avec l&apos;IA</button>
+        {t.kept + t.cut > 0 && <span><span className="text-emerald-300">{t.kept} gardée{t.kept > 1 ? "s" : ""}</span> / <span className="text-rose-300">{t.cut} coupée{t.cut > 1 ? "s" : ""}</span></span>}
+        {t.retiredAt
+          ? <button type="button" onClick={() => onRetire(false)} className="inline-flex items-center gap-1 text-amber-300 hover:text-white" data-template-unretire>Écarté des fabriques — le remettre</button>
+          : <button type="button" onClick={() => onRetire(true)} className={`inline-flex items-center gap-1 hover:text-white ${shouldSuggestRetire(t) ? "text-amber-300" : ""}`} title="Ne plus le proposer dans les nouvelles fabriques (il reste ici)" data-template-retire>{shouldSuggestRetire(t) ? "Très coupé : l'écarter des fabriques" : "Écarter des fabriques"}</button>}
         {t.mine && <button type="button" onClick={onRemove} className="ml-auto inline-flex items-center gap-1 text-rose-300 hover:text-rose-200"><Trash2 className="w-3.5 h-3.5" /> Retirer</button>}
       </div>
     </Drawer>

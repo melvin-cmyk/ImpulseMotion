@@ -79,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!plan) return new NextResponse(null, { status: 204 });
   const copiesCard = factoryCard ?? freshest(copiesTables);
 
-  const ctx: MoToolContext = { userId: guard.session.userId, boardId: board.id, role: user?.role ?? guard.session.role ?? "", email: user?.email ?? null, name: user?.name ?? null, registry: { scope, clients: registry } };
+  const ctx: MoToolContext = { origin: req.nextUrl.origin, userId: guard.session.userId, boardId: board.id, role: user?.role ?? guard.session.role ?? "", email: user?.email ?? null, name: user?.name ?? null, registry: { scope, clients: registry } };
   const refOf = (c: IntentClient) => registry.find((r) => r.id === c.id) ?? null;
 
   let say = plan.say;
@@ -101,7 +101,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           say = `${r.approved ?? 0} copy${(r.approved ?? 0) > 1 ? "s" : ""} validé${(r.approved ?? 0) > 1 ? "s" : ""} sur ${r.total ?? 0}. Je génère ${n} visuels, environ ${(n * 0.06).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} dollars ?`;
           specs = [{ type: "ask", title: "Combien de visuels ?", question: `Combien de visuels pour ${clientName} ?`, options: [`Génère ${n} visuels`, ...(n !== 4 ? ["Génère 4 visuels"] : []), ...(n < 16 ? ["Génère 16 visuels"] : []), "Repropose les copys"].slice(0, 4), runId, ...(copiesCard?.clientId ? { clientId: copiesCard.clientId, clientName } : {}) }];
         } else if (plan.kind === "factory_generate") {
-          const r = await runMoTool(ctx, "factory_generate", { run: runId, ...(plan.n ? { n: plan.n } : {}), post: false }) as { generated?: number; failed?: number; remaining?: number; cost_usd?: number | null; warnings?: string[] };
+          const r = await runMoTool(ctx, "factory_generate", { run: runId, ...(plan.n ? { n: plan.n } : {}), post: false }) as { generated?: number; failed?: number; remaining?: number; cost_usd?: number | null; warnings?: string[]; background?: boolean; say_hint?: string };
+          if (r.background !== undefined && r.say_hint) { say = r.say_hint; break; }
           specs = specsOf(r);
           const cost = typeof r.cost_usd === "number" ? `, ${r.cost_usd.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} dollars` : "";
           say = r.generated ? `${r.generated} visuels prêts pour ${clientName}${cost}${r.failed ? `, ${r.failed} en échec` : ""}${r.remaining ? `. Il en reste ${r.remaining} : dis « génère » pour continuer` : ""}.` : `Aucun visuel n'a pu être généré${r.warnings?.[0] ? ` : ${r.warnings[0]}` : ""}.`;

@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   if (!board) return NextResponse.json({ ok: false, error: "board not found" }, { status: 404 });
   const t0 = Date.now();
   try {
-    const result = await runMoTool({ userId: user.id, boardId: board.id, role: user.role, email: user.email, name: user.name }, tool, body?.args);
+    const result = await runMoTool({ userId: user.id, boardId: board.id, role: user.role, email: user.email, name: user.name, origin: req.nextUrl.origin }, tool, body?.args);
     console.log(`[mo/tools] ${tool} ${Date.now() - t0} ms`);
     return NextResponse.json({ ok: true, result }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {

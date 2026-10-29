@@ -13,10 +13,10 @@ import { Check, Loader2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
 
 /** Visuals proposed by default and the most the screen offers: the point is the analysis and reusable bases, not volume (the code accepts more). */
 export const DEFAULT_RUN_IMAGES = 8;
-export const UI_MAX_RUN_IMAGES = 24;
+export const UI_MAX_RUN_IMAGES = 60;
 import { Pill } from "@/components/ui/surface";
 import { ContextPanel } from "./context-panel";
-import { CONTEXT_SOURCE_LABEL, FACTORY_KIND_LABEL, type FactoryKind } from "@/lib/creas/model";
+import { BACKGROUND_FROM, CONTEXT_SOURCE_LABEL, FACTORY_KIND_LABEL, type FactoryKind } from "@/lib/creas/model";
 import { BTN, BTN_PRIMARY, FIELD, factoryPriceLine, usd, type Asset, type ClientOption, type Engine, type FactoryCopy, type FactoryRun, type QuotaInfo, type Template } from "./shared";
 
 const KINDS: FactoryKind[] = ["offer", "evergreen", "iteration"];
@@ -28,16 +28,18 @@ export interface PassOutcome { run: FactoryRun; assets: Asset[]; remaining: numb
  * Reports every pass; stops on the first refusal (quota 429, error) with its
  * readable message, leaving the run resumable.
  */
-export async function runGenerationPasses(runId: string, first: { n: number; engine: string; ratio: string; textless: boolean } | null, onPass: (o: PassOutcome) => void): Promise<{ ok: true; run: FactoryRun } | { ok: false; error: string; status: number; run?: FactoryRun }> {
+export async function runGenerationPasses(runId: string, first: { n: number; engine: string; ratio: string; textless: boolean } | null, onPass: (o: PassOutcome) => void): Promise<{ ok: true; run: FactoryRun; background?: boolean } | { ok: false; error: string; status: number; run?: FactoryRun }> {
   let body: Record<string, unknown> = first ?? {};
   let last: FactoryRun | undefined;
   for (let i = 0; i < 20; i++) {
     const res = await fetch(`/api/creas/factory/${runId}/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const j = (await res.json().catch(() => ({}))) as Partial<PassOutcome> & { error?: string };
+    const j = (await res.json().catch(() => ({}))) as Partial<PassOutcome> & { error?: string; background?: boolean };
     if (!res.ok || !j.run) return { ok: false, error: j.error ?? `Erreur ${res.status}`, status: res.status, ...(last ? { run: last } : {}) };
     last = j.run;
     onPass({ run: j.run, assets: j.assets ?? [], remaining: j.remaining ?? 0, failed: j.failed ?? 0, warn: j.warn });
     if (!j.remaining) return { ok: true, run: j.run };
+    // Above BACKGROUND_FROM the server chains the passes itself: the browser stops here.
+    if (j.background) return { ok: true, run: j.run, background: true };
     body = {};
   }
   return { ok: false, error: "Trop de passes : la fabrique reste reprenable.", status: 500, ...(last ? { run: last } : {}) };
@@ -70,7 +72,8 @@ export function FactoryWizard({ client, templates, engines, quota, preselected, 
 // ── Step 1 ─────────────────────────────────────────────────────────────────
 
 function StepTemplates({ client, templates, preselected, onError, onCreated }: { client: ClientOption; templates: Template[]; preselected: string[]; onError: (e: string | null) => void; onCreated: (run: FactoryRun, error?: string) => void }) {
-  const usable = useMemo(() => templates.filter((t) => t.image), [templates]);
+  // Templates set aside after too many cuts are not proposed (unless ticked from the Templates tab).
+  const usable = useMemo(() => templates.filter((t) => t.image && (!t.retiredAt || preselected.includes(t.id))), [templates, preselected]);
   const [picked, setPicked] = useState<string[]>(preselected.filter((id) => usable.some((t) => t.id === id)));
   const [kind, setKind] = useState<FactoryKind>("offer");
   const [perTemplate, setPerTemplate] = useState(4);
@@ -246,13 +249,14 @@ function StepGenerate({ run, templates, engines, quota, onError, onRun, onAssets
     });
     setBusy(false);
     if (!out.ok) { onError(out.error); if (out.run) onRun(out.run); return; }
+    if (out.background) { onNotice(`${out.run.generated} premiers visuels prêts ; les ${out.run.remaining} autres se génèrent en arrière-plan (vous pouvez fermer la page).`); onDone(out.run); return; }
     onNotice(`${out.run.generated} visuel${out.run.generated > 1 ? "s" : ""} généré${out.run.generated > 1 ? "s" : ""} sur ${total}${out.run.settings.failed ? ` (${out.run.settings.failed} en échec)` : ""}${out.run.driveLink ? " · copiés dans le Drive du client" : ""}.`);
     onDone(out.run);
   }
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-200">{approved.length} copy{approved.length > 1 ? "s" : ""} validé{approved.length > 1 ? "s" : ""} sur {tplNames.length} template{tplNames.length > 1 ? "s" : ""} <span className="text-gray-500">({tplNames.join(", ")})</span>. Chaque visuel = un template × un copy validé, à tour de rôle — des bases à reprendre dans FigCraft, pas du volume ({UI_MAX_RUN_IMAGES} max ici).</p>
+      <p className="text-sm text-gray-200">{approved.length} copy{approved.length > 1 ? "s" : ""} validé{approved.length > 1 ? "s" : ""} sur {tplNames.length} template{tplNames.length > 1 ? "s" : ""} <span className="text-gray-500">({tplNames.join(", ")})</span>. Chaque visuel = un template × un copy validé, à tour de rôle — des bases à reprendre dans FigCraft, pas du volume. Au-delà de {BACKGROUND_FROM}, la génération continue en arrière-plan ({UI_MAX_RUN_IMAGES} max ici).</p>
       {!started && (
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1 text-xs text-gray-400">Visuels à générer

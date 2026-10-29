@@ -162,9 +162,25 @@ server.registerTool("factory_approve", {
 
 server.registerTool("factory_generate", {
   title: "Fabrique de statics : générer les visuels",
-  description: "Génère les visuels des copys validés de la fabrique en cours (fal Nano Banana 2, le template et les éléments de marque en référence), par passes de 12, rangés dans les Créas et le Drive du client ; respecte les quotas (refus sinon). 1 à 3 minutes (dis-le avant). POSE LUI-MÊME la grille des visuels (garder / couper / publier marchent dessus). n = visuels voulus (défaut 8, 40 max) — seulement après un accord explicite de la personne sur le nombre et le prix.",
-  inputSchema: { run: z.string().max(40).optional(), n: z.number().int().min(1).max(40).optional(), ratio: z.enum(["1:1", "3:4", "9:16", "16:9"]).optional().describe("Défaut 1:1."), engine: z.string().max(80).optional(), textless: z.boolean().optional().describe("true = sans texte dans l'image (textes posés ensuite dans FigCraft)."), post: z.boolean().optional() },
+  description: "Génère les visuels des copys validés de la fabrique en cours (fal Nano Banana 2, le template et les éléments de marque en référence), par passes de 12, rangés dans les Créas et le Drive du client ; respecte les quotas (refus sinon). 1 à 3 minutes (dis-le avant). POSE LUI-MÊME la grille des visuels (garder / couper / publier marchent dessus). n = visuels voulus (défaut 8, 100 max ; au-delà de 12 la suite part en arrière-plan et la grille se pose toute seule à la fin : dis-le) — seulement après un accord explicite de la personne sur le nombre et le prix.",
+  inputSchema: { run: z.string().max(40).optional(), n: z.number().int().min(1).max(100).optional(), ratio: z.enum(["1:1", "3:4", "9:16", "16:9"]).optional().describe("Défaut 1:1."), engine: z.string().max(80).optional(), textless: z.boolean().optional().describe("true = sans texte dans l'image (textes posés ensuite dans FigCraft)."), post: z.boolean().optional() },
 }, async (args) => call("factory_generate", args, 290_000));
+
+server.registerTool("factory_variations", {
+  title: "Fabrique de statics : variations des gardées",
+  description: "Décline les visuels GARDÉS d'une fabrique pour une autre persona, une saison ou une consigne (« fais-moi des variations Noël des gardées », « la même chose pour les parents de lycéens ») : nouvelle fabrique dont les copys repassent en validation (table posée, puces), puis factory_approve et factory_generate ; chaque nouveau visuel part de son visuel gardé. Il faut au moins une de : persona, season, instructions.",
+  inputSchema: { run: z.string().max(40).optional().describe("Défaut : la fabrique du tableau."), persona: z.string().max(200).optional(), season: z.string().max(200).optional(), instructions: z.string().max(1500).optional(), per_template: z.number().int().min(1).max(4).optional().describe("Copys par template (défaut 2).") },
+}, async (args) => call("factory_variations", args, 280_000));
+
+server.registerTool("factory_publish", {
+  title: "Fabrique de statics : publier les gardées (Meta, en pause)",
+  description: "Publie les visuels GARDÉS d'une fabrique en publicités Meta image, une par visuel (titre = son copy), toutes EN PAUSE, via le Pilotage. DEUX TEMPS obligatoires : 1) sans confirm → tout est vérifié sur Meta, rien n'est envoyé (si needs revient, demande l'ensemble / la Page) ; lis le résumé (combien, quel ensemble, en pause) ; 2) seulement après un « oui » explicite à CE résumé → confirm=true + actionId. Texte et lien : ceux donnés, sinon ceux de la pub la plus dépensée du client (dis-le).",
+  inputSchema: {
+    run: z.string().max(40).optional(), adsetId: z.string().regex(/^\d{5,25}$/).optional(), accountId: z.string().max(40).optional(), pageId: z.string().max(30).optional(),
+    primaryText: z.string().max(2000).optional(), linkUrl: z.string().max(2000).optional(), callToAction: z.string().max(40).optional(), why: z.string().max(2000).optional(),
+    confirm: z.boolean().optional(), actionId: z.string().max(40).optional(),
+  },
+}, async (args) => call("factory_publish", args, 280_000));
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

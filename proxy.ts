@@ -33,7 +33,8 @@ export default auth((req) => {
   // /dash-runtime.js and /vendor/ are public static scripts loaded by the sandboxed
   // iframe of a staff dashboard (opaque origin: the session cookie is not sent).
   const publicPaths = ["/login", "/api/auth", "/api/cron", "/api/ingest", "/api/ai/jobs/complete", "/api/mo/tools", "/api/tiktok-verify", "/api/studio/media/", "/_next", "/favicon", "/dash-runtime.js", "/dash-catalog.js", "/vendor/"];
-  const isPublic = publicPaths.some((p) => pathname.startsWith(p));
+  // The background passes of a fabrique call themselves with the relay's bearer (checked by the route): no session there.
+  const isPublic = publicPaths.some((p) => pathname.startsWith(p)) || /^\/api\/creas\/factory\/[a-z0-9]{10,40}\/continue$/i.test(pathname);
 
   const isAdminPath = pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
   if (isAdminPath) {
