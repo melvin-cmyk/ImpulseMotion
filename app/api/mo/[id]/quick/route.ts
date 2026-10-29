@@ -97,9 +97,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (plan.kind === "factory_approve") {
           const r = await runMoTool(ctx, "factory_approve", { run: runId, ...(plan.numbers === "all" ? { all: true } : { numbers: plan.numbers }) }) as { approved?: number; total?: number; suggested_images?: number };
           touched = true;
-          const n = r.suggested_images ?? 8;
+          const n = r.suggested_images ?? 2;
           say = `${r.approved ?? 0} copy${(r.approved ?? 0) > 1 ? "s" : ""} validé${(r.approved ?? 0) > 1 ? "s" : ""} sur ${r.total ?? 0}. Je génère ${n} visuels, environ ${(n * 0.06).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} dollars ?`;
-          specs = [{ type: "ask", title: "Combien de visuels ?", question: `Combien de visuels pour ${clientName} ?`, options: [`Génère ${n} visuels`, ...(n !== 4 ? ["Génère 4 visuels"] : []), ...(n < 16 ? ["Génère 16 visuels"] : []), "Repropose les copys"].slice(0, 4), runId, ...(copiesCard?.clientId ? { clientId: copiesCard.clientId, clientName } : {}) }];
+          specs = [{ type: "ask", title: "Combien de visuels ?", question: `Combien de visuels pour ${clientName} ?`, options: [`Génère ${n} visuels`, ...(n !== 4 ? ["Génère 4 visuels"] : []), "Repropose les copys"].slice(0, 4), runId, ...(copiesCard?.clientId ? { clientId: copiesCard.clientId, clientName } : {}) }];
         } else if (plan.kind === "factory_generate") {
           const r = await runMoTool(ctx, "factory_generate", { run: runId, ...(plan.n ? { n: plan.n } : {}), post: false }) as { generated?: number; failed?: number; remaining?: number; cost_usd?: number | null; warnings?: string[]; background?: boolean; say_hint?: string };
           if (r.background !== undefined && r.say_hint) { say = r.say_hint; break; }

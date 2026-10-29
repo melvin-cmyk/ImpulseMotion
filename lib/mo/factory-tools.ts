@@ -45,7 +45,8 @@ const str = (v: unknown, max = 200): string => (typeof v === "string" ? v.trim()
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() && Number.isFinite(Number(v)) ? Number(v) : null);
 const assetImage = (id: string) => `/api/studio/assets/${id}/file?inline=1`;
 const GENERATE_BUDGET_MS = 200_000;
-const MO_DEFAULT_IMAGES = 8;
+/** 2 by default: generation costs real money (fal); more only when the person asks for a number. */
+const MO_DEFAULT_IMAGES = 2;
 
 async function userOf(d: FactoryToolDeps): Promise<FactoryUser> {
   const u = await prisma.user.findUnique({ where: { id: d.ctx.userId }, select: { name: true, email: true } });
@@ -187,7 +188,7 @@ export async function factoryApprove(d: FactoryToolDeps, a: Args): Promise<ToolR
   let posted: string[] = [];
   if (cardId) { const c = await rewriteMoCard(d.ctx.boardId, cardId, (card) => ({ ...card, ...spec } as MoCard)); if (c) posted = [cardId]; }
   else if (a.post !== false) posted = await postMoCards(d.ctx.boardId, [spec]);
-  const n = Math.min(MAX_RUN_IMAGES, Math.max(approved, MO_DEFAULT_IMAGES));
+  const n = MO_DEFAULT_IMAGES;
   return {
     runId: run.id, approved, rejected: updated.filter((c) => c.status === "rejected").length, total: updated.length, posted_cards: posted,
     suggested_images: n, next: `Propose de lancer la génération : factory_generate (défaut ${n} visuels, ~0,06 $ l'image ; dis le prix).`,
@@ -200,7 +201,7 @@ export async function factoryGenerate(d: FactoryToolDeps, a: Args): Promise<Tool
   const client: FactoryClient = { id: initial.alertClientId, name: initial.clientName, hqSlug: (await prisma.alertClient.findUnique({ where: { id: initial.alertClientId }, select: { hqSlug: true } }))?.hqSlug ?? null };
   const approved = (await runCopies(initial.id)).filter((c) => c.status === "approved").length;
   if (!approved) throw d.error("Aucun copy validé : dis d'abord lesquels (« valide 1 à 5 »).", 400);
-  const n = Math.min(MAX_RUN_IMAGES, Math.max(1, Math.round(num(a.n) ?? Math.max(approved, MO_DEFAULT_IMAGES))));
+  const n = Math.min(MAX_RUN_IMAGES, Math.max(1, Math.round(num(a.n) ?? MO_DEFAULT_IMAGES)));
   // A long generation: the first pass here (it checks the quota on the whole run), the rest chained on the server; the grid lands on this board at the end.
   if (n > 12 && d.ctx.origin && (initial.status === "copy_review" || initial.status === "approved")) {
     let pass;

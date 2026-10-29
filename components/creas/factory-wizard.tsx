@@ -12,7 +12,8 @@ import { useMemo, useState } from "react";
 import { Check, Loader2, RefreshCw, Sparkles, Wand2 } from "lucide-react";
 
 /** Visuals proposed by default and the most the screen offers: the point is the analysis and reusable bases, not volume (the code accepts more). */
-export const DEFAULT_RUN_IMAGES = 8;
+/** 2 by default (fal credit is small): the consultant raises it on purpose. */
+export const DEFAULT_RUN_IMAGES = 2;
 export const UI_MAX_RUN_IMAGES = 60;
 import { Pill } from "@/components/ui/surface";
 import { ContextPanel } from "./context-panel";
