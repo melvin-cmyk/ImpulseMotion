@@ -1675,3 +1675,25 @@ model AdOpportunity {
   @@index([platform, accountId, assignedAt])
   @@index([creativeKey])
 }
+
+/// Analyse Ads « snapshots » (Motion's Share report → Snapshot): a public,
+/// read-only copy of a report with its numbers frozen when it was shared.
+/// The id is the unguessable token of the public URL /s/{id}.
+model AdSnapshot {
+  id            String    @id
+  /// client:<id> or meta:<act> — lists the snapshots of a client.
+  accountKey    String?
+  clientName    String    @default("")
+  title         String
+  emoji         String    @default("🏆")
+  description   String    @default("") @db.Text
+  /// Frozen report: rows (visual, metrics), benchmark, period, metrics, columns.
+  payloadJson   String    @db.Text
+  createdById   String?
+  createdByName String    @default("")
+  createdAt     DateTime  @default(now())
+  revokedAt     DateTime?
+  views         Int       @default(0)
+
+  @@index([accountKey, createdAt])
+}

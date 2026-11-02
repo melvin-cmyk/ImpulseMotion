@@ -31,6 +31,7 @@ import type { MediaRatio } from "./ad-media";
 import { AdsTable, RANK_SWATCH } from "./ads-table";
 import { FilterChip, MenuItem, MenuLabel, PILL, Popover } from "./pill";
 import { CreateReportModal } from "./create-report";
+import { SharePopover } from "./share-popover";
 import { AdsBar } from "./ads-bar";
 import { AdDrawer } from "./ad-drawer";
 import { tagKeyLabel } from "./shared";
@@ -309,10 +310,13 @@ export function TopPerforming() {
   const platformName = (p: string) => (p === "meta" ? "Meta" : p === "google" ? "Google" : "TikTok");
   const sectionTitle = section === "competitors" ? "🥊 Concurrents" : section === "leaderboard" ? "🏆 Leaderboard" : section === "opportunities" ? "🚩 Opportunités" : title;
   const sectionText = section === "competitors" ? "Leurs pubs en ce moment dans la bibliothèque Meta : garde une créa comme template en un clic." : section === "leaderboard" ? "Suis les évolutions de performance et les meilleures créas de la semaine." : section === "opportunities" ? "Les petits changements qui peuvent débloquer les créas qui marchent déjà." : subtitle;
-  async function share() {
+  function internalUrl() {
     const u = new URL(window.location.href);
     if (client) u.searchParams.set("client", client.clientId);
-    try { await navigator.clipboard.writeText(u.toString()); setShared(true); setTimeout(() => setShared(false), 1500); } catch { /* clipboard refused */ }
+    return u.toString();
+  }
+  async function share() {
+    try { await navigator.clipboard.writeText(internalUrl()); setShared(true); setTimeout(() => setShared(false), 1500); } catch { /* clipboard refused */ }
   }
 
   return (
@@ -347,7 +351,14 @@ export function TopPerforming() {
           {section === "ads" && (
             <button type="button" disabled={!accountKey || (!!activeSaved && !dirty)} onClick={() => { if (activeSaved && dirty) void updateView(activeSaved.id); else setCreateOpen(true); }} className={PILL} title={activeSaved ? "Enregistrer les modifications du rapport" : "Enregistrer la vue comme rapport du client"}>Enregistrer</button>
           )}
-          <button type="button" onClick={() => void share()} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] bg-white px-3 text-sm font-medium text-gray-900 hover:bg-gray-200">{shared ? <><Check className="w-3.5 h-3.5" />Lien copié</> : "Partager le rapport"}</button>
+          {section === "ads" ? (
+            <SharePopover accountKey={accountKey} internalUrl={internalUrl} buildBody={() => (query ? {
+              ...query, limit: 60, title: title.replace(/^\S+\s/, ""), emoji: title.split(" ")[0] || "🏆", description: sectionText, clientName: clientName ?? "", accountKey,
+              metrics: visibleMetrics, columns, cardKeys: Array.from(selectedKeys), ratio,
+            } : null)} />
+          ) : (
+            <button type="button" onClick={() => void share()} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] bg-white px-3 text-sm font-medium text-gray-900 hover:bg-gray-200">{shared ? <><Check className="w-3.5 h-3.5" />Lien copié</> : "Copier le lien"}</button>
+          )}
           <Popover width={220} align="right" trigger={({ toggle }) => <button type="button" onClick={toggle} className={`${PILL} px-2`} aria-label="Plus d'actions"><MoreHorizontal className="w-4 h-4" /></button>}>
             {(close) => (<>
               <MenuItem disabled={!accountKey} onClick={() => { close(); void saveView(`${title.replace(/^\S+\s/, "")} (copie)`, title.split(" ")[0] || "🏆"); }}>Dupliquer le rapport</MenuItem>
