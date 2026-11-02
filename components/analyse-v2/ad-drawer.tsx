@@ -16,6 +16,7 @@ import type { AdsGroupRow, AdsQuery, DailyPoint, MetricKey, Metrics } from "@/li
 import { METRICS, METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
 import { FORMAT_LABEL, ScoreGauge, StatusDot, TrendText, isActive, relativeDay } from "./shared";
 import { AdStage } from "./ad-preview";
+import { DemographicsPane } from "./demographics-pane";
 import { AI_TAG_LABELS } from "@/lib/ads-warehouse/ai-tags-labels";
 import { AdNotes } from "./ad-notes";
 
@@ -43,7 +44,7 @@ const fmtDay = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("fr-
 export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk }: Props) {
   const [loaded, setLoaded] = useState<{ key: string; points: DailyPoint[] } | null>(null);
   const [metric, setMetric] = useState<MetricKey>("cpc");
-  const [tab, setTab] = useState<"apercu" | "performance" | "notes">("apercu");
+  const [tab, setTab] = useState<"apercu" | "performance" | "audience" | "notes">("apercu");
   const [copied, setCopied] = useState(false);
   const [showAllTags, setShowAllTags] = useState(false);
   const ad = row.sample;
@@ -126,7 +127,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk }: Pr
           {/* Side panel */}
           <aside className="w-[500px] max-w-[45vw] shrink-0 border-l border-gray-800 flex flex-col min-h-0">
             <div className="px-4 flex gap-4 border-b border-gray-800 shrink-0">
-              {([["apercu", "Aperçu"], ["performance", "Performance"], ["notes", "Notes"]] as const).map(([id, l]) => (
+              {([["apercu", "Aperçu"], ["performance", "Performance"], ...(ad?.platform === "meta" ? [["audience", "Audience"] as const] : []), ["notes", "Notes"]] as const).map(([id, l]) => (
                 <button key={id} type="button" onClick={() => setTab(id)} className={`py-3 text-sm border-b-2 -mb-px ${tab === id ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>{l}</button>
               ))}
             </div>
@@ -231,6 +232,29 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk }: Pr
               </>}
 
               {tab === "performance" && <>
+                {row.metrics.video3s > 0 && (() => {
+                  const steps = [["Impressions", 100, 100], ["3 s", row.metrics.hookRate, benchmark.hookRate], ["25 %", row.metrics.p25Rate, benchmark.p25Rate], ["50 %", row.metrics.p50Rate, benchmark.p50Rate], ["75 %", row.metrics.p75Rate, benchmark.p75Rate], ["100 %", row.metrics.p100Rate, benchmark.p100Rate]] as const;
+                  const data = steps.map(([step, v, b]) => ({ step, v, b }));
+                  const worst = steps.slice(1).map(([step, v], i) => ({ step, drop: (i === 0 ? 100 : steps[i][1]) - v })).sort((a, b) => b.drop - a.drop)[0];
+                  return (
+                    <div className="rounded-xl border border-gray-800 p-3">
+                      <div className="flex items-baseline justify-between"><div className="text-sm font-semibold text-white">Rétention de la vidéo</div><div className="text-[11px] text-gray-500">% des impressions · pointillés = moyenne du compte</div></div>
+                      <div className="h-40 mt-2">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={data} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+                            <XAxis dataKey="step" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
+                            <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} scale="sqrt" domain={[0, 100]} />
+                            <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", fontSize: 11 }} formatter={(v, name) => [`${Number(v ?? 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`, String(name) === "v" ? "Cette créa" : "Moyenne du compte"]} />
+                            <Area type="monotone" dataKey="v" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.15} strokeWidth={2} />
+                            <Line type="monotone" dataKey="b" stroke="#9ca3af" strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </div>
+                      {worst && worst.step !== "3 s" && <div className="mt-1 text-xs text-gray-400">La plus forte perte se fait avant {worst.step} de la vidéo.</div>}
+                      {worst && worst.step === "3 s" && <div className="mt-1 text-xs text-gray-400">La plus forte perte se fait dans les 3 premières secondes : c&apos;est l&apos;accroche qui compte.</div>}
+                    </div>
+                  );
+                })()}
                 <div className="text-xs text-gray-500">Période {fmtDay(query.range.since)} → {fmtDay(query.range.until)}{query.compare ? ` · vs ${fmtDay(query.compare.since)} → ${fmtDay(query.compare.until)}` : ""}</div>
                 <div className="grid grid-cols-2 gap-2">
                   {shownPerf.map((k) => {
@@ -268,6 +292,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk }: Pr
                 </div>
               </>}
 
+              {tab === "audience" && ad?.platform === "meta" && <DemographicsPane accountId={ad.accountId} adIds={(row.ads.length ? row.ads : [ad]).filter((a) => a.platform === "meta").map((a) => a.adId)} range={query.range} currency={currency} />}
               {tab === "notes" && ad && <AdNotes platform={ad.platform} adId={ad.adId} />}
             </div>
           </aside>
