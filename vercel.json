@@ -237,6 +237,10 @@
     {
       "path": "/api/cron/ads-ai-tags",
       "schedule": "45 6 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-recap",
+      "schedule": "0 7 * * 1"
     }
   ]
 }

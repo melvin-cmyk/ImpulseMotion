@@ -14,6 +14,7 @@ import type { LeaderboardResult, LeaderRow } from "@/lib/ads-warehouse/leaderboa
 import { METRIC_BY_KEY, deltaPct, deltaTone, fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
 import { SPEND_STATE_HINT } from "@/lib/ads-warehouse/trends";
 import { AdDrawer } from "./ad-drawer";
+import { RecapButton } from "./recap-button";
 import { AdMedia, MediaCaption } from "./ad-media";
 import { FORMAT_LABEL, ScoreGauge, TrendText, adImageSrc, colorFor } from "./shared";
 
@@ -43,9 +44,11 @@ const TREND_COLUMNS = [
 interface Props {
   /** The page's query: accounts and platforms are reused; the week ends at range.until. */
   query: AdsQuery;
+  /** Client id (alerts client) for the Slack recap; absent = no recap button. */
+  clientId?: string | null;
 }
 
-export function Leaderboard({ query }: Props) {
+export function Leaderboard({ query, clientId }: Props) {
   const body = useMemo(() => JSON.stringify({ platforms: query.platforms, accounts: query.accounts, accountIds: query.accountIds, range: { since: query.range.until, until: query.range.until } }), [query.platforms, query.accounts, query.accountIds, query.range.until]);
   const [state, setState] = useState<{ body: string; data: LeaderboardResult | null; error: string | null } | null>(null);
   const [open, setOpen] = useState<AdsGroupRow | null>(null);
@@ -70,7 +73,10 @@ export function Leaderboard({ query }: Props) {
 
   return (
     <div className="px-6 pb-10 space-y-6">
-      <div className="text-xs text-gray-500">Semaine du {fmtDay(d.period.since)} au {fmtDay(d.period.until)} · comparée au {fmtDay(d.period.previousSince)} – {fmtDay(d.period.previousUntil)}</div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-gray-500">Semaine du {fmtDay(d.period.since)} au {fmtDay(d.period.until)} · comparée au {fmtDay(d.period.previousSince)} – {fmtDay(d.period.previousUntil)}</div>
+        {clientId && !clientId.startsWith("d_") && <RecapButton clientId={clientId} />}
+      </div>
 
       {/* Overview */}
       <section className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
