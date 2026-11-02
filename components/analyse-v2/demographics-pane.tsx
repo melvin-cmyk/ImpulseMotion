@@ -76,7 +76,7 @@ export function DemographicsPane({ accountId, adIds, range, currency }: Props) {
                 <div key={g.id} className={`rounded-lg p-1.5 ${isBest ? "bg-emerald-500/10" : ""}`}>
                   <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden"><div className={`h-full ${g.bar}`} style={{ width: `${c ? Math.max(2, (c.spend / max) * 100) : 0}%` }} /></div>
                   <div className="mt-1 text-[11px] text-gray-400 tabular-nums">
-                    {c && c.spend > 0 ? <>{fmtMetric("spend", c.spend, currency)} · {c.conversions > 0 ? `${Math.round(c.conversions)} ${conversionLabel} · ${fmtMetric("cpa", c.spend / c.conversions, currency)}` : `CTR ${c.impressions ? (c.linkClicks / c.impressions * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) : 0} %`}</> : "—"}
+                    {c && c.spend > 0 ? <>{fmtMetric("spend", c.spend, currency)} · {c.conversions > 0 ? `${Math.round(c.conversions)} ${Math.round(c.conversions) > 1 ? conversionLabel : conversionLabel.replace(/s$/, "")} · ${fmtMetric("cpa", c.spend / c.conversions, currency)}` : `CTR ${c.impressions ? (c.linkClicks / c.impressions * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) : 0} %`}</> : "—"}
                   </div>
                 </div>
               );
