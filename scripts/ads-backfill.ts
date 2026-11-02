@@ -6,11 +6,11 @@
  *   prints what the adapter would store, WITHOUT writing anything.
  *   --ai-tags [--limit=100] [--accounts=…] → AI-tag the recently delivered creatives
  *   --thumbs [--accounts=…] → re-read the large previews of the catalogue
- *   --images [--accounts=…] → store the original visuals of image ads (tallest asset, permanent link)
+ *   --images [--accounts=…] → store the original visuals of image ads (tallest asset, permanent link) and the native frames of video ads
  *   (rows stored with 64 px thumbnails before 2026-10-27).
  */
 import { runAdsSync, warehouseStatus } from "../lib/ads-warehouse/sync";
-import { metaAdapter, refreshBestImages, refreshThumbnails } from "../lib/ads-warehouse/meta";
+import { metaAdapter, refreshBestImages, refreshThumbnails, refreshVideoPosters } from "../lib/ads-warehouse/meta";
 import { googleAdapter } from "../lib/ads-warehouse/google";
 import { tiktokAdapter } from "../lib/ads-warehouse/tiktok";
 import type { WarehousePlatform } from "../lib/ads-warehouse/types";
@@ -65,7 +65,8 @@ async function images() {
   for (const a of accounts) {
     const t0 = Date.now();
     const n = await refreshBestImages(a).catch((e) => { console.log(`images meta:${a} error ${e instanceof Error ? e.message : e}`); return 0; });
-    console.log(`images meta:${a} ${n} originals in ${Math.round((Date.now() - t0) / 1000)} s`);
+    const v = await refreshVideoPosters(a).catch((e) => { console.log(`posters meta:${a} error ${e instanceof Error ? e.message : e}`); return 0; });
+    console.log(`images meta:${a} ${n} originals, ${v} video frames in ${Math.round((Date.now() - t0) / 1000)} s`);
     if (Date.now() > end) break;
   }
 }

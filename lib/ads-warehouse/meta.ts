@@ -124,6 +124,63 @@ export async function refreshBestImages(accountId: string, opts: { sinceDays?: n
   return n;
 }
 
+/**
+ * Page access tokens of the Pages assigned to the system user (/me/accounts),
+ * in memory only (never stored), 10 min. Video files and frames are readable
+ * with the token of the Page that published the ad, not with the system user's.
+ */
+let pageTokenCache: { at: number; map: Map<string, string> } | null = null;
+export async function pageTokens(): Promise<Map<string, string>> {
+  if (pageTokenCache && Date.now() - pageTokenCache.at < 10 * 60_000) return pageTokenCache.map;
+  const map = new Map<string, string>();
+  const res = await metaGraphGet<{ data?: Array<{ id?: string; access_token?: string }> }>("/me/accounts", getMetaSystemToken(), { fields: "id,access_token", limit: "200" }).catch(() => null);
+  for (const p of res?.data ?? []) if (p.id && p.access_token) map.set(p.id, p.access_token);
+  pageTokenCache = { at: Date.now(), map };
+  return map;
+}
+
+/**
+ * Native frames of video ads (Motion's cover at the video's own ratio, not the
+ * square ad thumbnail): the Page of each ad (its story id), then
+ * /{video_id}?fields=thumbnails with that Page's token; the preferred frame,
+ * else the largest. Map adId → frame URL (signed, refreshed on expiry).
+ */
+export async function fetchVideoPosters(token: string, ads: Array<{ adId: string; videoId: string }>): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ads.length) return out;
+  const tokens = await pageTokens();
+  if (!tokens.size) return out;
+  const stories = await metaGraphGetEach<{ creative?: { effective_object_story_id?: string } }>(ads.map((a) => a.adId), token, { fields: "creative{effective_object_story_id}" });
+  type Thumbs = { thumbnails?: { data?: Array<{ uri?: string; width?: number; height?: number; is_preferred?: boolean }> } };
+  const queue = ads.filter((a) => tokens.has(stories.get(a.adId)?.creative?.effective_object_story_id?.split("_")[0] ?? ""));
+  const worker = async () => {
+    for (let a = queue.shift(); a; a = queue.shift()) {
+      const pageToken = tokens.get(stories.get(a.adId)!.creative!.effective_object_story_id!.split("_")[0])!;
+      const v = await metaGraphGet<Thumbs>(`/${a.videoId}`, pageToken, { fields: "thumbnails{uri,width,height,is_preferred}" }).catch(() => null);
+      const list = (v?.thumbnails?.data ?? []).filter((t) => t.uri);
+      const best = list.find((t) => t.is_preferred) ?? list.sort((x, y) => (y.width ?? 0) * (y.height ?? 0) - (x.width ?? 0) * (x.height ?? 0))[0];
+      if (best?.uri) out.set(a.adId, best.uri);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, queue.length) }, worker));
+  return out;
+}
+
+/** Stores the native frames of an account's video ads (fetchVideoPosters); returns how many changed. */
+export async function refreshVideoPosters(accountId: string, opts: { sinceDays?: number } = {}): Promise<number> {
+  const since = new Date(Date.now() - (opts.sinceDays ?? 120) * 86_400_000);
+  const rows = await prisma.adCatalog.findMany({ where: { platform: "meta", accountId, format: "Video", videoId: { not: null }, OR: [{ updatedAt: { gte: since } }, { createdTime: { gte: since } }] }, select: { id: true, adId: true, videoId: true } });
+  const posters = await fetchVideoPosters(getMetaSystemToken(), rows.map((r) => ({ adId: r.adId, videoId: r.videoId! })));
+  let n = 0;
+  for (const r of rows) {
+    const url = posters.get(r.adId);
+    if (!url) continue;
+    await prisma.adCatalog.update({ where: { id: r.id }, data: { imageUrl: url } });
+    n += 1;
+  }
+  return n;
+}
+
 /** Re-read the large previews of an account's catalogue (one-off backfill of rows stored with 64 px thumbnails). */
 export async function refreshThumbnails(accountId: string, deadline = Date.now() + 10 * 60_000): Promise<number> {
   const token = getMetaSystemToken();
@@ -374,6 +431,9 @@ export const metaAdapter: WarehouseAdapter = {
     // Image ads: the original asset (tallest placement, permanent link) instead of an expiring rendition.
     const best = await fetchBestImages(token, accountId, catalog.filter((r) => r.format === "Image").map((r) => r.creativeId ?? "")).catch(() => new Map<string, string>());
     for (const r of catalog) if (r.creativeId && best.has(r.creativeId)) r.imageUrl = best.get(r.creativeId)!;
+    // Video ads: the video's own frame (its ratio) instead of the square ad thumbnail.
+    const posters = await fetchVideoPosters(token, catalog.filter((r) => r.format === "Video" && r.videoId).map((r) => ({ adId: r.adId, videoId: r.videoId! }))).catch(() => new Map<string, string>());
+    for (const r of catalog) if (posters.has(r.adId)) r.imageUrl = posters.get(r.adId)!;
     if (settings.conversionEvent === "purchase") await normaliseConversions(accountId, useLeads);
     return { daily, catalog, truncated, currency: settings.currency ?? daily.find((d) => d.currency)?.currency ?? null };
   },

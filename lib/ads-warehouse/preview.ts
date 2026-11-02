@@ -9,7 +9,7 @@
 import { metaGraphGet, getMetaSystemToken, getVideoSources } from "@/lib/meta-api";
 import { cached } from "@/lib/kpi-cache";
 import { prisma } from "@/lib/prisma";
-import { fbcdnUsable, fetchLargeThumbnails } from "./meta";
+import { fbcdnUsable, fetchLargeThumbnails, fetchVideoPosters, pageTokens } from "./meta";
 
 export const META_PREVIEW_FORMATS = ["MOBILE_FEED_STANDARD", "INSTAGRAM_STANDARD", "INSTAGRAM_STORY", "INSTAGRAM_REELS", "DESKTOP_FEED_STANDARD"] as const;
 export type MetaPreviewFormat = (typeof META_PREVIEW_FORMATS)[number];
@@ -40,21 +40,6 @@ export async function getMetaAdPreview(adId: string, format: MetaPreviewFormat):
     const height = Number(body.match(/height="(\d+)"/)?.[1] ?? 0) || null;
     return { src, width, height, format };
   }, { ttlMs: TTL_MS });
-}
-
-/**
- * Page access tokens of the Pages assigned to the system user (/me/accounts),
- * kept in memory only (never stored), 10 min. A video is readable with the
- * token of the Page that owns it, not with the system user's own token.
- */
-let pageTokenCache: { at: number; map: Map<string, string> } | null = null;
-async function pageTokens(): Promise<Map<string, string>> {
-  if (pageTokenCache && Date.now() - pageTokenCache.at < 10 * 60_000) return pageTokenCache.map;
-  const map = new Map<string, string>();
-  const res = await metaGraphGet<{ data?: Array<{ id?: string; access_token?: string }> }>("/me/accounts", getMetaSystemToken(), { fields: "id,access_token", limit: "200" }).catch(() => null);
-  for (const p of res?.data ?? []) if (p.id && p.access_token) map.set(p.id, p.access_token);
-  pageTokenCache = { at: Date.now(), map };
-  return map;
 }
 
 /**
@@ -104,9 +89,17 @@ async function resolveVideoSource(videoId: string, accountId?: string | null, ad
  * the next views use the fresh URL directly.
  */
 export async function freshMetaAdImage(adId: string): Promise<{ accountId: string; url: string | null } | null> {
-  const row = await prisma.adCatalog.findUnique({ where: { id: `meta:${adId}` }, select: { accountId: true, imageUrl: true, thumbnailUrl: true, creativeId: true } });
+  const row = await prisma.adCatalog.findUnique({ where: { id: `meta:${adId}` }, select: { accountId: true, imageUrl: true, thumbnailUrl: true, creativeId: true, format: true, videoId: true } });
   if (!row) return null;
   if (fbcdnUsable(row.imageUrl)) return { accountId: row.accountId, url: row.imageUrl };
+  // Video: a fresh native frame of the video (its own ratio) through the Page token.
+  if (row.format === "Video" && row.videoId) {
+    const frame = (await fetchVideoPosters(getMetaSystemToken(), [{ adId, videoId: row.videoId }]).catch(() => new Map<string, string>())).get(adId);
+    if (frame) {
+      await prisma.adCatalog.update({ where: { id: `meta:${adId}` }, data: { imageUrl: frame } }).catch(() => {});
+      return { accountId: row.accountId, url: frame };
+    }
+  }
   if (fbcdnUsable(row.thumbnailUrl)) return { accountId: row.accountId, url: row.thumbnailUrl };
   if (!row.creativeId) return { accountId: row.accountId, url: null };
   const got = await fetchLargeThumbnails(getMetaSystemToken(), [row.creativeId]).catch(() => new Map<string, string>());
