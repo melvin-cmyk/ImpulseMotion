@@ -44,12 +44,12 @@ export async function getMetaAdPreview(adId: string, format: MetaPreviewFormat):
 
 /**
  * Page access tokens of the Pages assigned to the system user (/me/accounts),
- * kept in memory only (never stored), 30 min. A video is readable with the
+ * kept in memory only (never stored), 10 min. A video is readable with the
  * token of the Page that owns it, not with the system user's own token.
  */
 let pageTokenCache: { at: number; map: Map<string, string> } | null = null;
 async function pageTokens(): Promise<Map<string, string>> {
-  if (pageTokenCache && Date.now() - pageTokenCache.at < 30 * 60_000) return pageTokenCache.map;
+  if (pageTokenCache && Date.now() - pageTokenCache.at < 10 * 60_000) return pageTokenCache.map;
   const map = new Map<string, string>();
   const res = await metaGraphGet<{ data?: Array<{ id?: string; access_token?: string }> }>("/me/accounts", getMetaSystemToken(), { fields: "id,access_token", limit: "200" }).catch(() => null);
   for (const p of res?.data ?? []) if (p.id && p.access_token) map.set(p.id, p.access_token);
@@ -65,7 +65,16 @@ async function pageTokens(): Promise<Map<string, string>> {
  * several days; cached 12 h.
  */
 export async function getMetaVideoSource(videoId: string, accountId?: string | null, adId?: string | null): Promise<string | null> {
-  return cached(`ads:video2:meta:${videoId}`, async () => {
+  // Only found files are cached: a refusal may be lifted (Page newly assigned to the system user).
+  return cached(`ads:video3:meta:${videoId}`, async () => {
+    const found = await resolveVideoSource(videoId, accountId, adId);
+    if (!found) throw new Error("no-video-source");
+    return found;
+  }, { ttlMs: TTL_MS }).catch(() => null);
+}
+
+async function resolveVideoSource(videoId: string, accountId?: string | null, adId?: string | null): Promise<string | null> {
+  {
     const token = getMetaSystemToken();
     if (adId) {
       const ad = await metaGraphGet<{ creative?: { effective_object_story_id?: string } }>(`/${adId}`, token, { fields: "creative{effective_object_story_id}" }).catch(() => null);
@@ -85,7 +94,7 @@ export async function getMetaVideoSource(videoId: string, accountId?: string | n
       filtering: JSON.stringify([{ field: "id", operator: "IN", value: [videoId] }]),
     }).catch(() => null);
     return res?.data?.find((v) => v.id === videoId)?.source ?? null;
-  }, { ttlMs: TTL_MS });
+  }
 }
 
 /**
