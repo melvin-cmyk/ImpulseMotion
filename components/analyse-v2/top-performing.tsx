@@ -10,7 +10,7 @@
  * /api/ads/query — no live platform call.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BarChart3, ChevronDown, LayoutGrid, LineChart as LineIcon, Loader2, Plus, RefreshCw, Search, Table as TableIcon, X } from "lucide-react";
@@ -24,6 +24,7 @@ import { VIEW_TEMPLATES, type ViewConfig, type ViewMode } from "@/lib/ads-wareho
 import { lastFullDays, prevRange, type DateRange } from "@/lib/date-ranges";
 import { normalizeAct } from "@/lib/use-account-list";
 import { AdCard } from "./ad-card";
+import type { MediaRatio } from "./ad-media";
 import { AdsTable } from "./ads-table";
 import { AdsBar } from "./ads-bar";
 import { AdDrawer } from "./ad-drawer";
@@ -54,6 +55,10 @@ const LAUNCH = [{ v: 0, l: "Toutes" }, { v: 7, l: "7 derniers jours" }, { v: 14,
 const CHIP_COLORS = ["bg-violet-500/20 text-violet-200 border-violet-500/40", "bg-rose-500/20 text-rose-200 border-rose-500/40", "bg-emerald-500/20 text-emerald-200 border-emerald-500/40", "bg-amber-500/20 text-amber-200 border-amber-500/40", "bg-sky-500/20 text-sky-200 border-sky-500/40", "bg-pink-500/20 text-pink-200 border-pink-500/40", "bg-teal-500/20 text-teal-200 border-teal-500/40", "bg-orange-500/20 text-orange-200 border-orange-500/40"];
 const LINE_COLORS = ["#8b5cf6", "#f59e0b", "#10b981", "#3b82f6", "#ec4899", "#14b8a6", "#f97316", "#a3e635"];
 const LAST_VIEW = "impulsemotion.analyse.lastView";
+const RATIO_KEY = "impulsemotion.analyse.cardRatio";
+const ratioListeners = new Set<() => void>();
+function subscribeRatio(f: () => void) { ratioListeners.add(f); return () => { ratioListeners.delete(f); }; }
+function readRatio(): MediaRatio { const v = localStorage.getItem(RATIO_KEY); return v === "4:5" || v === "1:1" ? v : "9:16"; }
 
 const tz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return undefined; } };
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -110,6 +115,9 @@ export function TopPerforming() {
   const [showMetrics, setShowMetrics] = useState(false);
   const [showAddFilter, setShowAddFilter] = useState<null | "menu" | `tag:${string}` | "spend" | "launch" | "campaign">(null);
   const [open, setOpen] = useState<AdsGroupRow | null>(null);
+  // Card media frame (Motion's card setting), remembered per browser.
+  const ratio = useSyncExternalStore(subscribeRatio, readRatio, () => "9:16" as MediaRatio);
+  const setRatio = (r: MediaRatio) => { try { localStorage.setItem(RATIO_KEY, r); } catch { /* ignore */ } ratioListeners.forEach((f) => f()); };
   const [syncing, setSyncing] = useState(false);
   const [copilot, setCopilot] = useState<{ open: boolean; prompt: string | null }>({ open: false, prompt: null });
   // « Créas » (the client's own ads) or « Concurrents » (its competitors' ads in the Meta Ad Library); ?tab=concurrents opens the latter.
@@ -409,7 +417,14 @@ export function TopPerforming() {
                     <span onClick={(e) => { e.stopPropagation(); patch({ metrics: config.metrics.filter((x) => x !== k) }); }} className="opacity-50 hover:opacity-100" aria-label="Retirer"><X className="w-3 h-3" /></span>
                   </button>
                 ))}
-                <div className="ml-auto flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5">
+                {config.view === "cards" && (
+                  <div className="ml-auto flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5" title="Format des visuels">
+                    {(["9:16", "4:5", "1:1"] as const).map((r) => (
+                      <button key={r} type="button" onClick={() => setRatio(r)} className={`px-1.5 py-1 rounded-md text-[10px] tabular-nums ${ratio === r ? "bg-gray-700 text-white" : "text-gray-500 hover:text-white"}`}>{r}</button>
+                    ))}
+                  </div>
+                )}
+                <div className={`${config.view === "cards" ? "" : "ml-auto "}flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5`}>
                   {([["cards", LayoutGrid, "Cartes"], ["table", TableIcon, "Tableau"], ["bar", BarChart3, "Barres"], ["chart", LineIcon, "Courbe"]] as const).map(([v, Icon, l]) => (
                     <button key={v} type="button" onClick={() => patch({ view: v as ViewMode })} title={l} className={`p-1.5 rounded-md ${config.view === v ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"}`}><Icon className="w-3.5 h-3.5" /></button>
                   ))}
@@ -418,8 +433,8 @@ export function TopPerforming() {
 
               {result.rows.length === 0 && <Empty title="Rien sur cette période" text="Aucune annonce ne correspond aux filtres. Élargis la période ou retire un filtre." />}
               {result.rows.length > 0 && config.view === "cards" && (
-                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-                  {result.rows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} signals={!!config.launchDays} onOpen={setOpen} />)}
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4">
+                  {result.rows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} signals={!!config.launchDays} ratio={ratio} onOpen={setOpen} />)}
                 </div>
               )}
               {result.rows.length > 0 && config.view === "bar" && <AdsBar rows={result.rows} metrics={visibleMetrics} benchmark={result.benchmark} currency={result.currency} />}

@@ -40,11 +40,23 @@ export async function getMetaAdPreview(adId: string, format: MetaPreviewFormat):
   }, { ttlMs: TTL_MS });
 }
 
-/** Direct MP4 of a video when Meta lets the system user read it (best effort, null otherwise). */
-export async function getMetaVideoSource(videoId: string): Promise<string | null> {
+/**
+ * Direct MP4 of a video (Motion's inline card player). GET /{video_id}?fields=source
+ * first, then the ad account's video library (/act_{id}/advideos), which the
+ * system user can read for videos uploaded to the ad account. Null when
+ * neither answers. The CDN URL is signed for several days; cached 12 h.
+ */
+export async function getMetaVideoSource(videoId: string, accountId?: string | null): Promise<string | null> {
   return cached(`ads:video:meta:${videoId}`, async () => {
     const token = getMetaSystemToken();
     const map = await getVideoSources(token, [videoId]).catch(() => new Map<string, string>());
-    return map.get(videoId) ?? null;
+    const direct = map.get(videoId);
+    if (direct) return direct;
+    if (!accountId) return null;
+    const res = await metaGraphGet<{ data?: Array<{ id?: string; source?: string }> }>(`/act_${accountId.replace(/^act_/, "")}/advideos`, token, {
+      fields: "id,source",
+      filtering: JSON.stringify([{ field: "id", operator: "IN", value: [videoId] }]),
+    }).catch(() => null);
+    return res?.data?.find((v) => v.id === videoId)?.source ?? null;
   }, { ttlMs: TTL_MS });
 }
