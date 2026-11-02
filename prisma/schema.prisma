@@ -1726,3 +1726,44 @@ model AdMessageTheme {
 
   @@index([accountKey])
 }
+
+/// Inspiration boards (Motion's Inspo boards): saved ads — competitors' from
+/// the Meta Ad Library or the client's own — with a note. clientId = the
+/// client (registry id) or null for agency-wide boards.
+model InspoBoard {
+  id            String      @id @default(cuid())
+  name          String
+  description   String      @default("") @db.Text
+  clientId      String?
+  createdById   String?
+  createdByName String      @default("")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  items         InspoItem[]
+
+  @@index([clientId])
+}
+
+model InspoItem {
+  id          String     @id @default(cuid())
+  boardId     String
+  board       InspoBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  /// adlib (Meta Ad Library) | own (catalogued ad of a client)
+  source      String
+  /// adlib:<library id> | <platform>:<adId>
+  ref         String
+  brand       String     @default("")
+  title       String?    @db.Text
+  body        String?    @db.Text
+  imageUrl    String?    @db.Text
+  videoUrl    String?    @db.Text
+  linkUrl     String?    @db.Text
+  note        String     @default("") @db.Text
+  pinned      Boolean    @default(false)
+  addedById   String?
+  addedByName String     @default("")
+  createdAt   DateTime   @default(now())
+
+  @@unique([boardId, ref])
+  @@index([boardId])
+}

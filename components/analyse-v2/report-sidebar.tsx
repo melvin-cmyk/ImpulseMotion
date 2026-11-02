@@ -10,13 +10,13 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, FolderPlus, Lightbulb, MessagesSquare, Shapes, Loader2, Pencil, PlusCircle, Search, Swords, Trash2, Trophy, X } from "lucide-react";
+import { Bookmark, ChevronDown, ChevronRight, FolderPlus, Lightbulb, MessagesSquare, Shapes, Loader2, Pencil, PlusCircle, Search, Swords, Trash2, Trophy, X } from "lucide-react";
 import { AccountPicker } from "@/components/account-picker";
 import { VIEW_TEMPLATES, type ViewConfig } from "@/lib/ads-warehouse/views";
 
 export interface SavedView { id: string; accountKey: string | null; name: string; emoji: string; config: ViewConfig; createdByName: string; updatedAt: string }
 
-export type AnalyseSection = "ads" | "leaderboard" | "themes" | "formats" | "opportunities" | "competitors";
+export type AnalyseSection = "ads" | "leaderboard" | "themes" | "formats" | "opportunities" | "competitors" | "inspo";
 
 interface Props {
   clientLabel: string | null;
@@ -90,6 +90,7 @@ export function ReportSidebar({ clientLabel, section, onSection, accountKey, sav
         {nav("formats", Shapes, "Formats visuels")}
         {nav("opportunities", Lightbulb, "Opportunités")}
         {nav("competitors", Swords, "Concurrents")}
+        {nav("inspo", Bookmark, "Inspiration")}
         <button type="button" onClick={onCreate} disabled={!accountKey} className="w-full h-9 flex items-center gap-2.5 rounded-[10px] px-2 text-sm font-semibold text-white hover:bg-gray-800/60 disabled:opacity-40">
           <PlusCircle className="w-4 h-4" />Créer un rapport
         </button>

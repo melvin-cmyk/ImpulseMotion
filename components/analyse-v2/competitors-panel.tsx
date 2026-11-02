@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { BookmarkPlus, Check, ExternalLink, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { ORIGIN_LABEL, brandKey, type Competitor } from "@/lib/competitors-core";
+import { SaveToBoard } from "./inspo";
 
 interface LibraryAd {
   id: string; pageName: string; bodies: string[]; titles: string[]; snapshotUrl: string | null; startedAt: string | null;
@@ -200,7 +201,10 @@ export function CompetitorsPanel({ clientId, clientName }: { clientId: string | 
                         {ad.titles[0] && <div className="text-gray-300 line-clamp-1" title={ad.titles[0]}>{ad.titles[0]}</div>}
                         {ad.bodies[0] && <div className="text-gray-400 line-clamp-3" title={ad.bodies[0]}>{ad.bodies[0]}</div>}
                         <div className="mt-auto pt-1.5 flex items-center justify-between gap-1">
-                          <a href={libraryLink(ad)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-gray-500 hover:text-white">Voir <ExternalLink className="w-3 h-3" /></a>
+                          <span className="inline-flex items-center gap-2">
+                            <a href={libraryLink(ad)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-gray-500 hover:text-white">Voir <ExternalLink className="w-3 h-3" /></a>
+                            <SaveToBoard compact clientId={clientId ?? null} payload={() => ({ source: "adlib", ref: `adlib:${ad.id}`, brand: ad.pageName || current.name, title: ad.titles[0] ?? null, body: ad.bodies[0] ?? null, imageUrl: ad.imageUrl ?? null, videoUrl: ad.videoUrl ?? null, linkUrl: libraryLink(ad) })} />
+                          </span>
                           {k?.id ? (
                             <Link href={`/creas?client=${clientId}&tab=templates&template=${k.id}`} className="rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-1 text-emerald-200 hover:text-white">Gardé → Créas</Link>
                           ) : (

@@ -36,6 +36,7 @@ import { PresetMenu, type TeamPreset } from "./preset-menu";
 import { GroupsEditor } from "./groups-editor";
 import { ThemesPanel } from "./themes-panel";
 import { FormatsPanel } from "./formats-panel";
+import { InspoPanel } from "./inspo";
 import { AdsBar } from "./ads-bar";
 import { AdDrawer } from "./ad-drawer";
 import { tagKeyLabel } from "./shared";
@@ -133,7 +134,7 @@ export function TopPerforming() {
   const [syncing, setSyncing] = useState(false);
   const [copilot, setCopilot] = useState<{ open: boolean; prompt: string | null }>({ open: false, prompt: null });
   // « Créas » (the client's own ads) or « Concurrents » (its competitors' ads in the Meta Ad Library); ?tab=concurrents opens the latter.
-  const [section, setSection] = useState<AnalyseSection>(() => (params.get("tab") === "concurrents" ? "competitors" : params.get("tab") === "leaderboard" ? "leaderboard" : params.get("tab") === "opportunites" ? "opportunities" : params.get("tab") === "themes" ? "themes" : params.get("tab") === "formats" ? "formats" : "ads"));
+  const [section, setSection] = useState<AnalyseSection>(() => (params.get("tab") === "concurrents" ? "competitors" : params.get("tab") === "leaderboard" ? "leaderboard" : params.get("tab") === "opportunites" ? "opportunities" : params.get("tab") === "themes" ? "themes" : params.get("tab") === "formats" ? "formats" : params.get("tab") === "inspo" ? "inspo" : "ads"));
   // ?thread=<id> (the « réponse prête » notice): open the client of that thread and its copilot.
   useEffect(() => {
     if (!threadParam || threadClient?.thread === threadParam) return;
@@ -319,8 +320,8 @@ export function TopPerforming() {
   const groupLabel = config.groupBy === "custom" ? (customNames.length > 2 ? `${customNames.slice(0, 2).join(", ")}, +${customNames.length - 2}` : customNames.join(", ") || "Groupes personnalisés") : GROUPS.find((g) => g.value === config.groupBy)?.label ?? (config.groupBy.startsWith("tag:") ? tagKeyLabel(config.groupBy.slice(4)) : config.groupBy);
   const platforms = (["meta", "google", "tiktok"] as const).filter((p) => accounts.some((a) => a.platform === p));
   const platformName = (p: string) => (p === "meta" ? "Meta" : p === "google" ? "Google" : "TikTok");
-  const sectionTitle = section === "formats" ? "🎨 Formats visuels" : section === "themes" ? "💬 Thèmes de message" : section === "competitors" ? "🥊 Concurrents" : section === "leaderboard" ? "🏆 Leaderboard" : section === "opportunities" ? "🚩 Opportunités" : title;
-  const sectionText = section === "formats" ? "Compare les formats visuels pour savoir quel style fait passer le message." : section === "themes" ? "Les promesses que portent les créas du client, et celles qui marchent." : section === "competitors" ? "Leurs pubs en ce moment dans la bibliothèque Meta : garde une créa comme template en un clic." : section === "leaderboard" ? "Suis les évolutions de performance et les meilleures créas de la semaine." : section === "opportunities" ? "Les petits changements qui peuvent débloquer les créas qui marchent déjà." : subtitle;
+  const sectionTitle = section === "inspo" ? "📌 Inspiration" : section === "formats" ? "🎨 Formats visuels" : section === "themes" ? "💬 Thèmes de message" : section === "competitors" ? "🥊 Concurrents" : section === "leaderboard" ? "🏆 Leaderboard" : section === "opportunities" ? "🚩 Opportunités" : title;
+  const sectionText = section === "inspo" ? "Les boards de pubs qui inspirent : concurrents de la bibliothèque Meta et créas du client, avec vos notes." : section === "formats" ? "Compare les formats visuels pour savoir quel style fait passer le message." : section === "themes" ? "Les promesses que portent les créas du client, et celles qui marchent." : section === "competitors" ? "Leurs pubs en ce moment dans la bibliothèque Meta : garde une créa comme template en un clic." : section === "leaderboard" ? "Suis les évolutions de performance et les meilleures créas de la semaine." : section === "opportunities" ? "Les petits changements qui peuvent débloquer les créas qui marchent déjà." : subtitle;
   function internalUrl() {
     const u = new URL(window.location.href);
     if (client) u.searchParams.set("client", client.clientId);
@@ -389,6 +390,7 @@ export function TopPerforming() {
 
             {section === "competitors" ? <div className="mt-8 -mx-6"><CompetitorsPanel key={client?.clientId ?? "none"} clientId={client?.clientId ?? null} clientName={clientName} /></div>
               : section === "leaderboard" ? <div className="mt-8 -mx-6">{query ? <Leaderboard query={query} clientId={client?.clientId ?? null} /> : <Empty title="Choisis un client" text="Le classement se calcule sur le client sélectionné en haut à gauche." />}</div>
+              : section === "inspo" ? <div className="mt-8 -mx-6"><InspoPanel clientId={client?.clientId ?? null} clientName={clientName} /></div>
               : section === "formats" ? <div className="mt-8 -mx-6">{query ? <FormatsPanel query={query} onOpenFormat={(name) => { setSection("ads"); patchFilters({ tags: { ...(config.filters.tags ?? {}), "ai:format": name } }); }} /> : <Empty title="Choisis un client" text="Les formats se calculent sur le client sélectionné en haut à gauche." />}</div>
               : section === "themes" ? <div className="mt-8 -mx-6">{query && accountKey ? <ThemesPanel query={query} accountKey={accountKey} onOpenTheme={(name) => { setSection("ads"); patchFilters({ tags: { ...(config.filters.tags ?? {}), "ai:msg": name } }); }} /> : <Empty title="Choisis un client" text="Les thèmes se calculent sur le client sélectionné en haut à gauche." />}</div>
               : section === "opportunities" ? <div className="mt-8 -mx-6">{query ? <OpportunitiesPanel query={query} currency={result?.currency ?? null} clientName={clientName ?? ""} /> : <Empty title="Choisis un client" text="Les opportunités se calculent sur le client sélectionné en haut à gauche." />}</div>
@@ -582,7 +584,7 @@ export function TopPerforming() {
 
       {copilot.open && query && <CopilotPanel query={query} accountKey={accountKey ?? ""} clientParam={client?.clientId ?? null} groupLabel={groupLabel} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
 
-      {open && query && result && <AdDrawer row={open} query={query} benchmark={result.benchmark} currency={result.currency} onClose={() => { setOpen(null); clearCreativeParam(); }} onAsk={(p) => { setOpen(null); clearCreativeParam(); setCopilot({ open: true, prompt: p || null }); }} />}
+      {open && query && result && <AdDrawer row={open} query={query} benchmark={result.benchmark} currency={result.currency} clientId={client?.clientId ?? null} onClose={() => { setOpen(null); clearCreativeParam(); }} onAsk={(p) => { setOpen(null); clearCreativeParam(); setCopilot({ open: true, prompt: p || null }); }} />}
     </div>
   );
 }
