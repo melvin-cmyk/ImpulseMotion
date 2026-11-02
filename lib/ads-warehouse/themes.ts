@@ -107,7 +107,7 @@ export async function listThemes(q: AdsQuery, accountKey: string): Promise<{ the
     const recent = rows.length > 0 && rows.every((r) => r.trend?.state === "new" || (r.launch && Date.now() - Date.parse(r.launch + "T00:00:00Z") < 30 * 86_400_000));
     const hitRate = rows.length ? winners / rows.length : 0;
     const status: ThemeStatus = winners > 0 && hitRate >= 0.15 && spend >= bar * 2 ? "proven" : rows.length > 0 && (recent || spend < bar) ? "testing" : null;
-    return { name: t.name, description: t.description, spend: Math.round(spend * 100) / 100, creatives: rows.length, active, winners, hitRate, status, sample: rows[0]?.sample ?? null };
+    return { name: t.name, description: t.description, spend: Math.round(spend * 100) / 100, creatives: rows.length, active, winners, hitRate, status, sample: (rows.find((r) => r.sample?.imageUrl || r.sample?.thumbnailUrl) ?? rows[0])?.sample ?? null };
   });
   return { themes, analyzedAt: stored[0].createdAt.toISOString(), currency: res.currency, spendThreshold: bar };
 }
