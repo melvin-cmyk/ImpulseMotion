@@ -117,6 +117,7 @@ export function TopPerforming() {
   const [showMetrics, setShowMetrics] = useState(false);
   const [showAddFilter, setShowAddFilter] = useState<null | "menu" | `tag:${string}` | "spend" | "launch" | "campaign">(null);
   const [open, setOpen] = useState<AdsGroupRow | null>(null);
+  const linkedOpened = useRef<string | null>(null);
   // Launch analysis (reports with a launch window): funnel tab + goal edited for the current accounts.
   const [funnelStage, setFunnelStage] = useState<FunnelStage>("launched");
   const [goalEdit, setGoalEdit] = useState<{ scope: string; goal: FunnelGoal } | null>(null);
@@ -255,6 +256,19 @@ export function TopPerforming() {
 
   // ── Derived ──
   const noWarehouse = result && result.rows.length === 0 && result.coverage.accounts === 0;
+  // « Copier le lien » of the creative modal: ?creative=<group key> reopens it once the rows are loaded.
+  const creativeParam = params.get("creative");
+  useEffect(() => {
+    if (!creativeParam || !result || linkedOpened.current === creativeParam) return;
+    const linked = result.rows.find((r) => r.key === creativeParam);
+    if (!linked) return;
+    linkedOpened.current = creativeParam;
+    queueMicrotask(() => setOpen(linked));
+  }, [creativeParam, result]);
+  function clearCreativeParam() {
+    if (!params.get("creative")) return;
+    const u = new URL(window.location.href); u.searchParams.delete("creative"); window.history.replaceState(null, "", u.toString());
+  }
   const goalScope = accounts.map((a) => `${a.platform}:${a.id}`).join(",");
   const funnelGoal = result && config.launchDays ? (goalEdit?.scope === goalScope ? goalEdit.goal : defaultGoal(result.benchmark, result.spendThreshold, result.goal)) : null;
   const rows = result ? (funnelGoal ? funnelRows(result.rows, funnelGoal, funnelStage) : result.rows) : [];
@@ -483,7 +497,7 @@ export function TopPerforming() {
 
       {copilot.open && query && <CopilotPanel query={query} accountKey={accountKey ?? ""} clientParam={client?.clientId ?? null} groupLabel={GROUPS.find((g) => g.value === config.groupBy)?.label ?? config.groupBy} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
 
-      {open && query && result && <AdDrawer row={open} query={query} benchmark={result.benchmark} currency={result.currency} onClose={() => setOpen(null)} />}
+      {open && query && result && <AdDrawer row={open} query={query} benchmark={result.benchmark} currency={result.currency} onClose={() => { setOpen(null); clearCreativeParam(); }} onAsk={(p) => { setOpen(null); clearCreativeParam(); setCopilot({ open: true, prompt: p || null }); }} />}
     </div>
   );
 }
