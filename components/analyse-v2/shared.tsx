@@ -2,7 +2,7 @@
 
 /** Small shared pieces of Analyse Ads v2 (cards, table, drawer). */
 
-import { Play } from "lucide-react";
+import { Pause, Play, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import { AI_TAG_LABELS } from "@/lib/ads-warehouse/ai-tags-labels";
 import { upgradeImageUrl } from "@/lib/image-upgrade";
 import type { AdSample } from "@/lib/ads-warehouse/query";
@@ -150,11 +150,11 @@ const TREND_CLASS: Record<SpendState, string> = {
 /** Spend-state badge (Motion's "This creative is scaling"), with the week-over-week spend change. */
 export function TrendBadge({ trend, compact }: { trend: CreativeTrend | null | undefined; compact?: boolean }) {
   if (!trend || trend.state === "stable" || trend.state === "testing") return null;
-  const arrow = trend.state === "scaling" ? "↗" : trend.state === "declining" ? "↘" : trend.state === "paused" ? "⏸" : "✦";
+  const Icon = trend.state === "scaling" ? TrendingUp : trend.state === "declining" ? TrendingDown : trend.state === "paused" ? Pause : Sparkles;
   const wow = trend.wow !== null && (trend.state === "scaling" || trend.state === "declining") ? ` ${trend.wow > 0 ? "+" : ""}${Math.round(trend.wow)} %` : "";
   return (
-    <span title={`${SPEND_STATE_HINT[trend.state]} (7 j : ${Math.round(trend.last7)} vs ${Math.round(trend.prev7)})`} className={`rounded-md bg-black/50 backdrop-blur-sm px-2 py-0.5 text-xs font-medium ${TREND_CLASS[trend.state]}`}>
-      {arrow} {compact ? "" : SPEND_STATE_LABEL[trend.state]}{wow}
+    <span title={`${SPEND_STATE_HINT[trend.state]} (7 j : ${Math.round(trend.last7)} vs ${Math.round(trend.prev7)})`} className={`inline-flex items-center gap-1 rounded-md bg-black/50 backdrop-blur-sm px-2 py-0.5 text-xs font-medium ${TREND_CLASS[trend.state]}`}>
+      <Icon className="w-3 h-3" />{compact ? "" : SPEND_STATE_LABEL[trend.state]}{wow}
     </span>
   );
 }

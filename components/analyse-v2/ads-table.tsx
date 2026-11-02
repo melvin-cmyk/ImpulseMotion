@@ -116,8 +116,10 @@ export function AdsTable({ rows, columns, chartMetrics, onToggleChartMetric, ben
                 </td>
                 <td className="border-b border-gray-800 px-3 text-sm text-gray-300 whitespace-nowrap">{r.launch ? fmtLaunch(r.launch) : "—"}</td>
                 <td className="border-b border-gray-800 px-3 max-w-[220px]">
+                  <div className="max-h-12 overflow-hidden">
                   {signals && <div className="flex flex-wrap gap-1 mb-0.5">{launchSignals(r.metrics, benchmark, { video: ad?.format === "Video" }).map((x) => <span key={x.id} title={x.hint} className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${SIGNAL_CLASS[x.tone]}`}>{x.label}</span>)}</div>}
-                  {ad ? <TagChips tags={ad.tags} max={2} /> : null}
+                  {ad ? <TagChips tags={ad.tags} max={1} /> : null}
+                  </div>
                 </td>
                 {columns.map((k) => cell(r.metrics, r.previous, k))}
               </tr>

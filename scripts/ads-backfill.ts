@@ -6,10 +6,11 @@
  *   prints what the adapter would store, WITHOUT writing anything.
  *   --ai-tags [--limit=100] [--accounts=…] → AI-tag the recently delivered creatives
  *   --thumbs [--accounts=…] → re-read the large previews of the catalogue
+ *   --images [--accounts=…] → store the original visuals of image ads (tallest asset, permanent link)
  *   (rows stored with 64 px thumbnails before 2026-10-27).
  */
 import { runAdsSync, warehouseStatus } from "../lib/ads-warehouse/sync";
-import { metaAdapter, refreshThumbnails } from "../lib/ads-warehouse/meta";
+import { metaAdapter, refreshBestImages, refreshThumbnails } from "../lib/ads-warehouse/meta";
 import { googleAdapter } from "../lib/ads-warehouse/google";
 import { tiktokAdapter } from "../lib/ads-warehouse/tiktok";
 import type { WarehousePlatform } from "../lib/ads-warehouse/types";
@@ -59,8 +60,19 @@ async function thumbs() {
   }
 }
 
+async function images() {
+  const accounts = accountIds ?? (await prisma.adCatalog.findMany({ where: { platform: "meta" }, select: { accountId: true }, distinct: ["accountId"] })).map((r) => r.accountId);
+  for (const a of accounts) {
+    const t0 = Date.now();
+    const n = await refreshBestImages(a).catch((e) => { console.log(`images meta:${a} error ${e instanceof Error ? e.message : e}`); return 0; });
+    console.log(`images meta:${a} ${n} originals in ${Math.round((Date.now() - t0) / 1000)} s`);
+    if (Date.now() > end) break;
+  }
+}
+
 async function main() {
   if (args.dry === "1") return dryRun();
+  if (args.images === "1") return images();
   if (args.thumbs === "1") return thumbs();
   if (args["ai-tags"] === "1") { const r = await runAiTagging({ limit: parseInt(args.limit ?? "100", 10) || 100, accountIds, deadline: end }); console.log("ai tags", JSON.stringify(r)); return; }
   let pass = 0;

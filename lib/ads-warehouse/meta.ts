@@ -75,6 +75,55 @@ export async function fetchLargeThumbnails(token: string, creativeIds: string[],
 
 export { fbcdnExpiry, fbcdnUsable } from "./cdn";
 
+/**
+ * Original visual of image ads, the way Motion shows them: every image hash of
+ * the creative (single image, placement-customised assets of flexible /
+ * Advantage+ ads), read in the ad account's library (/act_X/adimages) with
+ * their size; the TALLEST one (9:16 story asset before 1:1 feed) wins. The
+ * library's permalink_url never expires (it redirects to a fresh CDN URL), so
+ * the stored visual stays valid.
+ */
+export async function fetchBestImages(token: string, accountId: string, creativeIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = Array.from(new Set(creativeIds.filter(Boolean)));
+  if (!ids.length) return out;
+  type C = { image_hash?: string; object_story_spec?: { link_data?: { image_hash?: string } }; asset_feed_spec?: { images?: Array<{ hash?: string }> } };
+  const creatives = await metaGraphGetEach<C>(ids, token, { fields: "image_hash,object_story_spec{link_data{image_hash}},asset_feed_spec{images{hash}}" });
+  const hashesOf = new Map<string, string[]>();
+  for (const [id, c] of creatives) {
+    const hs = [c.image_hash, c.object_story_spec?.link_data?.image_hash, ...(c.asset_feed_spec?.images ?? []).map((i) => i.hash)].filter((h): h is string => !!h);
+    if (hs.length) hashesOf.set(id, Array.from(new Set(hs)));
+  }
+  const all = Array.from(new Set(Array.from(hashesOf.values()).flat()));
+  const info = new Map<string, { w: number; h: number; url: string }>();
+  for (let i = 0; i < all.length; i += 50) {
+    const res = await metaGraphGet<{ data?: Array<{ hash?: string; width?: number; height?: number; permalink_url?: string }> }>(`/act_${accountId.replace(/^act_/, "")}/adimages`, token, {
+      hashes: JSON.stringify(all.slice(i, i + 50)), fields: "hash,width,height,permalink_url", limit: "100",
+    }).catch(() => null);
+    for (const x of res?.data ?? []) if (x.hash && x.permalink_url) info.set(x.hash, { w: x.width ?? 0, h: x.height ?? 0, url: x.permalink_url });
+  }
+  for (const [id, hs] of hashesOf) {
+    const best = hs.map((h) => info.get(h)).filter((x): x is { w: number; h: number; url: string } => !!x).sort((a, b) => b.h / Math.max(1, b.w) - a.h / Math.max(1, a.w) || b.w * b.h - a.w * a.h)[0];
+    if (best) out.set(id, best.url);
+  }
+  return out;
+}
+
+/** Stores the original visuals (fetchBestImages) of an account's image ads; returns how many changed. */
+export async function refreshBestImages(accountId: string, opts: { sinceDays?: number } = {}): Promise<number> {
+  const since = new Date(Date.now() - (opts.sinceDays ?? 120) * 86_400_000);
+  const rows = await prisma.adCatalog.findMany({ where: { platform: "meta", accountId, format: "Image", creativeId: { not: null }, OR: [{ updatedAt: { gte: since } }, { createdTime: { gte: since } }] }, select: { id: true, creativeId: true, imageUrl: true } });
+  const best = await fetchBestImages(getMetaSystemToken(), accountId, rows.map((r) => r.creativeId!));
+  let n = 0;
+  for (const r of rows) {
+    const url = best.get(r.creativeId!);
+    if (!url || url === r.imageUrl) continue;
+    await prisma.adCatalog.update({ where: { id: r.id }, data: { imageUrl: url } });
+    n += 1;
+  }
+  return n;
+}
+
 /** Re-read the large previews of an account's catalogue (one-off backfill of rows stored with 64 px thumbnails). */
 export async function refreshThumbnails(accountId: string, deadline = Date.now() + 10 * 60_000): Promise<number> {
   const token = getMetaSystemToken();
@@ -322,6 +371,9 @@ export const metaAdapter: WarehouseAdapter = {
     // The creative's plain thumbnail_url is 64 px: replace it by the 1200 px rendition for every row.
     const large = await fetchLargeThumbnails(token, catalog.map((r) => r.creativeId ?? ""), deadline);
     for (const r of catalog) if (r.creativeId && large.has(r.creativeId)) r.thumbnailUrl = large.get(r.creativeId)!;
+    // Image ads: the original asset (tallest placement, permanent link) instead of an expiring rendition.
+    const best = await fetchBestImages(token, accountId, catalog.filter((r) => r.format === "Image").map((r) => r.creativeId ?? "")).catch(() => new Map<string, string>());
+    for (const r of catalog) if (r.creativeId && best.has(r.creativeId)) r.imageUrl = best.get(r.creativeId)!;
     if (settings.conversionEvent === "purchase") await normaliseConversions(accountId, useLeads);
     return { daily, catalog, truncated, currency: settings.currency ?? daily.find((d) => d.currency)?.currency ?? null };
   },
