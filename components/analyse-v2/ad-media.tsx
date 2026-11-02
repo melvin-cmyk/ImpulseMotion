@@ -57,7 +57,9 @@ interface Props {
 }
 
 export function AdMedia({ ad, ads, ratio = "9:16", caption, badge, onOpen }: Props) {
-  const tiles = (ads ?? []).filter((a) => a.imageUrl || a.thumbnailUrl).slice(0, 4);
+  // Collage of DIFFERENT visuals only (a creative run in several ads is one visual).
+  const seen = new Set<string>();
+  const tiles = (ads ?? []).filter((a) => { const k = a.imageUrl ?? a.thumbnailUrl; if (!k || seen.has(k)) return false; seen.add(k); return true; }).slice(0, 4);
   const canPlay = !!ad && ad.platform === "meta" && ad.format === "Video" && !!ad.videoId && tiles.length < 2;
   return (
     <div className="relative w-full overflow-hidden rounded-2xl" style={{ aspectRatio: RATIO_CSS[ratio] }}>
