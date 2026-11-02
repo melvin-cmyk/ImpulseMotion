@@ -34,8 +34,10 @@ export async function listFormats(q: AdsQuery): Promise<{ top: FormatStat[]; tes
   const groups = new Map<string, AdsGroupRow[]>();
   let untagged = 0;
   for (const r of res.rows) {
+    // Visual analysis: search text ads have no visual format.
+    if (r.sample?.format === "Text") continue;
     const raw = r.sample?.tags?.[FORMAT_TAG]?.trim();
-    if (!raw) { if (r.sample?.platform !== "google" || r.sample.format !== "Text") untagged += 1; continue; }
+    if (!raw) { untagged += 1; continue; }
     if (UNKNOWN.test(raw)) continue;
     for (const name of raw.split(/\s*\|\s*/).filter(Boolean)) groups.set(name, [...(groups.get(name) ?? []), r]);
   }
