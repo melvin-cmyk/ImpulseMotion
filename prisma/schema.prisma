@@ -1642,3 +1642,36 @@ model MoTurn {
   @@index([userId, at])
   @@index([jobId])
 }
+
+/// Analyse Ads « Opportunités » (Motion's opportunities): one suggested
+/// iteration on a scaled creative, detected from its scores. Expires after 30
+/// days; status active | completed | archived.
+model AdOpportunity {
+  id                String    @id @default(cuid())
+  platform          String
+  accountId         String
+  /// Group key of the creative (AdCatalog.creativeKey or a:<adId>).
+  creativeKey       String
+  /// Top-spend ad of the creative when detected (visual, name).
+  adId              String
+  title             String    @default("")
+  /// ImproveFirstFrame | IterateOnHook | IterateOnBody | ImproveCTA
+  type              String
+  status            String    @default("active")
+  description       String    @default("") @db.Text
+  strengthsJson     String    @default("[]") @db.Text
+  weaknessesJson    String    @default("[]") @db.Text
+  /// Metrics and scores when the opportunity was identified.
+  metricsJson       String    @default("{}") @db.Text
+  /// AI suggestion: { currentAttractionSummary, changes: [{ summary, actionableChange }] }.
+  aiSuggestionJson  String?   @db.Text
+  /// Consultant's rating of the AI suggestion: 1 useful, -1 not useful.
+  aiScore           Int?
+  assignedAt        DateTime  @default(now())
+  statusById        String?
+  statusByName      String    @default("")
+  updatedAt         DateTime  @updatedAt
+
+  @@index([platform, accountId, assignedAt])
+  @@index([creativeKey])
+}

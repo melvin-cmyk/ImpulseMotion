@@ -61,3 +61,20 @@ describe("launch funnel", () => {
     expect(meetsGoal(m({ spend: 100 }), goal)).toBe(false);
   });
 });
+
+import { detectOpportunity } from "@/lib/ads-warehouse/opportunities";
+
+describe("detectOpportunity (Motion's 4 types)", () => {
+  const sc = (hookScore: number, watchScore: number, clickScore: number, convertScore: number) => ({ ...m({ spend: 500 }), hookScore, watchScore, clickScore, convertScore });
+  it("picks the earliest weak stage while others hold", () => {
+    expect(detectOpportunity(sc(15, 70, 50, 60), { video: true, scaled: true })?.type).toBe("ImproveFirstFrame");
+    expect(detectOpportunity(sc(30, 70, 50, 60), { video: true, scaled: true })?.type).toBe("IterateOnHook");
+    expect(detectOpportunity(sc(70, 20, 50, 50), { video: true, scaled: true })?.type).toBe("IterateOnBody");
+    expect(detectOpportunity(sc(0, 0, 20, 70), { video: false, scaled: true })?.type).toBe("ImproveCTA");
+  });
+  it("needs budget and at least one strength", () => {
+    expect(detectOpportunity(sc(30, 70, 50, 60), { video: true, scaled: false })).toBeNull();
+    expect(detectOpportunity(sc(30, 30, 30, 30), { video: true, scaled: true })).toBeNull();
+    expect(detectOpportunity(sc(70, 70, 70, 70), { video: true, scaled: true })).toBeNull();
+  });
+});

@@ -41,6 +41,7 @@ const FEATURE_LABEL: Record<string, string> = {
   creas_copy: "Fabrique de statics (copys)",
   competitors_suggest: "Concurrents suggérés (IA)",
   ai_tagging: "Tags IA des créas",
+  analyse_opportunity: "Suggestions IA des opportunités (Analyse Ads)",
   recommend: "Plan d'action alertes",
   hq_context: "Contexte HQ client",
   alert_compose: "Rédaction d'alerte (IA)",

@@ -8,11 +8,12 @@
  * conversions' worth) and can be edited inline; the tabs filter the rows.
  */
 
-import { Rocket, Trophy, TrendingUp } from "lucide-react";
+import { Flag, Rocket, Trophy, TrendingUp } from "lucide-react";
+import { opportunitiesOf } from "@/lib/ads-warehouse/opportunities";
 import type { AdsGroupRow, Metrics } from "@/lib/ads-warehouse/query";
 import { fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
 
-export type FunnelStage = "launched" | "scaled" | "winners";
+export type FunnelStage = "launched" | "scaled" | "winners" | "opportunities";
 export interface FunnelGoal { metric: "cpa" | "roas"; value: number; spend: number }
 
 /**
@@ -36,6 +37,7 @@ export function meetsGoal(m: Metrics, goal: FunnelGoal): boolean {
 export function funnelRows(rows: AdsGroupRow[], goal: FunnelGoal, stage: FunnelStage): AdsGroupRow[] {
   if (stage === "launched") return rows;
   const scaled = rows.filter((r) => r.metrics.spend >= goal.spend);
+  if (stage === "opportunities") { const o = opportunitiesOf(scaled, goal.spend); return scaled.filter((r) => o.has(r.key)); }
   return stage === "scaled" ? scaled : scaled.filter((r) => meetsGoal(r.metrics, goal));
 }
 
@@ -53,12 +55,14 @@ export function LaunchFunnel({ rows, goal, onGoal, stage, onStage, launchedSince
   const launched = rows.length;
   const scaled = funnelRows(rows, goal, "scaled").length;
   const winners = funnelRows(rows, goal, "winners").length;
+  const opportunities = funnelRows(rows, goal, "opportunities").length;
   const since = launchedSince ? new Date(launchedSince + "T00:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" }) : null;
   const goalLabel = goal.metric === "roas" ? `ROAS ≥ ${goal.value.toLocaleString("fr-FR")}` : `CPA ≤ ${fmtMetric("cpa", goal.value, currency)}`;
   const tabs: Array<{ id: FunnelStage; icon: typeof Rocket; count: number; title: string; sub: string }> = [
     { id: "launched", icon: Rocket, count: launched, title: "Lancées", sub: since ? `depuis le ${since}` : "sur la période" },
     { id: "scaled", icon: TrendingUp, count: scaled, title: "Scalées", sub: `dépense ≥ ${fmtMetric("spend", goal.spend, currency)}` },
     { id: "winners", icon: Trophy, count: winners, title: "Gagnantes", sub: `scalées et ${goalLabel}` },
+    { id: "opportunities", icon: Flag, count: opportunities, title: "Opportunités", sub: "itérations suggérées" },
   ];
   return (
     <div className="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
@@ -74,7 +78,7 @@ export function LaunchFunnel({ rows, goal, onGoal, stage, onStage, launchedSince
         <span className="text-gray-500">{currency ?? "€"} dépensés</span>
         <span className="ml-auto text-gray-600">Taux de réussite : {launched ? Math.round((winners / launched) * 100) : 0} %</span>
       </div>
-      <div className="grid grid-cols-3">
+      <div className="grid grid-cols-2 md:grid-cols-4">
         {tabs.map((t) => (
           <button key={t.id} type="button" onClick={() => onStage(t.id)} className={`flex items-center gap-3 px-4 py-3 text-left border-b-2 ${stage === t.id ? "border-violet-500 bg-gray-900" : "border-transparent bg-gray-950/40 hover:bg-gray-900"}`}>
             <span className={`w-8 h-8 rounded-full flex items-center justify-center ${stage === t.id ? "bg-violet-500/20 text-violet-200" : "bg-gray-800 text-gray-400"}`}><t.icon className="w-4 h-4" /></span>

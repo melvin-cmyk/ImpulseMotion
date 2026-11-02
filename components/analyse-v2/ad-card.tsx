@@ -23,10 +23,12 @@ interface Props {
   /** Launch report: show the launch signals (Gagnante, Top hook, Top clic…). */
   signals?: boolean;
   ratio?: MediaRatio;
+  /** Opportunity label (Motion's 🚩 suggested iteration), shown under the name. */
+  flag?: string | null;
   onOpen: (row: AdsGroupRow) => void;
 }
 
-export function AdCard({ row, metrics, benchmark, currency, compare, signals, ratio, onOpen }: Props) {
+export function AdCard({ row, metrics, benchmark, currency, compare, signals, ratio, flag, onOpen }: Props) {
   const ad = row.sample;
   const sig = signals ? launchSignals(row.metrics, benchmark, { video: ad?.format === "Video" }) : [];
   return (
@@ -53,6 +55,7 @@ export function AdCard({ row, metrics, benchmark, currency, compare, signals, ra
           <StatusDot status={ad?.status} />
           <div className="text-sm font-medium text-white truncate" title={row.label}>{row.label}</div>
         </div>
+        {flag && <div><span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-200">🚩 {flag}</span></div>}
         {sig.length > 0 && <div className="flex flex-wrap gap-1">{sig.map((x) => <span key={x.id} title={x.hint} className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${SIGNAL_CLASS[x.tone]}`}>{x.label}</span>)}</div>}
         <div className="space-y-1">
           {metrics.map((k) => {
