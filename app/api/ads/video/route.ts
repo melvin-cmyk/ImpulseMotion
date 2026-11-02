@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   if (!row?.videoId) return NextResponse.json({ error: "pas de vidéo" }, { status: 404 });
   const scope = await getAccountScope(guard.session);
   if (!platformAccountInScope(scope, "meta", row.accountId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const src = await getMetaVideoSource(row.videoId, row.accountId).catch(() => null);
+  const src = await getMetaVideoSource(row.videoId, row.accountId, adId).catch(() => null);
   if (!src) return NextResponse.json({ error: "vidéo indisponible" }, { status: 404 });
   return NextResponse.redirect(src, { status: 302, headers: { "Cache-Control": "private, max-age=3600" } });
 }

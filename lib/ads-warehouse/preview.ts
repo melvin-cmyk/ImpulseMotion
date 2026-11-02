@@ -43,14 +43,39 @@ export async function getMetaAdPreview(adId: string, format: MetaPreviewFormat):
 }
 
 /**
- * Direct MP4 of a video (Motion's inline card player). GET /{video_id}?fields=source
- * first, then the ad account's video library (/act_{id}/advideos), which the
- * system user can read for videos uploaded to the ad account. Null when
- * neither answers. The CDN URL is signed for several days; cached 12 h.
+ * Page access tokens of the Pages assigned to the system user (/me/accounts),
+ * kept in memory only (never stored), 30 min. A video is readable with the
+ * token of the Page that owns it, not with the system user's own token.
  */
-export async function getMetaVideoSource(videoId: string, accountId?: string | null): Promise<string | null> {
-  return cached(`ads:video:meta:${videoId}`, async () => {
+let pageTokenCache: { at: number; map: Map<string, string> } | null = null;
+async function pageTokens(): Promise<Map<string, string>> {
+  if (pageTokenCache && Date.now() - pageTokenCache.at < 30 * 60_000) return pageTokenCache.map;
+  const map = new Map<string, string>();
+  const res = await metaGraphGet<{ data?: Array<{ id?: string; access_token?: string }> }>("/me/accounts", getMetaSystemToken(), { fields: "id,access_token", limit: "200" }).catch(() => null);
+  for (const p of res?.data ?? []) if (p.id && p.access_token) map.set(p.id, p.access_token);
+  pageTokenCache = { at: Date.now(), map };
+  return map;
+}
+
+/**
+ * Direct MP4 of a video (Motion's inline card player): with the token of the
+ * Page that published the ad (found through the ad's story id) when that Page
+ * is assigned to the system user, else /{video_id}?fields=source and the ad
+ * account's video library. Null when Meta refuses. The CDN URL is signed for
+ * several days; cached 12 h.
+ */
+export async function getMetaVideoSource(videoId: string, accountId?: string | null, adId?: string | null): Promise<string | null> {
+  return cached(`ads:video2:meta:${videoId}`, async () => {
     const token = getMetaSystemToken();
+    if (adId) {
+      const ad = await metaGraphGet<{ creative?: { effective_object_story_id?: string } }>(`/${adId}`, token, { fields: "creative{effective_object_story_id}" }).catch(() => null);
+      const pageId = ad?.creative?.effective_object_story_id?.split("_")[0];
+      const pageToken = pageId ? (await pageTokens()).get(pageId) : undefined;
+      if (pageToken) {
+        const v = await metaGraphGet<{ source?: string }>(`/${videoId}`, pageToken, { fields: "source" }).catch(() => null);
+        if (v?.source) return v.source;
+      }
+    }
     const map = await getVideoSources(token, [videoId]).catch(() => new Map<string, string>());
     const direct = map.get(videoId);
     if (direct) return direct;

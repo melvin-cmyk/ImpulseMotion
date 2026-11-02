@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const scope = await getAccountScope(guard.session);
   if (!platformAccountInScope(scope, "meta", row.accountId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   try {
-    const [preview, videoUrl] = await Promise.all([getMetaAdPreview(adId, fmt), row.videoId ? getMetaVideoSource(row.videoId, row.accountId) : Promise.resolve(null)]);
+    const [preview, videoUrl] = await Promise.all([getMetaAdPreview(adId, fmt), row.videoId ? getMetaVideoSource(row.videoId, row.accountId, adId) : Promise.resolve(null)]);
     return NextResponse.json({ ...preview, videoUrl }, { headers: { "Cache-Control": "private, max-age=600" } });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Aperçu indisponible" }, { status: 502 });
