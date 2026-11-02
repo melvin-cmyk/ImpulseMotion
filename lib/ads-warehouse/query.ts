@@ -299,8 +299,12 @@ async function adsOfGroups(q: AdsQuery, keyExpr: Prisma.Sql, keys: string[]): Pr
 function labelOf(groupBy: GroupBy, key: string, sample: AdSample | null): string {
   if (key === "—") return groupBy === "custom" ? "Autres" : "Sans valeur";
   switch (groupBy) {
-    case "ad": return sample?.name ?? key;
-    case "creative": return sample?.name ?? key;
+    case "ad":
+    case "creative": {
+      // Google Shopping ads are named after their type: show the ad group instead.
+      const n = sample?.name ?? key;
+      return /SHOPPING_(PRODUCT|SMART)_AD/.test(n) ? `${sample?.adsetName ?? n.split(" — ")[0]} — Shopping` : n;
+    }
     case "campaign": return sample?.campaignName ?? key;
     case "adset": return sample?.adsetName ?? key;
     case "launch_week": return `Semaine du ${key}`;

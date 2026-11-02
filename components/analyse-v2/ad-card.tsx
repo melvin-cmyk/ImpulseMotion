@@ -48,7 +48,7 @@ export function AdCard({ row, metrics, benchmark, currency, compare, signals, ra
         onOpen={() => onOpen(row)}
         badge={<TrendBadge trend={row.trend} />}
         caption={<>
-          <MediaCaption>{row.adCount > 1 ? `${row.adCount} annonces` : FORMAT_LABEL[ad?.format ?? "Unknown"] ?? ad?.format}</MediaCaption>
+          <MediaCaption>{row.adCount > 1 ? `${row.adCount} annonces` : /SHOPPING_(PRODUCT|SMART)_AD/.test(ad?.name ?? "") ? "Shopping" : FORMAT_LABEL[ad?.format ?? "Unknown"] ?? ad?.format}</MediaCaption>
           {ad?.dynamic && <MediaCaption tone="accent">Dynamic</MediaCaption>}
         </>}
       />
