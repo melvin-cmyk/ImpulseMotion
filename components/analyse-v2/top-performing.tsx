@@ -256,7 +256,7 @@ export function TopPerforming() {
   // ── Derived ──
   const noWarehouse = result && result.rows.length === 0 && result.coverage.accounts === 0;
   const goalScope = accounts.map((a) => `${a.platform}:${a.id}`).join(",");
-  const funnelGoal = result && config.launchDays ? (goalEdit?.scope === goalScope ? goalEdit.goal : defaultGoal(result.benchmark, result.spendThreshold)) : null;
+  const funnelGoal = result && config.launchDays ? (goalEdit?.scope === goalScope ? goalEdit.goal : defaultGoal(result.benchmark, result.spendThreshold, result.goal)) : null;
   const rows = result ? (funnelGoal ? funnelRows(result.rows, funnelGoal, funnelStage) : result.rows) : [];
   const visibleMetrics = config.metrics.filter((k) => !(k === "roas" && result?.benchmark.roasUnavailable));
   const activeTemplate = VIEW_TEMPLATES.find((t) => `tpl:${t.id}` === activeId);

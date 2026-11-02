@@ -15,9 +15,17 @@ import { fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
 export type FunnelStage = "launched" | "scaled" | "winners";
 export interface FunnelGoal { metric: "cpa" | "roas"; value: number; spend: number }
 
-export function defaultGoal(bench: Metrics, threshold: number): FunnelGoal {
-  const useRoas = !bench.roasUnavailable && !bench.estimated && bench.roas > 0;
-  return { metric: useRoas ? "roas" : "cpa", value: useRoas ? Math.round(bench.roas * 100) / 100 : Math.round(bench.cpa * 100) / 100, spend: threshold };
+/**
+ * Account default: the goal the scores use (ROAS only when the account tracks
+ * a value on enough creatives, else CPA) at the account's level, and the
+ * significance threshold capped at 5 % of the period's spend (a 14-day window
+ * would otherwise leave nothing "scaled").
+ */
+export function defaultGoal(bench: Metrics, threshold: number, goal: "roas" | "cpa" | "cvr"): FunnelGoal {
+  const metric = goal === "roas" ? "roas" : "cpa";
+  const value = metric === "roas" ? bench.roas : bench.cpa;
+  const spend = Math.round(Math.min(threshold, Math.max(10, bench.spend * 0.05)));
+  return { metric, value: Math.round(value * 100) / 100, spend };
 }
 
 export function meetsGoal(m: Metrics, goal: FunnelGoal): boolean {
