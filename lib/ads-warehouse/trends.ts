@@ -48,6 +48,15 @@ export function spendThreshold(bench: Metrics): number {
   return Math.round(Math.min(1500, Math.max(30, raw)));
 }
 
+/**
+ * Significance bar of a period: the account threshold, capped at 5 % of the
+ * period's spend (a week or two would otherwise leave nobody above it). Used
+ * by the scores, the launch funnel ("scaled") and the opportunities.
+ */
+export function significanceBar(threshold: number, bench: Metrics): number {
+  return Math.round(Math.min(threshold, Math.max(10, bench.spend * 0.05)));
+}
+
 /** Spend state of a creative at the end of the range (`until`, YYYY-MM-DD). */
 export function classifyTrend(last7: number, prev7: number, launch: string | null, until: string, threshold: number): CreativeTrend {
   const wow = prev7 > 0 ? Math.round(((last7 - prev7) / prev7) * 1000) / 10 : null;
@@ -83,8 +92,7 @@ export function convertGoal(bench: Metrics): "roas" | "cpa" | "cvr" {
  */
 export function computeScores(entries: ScoreInput[], threshold: number, bench: Metrics): { scores: Map<string, CreativeScores>; goal: "roas" | "cpa" | "cvr" } {
   let goal = convertGoal(bench);
-  // On short periods (a week) the threshold would leave nobody: cap it at 5 % of the period's spend.
-  const bar = Math.min(threshold, Math.max(10, bench.spend * 0.05));
+  const bar = significanceBar(threshold, bench);
   const eligible = entries.filter((e) => e.metrics.spend >= bar);
   // A value tracked on a handful of ads only: ROAS cannot rank the creatives.
   if (goal === "roas" && eligible.filter((e) => e.metrics.roas > 0).length < 3) goal = bench.cpa > 0 ? "cpa" : "cvr";

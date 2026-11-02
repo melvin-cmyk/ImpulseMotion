@@ -19,13 +19,12 @@ export interface FunnelGoal { metric: "cpa" | "roas"; value: number; spend: numb
 /**
  * Account default: the goal the scores use (ROAS only when the account tracks
  * a value on enough creatives, else CPA) at the account's level, and the
- * significance threshold capped at 5 % of the period's spend (a 14-day window
- * would otherwise leave nothing "scaled").
+ * period's significance bar as "scaled" threshold.
  */
 export function defaultGoal(bench: Metrics, threshold: number, goal: "roas" | "cpa" | "cvr"): FunnelGoal {
   const metric = goal === "roas" ? "roas" : "cpa";
   const value = metric === "roas" ? bench.roas : bench.cpa;
-  const spend = Math.round(Math.min(threshold, Math.max(10, bench.spend * 0.05)));
+  const spend = threshold; // already the period's significance bar (query result)
   return { metric, value: Math.round(value * 100) / 100, spend };
 }
 

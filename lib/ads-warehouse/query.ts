@@ -14,7 +14,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAovMap } from "@/lib/account-settings";
 import type { AdFormat, WarehousePlatform } from "./types";
-import { classifyTrend, computeScores, spendThreshold, type CreativeTrend } from "./trends";
+import { classifyTrend, computeScores, significanceBar, spendThreshold, type CreativeTrend } from "./trends";
 
 export type GroupBy = "ad" | "creative" | "campaign" | "adset" | "format" | "landing" | "copy" | "title" | "launch_week" | `tag:${string}`;
 
@@ -96,7 +96,7 @@ export interface AdsQueryResult {
   benchmark: Metrics;
   benchmarkPrevious: Metrics | null;
   currency: string | null;
-  /** Spend from which a group is significant (scores, "scaled" in launch analysis). */
+  /** Spend from which a group is significant on this period (scores, "scaled" in launch analysis, opportunities). */
   spendThreshold: number;
   /** Goal metric of the Convert score. */
   goal: "roas" | "cpa" | "cvr";
@@ -352,7 +352,7 @@ export async function queryAds(q: AdsQuery): Promise<AdsQueryResult> {
   return {
     rows, total,
     benchmark: benchMetrics,
-    spendThreshold: threshold,
+    spendThreshold: significanceBar(threshold, benchMetrics),
     goal,
     benchmarkPrevious: benchPrev ? deriveMetrics(benchPrev.sums, aov) : null,
     currency: bench.currency,
