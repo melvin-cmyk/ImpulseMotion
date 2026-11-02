@@ -45,6 +45,9 @@ export async function parseScopedQuery(req: NextRequest): Promise<{ q: AdsQuery 
     range: range.range,
     compare,
     groupBy: (body.groupBy as AdsQuery["groupBy"]) ?? "creative",
+    customGroups: Array.isArray(body.customGroups)
+      ? body.customGroups.slice(0, 20).map((g) => ({ name: String(g?.name ?? "").slice(0, 60), contains: (Array.isArray(g?.contains) ? g.contains : []).map((w) => String(w).slice(0, 80)).slice(0, 10), field: g?.field === "campaign" || g?.field === "any" ? g.field : "name" as const }))
+      : undefined,
     filters: body.filters ?? {},
     sort: body.sort,
     limit: body.limit,

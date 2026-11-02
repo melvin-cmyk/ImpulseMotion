@@ -16,7 +16,13 @@ import { getAovMap } from "@/lib/account-settings";
 import type { AdFormat, WarehousePlatform } from "./types";
 import { classifyTrend, computeScores, significanceBar, spendThreshold, type CreativeTrend } from "./trends";
 
-export type GroupBy = "ad" | "creative" | "campaign" | "adset" | "format" | "landing" | "copy" | "title" | "launch_week" | `tag:${string}`;
+export type GroupBy = "ad" | "creative" | "campaign" | "adset" | "format" | "landing" | "copy" | "title" | "launch_week" | "custom" | `tag:${string}`;
+
+/**
+ * A manual group of a comparative report (Motion's « Comparing A, B, +1 »):
+ * ads whose name / campaign / ad set contains one of the words. First match wins.
+ */
+export interface CustomGroup { name: string; contains: string[]; field?: "name" | "campaign" | "any" }
 
 export interface AdsFilters {
   formats?: AdFormat[];
@@ -62,6 +68,8 @@ export interface AdsQuery {
   groupBy: GroupBy;
   filters?: AdsFilters;
   sort?: { key: MetricKey | "name" | "adCount" | "launch"; dir: "asc" | "desc" };
+  /** Groups of groupBy "custom". */
+  customGroups?: CustomGroup[];
   limit?: number;
   offset?: number;
 }
@@ -163,8 +171,18 @@ function sumsOf(row: Record<string, unknown>): Sums {
 }
 
 /** SQL expression of the group key for a catalogue alias `c`. */
-export function groupKeyExpr(groupBy: GroupBy): Prisma.Sql {
+export function groupKeyExpr(groupBy: GroupBy, custom?: CustomGroup[]): Prisma.Sql {
   switch (groupBy) {
+    case "custom": {
+      const groups = (custom ?? []).filter((g) => g.name.trim() && g.contains.some((w) => w.trim())).slice(0, 20);
+      if (!groups.length) return Prisma.sql`'—'`;
+      const col = (f: CustomGroup["field"]) => (f === "campaign" ? Prisma.sql`COALESCE(c."campaignName", '') || ' ' || COALESCE(c."adsetName", '')` : f === "any" ? Prisma.sql`c.name || ' ' || COALESCE(c."campaignName", '') || ' ' || COALESCE(c."adsetName", '')` : Prisma.sql`c.name`);
+      const whens = groups.map((g) => {
+        const words = g.contains.map((w) => w.trim()).filter(Boolean).slice(0, 10);
+        return Prisma.sql`WHEN ${Prisma.join(words.map((w) => Prisma.sql`${col(g.field)} ILIKE ${"%" + w.replace(/[%_]/g, (m) => "\\" + m) + "%"}`), " OR ")} THEN ${g.name.trim().slice(0, 60)}`;
+      });
+      return Prisma.sql`(CASE ${Prisma.join(whens, " ")} ELSE '—' END)`;
+    }
     case "ad": return Prisma.sql`c."adId"`;
     case "creative": return Prisma.sql`COALESCE(c."creativeKey", 'a:' || c."adId")`;
     case "campaign": return Prisma.sql`COALESCE(c."campaignId", '—')`;
@@ -279,7 +297,7 @@ async function adsOfGroups(q: AdsQuery, keyExpr: Prisma.Sql, keys: string[]): Pr
 }
 
 function labelOf(groupBy: GroupBy, key: string, sample: AdSample | null): string {
-  if (key === "—") return "Sans valeur";
+  if (key === "—") return groupBy === "custom" ? "Autres" : "Sans valeur";
   switch (groupBy) {
     case "ad": return sample?.name ?? key;
     case "creative": return sample?.name ?? key;
@@ -294,7 +312,7 @@ export async function queryAds(q: AdsQuery): Promise<AdsQueryResult> {
   if (!q.accountIds.length || !q.platforms.length) {
     return { rows: [], total: 0, benchmark: deriveMetrics(ZERO, null), benchmarkPrevious: null, currency: null, spendThreshold: 0, goal: "cvr", coverage: { since: null, until: null, accounts: 0, missing: 0, errors: 0, loading: false, complete: false } };
   }
-  const keyExpr = groupKeyExpr(q.groupBy);
+  const keyExpr = groupKeyExpr(q.groupBy, q.customGroups);
   const aovMap = await getAovMap("meta", q.accountIds);
   const aov = q.accountIds.length === 1 ? (aovMap.get(q.accountIds[0]) ?? null) || null : null;
 
@@ -365,7 +383,7 @@ export interface DailyPoint { date: string; metrics: Metrics }
 /** Day-by-day series of one group (or of the whole selection when `key` is omitted) — the line chart and the drawer trend. */
 export async function queryDaily(q: AdsQuery, key?: string | null): Promise<DailyPoint[]> {
   if (!q.accountIds.length || !q.platforms.length) return [];
-  const keyExpr = groupKeyExpr(q.groupBy);
+  const keyExpr = groupKeyExpr(q.groupBy, q.customGroups);
   const aovMap = await getAovMap("meta", q.accountIds);
   const aov = q.accountIds.length === 1 ? (aovMap.get(q.accountIds[0]) ?? null) || null : null;
   const keyCond = key ? Prisma.sql`AND ${keyExpr} = ${key}` : Prisma.empty;

@@ -13,12 +13,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BarChart3, CalendarDays, Check, ChevronDown, ChevronRight, Columns3, LayoutGrid, LineChart as LineIcon, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Settings, Sparkles, X } from "lucide-react";
+import { BarChart3, CalendarDays, Check, ChevronDown, ChevronRight, LayoutGrid, LineChart as LineIcon, ListFilter, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Settings, Sparkles, X } from "lucide-react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from "recharts";
 import { useCreativesContext } from "@/lib/creatives-context";
 import type { AdsFilters, AdsGroupRow, AdsQuery, AdsQueryResult, DailyPoint, GroupBy, MetricKey } from "@/lib/ads-warehouse/query";
 import type { AdFormat } from "@/lib/ads-warehouse/types";
-import { METRICS, METRIC_BY_KEY, PRESETS, fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
+import { METRICS, METRIC_BY_KEY, fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
 import { TABLE_COLUMNS, VIEW_TEMPLATES, type ViewConfig, type ViewMode } from "@/lib/ads-warehouse/views";
 import { lastFullDays, prevRange, type DateRange } from "@/lib/date-ranges";
 import { normalizeAct } from "@/lib/use-account-list";
@@ -32,6 +32,8 @@ import { AdsTable, RANK_SWATCH } from "./ads-table";
 import { FilterChip, MenuItem, MenuLabel, PILL, Popover } from "./pill";
 import { CreateReportModal } from "./create-report";
 import { SharePopover } from "./share-popover";
+import { PresetMenu, type TeamPreset } from "./preset-menu";
+import { GroupsEditor } from "./groups-editor";
 import { AdsBar } from "./ads-bar";
 import { AdDrawer } from "./ad-drawer";
 import { tagKeyLabel } from "./shared";
@@ -167,8 +169,8 @@ export function TopPerforming() {
     if (search.trim()) f.nameContains = search.trim();
     if (launchAfter && !f.launchedAfter) f.launchedAfter = launchAfter;
     const acc = activeAccounts.length ? activeAccounts : accounts;
-    return { platforms: Array.from(new Set(acc.map((a) => a.platform))), accountIds: Array.from(new Set(acc.map((a) => a.id))), accounts: acc, range, compare: config.compare ? prevRange(range) : null, groupBy: config.groupBy, filters: f, sort: config.sort, limit: 120 } as AdsQuery & { accounts: typeof acc };
-  }, [hasAccounts, accounts, activeAccounts, config.filters, config.compare, config.groupBy, config.sort, search, launchAfter, range]);
+    return { platforms: Array.from(new Set(acc.map((a) => a.platform))), accountIds: Array.from(new Set(acc.map((a) => a.id))), accounts: acc, range, compare: config.compare ? prevRange(range) : null, groupBy: config.groupBy, customGroups: config.groupBy === "custom" ? config.customGroups : undefined, filters: f, sort: config.sort, limit: 120 } as AdsQuery & { accounts: typeof acc };
+  }, [hasAccounts, accounts, activeAccounts, config.filters, config.compare, config.groupBy, config.customGroups, config.sort, search, launchAfter, range]);
 
   const [loadedResult, setResult] = useState<Result | null>(null);
   const result = query ? loadedResult : null;
@@ -293,8 +295,14 @@ export function TopPerforming() {
 
   // ── Motion layout state ──
   const [createOpen, setCreateOpen] = useState(false);
+  const [groupsOpen, setGroupsOpen] = useState(false);
+  // Team column presets (Motion's saved presets); the default one gives its columns to reports without their own.
+  const [presets, setPresets] = useState<TeamPreset[]>([]);
+  const loadPresets = useCallback(() => { fetch("/api/ads/presets").then((r) => (r.ok ? r.json() : { presets: [] })).then((j: { presets: TeamPreset[] }) => setPresets(j.presets ?? [])).catch(() => undefined); }, []);
+  useEffect(() => { queueMicrotask(loadPresets); }, [loadPresets]);
+  const defaultPreset = presets.find((p) => p.isDefault);
   const [shared, setShared] = useState(false);
-  const baseColumns = (config.columns?.length ? config.columns : TABLE_COLUMNS).filter((k) => !(k === "roas" && result?.benchmark.roasUnavailable));
+  const baseColumns = (config.columns?.length ? config.columns : defaultPreset?.columns.length ? defaultPreset.columns : TABLE_COLUMNS).filter((k) => !(k === "roas" && result?.benchmark.roasUnavailable));
   const columns = [...visibleMetrics.filter((k) => !baseColumns.includes(k)), ...baseColumns];
   // Motion: the cards / bars show the rows ticked in the table (top 8 by default).
   const selectedKeys = checked.size ? checked : new Set(rows.slice(0, 8).map((r) => r.key));
@@ -305,7 +313,8 @@ export function TopPerforming() {
   };
   const groupNoun = config.groupBy === "ad" ? { one: "annonce", many: "annonces" } : { one: "groupe", many: "groupes" };
   const periodLabel = config.since && config.until ? `${fmtShort(range.since)} – ${fmtShort(range.until)}` : `${config.days} derniers jours`;
-  const groupLabel = GROUPS.find((g) => g.value === config.groupBy)?.label ?? (config.groupBy.startsWith("tag:") ? tagKeyLabel(config.groupBy.slice(4)) : config.groupBy);
+  const customNames = (config.customGroups ?? []).map((g) => g.name);
+  const groupLabel = config.groupBy === "custom" ? (customNames.length > 2 ? `${customNames.slice(0, 2).join(", ")}, +${customNames.length - 2}` : customNames.join(", ") || "Groupes personnalisés") : GROUPS.find((g) => g.value === config.groupBy)?.label ?? (config.groupBy.startsWith("tag:") ? tagKeyLabel(config.groupBy.slice(4)) : config.groupBy);
   const platforms = (["meta", "google", "tiktok"] as const).filter((p) => accounts.some((a) => a.platform === p));
   const platformName = (p: string) => (p === "meta" ? "Meta" : p === "google" ? "Google" : "TikTok");
   const sectionTitle = section === "competitors" ? "🥊 Concurrents" : section === "leaderboard" ? "🏆 Leaderboard" : section === "opportunities" ? "🚩 Opportunités" : title;
@@ -399,10 +408,15 @@ export function TopPerforming() {
                   </>)}
                 </Popover>
                 <Popover width={260} trigger={({ toggle }) => (
-                  <button type="button" onClick={toggle} className={PILL}><span className="text-gray-400 font-normal">Regrouper par</span>{groupLabel}<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>
+                  <span className="inline-flex items-center gap-1">
+                    <button type="button" onClick={toggle} className={PILL}><span className="text-gray-400 font-normal">{config.groupBy === "custom" ? "Comparaison" : "Regrouper par"}</span>{groupLabel}<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>
+                    {config.groupBy === "custom" && <button type="button" onClick={() => setGroupsOpen(true)} className={`${PILL} px-2`} title="Modifier les groupes"><Pencil className="w-3.5 h-3.5" /></button>}
+                  </span>
                 )}>
                   {(close) => (<div className="max-h-96 overflow-y-auto">
                     {GROUPS.map((g) => <MenuItem key={g.value} hint={g.hint} active={config.groupBy === g.value} onClick={() => { patch({ groupBy: g.value }); close(); }}>{g.label}</MenuItem>)}
+                    <MenuLabel>Comparatif</MenuLabel>
+                    <MenuItem active={config.groupBy === "custom"} hint="Compare des groupes que tu définis (mots dans le nom d'annonce ou de campagne)" onClick={() => { close(); setGroupsOpen(true); }}>Groupes personnalisés…</MenuItem>
                     {result?.tagKeys.some((t) => t.key.startsWith("ai:")) && <MenuLabel>Tags IA</MenuLabel>}
                     {result?.tagKeys.filter((t) => t.key.startsWith("ai:")).map((t) => <MenuItem key={t.key} active={config.groupBy === `tag:${t.key}`} onClick={() => { patch({ groupBy: `tag:${t.key}` }); close(); }}><span className="flex-1">{tagKeyLabel(t.key)}</span><span className="text-xs text-gray-600">{t.count}</span></MenuItem>)}
                     {result?.tagKeys.some((t) => !t.key.startsWith("ai:")) && <MenuLabel>Convention de nommage</MenuLabel>}
@@ -537,12 +551,7 @@ export function TopPerforming() {
                 {rows.length > 0 && (
                   <section className="mt-4 rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
                     <div className="flex items-center gap-2 flex-wrap p-4 border-b border-gray-800">
-                      <Popover width={240} trigger={({ toggle }) => <button type="button" onClick={toggle} className={PILL}><Columns3 className="w-4 h-4 text-gray-400" />{PRESETS.find((p) => same(p.keys, config.columns))?.label ?? "Personnalisé"}<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>}>
-                        {(close) => (<>
-                          <MenuItem active={!config.columns} onClick={() => { patch({ columns: undefined }); close(); }}>Personnalisé (toutes les colonnes)</MenuItem>
-                          {PRESETS.map((p) => <MenuItem key={p.id} active={same(p.keys, config.columns)} onClick={() => { patch({ columns: p.keys, metrics: p.keys.slice(0, 6) }); close(); }}>{p.label}</MenuItem>)}
-                        </>)}
-                      </Popover>
+                      <PresetMenu columns={config.columns} metrics={visibleMetrics} team={presets} onApply={(cols, mets) => patch({ columns: cols, ...(mets ? { metrics: mets } : {}) })} onReload={loadPresets} />
                       <Popover width={260} trigger={({ toggle }) => <button type="button" onClick={toggle} className={PILL}><Settings className="w-4 h-4 text-gray-400" />Paramètres du tableau<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>}>
                         <label className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer"><input type="checkbox" className="accent-violet-500" checked={config.compare} onChange={(e) => patch({ compare: e.target.checked })} />Variation vs période précédente</label>
                         <MenuItem onClick={() => setChecked(() => new Set(rows.map((r) => r.key)))}>Tout sélectionner</MenuItem>
@@ -564,6 +573,7 @@ export function TopPerforming() {
         </div>
       </div>
 
+      {groupsOpen && <GroupsEditor initial={config.customGroups ?? []} onClose={() => setGroupsOpen(false)} onApply={(groups) => { patch({ groupBy: "custom", customGroups: groups, view: config.view === "cards" || config.view === "table" ? "cards" : config.view }); setGroupsOpen(false); }} />}
       {createOpen && <CreateReportModal current={config} onClose={() => setCreateOpen(false)} onCreate={(name, emoji, cfg) => saveView(name, emoji, cfg)} />}
 
       {copilot.open && query && <CopilotPanel query={query} accountKey={accountKey ?? ""} clientParam={client?.clientId ?? null} groupLabel={groupLabel} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}

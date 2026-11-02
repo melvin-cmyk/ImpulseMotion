@@ -7,7 +7,7 @@
  * AnalyseView, per client account.
  */
 
-import type { AdsFilters, GroupBy, MetricKey } from "./query";
+import type { AdsFilters, CustomGroup, GroupBy, MetricKey } from "./query";
 
 export type ViewMode = "cards" | "table" | "bar" | "chart";
 
@@ -25,6 +25,8 @@ export interface ViewConfig {
   metrics: MetricKey[];
   /** Table columns (Motion's column preset); default TABLE_COLUMNS. */
   columns?: MetricKey[];
+  /** Groups of groupBy "custom" (Motion's « Comparing A, B, +1 »). */
+  customGroups?: CustomGroup[];
   /** Show the AI tags on the cards (Motion's « + AI tags »). */
   showTags?: boolean;
   view: ViewMode;

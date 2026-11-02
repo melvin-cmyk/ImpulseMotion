@@ -1697,3 +1697,17 @@ model AdSnapshot {
 
   @@index([accountKey, createdAt])
 }
+
+/// Analyse Ads named column presets (Motion's « Save column preset »): table
+/// columns + chart metrics, shared by the team; one may be the default.
+model AdMetricPreset {
+  id            String   @id @default(cuid())
+  name          String
+  metricsJson   String   @default("[]") @db.Text
+  columnsJson   String   @default("[]") @db.Text
+  isDefault     Boolean  @default(false)
+  createdById   String?
+  createdByName String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
