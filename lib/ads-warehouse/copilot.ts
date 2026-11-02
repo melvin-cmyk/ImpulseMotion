@@ -11,7 +11,7 @@ import type { AdsQuery, AdsQueryResult, MetricKey } from "./query";
 import { METRIC_BY_KEY, fmtMetric } from "./metrics-ui";
 
 export const COPILOT_SUGGESTIONS = [
-  { id: "ask", label: "Demander à l'IA", prompt: "" },
+  { id: "ask", label: "Demande-moi n'importe quoi", prompt: "" },
   { id: "patterns", label: "Patterns des gagnantes", prompt: "Quels points communs ont les créas qui performent le mieux ici (format, accroche, message, persona d'après les tags de nommage) ? Donne 3 à 5 patterns avec les chiffres qui les justifient." },
   { id: "plan", label: "Plan de test", prompt: "Propose un plan de test créa pour les deux prochaines semaines à partir de ce rapport : 5 tests maximum, chacun avec l'hypothèse, la créa de référence, ce qu'on change, la métrique de succès." },
   { id: "cut", label: "Que couper, que scaler ?", prompt: "D'après ce rapport, quelles créas couper, lesquelles scaler, lesquelles itérer ? Réponds en trois listes courtes avec le chiffre qui motive chaque décision." },

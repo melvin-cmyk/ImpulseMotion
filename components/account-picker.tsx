@@ -15,7 +15,12 @@ import { useRouter } from "next/navigation";
  * first allowed account on a fresh login. ⌘K also opens it (see
  * components/command-palette.tsx).
  */
-export function AccountPicker() {
+/**
+ * `variant="workspace"`: Motion's workspace switcher (full-width pill with the
+ * client's initial), used at the top of the Analyse Ads sidebar; `label`
+ * overrides the account name (the client's name).
+ */
+export function AccountPicker({ variant = "default", label: labelOverride }: { variant?: "default" | "workspace"; label?: string | null } = {}) {
   const { data: session } = useSession();
   const userId = session?.userId ?? null;
   const router = useRouter();
@@ -40,10 +45,22 @@ export function AccountPicker() {
     if (open) void reload();
   }, [open, reload]);
 
-  const label = metaAccountName ?? metaAccountId ?? "Choisir un compte";
+  const label = labelOverride ?? metaAccountName ?? metaAccountId ?? "Choisir un client";
 
   return (
     <>
+      {variant === "workspace" ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          title="Changer de client (⌘K)"
+          className="group w-full h-9 inline-flex items-center gap-2 rounded-[10px] border border-gray-800 bg-gray-900 pl-1.5 pr-2 text-sm text-gray-100 hover:border-gray-700"
+        >
+          <span className="w-6 h-6 rounded-md bg-violet-500 text-white text-xs font-semibold inline-flex items-center justify-center shrink-0">{(label.trim()[0] ?? "?").toUpperCase()}</span>
+          <span className="flex-1 min-w-0 truncate text-left">{label}</span>
+          <ChevronDown className="w-4 h-4 text-gray-500 group-hover:text-gray-300 shrink-0" />
+        </button>
+      ) : (
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -59,6 +76,7 @@ export function AccountPicker() {
         </span>
         <ChevronDown className="w-3.5 h-3.5 text-gray-500 group-hover:text-gray-300 shrink-0" />
       </button>
+      )}
 
       <AccountPalette
         open={open}

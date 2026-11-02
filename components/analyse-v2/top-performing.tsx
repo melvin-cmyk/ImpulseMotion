@@ -13,14 +13,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BarChart3, ChevronDown, LayoutGrid, LineChart as LineIcon, Loader2, Plus, RefreshCw, Search, Table as TableIcon, X } from "lucide-react";
+import { BarChart3, CalendarDays, Check, ChevronDown, ChevronRight, Columns3, LayoutGrid, LineChart as LineIcon, ListFilter, Loader2, MoreHorizontal, Plus, RefreshCw, Settings, Sparkles, X } from "lucide-react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Legend } from "recharts";
 import { useCreativesContext } from "@/lib/creatives-context";
-import { AccountPicker } from "@/components/account-picker";
 import type { AdsFilters, AdsGroupRow, AdsQuery, AdsQueryResult, DailyPoint, GroupBy, MetricKey } from "@/lib/ads-warehouse/query";
 import type { AdFormat } from "@/lib/ads-warehouse/types";
 import { METRICS, METRIC_BY_KEY, PRESETS, fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
-import { VIEW_TEMPLATES, type ViewConfig, type ViewMode } from "@/lib/ads-warehouse/views";
+import { TABLE_COLUMNS, VIEW_TEMPLATES, type ViewConfig, type ViewMode } from "@/lib/ads-warehouse/views";
 import { lastFullDays, prevRange, type DateRange } from "@/lib/date-ranges";
 import { normalizeAct } from "@/lib/use-account-list";
 import { AdCard } from "./ad-card";
@@ -29,11 +28,13 @@ import { OpportunitiesPanel } from "./opportunities-panel";
 import { opportunitiesOf, OPPORTUNITY_LABEL } from "@/lib/ads-warehouse/opportunities";
 import { LaunchFunnel, defaultGoal, funnelRows, type FunnelGoal, type FunnelStage } from "./launch-funnel";
 import type { MediaRatio } from "./ad-media";
-import { AdsTable } from "./ads-table";
+import { AdsTable, RANK_SWATCH } from "./ads-table";
+import { FilterChip, MenuItem, MenuLabel, PILL, Popover } from "./pill";
+import { CreateReportModal } from "./create-report";
 import { AdsBar } from "./ads-bar";
 import { AdDrawer } from "./ad-drawer";
 import { tagKeyLabel } from "./shared";
-import { ReportSidebar, type SavedView } from "./report-sidebar";
+import { ReportSidebar, type AnalyseSection, type SavedView } from "./report-sidebar";
 import { CopilotPanel } from "./copilot-panel";
 import { CompetitorsPanel } from "./competitors-panel";
 import { COPILOT_SUGGESTIONS } from "@/lib/ads-warehouse/copilot";
@@ -56,7 +57,6 @@ const GROUPS: Array<{ value: GroupBy; label: string; hint: string }> = [
 ];
 const PERIODS = [7, 14, 30, 60, 90, 180];
 const LAUNCH = [{ v: 0, l: "Toutes" }, { v: 7, l: "7 derniers jours" }, { v: 14, l: "14 derniers jours" }, { v: 30, l: "30 derniers jours" }, { v: 90, l: "90 derniers jours" }];
-const CHIP_COLORS = ["bg-violet-500/20 text-violet-200 border-violet-500/40", "bg-rose-500/20 text-rose-200 border-rose-500/40", "bg-emerald-500/20 text-emerald-200 border-emerald-500/40", "bg-amber-500/20 text-amber-200 border-amber-500/40", "bg-sky-500/20 text-sky-200 border-sky-500/40", "bg-pink-500/20 text-pink-200 border-pink-500/40", "bg-teal-500/20 text-teal-200 border-teal-500/40", "bg-orange-500/20 text-orange-200 border-orange-500/40"];
 const LINE_COLORS = ["#8b5cf6", "#f59e0b", "#10b981", "#3b82f6", "#ec4899", "#14b8a6", "#f97316", "#a3e635"];
 const LAST_VIEW = "impulsemotion.analyse.lastView";
 const RATIO_KEY = "impulsemotion.analyse.cardRatio";
@@ -116,8 +116,7 @@ export function TopPerforming() {
   const apply = (id: string, cfg: ViewConfig) => { setConfig(cfg); setBaseline(cfg); setActiveId(id); try { localStorage.setItem(LAST_VIEW, id); } catch { /* ignore */ } };
 
   const [search, setSearch] = useState("");
-  const [showMetrics, setShowMetrics] = useState(false);
-  const [showAddFilter, setShowAddFilter] = useState<null | "menu" | `tag:${string}` | "spend" | "launch" | "campaign">(null);
+  const [showAddFilter, setShowAddFilter] = useState<null | "menu" | `tag:${string}` | "spend" | "launch" | "campaign" | "name">(null);
   const [open, setOpen] = useState<AdsGroupRow | null>(null);
   const linkedOpened = useRef<string | null>(null);
   // Launch analysis (reports with a launch window): funnel tab + goal edited for the current accounts.
@@ -129,7 +128,7 @@ export function TopPerforming() {
   const [syncing, setSyncing] = useState(false);
   const [copilot, setCopilot] = useState<{ open: boolean; prompt: string | null }>({ open: false, prompt: null });
   // « Créas » (the client's own ads) or « Concurrents » (its competitors' ads in the Meta Ad Library); ?tab=concurrents opens the latter.
-  const [section, setSection] = useState<"ads" | "leaderboard" | "opportunities" | "competitors">(() => (params.get("tab") === "concurrents" ? "competitors" : params.get("tab") === "leaderboard" ? "leaderboard" : params.get("tab") === "opportunites" ? "opportunities" : "ads"));
+  const [section, setSection] = useState<AnalyseSection>(() => (params.get("tab") === "concurrents" ? "competitors" : params.get("tab") === "leaderboard" ? "leaderboard" : params.get("tab") === "opportunites" ? "opportunities" : "ads"));
   // ?thread=<id> (the « réponse prête » notice): open the client of that thread and its copilot.
   useEffect(() => {
     if (!threadParam || threadClient?.thread === threadParam) return;
@@ -247,10 +246,10 @@ export function TopPerforming() {
       if (query) await load(query);
     } finally { setSyncing(false); }
   }
-  async function saveView(name: string, emoji: string) {
+  async function saveView(name: string, emoji: string, cfg: ViewConfig = config) {
     if (!accountKey) return;
-    const r = await fetch("/api/ads/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountKey, name, emoji, config }) });
-    if (r.ok) { const { id } = (await r.json()) as { id: string }; await loadSaved(); setActiveId(id); setBaseline(config); }
+    const r = await fetch("/api/ads/views", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountKey, name, emoji, config: cfg }) });
+    if (r.ok) { const { id } = (await r.json()) as { id: string }; await loadSaved(); setConfig(cfg); setActiveId(id); setBaseline(cfg); setSection("ads"); }
   }
   async function updateView(id: string) { await fetch(`/api/ads/views/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) }); setBaseline(config); await loadSaved(); }
   async function renameView(id: string, name: string, emoji: string) { await fetch(`/api/ads/views/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, emoji }) }); await loadSaved(); }
@@ -291,217 +290,295 @@ export function TopPerforming() {
   if (f.campaignContains) chips.push({ id: "camp", label: `Campagne contient « ${f.campaignContains} »`, clear: () => patchFilters({ campaignContains: undefined }) });
   for (const [k, v] of Object.entries(f.tags ?? {})) chips.push({ id: `tag:${k}`, label: `${tagKeyLabel(k)} = ${v}`, clear: () => { const t = { ...(f.tags ?? {}) }; delete t[k]; patchFilters({ tags: Object.keys(t).length ? t : undefined }); } });
 
+  // ── Motion layout state ──
+  const [createOpen, setCreateOpen] = useState(false);
+  const [shared, setShared] = useState(false);
+  const baseColumns = (config.columns?.length ? config.columns : TABLE_COLUMNS).filter((k) => !(k === "roas" && result?.benchmark.roasUnavailable));
+  const columns = [...visibleMetrics.filter((k) => !baseColumns.includes(k)), ...baseColumns];
+  // Motion: the cards / bars show the rows ticked in the table (top 8 by default).
+  const selectedKeys = checked.size ? checked : new Set(rows.slice(0, 8).map((r) => r.key));
+  const shownRows = rows.filter((r) => selectedKeys.has(r.key));
+  const toggleChartMetric = (k: MetricKey) => {
+    if (config.metrics.includes(k)) patch({ metrics: config.metrics.filter((x) => x !== k) });
+    else if (config.metrics.length < 6) patch({ metrics: [...config.metrics, k] });
+  };
+  const groupNoun = config.groupBy === "ad" ? { one: "annonce", many: "annonces" } : { one: "groupe", many: "groupes" };
+  const periodLabel = config.since && config.until ? `${fmtShort(range.since)} – ${fmtShort(range.until)}` : `${config.days} derniers jours`;
+  const groupLabel = GROUPS.find((g) => g.value === config.groupBy)?.label ?? (config.groupBy.startsWith("tag:") ? tagKeyLabel(config.groupBy.slice(4)) : config.groupBy);
+  const platforms = (["meta", "google", "tiktok"] as const).filter((p) => accounts.some((a) => a.platform === p));
+  const platformName = (p: string) => (p === "meta" ? "Meta" : p === "google" ? "Google" : "TikTok");
+  const sectionTitle = section === "competitors" ? "🥊 Concurrents" : section === "leaderboard" ? "🏆 Leaderboard" : section === "opportunities" ? "🚩 Opportunités" : title;
+  const sectionText = section === "competitors" ? "Leurs pubs en ce moment dans la bibliothèque Meta : garde une créa comme template en un clic." : section === "leaderboard" ? "Suis les évolutions de performance et les meilleures créas de la semaine." : section === "opportunities" ? "Les petits changements qui peuvent débloquer les créas qui marchent déjà." : subtitle;
+  async function share() {
+    const u = new URL(window.location.href);
+    if (client) u.searchParams.set("client", client.clientId);
+    try { await navigator.clipboard.writeText(u.toString()); setShared(true); setTimeout(() => setShared(false), 1500); } catch { /* clipboard refused */ }
+  }
+
   return (
-    <div className={`flex min-h-full ${copilot.open ? "pr-[400px]" : ""}`}>
-      <ReportSidebar accountKey={accountKey} saved={saved} loading={savedLoading} activeId={activeId} dirty={dirty} onPick={apply} onSave={saveView} onUpdate={updateView} onRename={renameView} onDelete={deleteView} />
+    <div className={`flex h-full min-h-0 ${copilot.open ? "pr-[400px]" : ""}`}>
+      <ReportSidebar clientLabel={clientName} section={section} onSection={setSection} accountKey={accountKey} saved={saved} loading={savedLoading} activeId={activeId} onPick={apply} onCreate={() => setCreateOpen(true)} onRename={renameView} onDelete={deleteView} />
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        {/* ── Header ── */}
-        <div className="px-6 pt-4 pb-2 flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-white truncate">{section === "competitors" ? "Concurrents" : section === "leaderboard" ? "Leaderboard" : section === "opportunities" ? "Opportunités" : title}{section === "ads" && dirty && <span className="ml-2 text-[10px] font-normal text-amber-400 align-middle">modifié</span>}</h1>
-            <p className="text-xs text-gray-500">{client ? <span className="text-gray-300">{client.name}</span> : null}{section === "competitors" ? (client ? " · leurs pubs en ce moment dans la bibliothèque Meta" : "") : section === "leaderboard" ? " · le classement des créas de la semaine et ce qui bouge" : section === "opportunities" ? " · les petits changements qui peuvent débloquer les créas qui marchent" : <>{client && subtitle ? " · " : ""}{subtitle}</>}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5">
-              {([["ads", "Créas du client"], ["leaderboard", "Leaderboard"], ["opportunities", "Opportunités"], ["competitors", "Concurrents"]] as const).map(([v, l]) => (
-                <button key={v} type="button" onClick={() => setSection(v)} className={`px-2.5 py-1 rounded-md text-xs ${section === v ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"}`}>{l}</button>
-              ))}
-            </div>
-            {section === "ads" && accounts.length > 1 && (
-              <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5" title="Plateformes incluses dans le rapport">
-                {(["meta", "google", "tiktok"] as const).filter((p) => accounts.some((a) => a.platform === p)).map((p) => (
-                  <button key={p} type="button" onClick={() => setPlatformsOff((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else if (activeAccounts.filter((a) => a.platform !== p).length) n.add(p); return n; })} className={`px-2 py-1 rounded-md text-xs ${platformsOff.has(p) ? "text-gray-500 line-through" : p === "meta" ? "bg-blue-500/15 text-blue-200" : p === "google" ? "bg-emerald-500/15 text-emerald-200" : "bg-violet-500/15 text-violet-200"}`}>{p === "meta" ? "Meta" : p === "google" ? "Google" : "TikTok"}</button>
-                ))}
-              </div>
-            )}
-            <AccountPicker />
-          </div>
-        </div>
-
-        {section === "competitors" ? <CompetitorsPanel key={client?.clientId ?? "none"} clientId={client?.clientId ?? null} clientName={clientName} /> : section === "leaderboard" ? (query ? <Leaderboard query={query} /> : <div className="px-6 py-16 text-center text-sm text-gray-500">Choisis un client pour voir son classement.</div>) : section === "opportunities" ? (query ? <OpportunitiesPanel query={query} currency={result?.currency ?? null} clientName={clientName ?? ""} /> : <div className="px-6 py-16 text-center text-sm text-gray-500">Choisis un client pour voir ses opportunités.</div>) : (<>
-        {/* ── Control bar ── */}
-        <div className="px-6 py-2 flex items-center gap-2 flex-wrap">
-          <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5">
-            {PERIODS.map((d) => <button key={d} type="button" onClick={() => patch({ days: d, since: undefined, until: undefined })} className={`px-2 py-1 rounded-md text-xs ${!config.since && config.days === d ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"}`}>{d} j</button>)}
-            <input type="date" value={range.since} max={range.until} onChange={(e) => patch({ since: e.target.value, until: range.until })} className="ml-1 bg-transparent text-[11px] text-gray-300 px-1" title="Début" />
-            <span className="text-gray-600 text-[11px]">→</span>
-            <input type="date" value={range.until} min={range.since} onChange={(e) => patch({ since: range.since, until: e.target.value })} className="bg-transparent text-[11px] text-gray-300 px-1" title="Fin" />
-          </div>
-          <label className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs cursor-pointer ${config.compare ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 bg-gray-900 text-gray-400 hover:text-white"}`} title="Comparer à la période précédente de même durée">
-            <input type="checkbox" checked={config.compare} onChange={(e) => patch({ compare: e.target.checked })} className="accent-violet-500" /> Comparer
-          </label>
-          <div className="relative">
-            <select value={config.groupBy} onChange={(e) => patch({ groupBy: e.target.value as GroupBy })} className="appearance-none rounded-lg border border-gray-800 bg-gray-900 pl-2 pr-7 py-1.5 text-xs text-gray-200" title="Regrouper par">
-              <optgroup label="Regrouper par">{GROUPS.map((g) => <option key={g.value} value={g.value} title={g.hint}>{g.label}</option>)}</optgroup>
-              {result?.tagKeys.some((t) => t.key.startsWith("ai:")) ? <optgroup label="Tags IA">{result.tagKeys.filter((t) => t.key.startsWith("ai:")).map((t) => <option key={t.key} value={`tag:${t.key}`}>{tagKeyLabel(t.key)} ({t.count})</option>)}</optgroup> : null}
-              {result?.tagKeys.some((t) => !t.key.startsWith("ai:")) ? <optgroup label="Convention de nommage">{result.tagKeys.filter((t) => !t.key.startsWith("ai:")).map((t) => <option key={t.key} value={`tag:${t.key}`}>{t.key} ({t.count})</option>)}</optgroup> : null}
-            </select>
-            <ChevronDown className="w-3 h-3 text-gray-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-          {chips.map((c) => (
-            <span key={c.id} className="inline-flex items-center gap-1 rounded-lg border border-violet-500/40 bg-violet-500/10 px-2 py-1 text-xs text-violet-100">{c.label}<button type="button" onClick={c.clear} className="text-violet-300 hover:text-white" aria-label="Retirer"><X className="w-3 h-3" /></button></span>
-          ))}
-          <div className="relative">
-            <button type="button" onClick={() => setShowAddFilter((v) => (v ? null : "menu"))} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-800 bg-gray-900 px-2 py-1.5 text-xs text-gray-300 hover:text-white"><Plus className="w-3.5 h-3.5" /> Ajouter un filtre</button>
-            {showAddFilter && (
-              <div className="absolute left-0 mt-1 w-72 rounded-xl border border-gray-800 bg-gray-950 shadow-xl p-2 z-30 text-xs">
-                {showAddFilter === "menu" && (
-                  <div className="space-y-0.5">
-                    <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-gray-500">Format</div>
-                    <div className="px-2 pb-1 flex gap-1">{(["Video", "Image", "Carousel"] as AdFormat[]).map((fm) => <button key={fm} type="button" onClick={() => toggleFormat(fm)} className={`rounded-md border px-2 py-0.5 ${f.formats?.includes(fm) ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-400 hover:text-white"}`}>{fm === "Video" ? "Vidéo" : fm === "Image" ? "Image" : "Carrousel"}</button>)}<button type="button" onClick={() => patchFilters({ dynamic: f.dynamic === true ? undefined : true })} className={`rounded-md border px-2 py-0.5 ${f.dynamic === true ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-400 hover:text-white"}`}>Dynamic</button></div>
-                    <button type="button" onClick={() => setShowAddFilter("spend")} className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-800 text-gray-200">Dépense minimale…</button>
-                    <button type="button" onClick={() => setShowAddFilter("launch")} className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-800 text-gray-200">Date de lancement…</button>
-                    <button type="button" onClick={() => setShowAddFilter("campaign")} className="w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-800 text-gray-200">Campagne ou ad set contient…</button>
-                    <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-gray-500">Statut</div>
-                    <div className="px-2 pb-1 flex gap-1">{([["", "Toutes"], ["active", "Actives"], ["inactive", "En pause"]] as const).map(([v, l]) => <button key={v} type="button" onClick={() => patchFilters({ status: (v || undefined) as AdsFilters["status"] })} className={`rounded-md border px-2 py-0.5 ${(f.status ?? "") === v ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>)}</div>
-                    {facets.some((fa) => fa.key.startsWith("ai:")) && <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-gray-500">Tags IA</div>}
-                    {facets.filter((fa) => fa.key.startsWith("ai:")).map((fa) => <button key={fa.key} type="button" onClick={() => setShowAddFilter(`tag:${fa.key}`)} className="w-full text-left px-2 py-1 rounded-md hover:bg-gray-800 text-gray-200 flex justify-between"><span>{tagKeyLabel(fa.key)}</span><span className="text-gray-600">{fa.values.length} valeurs</span></button>)}
-                    {facets.some((fa) => !fa.key.startsWith("ai:")) && <div className="px-2 pt-1 text-[10px] uppercase tracking-wide text-gray-500">Convention de nommage</div>}
-                    {facets.filter((fa) => !fa.key.startsWith("ai:")).slice(0, 12).map((fa) => <button key={fa.key} type="button" onClick={() => setShowAddFilter(`tag:${fa.key}`)} className="w-full text-left px-2 py-1 rounded-md hover:bg-gray-800 text-gray-200 flex justify-between"><span>{fa.key}</span><span className="text-gray-600">{fa.values.length} valeurs</span></button>)}
-                  </div>
-                )}
-                {showAddFilter === "spend" && <div className="p-2 space-y-2"><div className="text-gray-400">Dépense minimale sur la période</div><input type="number" min={0} autoFocus defaultValue={f.minSpend ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ minSpend: Number((e.target as HTMLInputElement).value) || undefined }); setShowAddFilter(null); } }} className="w-full bg-gray-900 border border-gray-800 rounded-md px-2 py-1 text-white" placeholder="ex. 100 puis Entrée" /></div>}
-                {showAddFilter === "launch" && <div className="p-1">{LAUNCH.map((o) => <button key={o.v} type="button" onClick={() => { patch({ launchDays: o.v }); setShowAddFilter(null); }} className={`w-full text-left px-2 py-1.5 rounded-md hover:bg-gray-800 ${config.launchDays === o.v ? "text-violet-200" : "text-gray-200"}`}>{o.l}</button>)}</div>}
-                {showAddFilter === "campaign" && <div className="p-2 space-y-2"><div className="text-gray-400">Nom de campagne ou d&apos;ad set contient</div><input autoFocus defaultValue={f.campaignContains ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ campaignContains: (e.target as HTMLInputElement).value.trim() || undefined }); setShowAddFilter(null); } }} className="w-full bg-gray-900 border border-gray-800 rounded-md px-2 py-1 text-white" placeholder="ex. retargeting puis Entrée" /></div>}
-                {showAddFilter.startsWith("tag:") && (() => { const k = showAddFilter.slice(4); const fa = facets.find((x) => x.key === k); return (
-                  <div className="p-1 max-h-72 overflow-y-auto">
-                    <div className="px-2 py-1 text-gray-400">{tagKeyLabel(k)} est…</div>
-                    {(fa?.values ?? []).map((v) => <button key={v.value} type="button" onClick={() => { patchFilters({ tags: { ...(f.tags ?? {}), [k]: v.value } }); setShowAddFilter(null); }} className="w-full text-left px-2 py-1 rounded-md hover:bg-gray-800 text-gray-200 flex justify-between"><span className="truncate">{v.value}</span><span className="text-gray-600 ml-2">{v.count}</span></button>)}
-                  </div>
-                ); })()}
-                <div className="flex justify-between px-2 pt-1 border-t border-gray-800 mt-1"><button type="button" onClick={() => setShowAddFilter("menu")} className="text-gray-500 hover:text-white">← Filtres</button><button type="button" onClick={() => setShowAddFilter(null)} className="text-gray-500 hover:text-white">Fermer</button></div>
-              </div>
-            )}
-          </div>
-          <div className="relative ml-auto">
-            <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2 top-1/2 -translate-y-1/2" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nom contient…" className="w-44 rounded-lg border border-gray-800 bg-gray-900 pl-7 pr-2 py-1.5 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-violet-500" />
-          </div>
-        </div>
-
-        {/* ── Provenance ── */}
-        <div className="px-6 pb-2 text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
-          {loading && !result && <Loader2 className="w-3 h-3 animate-spin" />}
-          {result && (
-            <>
-              <span>{result.total} {config.groupBy === "ad" ? "annonces" : "groupes"} · {range.since} → {range.until}{config.compare ? " · vs période précédente" : ""}</span>
-              {result.coverage.until && <span>· données au {result.coverage.until}{result.coverage.since ? ` (historique depuis le ${result.coverage.since})` : ""}</span>}
-              {result.coverage.loading && <span className="text-gray-500" title="Le remplissage de l'historique (12 mois) continue en tâche de fond ; les 30 derniers jours sont complets">· historique en cours</span>}
-              {result.coverage.missing > 0 && result.coverage.accounts > 0 && <span className="text-gray-500" title="Comptes de la sélection pas encore passés par la synchronisation">· {result.coverage.missing} compte{result.coverage.missing > 1 ? "s" : ""} pas encore synchronisé{result.coverage.missing > 1 ? "s" : ""}</span>}
-              {result.coverage.errors > 0 && <span className="text-red-400" title="La dernière synchronisation a échoué sur ces comptes ; le passage suivant réessaie">· synchro en erreur sur {result.coverage.errors} compte{result.coverage.errors > 1 ? "s" : ""}</span>}
-              {result.benchmark.estimated && <span>· * valeur estimée via panier moyen</span>}
-              {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} className="inline-flex items-center gap-1 text-gray-400 hover:text-white disabled:opacity-50" title="Relire la plateforme maintenant (admin)"><RefreshCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} /> Synchroniser</button>}
-            </>
+      <div className="flex-1 min-w-0 flex flex-col min-h-0">
+        {/* ── Top bar (Motion: report name · freshness · source · Save · Share · ⋯) ── */}
+        <div className="h-14 shrink-0 border-b border-gray-800 flex items-center gap-2 px-5">
+          <div className="flex-1 min-w-0 text-sm text-gray-200 truncate">{sectionTitle.replace(/^\S+\s/, "")}{section === "ads" && dirty && <span className="ml-2 text-xs text-gray-500">· modifié</span>}</div>
+          {section === "ads" && result?.coverage.until && (
+            <span className={`hidden md:inline-flex items-center gap-1.5 text-sm ${result.coverage.errors ? "text-red-300" : "text-gray-500"}`} title={`Données au ${result.coverage.until}${result.coverage.since ? `, historique depuis le ${result.coverage.since}` : ""}${result.coverage.errors ? ` · synchro en erreur sur ${result.coverage.errors} compte(s)` : ""}${result.coverage.loading ? " · historique en cours" : ""}`}>
+              données au {fmtShort(result.coverage.until)}
+              {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} title="Synchroniser maintenant (admin)" className="hover:text-white disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} /></button>}
+            </span>
           )}
-          {error && <span className="text-red-400">{error}</span>}
-        </div>
-
-        {/* ── Copilot suggestions (once data is on screen) ── */}
-        {result && result.rows.length > 0 && (
-          <div className="px-6 pb-3 flex items-center gap-2 flex-wrap">
-            {COPILOT_SUGGESTIONS.map((sg) => (
-              <button key={sg.id} type="button" onClick={() => setCopilot({ open: true, prompt: sg.prompt || null })} className="inline-flex items-center gap-1.5 rounded-full border border-gray-800 bg-gray-900 px-3 py-1.5 text-xs text-gray-300 hover:border-violet-500/50 hover:text-white">
-                {sg.id === "ask" ? <MessageSquare className="w-3.5 h-3.5 text-violet-300" /> : <span className="text-violet-300">✦</span>} {sg.label}
+          {section === "ads" && platforms.length > 0 && (
+            <Popover width={200} align="right" trigger={({ toggle }) => (
+              <button type="button" onClick={toggle} className={`${PILL} bg-violet-500/10 border-violet-500/30 text-violet-100`} title="Sources de données du rapport">
+                {platforms.filter((p) => !platformsOff.has(p)).map(platformName).join(" + ") || "Aucune source"}<ChevronDown className="w-3.5 h-3.5 text-violet-300" />
               </button>
-            ))}
-          </div>
-        )}
-
-        {/* ── Report card ── */}
-        <div className="px-6 pb-8 flex-1">
-          {!hasAccounts && <Empty title="Choisis un client" text="Analyse Ads lit l'entrepôt créa du client sélectionné (bouton en haut à droite, ⌘K, ou le bouton Analyse Ads de la liste des clients)." />}
-          {hasAccounts && noWarehouse && (
-            <Empty title={`${clientName ?? "Ce client"} n'est pas encore synchronisé`} text="L'entrepôt se remplit automatiquement (30 jours d'abord, puis l'historique).">
-              {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-violet-600 hover:bg-violet-500 px-3 py-1.5 text-sm text-white disabled:opacity-50">{syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Synchroniser maintenant (≈ 1 min)</button>}
-            </Empty>
+            )}>
+              <MenuLabel>Sources</MenuLabel>
+              {platforms.map((p) => (
+                <label key={p} className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer">
+                  <input type="checkbox" className="accent-violet-500" checked={!platformsOff.has(p)} onChange={() => setPlatformsOff((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else if (activeAccounts.filter((a) => a.platform !== p).length) n.add(p); return n; })} />
+                  {platformName(p)}
+                </label>
+              ))}
+            </Popover>
           )}
-          {hasAccounts && result && !noWarehouse && (
-            <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-3 space-y-3">
-              {/* metric chips + view switch */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <div className="relative">
-                  <button type="button" onClick={() => setShowMetrics((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-gray-800 bg-gray-900 px-2 py-1 text-xs text-gray-300 hover:text-white"><Plus className="w-3 h-3" /> Métrique</button>
-                  {showMetrics && (
-                    <div className="absolute left-0 mt-1 w-72 rounded-xl border border-gray-800 bg-gray-950 shadow-xl p-3 z-30">
-                      <div className="flex items-center justify-between mb-2"><span className="text-[10px] uppercase tracking-wide text-gray-500">Presets</span><button type="button" onClick={() => setShowMetrics(false)} className="text-gray-500 hover:text-white"><X className="w-3.5 h-3.5" /></button></div>
-                      <div className="flex flex-wrap gap-1 mb-3">{PRESETS.map((p) => <button key={p.id} type="button" onClick={() => patch({ metrics: p.keys })} className="rounded-md border border-gray-800 px-2 py-0.5 text-[11px] text-gray-300 hover:border-violet-500/50">{p.label}</button>)}</div>
-                      <div className="max-h-64 overflow-y-auto space-y-0.5">
-                        {METRICS.map((m) => (
-                          <label key={m.key} className="flex items-center gap-2 text-xs text-gray-300 py-0.5 cursor-pointer" title={m.hint}>
-                            <input type="checkbox" className="accent-violet-500" checked={config.metrics.includes(m.key)} onChange={(e) => patch({ metrics: e.target.checked ? [...config.metrics, m.key] : config.metrics.filter((k) => k !== m.key) })} />
-                            {m.label}{m.video ? <span className="text-[10px] text-gray-600">vidéo</span> : null}
-                          </label>
+          {section === "ads" && (
+            <button type="button" disabled={!accountKey || (!!activeSaved && !dirty)} onClick={() => { if (activeSaved && dirty) void updateView(activeSaved.id); else setCreateOpen(true); }} className={PILL} title={activeSaved ? "Enregistrer les modifications du rapport" : "Enregistrer la vue comme rapport du client"}>Enregistrer</button>
+          )}
+          <button type="button" onClick={() => void share()} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] bg-white px-3 text-sm font-medium text-gray-900 hover:bg-gray-200">{shared ? <><Check className="w-3.5 h-3.5" />Lien copié</> : "Partager le rapport"}</button>
+          <Popover width={220} align="right" trigger={({ toggle }) => <button type="button" onClick={toggle} className={`${PILL} px-2`} aria-label="Plus d'actions"><MoreHorizontal className="w-4 h-4" /></button>}>
+            {(close) => (<>
+              <MenuItem disabled={!accountKey} onClick={() => { close(); void saveView(`${title.replace(/^\S+\s/, "")} (copie)`, title.split(" ")[0] || "🏆"); }}>Dupliquer le rapport</MenuItem>
+              {activeSaved && <MenuItem onClick={() => { close(); if (confirm(`Supprimer le rapport « ${activeSaved.name} » ?`)) void deleteView(activeSaved.id); }}>Supprimer le rapport</MenuItem>}
+              {isAdmin && <MenuItem disabled={syncing} onClick={() => { close(); void syncNow(); }}>Synchroniser les données</MenuItem>}
+              <MenuItem onClick={() => { close(); setCopilot({ open: true, prompt: null }); }}>Ouvrir le copilote</MenuItem>
+            </>)}
+          </Popover>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1040px] px-6 pt-14 pb-16">
+            {/* ── Title (Motion: emoji + name 28 px, grey description) ── */}
+            <h1 className="text-[28px] leading-9 font-semibold text-white">{sectionTitle}</h1>
+            {sectionText && <p className="mt-1 text-base text-gray-400">{sectionText}</p>}
+            {client && <p className="mt-1 text-sm text-gray-500">{client.name}</p>}
+
+            {section === "competitors" ? <div className="mt-8 -mx-6"><CompetitorsPanel key={client?.clientId ?? "none"} clientId={client?.clientId ?? null} clientName={clientName} /></div>
+              : section === "leaderboard" ? <div className="mt-8 -mx-6">{query ? <Leaderboard query={query} /> : <Empty title="Choisis un client" text="Le classement se calcule sur le client sélectionné en haut à gauche." />}</div>
+              : section === "opportunities" ? <div className="mt-8 -mx-6">{query ? <OpportunitiesPanel query={query} currency={result?.currency ?? null} clientName={clientName ?? ""} /> : <Empty title="Choisis un client" text="Les opportunités se calculent sur le client sélectionné en haut à gauche." />}</div>
+              : (<>
+              {/* ── Controls (Motion: period → Group by → filter chips → Add filter) ── */}
+              <div className="mt-10 flex items-center gap-2 flex-wrap">
+                <Popover width={280} trigger={({ toggle }) => (
+                  <button type="button" onClick={toggle} className={PILL}><CalendarDays className="w-4 h-4 text-gray-400" />{periodLabel}{config.compare && <span className="text-gray-500 font-normal">vs période précédente</span>}<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>
+                )}>
+                  {(close) => (<>
+                    {PERIODS.map((d) => <MenuItem key={d} active={!config.since && config.days === d} onClick={() => { patch({ days: d, since: undefined, until: undefined }); close(); }}>{d} derniers jours</MenuItem>)}
+                    <MenuLabel>Dates</MenuLabel>
+                    <div className="flex items-center gap-1 px-2.5 pb-2">
+                      <input type="date" value={range.since} max={range.until} onChange={(e) => patch({ since: e.target.value, until: range.until })} className="flex-1 h-8 rounded-lg border border-gray-800 bg-gray-900 px-1.5 text-xs text-gray-200" />
+                      <span className="text-gray-600">→</span>
+                      <input type="date" value={range.until} min={range.since} onChange={(e) => patch({ since: range.since, until: e.target.value })} className="flex-1 h-8 rounded-lg border border-gray-800 bg-gray-900 px-1.5 text-xs text-gray-200" />
+                    </div>
+                    <div className="border-t border-gray-800 mt-1 pt-1">
+                      <label className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer"><input type="checkbox" className="accent-violet-500" checked={config.compare} onChange={(e) => patch({ compare: e.target.checked })} />Comparer à la période précédente</label>
+                    </div>
+                  </>)}
+                </Popover>
+                <Popover width={260} trigger={({ toggle }) => (
+                  <button type="button" onClick={toggle} className={PILL}><span className="text-gray-400 font-normal">Regrouper par</span>{groupLabel}<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>
+                )}>
+                  {(close) => (<div className="max-h-96 overflow-y-auto">
+                    {GROUPS.map((g) => <MenuItem key={g.value} hint={g.hint} active={config.groupBy === g.value} onClick={() => { patch({ groupBy: g.value }); close(); }}>{g.label}</MenuItem>)}
+                    {result?.tagKeys.some((t) => t.key.startsWith("ai:")) && <MenuLabel>Tags IA</MenuLabel>}
+                    {result?.tagKeys.filter((t) => t.key.startsWith("ai:")).map((t) => <MenuItem key={t.key} active={config.groupBy === `tag:${t.key}`} onClick={() => { patch({ groupBy: `tag:${t.key}` }); close(); }}><span className="flex-1">{tagKeyLabel(t.key)}</span><span className="text-xs text-gray-600">{t.count}</span></MenuItem>)}
+                    {result?.tagKeys.some((t) => !t.key.startsWith("ai:")) && <MenuLabel>Convention de nommage</MenuLabel>}
+                    {result?.tagKeys.filter((t) => !t.key.startsWith("ai:")).map((t) => <MenuItem key={t.key} active={config.groupBy === `tag:${t.key}`} onClick={() => { patch({ groupBy: `tag:${t.key}` }); close(); }}><span className="flex-1">{t.key}</span><span className="text-xs text-gray-600">{t.count}</span></MenuItem>)}
+                  </div>)}
+                </Popover>
+                {chips.map((c) => <FilterChip key={c.id} label={c.label} onClear={c.clear} />)}
+                {search.trim() && <FilterChip label={`Nom contient « ${search.trim()} »`} onClear={() => setSearch("")} />}
+                <Popover width={280} open={!!showAddFilter} onOpenChange={(v) => setShowAddFilter(v ? "menu" : null)} trigger={({ toggle }) => (
+                  <button type="button" onClick={toggle} className={PILL}><ListFilter className="w-4 h-4 text-gray-400" />Ajouter un filtre</button>
+                )}>
+                  <div className="text-sm">
+                    {showAddFilter === "menu" && (<div className="max-h-[420px] overflow-y-auto">
+                      <MenuItem onClick={() => setShowAddFilter("name")}>Nom de l&apos;annonce</MenuItem>
+                      <MenuItem onClick={() => setShowAddFilter("campaign")}>Nom de campagne ou d&apos;ad set</MenuItem>
+                      <MenuItem onClick={() => setShowAddFilter("launch")}>Date de lancement</MenuItem>
+                      <MenuItem onClick={() => setShowAddFilter("spend")}>Performance : dépense minimale</MenuItem>
+                      <MenuLabel>Type d&apos;annonce</MenuLabel>
+                      <div className="px-2.5 pb-1 flex flex-wrap gap-1">{(["Video", "Image", "Carousel"] as AdFormat[]).map((fm) => <button key={fm} type="button" onClick={() => toggleFormat(fm)} className={`h-7 rounded-lg border px-2 text-xs ${f.formats?.includes(fm) ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-300 hover:text-white"}`}>{fm === "Video" ? "Vidéo" : fm === "Image" ? "Image" : "Carrousel"}</button>)}<button type="button" onClick={() => patchFilters({ dynamic: f.dynamic === true ? undefined : true })} className={`h-7 rounded-lg border px-2 text-xs ${f.dynamic === true ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-300 hover:text-white"}`}>Dynamic</button></div>
+                      <MenuLabel>Statut</MenuLabel>
+                      <div className="px-2.5 pb-1 flex gap-1">{([["", "Toutes"], ["active", "Actives"], ["inactive", "En pause"]] as const).map(([v, l]) => <button key={v} type="button" onClick={() => patchFilters({ status: (v || undefined) as AdsFilters["status"] })} className={`h-7 rounded-lg border px-2 text-xs ${(f.status ?? "") === v ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-300 hover:text-white"}`}>{l}</button>)}</div>
+                      {facets.some((fa) => fa.key.startsWith("ai:")) && <MenuLabel>Tags IA</MenuLabel>}
+                      {facets.filter((fa) => fa.key.startsWith("ai:")).map((fa) => <MenuItem key={fa.key} onClick={() => setShowAddFilter(`tag:${fa.key}`)}><span className="flex-1">{tagKeyLabel(fa.key)}</span><ChevronRight className="w-3.5 h-3.5 text-gray-500" /></MenuItem>)}
+                      {facets.some((fa) => !fa.key.startsWith("ai:")) && <MenuLabel>Convention de nommage</MenuLabel>}
+                      {facets.filter((fa) => !fa.key.startsWith("ai:")).slice(0, 16).map((fa) => <MenuItem key={fa.key} onClick={() => setShowAddFilter(`tag:${fa.key}`)}><span className="flex-1">{fa.key}</span><ChevronRight className="w-3.5 h-3.5 text-gray-500" /></MenuItem>)}
+                    </div>)}
+                    {showAddFilter === "name" && <div className="p-2 space-y-2"><div className="text-gray-400">Nom de l&apos;annonce contient</div><input autoFocus defaultValue={search} onKeyDown={(e) => { if (e.key === "Enter") { setSearch((e.target as HTMLInputElement).value.trim()); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-gray-800 bg-gray-900 px-2 text-white" placeholder="ex. UGC puis Entrée" /></div>}
+                    {showAddFilter === "spend" && <div className="p-2 space-y-2"><div className="text-gray-400">Dépense supérieure à</div><input type="number" min={0} autoFocus defaultValue={f.minSpend ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ minSpend: Number((e.target as HTMLInputElement).value) || undefined }); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-gray-800 bg-gray-900 px-2 text-white" placeholder="ex. 100 puis Entrée" /></div>}
+                    {showAddFilter === "launch" && <div>{LAUNCH.map((o) => <MenuItem key={o.v} active={(config.launchDays ?? 0) === o.v} onClick={() => { patch({ launchDays: o.v }); setShowAddFilter(null); }}>{o.l}</MenuItem>)}</div>}
+                    {showAddFilter === "campaign" && <div className="p-2 space-y-2"><div className="text-gray-400">Nom de campagne ou d&apos;ad set contient</div><input autoFocus defaultValue={f.campaignContains ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ campaignContains: (e.target as HTMLInputElement).value.trim() || undefined }); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-gray-800 bg-gray-900 px-2 text-white" placeholder="ex. retargeting puis Entrée" /></div>}
+                    {showAddFilter?.startsWith("tag:") && (() => { const k = showAddFilter.slice(4); const fa = facets.find((x) => x.key === k); return (
+                      <div className="max-h-80 overflow-y-auto">
+                        <MenuLabel>{tagKeyLabel(k)} est…</MenuLabel>
+                        {(fa?.values ?? []).map((v) => <MenuItem key={v.value} onClick={() => { patchFilters({ tags: { ...(f.tags ?? {}), [k]: v.value } }); setShowAddFilter(null); }}><span className="flex-1 truncate">{v.value}</span><span className="text-xs text-gray-600">{v.count}</span></MenuItem>)}
+                      </div>
+                    ); })()}
+                    {showAddFilter && showAddFilter !== "menu" && <div className="border-t border-gray-800 mt-1 pt-1"><MenuItem onClick={() => setShowAddFilter("menu")}>← Tous les filtres</MenuItem></div>}
+                  </div>
+                </Popover>
+                {loading && <Loader2 className="w-4 h-4 animate-spin text-gray-500" />}
+                {error && <span className="text-sm text-red-400">{error}</span>}
+              </div>
+
+              {/* ── AI prompts (Motion: « Ask me anything » + 3 suggestions) ── */}
+              {result && result.rows.length > 0 && (
+                <div className="mt-4 flex items-center gap-2 flex-wrap">
+                  {COPILOT_SUGGESTIONS.map((sg) => (
+                    <button key={sg.id} type="button" onClick={() => setCopilot({ open: true, prompt: sg.prompt || null })} className="h-11 inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 text-sm text-gray-200 hover:bg-gray-800">
+                      {sg.id === "ask" ? <MessageSquare className="w-4 h-4 text-gray-400" /> : <Sparkles className="w-4 h-4 text-violet-300" />}{sg.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {!hasAccounts && <Empty title="Choisis un client" text="Analyse Ads lit l'entrepôt créa du client sélectionné (en haut à gauche, ⌘K, ou le bouton Analyse Ads de la liste des clients)." />}
+              {hasAccounts && noWarehouse && (
+                <Empty title={`${clientName ?? "Ce client"} n'est pas encore synchronisé`} text="L'entrepôt se remplit automatiquement (30 jours d'abord, puis l'historique).">
+                  {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} className="mt-3 inline-flex items-center gap-2 rounded-[10px] bg-white px-3 h-8 text-sm text-gray-900 disabled:opacity-50">{syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Synchroniser maintenant (≈ 1 min)</button>}
+                </Empty>
+              )}
+
+              {hasAccounts && result && !noWarehouse && (<>
+                {funnelGoal && result.rows.length > 0 && (
+                  <div className="mt-6"><LaunchFunnel rows={result.rows} goal={funnelGoal} onGoal={(g) => setGoalEdit({ scope: goalScope, goal: g })} stage={funnelStage} onStage={setFunnelStage} launchedSince={launchAfter} currency={result.currency} /></div>
+                )}
+
+                {/* ── Chart card (Motion: + AI tags · + Add metric · numbered chips · ⚙ · cards | bars | line) ── */}
+                <section className="mt-6 rounded-2xl border border-gray-800 bg-gray-900 p-4">
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 flex items-center gap-2 flex-wrap">
+                      <button type="button" onClick={() => patch({ showTags: !config.showTags })} className={`${PILL} ${config.showTags ? "border-violet-500/50 text-violet-100" : ""}`} title="Afficher les tags IA sur les cartes"><Plus className="w-4 h-4" />Tags IA</button>
+                      <Popover width={300} trigger={({ toggle }) => <button type="button" onClick={toggle} disabled={config.metrics.length >= 6} className={PILL} title={config.metrics.length >= 6 ? "6 métriques au maximum : retire-en une" : "Ajouter une métrique"}><Plus className="w-4 h-4" />Ajouter une métrique</button>}>
+                        <MetricPicker selected={config.metrics} onToggle={toggleChartMetric} />
+                      </Popover>
+                      {visibleMetrics.map((k, i) => (
+                        <span key={k} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] border border-gray-800 bg-gray-900 pl-1.5 pr-1 text-sm font-medium text-gray-100">
+                          <span className={`w-[18px] h-[18px] rounded-[5px] text-[11px] font-semibold flex items-center justify-center ${RANK_SWATCH[i % RANK_SWATCH.length]}`}>{i + 1}</span>
+                          <button type="button" onClick={() => onSort(k)} title={`${METRIC_BY_KEY[k]?.hint ?? ""} — trier`} className={config.sort.key === k ? "text-white underline underline-offset-4 decoration-gray-600" : ""}>{METRIC_BY_KEY[k]?.label ?? k}</button>
+                          <button type="button" onClick={() => toggleChartMetric(k)} className="p-0.5 rounded text-gray-500 hover:text-white" aria-label="Retirer"><X className="w-3.5 h-3.5" /></button>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Popover width={200} align="right" trigger={({ toggle }) => <button type="button" onClick={toggle} className={`${PILL} px-2 border-transparent bg-transparent`} title="Réglages des cartes"><Settings className="w-4 h-4 text-gray-400" /></button>}>
+                        <MenuLabel>Format des visuels</MenuLabel>
+                        {(["9:16", "4:5", "1:1"] as const).map((r) => <MenuItem key={r} active={ratio === r} onClick={() => setRatio(r)}>{r === "9:16" ? "Vertical 9:16" : r === "4:5" ? "Portrait 4:5" : "Carré 1:1"}</MenuItem>)}
+                      </Popover>
+                      <div className="h-8 flex items-center rounded-[10px] border border-gray-800 p-0.5">
+                        {([["cards", LayoutGrid, "Cartes"], ["bar", BarChart3, "Barres"], ["chart", LineIcon, "Courbe"]] as const).map(([v, Icon, l]) => (
+                          <button key={v} type="button" onClick={() => patch({ view: v as ViewMode })} title={l} className={`h-full px-2 rounded-lg ${(config.view === "table" ? "cards" : config.view) === v ? "bg-gray-800 text-white" : "text-gray-500 hover:text-white"}`}><Icon className="w-4 h-4" /></button>
                         ))}
                       </div>
                     </div>
-                  )}
-                </div>
-                {visibleMetrics.map((k, i) => (
-                  <button key={k} type="button" onClick={() => onSort(k)} title={`${METRIC_BY_KEY[k]?.hint ?? ""} — cliquer pour trier`} className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-xs ${CHIP_COLORS[i % CHIP_COLORS.length]} ${config.sort.key === k ? "ring-1 ring-white/40" : ""}`}>
-                    <span className="w-4 h-4 rounded bg-black/30 text-[10px] flex items-center justify-center">{i + 1}</span>{METRIC_BY_KEY[k]?.label ?? k}
-                    <span onClick={(e) => { e.stopPropagation(); patch({ metrics: config.metrics.filter((x) => x !== k) }); }} className="opacity-50 hover:opacity-100" aria-label="Retirer"><X className="w-3 h-3" /></span>
-                  </button>
-                ))}
-                {config.view === "cards" && (
-                  <div className="ml-auto flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5" title="Format des visuels">
-                    {(["9:16", "4:5", "1:1"] as const).map((r) => (
-                      <button key={r} type="button" onClick={() => setRatio(r)} className={`px-1.5 py-1 rounded-md text-[10px] tabular-nums ${ratio === r ? "bg-gray-700 text-white" : "text-gray-500 hover:text-white"}`}>{r}</button>
-                    ))}
                   </div>
-                )}
-                <div className={`${config.view === "cards" ? "" : "ml-auto "}flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5`}>
-                  {([["cards", LayoutGrid, "Cartes"], ["table", TableIcon, "Tableau"], ["bar", BarChart3, "Barres"], ["chart", LineIcon, "Courbe"]] as const).map(([v, Icon, l]) => (
-                    <button key={v} type="button" onClick={() => patch({ view: v as ViewMode })} title={l} className={`p-1.5 rounded-md ${config.view === v ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"}`}><Icon className="w-3.5 h-3.5" /></button>
-                  ))}
-                </div>
-              </div>
 
-              {funnelGoal && result.rows.length > 0 && (
-                <LaunchFunnel rows={result.rows} goal={funnelGoal} onGoal={(g) => setGoalEdit({ scope: goalScope, goal: g })} stage={funnelStage} onStage={setFunnelStage} launchedSince={launchAfter} currency={result.currency} />
-              )}
-              {result.rows.length === 0 && <Empty title="Rien sur cette période" text="Aucune annonce ne correspond aux filtres. Élargis la période ou retire un filtre." />}
-              {result.rows.length > 0 && rows.length === 0 && <Empty title={funnelStage === "winners" ? "Pas encore de gagnante" : funnelStage === "opportunities" ? "Pas d'opportunité" : "Aucune créa scalée"} text={funnelStage === "winners" ? "Aucune créa lancée n'a encore atteint l'objectif après avoir été scalée. Ajuste l'objectif ou élargis la fenêtre de lancement." : "Aucune créa lancée n'a encore atteint le seuil de dépense."} />}
-              {rows.length > 0 && config.view === "cards" && (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4">
-                  {rows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} signals={!!config.launchDays} ratio={ratio} flag={flags?.get(r.key) ? OPPORTUNITY_LABEL[flags.get(r.key)!.type] : null} onOpen={setOpen} />)}
-                </div>
-              )}
-              {rows.length > 0 && config.view === "bar" && <AdsBar rows={rows} metrics={visibleMetrics} benchmark={result.benchmark} currency={result.currency} />}
-              {result.rows.length > 0 && config.view === "chart" && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <span>Métrique</span>
-                    <select value={chartMetric} onChange={(e) => setChartMetric(e.target.value as MetricKey)} className="rounded-md border border-gray-800 bg-gray-900 px-2 py-1 text-gray-200">{METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select>
-                    <span className="text-gray-600">· coche jusqu&apos;à 8 lignes dans le tableau ; sans sélection, la courbe montre tout le compte.</span>
-                  </div>
-                  <div className="h-80 rounded-2xl border border-gray-800 bg-gray-900 p-3">
-                    {chartData.data.length === 0 ? <div className="h-full flex items-center justify-center text-gray-500 text-xs"><Loader2 className="w-4 h-4 animate-spin mr-2" /> Chargement…</div> : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData.data} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
-                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} tickFormatter={(d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" })} />
-                          <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
-                          <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", fontSize: 11 }} formatter={(v, name) => [fmtMetric(chartMetric, Number(v ?? 0), result.currency), labelOf(String(name))]} />
-                          <Legend formatter={(v: string) => <span className="text-[11px] text-gray-300">{labelOf(v).slice(0, 40)}</span>} />
-                          {chartData.want.map((k, i) => <Line key={k} type="monotone" dataKey={k} stroke={LINE_COLORS[i % LINE_COLORS.length]} strokeWidth={2} dot={false} connectNulls />)}
-                        </LineChart>
-                      </ResponsiveContainer>
+                  <div className="mt-4">
+                    {result.rows.length === 0 && <Empty title="Aucune annonce pour ta recherche" text="Essaie une autre période ou retire un filtre." />}
+                    {result.rows.length > 0 && rows.length === 0 && <Empty title={funnelStage === "winners" ? "Pas encore de gagnante" : funnelStage === "opportunities" ? "Pas d'opportunité" : "Aucune créa scalée"} text={funnelStage === "winners" ? "Aucune créa lancée n'a encore atteint l'objectif après avoir été scalée. Ajuste l'objectif ou élargis la fenêtre de lancement." : "Rien à montrer sur cette étape pour l'instant."} />}
+                    {rows.length > 0 && shownRows.length === 0 && <Empty title="Aucune ligne sélectionnée" text="Coche des lignes dans le tableau pour les afficher ici." />}
+                    {shownRows.length > 0 && (config.view === "cards" || config.view === "table") && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {shownRows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} signals={!!config.launchDays} ratio={ratio} showTags={!!config.showTags} flag={flags?.get(r.key) ? OPPORTUNITY_LABEL[flags.get(r.key)!.type] : null} onOpen={setOpen} />)}
+                      </div>
+                    )}
+                    {shownRows.length > 0 && config.view === "bar" && <AdsBar rows={shownRows} metrics={visibleMetrics} benchmark={result.benchmark} currency={result.currency} />}
+                    {rows.length > 0 && config.view === "chart" && (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-sm text-gray-400">
+                          <span>Métrique</span>
+                          <select value={chartMetric} onChange={(e) => setChartMetric(e.target.value as MetricKey)} className="h-8 rounded-[10px] border border-gray-800 bg-gray-900 px-2 text-gray-200">{METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select>
+                          <span className="text-xs text-gray-600">Coche jusqu&apos;à 8 lignes dans le tableau ; sans sélection, la courbe montre tout le compte.</span>
+                        </div>
+                        <div className="h-80">
+                          {chartData.data.length === 0 ? <div className="h-full flex items-center justify-center text-gray-500 text-xs"><Loader2 className="w-4 h-4 animate-spin mr-2" /> Chargement…</div> : (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={chartData.data} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
+                                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} axisLine={false} tickFormatter={(d: string) => fmtShort(d)} />
+                                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} axisLine={false} />
+                                <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", fontSize: 12 }} formatter={(v, name) => [fmtMetric(chartMetric, Number(v ?? 0), result.currency), labelOf(String(name))]} />
+                                <Legend formatter={(v: string) => <span className="text-xs text-gray-300">{labelOf(v).slice(0, 40)}</span>} />
+                                {chartData.want.map((k, i) => <Line key={k} type="monotone" dataKey={k} stroke={LINE_COLORS[i % LINE_COLORS.length]} strokeWidth={2} dot={false} connectNulls />)}
+                              </LineChart>
+                            </ResponsiveContainer>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
-                </div>
-              )}
-              {rows.length > 0 && (config.view === "table" || config.view === "chart" || config.view === "bar") && (
-                <AdsTable rows={rows} metrics={visibleMetrics} benchmark={result.benchmark} benchmarkPrevious={result.benchmarkPrevious} currency={result.currency} compare={config.compare} sort={config.sort} onSort={onSort} checked={checked} onCheck={(k, on) => setChecked((s) => { const n = new Set(s); if (on) n.add(k); else n.delete(k); return n; })} onOpen={setOpen} signals={!!config.launchDays} />
-              )}
-            </div>
-          )}
+                </section>
+
+                {/* ── Table card (Motion: Custom ⌄ · Table settings ⌄ · + AI tags · + Add metric) ── */}
+                {rows.length > 0 && (
+                  <section className="mt-4 rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
+                    <div className="flex items-center gap-2 flex-wrap p-4 border-b border-gray-800">
+                      <Popover width={240} trigger={({ toggle }) => <button type="button" onClick={toggle} className={PILL}><Columns3 className="w-4 h-4 text-gray-400" />{PRESETS.find((p) => same(p.keys, config.columns))?.label ?? "Personnalisé"}<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>}>
+                        {(close) => (<>
+                          <MenuItem active={!config.columns} onClick={() => { patch({ columns: undefined }); close(); }}>Personnalisé (toutes les colonnes)</MenuItem>
+                          {PRESETS.map((p) => <MenuItem key={p.id} active={same(p.keys, config.columns)} onClick={() => { patch({ columns: p.keys, metrics: p.keys.slice(0, 6) }); close(); }}>{p.label}</MenuItem>)}
+                        </>)}
+                      </Popover>
+                      <Popover width={260} trigger={({ toggle }) => <button type="button" onClick={toggle} className={PILL}><Settings className="w-4 h-4 text-gray-400" />Paramètres du tableau<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>}>
+                        <label className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer"><input type="checkbox" className="accent-violet-500" checked={config.compare} onChange={(e) => patch({ compare: e.target.checked })} />Variation vs période précédente</label>
+                        <MenuItem onClick={() => setChecked(() => new Set(rows.map((r) => r.key)))}>Tout sélectionner</MenuItem>
+                        <MenuItem onClick={() => setChecked(() => new Set())}>Revenir au top 8</MenuItem>
+                      </Popover>
+                      <button type="button" onClick={() => patch({ showTags: !config.showTags })} className={`${PILL} ${config.showTags ? "border-violet-500/50 text-violet-100" : ""}`}><Plus className="w-4 h-4" />Tags IA</button>
+                      <Popover width={300} trigger={({ toggle }) => <button type="button" onClick={toggle} className={PILL}><Plus className="w-4 h-4" />Ajouter une métrique</button>}>
+                        <MetricPicker selected={columns} onToggle={(k) => { const cur = config.columns?.length ? config.columns : TABLE_COLUMNS; patch({ columns: cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k] }); }} />
+                      </Popover>
+                      <span className="ml-auto text-xs text-gray-500">{result.total} {result.total > 1 ? groupNoun.many : groupNoun.one} · {fmtShort(range.since)} → {fmtShort(range.until)}{result.benchmark.estimated ? " · * valeur estimée" : ""}</span>
+                    </div>
+                    <AdsTable rows={rows} columns={columns} chartMetrics={visibleMetrics} onToggleChartMetric={toggleChartMetric} benchmark={result.benchmark} benchmarkPrevious={result.benchmarkPrevious} currency={result.currency} compare={config.compare} sort={config.sort} onSort={onSort}
+                      selected={selectedKeys} onSelect={(k, on) => setChecked(() => { const n = new Set(selectedKeys); if (on) n.add(k); else n.delete(k); return n; })} onSelectAll={(on) => setChecked(() => (on ? new Set(rows.map((r) => r.key)) : new Set(["__none__"])))} onOpen={setOpen} signals={!!config.launchDays} groupNoun={groupNoun} />
+                  </section>
+                )}
+              </>)}
+            </>)}
+          </div>
         </div>
-        </>)}
       </div>
 
-      {copilot.open && query && <CopilotPanel query={query} accountKey={accountKey ?? ""} clientParam={client?.clientId ?? null} groupLabel={GROUPS.find((g) => g.value === config.groupBy)?.label ?? config.groupBy} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
+      {createOpen && <CreateReportModal current={config} onClose={() => setCreateOpen(false)} onCreate={(name, emoji, cfg) => saveView(name, emoji, cfg)} />}
+
+      {copilot.open && query && <CopilotPanel query={query} accountKey={accountKey ?? ""} clientParam={client?.clientId ?? null} groupLabel={groupLabel} clientName={clientName} initialPrompt={copilot.prompt} onClose={() => setCopilot({ open: false, prompt: null })} />}
 
       {open && query && result && <AdDrawer row={open} query={query} benchmark={result.benchmark} currency={result.currency} onClose={() => { setOpen(null); clearCreativeParam(); }} onAsk={(p) => { setOpen(null); clearCreativeParam(); setCopilot({ open: true, prompt: p || null }); }} />}
+    </div>
+  );
+}
+
+const fmtShort = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
+
+/** Motion's « Add metric » menu: search + every metric, ticked when used. */
+function MetricPicker({ selected, onToggle }: { selected: MetricKey[]; onToggle: (k: MetricKey) => void }) {
+  const [q, setQ] = useState("");
+  const list = METRICS.filter((m) => !q.trim() || m.label.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div>
+      <div className="p-1"><input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Rechercher…" className="w-full h-8 rounded-lg border border-gray-800 bg-gray-900 px-2.5 text-sm text-white placeholder:text-gray-600" /></div>
+      <div className="max-h-80 overflow-y-auto">
+        {list.map((m) => (
+          <label key={m.key} title={m.hint} className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer">
+            <input type="checkbox" className="accent-violet-500" checked={selected.includes(m.key)} onChange={() => onToggle(m.key)} />
+            <span className="flex-1">{m.label}</span>{m.video && <span className="text-[11px] text-gray-600">vidéo</span>}
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

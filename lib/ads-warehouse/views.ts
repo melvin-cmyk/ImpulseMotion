@@ -21,10 +21,22 @@ export interface ViewConfig {
   filters: AdsFilters;
   /** "Launched in the last N days" shortcut (resolved client-side into filters.launchedAfter). */
   launchDays?: number;
+  /** The chart's numbered metrics (max 6, Motion's metric chips). */
   metrics: MetricKey[];
+  /** Table columns (Motion's column preset); default TABLE_COLUMNS. */
+  columns?: MetricKey[];
+  /** Show the AI tags on the cards (Motion's « + AI tags »). */
+  showTags?: boolean;
   view: ViewMode;
   sort: { key: MetricKey | "name" | "adCount" | "launch"; dir: "asc" | "desc" };
 }
+
+/** Default table columns, Motion's « Custom » preset order. */
+export const TABLE_COLUMNS: MetricKey[] = [
+  "spend", "conversionValue", "roas", "cpa", "cpc", "cpm", "ctrAll", "aov", "conversions", "purchases", "leads",
+  "hookRate", "holdRate", "ctr", "cvr", "p25Rate", "p50Rate", "p75Rate", "p100Rate",
+  "hookScore", "watchScore", "clickScore", "convertScore", "impressions", "frequency",
+];
 
 export interface ViewTemplate {
   id: string;

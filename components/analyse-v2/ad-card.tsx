@@ -10,7 +10,7 @@
 
 import type { AdsGroupRow, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
-import { FORMAT_LABEL, ScoreGauge, StatusDot, TrendBadge } from "./shared";
+import { FORMAT_LABEL, ScoreGauge, StatusDot, TagChips, TrendBadge } from "./shared";
 import { AdMedia, MediaCaption, type MediaRatio } from "./ad-media";
 import { launchSignals, SIGNAL_CLASS } from "@/lib/ads-warehouse/signals";
 
@@ -25,10 +25,12 @@ interface Props {
   ratio?: MediaRatio;
   /** Opportunity label (Motion's 🚩 suggested iteration), shown under the name. */
   flag?: string | null;
+  /** Motion's « + AI tags »: the AI tags under the name. */
+  showTags?: boolean;
   onOpen: (row: AdsGroupRow) => void;
 }
 
-export function AdCard({ row, metrics, benchmark, currency, compare, signals, ratio, flag, onOpen }: Props) {
+export function AdCard({ row, metrics, benchmark, currency, compare, signals, ratio, flag, showTags, onOpen }: Props) {
   const ad = row.sample;
   const sig = signals ? launchSignals(row.metrics, benchmark, { video: ad?.format === "Video" }) : [];
   return (
@@ -55,6 +57,7 @@ export function AdCard({ row, metrics, benchmark, currency, compare, signals, ra
           <StatusDot status={ad?.status} />
           <div className="text-sm font-medium text-white truncate" title={row.label}>{row.label}</div>
         </div>
+        {showTags && ad && <TagChips tags={Object.fromEntries(Object.entries(ad.tags).filter(([k]) => k.startsWith("ai:")))} max={4} />}
         {flag && <div><span className="rounded-md bg-violet-500/15 px-1.5 py-0.5 text-[11px] text-violet-200">🚩 {flag}</span></div>}
         {sig.length > 0 && <div className="flex flex-wrap gap-1">{sig.map((x) => <span key={x.id} title={x.hint} className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${SIGNAL_CLASS[x.tone]}`}>{x.label}</span>)}</div>}
         <div className="space-y-1">

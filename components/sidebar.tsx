@@ -165,7 +165,9 @@ export function Sidebar() {
   // Detached AI turns still running, per surface: a count next to the assistants.
   const { running } = useAiJobs()
   // Folded rail: icons only, labels as tooltips (remembered per browser).
-  const [collapsed, toggleCollapsed] = useSidebarCollapsed()
+  const [userCollapsed, toggleCollapsed] = useSidebarCollapsed()
+  // Analyse Ads reproduces Motion's layout: the app navigation is an icon rail there.
+  const collapsed = userCollapsed || pathname.startsWith("/analyse")
   // Each section is a dropdown: folded sections are remembered per browser.
   const [folded, setFolded] = useState<Record<string, boolean>>({})
   useEffect(() => {
@@ -193,7 +195,7 @@ export function Sidebar() {
           </button>
         )}
       </div>
-      {collapsed && (
+      {collapsed && !pathname.startsWith("/analyse") && (
         <button type="button" onClick={toggleCollapsed} title="Déployer le menu" className="mx-auto mb-2 w-9 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800/70">
           <PanelLeftOpen className="w-4 h-4" />
         </button>
