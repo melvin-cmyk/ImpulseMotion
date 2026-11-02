@@ -6,7 +6,7 @@
  * incidents are neither confirmed nor closed.
  */
 
-import { getMetaSystemToken, metaGraphGet, getAccountDailyInsights, purchasesFor, computeRevenue } from "@/lib/meta-api";
+import { getMetaSystemToken, metaGraphGet, metaGraphGetEach, getAccountDailyInsights, purchasesFor, computeRevenue } from "@/lib/meta-api";
 import { MetaApiError } from "@/lib/meta-errors";
 import { getAccountProfileSettings } from "@/lib/account-settings";
 import { findBudgetForMetaAccount, computePacing, monthProgress } from "@/lib/budgets";
@@ -140,8 +140,8 @@ export async function scanMetaAccount(accountId: string, now: Date = new Date(),
     }
     const keyed = new Set<string>();
     if (cands.length) {
-      const byId = await metaGraphGet<Record<string, RawAd>>("/", token, { ids: cands.map((c) => c.adId).join(","), fields: AD_FIELDS });
-      const stopped = classifyStoppedAds(cands, Object.values(byId ?? {}).map(toAdStatus), currency, now);
+      const byId = await metaGraphGetEach<RawAd>(cands.map((c) => c.adId), token, { fields: AD_FIELDS });
+      const stopped = classifyStoppedAds(cands, Array.from(byId.values()).map(toAdStatus), currency, now);
       for (const f of stopped) keyed.add(f.key);
       out.findings.push(...stopped);
     }

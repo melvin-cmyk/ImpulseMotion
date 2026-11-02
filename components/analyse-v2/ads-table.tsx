@@ -9,8 +9,7 @@
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type { AdsGroupRow, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
-import { upgradeImageUrl } from "@/lib/image-upgrade";
-import { StatusDot, TagChips, colorFor } from "./shared";
+import { StatusDot, TagChips, colorFor, adImageSrc } from "./shared";
 import { launchSignals, SIGNAL_CLASS } from "@/lib/ads-warehouse/signals";
 
 interface Props {
@@ -62,7 +61,7 @@ export function AdsTable({ rows, metrics, benchmark, benchmarkPrevious, currency
         <tbody>
           {rows.map((r) => {
             const ad = r.sample;
-            const img = upgradeImageUrl(ad?.thumbnailUrl ?? ad?.imageUrl ?? undefined);
+            const img = adImageSrc(ad);
             return (
               <tr key={r.key} className="border-t border-gray-800 hover:bg-gray-800/30">
                 <td className="px-2 py-1.5"><input type="checkbox" checked={checked.has(r.key)} onChange={(e) => onCheck(r.key, e.target.checked)} className="accent-violet-500" title="Tracer dans la courbe" /></td>

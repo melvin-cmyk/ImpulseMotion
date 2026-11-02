@@ -378,6 +378,28 @@ export function metaGraphGet<T>(
   return metaFetch<T>(path, accessToken, params);
 }
 
+/**
+ * GET the same fields on several nodes, one request per id with bounded
+ * concurrency. Replaces the multi-ID `/?ids=a,b` form, removed by Meta on
+ * 2026-10-27 for every Graph version. Ids that fail are left out of the map.
+ */
+export async function metaGraphGetEach<T>(
+  ids: string[],
+  accessToken: string,
+  params: Record<string, string> = {},
+  concurrency = 8,
+): Promise<Map<string, T>> {
+  const out = new Map<string, T>();
+  const queue = Array.from(new Set(ids.filter(Boolean)));
+  const worker = async () => {
+    for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+      try { out.set(id, await metaFetch<T>(`/${id}`, accessToken, params)); } catch { /* skip this id */ }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
+  return out;
+}
+
 // ── Writes (routines) ────────────────────────────────────────────────────────
 //
 // Contract, different from the reads above on purpose:

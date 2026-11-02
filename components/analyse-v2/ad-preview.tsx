@@ -10,7 +10,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Maximize2, X } from "lucide-react";
 import type { AdSample } from "@/lib/ads-warehouse/query";
-import { AdVisual, FormatBadge } from "./shared";
+import { AdVisual, FormatBadge, adImageSrc } from "./shared";
 
 const FORMATS: Array<{ id: string; label: string }> = [
   { id: "MOBILE_FEED_STANDARD", label: "Feed" },
@@ -49,7 +49,7 @@ export function AdPreviewPane({ ad }: { ad: AdSample }) {
 
   const media = (cls: string) => (
     p?.videoUrl ? (
-      <video src={p.videoUrl} controls autoPlay={full} playsInline className={`${cls} object-contain bg-black`} poster={ad.imageUrl ?? ad.thumbnailUrl ?? undefined} />
+      <video src={p.videoUrl} controls autoPlay={full} playsInline className={`${cls} object-contain bg-black`} poster={adImageSrc(ad)} />
     ) : p?.src ? (
       <iframe src={p.src} title="Aperçu de l'annonce" className={`${cls} border-0 bg-white`} allow="autoplay; encrypted-media; fullscreen" />
     ) : null

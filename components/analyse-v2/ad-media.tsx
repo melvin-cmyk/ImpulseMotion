@@ -18,9 +18,8 @@
 
 import { useRef, useState } from "react";
 import { Maximize2, Pause, Play, Volume2, VolumeX } from "lucide-react";
-import { upgradeImageUrl } from "@/lib/image-upgrade";
 import type { AdSample } from "@/lib/ads-warehouse/query";
-import { colorFor } from "./shared";
+import { adImageSrc, colorFor } from "./shared";
 
 /** Ads whose MP4 Meta refused during this session: not requested again. */
 const unavailable = new Set<string>();
@@ -29,7 +28,7 @@ export type MediaRatio = "9:16" | "4:5" | "1:1";
 const RATIO_CSS: Record<MediaRatio, string> = { "9:16": "1 / 1.76", "4:5": "4 / 5", "1:1": "1 / 1" };
 
 function posterOf(ad: AdSample | null): string | undefined {
-  return ad ? upgradeImageUrl(ad.imageUrl ?? ad.thumbnailUrl ?? undefined) : undefined;
+  return adImageSrc(ad);
 }
 
 /** One visual, contained over its own blurred copy. */

@@ -6,10 +6,10 @@
  * bars when there are few groups (≤ 10), horizontal bars beyond that.
  */
 
+import { adImageSrc } from "./shared";
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { AdsGroupRow, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRIC_BY_KEY, fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
-import { upgradeImageUrl } from "@/lib/image-upgrade";
 
 export function AdsBar({ rows, metrics, benchmark, currency }: { rows: AdsGroupRow[]; metrics: MetricKey[]; benchmark: Metrics; currency: string | null }) {
   const m1 = metrics[0] ?? "spend";
@@ -42,7 +42,7 @@ export function AdsBar({ rows, metrics, benchmark, currency }: { rows: AdsGroupR
           </div>
           <div className="grid gap-2 mt-1" style={{ gridTemplateColumns: `repeat(${data.length}, minmax(0, 1fr))` }}>
             {top.map((r) => {
-              const img = upgradeImageUrl(r.sample?.imageUrl ?? r.sample?.thumbnailUrl ?? undefined);
+              const img = adImageSrc(r.sample);
               return (
                 <div key={r.key} className="flex flex-col items-center text-center">
                   {/* eslint-disable-next-line @next/next/no-img-element -- Meta CDN */}

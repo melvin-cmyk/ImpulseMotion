@@ -6,6 +6,19 @@ import { Play } from "lucide-react";
 import { AI_TAG_LABELS } from "@/lib/ads-warehouse/ai-tags-labels";
 import { upgradeImageUrl } from "@/lib/image-upgrade";
 import type { AdSample } from "@/lib/ads-warehouse/query";
+import { fbcdnUsable } from "@/lib/ads-warehouse/cdn";
+
+/**
+ * Image to show for an ad: the stored visual while its signed Meta URL is
+ * valid, otherwise /api/ads/image which re-reads it from Meta (and stores it).
+ */
+export function adImageSrc(ad: AdSample | null | undefined): string | undefined {
+  if (!ad) return undefined;
+  const stored = ad.imageUrl ?? ad.thumbnailUrl ?? null;
+  if (ad.platform === "meta" && !(fbcdnUsable(ad.imageUrl) || fbcdnUsable(ad.thumbnailUrl))) return `/api/ads/image?adId=${encodeURIComponent(ad.adId)}`;
+  const best = fbcdnUsable(ad.imageUrl) ? ad.imageUrl : ad.platform === "meta" ? ad.thumbnailUrl : stored;
+  return upgradeImageUrl(best ?? undefined);
+}
 
 const COLORS = ["from-violet-500 to-purple-700", "from-blue-500 to-cyan-600", "from-pink-500 to-rose-600", "from-emerald-500 to-teal-600", "from-orange-500 to-amber-600", "from-indigo-500 to-violet-600"];
 
@@ -39,7 +52,7 @@ export function relativeDay(iso: string | null | undefined): string {
  */
 export function AdVisual({ ad, ads, className = "aspect-[4/5]" }: { ad: AdSample | null; ads?: AdSample[]; className?: string }) {
   if (!ad) return <div className={`${className} rounded-xl bg-gray-800`} />;
-  const url = upgradeImageUrl(ad.imageUrl ?? ad.thumbnailUrl ?? undefined);
+  const url = adImageSrc(ad);
   // A group of several ads (Motion's comparative cards): a 2×2 collage of its top ads.
   const tiles = (ads ?? []).filter((a) => a.imageUrl || a.thumbnailUrl).slice(0, 4);
   if (tiles.length >= 2) {
@@ -48,7 +61,7 @@ export function AdVisual({ ad, ads, className = "aspect-[4/5]" }: { ad: AdSample
       <div className={`relative ${className} w-full rounded-xl overflow-hidden bg-gray-950 grid ${cells} gap-0.5`}>
         {tiles.map((a, i) => (
           // eslint-disable-next-line @next/next/no-img-element -- Meta CDN, many hosts
-          <img key={a.adId + i} src={upgradeImageUrl(a.imageUrl ?? a.thumbnailUrl ?? undefined)} alt="" loading="lazy" className="w-full h-full object-cover" />
+          <img key={a.adId + i} src={adImageSrc(a)} alt="" loading="lazy" className="w-full h-full object-cover" />
         ))}
       </div>
     );

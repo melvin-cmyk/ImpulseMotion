@@ -24,6 +24,7 @@ import {
   getActionValue,
   type MetaAd,
   type MetaCreativeInsightRich,
+  metaGraphGetEach,
 } from "@/lib/meta-api";
 import { MetaApiError } from "@/lib/meta-errors";
 import { getAccountProfileSettings } from "@/lib/account-settings";
@@ -58,29 +59,21 @@ type MetaAdX = MetaAd & {
   };
 };
 
-/** Large preview of creatives: GET /?ids=…&fields=thumbnail_url&thumbnail_width=1200&thumbnail_height=1200 (the plain thumbnail_url is 64 px). */
+/** Large preview of creatives: GET /{creative_id}?fields=thumbnail_url&thumbnail_width=1200&thumbnail_height=1200 (the plain thumbnail_url is 64 px). */
+const THUMB_PARAMS = { fields: "thumbnail_url", thumbnail_width: "1200", thumbnail_height: "1200" };
 const THUMB_BATCH = 50;
 export async function fetchLargeThumbnails(token: string, creativeIds: string[], deadline = Date.now() + 120_000): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const ids = Array.from(new Set(creativeIds.filter(Boolean)));
   for (let i = 0; i < ids.length; i += THUMB_BATCH) {
     if (Date.now() > deadline) break;
-    const slice = ids.slice(i, i + THUMB_BATCH);
-    try {
-      const r = await metaGraphGet<Record<string, { thumbnail_url?: string }>>("/", token, { ids: slice.join(","), fields: "thumbnail_url", thumbnail_width: "1200", thumbnail_height: "1200" });
-      for (const [id, v] of Object.entries(r)) if (v?.thumbnail_url) out.set(id, v.thumbnail_url);
-    } catch (e) {
-      // One bad id fails the whole batch: retry one by one, best effort.
-      if (slice.length > 1 && Date.now() < deadline) for (const id of slice) {
-        try {
-          const v = await metaGraphGet<{ thumbnail_url?: string }>(`/${id}`, token, { fields: "thumbnail_url", thumbnail_width: "1200", thumbnail_height: "1200" });
-          if (v?.thumbnail_url) out.set(id, v.thumbnail_url);
-        } catch { /* skip */ }
-      } else console.warn("[ads-warehouse] large thumbnails:", e instanceof Error ? e.message : e);
-    }
+    const got = await metaGraphGetEach<{ thumbnail_url?: string }>(ids.slice(i, i + THUMB_BATCH), token, THUMB_PARAMS);
+    for (const [id, v] of got) if (v?.thumbnail_url) out.set(id, v.thumbnail_url);
   }
   return out;
 }
+
+export { fbcdnExpiry, fbcdnUsable } from "./cdn";
 
 /** Re-read the large previews of an account's catalogue (one-off backfill of rows stored with 64 px thumbnails). */
 export async function refreshThumbnails(accountId: string, deadline = Date.now() + 10 * 60_000): Promise<number> {

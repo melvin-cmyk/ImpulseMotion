@@ -8,6 +8,8 @@
 
 import { metaGraphGet, getMetaSystemToken, getVideoSources } from "@/lib/meta-api";
 import { cached } from "@/lib/kpi-cache";
+import { prisma } from "@/lib/prisma";
+import { fbcdnUsable, fetchLargeThumbnails } from "./meta";
 
 export const META_PREVIEW_FORMATS = ["MOBILE_FEED_STANDARD", "INSTAGRAM_STANDARD", "INSTAGRAM_STORY", "INSTAGRAM_REELS", "DESKTOP_FEED_STANDARD"] as const;
 export type MetaPreviewFormat = (typeof META_PREVIEW_FORMATS)[number];
@@ -59,4 +61,22 @@ export async function getMetaVideoSource(videoId: string, accountId?: string | n
     }).catch(() => null);
     return res?.data?.find((v) => v.id === videoId)?.source ?? null;
   }, { ttlMs: TTL_MS });
+}
+
+/**
+ * Usable image of a catalogued Meta ad. Stored CDN URLs expire about 5 days
+ * after the sync that read them; when both the full visual and the thumbnail
+ * are expired, re-read the creative's 1200 px thumbnail and store it back, so
+ * the next views use the fresh URL directly.
+ */
+export async function freshMetaAdImage(adId: string): Promise<{ accountId: string; url: string | null } | null> {
+  const row = await prisma.adCatalog.findUnique({ where: { id: `meta:${adId}` }, select: { accountId: true, imageUrl: true, thumbnailUrl: true, creativeId: true } });
+  if (!row) return null;
+  if (fbcdnUsable(row.imageUrl)) return { accountId: row.accountId, url: row.imageUrl };
+  if (fbcdnUsable(row.thumbnailUrl)) return { accountId: row.accountId, url: row.thumbnailUrl };
+  if (!row.creativeId) return { accountId: row.accountId, url: null };
+  const got = await fetchLargeThumbnails(getMetaSystemToken(), [row.creativeId]).catch(() => new Map<string, string>());
+  const url = got.get(row.creativeId) ?? null;
+  if (url) await prisma.adCatalog.update({ where: { id: `meta:${adId}` }, data: { thumbnailUrl: url, imageUrl: null } }).catch(() => {});
+  return { accountId: row.accountId, url };
 }
