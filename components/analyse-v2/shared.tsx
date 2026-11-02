@@ -7,6 +7,7 @@ import { AI_TAG_LABELS } from "@/lib/ads-warehouse/ai-tags-labels";
 import { upgradeImageUrl } from "@/lib/image-upgrade";
 import type { AdSample } from "@/lib/ads-warehouse/query";
 import { fbcdnUsable } from "@/lib/ads-warehouse/cdn";
+import { SPEND_STATE_HINT, SPEND_STATE_LABEL, type CreativeTrend, type SpendState } from "@/lib/ads-warehouse/trends";
 
 /**
  * Image to show for an ad: the stored visual while its signed Meta URL is
@@ -120,4 +121,47 @@ export function TagChips({ tags, max = 4 }: { tags: Record<string, string>; max?
       ))}
     </div>
   );
+}
+
+/** Motion's score gauge: 2-segment bar + value (green ≥ 60, amber 50-59, grey below; "—" when not scored). */
+export function ScoreGauge({ value }: { value: number }) {
+  if (!value) return <span className="text-gray-500">—</span>;
+  const tone = value >= 60 ? "bg-emerald-400" : value >= 50 ? "bg-amber-400" : "bg-gray-500";
+  return (
+    <span className="inline-flex items-center gap-1.5 tabular-nums">
+      <span className="flex gap-0.5 w-9">
+        <span className="h-1.5 flex-1 rounded-full bg-gray-700 overflow-hidden"><span className={`block h-full ${tone}`} style={{ width: `${Math.min(100, value * 2)}%` }} /></span>
+        <span className="h-1.5 flex-1 rounded-full bg-gray-700 overflow-hidden"><span className={`block h-full ${tone}`} style={{ width: `${Math.max(0, value * 2 - 100)}%` }} /></span>
+      </span>
+      {Math.round(value)}
+    </span>
+  );
+}
+
+const TREND_CLASS: Record<SpendState, string> = {
+  new: "text-sky-200",
+  scaling: "text-emerald-200",
+  declining: "text-red-200",
+  paused: "text-gray-300",
+  stable: "text-gray-200",
+  testing: "text-gray-300",
+};
+
+/** Spend-state badge (Motion's "This creative is scaling"), with the week-over-week spend change. */
+export function TrendBadge({ trend, compact }: { trend: CreativeTrend | null | undefined; compact?: boolean }) {
+  if (!trend || trend.state === "stable" || trend.state === "testing") return null;
+  const arrow = trend.state === "scaling" ? "↗" : trend.state === "declining" ? "↘" : trend.state === "paused" ? "⏸" : "✦";
+  const wow = trend.wow !== null && (trend.state === "scaling" || trend.state === "declining") ? ` ${trend.wow > 0 ? "+" : ""}${Math.round(trend.wow)} %` : "";
+  return (
+    <span title={`${SPEND_STATE_HINT[trend.state]} (7 j : ${Math.round(trend.last7)} vs ${Math.round(trend.prev7)})`} className={`rounded-md bg-black/50 backdrop-blur-sm px-2 py-0.5 text-xs font-medium ${TREND_CLASS[trend.state]}`}>
+      {arrow} {compact ? "" : SPEND_STATE_LABEL[trend.state]}{wow}
+    </span>
+  );
+}
+
+/** Inline spend state for tables and lists (no background). */
+export function TrendText({ trend }: { trend: CreativeTrend }) {
+  const tone = trend.state === "scaling" ? "text-emerald-400" : trend.state === "declining" ? "text-red-400" : trend.state === "new" ? "text-sky-400" : "text-gray-500";
+  const wow = trend.wow !== null && (trend.state === "scaling" || trend.state === "declining") ? ` ${trend.wow > 0 ? "+" : ""}${Math.round(trend.wow)} %` : "";
+  return <span className={tone} title={SPEND_STATE_HINT[trend.state]}>{SPEND_STATE_LABEL[trend.state]}{wow}</span>;
 }

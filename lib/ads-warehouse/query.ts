@@ -14,6 +14,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAovMap } from "@/lib/account-settings";
 import type { AdFormat, WarehousePlatform } from "./types";
+import { classifyTrend, computeScores, spendThreshold, type CreativeTrend } from "./trends";
 
 export type GroupBy = "ad" | "creative" | "campaign" | "adset" | "format" | "landing" | "copy" | "title" | "launch_week" | `tag:${string}`;
 
@@ -34,13 +35,16 @@ export interface AdsFilters {
 export type MetricKey =
   | "spend" | "impressions" | "reach" | "frequency" | "clicks" | "linkClicks" | "ctr" | "ctrAll" | "cpc" | "cpm"
   | "conversions" | "cpa" | "cvr" | "conversionValue" | "roas" | "aov" | "purchases" | "leads"
-  | "videoPlays" | "hookRate" | "holdRate" | "p25Rate" | "p50Rate" | "p75Rate" | "p100Rate" | "thruPlays";
+  | "videoPlays" | "hookRate" | "holdRate" | "p25Rate" | "p50Rate" | "p75Rate" | "p100Rate" | "thruPlays"
+  | "hookScore" | "watchScore" | "clickScore" | "convertScore";
 
 export interface Metrics {
   spend: number; impressions: number; reach: number; frequency: number; clicks: number; linkClicks: number;
   ctr: number; ctrAll: number; cpc: number; cpm: number;
   conversions: number; cpa: number; cvr: number; conversionValue: number; roas: number; aov: number; purchases: number; leads: number;
   videoPlays: number; video3s: number; thruPlays: number; hookRate: number; holdRate: number; p25Rate: number; p50Rate: number; p75Rate: number; p100Rate: number;
+  /** Creative scores 1–100 inside the account (Motion's Hook / Watch / Click / Convert score); 0 = not scored. 50 on the benchmark. */
+  hookScore: number; watchScore: number; clickScore: number; convertScore: number;
   /** ROAS / value computed from conversions × configured AOV (no tracked value on the account). */
   estimated: boolean;
   /** Neither tracked value nor AOV: roas / conversionValue are meaningless (0). */
@@ -82,6 +86,8 @@ export interface AdsGroupRow {
   launch: string | null;
   metrics: Metrics;
   previous: Metrics | null;
+  /** Spend state at the end of the range (last 7 days vs the 7 before). */
+  trend: CreativeTrend | null;
 }
 
 export interface AdsQueryResult {
@@ -90,6 +96,10 @@ export interface AdsQueryResult {
   benchmark: Metrics;
   benchmarkPrevious: Metrics | null;
   currency: string | null;
+  /** Spend from which a group is significant (scores, "scaled" in launch analysis). */
+  spendThreshold: number;
+  /** Goal metric of the Convert score. */
+  goal: "roas" | "cpa" | "cvr";
   coverage: {
     since: string | null; until: string | null;
     /** Accounts of the selection that have a sync state. */
@@ -131,6 +141,7 @@ export function deriveMetrics(s: Sums, aov: number | null): Metrics {
     videoPlays: s.videoPlays, video3s: s.video3s, thruPlays: s.thruPlays,
     hookRate: pct(s.video3s, s.impressions), holdRate: pct(s.thruPlays, s.impressions),
     p25Rate: pct(s.p25, s.impressions), p50Rate: pct(s.p50, s.impressions), p75Rate: pct(s.p75, s.impressions), p100Rate: pct(s.p100, s.impressions),
+    hookScore: 0, watchScore: 0, clickScore: 0, convertScore: 0,
     estimated, roasUnavailable,
   };
 }
@@ -207,6 +218,23 @@ async function aggregate(q: AdsQuery, range: { since: string; until: string }, k
   return out;
 }
 
+/** Spend of each group over the 7 days ending at `until` and the 7 before (spend state). */
+async function trendSums(q: AdsQuery, keyExpr: Prisma.Sql, until: string): Promise<Map<string, { last7: number; prev7: number }>> {
+  const end = new Date(until + "T00:00:00Z");
+  const d = (days: number) => { const x = new Date(end); x.setUTCDate(x.getUTCDate() - days); return x.toISOString().slice(0, 10); };
+  const mid = d(6);
+  const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
+    SELECT ${keyExpr} AS key,
+           SUM(CASE WHEN d.date >= ${mid}::date THEN d.spend ELSE 0 END)::float8 AS last7,
+           SUM(CASE WHEN d.date < ${mid}::date THEN d.spend ELSE 0 END)::float8 AS prev7
+    FROM ${JOIN}
+    WHERE ${whereOf({ ...q, filters: { ...q.filters, minSpend: 0 } }, { since: d(13), until })}
+    GROUP BY 1`);
+  const out = new Map<string, { last7: number; prev7: number }>();
+  for (const r of rows) out.set(String(r.key), { last7: n(r.last7), prev7: n(r.prev7) });
+  return out;
+}
+
 async function benchmark(q: AdsQuery, range: { since: string; until: string }): Promise<{ sums: Sums; currency: string | null }> {
   const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>(Prisma.sql`
     SELECT MAX(d.currency) AS currency, ${SUM_COLS}
@@ -264,21 +292,27 @@ function labelOf(groupBy: GroupBy, key: string, sample: AdSample | null): string
 
 export async function queryAds(q: AdsQuery): Promise<AdsQueryResult> {
   if (!q.accountIds.length || !q.platforms.length) {
-    return { rows: [], total: 0, benchmark: deriveMetrics(ZERO, null), benchmarkPrevious: null, currency: null, coverage: { since: null, until: null, accounts: 0, missing: 0, errors: 0, loading: false, complete: false } };
+    return { rows: [], total: 0, benchmark: deriveMetrics(ZERO, null), benchmarkPrevious: null, currency: null, spendThreshold: 0, goal: "cvr", coverage: { since: null, until: null, accounts: 0, missing: 0, errors: 0, loading: false, complete: false } };
   }
   const keyExpr = groupKeyExpr(q.groupBy);
   const aovMap = await getAovMap("meta", q.accountIds);
   const aov = q.accountIds.length === 1 ? (aovMap.get(q.accountIds[0]) ?? null) || null : null;
 
-  const [cur, prev, bench, benchPrev, states] = await Promise.all([
+  const [cur, prev, bench, benchPrev, states, weeks] = await Promise.all([
     aggregate(q, q.range, keyExpr),
     q.compare ? aggregate(q, q.compare, keyExpr) : Promise.resolve(null),
     benchmark(q, q.range),
     q.compare ? benchmark(q, q.compare) : Promise.resolve(null),
     prisma.adSyncState.findMany({ where: { platform: { in: q.platforms }, accountId: { in: q.accountIds } }, select: { platform: true, accountId: true, syncedFrom: true, syncedTo: true, lastError: true, lastRunAt: true } }),
+    trendSums(q, keyExpr, q.range.until),
   ]);
+  const benchMetrics = { ...deriveMetrics(bench.sums, aov), hookScore: 50, watchScore: 50, clickScore: 50, convertScore: 50 };
+  const threshold = spendThreshold(benchMetrics);
 
   let entries = Array.from(cur.entries()).map(([key, v]) => ({ key, ...v, metrics: deriveMetrics(v.sums, aov), previous: prev?.get(key) ? deriveMetrics(prev.get(key)!.sums, aov) : null }));
+  // Scores are ranks inside the whole selection, before sorting and paging.
+  const { scores, goal } = computeScores(entries, threshold, benchMetrics);
+  for (const e of entries) Object.assign(e.metrics, scores.get(e.key));
   const sort = q.sort ?? { key: "spend", dir: "desc" };
   const sign = sort.dir === "asc" ? 1 : -1;
   entries.sort((a, b) => {
@@ -301,7 +335,9 @@ export async function queryAds(q: AdsQuery): Promise<AdsQueryResult> {
   const rows: AdsGroupRow[] = entries.map((e) => {
     const list = ads.get(e.key) ?? [];
     const sample = list[0] ?? null;
-    return { key: e.key, label: labelOf(q.groupBy, e.key, sample), adCount: e.adCount, sample, ads: list, launch: e.launch, metrics: e.metrics, previous: e.previous };
+    const w = weeks.get(e.key);
+    const trend = w ? classifyTrend(w.last7, w.prev7, e.launch, q.range.until, threshold) : null;
+    return { key: e.key, label: labelOf(q.groupBy, e.key, sample), adCount: e.adCount, sample, ads: list, launch: e.launch, metrics: e.metrics, previous: e.previous, trend };
   });
 
   const wanted = q.accounts?.length ? q.accounts : q.accountIds.map((id) => ({ platform: q.platforms[0], id }));
@@ -315,7 +351,9 @@ export async function queryAds(q: AdsQuery): Promise<AdsQueryResult> {
   const missing = Math.max(0, wanted.length - relevant.length);
   return {
     rows, total,
-    benchmark: deriveMetrics(bench.sums, aov),
+    benchmark: benchMetrics,
+    spendThreshold: threshold,
+    goal,
     benchmarkPrevious: benchPrev ? deriveMetrics(benchPrev.sums, aov) : null,
     currency: bench.currency,
     coverage: { since: since ? since.toISOString().slice(0, 10) : null, until: until ? until.toISOString().slice(0, 10) : null, accounts: relevant.length, missing, errors, loading, complete: missing === 0 && errors === 0 && !loading },

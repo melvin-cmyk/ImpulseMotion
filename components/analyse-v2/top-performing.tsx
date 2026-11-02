@@ -24,6 +24,8 @@ import { VIEW_TEMPLATES, type ViewConfig, type ViewMode } from "@/lib/ads-wareho
 import { lastFullDays, prevRange, type DateRange } from "@/lib/date-ranges";
 import { normalizeAct } from "@/lib/use-account-list";
 import { AdCard } from "./ad-card";
+import { Leaderboard } from "./leaderboard";
+import { LaunchFunnel, defaultGoal, funnelRows, type FunnelGoal, type FunnelStage } from "./launch-funnel";
 import type { MediaRatio } from "./ad-media";
 import { AdsTable } from "./ads-table";
 import { AdsBar } from "./ads-bar";
@@ -115,13 +117,16 @@ export function TopPerforming() {
   const [showMetrics, setShowMetrics] = useState(false);
   const [showAddFilter, setShowAddFilter] = useState<null | "menu" | `tag:${string}` | "spend" | "launch" | "campaign">(null);
   const [open, setOpen] = useState<AdsGroupRow | null>(null);
+  // Launch analysis (reports with a launch window): funnel tab + goal edited for the current accounts.
+  const [funnelStage, setFunnelStage] = useState<FunnelStage>("launched");
+  const [goalEdit, setGoalEdit] = useState<{ scope: string; goal: FunnelGoal } | null>(null);
   // Card media frame (Motion's card setting), remembered per browser.
   const ratio = useSyncExternalStore(subscribeRatio, readRatio, () => "9:16" as MediaRatio);
   const setRatio = (r: MediaRatio) => { try { localStorage.setItem(RATIO_KEY, r); } catch { /* ignore */ } ratioListeners.forEach((f) => f()); };
   const [syncing, setSyncing] = useState(false);
   const [copilot, setCopilot] = useState<{ open: boolean; prompt: string | null }>({ open: false, prompt: null });
   // « Créas » (the client's own ads) or « Concurrents » (its competitors' ads in the Meta Ad Library); ?tab=concurrents opens the latter.
-  const [section, setSection] = useState<"ads" | "competitors">(() => (params.get("tab") === "concurrents" ? "competitors" : "ads"));
+  const [section, setSection] = useState<"ads" | "leaderboard" | "competitors">(() => (params.get("tab") === "concurrents" ? "competitors" : params.get("tab") === "leaderboard" ? "leaderboard" : "ads"));
   // ?thread=<id> (the « réponse prête » notice): open the client of that thread and its copilot.
   useEffect(() => {
     if (!threadParam || threadClient?.thread === threadParam) return;
@@ -250,6 +255,9 @@ export function TopPerforming() {
 
   // ── Derived ──
   const noWarehouse = result && result.rows.length === 0 && result.coverage.accounts === 0;
+  const goalScope = accounts.map((a) => `${a.platform}:${a.id}`).join(",");
+  const funnelGoal = result && config.launchDays ? (goalEdit?.scope === goalScope ? goalEdit.goal : defaultGoal(result.benchmark, result.spendThreshold)) : null;
+  const rows = result ? (funnelGoal ? funnelRows(result.rows, funnelGoal, funnelStage) : result.rows) : [];
   const visibleMetrics = config.metrics.filter((k) => !(k === "roas" && result?.benchmark.roasUnavailable));
   const activeTemplate = VIEW_TEMPLATES.find((t) => `tpl:${t.id}` === activeId);
   const activeSaved = saved.find((v) => v.id === activeId);
@@ -273,12 +281,12 @@ export function TopPerforming() {
         {/* ── Header ── */}
         <div className="px-6 pt-4 pb-2 flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-white truncate">{section === "competitors" ? "Concurrents" : title}{section === "ads" && dirty && <span className="ml-2 text-[10px] font-normal text-amber-400 align-middle">modifié</span>}</h1>
-            <p className="text-xs text-gray-500">{client ? <span className="text-gray-300">{client.name}</span> : null}{section === "competitors" ? (client ? " · leurs pubs en ce moment dans la bibliothèque Meta" : "") : <>{client && subtitle ? " · " : ""}{subtitle}</>}</p>
+            <h1 className="text-lg font-semibold text-white truncate">{section === "competitors" ? "Concurrents" : section === "leaderboard" ? "Leaderboard" : title}{section === "ads" && dirty && <span className="ml-2 text-[10px] font-normal text-amber-400 align-middle">modifié</span>}</h1>
+            <p className="text-xs text-gray-500">{client ? <span className="text-gray-300">{client.name}</span> : null}{section === "competitors" ? (client ? " · leurs pubs en ce moment dans la bibliothèque Meta" : "") : section === "leaderboard" ? " · le classement des créas de la semaine et ce qui bouge" : <>{client && subtitle ? " · " : ""}{subtitle}</>}</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5">
-              {([["ads", "Créas du client"], ["competitors", "Concurrents"]] as const).map(([v, l]) => (
+              {([["ads", "Créas du client"], ["leaderboard", "Leaderboard"], ["competitors", "Concurrents"]] as const).map(([v, l]) => (
                 <button key={v} type="button" onClick={() => setSection(v)} className={`px-2.5 py-1 rounded-md text-xs ${section === v ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"}`}>{l}</button>
               ))}
             </div>
@@ -293,7 +301,7 @@ export function TopPerforming() {
           </div>
         </div>
 
-        {section === "competitors" ? <CompetitorsPanel key={client?.clientId ?? "none"} clientId={client?.clientId ?? null} clientName={clientName} /> : (<>
+        {section === "competitors" ? <CompetitorsPanel key={client?.clientId ?? "none"} clientId={client?.clientId ?? null} clientName={clientName} /> : section === "leaderboard" ? (query ? <Leaderboard query={query} /> : <div className="px-6 py-16 text-center text-sm text-gray-500">Choisis un client pour voir son classement.</div>) : (<>
         {/* ── Control bar ── */}
         <div className="px-6 py-2 flex items-center gap-2 flex-wrap">
           <div className="flex items-center rounded-lg border border-gray-800 bg-gray-900 p-0.5">
@@ -431,13 +439,17 @@ export function TopPerforming() {
                 </div>
               </div>
 
+              {funnelGoal && result.rows.length > 0 && (
+                <LaunchFunnel rows={result.rows} goal={funnelGoal} onGoal={(g) => setGoalEdit({ scope: goalScope, goal: g })} stage={funnelStage} onStage={setFunnelStage} launchedSince={launchAfter} currency={result.currency} />
+              )}
               {result.rows.length === 0 && <Empty title="Rien sur cette période" text="Aucune annonce ne correspond aux filtres. Élargis la période ou retire un filtre." />}
-              {result.rows.length > 0 && config.view === "cards" && (
+              {result.rows.length > 0 && rows.length === 0 && <Empty title={funnelStage === "winners" ? "Pas encore de gagnante" : "Aucune créa scalée"} text={funnelStage === "winners" ? "Aucune créa lancée n'a encore atteint l'objectif après avoir été scalée. Ajuste l'objectif ou élargis la fenêtre de lancement." : "Aucune créa lancée n'a encore atteint le seuil de dépense."} />}
+              {rows.length > 0 && config.view === "cards" && (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-4">
-                  {result.rows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} signals={!!config.launchDays} ratio={ratio} onOpen={setOpen} />)}
+                  {rows.map((r) => <AdCard key={r.key} row={r} metrics={visibleMetrics.slice(0, 6)} benchmark={result.benchmark} currency={result.currency} compare={config.compare} signals={!!config.launchDays} ratio={ratio} onOpen={setOpen} />)}
                 </div>
               )}
-              {result.rows.length > 0 && config.view === "bar" && <AdsBar rows={result.rows} metrics={visibleMetrics} benchmark={result.benchmark} currency={result.currency} />}
+              {rows.length > 0 && config.view === "bar" && <AdsBar rows={rows} metrics={visibleMetrics} benchmark={result.benchmark} currency={result.currency} />}
               {result.rows.length > 0 && config.view === "chart" && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -460,8 +472,8 @@ export function TopPerforming() {
                   </div>
                 </div>
               )}
-              {result.rows.length > 0 && (config.view === "table" || config.view === "chart" || config.view === "bar") && (
-                <AdsTable rows={result.rows} metrics={visibleMetrics} benchmark={result.benchmark} benchmarkPrevious={result.benchmarkPrevious} currency={result.currency} compare={config.compare} sort={config.sort} onSort={onSort} checked={checked} onCheck={(k, on) => setChecked((s) => { const n = new Set(s); if (on) n.add(k); else n.delete(k); return n; })} onOpen={setOpen} signals={!!config.launchDays} />
+              {rows.length > 0 && (config.view === "table" || config.view === "chart" || config.view === "bar") && (
+                <AdsTable rows={rows} metrics={visibleMetrics} benchmark={result.benchmark} benchmarkPrevious={result.benchmarkPrevious} currency={result.currency} compare={config.compare} sort={config.sort} onSort={onSort} checked={checked} onCheck={(k, on) => setChecked((s) => { const n = new Set(s); if (on) n.add(k); else n.delete(k); return n; })} onOpen={setOpen} signals={!!config.launchDays} />
               )}
             </div>
           )}

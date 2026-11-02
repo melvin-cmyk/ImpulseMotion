@@ -9,7 +9,7 @@
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type { AdsGroupRow, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
-import { StatusDot, TagChips, colorFor, adImageSrc } from "./shared";
+import { StatusDot, TagChips, colorFor, adImageSrc, ScoreGauge, TrendText } from "./shared";
 import { launchSignals, SIGNAL_CLASS } from "@/lib/ads-warehouse/signals";
 
 interface Props {
@@ -38,6 +38,7 @@ export function AdsTable({ rows, metrics, benchmark, benchmarkPrevious, currency
   const cell = (m: Metrics, prev: Metrics | null, k: MetricKey, bench: boolean) => {
     const v = m[k];
     const d = compare && prev ? deltaPct(v, prev[k]) : null;
+    if (METRIC_BY_KEY[k]?.format === "score") return <td key={k} className="px-2 py-1.5 text-right text-xs">{bench ? <span className="text-gray-500">50</span> : <ScoreGauge value={v} />}</td>;
     return (
       <td key={k} className="px-2 py-1.5 text-right">
         <span className={`inline-block rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${bench ? "bg-gray-800 text-gray-100" : TONE_CLASS[toneVs(k, v, benchmark[k])]}`}>{fmtMetric(k, v, currency, m)}</span>
@@ -71,7 +72,7 @@ export function AdsTable({ rows, metrics, benchmark, benchmarkPrevious, currency
                     {img ? <img src={img} alt="" className="w-9 h-9 rounded-md object-cover bg-gray-800 shrink-0" /> : <div className={`w-9 h-9 rounded-md bg-gradient-to-br ${colorFor(r.key)} shrink-0`} />}
                     <span className="min-w-0">
                       <span className="flex items-center gap-1.5"><StatusDot status={ad?.status} /><span className="text-xs font-medium text-white truncate block" title={r.label}>{r.label}</span></span>
-                      <span className="text-[10px] text-gray-500 truncate block">{ad?.campaignName ?? ""}</span>
+                      <span className="flex items-center gap-1 text-[10px] text-gray-500 min-w-0">{r.trend && r.trend.state !== "stable" && r.trend.state !== "testing" && <span className="shrink-0"><TrendText trend={r.trend} /></span>}<span className="truncate">{ad?.campaignName ?? ""}</span></span>
                     </span>
                   </button>
                 </td>

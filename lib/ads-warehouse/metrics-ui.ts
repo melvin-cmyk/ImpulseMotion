@@ -8,7 +8,7 @@
 
 import type { MetricKey, Metrics } from "./query";
 
-export type MetricFormat = "money" | "int" | "pct" | "ratio" | "x";
+export type MetricFormat = "money" | "int" | "pct" | "ratio" | "x" | "score";
 
 export interface MetricDef {
   key: MetricKey;
@@ -46,6 +46,10 @@ export const METRICS: MetricDef[] = [
   { key: "p75Rate", label: "Vue 75 %", short: "75 %", format: "pct", higherBetter: true, video: true, hint: "Vues à 75 % ÷ impressions" },
   { key: "p100Rate", label: "Vue 100 %", short: "100 %", format: "pct", higherBetter: true, video: true, hint: "Vues complètes ÷ impressions" },
   { key: "videoPlays", label: "Lectures vidéo", short: "Lectures", format: "int", higherBetter: null, video: true, hint: "Démarrages de la vidéo" },
+  { key: "hookScore", label: "Hook score", short: "Hook sc.", format: "score", higherBetter: true, video: true, hint: "0-100 : rang du hook rate de la vidéo parmi les créas du compte qui ont dépensé au moins le seuil (50 = médiane)" },
+  { key: "watchScore", label: "Watch score", short: "Watch sc.", format: "score", higherBetter: true, video: true, hint: "0-100 : rang du hold rate (rétention) parmi les vidéos du compte au-dessus du seuil de dépense" },
+  { key: "clickScore", label: "Click score", short: "Click sc.", format: "score", higherBetter: true, hint: "0-100 : rang du CTR parmi les créas du compte au-dessus du seuil de dépense" },
+  { key: "convertScore", label: "Convert score", short: "Conv. sc.", format: "score", higherBetter: true, hint: "0-100 : rang sur l'objectif du compte (ROAS, sinon CPA, sinon taux de conversion) parmi les créas au-dessus du seuil de dépense" },
   { key: "thruPlays", label: "ThruPlays", short: "Thru", format: "int", higherBetter: null, video: true, hint: "Vues de 15 s ou complètes" },
 ];
 
@@ -56,6 +60,7 @@ export interface MetricPreset { id: string; label: string; keys: MetricKey[] }
 export const PRESETS: MetricPreset[] = [
   { id: "essentiel", label: "Essentiel", keys: ["spend", "roas", "cpa", "ctr", "hookRate", "conversions"] },
   { id: "parcours", label: "Parcours (Hook → Convert)", keys: ["spend", "hookRate", "holdRate", "ctr", "cvr", "roas"] },
+  { id: "scores", label: "Scores (Hook → Convert)", keys: ["spend", "hookScore", "watchScore", "clickScore", "convertScore", "cpa"] },
   { id: "fatigue", label: "Fatigue", keys: ["spend", "cpc", "cpm", "frequency", "ctr", "roas"] },
   { id: "video", label: "Vidéo", keys: ["spend", "hookRate", "p25Rate", "p50Rate", "p75Rate", "p100Rate"] },
   { id: "leadgen", label: "Lead gen", keys: ["spend", "leads", "cpa", "cvr", "ctr", "cpc"] },
@@ -75,6 +80,7 @@ export function fmtMetric(key: MetricKey, value: number, currency: string | null
     case "pct": return `${value.toLocaleString("fr-FR", { maximumFractionDigits: value < 1 ? 2 : 1 })} %`;
     case "ratio": return value.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
     case "x": return `${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}×${est}`;
+    case "score": return String(Math.round(value));
   }
 }
 
@@ -89,6 +95,7 @@ export type Tone = "good" | "bad" | "neutral";
 export function toneVs(key: MetricKey, value: number, bench: number): Tone {
   const def = METRIC_BY_KEY[key];
   if (!def || def.higherBetter === null || value <= 0 || bench <= 0) return "neutral";
+  if (def.format === "score") return value >= 60 ? "good" : "neutral";
   const r = value / bench;
   if (def.higherBetter ? r >= 1.05 : r <= 0.95) return "good";
   return "neutral";

@@ -10,7 +10,7 @@
 
 import type { AdsGroupRow, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
 import { METRIC_BY_KEY, TONE_CLASS, deltaPct, deltaTone, fmtMetric, toneVs } from "@/lib/ads-warehouse/metrics-ui";
-import { FORMAT_LABEL, StatusDot } from "./shared";
+import { FORMAT_LABEL, ScoreGauge, StatusDot, TrendBadge } from "./shared";
 import { AdMedia, MediaCaption, type MediaRatio } from "./ad-media";
 import { launchSignals, SIGNAL_CLASS } from "@/lib/ads-warehouse/signals";
 
@@ -42,6 +42,7 @@ export function AdCard({ row, metrics, benchmark, currency, compare, signals, ra
         ads={row.adCount > 1 ? row.ads : undefined}
         ratio={ratio}
         onOpen={() => onOpen(row)}
+        badge={<TrendBadge trend={row.trend} />}
         caption={<>
           <MediaCaption>{row.adCount > 1 ? `${row.adCount} annonces` : FORMAT_LABEL[ad?.format ?? "Unknown"] ?? ad?.format}</MediaCaption>
           {ad?.dynamic && <MediaCaption tone="accent">Dynamic</MediaCaption>}
@@ -65,7 +66,9 @@ export function AdCard({ row, metrics, benchmark, currency, compare, signals, ra
                 <span className="text-gray-500" title={def.hint}>{def.label}</span>
                 <span className="flex items-center gap-1.5">
                   {d !== null && <span className={`text-[10px] ${deltaTone(k, d) === "good" ? "text-emerald-400" : deltaTone(k, d) === "bad" ? "text-red-400" : "text-gray-500"}`}>{d > 0 ? "+" : ""}{d.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} %</span>}
-                  <span className={`rounded-md p-1 tabular-nums ${TONE_CLASS[toneVs(k, v, benchmark[k])]}`}>{fmtMetric(k, v, currency, row.metrics)}</span>
+                  {def.format === "score"
+                    ? <span className="p-1"><ScoreGauge value={v} /></span>
+                    : <span className={`rounded-md p-1 tabular-nums ${TONE_CLASS[toneVs(k, v, benchmark[k])]}`}>{fmtMetric(k, v, currency, row.metrics)}</span>}
                 </span>
               </div>
             );

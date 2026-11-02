@@ -51,10 +51,12 @@ interface Props {
   ratio?: MediaRatio;
   /** Bottom-left caption, e.g. "Vidéo" or "3 annonces". */
   caption?: React.ReactNode;
+  /** Top-left badge, e.g. the spend state. */
+  badge?: React.ReactNode;
   onOpen?: () => void;
 }
 
-export function AdMedia({ ad, ads, ratio = "9:16", caption, onOpen }: Props) {
+export function AdMedia({ ad, ads, ratio = "9:16", caption, badge, onOpen }: Props) {
   const tiles = (ads ?? []).filter((a) => a.imageUrl || a.thumbnailUrl).slice(0, 4);
   const canPlay = !!ad && ad.platform === "meta" && ad.format === "Video" && !!ad.videoId && tiles.length < 2;
   return (
@@ -80,6 +82,7 @@ export function AdMedia({ ad, ads, ratio = "9:16", caption, onOpen }: Props) {
             )}
           </>
         )}
+        {badge && <div className="absolute left-2 top-2 z-[6] pointer-events-none">{badge}</div>}
         {caption && (
           <div className="absolute left-2 bottom-2 z-[6] flex items-center gap-1 pointer-events-none">{caption}</div>
         )}
