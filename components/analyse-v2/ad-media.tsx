@@ -120,6 +120,8 @@ function InlineVideo({ ad, onOpen }: { ad: AdSample; onOpen?: () => void }) {
   const setFailed = (v: boolean) => { if (v) unavailable.add(ad.adId); setFailedState(v); };
   const [scrubX, setScrubX] = useState<number | null>(null);
   const [progress, setProgress] = useState(0);
+  // The consultant asked to play: if the file turns out unreadable, open the large preview instead.
+  const wantPlay = useRef(false);
   const poster = posterOf(ad);
 
   const stop = (e: React.SyntheticEvent) => { e.stopPropagation(); e.preventDefault(); };
@@ -147,7 +149,8 @@ function InlineVideo({ ad, onOpen }: { ad: AdSample; onOpen?: () => void }) {
     if (v.paused) {
       setScrubX(null);
       setVisible(true);
-      void v.play().then(() => setPlaying(true)).catch(() => setFailed(true));
+      wantPlay.current = true;
+      void v.play().then(() => setPlaying(true)).catch(() => { setFailed(true); wantPlay.current = false; onOpen?.(); });
     } else {
       v.pause();
       setPlaying(false);
@@ -171,7 +174,7 @@ function InlineVideo({ ad, onOpen }: { ad: AdSample; onOpen?: () => void }) {
         className={`absolute inset-0 w-full h-full object-contain z-[2] pointer-events-none transition-opacity duration-150 ${visible && !failed ? "opacity-100" : "opacity-0"}`}
         onTimeUpdate={(e) => { const v = e.currentTarget; if (v.duration) setProgress((v.currentTime / v.duration) * 360); }}
         onEnded={() => { setPlaying(false); setProgress(0); }}
-        onError={() => { setFailed(true); setVisible(false); setPlaying(false); }}
+        onError={() => { setFailed(true); setVisible(false); setPlaying(false); if (wantPlay.current) { wantPlay.current = false; onOpen?.(); } }}
       />
       {scrubX !== null && visible && <div className="absolute top-0 bottom-0 z-[4] w-0.5 -translate-x-px bg-white/70 pointer-events-none" style={{ left: `${scrubX}%` }} />}
       {(
