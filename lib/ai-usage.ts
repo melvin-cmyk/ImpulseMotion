@@ -22,6 +22,7 @@ export type AiFeature =
   | "creative_analysis"
   | "analyse_copilot"
   | "analyse_opportunity"
+  | "analyse_themes"
   | "ai_tagging"
   | "recommend"
   | "hq_context"

@@ -101,6 +101,7 @@ export function StatusDot({ status }: { status: string | null | undefined }) {
 
 /** Human label of a tag key: naming-convention keys as they are, AI keys with their category name. */
 export function tagKeyLabel(k: string): string {
+  if (k === "ai:msg") return "Thème de message";
   return AI_TAG_LABELS[k as keyof typeof AI_TAG_LABELS] ?? k;
 }
 

@@ -1711,3 +1711,18 @@ model AdMetricPreset {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+/// Analyse Ads « Thèmes de message » (Motion's Messaging themes): themes found
+/// by the AI in a client's ad copy. Each ad carries its theme in
+/// AdCatalog.tagsJson under "ai:msg".
+model AdMessageTheme {
+  id          String   @id @default(cuid())
+  /// client:<id> or meta:<act>
+  accountKey  String
+  name        String
+  description String   @default("") @db.Text
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([accountKey])
+}
