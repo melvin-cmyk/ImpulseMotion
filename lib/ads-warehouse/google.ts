@@ -128,6 +128,82 @@ function catalogFromRow(accountId: string, r: Row, assets: Map<string, AssetInfo
   };
 }
 
+const SHOPPING_NAME = /SHOPPING_(PRODUCT|SMART)_AD/;
+const quote = (v: string) => `'${v.replace(/'/g, "\\'")}'`;
+
+/**
+ * Shopping ads carry no visual of their own: show the product that spends
+ * most in their ad group (shopping_performance_view), with its real title and
+ * price (shopping_product), and its picture from the Merchant Center when that
+ * account is shared with the agency's connector (product_view.thumbnail_link).
+ */
+export async function enrichShopping(accountId: string, rows: CatalogRow[]): Promise<number> {
+  const shop = rows.filter((r) => r.adsetId && (SHOPPING_NAME.test(r.name) || SHOPPING_NAME.test(r.title ?? "")));
+  if (!shop.length) return 0;
+  const groups = Array.from(new Set(shop.map((r) => r.adsetId!)));
+  const top = new Map<string, { itemId: string; title: string; cost: number }>();
+  for (let i = 0; i < groups.length; i += 100) {
+    const perf = await gaql(accountId, `SELECT ad_group.id, segments.product_item_id, segments.product_title, metrics.cost_micros FROM shopping_performance_view WHERE segments.date DURING LAST_30_DAYS AND ad_group.id IN (${groups.slice(i, i + 100).join(",")})`).catch(() => [] as Row[]);
+    for (const r of perf) {
+      const g = str(obj(r.adGroup).id), seg = obj(r.segments), cost = num(obj(r.metrics).costMicros);
+      const itemId = str(seg.productItemId), title = str(seg.productTitle);
+      if (!g || !itemId) continue;
+      const cur = top.get(g);
+      if (!cur || cost > cur.cost) top.set(g, { itemId, title: title ?? itemId, cost });
+    }
+  }
+  if (!top.size) return 0;
+  const items = Array.from(new Set(Array.from(top.values()).map((t) => t.itemId)));
+  const product = new Map<string, { merchant: string | null; price: string | null }>();
+  for (let i = 0; i < items.length; i += 100) {
+    const prows = await gaql(accountId, `SELECT shopping_product.item_id, shopping_product.price_micros, shopping_product.currency_code FROM shopping_product WHERE shopping_product.item_id IN (${items.slice(i, i + 100).map(quote).join(",")})`).catch(() => [] as Row[]);
+    for (const r of prows) {
+      const sp = obj(r.shoppingProduct), itemId = str(sp.itemId); if (!itemId) continue;
+      const merchant = str(sp.resourceName)?.match(/shoppingProducts\/(\d+)~/)?.[1] ?? null;
+      const micros = num(sp.priceMicros), cur = str(sp.currencyCode);
+      let price: string | null = null;
+      if (micros > 0) { try { price = new Intl.NumberFormat("fr-FR", { style: "currency", currency: cur ?? "EUR" }).format(micros / 1e6); } catch { price = String(micros / 1e6); } }
+      product.set(itemId, { merchant, price });
+    }
+  }
+  const thumbs = new Map<string, string>();
+  const byMerchant = new Map<string, string[]>();
+  for (const [itemId, p] of product) if (p.merchant) byMerchant.set(p.merchant, [...(byMerchant.get(p.merchant) ?? []), itemId]);
+  for (const [merchant, ids] of byMerchant) {
+    for (let i = 0; i < ids.length; i += 50) {
+      try {
+        const raw = await relayDirectTool("mcp-merchant-center.search_reports", { account_id: merchant, query: `SELECT id, offer_id, thumbnail_link FROM product_view WHERE offer_id IN (${ids.slice(i, i + 50).map(quote).join(",")})` }, 60_000);
+        for (const r of extractRows(raw)) { const pv = obj(r.productView); const o = str(pv.offerId), t = str(pv.thumbnailLink); if (o && t && !thumbs.has(o)) thumbs.set(o, t); }
+      } catch { break; /* Merchant Center not shared with the connector */ }
+    }
+  }
+  let n = 0;
+  for (const r of shop) {
+    const t = top.get(r.adsetId!); if (!t) continue;
+    const p = product.get(t.itemId);
+    const thumb = thumbs.get(t.itemId) ?? null;
+    r.title = t.title.slice(0, 300);
+    r.body = p?.price ? `${p.price} · produit le plus mis en avant du groupe` : "Produit le plus mis en avant du groupe";
+    if (thumb) { r.imageUrl = thumb; r.thumbnailUrl = thumb; r.format = "Image"; r.creativeKey = `prod:${t.itemId}`; }
+    n += 1;
+  }
+  return n;
+}
+
+/** Applies enrichShopping to the stored Shopping ads of an account (backfill). */
+export async function refreshShopping(accountId: string): Promise<number> {
+  const rows = await prisma.adCatalog.findMany({ where: { platform: "google", accountId, OR: [{ name: { contains: "SHOPPING_PRODUCT_AD" } }, { name: { contains: "SHOPPING_SMART_AD" } }] } });
+  if (!rows.length) return 0;
+  const cat = rows.map((r) => ({ ...r, tags: {} as Record<string, string> })) as unknown as CatalogRow[];
+  const n = await enrichShopping(accountId, cat);
+  for (const c of cat) {
+    const r = rows.find((x) => x.adId === c.adId)!;
+    if (c.title === r.title && c.imageUrl === r.imageUrl) continue;
+    await prisma.adCatalog.update({ where: { id: r.id }, data: { title: c.title, body: c.body, imageUrl: c.imageUrl, thumbnailUrl: c.thumbnailUrl, format: c.format, creativeKey: c.creativeKey } });
+  }
+  return n;
+}
+
 export const googleAdapter: WarehouseAdapter = {
   platform: "google",
 
@@ -188,6 +264,7 @@ export const googleAdapter: WarehouseAdapter = {
         for (const r of rows) catalog.push(catalogFromRow(accountId, r, assets));
       } catch (e) { console.warn("[ads-warehouse] google metadata:", e instanceof Error ? e.message.slice(0, 160) : e); truncated = true; }
     }
+    await enrichShopping(accountId, catalog).catch((e) => console.warn("[ads-warehouse] google shopping visuals:", e instanceof Error ? e.message.slice(0, 120) : e));
     return { daily: Array.from(daily.values()), catalog, truncated, currency };
   },
 };
