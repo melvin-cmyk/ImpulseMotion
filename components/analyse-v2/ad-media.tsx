@@ -68,6 +68,8 @@ export function AdMedia({ ad, ads, ratio = "9:16", caption, onOpen }: Props) {
           </div>
         ) : canPlay ? (
           <InlineVideo ad={ad!} onOpen={onOpen} />
+        ) : ad?.format === "Text" && !ad.imageUrl && !ad.thumbnailUrl ? (
+          <TextAd ad={ad} />
         ) : (
           <>
             <ContainedImage src={posterOf(ad)} fallbackId={ad?.adId ?? "x"} />
@@ -82,6 +84,20 @@ export function AdMedia({ ad, ads, ratio = "9:16", caption, onOpen }: Props) {
           <div className="absolute left-2 bottom-2 z-[6] flex items-center gap-1 pointer-events-none">{caption}</div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Search text ad (Google RSA): no visual, so the ad itself, as a results page shows it. */
+function TextAd({ ad }: { ad: AdSample }) {
+  let host = "";
+  try { host = ad.landingUrl ? new URL(ad.landingUrl).hostname.replace(/^www\./, "") : ""; } catch { /* keep empty */ }
+  const title = (ad.title ?? ad.name).split(/\s*[|\n]\s*/).filter(Boolean).slice(0, 3).join(" | ");
+  return (
+    <div className="absolute inset-0 flex flex-col justify-center gap-2 bg-gray-900 p-4 text-left">
+      <div className="text-[11px] text-gray-400">Sponsorisé{host ? ` · ${host}` : ""}</div>
+      <div className="text-sm font-medium leading-snug text-sky-300 line-clamp-4">{title}</div>
+      {ad.body && <div className="text-xs leading-relaxed text-gray-300 line-clamp-6">{ad.body}</div>}
     </div>
   );
 }
