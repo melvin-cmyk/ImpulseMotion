@@ -58,8 +58,8 @@ export function totalsLine(m: Metrics, prev: Metrics | null, cur: string | null)
   return parts.join(" · ");
 }
 
-export function imageUrl(botId: string, platform: string, adId: string): string {
-  return `/api/bot/${encodeURIComponent(botId)}/image?ad=${encodeURIComponent(`${platform}:${adId}`)}`;
+export function imageUrl(botId: string, platform: string, adId: string, kind: "image" | "video" = "image"): string {
+  return `/api/bot/${encodeURIComponent(botId)}/${kind}?ad=${encodeURIComponent(`${platform}:${adId}`)}`;
 }
 
 function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | null): string {
@@ -79,7 +79,9 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
     `   ${kpis.join(" · ")}`,
     tags ? `   ${tags}` : "",
     text ? `   texte : ${text}` : "",
-    hasVisual ? `   visuel : ![${r.label.slice(0, 40).replace(/[[\]]/g, "")}](${imageUrl(botId, a.platform, a.adId)})` : "",
+    a.platform === "meta" && a.videoId
+      ? `   vidéo : ![${r.label.slice(0, 40).replace(/[[\]]/g, "")}](${imageUrl(botId, a.platform, a.adId, "video")})`
+      : hasVisual ? `   visuel : ![${r.label.slice(0, 40).replace(/[[\]]/g, "")}](${imageUrl(botId, a.platform, a.adId)})` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -119,7 +121,7 @@ export async function buildBotAdsPack(botId: string, accounts: BotAdsAccounts, n
   const text = blocks.length ? [
     "CRÉAS ET PERFORMANCES PUBLICITAIRES (déjà calculées pour vous, comptes de ce client uniquement)",
     "- Ces chiffres viennent de l'entrepôt de l'agence, mis à jour plusieurs fois par jour ; données complètes jusqu'à hier. Pour les 7 ou 30 derniers jours, réponds DIRECTEMENT avec ce bloc, sans appeler d'outil. N'appelle un outil que pour une autre période, un autre niveau (campagne, ensemble) ou un indicateur absent d'ici.",
-    "- Pour montrer une créa, recopie EXACTEMENT sa ligne « visuel » (syntaxe image Markdown) : c'est la seule adresse que tu as le droit d'écrire. Mets le visuel juste au-dessus de ses chiffres. 3 visuels maximum par réponse sauf demande explicite.",
+    "- Pour montrer une créa, recopie EXACTEMENT sa ligne « visuel » ou « vidéo » (syntaxe image Markdown ; une vidéo s'affiche en lecteur dans le chat) : ce sont les seules adresses que tu as le droit d'écrire. Mets le visuel juste au-dessus de ses chiffres. 3 visuels maximum par réponse sauf demande explicite.",
     "- Désigne les créas par leur nom entre guillemets, jamais par un identifiant. Chaque plateforme a sa propre attribution : ne les additionne jamais.",
     ...blocks,
   ].join("\n") : "";

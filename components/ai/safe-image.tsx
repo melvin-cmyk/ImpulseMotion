@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 /**
  * Images written by an AI in its replies are shown only when they come from
  * the application itself (its routes, the sandbox files, inline data). An
@@ -15,7 +17,19 @@ export function isOwnImage(src: unknown): src is string {
   return src.startsWith("/") && !src.startsWith("//");
 }
 
+/** A client bot's video creative (/api/bot/<id>/video?…): a player, the image when the video cannot be played. */
+const BOT_VIDEO = /^\/api\/bot\/[\w-]+\/video\?/;
+
+function BotVideo({ src, alt }: { src: string; alt?: string }) {
+  const [failed, setFailed] = useState(false);
+  const poster = src.replace("/video?", "/image?");
+  // eslint-disable-next-line @next/next/no-img-element
+  if (failed) return <img src={poster} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;
+  return <video src={src} poster={poster} controls playsInline preload="none" onError={() => setFailed(true)} className="max-w-full max-h-96 rounded-lg border border-gray-800 my-2 bg-black" aria-label={alt} />;
+}
+
 export function SafeImage({ src, alt }: { src?: unknown; alt?: string }) {
+  if (typeof src === "string" && BOT_VIDEO.test(src)) return <BotVideo src={src} alt={alt} />;
   if (isOwnImage(src)) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={src} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;
