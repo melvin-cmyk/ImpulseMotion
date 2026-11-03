@@ -13,7 +13,7 @@ import type { AdComment } from "@/lib/meta-comments";
 
 interface Res { open: boolean; comments: AdComment[]; errors: number; error?: string }
 
-export function CommentsPane({ adIds }: { adIds: string[] }) {
+export function CommentsPane({ adIds, dynamic = false }: { adIds: string[]; dynamic?: boolean }) {
   const key = adIds.slice(0, 20).join(",");
   const [res, setRes] = useState<Res | null>(null);
   const [all, setAll] = useState(false);
@@ -39,7 +39,10 @@ export function CommentsPane({ adIds }: { adIds: string[] }) {
         </div>
       )}
       {!res.comments.length ? (
-        <div className="py-12 text-center text-sm text-gray-400">{res.errors ? "Aucun commentaire lisible." : "Aucun commentaire utile sous cette créa."}</div>
+        <div className="py-12 text-center text-sm text-gray-400">
+          {res.errors ? "Aucun commentaire lisible." : "Aucun commentaire utile sous cette créa."}
+          {dynamic && <p className="mt-2 mx-auto max-w-sm text-xs text-gray-500">Pub dynamique : Meta range ses commentaires sous les posts de chaque variante, que l&apos;API ne donne pas (l&apos;aperçu Meta, lui, affiche le total).</p>}
+        </div>
       ) : (
         <>
           <div className="text-xs text-gray-500 flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> {res.comments.length} commentaire{res.comments.length > 1 ? "s" : ""}, les plus aimés d&apos;abord (spam et simples mentions retirés)</div>

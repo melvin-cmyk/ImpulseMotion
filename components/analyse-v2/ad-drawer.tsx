@@ -316,7 +316,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clie
               </>}
 
               {tab === "audience" && ad?.platform === "meta" && <DemographicsPane accountId={ad.accountId} adIds={(row.ads.length ? row.ads : [ad]).filter((a) => a.platform === "meta").map((a) => a.adId)} range={query.range} currency={currency} />}
-              {tab === "commentaires" && ad?.platform === "meta" && <CommentsPane adIds={(row.ads.length ? row.ads : [ad]).filter((a) => a.platform === "meta").map((a) => a.adId)} />}
+              {tab === "commentaires" && ad?.platform === "meta" && <CommentsPane adIds={(row.ads.length ? row.ads : [ad]).filter((a) => a.platform === "meta").map((a) => a.adId)} dynamic={!!ad.dynamic} />}
               {tab === "notes" && ad && <AdNotes platform={ad.platform} adId={ad.adId} />}
             </div>
           </aside>

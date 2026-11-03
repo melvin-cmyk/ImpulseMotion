@@ -69,8 +69,10 @@ export async function readAdComments(adIds: string[]): Promise<{ comments: AdCom
       if (!story || !/^\d+_\d+$/.test(story)) return;
       const pt = await pageToken(story.split("_")[0], token);
       if (!pt) { errors += 1; return; }
-      const res = await metaGraphGet<{ data?: Array<{ message?: string; like_count?: number; created_time?: string }> }>(`/${story}/comments`, pt, { fields: "message,like_count,created_time", limit: String(PER_AD), order: "reverse_chronological", filter: "stream" });
-      for (const c of res.data ?? []) if (c.message) all.push({ adId, text: c.message.slice(0, 500), likes: c.like_count ?? 0, at: c.created_time ?? null });
+      const pageId = story.split("_")[0];
+      const res = await metaGraphGet<{ data?: Array<{ message?: string; like_count?: number; created_time?: string; from?: { id?: string } }> }>(`/${story}/comments`, pt, { fields: "message,like_count,created_time,from{id}", limit: String(PER_AD), order: "reverse_chronological", filter: "stream" });
+      // The brand's own replies are not the customers' words.
+      for (const c of res.data ?? []) if (c.message && c.from?.id !== pageId) all.push({ adId, text: c.message.slice(0, 500), likes: c.like_count ?? 0, at: c.created_time ?? null });
     } catch { errors += 1; }
   }));
   const comments = pickComments(all);
