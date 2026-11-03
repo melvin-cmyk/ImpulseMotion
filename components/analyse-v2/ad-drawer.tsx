@@ -20,6 +20,7 @@ import { DemographicsPane } from "./demographics-pane";
 import { SaveToBoard } from "./inspo";
 import { AddToPlaybook } from "./playbook";
 import { CommentsPane } from "./comments-pane";
+import { CreativeAgents } from "./agents";
 import { TagEditor } from "./glossary";
 import type { GlossaryKey } from "@/lib/ads-warehouse/glossary-labels";
 import { adImageSrc } from "./shared";
@@ -54,7 +55,7 @@ const fmtDay = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("fr-
 export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clientId, accountKey }: Props) {
   const [loaded, setLoaded] = useState<{ key: string; points: DailyPoint[] } | null>(null);
   const [metric, setMetric] = useState<MetricKey>("cpc");
-  const [tab, setTab] = useState<"apercu" | "performance" | "audience" | "commentaires" | "notes">("apercu");
+  const [tab, setTab] = useState<"apercu" | "performance" | "audience" | "commentaires" | "agents" | "notes">("apercu");
   const [copied, setCopied] = useState(false);
   const [showAllTags, setShowAllTags] = useState(false);
   const ad = row.sample;
@@ -142,7 +143,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clie
           {/* Side panel */}
           <aside className="w-[500px] max-w-[45vw] shrink-0 border-l border-gray-800 flex flex-col min-h-0">
             <div className="px-4 flex gap-4 border-b border-gray-800 shrink-0">
-              {([["apercu", "Aperçu"], ["performance", "Performance"], ...(ad?.platform === "meta" ? [["audience", "Audience"] as const, ["commentaires", "Commentaires"] as const] : []), ["notes", "Notes"]] as const).map(([id, l]) => (
+              {([["apercu", "Aperçu"], ["performance", "Performance"], ...(ad?.platform === "meta" ? [["audience", "Audience"] as const, ["commentaires", "Commentaires"] as const] : []), ["agents", "Agents IA"], ["notes", "Notes"]] as const).map(([id, l]) => (
                 <button key={id} type="button" onClick={() => setTab(id)} className={`py-3 text-sm border-b-2 -mb-px ${tab === id ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>{l}</button>
               ))}
             </div>
@@ -317,6 +318,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clie
 
               {tab === "audience" && ad?.platform === "meta" && <DemographicsPane accountId={ad.accountId} adIds={(row.ads.length ? row.ads : [ad]).filter((a) => a.platform === "meta").map((a) => a.adId)} range={query.range} currency={currency} />}
               {tab === "commentaires" && ad?.platform === "meta" && <CommentsPane adIds={(row.ads.length ? row.ads : [ad]).filter((a) => a.platform === "meta").map((a) => a.adId)} dynamic={!!ad.dynamic} />}
+              {tab === "agents" && <CreativeAgents accountKey={accountKey ?? null} query={query} creativeKey={row.key} />}
               {tab === "notes" && ad && <AdNotes platform={ad.platform} adId={ad.adId} />}
             </div>
           </aside>

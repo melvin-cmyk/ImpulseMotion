@@ -1794,3 +1794,34 @@ model InspoItem {
   @@unique([boardId, ref])
   @@index([boardId])
 }
+
+/// A run of an AI agent workflow of the Analyse Ads (Motion's AI agent workflows): on a client's account or on one creative.
+model AdAgentRun {
+  id            String   @id @default(cuid())
+  /// client:<registry id> | meta:<account id> (same key as the playbook).
+  accountKey    String
+  /// Key of the workflow in lib/ads-warehouse/agents-catalog.ts.
+  workflow      String
+  /// Set when the workflow runs on one creative.
+  creativeKey   String?
+  /// What the run is about (creative name, period) — shown in the history.
+  label         String   @default("")
+  /// The consultant's instruction (optional).
+  input         String   @default("") @db.Text
+  /// running | done | error
+  status        String   @default("running")
+  error         String   @default("")
+  /// [{ title, body }]
+  sectionsJson  String   @default("[]") @db.Text
+  /// { "<section index>": 1 | -1 } — Motion's score per section.
+  scoresJson    String   @default("{}") @db.Text
+  /// [{ prompt, answer, at, by }] — follow-up questions on the run.
+  followupsJson String   @default("[]") @db.Text
+  createdById   String?
+  createdByName String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([accountKey, createdAt])
+  @@index([accountKey, creativeKey])
+}

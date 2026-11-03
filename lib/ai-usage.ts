@@ -24,6 +24,7 @@ export type AiFeature =
   | "analyse_opportunity"
   | "analyse_themes"
   | "analyse_playbook"
+  | "analyse_agents"
   | "ai_tagging"
   | "recommend"
   | "hq_context"
