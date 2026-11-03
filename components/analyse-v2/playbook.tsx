@@ -44,7 +44,7 @@ export function AddToPlaybook({ accountKey, source, defaultTitle, aiNote, refInf
   }
   if (!accountKey) return null;
   return (
-    <Popover width={320} align="right" open={open} onOpenChange={(o) => { setOpen(o); if (o) { setTitle(defaultTitle); setState({}); } }} trigger={({ toggle }) => (
+    <Popover width={320} align="right" side={compact ? "top" : "bottom"} open={open} onOpenChange={(o) => { setOpen(o); if (o) { setTitle(defaultTitle); setState({}); } }} trigger={({ toggle }) => (
       compact
         ? <button type="button" onClick={toggle} title="Ajouter au playbook du client" className="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-violet-200"><BookOpen className="w-3 h-3" />Ajouter au playbook</button>
         : <button type="button" onClick={toggle} className={PILL} title="Garder un apprentissage sur cette créa dans le playbook du client"><BookOpen className="w-4 h-4 text-gray-400" />Playbook</button>

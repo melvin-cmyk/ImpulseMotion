@@ -11,11 +11,13 @@ import { X } from "lucide-react";
 
 export const PILL = "h-8 inline-flex items-center gap-1.5 rounded-[10px] border border-gray-800 bg-gray-900 px-2.5 text-sm font-medium text-gray-100 hover:border-gray-700 disabled:opacity-40 disabled:hover:border-gray-800";
 
-export function Popover({ trigger, children, width = 260, align = "left", open: controlled, onOpenChange }: {
+export function Popover({ trigger, children, width = 260, align = "left", side = "bottom", open: controlled, onOpenChange }: {
   trigger: (props: { open: boolean; toggle: () => void }) => React.ReactNode;
   children: React.ReactNode | ((close: () => void) => React.ReactNode);
   width?: number;
   align?: "left" | "right";
+  /** « top » opens above the trigger (triggers near the bottom of a scroll area). */
+  side?: "top" | "bottom";
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -35,7 +37,7 @@ export function Popover({ trigger, children, width = 260, align = "left", open: 
     <div ref={ref} className="relative">
       {trigger({ open, toggle: () => set(!open) })}
       {open && (
-        <div className={`absolute top-full mt-1 z-40 rounded-xl border border-gray-800 bg-gray-950 p-1 shadow-2xl ${align === "right" ? "right-0" : "left-0"}`} style={{ width }}>
+        <div className={`absolute ${side === "top" ? "bottom-full mb-1" : "top-full mt-1"} z-40 rounded-xl border border-gray-800 bg-gray-950 p-1 shadow-2xl ${align === "right" ? "right-0" : "left-0"}`} style={{ width }}>
           {typeof children === "function" ? children(() => set(false)) : children}
         </div>
       )}
