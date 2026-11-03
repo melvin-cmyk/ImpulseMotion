@@ -54,6 +54,7 @@ export function OrganicPanel({ query, accountKey, clientName }: { query: AdsQuer
   return (
     <div className="px-6 pb-10 space-y-4">
       <p className="text-xs text-gray-500">Posts Facebook et Instagram organiques{clientName ? ` de ${clientName}` : ""} depuis le {new Date(data.since).toLocaleDateString("fr-FR")}. « À sponsoriser » = engagement au moins 1,5× la médiane du compte, portée correcte, pas encore sponsorisé.</p>
+      {data.igId && <CompetitorLookup query={query} />}
       {blocked.length > 0 && <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">Compte{blocked.length > 1 ? "s" : ""} non lisible{blocked.length > 1 ? "s" : ""} : {blocked.map((p) => p.name).join(", ")} — à attribuer à l&apos;utilisateur système (Business Settings → Utilisateurs système → Ajouter des ressources → Pages ou Comptes Instagram).</div>}
       {!data.pages.length ? <div className="py-16 text-center text-sm text-gray-400">Aucune Page Facebook rattachée aux comptes Meta de ce client.</div> : (
         <>
@@ -76,7 +77,6 @@ export function OrganicPanel({ query, accountKey, clientName }: { query: AdsQuer
           )}
         </>
       )}
-      {data.igId && <CompetitorLookup query={query} />}
     </div>
   );
 }
@@ -138,7 +138,7 @@ function CompetitorLookup({ query }: { query: AdsQuery }) {
   }
   const posts = res ? [...res.posts].sort((a, b) => (b.vsMedian ?? 0) - (a.vsMedian ?? 0)) : [];
   return (
-    <div className="pt-6 border-t border-gray-800 space-y-3">
+    <div className="rounded-2xl border border-gray-800 bg-gray-900/50 p-4 space-y-3">
       <div className="text-sm font-semibold text-white flex items-center gap-1.5"><Instagram className="w-4 h-4" />Regarder un autre compte Instagram</div>
       <p className="text-xs text-gray-500">Concurrent ou inspiration : ses 25 derniers posts, les plus engageants d&apos;abord (j&apos;aime + commentaires ; la portée n&apos;est pas publique). Comptes professionnels seulement.</p>
       <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void look(); }}>
