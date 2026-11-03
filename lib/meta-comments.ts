@@ -1,13 +1,13 @@
 /**
  * Comments under a client's Meta ads — the customers' own words for the
- * statics factory (lib/creas/context.ts). CLOSED until the permissions exist:
- * the system user token lacks `pages_read_user_content` and the clients'
- * Pages are not assigned to the system user (probe of 2026-10-29: `(#10)` on
- * /{page} and /{story}/comments). Turn on with META_COMMENTS=1 once the
- * Business Manager side is done (Page assigned, « Contenu » task, token
- * regenerated with pages_read_user_content).
+ * statics factory (lib/creas/context.ts). On with META_COMMENTS=1.
  *
- * Path: ad → creative.effective_object_story_id → /{story}/comments. Cached
+ * /{story}/comments needs a PAGE token (the system user token is refused
+ * with « Invalid OAuth 2.0 Access Token »): /{page}?fields=access_token with
+ * the system user token, which only works for the Pages assigned to the
+ * system user in Business Settings (26 on 2026-11-03; the others are skipped).
+ *
+ * Path: ad → creative.effective_object_story_id → page token → /{story}/comments. Cached
  * 24 h per ad set of ids (in memory: one instance warm), 200 comments max,
  * spam and tags-only comments dropped.
  */
@@ -22,6 +22,17 @@ const MAX_COMMENTS = 200;
 const PER_AD = 50;
 const TTL_MS = 24 * 3600 * 1000;
 const cache = new Map<string, { at: number; comments: AdComment[] }>();
+const pageTokens = new Map<string, { at: number; token: string | null }>();
+
+/** Page token of a Page assigned to the system user (null = not assigned), cached 1 h. */
+async function pageToken(pageId: string, systemToken: string): Promise<string | null> {
+  const hit = pageTokens.get(pageId);
+  if (hit && Date.now() - hit.at < 3600 * 1000) return hit.token;
+  let token: string | null = null;
+  try { token = (await metaGraphGet<{ access_token?: string }>(`/${pageId}`, systemToken, { fields: "access_token" })).access_token ?? null; } catch { token = null; }
+  pageTokens.set(pageId, { at: Date.now(), token });
+  return token;
+}
 
 /** A comment worth reading: words (not only @tags or emojis), no link, not a copy-paste of a spam template. */
 export function usefulComment(text: string): boolean {
@@ -56,7 +67,9 @@ export async function readAdComments(adIds: string[]): Promise<{ comments: AdCom
       const ad = await metaGraphGet<{ creative?: { effective_object_story_id?: string } }>(`/${adId}`, token, { fields: "creative{effective_object_story_id}" });
       const story = ad.creative?.effective_object_story_id;
       if (!story || !/^\d+_\d+$/.test(story)) return;
-      const res = await metaGraphGet<{ data?: Array<{ message?: string; like_count?: number; created_time?: string }> }>(`/${story}/comments`, token, { fields: "message,like_count,created_time", limit: String(PER_AD), order: "reverse_chronological", filter: "stream" });
+      const pt = await pageToken(story.split("_")[0], token);
+      if (!pt) { errors += 1; return; }
+      const res = await metaGraphGet<{ data?: Array<{ message?: string; like_count?: number; created_time?: string }> }>(`/${story}/comments`, pt, { fields: "message,like_count,created_time", limit: String(PER_AD), order: "reverse_chronological", filter: "stream" });
       for (const c of res.data ?? []) if (c.message) all.push({ adId, text: c.message.slice(0, 500), likes: c.like_count ?? 0, at: c.created_time ?? null });
     } catch { errors += 1; }
   }));
