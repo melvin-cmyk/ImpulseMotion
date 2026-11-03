@@ -18,7 +18,7 @@ export function isOwnImage(src: unknown): src is string {
 export function SafeImage({ src, alt }: { src?: unknown; alt?: string }) {
   if (isOwnImage(src)) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={src} alt={alt ?? ""} className="max-w-full rounded-lg border border-gray-800 my-2" loading="lazy" />;
+    return <img src={src} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;
   }
   let host = "";
   try { host = typeof src === "string" ? new URL(src).host : ""; } catch { host = ""; }
