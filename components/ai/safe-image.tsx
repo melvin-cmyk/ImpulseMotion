@@ -25,7 +25,7 @@ function BotVideo({ src, alt }: { src: string; alt?: string }) {
   const poster = src.replace("/video?", "/image?");
   // eslint-disable-next-line @next/next/no-img-element
   if (failed) return <img src={poster} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;
-  return <video src={src} poster={poster} controls playsInline preload="none" onError={() => setFailed(true)} className="max-w-full max-h-96 rounded-lg border border-gray-800 my-2 bg-black" aria-label={alt} />;
+  return <video src={src} poster={poster} controls playsInline preload="metadata" onError={() => setFailed(true)} className="max-w-full max-h-96 rounded-lg border border-gray-800 my-2 bg-black" aria-label={alt} />;
 }
 
 export function SafeImage({ src, alt }: { src?: unknown; alt?: string }) {
