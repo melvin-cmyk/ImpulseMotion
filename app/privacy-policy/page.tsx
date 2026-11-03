@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Politique de Confidentialité — ImpulseMotion",
+  title: "Politique de Confidentialité",
   description: "Politique de confidentialité de ImpulseMotion Analytics",
 };
 

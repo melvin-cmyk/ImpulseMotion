@@ -1,6 +1,6 @@
 import { AlertsAssistant } from "@/components/client-alerts/alerts-assistant";
 
-export const metadata = { title: "Alertes · ImpulseMotion" };
+export const metadata = { title: "Alertes" };
 
 /**
  * Alerts created by conversation with an AI: a client, a sentence, a click.

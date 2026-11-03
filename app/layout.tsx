@@ -12,6 +12,7 @@ import { UserNav } from "@/components/user-nav";
 import { CommandPalette } from "@/components/command-palette";
 import { CreativesProvider } from "@/lib/creatives-context";
 import { ClientNavLink } from "@/components/bot/client-nav-link";
+import { LogoMark } from "@/components/brand/logo-mark";
 import { countEnabledBotAccess } from "@/lib/bot-access";
 
 const geist = Geist({
@@ -20,7 +21,7 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "ImpulseMotion — Ad Creative Analytics",
+  title: { default: "ImpulseMotion", template: "%s · ImpulseMotion" },
   description: "Analyze Facebook & TikTok ad creatives with ImpulseMotion",
 };
 
@@ -65,7 +66,7 @@ export default async function RootLayout({
               <div className="flex flex-col h-screen bg-gray-950 text-gray-100">
                 <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
                   <div className="flex items-center gap-5">
-                    <span className="font-bold text-sm tracking-tight text-white">ImpulseMotion</span>
+                    <span className="flex items-center gap-2"><LogoMark size={26} /><span className="font-semibold text-sm tracking-tight text-white">ImpulseMotion</span></span>
                     <nav className="flex items-center gap-1 text-sm">
                       <ClientNavLink href="/d" label="Dashboards" />
                       {hasBot && <ClientNavLink href="/bot" label="Assistant IA" />}

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -8,6 +9,15 @@ import { isStaff } from "@/lib/auth-helpers";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import { BotChat } from "@/components/bot/bot-chat";
 import { runningConversationIds } from "@/lib/ai-jobs";
+
+/** Tab title: the assistant's name (only for someone allowed on it). */
+export async function generateMetadata({ params }: { params: Promise<{ botId: string }> }): Promise<Metadata> {
+  const { botId } = await params;
+  const session = await auth();
+  if (!session?.userId) return { title: "Assistant IA" };
+  const loaded = await loadBotFor(session, botId).catch(() => null);
+  return { title: loaded?.status === 200 ? `${loaded.bot.name || "Assistant IA"} — ${loaded.bot.dashboard.name}` : "Assistant IA" };
+}
 
 /**
  * /bot/[botId] — the private assistant of one client brand.

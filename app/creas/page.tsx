@@ -6,7 +6,7 @@
 import { Suspense } from "react";
 import { CreasPage } from "@/components/creas/creas-page";
 
-export const metadata = { title: "Créas · ImpulseMotion" };
+export const metadata = { title: "Créas" };
 
 export default function Page() {
   return <Suspense fallback={null}><CreasPage /></Suspense>;

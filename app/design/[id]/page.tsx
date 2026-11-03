@@ -1,6 +1,6 @@
 import { DesignPage } from "@/components/design/design-page";
 
-export const metadata = { title: "Design · ImpulseMotion" };
+export const metadata = { title: "Design" };
 
 export default async function Page({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ ask?: string }> }) {
   const { id } = await params;
