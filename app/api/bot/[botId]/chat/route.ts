@@ -26,6 +26,7 @@ import { loadBotFor } from "@/lib/bot-access";
 import { parseMessages, parseSources, serversForSources, type BotMessage } from "@/lib/bot-types";
 import { buildBotSystemPrompt } from "@/lib/bot-prompt";
 import { loadBotCoverage, loadBotDatasets } from "@/lib/bot-context";
+import { buildBotAdsPack } from "@/lib/bot-ads-pack";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import type { RelayChatBody, RelayMessage } from "@/lib/relay-chat";
 import { appendBotMessages, jobTitle, runningJobCount, runningJobOf, startAiJob } from "@/lib/ai-jobs";
@@ -92,7 +93,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   // with nothing behind it is dropped for this turn, like TikTok).
   const datasets = sources.files ? await loadBotDatasets(bot.clientKey) : [];
   if (!datasets.length) delete sources.files;
-  const systemPrompt = buildBotSystemPrompt({ bot: { ...bot, sources }, dashboard: bot.dashboard, coverage, tiktokAdvertiserIds: tiktokIds, datasets });
+  // Creatives + ad performance of the bot's own accounts (warehouse, cached
+  // 15 min): the common questions are answered without a tool round trip.
+  const adsPack = await buildBotAdsPack(bot.id, {
+    meta: sources.meta ? bot.dashboard.metaAccountId : null,
+    google: sources.google ? bot.dashboard.googleCustomerId : null,
+    tiktok: tiktokIds,
+  }).catch(() => "");
+  const systemPrompt = buildBotSystemPrompt({ bot: { ...bot, sources }, dashboard: bot.dashboard, coverage, tiktokAdvertiserIds: tiktokIds, datasets, adsPack });
 
   const accountScope: NonNullable<RelayChatBody["accountScope"]> = {};
   if (sources.meta && bot.dashboard.metaAccountId) accountScope.meta = [bot.dashboard.metaAccountId];
@@ -106,6 +114,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
     allowedServers: serversForSources(sources),
     accountScope,
     budgetMs: BUDGET_MS,
+    // Speed: little thinking, few tool rounds (the ads pack answers most questions).
+    effort: "low",
+    maxTurns: 8,
     // Client-bot restrictions (no HQ, no web) whoever is asking.
     clientBot: true,
   };

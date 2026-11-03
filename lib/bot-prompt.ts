@@ -60,6 +60,8 @@ export interface BuildBotPromptInput {
   datasets?: BotDatasetInfo[] | null;
   /** TikTok advertisers attached to the dashboard (lib/tiktok-accounts.ts). None → TikTok is not offered, even when ticked. */
   tiktokAdvertiserIds?: string[] | null;
+  /** Creatives and ad performance of the bot's own accounts (lib/bot-ads-pack.ts); "" / absent = none. */
+  adsPack?: string | null;
   /** Injected for tests; defaults to now. */
   now?: Date;
 }
@@ -110,7 +112,7 @@ function toneBlock(): string {
     "- Tu vouvoies toujours le client. Ton professionnel, chaleureux, sans jargon inutile ; explique un terme technique la première fois qu'il apparaît si nécessaire.",
     "- Tu réponds en français, sauf si le client écrit dans une autre langue.",
     "- Tu commences par la réponse (le chiffre ou la conclusion), puis le détail. Pas de préambule, pas de rappel de la question.",
-    "- Concis : quelques phrases ou puces suffisent le plus souvent. Un tableau Markdown quand il y a plusieurs lignes à comparer. Pas de tableau pour une seule valeur.",
+    "- Court : 120 à 200 mots par défaut (au-delà seulement si le client demande un rapport ou une analyse détaillée). Quelques puces ou un petit tableau valent mieux qu'un long texte. Un tableau Markdown quand il y a plusieurs lignes à comparer, pas pour une seule valeur. Pas de titres multiples, pas de récapitulatif final qui répète la réponse.",
     "- Le rendu est du Markdown web (titres légers, listes, tableaux, gras). Pas d'emoji.",
     "- Formats français : 12 345,67 €, 3,2 %, dates au format jj/mm/aaaa. Arrondis raisonnables (pas plus de 2 décimales).",
     "- Quand tu donnes des chiffres, termine par une ligne « Source : <plateforme>, <période> » (par exemple « Source : Meta Ads, du 31/08 au 06/09/2026 »). Une ligne par source si plusieurs.",
@@ -148,6 +150,7 @@ function dataRulesBlock(): string {
 function methodBlock(): string {
   return [
     "MÉTHODE DE TRAVAIL",
+    "- Si le bloc « CRÉAS ET PERFORMANCES PUBLICITAIRES » répond à la question (7 ou 30 derniers jours, meilleures créas, visuels), réponds tout de suite avec lui, SANS appel d'outil : c'est le plus rapide pour le client.",
     "- Pour une question chiffrée : 2 à 4 appels d'outils au maximum. Commence par la vue agrégée (compte ou total de la période), puis descends au niveau campagne / produit seulement si la question le demande.",
     "- Ne fais aucun appel d'outil pour une question conversationnelle (bonjour, merci, qui es-tu, que sais-tu faire, une explication de vocabulaire) : réponds directement.",
     "- Si la question est ambiguë (période, indicateur), choisis l'interprétation la plus probable, réponds, et signale l'hypothèse en une ligne plutôt que de poser une question bloquante.",
@@ -302,6 +305,8 @@ export function buildBotSystemPrompt(input: BuildBotPromptInput): string {
     methodBlock(),
     contextBlock(input.bot.businessContext ?? ""),
     sourcesBlock(sources, input.coverage, tiktokIds, datasets),
+    // Refreshed every 15 min: after the stable blocks, before the date.
+    ...(input.adsPack ? [input.adsPack] : []),
     // Last on purpose: the date changes daily and the coverage on every
     // ingest — keeping them at the tail leaves the rest as a stable prefix
     // for the provider's prompt cache.
@@ -316,6 +321,7 @@ export function suggestionsForSources(sources: BotSources): string[] {
     out.push("Quel est mon chiffre d'affaires de la semaine et d'où vient-il ?");
     out.push("Quels sont mes 10 produits les plus vendus ce mois-ci ?");
   }
+  if (sources.meta || sources.google || sources.tiktok) out.push("Montrez-moi mes 3 meilleures créas du mois avec leurs chiffres.");
   if (sources.meta) out.push("Comment se portent mes campagnes Meta sur les 7 derniers jours ?");
   if (sources.google) out.push("Quel est le coût par conversion de mes campagnes Google Ads ce mois-ci ?");
   if (sources.tiktok) out.push("Quelles campagnes TikTok ont le mieux fonctionné sur les 7 derniers jours ?");
