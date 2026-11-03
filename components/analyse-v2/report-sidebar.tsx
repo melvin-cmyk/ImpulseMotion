@@ -10,14 +10,14 @@
  */
 
 import { useMemo, useState } from "react";
-import { BookOpen, Bookmark, Bot, Tags, ChevronDown, ChevronRight, FolderPlus, Lightbulb, MessagesSquare, Shapes, Loader2, Pencil, PlusCircle, Search, Swords, Trash2, Trophy, X } from "lucide-react";
+import { BookOpen, Bookmark, Bot, Leaf, Tags, ChevronDown, ChevronRight, FolderPlus, Lightbulb, MessagesSquare, Shapes, Loader2, Pencil, PlusCircle, Search, Swords, Trash2, Trophy, X } from "lucide-react";
 import { AccountPicker } from "@/components/account-picker";
 import { VIEW_TEMPLATES, type ViewConfig } from "@/lib/ads-warehouse/views";
 import { usePlaybookReviewCount } from "./playbook";
 
 export interface SavedView { id: string; accountKey: string | null; name: string; emoji: string; config: ViewConfig; createdByName: string; updatedAt: string }
 
-export type AnalyseSection = "ads" | "leaderboard" | "themes" | "formats" | "opportunities" | "competitors" | "inspo" | "playbook" | "glossary" | "agents";
+export type AnalyseSection = "ads" | "leaderboard" | "themes" | "formats" | "opportunities" | "competitors" | "inspo" | "playbook" | "glossary" | "agents" | "organic";
 
 interface Props {
   clientLabel: string | null;
@@ -94,6 +94,7 @@ export function ReportSidebar({ clientLabel, section, onSection, accountKey, sav
         {nav("opportunities", Lightbulb, "Opportunités")}
         {nav("competitors", Swords, "Concurrents")}
         {nav("inspo", Bookmark, "Inspiration")}
+        {nav("organic", Leaf, "Organique")}
         {nav("playbook", BookOpen, "Playbook", toReview)}
         {nav("glossary", Tags, "Glossaire")}
         {nav("agents", Bot, "Agents IA")}

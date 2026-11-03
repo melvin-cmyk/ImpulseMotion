@@ -25,7 +25,7 @@ const cache = new Map<string, { at: number; comments: AdComment[] }>();
 const pageTokens = new Map<string, { at: number; token: string | null }>();
 
 /** Page token of a Page assigned to the system user (null = not assigned), cached 1 h. */
-async function pageToken(pageId: string, systemToken: string): Promise<string | null> {
+export async function pageToken(pageId: string, systemToken: string): Promise<string | null> {
   const hit = pageTokens.get(pageId);
   if (hit && Date.now() - hit.at < 3600 * 1000) return hit.token;
   let token: string | null = null;
