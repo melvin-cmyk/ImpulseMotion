@@ -1591,25 +1591,25 @@ model AnalyseThread {
 
 /// Mo (/mo): one voice session of a consultant = one board of floating cards.
 model MoBoard {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   userId       String
-  title        String   @default("")
+  title        String    @default("")
   /// The consultant's "Mo partout" board: fed by the orb present on every page (one per user), hidden from the session list.
-  dock         Boolean  @default(false)
+  dock         Boolean   @default(false)
   /// Page of the consultant's workspace: home (« Aujourd'hui », one per user) | client (one client's page) | free (any other board, the old sessions included)
-  kind         String   @default("free")
+  kind         String    @default("free")
   /// Registry client id (lib/clients/registry.ts) of a client page
   clientId     String?
   archivedAt   DateTime?
   /// Order in the pages rail
-  position     Int      @default(0)
+  position     Int       @default(0)
   /// JSON MoCard[] (lib/mo/model.ts): the cards on the board with their positions
-  cardsJson    String   @default("[]") @db.Text
+  cardsJson    String    @default("[]") @db.Text
   /// JSON MoMessage[] (lib/mo/model.ts): what was said, what Mo answered (raw), the cards each turn produced
-  messagesJson String   @default("[]") @db.Text
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messagesJson String    @default("[]") @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, updatedAt])
   @@index([userId, kind])
@@ -1647,30 +1647,30 @@ model MoTurn {
 /// iteration on a scaled creative, detected from its scores. Expires after 30
 /// days; status active | completed | archived.
 model AdOpportunity {
-  id                String    @id @default(cuid())
-  platform          String
-  accountId         String
+  id               String   @id @default(cuid())
+  platform         String
+  accountId        String
   /// Group key of the creative (AdCatalog.creativeKey or a:<adId>).
-  creativeKey       String
+  creativeKey      String
   /// Top-spend ad of the creative when detected (visual, name).
-  adId              String
-  title             String    @default("")
+  adId             String
+  title            String   @default("")
   /// ImproveFirstFrame | IterateOnHook | IterateOnBody | ImproveCTA
-  type              String
-  status            String    @default("active")
-  description       String    @default("") @db.Text
-  strengthsJson     String    @default("[]") @db.Text
-  weaknessesJson    String    @default("[]") @db.Text
+  type             String
+  status           String   @default("active")
+  description      String   @default("") @db.Text
+  strengthsJson    String   @default("[]") @db.Text
+  weaknessesJson   String   @default("[]") @db.Text
   /// Metrics and scores when the opportunity was identified.
-  metricsJson       String    @default("{}") @db.Text
+  metricsJson      String   @default("{}") @db.Text
   /// AI suggestion: { currentAttractionSummary, changes: [{ summary, actionableChange }] }.
-  aiSuggestionJson  String?   @db.Text
+  aiSuggestionJson String?  @db.Text
   /// Consultant's rating of the AI suggestion: 1 useful, -1 not useful.
-  aiScore           Int?
-  assignedAt        DateTime  @default(now())
-  statusById        String?
-  statusByName      String    @default("")
-  updatedAt         DateTime  @updatedAt
+  aiScore          Int?
+  assignedAt       DateTime @default(now())
+  statusById       String?
+  statusByName     String   @default("")
+  updatedAt        DateTime @updatedAt
 
   @@index([platform, accountId, assignedAt])
   @@index([creativeKey])
@@ -1725,6 +1725,33 @@ model AdMessageTheme {
   createdAt   DateTime @default(now())
 
   @@index([accountKey])
+}
+
+/// Playbook of a client (Motion's Playbook): learnings the team keeps —
+/// added by hand, from a creative, from a copilot answer, or proposed by the
+/// AI (status "review" until a consultant accepts or declines). Saved entries
+/// are given to the Analyse Ads AI so future answers build on them.
+model AdPlaybookEntry {
+  id            String   @id @default(cuid())
+  /// client:<registry id> | meta:<account id> (same key as the saved reports).
+  accountKey    String
+  /// review | saved | declined
+  status        String   @default("saved")
+  /// manual | creative | copilot | ai
+  source        String   @default("manual")
+  title         String
+  userNote      String   @default("") @db.Text
+  aiNote        String   @default("") @db.Text
+  /// { creativeKey?, platform?, adId?, label?, imageUrl?, linkUrl? } — what the learning is about.
+  refJson       String   @default("{}") @db.Text
+  createdById   String?
+  createdByName String   @default("")
+  statusById    String?
+  statusByName  String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([accountKey, status])
 }
 
 /// Inspiration boards (Motion's Inspo boards): saved ads — competitors' from

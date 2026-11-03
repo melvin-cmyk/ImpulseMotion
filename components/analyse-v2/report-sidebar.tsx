@@ -10,13 +10,14 @@
  */
 
 import { useMemo, useState } from "react";
-import { Bookmark, ChevronDown, ChevronRight, FolderPlus, Lightbulb, MessagesSquare, Shapes, Loader2, Pencil, PlusCircle, Search, Swords, Trash2, Trophy, X } from "lucide-react";
+import { BookOpen, Bookmark, ChevronDown, ChevronRight, FolderPlus, Lightbulb, MessagesSquare, Shapes, Loader2, Pencil, PlusCircle, Search, Swords, Trash2, Trophy, X } from "lucide-react";
 import { AccountPicker } from "@/components/account-picker";
 import { VIEW_TEMPLATES, type ViewConfig } from "@/lib/ads-warehouse/views";
+import { usePlaybookReviewCount } from "./playbook";
 
 export interface SavedView { id: string; accountKey: string | null; name: string; emoji: string; config: ViewConfig; createdByName: string; updatedAt: string }
 
-export type AnalyseSection = "ads" | "leaderboard" | "themes" | "formats" | "opportunities" | "competitors" | "inspo";
+export type AnalyseSection = "ads" | "leaderboard" | "themes" | "formats" | "opportunities" | "competitors" | "inspo" | "playbook";
 
 interface Props {
   clientLabel: string | null;
@@ -51,9 +52,11 @@ export function ReportSidebar({ clientLabel, section, onSection, accountKey, sav
   const savedShown = useMemo(() => saved.filter((v) => match(v.name)), [saved, q]); // eslint-disable-line react-hooks/exhaustive-deps
   const templatesShown = useMemo(() => VIEW_TEMPLATES.filter((t) => match(t.name)), [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const nav = (id: AnalyseSection, Icon: typeof Trophy, label: string) => (
+  const toReview = usePlaybookReviewCount(accountKey);
+  const nav = (id: AnalyseSection, Icon: typeof Trophy, label: string, badge = 0) => (
     <button key={id} type="button" onClick={() => onSection(id)} className={`w-full h-9 flex items-center gap-2.5 rounded-[10px] px-2 text-sm ${section === id ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800/60"}`}>
-      <Icon className="w-4 h-4 text-gray-400" />{label}
+      <Icon className="w-4 h-4 text-gray-400" /><span className="flex-1 text-left">{label}</span>
+      {badge > 0 && <span className="rounded-md bg-violet-500/25 px-1.5 text-[11px] text-violet-100" title={`${badge} apprentissage(s) proposé(s) par l'IA à valider`}>{badge}</span>}
     </button>
   );
 
@@ -91,6 +94,7 @@ export function ReportSidebar({ clientLabel, section, onSection, accountKey, sav
         {nav("opportunities", Lightbulb, "Opportunités")}
         {nav("competitors", Swords, "Concurrents")}
         {nav("inspo", Bookmark, "Inspiration")}
+        {nav("playbook", BookOpen, "Playbook", toReview)}
         <button type="button" onClick={onCreate} disabled={!accountKey} className="w-full h-9 flex items-center gap-2.5 rounded-[10px] px-2 text-sm font-semibold text-white hover:bg-gray-800/60 disabled:opacity-40">
           <PlusCircle className="w-4 h-4" />Créer un rapport
         </button>

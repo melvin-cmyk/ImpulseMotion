@@ -14,6 +14,7 @@ import { requireStaff } from "@/lib/auth-helpers";
 import { parseScopedQuery } from "@/lib/ads-warehouse/api";
 import { queryAds } from "@/lib/ads-warehouse/query";
 import { buildAnalyseContext, buildAnalyseSystemPrompt } from "@/lib/ads-warehouse/copilot";
+import { playbookContext } from "@/lib/ads-warehouse/playbook";
 import { appendAnalyseMessages, ensureAnalyseThread, parseAnalyseMessages } from "@/lib/ads-warehouse/copilot-thread";
 import { STAFF_CHAT_PROFILE } from "@/lib/ai-profiles";
 import { runningJobCount, startAiJob } from "@/lib/ai-jobs";
@@ -57,7 +58,9 @@ export async function POST(req: NextRequest) {
   const context = result.rows.length
     ? buildAnalyseContext(parsed.q, result, { clientName: body.clientName?.slice(0, 80) ?? null, groupLabel: body.groupLabel?.slice(0, 40) ?? parsed.q.groupBy })
     : "Le rapport affiché est vide sur cette période (aucune annonce ne correspond aux filtres).";
-  const systemPrompt = `${buildAnalyseSystemPrompt()}\n\n=== RAPPORT AFFICHÉ ===\n${context}`;
+  // The client's playbook (learnings the team saved): the copilot builds on them instead of rediscovering them.
+  const playbook = await playbookContext(accountKey).catch(() => "");
+  const systemPrompt = `${buildAnalyseSystemPrompt()}${playbook ? `\n\n=== PLAYBOOK DU CLIENT (apprentissages validés par l'équipe : appuie-toi dessus, signale si le rapport les contredit) ===\n${playbook}` : ""}\n\n=== RAPPORT AFFICHÉ ===\n${context}`;
   const at = new Date().toISOString();
   const history: RelayMessage[] = [...parseAnalyseMessages(thread.messagesJson), { role: "user" as const, content: message, at }].slice(-MAX_HISTORY).map((m) => ({ role: m.role, content: m.content }));
   await appendAnalyseMessages(thread.id, [{ role: "user", content: message, at }]);

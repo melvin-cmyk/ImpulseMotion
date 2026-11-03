@@ -18,6 +18,7 @@ import { FORMAT_LABEL, ScoreGauge, StatusDot, TrendText, isActive, relativeDay }
 import { AdStage } from "./ad-preview";
 import { DemographicsPane } from "./demographics-pane";
 import { SaveToBoard } from "./inspo";
+import { AddToPlaybook } from "./playbook";
 import { adImageSrc } from "./shared";
 import { AI_TAG_LABELS } from "@/lib/ads-warehouse/ai-tags-labels";
 import { AdNotes } from "./ad-notes";
@@ -32,6 +33,8 @@ interface Props {
   onAsk?: (prompt: string) => void;
   /** Client (registry id), for « Ajouter à un board ». */
   clientId?: string | null;
+  /** Report key (client:… | meta:…), for « Ajouter au playbook ». */
+  accountKey?: string | null;
 }
 
 /** Motion's AI tag families, mapped onto our ai:* keys. */
@@ -45,7 +48,7 @@ const CHIP = ["bg-sky-500/15 text-sky-200", "bg-rose-500/15 text-rose-200", "bg-
 
 const fmtDay = (d: string) => new Date(d + "T00:00:00Z").toLocaleDateString("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
 
-export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clientId }: Props) {
+export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clientId, accountKey }: Props) {
   const [loaded, setLoaded] = useState<{ key: string; points: DailyPoint[] } | null>(null);
   const [metric, setMetric] = useState<MetricKey>("cpc");
   const [tab, setTab] = useState<"apercu" | "performance" | "audience" | "notes">("apercu");
@@ -120,6 +123,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clie
               {kept.busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkPlus className="w-3.5 h-3.5" />} {kept.busy ? "Lecture…" : kept.error ? "Réessayer" : "Garder comme template"}
             </button>
           ))}
+          {ad && <AddToPlaybook accountKey={accountKey ?? null} source="creative" defaultTitle="" refInfo={{ creativeKey: row.key, platform: ad.platform, adId: ad.adId, label: name.slice(0, 200), imageUrl: adImageSrc(ad) ?? null, linkUrl: `/analyse?creative=${encodeURIComponent(row.key)}` }} />}
           {ad && <SaveToBoard clientId={clientId ?? null} payload={() => ({ source: "own", ref: `${ad.platform}:${ad.adId}`, brand: ad.campaignName ?? ad.name, title: ad.title, body: ad.body, imageUrl: adImageSrc(ad) ?? null, linkUrl: `${window.location.origin}/analyse?creative=${encodeURIComponent(row.key)}` })} />}
           <button type="button" onClick={() => void copyLink()} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white text-gray-900 hover:bg-gray-200">{copied ? <Check className="w-3.5 h-3.5" /> : <Link2 className="w-3.5 h-3.5" />}{copied ? "Lien copié" : "Copier le lien"}</button>
           <button type="button" onClick={onClose} className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800" aria-label="Fermer"><X className="w-5 h-5" /></button>

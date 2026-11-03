@@ -12,6 +12,7 @@ import { Loader2, Send, Sparkles, Square, X } from "lucide-react";
 import type { AdsQuery } from "@/lib/ads-warehouse/query";
 import { COPILOT_SUGGESTIONS } from "@/lib/ads-warehouse/copilot";
 import { AiMarkdown } from "@/components/ai/ai-markdown";
+import { AddToPlaybook } from "./playbook";
 import { AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent } from "@/lib/ai-job-client";
 
 interface Msg { role: "user" | "assistant"; content: string; at?: string }
@@ -116,6 +117,11 @@ export function CopilotPanel({ query, accountKey, clientParam, groupLabel, clien
           <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
             <div className={`rounded-xl px-3 py-2 text-xs max-w-[95%] ${m.role === "user" ? "bg-violet-600 text-white" : "bg-gray-900 border border-gray-800 text-gray-200"}`}>
               {m.role === "user" ? <span className="whitespace-pre-wrap">{m.content}</span> : <AiMarkdown content={m.content} filesBase={null} className="prose-xs" />}
+              {m.role === "assistant" && m.content.length >= 20 && !m.content.startsWith("_Le copilote") && (
+                <div className="mt-1.5 pt-1.5 border-t border-gray-800 flex justify-end">
+                  <AddToPlaybook compact accountKey={accountKey || null} source="copilot" defaultTitle={(messages[i - 1]?.role === "user" ? messages[i - 1].content : "").replace(/\s+/g, " ").slice(0, 120)} aiNote={m.content.slice(0, 8000)} />
+                </div>
+              )}
             </div>
           </div>
         ))}
