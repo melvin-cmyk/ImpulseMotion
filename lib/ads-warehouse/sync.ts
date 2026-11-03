@@ -225,7 +225,8 @@ async function upsertCatalog(input: CatalogRow[]) {
       "cta" = COALESCE(EXCLUDED."cta", "AdCatalog"."cta"),
       "landingUrl" = COALESCE(EXCLUDED."landingUrl", "AdCatalog"."landingUrl"),
       "createdTime" = COALESCE(EXCLUDED."createdTime", "AdCatalog"."createdTime"),
-      "tagsJson" = CASE WHEN EXCLUDED."tagsJson" = '{}' THEN "AdCatalog"."tagsJson" ELSE EXCLUDED."tagsJson" END,
+      -- Naming-convention tags come from the platform; the ai:* keys (AI tags, themes, formats, glossary edits) live only here: keep them.
+      "tagsJson" = CASE WHEN EXCLUDED."tagsJson" = '{}' THEN "AdCatalog"."tagsJson" ELSE (EXCLUDED."tagsJson"::jsonb || COALESCE((SELECT jsonb_object_agg(e.k, e.v) FROM jsonb_each(COALESCE(NULLIF("AdCatalog"."tagsJson", ''), '{}')::jsonb) AS e(k, v) WHERE e.k LIKE 'ai:%'), '{}'::jsonb))::text END,
       "platformUpdatedAt" = COALESCE(EXCLUDED."platformUpdatedAt", "AdCatalog"."platformUpdatedAt"),
       "updatedAt" = NOW()`;
 }

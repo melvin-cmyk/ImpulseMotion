@@ -217,7 +217,8 @@ function whereOf(q: AdsQuery, range: { since: string; until: string }): Prisma.S
   if (f.campaignContains) parts.push(Prisma.sql`(c."campaignName" ILIKE ${"%" + f.campaignContains + "%"} OR c."adsetName" ILIKE ${"%" + f.campaignContains + "%"})`);
   if (f.status === "active") parts.push(Prisma.sql`c.status IN ('ACTIVE','ENABLE','ENABLED')`);
   if (f.status === "inactive") parts.push(Prisma.sql`(c.status IS NULL OR c.status NOT IN ('ACTIVE','ENABLE','ENABLED'))`);
-  for (const [k, v] of Object.entries(f.tags ?? {})) parts.push(Prisma.sql`c."tagsJson"::jsonb ->> ${k.slice(0, 40)} = ${v}`);
+  // Exact value, or one of the values of a multi-valued tag (« a | b »), as counted by the Glossaire.
+  for (const [k, v] of Object.entries(f.tags ?? {})) parts.push(Prisma.sql`(c."tagsJson"::jsonb ->> ${k.slice(0, 40)} = ${v} OR ${v} = ANY(regexp_split_to_array(c."tagsJson"::jsonb ->> ${k.slice(0, 40)}, '\s*\|\s*')))`);
   return Prisma.join(parts, " AND ");
 }
 

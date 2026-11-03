@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { BookmarkPlus, Check, ExternalLink, Lightbulb, Link2, Loader2, MessageSquare, Search, Sparkles, X } from "lucide-react";
+import { BookmarkPlus, Check, ExternalLink, Lightbulb, Link2, Loader2, MessageSquare, Pencil, Search, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { AdsGroupRow, AdsQuery, DailyPoint, MetricKey, Metrics } from "@/lib/ads-warehouse/query";
@@ -19,6 +19,8 @@ import { AdStage } from "./ad-preview";
 import { DemographicsPane } from "./demographics-pane";
 import { SaveToBoard } from "./inspo";
 import { AddToPlaybook } from "./playbook";
+import { TagEditor } from "./glossary";
+import type { GlossaryKey } from "@/lib/ads-warehouse/glossary-labels";
 import { adImageSrc } from "./shared";
 import { AI_TAG_LABELS } from "@/lib/ads-warehouse/ai-tags-labels";
 import { AdNotes } from "./ad-notes";
@@ -90,7 +92,10 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clie
   const shown: MetricKey[] = ["spend", "impressions", "ctr", "cpc", "cpm", "conversions", "cpa", "cvr", "roas", "hookRate", "holdRate", "p100Rate"];
 
   const shownPerf = shown.filter((k) => !(METRIC_BY_KEY[k].video && ad && ad.format !== "Video" && row.metrics.videoPlays === 0));
-  const tags = ad?.tags ?? {};
+  // Tags fixed in this sheet (TagEditor) show at once, before the report reloads.
+  const [tagEdits, setTagEdits] = useState<Record<string, string | null>>({});
+  const [editTags, setEditTags] = useState(false);
+  const tags: Record<string, string> = Object.fromEntries(Object.entries({ ...(ad?.tags ?? {}), ...tagEdits }).filter(([, v]) => v)) as Record<string, string>;
   const naming = Object.entries(tags).filter(([k]) => !k.startsWith("ai:") && !/^(s|t)\d+$/.test(k));
   const name = row.label;
   const thoughts: Array<{ icon: typeof Search; label: string; prompt: string }> = [
@@ -180,7 +185,14 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clie
                   </div>
                 )}
 
+                {editTags && ad ? (
+                  <div className="rounded-xl border border-violet-500/40 p-4">
+                    <div className="text-sm font-semibold text-white mb-2">Corriger les tags de la créa</div>
+                    <TagEditor query={query} adIds={Array.from(new Set([ad, ...row.ads].map((a) => `${a.platform}:${a.adId}`)))} keys={TAG_GROUPS.flatMap((g) => g.keys) as GlossaryKey[]} tags={tags} onSaved={(k, v) => setTagEdits((t) => ({ ...t, [k]: v }))} onClose={() => setEditTags(false)} />
+                  </div>
+                ) : (
                 <div className="rounded-xl border border-gray-800 p-4 relative">
+                  {ad && <button type="button" onClick={() => setEditTags(true)} title="Corriger les tags IA de cette créa" className="absolute top-3 right-3 z-10 p-1 rounded-md text-gray-500 hover:text-white hover:bg-gray-800"><Pencil className="w-3.5 h-3.5" /></button>}
                   <div className={`space-y-3 ${showAllTags ? "" : "max-h-56 overflow-hidden"}`}>
                     {TAG_GROUPS.map((g) => (
                       <div key={g.title}>
@@ -199,6 +211,7 @@ export function AdDrawer({ row, query, benchmark, currency, onClose, onAsk, clie
                   </div>
                   {!showAllTags && <div className="absolute inset-x-0 bottom-0 h-16 rounded-b-xl bg-gradient-to-t from-gray-950 to-transparent flex items-end justify-center pb-2"><button type="button" onClick={() => setShowAllTags(true)} className="text-xs text-gray-300 hover:text-white">Voir plus</button></div>}
                 </div>
+                )}
 
                 {naming.length > 0 && (
                   <div className="rounded-xl border border-gray-800 p-4">
