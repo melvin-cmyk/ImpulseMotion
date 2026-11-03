@@ -403,7 +403,7 @@ export function BotChat({
                         key={s}
                         type="button"
                         onClick={() => send(s)}
-                        className="group flex items-start gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3.5 text-sm text-gray-300 hover:border-violet-500/50 hover:bg-violet-500/[0.06] hover:text-white transition-colors"
+                        className="group flex items-start gap-3 text-left rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3.5 text-sm text-gray-300 hover:border-violet-500/50 hover:bg-violet-500/[0.06] hover:text-white transition-colors"
                       >
                         <span className="mt-0.5 h-7 w-7 shrink-0 rounded-lg bg-violet-500/10 text-violet-300 flex items-center justify-center group-hover:bg-violet-500/20"><Icon className="w-4 h-4" /></span>
                         <span className="flex-1">{s}</span>
