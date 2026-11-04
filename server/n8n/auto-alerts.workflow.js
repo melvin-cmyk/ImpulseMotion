@@ -60,7 +60,7 @@ const postMessage = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ JSON.stringify(Object.assign({ channel: $json.body.channel, text: $json.body.text, mrkdwn: true, unfurl_links: false, unfurl_media: false }, Array.isArray($json.body.blocks) && $json.body.blocks.length ? { blocks: $json.body.blocks } : {})) }}'),
+      jsonBody: expr('{{ JSON.stringify(Object.assign({ channel: $json.body.channel, text: $json.body.text, mrkdwn: true, unfurl_links: false, unfurl_media: false }, $json.body.username ? { username: $json.body.username } : {}, $json.body.icon_emoji ? { icon_emoji: $json.body.icon_emoji } : {}, Array.isArray($json.body.blocks) && $json.body.blocks.length ? { blocks: $json.body.blocks } : {})) }}'),
       options: { response: { response: { neverError: true } } },
     },
     credentials: { slackApi: { id: '5SbuTxJH0Up2rnnP', name: 'Slack lpev' } },
