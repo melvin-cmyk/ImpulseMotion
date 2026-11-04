@@ -117,9 +117,11 @@ export function TopPerforming() {
   const activeAccounts = useMemo(() => accounts.filter((a) => !platformsOff.has(a.platform)), [accounts, platformsOff]);
 
   // ── Report configuration (one object = one report) ──
-  const [config, setConfig] = useState<ViewConfig>(VIEW_TEMPLATES[0].config);
-  const [activeId, setActiveId] = useState<string>(`tpl:${VIEW_TEMPLATES[0].id}`);
-  const [baseline, setBaseline] = useState<ViewConfig>(VIEW_TEMPLATES[0].config);
+  // ?view=<template id> (links from Slack, e.g. view=fatigue) opens that template.
+  const initialTemplate = VIEW_TEMPLATES.find((t) => t.id === params.get("view")) ?? VIEW_TEMPLATES[0];
+  const [config, setConfig] = useState<ViewConfig>(initialTemplate.config);
+  const [activeId, setActiveId] = useState<string>(`tpl:${initialTemplate.id}`);
+  const [baseline, setBaseline] = useState<ViewConfig>(initialTemplate.config);
   const dirty = !same(config, baseline);
   const patch = (p: Partial<ViewConfig>) => setConfig((c) => ({ ...c, ...p }));
   const patchFilters = (p: Partial<AdsFilters>) => setConfig((c) => ({ ...c, filters: { ...c.filters, ...p } }));

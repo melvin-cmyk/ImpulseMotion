@@ -45,8 +45,16 @@ async function call<T>(body: Record<string, unknown>, timeoutMs: number): Promis
   return json as T;
 }
 
-export async function postDigest(channel: string, text: string, client: { id: string; name: string }): Promise<void> {
-  await call({ kind: "digest", channel, text, client }, 15_000);
+/** `blocks` (Slack Block Kit) are optional: `text` stays the notification and the fallback. */
+export async function postDigest(channel: string, text: string, client: { id: string; name: string }, blocks?: Array<Record<string, unknown>>): Promise<void> {
+  if (!blocks?.length) { await call({ kind: "digest", channel, text, client }, 15_000); return; }
+  try {
+    await call({ kind: "digest", channel, text, client, blocks }, 20_000);
+  } catch (e) {
+    // invalid_blocks / an image Slack could not fetch: the text alone still goes out.
+    console.error("[slack] blocks refusés, envoi en texte seul:", e instanceof Error ? e.message : e);
+    await call({ kind: "digest", channel, text, client }, 15_000);
+  }
 }
 
 /** Public channels only: Slack never lets a bot enter a private channel by itself. */

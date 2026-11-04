@@ -5,7 +5,7 @@ const incoming = trigger({
     name: 'Demande ImpulseMotion',
     parameters: { httpMethod: 'POST', path: 'impulsemotion-auto-alerts', responseMode: 'responseNode' },
   },
-  output: [{ headers: { 'x-alert-secret': 'secret' }, body: { version: 1, kind: 'digest', channel: 'C0123456789', text: 'message', prefix: 'c_', client: { id: 'id', name: 'Client' } } }],
+  output: [{ headers: { 'x-alert-secret': 'secret' }, body: { version: 1, kind: 'digest', channel: 'C0123456789', text: 'message', blocks: [], prefix: 'c_', client: { id: 'id', name: 'Client' } } }],
 });
 
 const secretOk = ifElse({
@@ -60,7 +60,7 @@ const postMessage = node({
       sendBody: true,
       contentType: 'json',
       specifyBody: 'json',
-      jsonBody: expr('{{ JSON.stringify({ channel: $json.body.channel, text: $json.body.text, mrkdwn: true, unfurl_links: false, unfurl_media: false }) }}'),
+      jsonBody: expr('{{ JSON.stringify(Object.assign({ channel: $json.body.channel, text: $json.body.text, mrkdwn: true, unfurl_links: false, unfurl_media: false }, Array.isArray($json.body.blocks) && $json.body.blocks.length ? { blocks: $json.body.blocks } : {})) }}'),
       options: { response: { response: { neverError: true } } },
     },
     credentials: { slackApi: { id: '5SbuTxJH0Up2rnnP', name: 'Slack lpev' } },
