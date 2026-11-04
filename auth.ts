@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { aclVersion } from "@/lib/acl-version";
@@ -16,6 +17,19 @@ const ROLE_TTL_MS = 20 * 1000;
 /** Role and accounts of a user, as the session carries them. */
 /** Hash compared when the e-mail is unknown: the answer then takes as long as for a wrong password. */
 const DUMMY_HASH = "$2a$10$CwTycUXWue0Thq9StjUM0uJ8Q7u0wD3Yx9YQ1y6E0y0f5u5Yq0rW2";
+
+/** « Se connecter avec Google » is offered only once the OAuth client is configured. */
+export const GOOGLE_SIGN_IN = !!(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET);
+
+/** The ImpulseMotion account behind a Google sign-in: same e-mail, verified by Google.
+ *  No account is ever created here — an admin creates it first, as for a password. */
+async function userForGoogle(email: unknown, verified: unknown) {
+  if (verified !== true || typeof email !== "string" || !email) return null;
+  return prisma.user.findUnique({
+    where: { email: email.trim().toLowerCase() },
+    select: { id: true, email: true, name: true, role: true },
+  });
+}
 
 async function readAccess(userId: string): Promise<{ role: string; acl: string; passwordChangedAt: Date | null } | null> {
   const db = await prisma.user.findUnique({
@@ -63,9 +77,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         };
       },
     }),
+    ...(GOOGLE_SIGN_IN ? [Google({ authorization: { params: { prompt: "select_account" } } })] : []),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    // Google: only a verified e-mail that already has an account (else /login?error=AccessDenied).
+    async signIn({ account, profile }) {
+      if (account?.provider !== "google") return true;
+      const user = await userForGoogle(profile?.email, profile?.email_verified);
+      if (!user) console.warn("[auth] google sign-in refused: no account for this e-mail");
+      return !!user;
+    },
+    async jwt({ token, user, account, profile }) {
+      if (user && account?.provider === "google") {
+        // `user.id` is Google's id here: the session carries the ImpulseMotion account instead.
+        const db = await userForGoogle(profile?.email, profile?.email_verified);
+        if (!db) return {};
+        user = { id: db.id, email: db.email ?? undefined, name: db.name ?? undefined, role: db.role } as typeof user;
+        token.email = db.email;
+        token.name = db.name;
+        delete token.picture;
+        token.sub = db.id;
+      }
       if (user) {
         token.userId = user.id;
         token.role = (user as { role?: string }).role ?? "client";
