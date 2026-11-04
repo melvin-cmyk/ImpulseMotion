@@ -11,6 +11,8 @@
 import type { BotDataCoverage, BotDatasetInfo } from "@/lib/bot-prompt";
 
 const TTL_MS = 10 * 60 * 1000;
+/** Shorter for datasets: a client can import a file from the chat and ask about it right away (other instances keep their memo). */
+const DATASETS_TTL_MS = 60 * 1000;
 const QUERY_TIMEOUT_MS = 5000;
 
 const coverageMemo = new Map<string, { at: number; value: BotDataCoverage | null }>();
@@ -37,7 +39,7 @@ export async function loadBotCoverage(clientKey: string): Promise<BotDataCoverag
 /** Loaded datasets only (a file still being loaded, or in error, is not announced). */
 export async function loadBotDatasets(clientKey: string): Promise<BotDatasetInfo[]> {
   const hit = datasetsMemo.get(clientKey);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
+  if (hit && Date.now() - hit.at < DATASETS_TTL_MS) return hit.value;
   let value: BotDatasetInfo[] = [];
   try {
     const mod = (await import("@/lib/client-datasets")) as { listDatasets?: (key: string) => Promise<BotDatasetInfo[]> };

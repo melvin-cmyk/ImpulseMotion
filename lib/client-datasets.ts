@@ -30,6 +30,10 @@ export interface DatasetSource {
   mimeType?: string;
   modifiedTime?: string;
   folderId?: string;
+  /** "chat" : importé par le client depuis le chat de son bot (sinon : dossier Drive). */
+  uploadedVia?: "chat";
+  uploadedBy?: string;
+  uploadedAt?: string;
 }
 
 export interface DatasetSummary {

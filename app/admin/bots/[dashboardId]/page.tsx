@@ -443,13 +443,12 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                 <SourceToggle
                   checked={Boolean(sources.files)}
                   onChange={(v) => setForm({ ...form, sources: { ...sources, files: v } })}
-                  label="Fichiers de données (Drive)"
+                  label="Fichiers de données"
                   hint={
                     form.driveFolderId.trim()
-                      ? "Fichiers CSV / Excel / Google Sheets du dossier Drive du client"
-                      : "Indiquez d'abord le dossier Drive du client, ci-dessous"
+                      ? "Fichiers du dossier Drive du client + import CSV / Excel par le client depuis le chat"
+                      : "Import CSV / Excel par le client depuis le chat (dossier Drive facultatif, ci-dessous)"
                   }
-                  disabled={!form.driveFolderId.trim()}
                 />
                 <label className="flex flex-col gap-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2">
                   <span className="text-sm text-white">GA4</span>
@@ -646,8 +645,9 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                 client (Drive de <code className="text-gray-200">data@impulse-analytics.com</code>) : n8n les récupère sous
                 une quinzaine de minutes. Première ligne = en-têtes de colonnes, un seul sujet par fichier ; le nom du fichier
                 devient le nom du jeu de données. Un fichier redéposé sous le même nom remplace la version précédente (200 000
-                lignes maximum par fichier). Le bot ne lit ces fichiers que si la source « Fichiers de données (Drive) » est
-                cochée ci-dessus.
+                lignes maximum par fichier). Le bot ne lit ces fichiers que si la source « Fichiers de données » est
+                cochée ci-dessus. Cette source permet aussi au client d&apos;importer lui-même un CSV ou un Excel depuis le chat
+                (bouton trombone) : ses fichiers apparaissent ici aussi.
               </p>
             </Card>
 

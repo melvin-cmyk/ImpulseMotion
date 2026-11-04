@@ -23,6 +23,7 @@ import { LogoMark } from "@/components/brand/logo-mark";
 import type { BotMessage, BotSources } from "@/lib/bot-types";
 import { AI_JOB_FINISHED_EVENT, AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent, type PublicAiJob } from "@/lib/ai-job-client";
 import { useAiJobs } from "@/components/ai-jobs-watcher";
+import { AttachFileButton, BotFilesList, useBotFiles } from "@/components/bot/bot-files";
 
 type ConversationRow = { id: string; title: string | null; updatedAt: string; jobId?: string | null };
 type UiMessage = Pick<BotMessage, "role" | "content">;
@@ -100,6 +101,16 @@ export function BotChat({
   const base = `/api/bot/${botId}`;
   const activeRun = activeId ? runs[activeId] : undefined;
   const busy = !!activeRun || sending;
+  const filesOn = !!sources.files;
+  const botFiles = useBotFiles(botId, filesOn);
+
+  async function onImport(file: File) {
+    const name = await botFiles.importFile(file);
+    if (name && !input.trim()) {
+      setInput(`Analyse le fichier « ${name} » que je viens d'importer : que contient-il et quels sont les points clés ?`);
+      inputRef.current?.focus();
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -339,6 +350,7 @@ export function BotChat({
             );
           })}
         </div>
+        {filesOn && <BotFilesList files={botFiles.files} onRemove={(f) => void botFiles.removeFile(f)} />}
         <div className="m-3 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.05] px-3 py-2.5 flex gap-2.5" title="Cet assistant ne lit que les données de votre espace. Les réponses sont générées sur Amazon Bedrock (AWS, région Europe), dans un environnement dédié.">
           <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
           <p className="text-[11px] leading-snug text-emerald-200/80">Espace privé : uniquement vos données, IA hébergée en Europe (AWS Bedrock).</p>
@@ -460,7 +472,20 @@ export function BotChat({
 
         <div className="relative px-4 sm:px-6 pb-4 pt-2 shrink-0">
           <div className="max-w-3xl mx-auto">
-            <div className="flex items-end gap-2 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-2 pl-4 shadow-2xl shadow-black/40 focus-within:border-violet-500/60 focus-within:ring-4 focus-within:ring-violet-500/10 transition">
+            {(botFiles.upload || botFiles.notice) && (
+              <div className={`mb-2 flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${botFiles.notice?.tone === "error" && !botFiles.upload ? "border-red-900/40 bg-red-950/30 text-red-300" : "border-teal-500/20 bg-teal-500/[0.06] text-teal-100/90"}`}>
+                <span className="flex-1">
+                  {botFiles.upload
+                    ? `Import de « ${botFiles.upload.fileName} »… ${botFiles.upload.total > 1 ? `${botFiles.upload.done}/${botFiles.upload.total}` : ""}`
+                    : botFiles.notice?.text}
+                </span>
+                {!botFiles.upload && (
+                  <button type="button" onClick={() => botFiles.setNotice(null)} className="text-gray-500 hover:text-white" aria-label="Fermer">×</button>
+                )}
+              </div>
+            )}
+            <div className={`flex items-end gap-2 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-2 ${filesOn ? "pl-2" : "pl-4"} shadow-2xl shadow-black/40 focus-within:border-violet-500/60 focus-within:ring-4 focus-within:ring-violet-500/10 transition`}>
+              {filesOn && <AttachFileButton uploading={!!botFiles.upload} onFile={(f) => void onImport(f)} />}
               <textarea
                 ref={inputRef}
                 value={input}
