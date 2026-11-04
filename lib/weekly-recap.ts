@@ -70,6 +70,8 @@ function delta(k: MetricKey, cur: number, prev: number | null | undefined): stri
   return ` (${d > 0 ? "+" : ""}${Math.round(d)} %)`;
 }
 
+const MIN_MEANINGFUL_ROAS = 0.5;
+
 /** Recap text of one client for the week ending yesterday; null when the client did not spend. */
 export async function buildRecap(client: { id: string; name: string; accountsJson: string }, until?: string): Promise<Recap> {
   const accounts = parseAlertAccounts(client.accountsJson).map((a) => ({ platform: a.platform as WarehousePlatform, id: String(a.accountId).replace(/^act_/, "").replace(/-/g, "") }));
@@ -82,7 +84,8 @@ export async function buildRecap(client: { id: string; name: string; accountsJso
 
   const kpi: string[] = [`Dépenses *${fmtMetric("spend", cur.spend, cy)}*${delta("spend", cur.spend, prev?.spend)}`];
   if (cur.conversions > 0) kpi.push(`Conversions *${Math.round(cur.conversions)}*${delta("conversions", cur.conversions, prev?.conversions)}`, `CPA *${fmtMetric("cpa", cur.cpa, cy)}*${delta("cpa", cur.cpa, prev?.cpa)}`);
-  if (!cur.roasUnavailable && !cur.estimated && cur.roas > 0) kpi.push(`ROAS *${fmtMetric("roas", cur.roas, cy, cur)}*${delta("roas", cur.roas, prev?.roas)}`);
+  // Under 0.5× the purchase value is nominal (lead gen such as ICN: 0.08×), so ROAS means nothing there.
+  if (!cur.roasUnavailable && !cur.estimated && cur.roas >= MIN_MEANINGFUL_ROAS) kpi.push(`ROAS *${fmtMetric("roas", cur.roas, cy, cur)}*${delta("roas", cur.roas, prev?.roas)}`);
   kpi.push(`CTR *${fmtMetric("ctr", cur.ctr, cy)}*${delta("ctr", cur.ctr, prev?.ctr)}`);
 
   const link = (key: string, label: string) => `<${APP_URL}/analyse?client=${encodeURIComponent(client.id)}&creative=${encodeURIComponent(key)}|${esc(short(label))}>`;
