@@ -221,7 +221,8 @@ export function MoDock() {
   const listening = voice.listening;
 
   return (
-    <div className="fixed bottom-5 right-[11.5rem] z-40 flex flex-col items-end gap-2 print:hidden pointer-events-none">
+    // Always on the night, like /mo (data-theme scopes the interface tokens).
+    <div data-theme="dark" className="fixed bottom-5 right-[11.5rem] z-40 flex flex-col items-end gap-2 print:hidden pointer-events-none">
       {hint && !bubble && !status && (
         <div className="pointer-events-auto max-w-[18rem] rounded-xl border border-ui-accent bg-ui-bg/95 backdrop-blur px-3 py-2 text-[12px] text-ui-fg shadow-xl">
           <div className="flex items-start gap-2">

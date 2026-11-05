@@ -8,5 +8,7 @@ export default async function MoLayout({ children }: { children: React.ReactNode
   const session = await auth();
   if (!session?.userId) redirect("/login?callbackUrl=/mo");
   if (session.role !== "admin" && session.role !== "consultant") redirect("/");
-  return <>{children}</>;
+  // Mo stays on the night whatever the day / night choice (Melvin, 2026-11-05):
+  // the interface tokens of the subtree follow data-theme.
+  return <div data-theme="dark" className="contents">{children}</div>;
 }
