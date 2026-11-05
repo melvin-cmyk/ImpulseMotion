@@ -26,7 +26,7 @@ import { AttachFileButton, BotFilesList, useBotFiles } from "@/components/bot/bo
 import { useVoice } from "@/components/mo/use-voice";
 import { BotFeedbackBox } from "@/components/bot/bot-feedback";
 import { BotTable } from "@/components/bot/bot-table";
-import { BotCreativeCards } from "@/components/bot/bot-creative-cards";
+import { BotCreativeCards, looksLikeCreatives } from "@/components/bot/bot-creative-cards";
 
 type ConversationRow = { id: string; title: string | null; updatedAt: string; jobId?: string | null };
 type UiMessage = Pick<BotMessage, "role" | "content">;
@@ -341,9 +341,9 @@ export function BotChat({
     pre: ({ node, children, ...rest }: React.HTMLAttributes<HTMLPreElement> & { node?: MdNode }) => {
       const code = node?.children?.[0];
       const cls = code?.properties?.className;
-      if (Array.isArray(cls) && cls.includes("language-creas")) {
-        return <BotCreativeCards text={(code?.children ?? []).map((c) => c.value ?? "").join("")} />;
-      }
+      const lang = Array.isArray(cls) ? String(cls.find((c) => String(c).startsWith("language-")) ?? "").replace("language-", "") : "";
+      const text = (code?.children ?? []).map((c) => c.value ?? "").join("");
+      if (looksLikeCreatives(text, lang)) return <BotCreativeCards text={text} botId={botId} />;
       return <pre {...rest}>{children}</pre>;
     },
   }), [botId, activeTitle]);

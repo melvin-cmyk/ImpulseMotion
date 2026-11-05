@@ -13,28 +13,54 @@ import { BotCardMedia } from "@/components/ai/safe-image";
 
 export interface CreativeCardData { name: string; src: string; caption: string; kpis: Array<{ label: string; value: string }> }
 
-const LINE = /^\s*[-*]?\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*(.*)$/;
+const IMG_LINE = /^\s*(?:[-*•]|\d+[.)])?\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*(.*)$/;
+// « Nom | chiffres » or « Nom — chiffres » (em / en dash only: names often contain « - »)
+const TEXT_LINE = /^\s*(?:[-*•]|\d+[.)])?\s*(.+?)\s*(?:\||—|–)\s*(.*\d.*)$/;
 
-/** One card per line of the block; lines that are not a creative are ignored. */
-export function parseCreativeBlock(text: string): CreativeCardData[] {
+function kpisOf(part: string) {
+  return part.split(/\s+·\s+|\s*;\s*/).map((s) => s.trim()).filter(Boolean).map((s) => {
+    const k = /^(.*?[^\d\s−+-])\s*:?\s+([−+-]?\d.*)$/.exec(s);
+    return k ? { label: k[1].replace(/:$/, ""), value: k[2] } : { label: "", value: s };
+  });
+}
+
+/**
+ * One card per line of the block; lines that are not a creative are ignored.
+ * A line with no visual (« Nom | Vidéo · lancée le 09/07 | dépense … ») gets
+ * the visual of the ad of that name on the bot's accounts (?name=).
+ */
+export function parseCreativeBlock(text: string, botId?: string): CreativeCardData[] {
   const out: CreativeCardData[] = [];
   for (const raw of text.split("\n")) {
-    const m = LINE.exec(raw);
-    if (!m) continue;
-    const parts = m[3].split("|").map((s) => s.trim()).filter(Boolean);
+    let name = "", src = "", rest = "";
+    const m = IMG_LINE.exec(raw);
+    if (m) { name = m[1]; src = m[2]; rest = m[3]; }
+    else {
+      const t = botId ? TEXT_LINE.exec(raw) : null;
+      if (!t) continue;
+      name = t[1].replace(/\*+/g, "").trim().replace(/^[«"“]\s*|\s*[»"”]$/g, "").trim();
+      if (!name || /^[-:\s]+$/.test(name) || /^(nom|créa|creative)$/i.test(name)) continue;
+      src = `/api/bot/${encodeURIComponent(botId!)}/image?name=${encodeURIComponent(name)}`;
+      rest = `| ${t[2]}`;
+    }
+    const parts = rest.split("|").map((s) => s.trim()).filter(Boolean);
     const kpiPart = parts.length > 1 ? parts[parts.length - 1] : parts[0] ?? "";
     const caption = parts.length > 1 ? parts.slice(0, -1).join(" · ") : "";
-    const kpis = kpiPart.split(/\s+·\s+|\s*;\s*/).map((s) => s.trim()).filter(Boolean).map((s) => {
-      const k = /^(.*?[^\d\s−+-])\s+([−+-]?\d.*)$/.exec(s);
-      return k ? { label: k[1], value: k[2] } : { label: "", value: s };
-    });
-    out.push({ name: m[1].trim(), src: m[2], caption, kpis });
+    out.push({ name: name.trim(), src, caption, kpis: kpisOf(kpiPart) });
   }
   return out;
 }
 
-export function BotCreativeCards({ text }: { text: string }) {
-  const cards = parseCreativeBlock(text);
+/** Does this code block look like a list of creatives (whatever its language tag)? */
+export function looksLikeCreatives(text: string, lang: string): boolean {
+  if (/^(creas|créas|creatives?|cards?|cartes?)$/i.test(lang)) return true;
+  const lines = text.split("\n").filter((l) => l.trim());
+  const media = lines.filter((l) => /!\[[^\]]*\]\(\/api\/bot\//.test(l)).length;
+  return media > 0 && media >= Math.ceil(lines.length / 2);
+}
+
+export function BotCreativeCards({ text, botId }: { text: string; botId?: string }) {
+  const cards = parseCreativeBlock(text, botId);
   if (!cards.length) return null;
   return (
     <div className="not-prose my-4 grid grid-cols-2 lg:grid-cols-3 gap-3">
