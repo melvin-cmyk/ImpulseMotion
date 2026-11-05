@@ -13,7 +13,8 @@
  */
 
 import { queryAds, type AdsGroupRow, type AdsQuery, type AdsQueryResult, type Metrics } from "@/lib/ads-warehouse/query";
-import type { WarehousePlatform } from "@/lib/ads-warehouse/types";
+import { stateId, type WarehousePlatform } from "@/lib/ads-warehouse/types";
+import { prisma } from "@/lib/prisma";
 import { GLOSSARY_LABELS, type GlossaryKey } from "@/lib/ads-warehouse/glossary-labels";
 import { fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
 
@@ -22,6 +23,20 @@ export interface BotAdsAccounts { meta?: string | null; google?: string | null; 
 const TTL = 15 * 60_000;
 const cache = new Map<string, { at: number; text: string }>();
 const PLATFORM_LABEL: Record<string, string> = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" };
+/** Live tools of each platform (relay MCP servers), named in the « go and fetch it » notes. */
+const LIVE_TOOLS: Record<string, string> = { meta: "mcp__meta-ads-impulse__*", google: "mcp__mcp-google-ads__*", tiktok: "mcp__mcp-tiktok-ads__*" };
+
+/** Note put in place of / under a platform block when the warehouse cannot answer on its own. */
+export function liveNote(platform: string, reason: string): string {
+  return `⚠ ${PLATFORM_LABEL[platform] ?? platform} : ${reason} → pour toute question chiffrée sur cette plateforme, interroge D'ABORD l'outil en direct (${LIVE_TOOLS[platform] ?? "outil de la plateforme"}) avec la période demandée, puis réponds avec ses chiffres. Ne réponds jamais « pas de données » sans avoir fait cet appel.`;
+}
+
+/** Last day fully synced for these accounts (the oldest of them), null when never synced. */
+async function syncedTo(platform: WarehousePlatform, accountIds: string[]): Promise<string | null> {
+  const states = await prisma.adSyncState.findMany({ where: { id: { in: accountIds.map((id) => stateId(platform, id)) } }, select: { syncedTo: true } });
+  if (states.length < accountIds.length || states.some((s) => !s.syncedTo)) return null;
+  return states.map((s) => iso(s.syncedTo as Date)).sort()[0];
+}
 const TREND_LABEL: Record<string, string> = { new: "nouvelle", scaling: "dépense en hausse", declining: "dépense en baisse", paused: "en pause", stable: "dépense stable", testing: "en test" };
 const SHOWN_TAGS: GlossaryKey[] = ["ai:type", "ai:format", "ai:theme"];
 
@@ -85,20 +100,29 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
   ].filter(Boolean).join("\n");
 }
 
-async function platformBlock(botId: string, platform: WarehousePlatform, accountIds: string[], now: Date): Promise<string | null> {
+async function platformBlock(botId: string, platform: WarehousePlatform, accountIds: string[], now: Date): Promise<string> {
   const base: Omit<AdsQuery, "range" | "compare"> = { platforms: [platform], accountIds, accounts: accountIds.map((id) => ({ platform, id })), groupBy: "creative", filters: {}, sort: { key: "spend", dir: "desc" } };
   const w30 = window(30, now), w7 = window(7, now);
-  const [r30, r7]: AdsQueryResult[] = await Promise.all([
+  const [r30, r7, lastDay] = await Promise.all([
     queryAds({ ...base, ...w30, limit: 6 }),
     queryAds({ ...base, ...w7, limit: 3 }),
-  ]);
-  if (r30.benchmark.spend <= 0 && r7.benchmark.spend <= 0) return null;
+    syncedTo(platform, accountIds).catch(() => null),
+  ]) as [AdsQueryResult, AdsQueryResult, string | null];
+  // Nothing in the warehouse: say so, so the model fetches live instead of answering « no data ».
+  if (r30.benchmark.spend <= 0 && r7.benchmark.spend <= 0) {
+    return `### ${PLATFORM_LABEL[platform]}\n${liveNote(platform, "aucune donnée dans l'entrepôt de l'agence pour ce compte (pas encore synchronisé, ou pas de dépense récente)")}`;
+  }
+  // Behind: the last days of the windows are missing or partial.
+  const gaps: string[] = [];
+  if (!lastDay || lastDay < w7.range.until) gaps.push(lastDay ? `l'entrepôt n'est à jour que jusqu'au ${frDate(lastDay)} (les chiffres ci-dessous sont incomplets)` : "synchronisation de l'entrepôt inachevée (chiffres possiblement incomplets)");
+  if (r7.benchmark.spend > 0 && r7.benchmark.impressions <= 0) gaps.push("impressions absentes de l'entrepôt sur 7 jours");
   const cur = r30.currency;
   const rows30 = r30.rows.filter((r) => r.sample && r.metrics.spend > 0);
   const rows7 = r7.rows.filter((r) => r.sample && r.metrics.spend > 0);
   const best = [...rows30].filter((r) => r.metrics.conversions >= 3).sort((a, b) => (a.metrics.cpa || Infinity) - (b.metrics.cpa || Infinity)).slice(0, 3);
   return [
     `### ${PLATFORM_LABEL[platform]}`,
+    gaps.length ? liveNote(platform, gaps.join(" ; ")) : "",
     `7 derniers jours (${frDate(w7.range.since)} → ${frDate(w7.range.until)}, écarts vs les 7 jours d'avant) : ${totalsLine(r7.benchmark, r7.benchmarkPrevious, cur)}`,
     `30 derniers jours (${frDate(w30.range.since)} → ${frDate(w30.range.until)}, écarts vs les 30 jours d'avant) : ${totalsLine(r30.benchmark, r30.benchmarkPrevious, cur)}`,
     rows7.length ? `Créas qui dépensent le plus sur 7 jours :\n${rows7.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
@@ -117,10 +141,10 @@ export async function buildBotAdsPack(botId: string, accounts: BotAdsAccounts, n
   const key = `${botId}|${JSON.stringify(plan)}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL) return hit.text;
-  const blocks = (await Promise.all(plan.map(([p, ids]) => platformBlock(botId, p, ids, now).catch(() => null)))).filter(Boolean) as string[];
+  const blocks = await Promise.all(plan.map(([p, ids]) => platformBlock(botId, p, ids, now).catch(() => `### ${PLATFORM_LABEL[p]}\n${liveNote(p, "entrepôt de l'agence momentanément illisible")}`)));
   const text = blocks.length ? [
     "CRÉAS ET PERFORMANCES PUBLICITAIRES (déjà calculées pour vous, comptes de ce client uniquement)",
-    "- Ces chiffres viennent de l'entrepôt de l'agence, mis à jour plusieurs fois par jour ; données complètes jusqu'à hier. Pour les 7 ou 30 derniers jours, réponds DIRECTEMENT avec ce bloc, sans appeler d'outil. N'appelle un outil que pour une autre période, un autre niveau (campagne, ensemble) ou un indicateur absent d'ici.",
+    "- Ces chiffres viennent de l'entrepôt de l'agence, mis à jour plusieurs fois par jour ; données complètes jusqu'à hier. Pour les 7 ou 30 derniers jours, réponds DIRECTEMENT avec ce bloc, sans appeler d'outil. N'appelle un outil que pour une autre période, un autre niveau (campagne, ensemble), un indicateur absent d'ici, ou une plateforme marquée ⚠ : là, va chercher les chiffres en direct.",
     "- Pour montrer une créa, recopie EXACTEMENT sa ligne « visuel » ou « vidéo » (syntaxe image Markdown ; une vidéo s'affiche en lecteur dans le chat) : ce sont les seules adresses que tu as le droit d'écrire. Mets le visuel juste au-dessus de ses chiffres. 3 visuels maximum par réponse sauf demande explicite.",
     "- Désigne les créas par leur nom entre guillemets, jamais par un identifiant. Chaque plateforme a sa propre attribution : ne les additionne jamais.",
     ...blocks,
