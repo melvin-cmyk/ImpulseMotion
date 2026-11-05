@@ -78,3 +78,28 @@ export async function metaVideoSource(adId: string, videoId: string): Promise<st
   videoCache.set(adId, { at: Date.now(), url });
   return url;
 }
+
+const productCache = new Map<string, { at: number; urls: string[] }>();
+
+/**
+ * Images of a few products of the catalogue a Meta dynamic product ad (DPA)
+ * shows: such an ad has no fixed visual (Meta's own thumbnail is a grey
+ * placeholder), each person sees a product of the set. Empty when the ad has
+ * no product set or the catalogue is not readable. Cached 30 min.
+ */
+export async function metaCatalogProductImages(adId: string, max = 3): Promise<string[]> {
+  const hit = productCache.get(adId);
+  if (hit && Date.now() - hit.at < VIDEO_TTL) return hit.urls;
+  let urls: string[] = [];
+  try {
+    const sys = getMetaSystemToken();
+    const ad = await metaGraphGet<{ creative?: { product_set_id?: string } }>(`/${adId}`, sys, { fields: "creative{product_set_id}" });
+    const set = ad.creative?.product_set_id;
+    if (set && /^\d+$/.test(set)) {
+      const prods = await metaGraphGet<{ data?: Array<{ image_url?: string }> }>(`/${set}/products`, sys, { fields: "image_url", limit: String(max) });
+      urls = (prods.data ?? []).map((p) => p.image_url ?? "").filter((u) => /^https:\/\//.test(u)).slice(0, max);
+    }
+  } catch { urls = []; }
+  productCache.set(adId, { at: Date.now(), urls });
+  return urls;
+}

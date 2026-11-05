@@ -89,12 +89,17 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
   const trend = r.trend ? `, ${TREND_LABEL[r.trend.state] ?? "stable"}` : "";
   const text = [a.title, a.body].filter(Boolean).join(" — ").replace(/\s+/g, " ").slice(0, 90);
   const hasVisual = !!(a.imageUrl || a.thumbnailUrl || a.platform === "meta");
+  // Dynamic product ad (catalogue): no fixed visual, Meta's thumbnail is a placeholder → products of its catalogue.
+  const dpa = a.platform === "meta" && /\{\{\s*product\./.test(`${a.title ?? ""} ${a.body ?? ""}`);
+  const alt = r.label.slice(0, 40).replace(/[[\]]/g, "");
   return [
     `${i}. « ${r.label.slice(0, 60)} » — ${a.format}${a.dynamic ? " dynamique" : ""}${r.launch ? `, lancée le ${frDate(r.launch)}` : ""}${trend}`,
     `   ${kpis.join(" · ")}`,
     tags ? `   ${tags}` : "",
     text ? `   texte : ${text}` : "",
-    a.platform === "meta" && a.videoId
+    dpa
+      ? `   publicité dynamique du catalogue : chaque personne voit un produit différent. Exemples de produits diffusés (à présenter comme tels) : ${[0, 1, 2].map((n) => `![${alt} produit ${n + 1}](${imageUrl(botId, a.platform, a.adId)}&product=${n})`).join(" ")}`
+      : a.platform === "meta" && a.videoId
       ? `   vidéo : ![${r.label.slice(0, 40).replace(/[[\]]/g, "")}](${imageUrl(botId, a.platform, a.adId, "video")})`
       : hasVisual ? `   visuel : ![${r.label.slice(0, 40).replace(/[[\]]/g, "")}](${imageUrl(botId, a.platform, a.adId)})` : "",
   ].filter(Boolean).join("\n");
@@ -155,6 +160,7 @@ export async function buildBotAdsPack(botId: string, accounts: BotAdsAccounts, n
     "- LES CLIENTS VEULENT VOIR LEURS CRÉAS, pas seulement des chiffres. Dès qu'une réponse porte sur les performances publicitaires (période, plateforme, campagne, meilleures pubs), termine-la par les visuels des 2 ou 3 créas qui pèsent le plus sur cette période, chacun avec son nom et ses chiffres clés, même si le client n'a demandé que des chiffres.",
     "- Pour montrer une créa de ce bloc, recopie EXACTEMENT sa ligne « visuel » ou « vidéo » (syntaxe image Markdown ; une vidéo s'affiche en lecteur dans le chat). Mets le visuel juste au-dessus de ses chiffres. 3 visuels maximum par réponse sauf demande explicite.",
     `- Pour une créa obtenue par un outil en direct (autre période, campagne précise…), écris son visuel ainsi, avec l'identifiant d'annonce renvoyé par l'outil : ![nom de la créa](${imageUrl(botId, "PLATEFORME", "ID")}) en remplaçant PLATEFORME par meta, google ou tiktok et ID par l'identifiant de l'annonce (ad id) ; pour une vidéo Meta, remplace « /image? » par « /video? ». Sans identifiant, utilise le nom exact de l'annonce : ![nom](/api/bot/${encodeURIComponent(botId)}/image?name=NOM) avec NOM = le nom de l'annonce encodé pour une adresse (espaces en %20). Ce sont les SEULES adresses que tu as le droit d'écrire ; l'identifiant reste dans l'adresse de l'image, jamais dans le texte.`,
+    "- Publicité dynamique du catalogue (DPA, texte avec {{product.…}}) trouvée en direct : elle n'a pas de visuel fixe ; montre 3 produits de son catalogue en ajoutant &product=0, &product=1 et &product=2 à l'adresse image, présentés comme des exemples de produits diffusés.",
     "- Toutes les créas des comptes de ce client, même lancées hier, ont leur visuel côté serveur : ne dis JAMAIS qu'une créa n'est « pas indexée » ou que son visuel est indisponible, écris l'adresse du visuel ; si l'image ne se charge pas, le chat l'indique lui-même.",
     "- Désigne les créas par leur nom entre guillemets, jamais par un identifiant. Chaque plateforme a sa propre attribution : ne les additionne jamais.",
     ...blocks,
