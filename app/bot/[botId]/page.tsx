@@ -1,3 +1,4 @@
+import { botPersonaName } from "@/lib/bot-types";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
@@ -16,7 +17,7 @@ export async function generateMetadata({ params }: { params: Promise<{ botId: st
   const session = await auth();
   if (!session?.userId) return { title: "Assistant IA" };
   const loaded = await loadBotFor(session, botId).catch(() => null);
-  return { title: loaded?.status === 200 ? `${loaded.bot.name || "Assistant IA"} — ${loaded.bot.dashboard.name}` : "Assistant IA" };
+  return { title: loaded?.status === 200 ? `${botPersonaName(loaded.bot.name)} — ${loaded.bot.dashboard.name}` : "Assistant IA" };
 }
 
 /**

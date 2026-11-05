@@ -19,7 +19,7 @@ import ReactMarkdown from "react-markdown";
 import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
 import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpRight, Mic, BarChart3, FileSpreadsheet, Globe, Images, Loader2, MessageSquare, Plus, ShieldCheck, ShoppingBag, Square, Trash2 } from "lucide-react";
-import type { BotMessage, BotSources } from "@/lib/bot-types";
+import { botPersonaName, type BotMessage, type BotSources } from "@/lib/bot-types";
 import { AI_JOB_FINISHED_EVENT, AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent, type PublicAiJob } from "@/lib/ai-job-client";
 import { useAiJobs } from "@/components/ai-jobs-watcher";
 import { AttachFileButton, BotFilesList, useBotFiles } from "@/components/bot/bot-files";
@@ -349,6 +349,7 @@ export function BotChat({
   }), [botId, activeTitle]);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
+  const persona = botPersonaName(botName);
   const enabledSources = SOURCE_LABELS.filter(([k]) => !!sources[k]);
   const showSuggestions = messages.length === 0 && !activeRun && !loadingThread && !sending;
   const runningCount = Object.keys(runs).length;
@@ -359,8 +360,8 @@ export function BotChat({
       <aside className="hidden md:flex w-64 shrink-0 border-r border-ui-line bg-ui-sunken flex-col min-h-0">
         <div className="p-4 space-y-4">
           <div className="min-w-0">
-            <div className="text-sm font-medium text-ui-fg truncate">{botName}</div>
-            <div className="text-xs text-ui-muted truncate">{dashboardName}</div>
+            <div className="text-sm font-medium text-ui-fg truncate">{persona}</div>
+            <div className="text-xs text-ui-muted truncate">Assistant IA de {dashboardName}</div>
           </div>
           <button
             type="button"
@@ -427,8 +428,8 @@ export function BotChat({
       <section className="relative flex-1 flex flex-col min-w-0 min-h-0">
         <header className="h-14 px-4 sm:px-6 border-b border-ui-line flex items-center justify-between gap-4 shrink-0">
           <div className="min-w-0">
-            <div className="text-sm font-medium text-ui-fg truncate">{botName}</div>
-            <div className="text-xs text-ui-muted truncate">Lecture seule, données de {dashboardName}</div>
+            <div className="text-sm font-medium text-ui-fg truncate">{persona}</div>
+            <div className="text-xs text-ui-muted truncate">Assistant IA de {dashboardName} · lecture seule</div>
           </div>
           <div className="flex items-center gap-4 overflow-hidden">
             {enabledSources.length > 0 ? (

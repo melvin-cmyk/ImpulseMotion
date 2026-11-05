@@ -99,3 +99,9 @@ export interface BotSummary {
   dashboardName: string;
   sources: BotSources;
 }
+
+/** Name the client assistant goes by: « Mo » unless the admin gave the bot a name of its own (not « Assistant … »). */
+export function botPersonaName(name: string | null | undefined): string {
+  const n = (name ?? "").trim();
+  return !n || /^assistant\b/i.test(n) ? "Mo" : n;
+}

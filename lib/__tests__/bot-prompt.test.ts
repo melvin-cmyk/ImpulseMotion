@@ -14,6 +14,15 @@ function build(sourcesJson: string, extra: Partial<Parameters<typeof buildBotSys
   });
 }
 
+describe("botPersonaName", () => {
+  it("Mo par défaut, le nom choisi par l'admin sinon", async () => {
+    const { botPersonaName } = await import("@/lib/bot-types");
+    expect(botPersonaName("Assistant LPEV")).toBe("Mo");
+    expect(botPersonaName("")).toBe("Mo");
+    expect(botPersonaName("Léa")).toBe("Léa");
+  });
+});
+
 describe("buildBotSystemPrompt — blocs fixes", () => {
   const p = build("{}");
 
@@ -34,12 +43,14 @@ describe("buildBotSystemPrompt — blocs fixes", () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 
-  it("s'adresse au client au nom d'Impulse Analytics, avec le nom du bot et de la marque", () => {
-    expect(p).toContain("Impulse Analytics");
-    expect(p).toContain("« Assistant LPEV »");
-    expect(p).toContain("LPEV");
+  it("s'appelle Mo, parle en son nom et jamais au nom de l'agence", () => {
+    expect(p).toContain("Tu t'appelles Mo.");
+    expect(p).toContain("assistant IA privé de LPEV, mis à disposition par Impulse Analytics");
     expect(p).toContain("vouvoies");
-    expect(p).toContain("Ne parle JAMAIS du consultant à la troisième personne");
+    expect(p).toMatch(/au singulier/);
+    expect(p).toMatch(/ne dis jamais « nous »/);
+    expect(p).toContain("votre équipe Impulse Analytics");
+    expect(p).not.toContain("Nous sommes le");
   });
 
   it("porte les règles métier reprises du bot Slack", () => {
