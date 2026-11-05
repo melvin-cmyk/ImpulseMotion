@@ -23,9 +23,9 @@ import { slackFoundLine } from "@/components/client-alerts/alert-model";
 
 export interface SlackState { configured: boolean; identity: SlackIdentity | null }
 
-const inputCls = "min-w-0 flex-1 px-3 py-1.5 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white placeholder:text-gray-600 focus:border-violet-500 focus:outline-none disabled:opacity-60";
-const btnCls = "px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
-const linkCls = "underline text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed";
+const inputCls = "min-w-0 flex-1 px-3 py-1.5 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg placeholder:text-ui-muted focus:border-ui-accent focus:outline-none disabled:opacity-60";
+const btnCls = "px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+const linkCls = "underline text-ui-fg2 hover:text-ui-fg disabled:opacity-40 disabled:cursor-not-allowed";
 
 async function call(body: Record<string, unknown>): Promise<{ identity?: SlackIdentity }> {
   const res = await fetch("/api/me/slack", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -88,7 +88,7 @@ export function SlackBanner({ slack, sending, onIdentity }: {
   const quiet = sending && configured && found && !editing;
 
   return (
-    <div className={`bg-gray-900 border rounded-2xl divide-y divide-gray-800 ${quiet ? "border-gray-800" : "border-amber-900/40"}`}>
+    <div className={`bg-ui-card border rounded-xl divide-y divide-ui-line ${quiet ? "border-ui-line" : "border-amber-900/40"}`}>
       {!sending && (
         <p className="px-4 py-3 flex items-start gap-2 text-sm text-amber-200">
           <FlaskConical className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
@@ -102,9 +102,9 @@ export function SlackBanner({ slack, sending, onIdentity }: {
         </p>
       )}
       {configured && found && !editing && (
-        <p className="px-4 py-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+        <p className="px-4 py-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ui-fg2">
           <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
-          <span>Slack : <span className="text-gray-200 break-all">{identity?.email ?? "adresse de votre compte"}</span></span>
+          <span>Slack : <span className="text-ui-fg break-all">{identity?.email ?? "adresse de votre compte"}</span></span>
           <span aria-hidden>·</span>
           <button type="button" className={linkCls} disabled={busy !== null} onClick={() => { setEditing(true); setError(null); setMessage(null); }}>Modifier</button>
           {canTest && (

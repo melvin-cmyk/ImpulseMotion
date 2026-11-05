@@ -5,19 +5,19 @@ export const metadata = {
 
 export default function PrivacyPolicyPage() {
   return (
-    <div className="min-h-screen" style={{ backgroundColor: "#0a0a0f", color: "#ffffff" }}>
+    <div className="min-h-screen" style={{ backgroundColor: "var(--ui-card)", color: "var(--ui-fg)" }}>
 
       {/* NAV */}
       <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4"
         style={{ background: "rgba(10,10,15,0.85)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(139,92,246,0.12)" }}>
         <a href="/" className="flex items-center gap-2.5 no-underline">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}>
+            style={{ background: "#7043f5" }}>
             <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
           </div>
-          <span className="font-semibold text-white text-sm">ImpulseMotion</span>
+          <span className="font-medium text-ui-fg text-sm">ImpulseMotion</span>
         </a>
       </nav>
 
@@ -27,24 +27,24 @@ export default function PrivacyPolicyPage() {
         {/* Header */}
         <div className="mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-4"
-            style={{ background: "rgba(139,92,246,0.15)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.3)" }}>
+            style={{ background: "rgba(139,92,246,0.15)", color: "var(--ui-accent-ink)", border: "1px solid rgba(139,92,246,0.3)" }}>
             Légal
           </div>
-          <h1 className="text-4xl font-bold mb-3" style={{ color: "#ffffff" }}>
+          <h1 className="text-4xl font-medium mb-3" style={{ color: "var(--ui-fg)" }}>
             Politique de Confidentialité
           </h1>
-          <p className="text-sm" style={{ color: "#6b7280" }}>
+          <p className="text-sm" style={{ color: "var(--ui-muted)" }}>
             Dernière mise à jour : 12 mars 2026
           </p>
         </div>
 
-        <div className="space-y-10" style={{ color: "#d1d5db", lineHeight: "1.75" }}>
+        <div className="space-y-10" style={{ color: "var(--ui-fg2)", lineHeight: "1.75" }}>
 
           {/* Intro */}
           <section>
             <p>
               ImpulseMotion (&ldquo;nous&rdquo;, &ldquo;notre&rdquo;) exploite la plateforme d&rsquo;analyse de publicités
-              accessible à <strong style={{ color: "#e5e7eb" }}>impulsemotion.ai</strong> (le &ldquo;Service&rdquo;).
+              accessible à <strong style={{ color: "var(--ui-fg)" }}>impulsemotion.ai</strong> (le &ldquo;Service&rdquo;).
               La présente politique décrit comment nous collectons, utilisons et protégeons vos données personnelles
               lorsque vous utilisez notre Service.
             </p>
@@ -53,14 +53,14 @@ export default function PrivacyPolicyPage() {
           <Section title="1. Données collectées">
             <p>Nous collectons les catégories de données suivantes :</p>
             <ul className="mt-3 space-y-2 list-none">
-              <Li><strong style={{ color: "#e5e7eb" }}>Données de compte :</strong> nom, adresse e-mail et photo de profil
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Données de compte :</strong> nom, adresse e-mail et photo de profil
                 fournis par Meta lors de l&rsquo;authentification OAuth.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Données publicitaires Meta Ads :</strong> métriques de campagnes,
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Données publicitaires Meta Ads :</strong> métriques de campagnes,
                 ensembles de publicités, créatifs publicitaires, dépenses, impressions, clics, conversions et autres
                 indicateurs de performance accessibles via l&rsquo;API Marketing de Meta.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Données TikTok Ads (optionnel) :</strong> métriques équivalentes
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Données TikTok Ads (optionnel) :</strong> métriques équivalentes
                 issues de l&rsquo;API TikTok for Business, si vous connectez un compte TikTok.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Données d&rsquo;utilisation :</strong> logs de connexion, adresse IP,
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Données d&rsquo;utilisation :</strong> logs de connexion, adresse IP,
                 type de navigateur et pages consultées, à des fins de sécurité et d&rsquo;amélioration du Service.</Li>
             </ul>
           </Section>
@@ -83,9 +83,9 @@ export default function PrivacyPolicyPage() {
           <Section title="3. Base légale du traitement (RGPD)">
             <p>Conformément au Règlement Général sur la Protection des Données (RGPD), nous traitons vos données sur les bases suivantes :</p>
             <ul className="mt-3 space-y-2 list-none">
-              <Li><strong style={{ color: "#e5e7eb" }}>Exécution du contrat :</strong> traitement nécessaire à la fourniture du Service que vous avez demandé.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Consentement :</strong> lors de l&rsquo;autorisation OAuth Meta/TikTok, vous consentez explicitement à nous donner accès à vos données publicitaires.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Intérêts légitimes :</strong> sécurité du Service, prévention des abus et amélioration technique.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Exécution du contrat :</strong> traitement nécessaire à la fourniture du Service que vous avez demandé.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Consentement :</strong> lors de l&rsquo;autorisation OAuth Meta/TikTok, vous consentez explicitement à nous donner accès à vos données publicitaires.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Intérêts légitimes :</strong> sécurité du Service, prévention des abus et amélioration technique.</Li>
             </ul>
           </Section>
 
@@ -105,10 +105,10 @@ export default function PrivacyPolicyPage() {
           <Section title="5. Partage avec des tiers">
             <p>Nous ne vendons pas vos données personnelles. Nous pouvons partager des données avec :</p>
             <ul className="mt-3 space-y-2 list-none">
-              <Li><strong style={{ color: "#e5e7eb" }}>Vercel :</strong> hébergement de l&rsquo;application (serveurs en UE/USA, soumis aux clauses contractuelles types).</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Meta Platforms :</strong> via OAuth, pour authentification et accès à l&rsquo;API Marketing.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>TikTok for Business :</strong> via OAuth, pour accès à l&rsquo;API TikTok Ads (si applicable).</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Prestataires techniques :</strong> fournisseurs de base de données et d&rsquo;infrastructure dans le cadre strict de la fourniture du Service.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Vercel :</strong> hébergement de l&rsquo;application (serveurs en UE/USA, soumis aux clauses contractuelles types).</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Meta Platforms :</strong> via OAuth, pour authentification et accès à l&rsquo;API Marketing.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>TikTok for Business :</strong> via OAuth, pour accès à l&rsquo;API TikTok Ads (si applicable).</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Prestataires techniques :</strong> fournisseurs de base de données et d&rsquo;infrastructure dans le cadre strict de la fourniture du Service.</Li>
             </ul>
             <p className="mt-3">
               Tout transfert hors UE est encadré par des garanties appropriées (clauses contractuelles types UE ou décisions d&rsquo;adéquation).
@@ -118,20 +118,20 @@ export default function PrivacyPolicyPage() {
           <Section title="6. Durée de conservation">
             <p>
               Vos données de compte sont conservées tant que votre compte est actif.
-              En cas de suppression de compte, vos données sont effacées dans un délai de <strong style={{ color: "#e5e7eb" }}>30 jours</strong>.
-              Les logs techniques sont conservés au maximum <strong style={{ color: "#e5e7eb" }}>90 jours</strong>.
+              En cas de suppression de compte, vos données sont effacées dans un délai de <strong style={{ color: "var(--ui-fg)" }}>30 jours</strong>.
+              Les logs techniques sont conservés au maximum <strong style={{ color: "var(--ui-fg)" }}>90 jours</strong>.
             </p>
           </Section>
 
           <Section title="7. Vos droits (RGPD)">
             <p>Conformément au RGPD, vous disposez des droits suivants :</p>
             <ul className="mt-3 space-y-2 list-none">
-              <Li><strong style={{ color: "#e5e7eb" }}>Droit d&rsquo;accès :</strong> obtenir une copie de vos données personnelles.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Droit de rectification :</strong> corriger des données inexactes.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Droit à l&rsquo;effacement :</strong> demander la suppression de vos données.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Droit à la portabilité :</strong> recevoir vos données dans un format structuré.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Droit d&rsquo;opposition :</strong> vous opposer à certains traitements.</Li>
-              <Li><strong style={{ color: "#e5e7eb" }}>Droit de retrait du consentement :</strong> révoquer l&rsquo;accès OAuth à tout moment depuis les paramètres Meta ou TikTok.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Droit d&rsquo;accès :</strong> obtenir une copie de vos données personnelles.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Droit de rectification :</strong> corriger des données inexactes.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Droit à l&rsquo;effacement :</strong> demander la suppression de vos données.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Droit à la portabilité :</strong> recevoir vos données dans un format structuré.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Droit d&rsquo;opposition :</strong> vous opposer à certains traitements.</Li>
+              <Li><strong style={{ color: "var(--ui-fg)" }}>Droit de retrait du consentement :</strong> révoquer l&rsquo;accès OAuth à tout moment depuis les paramètres Meta ou TikTok.</Li>
             </ul>
             <p className="mt-3">
               Pour exercer ces droits, contactez-nous à l&rsquo;adresse indiquée ci-dessous.
@@ -161,8 +161,8 @@ export default function PrivacyPolicyPage() {
               contactez-nous à :
             </p>
             <div className="mt-4 p-4 rounded-xl" style={{ background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.2)" }}>
-              <p className="font-medium" style={{ color: "#e5e7eb" }}>ImpulseMotion</p>
-              <p className="mt-1" style={{ color: "#a78bfa" }}>contact@impulse-motion.com</p>
+              <p className="font-medium" style={{ color: "var(--ui-fg)" }}>ImpulseMotion</p>
+              <p className="mt-1" style={{ color: "var(--ui-accent-ink)" }}>contact@impulse-motion.com</p>
             </div>
           </Section>
 
@@ -175,8 +175,8 @@ export default function PrivacyPolicyPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="text-xl font-semibold mb-3" style={{ color: "#ffffff" }}>{title}</h2>
-      <div style={{ color: "#d1d5db" }}>{children}</div>
+      <h2 className="text-xl font-medium mb-3" style={{ color: "var(--ui-fg)" }}>{title}</h2>
+      <div style={{ color: "var(--ui-fg2)" }}>{children}</div>
     </section>
   );
 }
@@ -184,7 +184,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Li({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-2">
-      <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#7c3aed" }} />
+      <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--ui-accent)" }} />
       <span>{children}</span>
     </li>
   );

@@ -75,30 +75,30 @@ export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone:
           onClick={launch}
           disabled={busy || !!blocked}
           title={blocked ?? undefined}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ui-accent hover:brightness-110 text-ui-on-accent text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
           {busy ? "Essai en cours…" : "Lancer l'essai à blanc"}
         </button>
-        <p className="text-xs text-gray-500 flex-1 min-w-[12rem]">
+        <p className="text-xs text-ui-muted flex-1 min-w-[12rem]">
           {blocked ?? "Lit les vraies données et liste ce qui serait écrit. Rien n'est créé, envoyé ni modifié."}
         </p>
       </div>
 
-      {busy && <p className="text-xs text-gray-500">L&apos;essai lit les sources une à une : il peut durer une à deux minutes. Laissez cette page ouverte.</p>}
+      {busy && <p className="text-xs text-ui-muted">L&apos;essai lit les sources une à une : il peut durer une à deux minutes. Laissez cette page ouverte.</p>}
       {error && <div className="text-sm text-red-400 break-words">{error}</div>}
 
       {!run && !busy && !error && (
         <div className="text-center py-8">
-          <FlaskConical className="w-8 h-8 text-gray-700 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">Aucun essai à blanc pour l&apos;instant.</p>
-          <p className="text-xs text-gray-600 mt-1">L&apos;activation exige un essai réussi sur la définition actuelle.</p>
+          <FlaskConical className="w-8 h-8 text-ui-muted mx-auto mb-3" />
+          <p className="text-sm text-ui-fg2">Aucun essai à blanc pour l&apos;instant.</p>
+          <p className="text-xs text-ui-muted mt-1">L&apos;activation exige un essai réussi sur la définition actuelle.</p>
         </div>
       )}
 
       {run && st && (
         <>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-ui-fg2">
             <Pill tone={st.tone}>{st.label}</Pill>
             <span>{fromHistory ? "Dernier essai" : "Essai"} du {dateTimeLabel(run.startedAt, routine.timezone)}</span>
             {run.durationMs > 0 && <span>· {durationLabel(run.durationMs)}</span>}
@@ -106,11 +106,11 @@ export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone:
           </div>
 
           {!outdated && notices.filter((n) => n !== nothingSeen).map((notice, i) => (
-            <div key={i} role="alert" className="text-sm text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-2 font-semibold break-words">{notice}</div>
+            <div key={i} role="alert" className="text-sm text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-2 font-medium break-words">{notice}</div>
           ))}
 
           {nothingSeen && (
-            <div role="alert" className="text-sm text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-2 font-semibold">
+            <div role="alert" className="text-sm text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded-lg px-3 py-2 font-medium">
               {nothingSeen}
               <span className="block mt-1 text-xs font-normal text-amber-300">
                 L&apos;activation reste possible, mais aucune publicité n&apos;a été montrée : relisez la définition, ou ajoutez une ligne au Sheet et relancez l&apos;essai.
@@ -137,11 +137,11 @@ export function DryRunPanel({ routine, onDone }: { routine: RoutineView; onDone:
           {run.timedOut && <div className="text-xs text-amber-300">Le budget de temps a été atteint avant la fin.</div>}
 
           <div>
-            <h3 className="text-xs font-semibold text-white mb-1.5">Ce qui serait écrit ({planned.length})</h3>
+            <h3 className="text-xs font-medium text-ui-fg mb-1.5">Ce qui serait écrit ({planned.length})</h3>
             {planned.length === 0 ? (
-              <p className="text-xs text-gray-500">Rien : avec les données d&apos;aujourd&apos;hui, cette routine n&apos;écrirait rien.</p>
+              <p className="text-xs text-ui-muted">Rien : avec les données d&apos;aujourd&apos;hui, cette routine n&apos;écrirait rien.</p>
             ) : (
-              <p className="text-xs text-gray-500">Le détail de chaque élément figure sous l&apos;étape qui l&apos;écrit.</p>
+              <p className="text-xs text-ui-muted">Le détail de chaque élément figure sous l&apos;étape qui l&apos;écrit.</p>
             )}
           </div>
 

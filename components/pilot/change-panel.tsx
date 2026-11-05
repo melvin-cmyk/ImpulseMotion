@@ -61,7 +61,7 @@ export function OperationLines({ action, showStatus, onActivate, activating = nu
         const created = op.field === "new_ad" && op.status === "done" && !!adId;
         const activation = op.activation ?? null;
         return (
-          <li key={op.id} className="text-sm text-gray-200">
+          <li key={op.id} className="text-sm text-ui-fg">
             <div className="flex items-start gap-2">
               <span className="flex-1 min-w-0 break-words">{op.line}</span>
               {showStatus && <Pill tone={s.tone} className="text-[10px] shrink-0">{s.text}</Pill>}
@@ -72,12 +72,12 @@ export function OperationLines({ action, showStatus, onActivate, activating = nu
                 {op.irreversible && <Pill tone="red" className="text-[10px] normal-case">ne peut pas être annulé</Pill>}
               </div>
             )}
-            {showStatus && op.error && op.status !== "done" && <p className="text-xs text-gray-400 mt-0.5">{op.error}</p>}
+            {showStatus && op.error && op.status !== "done" && <p className="text-xs text-ui-fg2 mt-0.5">{op.error}</p>}
             {(created || (!showStatus && isActivation(op))) && (
               <div className="flex flex-wrap items-center gap-3 mt-1 text-xs">
-                {created && <span className="text-gray-500">Publicité créée en pause{activation?.status === "done" ? "" : " : elle ne dépense rien tant qu'elle n'est pas mise en ligne"}.</span>}
+                {created && <span className="text-ui-muted">Publicité créée en pause{activation?.status === "done" ? "" : " : elle ne dépense rien tant qu'elle n'est pas mise en ligne"}.</span>}
                 {manager && (
-                  <a href={manager} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-gray-300 hover:text-white">
+                  <a href={manager} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-ui-fg2 hover:text-ui-fg">
                     <ExternalLink className="w-3.5 h-3.5" /> Voir dans le Gestionnaire
                   </a>
                 )}
@@ -272,26 +272,26 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
   const reasonFields = (
     <div className="space-y-3">
       <label className="block">
-        <span className="text-xs text-gray-400">Pourquoi ? <span className="text-gray-600">(écrit dans HQ)</span></span>
+        <span className="text-xs text-ui-fg2">Pourquoi ? <span className="text-ui-muted">(écrit dans HQ)</span></span>
         <textarea value={why} onChange={(e) => setWhy(e.target.value)} rows={2} placeholder="Ex. créas fatiguées, CPA en hausse depuis 5 jours"
-          className="mt-1 w-full bg-gray-950 border border-gray-700 rounded-lg px-2.5 py-1.5 text-sm text-white" />
+          className="mt-1 w-full bg-ui-bg border border-ui-line-strong rounded-lg px-2.5 py-1.5 text-sm text-ui-fg" />
       </label>
       {!preview?.undoOfId && (
         <div>
-          <span className="text-xs text-gray-400">Objectif <span className="text-gray-600">(facultatif)</span></span>
+          <span className="text-xs text-ui-fg2">Objectif <span className="text-ui-muted">(facultatif)</span></span>
           <div className="mt-1 flex flex-wrap gap-2">
-            <select value={metric} onChange={(e) => setMetric(e.target.value as GoalMetric | "")} className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white">
+            <select value={metric} onChange={(e) => setMetric(e.target.value as GoalMetric | "")} className="bg-ui-bg border border-ui-line-strong rounded-lg px-2 py-1.5 text-sm text-ui-fg">
               <option value="">Indicateur…</option>
               {GOAL_METRICS.map((m) => <option key={m} value={m}>{GOAL_METRIC_FR[m]}</option>)}
             </select>
-            <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Cible (ex. 45)" inputMode="decimal" className="w-28 bg-gray-950 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white" />
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Précision" className="flex-1 min-w-[8rem] bg-gray-950 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white" />
+            <input value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Cible (ex. 45)" inputMode="decimal" className="w-28 bg-ui-bg border border-ui-line-strong rounded-lg px-2 py-1.5 text-sm text-ui-fg" />
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Précision" className="flex-1 min-w-[8rem] bg-ui-bg border border-ui-line-strong rounded-lg px-2 py-1.5 text-sm text-ui-fg" />
           </div>
         </div>
       )}
       <label className="block">
-        <span className="text-xs text-gray-400">Dossier HQ du client</span>
-        <select value={hqProject} onChange={(e) => setHqProject(e.target.value)} className="mt-1 w-full bg-gray-950 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white">
+        <span className="text-xs text-ui-fg2">Dossier HQ du client</span>
+        <select value={hqProject} onChange={(e) => setHqProject(e.target.value)} className="mt-1 w-full bg-ui-bg border border-ui-line-strong rounded-lg px-2 py-1.5 text-sm text-ui-fg">
           <option value="">{projects === null ? "Chargement…" : "Choisir le dossier…"}</option>
           {hqProject && !(projects ?? []).some((p) => p.slug === hqProject) && <option value={hqProject}>projects/{hqProject}</option>}
           {(projects ?? []).map((p) => <option key={p.slug} value={p.slug}>{p.name} (projects/{p.slug})</option>)}
@@ -309,10 +309,10 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white">{preview.undoOfId ? "Aperçu de l'annulation" : activation ? "Aperçu de la mise en ligne" : "Aperçu"} — rien n&apos;est encore envoyé</h3>
-          {expires && <span className="text-[11px] text-gray-500">valable jusqu&apos;à {expires}</span>}
+          <h3 className="text-sm font-medium text-ui-fg">{preview.undoOfId ? "Aperçu de l'annulation" : activation ? "Aperçu de la mise en ligne" : "Aperçu"} — rien n&apos;est encore envoyé</h3>
+          {expires && <span className="text-[11px] text-ui-muted">valable jusqu&apos;à {expires}</span>}
         </div>
-        <p className="text-xs text-gray-400">Valeurs lues sur {PLATFORM_FR[preview.platform] ?? preview.platform} à l&apos;instant, compte « {preview.accountName || preview.accountId} » de {preview.clientName}.</p>
+        <p className="text-xs text-ui-fg2">Valeurs lues sur {PLATFORM_FR[preview.platform] ?? preview.platform} à l&apos;instant, compte « {preview.accountName || preview.accountId} » de {preview.clientName}.</p>
         <OperationLines action={preview} showStatus={false} />
         {preview.notes && preview.notes.length > 0 && (
           <ul className="text-xs text-amber-200/90 space-y-0.5">
@@ -333,30 +333,30 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
         {errors.length > 0 && <ul className="text-sm text-red-300 space-y-1">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => void send()} disabled={!writesOpen || busy !== null || !whyOk || !hqOk || (preview.needsDouble && !confirmDouble)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-sm text-white font-medium">
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-ui-accent hover:brightness-110 disabled:opacity-40 text-sm text-ui-on-accent font-medium">
             {busy === "send" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             Envoyer à {PLATFORM_FR[preview.platform] ?? preview.platform} ({preview.operations.length})
           </button>
-          <button type="button" onClick={() => setPlanning(!planning)} disabled={!writesOpen || busy !== null} className={`px-3 py-2 rounded-lg text-sm border ${planning ? "border-violet-500 text-white" : "border-gray-700 text-gray-300 hover:text-white"} disabled:opacity-40`}>Planifier…</button>
-          <button type="button" onClick={() => void dropPreview()} disabled={busy !== null} className="px-3 py-2 rounded-lg text-sm text-gray-300 hover:text-white">Revenir</button>
+          <button type="button" onClick={() => setPlanning(!planning)} disabled={!writesOpen || busy !== null} className={`px-3 py-2 rounded-lg text-sm border ${planning ? "border-ui-accent text-ui-fg" : "border-ui-line-strong text-ui-fg2 hover:text-ui-fg"} disabled:opacity-40`}>Planifier…</button>
+          <button type="button" onClick={() => void dropPreview()} disabled={busy !== null} className="px-3 py-2 rounded-lg text-sm text-ui-fg2 hover:text-ui-fg">Revenir</button>
         </div>
         {planning && (
-          <div className="rounded-lg border border-violet-500/40 bg-violet-500/5 p-3 space-y-2 text-xs">
-            <label className="flex flex-wrap items-center gap-2 text-gray-300">Envoyer le
-              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white" />
+          <div className="rounded-lg border border-ui-accent bg-ui-accent-soft p-3 space-y-2 text-xs">
+            <label className="flex flex-wrap items-center gap-2 text-ui-fg2">Envoyer le
+              <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} className="bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg" />
             </label>
-            <label className="flex flex-wrap items-center gap-2 text-gray-300">Remettre en arrière le
-              <input type="datetime-local" value={revertAt} onChange={(e) => setRevertAt(e.target.value)} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white" />
-              <span className="text-gray-500">(facultatif : les valeurs d&apos;avant sont remises à cette date, sauf créations et suppressions)</span>
+            <label className="flex flex-wrap items-center gap-2 text-ui-fg2">Remettre en arrière le
+              <input type="datetime-local" value={revertAt} onChange={(e) => setRevertAt(e.target.value)} className="bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg" />
+              <span className="text-ui-muted">(facultatif : les valeurs d&apos;avant sont remises à cette date, sauf créations et suppressions)</span>
             </label>
-            <p className="text-gray-500">Envoi à l&apos;heure près, par ImpulseMotion, en votre nom ; vous pourrez annuler depuis le journal tant que ce n&apos;est pas parti.</p>
-            <button type="button" onClick={() => void schedule()} disabled={!scheduledAt || busy !== null || !whyOk || !hqOk || (preview.needsDouble && !confirmDouble)} className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-40">
+            <p className="text-ui-muted">Envoi à l&apos;heure près, par ImpulseMotion, en votre nom ; vous pourrez annuler depuis le journal tant que ce n&apos;est pas parti.</p>
+            <button type="button" onClick={() => void schedule()} disabled={!scheduledAt || busy !== null || !whyOk || !hqOk || (preview.needsDouble && !confirmDouble)} className="px-3 py-1.5 rounded-lg bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-40">
               {busy === "send" ? "…" : `Programmer l'envoi (${preview.operations.length})`}
             </button>
           </div>
         )}
         {!writesOpen && <p className="text-xs text-amber-300">L&apos;aperçu fonctionne, mais l&apos;envoi vers {PLATFORM_FR[preview.platform] ?? preview.platform} n&apos;est pas encore ouvert.</p>}
-        {(!whyOk || !hqOk) && <p className="text-xs text-gray-500">{!whyOk ? "Dites pourquoi en quelques mots. " : ""}{!hqOk ? "Choisissez le dossier HQ." : ""}</p>}
+        {(!whyOk || !hqOk) && <p className="text-xs text-ui-muted">{!whyOk ? "Dites pourquoi en quelques mots. " : ""}{!hqOk ? "Choisissez le dossier HQ." : ""}</p>}
       </div>
     );
   }
@@ -364,41 +364,41 @@ export function ChangePanel({ clientId, clientName, accountId, platform, writesO
   return (
     <div className="space-y-4">
       {result && (
-        <div className="rounded-lg border border-gray-700 p-3 space-y-2">
+        <div className="rounded-lg border border-ui-line-strong p-3 space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-white flex items-center gap-1.5">
+            <p className="text-sm font-medium text-ui-fg flex items-center gap-1.5">
               {result.status === "done" ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <XCircle className="w-4 h-4 text-amber-400" />}
               {result.status === "done" ? `Envoyé à ${PLATFORM_FR[result.platform] ?? result.platform}` : result.status === "failed" ? "Rien n'a été appliqué" : "Envoyé en partie"}
             </p>
-            <button type="button" onClick={() => setResult(null)} className="text-gray-500 hover:text-white" aria-label="Fermer"><X className="w-4 h-4" /></button>
+            <button type="button" onClick={() => setResult(null)} className="text-ui-muted hover:text-ui-fg" aria-label="Fermer"><X className="w-4 h-4" /></button>
           </div>
           <OperationLines action={result} showStatus onActivate={(op) => void activate(op)} activating={activating} />
           {errors.length > 0 && <ul className="text-sm text-red-300 space-y-1">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-ui-fg2">
             {result.hqWrittenAt ? `Consigné dans HQ (projects/${result.hqProject}).` : result.hqError ? `HQ : ${result.hqError} — réessayez depuis le journal.` : "Rien à consigner dans HQ."}
           </p>
         </div>
       )}
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white">Modifications prévues</h3>
-        {pending.length > 0 && <button type="button" onClick={onClear} className="text-xs text-gray-500 hover:text-white">Tout retirer</button>}
+        <h3 className="text-sm font-medium text-ui-fg">Modifications prévues</h3>
+        {pending.length > 0 && <button type="button" onClick={onClear} className="text-xs text-ui-muted hover:text-ui-fg">Tout retirer</button>}
       </div>
       {pending.length === 0 ? (
-        <p className="text-sm text-gray-500">Choisissez « Modifier » sur une campagne, un ensemble ou une annonce, ou demandez à l&apos;IA. Rien n&apos;est envoyé avant l&apos;aperçu et votre confirmation.</p>
+        <p className="text-sm text-ui-muted">Choisissez « Modifier » sur une campagne, un ensemble ou une annonce, ou demandez à l&apos;IA. Rien n&apos;est envoyé avant l&apos;aperçu et votre confirmation.</p>
       ) : (
         <>
           <ul className="space-y-1.5">
             {pending.map((p, i) => (
-              <li key={`${p.objectId}-${p.kind}`} className="flex items-start gap-2 text-sm text-gray-200">
+              <li key={`${p.objectId}-${p.kind}`} className="flex items-start gap-2 text-sm text-ui-fg">
                 <span className="flex-1 min-w-0 break-words">{p.label}</span>
-                <button type="button" onClick={() => onRemove(i)} className="text-gray-500 hover:text-red-300" aria-label="Retirer"><Trash2 className="w-3.5 h-3.5" /></button>
+                <button type="button" onClick={() => onRemove(i)} className="text-ui-muted hover:text-red-300" aria-label="Retirer"><Trash2 className="w-3.5 h-3.5" /></button>
               </li>
             ))}
           </ul>
           {reasonFields}
           {errors.length > 0 && <ul className="text-sm text-red-300 space-y-1">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
           <button type="button" onClick={() => void prepare()} disabled={busy !== null}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-sm text-white font-medium">
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-ui-raised hover:bg-ui-line-strong disabled:opacity-40 text-sm text-ui-fg font-medium">
             {busy === "prepare" && <Loader2 className="w-4 h-4 animate-spin" />}
             Préparer l&apos;aperçu
           </button>

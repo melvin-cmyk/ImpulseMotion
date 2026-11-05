@@ -49,20 +49,20 @@ export function ContextPanel({ client }: { client: ClientOption }) {
   }
 
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-3 space-y-2 text-xs" data-factory-context>
+    <div className="rounded-xl border border-ui-line bg-ui-card p-3 space-y-2 text-xs" data-factory-context>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-gray-200">Contexte client lu par l&apos;IA</span>
-        {busy === "load" || busy === "fresh" ? <span className="text-gray-500 inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> {busy === "fresh" ? "Relecture des sources (HQ, entrepôt)… jusqu'à 45 s" : "Chargement…"}</span>
-          : ctx && <span className="text-gray-500">{ctx.stored ? `version enregistrée${ctx.updatedAt ? ` le ${when(ctx.updatedAt)}` : ""}` : "assemblé à l'instant, pas encore enregistré"}</span>}
+        <span className="text-sm text-ui-fg">Contexte client lu par l&apos;IA</span>
+        {busy === "load" || busy === "fresh" ? <span className="text-ui-muted inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> {busy === "fresh" ? "Relecture des sources (HQ, entrepôt)… jusqu'à 45 s" : "Chargement…"}</span>
+          : ctx && <span className="text-ui-muted">{ctx.stored ? `version enregistrée${ctx.updatedAt ? ` le ${when(ctx.updatedAt)}` : ""}` : "assemblé à l'instant, pas encore enregistré"}</span>}
         <div className="ml-auto flex gap-2">
-          <button type="button" onClick={() => setOpen((v) => !v)} className="text-gray-400 hover:text-white" disabled={!ctx}>{open ? "Masquer" : "Voir / modifier"}</button>
-          <button type="button" onClick={() => void load(true)} className="text-gray-400 hover:text-white inline-flex items-center gap-1" disabled={!!busy} title="Relire HQ, l'entrepôt et les retours"><RefreshCw className="w-3 h-3" /> Relire les sources</button>
+          <button type="button" onClick={() => setOpen((v) => !v)} className="text-ui-fg2 hover:text-ui-fg" disabled={!ctx}>{open ? "Masquer" : "Voir / modifier"}</button>
+          <button type="button" onClick={() => void load(true)} className="text-ui-fg2 hover:text-ui-fg inline-flex items-center gap-1" disabled={!!busy} title="Relire HQ, l'entrepôt et les retours"><RefreshCw className="w-3 h-3" /> Relire les sources</button>
         </div>
       </div>
       {ctx && (
         <ul className="flex flex-wrap gap-1.5" data-factory-context-sources>
           {ctx.sources.length === 0 && <li className="text-amber-300">Aucune source : ni brief HQ, ni entrepôt. Les copys resteront génériques.</li>}
-          {ctx.sources.map((s, i) => <li key={`${s.kind}-${i}`} title={s.ref} className={`px-2 py-0.5 rounded-full border ${s.note ? "border-amber-500/40 text-amber-200" : "border-gray-700 text-gray-300"}`}>{CONTEXT_SOURCE_LABEL[s.kind] ?? s.kind}{s.note ? ` (${s.note})` : ""} · {s.chars.toLocaleString("fr-FR")} car.</li>)}
+          {ctx.sources.map((s, i) => <li key={`${s.kind}-${i}`} title={s.ref} className={`px-2 py-0.5 rounded-full border ${s.note ? "border-amber-500/40 text-amber-200" : "border-ui-line-strong text-ui-fg2"}`}>{CONTEXT_SOURCE_LABEL[s.kind] ?? s.kind}{s.note ? ` (${s.note})` : ""} · {s.chars.toLocaleString("fr-FR")} car.</li>)}
         </ul>
       )}
       {ctx?.warnings.map((w) => <p key={w} className="text-amber-300">{w}</p>)}

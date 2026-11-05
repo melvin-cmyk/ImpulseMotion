@@ -26,7 +26,7 @@ interface ReferenceField { name: string; label: string; kind: "metric" | "dimens
 interface ReferencePlatform { platform: string; title: string; tool: string; fields: ReferenceField[] }
 
 const SELECT = `${FIELD} w-auto`;
-const LABEL = "block text-[11px] uppercase tracking-wider text-gray-500 mb-1";
+const LABEL = "block text-[11px] text-ui-muted mb-1";
 
 type MetricForm = { key: string; label: string; description: string; platform: CatalogPlatform; formula: string; format: MetricFormat; unit: string };
 type MappingLine = { match: string; value: string; regex: boolean };
@@ -88,7 +88,7 @@ export default function CataloguePage() {
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex flex-col gap-3">
-        <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white w-fit"><ArrowLeft className="w-3.5 h-3.5" /> Mes dashboards</Link>
+        <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-ui-fg2 hover:text-ui-fg w-fit"><ArrowLeft className="w-3.5 h-3.5" /> Mes dashboards</Link>
         <PageHeader
           title="Métriques & dimensions"
           subtitle="Le catalogue de l'équipe : des métriques (une formule sur les champs d'une ligne) et des dimensions (un champ, un extrait ou un classement). Les dashboards les utilisent avec dash.metric, dash.dimension et dash.rollup ; le copilote IA les connaît et s'en sert quand vous les nommez."
@@ -98,11 +98,11 @@ export default function CataloguePage() {
       {error && (
         <Card padded className="border-red-900/40">
           <p className="text-sm text-red-400">Le catalogue n&apos;a pas pu être chargé ({error}).</p>
-          <button type="button" onClick={() => void load()} className="mt-2 text-xs underline text-gray-300">Réessayer</button>
+          <button type="button" onClick={() => void load()} className="mt-2 text-xs underline text-ui-fg2">Réessayer</button>
         </Card>
       )}
 
-      <Card padded className="bg-gray-950/50">
+      <Card padded className="bg-ui-bg">
         <label className={LABEL}>Ligne d&apos;essai (JSON) — sert à tester une formule ou une règle avant de l&apos;enregistrer</label>
         <textarea value={sample} onChange={(e) => setSample(e.target.value)} rows={2} className={MONO_FIELD} spellCheck={false} />
         {sampleRow === null && <p className="text-[11px] text-amber-400 mt-1">JSON illisible : les essais sont désactivés.</p>}
@@ -120,12 +120,12 @@ export default function CataloguePage() {
 function MetricsSection({ metrics, sampleRow, onChanged }: { metrics: StaffMetricDef[] | null; sampleRow: unknown; onChanged: () => void }) {
   const [editing, setEditing] = useState<"new" | string | null>(null);
   return (
-    <Section title="Métriques" icon={<Ruler className="w-4 h-4 text-violet-400" />} action={<button type="button" onClick={() => setEditing("new")} className={PRIMARY_BUTTON}><Plus className="w-4 h-4" /> Nouvelle métrique</button>}>
+    <Section title="Métriques" icon={<Ruler className="w-4 h-4 text-ui-accent-ink" />} action={<button type="button" onClick={() => setEditing("new")} className={PRIMARY_BUTTON}><Plus className="w-4 h-4" /> Nouvelle métrique</button>}>
       <div className="space-y-3">
         {editing === "new" && <MetricEditor initial={EMPTY_METRIC} sampleRow={sampleRow} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); onChanged(); }} />}
-        {metrics === null && <div className="flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>}
+        {metrics === null && <div className="flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>}
         {metrics?.length === 0 && editing !== "new" && (
-          <p className="text-sm text-gray-500">Aucune métrique pour l&apos;instant. Exemple : clé <code className="text-gray-300">cpa</code>, formule <code className="text-gray-300">spend / actions.purchase</code>, format Montant.</p>
+          <p className="text-sm text-ui-muted">Aucune métrique pour l&apos;instant. Exemple : clé <code className="text-ui-fg2">cpa</code>, formule <code className="text-ui-fg2">spend / actions.purchase</code>, format Montant.</p>
         )}
         {metrics?.map((m) => (
           editing === m.id
@@ -154,26 +154,26 @@ function MetricRow({ metric: m, sampleRow, onEdit, onDeleted }: { metric: StaffM
     } catch (e) { setErr(e instanceof Error ? e.message : "Erreur"); setBusy(false); }
   }
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-950/40 px-4 py-3">
+    <div className="rounded-xl border border-ui-line bg-ui-bg px-4 py-3">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-white">{m.label}</span>
-            <code className="text-xs text-violet-300 bg-violet-950/40 px-1.5 py-0.5 rounded">{m.key}</code>
+            <span className="text-sm font-medium text-ui-fg">{m.label}</span>
+            <code className="text-xs text-ui-accent-ink bg-ui-accent-soft px-1.5 py-0.5 rounded">{m.key}</code>
             <Pill>{CATALOG_PLATFORM_LABELS[m.platform]}</Pill>
             <Pill>{METRIC_FORMAT_LABELS[m.format]}{m.unit ? ` ${m.unit}` : ""}</Pill>
           </div>
-          <code className="block text-xs text-gray-300 mt-1.5 font-mono break-all">{m.formula}</code>
-          {m.description && <p className="text-xs text-gray-500 mt-1">{m.description}</p>}
-          <p className="text-[11px] text-gray-600 mt-1">
-            Champs lus : {m.fields.join(", ")}{trial !== null ? <> · sur la ligne d&apos;essai : <span className="text-gray-300">{trial}</span></> : null}
+          <code className="block text-xs text-ui-fg2 mt-1.5 font-mono break-all">{m.formula}</code>
+          {m.description && <p className="text-xs text-ui-muted mt-1">{m.description}</p>}
+          <p className="text-[11px] text-ui-muted mt-1">
+            Champs lus : {m.fields.join(", ")}{trial !== null ? <> · sur la ligne d&apos;essai : <span className="text-ui-fg2">{trial}</span></> : null}
             {m.ownerEmail ? ` · par ${m.ownerEmail}` : ""}
           </p>
           {err && <p className="text-xs text-red-400 mt-1">{err}</p>}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <button type="button" onClick={onEdit} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}><Pencil className="w-3.5 h-3.5" /> Modifier</button>
-          <button type="button" onClick={() => void remove()} disabled={busy} className={`${SMALL_BUTTON} bg-gray-900 hover:bg-red-950 text-gray-400 hover:text-red-300 border border-gray-800`}><Trash2 className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={onEdit} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}><Pencil className="w-3.5 h-3.5" /> Modifier</button>
+          <button type="button" onClick={() => void remove()} disabled={busy} className={`${SMALL_BUTTON} bg-ui-card hover:bg-red-950 text-ui-fg2 hover:text-red-300 border border-ui-line`}><Trash2 className="w-3.5 h-3.5" /></button>
         </div>
       </div>
     </div>
@@ -205,7 +205,7 @@ function MetricEditor({ id, initial, sampleRow, onCancel, onSaved }: { id?: stri
   }
 
   return (
-    <div className="rounded-xl border border-violet-800/60 bg-gray-950/60 px-4 py-4 space-y-3">
+    <div className="rounded-xl border border-ui-accent bg-ui-bg px-4 py-4 space-y-3">
       <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto_auto]">
         <div><label className={LABEL}>Clé (dans les pages)</label><input value={f.key} onChange={(e) => set({ key: e.target.value.toLowerCase() })} placeholder="cpa" className={MONO_FIELD} disabled={!!id} /></div>
         <div><label className={LABEL}>Libellé</label><input value={f.label} onChange={(e) => set({ label: e.target.value })} placeholder="Coût par achat" className={FIELD} /></div>
@@ -219,7 +219,7 @@ function MetricEditor({ id, initial, sampleRow, onCancel, onSaved }: { id?: stri
         <label className={LABEL}>Formule — champs d&apos;une ligne, + − × ÷, parenthèses, abs, min, max, round(x, n), coalesce, pct(a, b), div(a, b) ; division par zéro = 0</label>
         <input value={f.formula} onChange={(e) => set({ formula: e.target.value })} placeholder="spend / actions.purchase" className={MONO_FIELD} spellCheck={false} />
         {check && !check.ok && <p className="text-xs text-amber-400 mt-1">{check.error}</p>}
-        {check?.ok && <p className="text-[11px] text-gray-500 mt-1">Champs lus : {check.fields.join(", ")}{trial !== null ? <> · sur la ligne d&apos;essai : <span className="text-gray-200">{trial}</span></> : null}</p>}
+        {check?.ok && <p className="text-[11px] text-ui-muted mt-1">Champs lus : {check.fields.join(", ")}{trial !== null ? <> · sur la ligne d&apos;essai : <span className="text-ui-fg">{trial}</span></> : null}</p>}
       </div>
       <div><label className={LABEL}>Description (facultative, lue par le copilote)</label><input value={f.description} onChange={(e) => set({ description: e.target.value })} placeholder="Dépense divisée par les achats attribués (fenêtre 7 j clic / 1 j vue)" className={FIELD} /></div>
       {err && <p className="text-xs text-red-400">{err}</p>}
@@ -236,12 +236,12 @@ function MetricEditor({ id, initial, sampleRow, onCancel, onSaved }: { id?: stri
 function DimensionsSection({ dimensions, sampleRow, onChanged }: { dimensions: StaffDimensionDef[] | null; sampleRow: unknown; onChanged: () => void }) {
   const [editing, setEditing] = useState<"new" | string | null>(null);
   return (
-    <Section title="Dimensions" icon={<Tags className="w-4 h-4 text-violet-400" />} action={<button type="button" onClick={() => setEditing("new")} className={PRIMARY_BUTTON}><Plus className="w-4 h-4" /> Nouvelle dimension</button>}>
+    <Section title="Dimensions" icon={<Tags className="w-4 h-4 text-ui-accent-ink" />} action={<button type="button" onClick={() => setEditing("new")} className={PRIMARY_BUTTON}><Plus className="w-4 h-4" /> Nouvelle dimension</button>}>
       <div className="space-y-3">
         {editing === "new" && <DimensionEditor initial={EMPTY_DIMENSION} sampleRow={sampleRow} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); onChanged(); }} />}
-        {dimensions === null && <div className="flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>}
+        {dimensions === null && <div className="flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>}
         {dimensions?.length === 0 && editing !== "new" && (
-          <p className="text-sm text-gray-500">Aucune dimension pour l&apos;instant. Exemple : clé <code className="text-gray-300">verticale</code>, champ <code className="text-gray-300">campaign_name</code>, extrait par l&apos;expression <code className="text-gray-300">\[([A-Z]+)\]</code>.</p>
+          <p className="text-sm text-ui-muted">Aucune dimension pour l&apos;instant. Exemple : clé <code className="text-ui-fg2">verticale</code>, champ <code className="text-ui-fg2">campaign_name</code>, extrait par l&apos;expression <code className="text-ui-fg2">\[([A-Z]+)\]</code>.</p>
         )}
         {dimensions?.map((d) => (
           editing === d.id
@@ -273,23 +273,23 @@ function DimensionRow({ dimension: d, sampleRow, onEdit, onDeleted }: { dimensio
     } catch (e) { setErr(e instanceof Error ? e.message : "Erreur"); setBusy(false); }
   }
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-950/40 px-4 py-3">
+    <div className="rounded-xl border border-ui-line bg-ui-bg px-4 py-3">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-white">{d.label}</span>
-            <code className="text-xs text-violet-300 bg-violet-950/40 px-1.5 py-0.5 rounded">{d.key}</code>
+            <span className="text-sm font-medium text-ui-fg">{d.label}</span>
+            <code className="text-xs text-ui-accent-ink bg-ui-accent-soft px-1.5 py-0.5 rounded">{d.key}</code>
             <Pill>{CATALOG_PLATFORM_LABELS[d.platform]}</Pill>
             <Pill>{DIMENSION_KIND_LABELS[d.kind]}</Pill>
           </div>
-          <p className="text-xs text-gray-300 mt-1.5 font-mono break-all">{describeRule(d)}{d.rule.fallback ? ` · sinon « ${d.rule.fallback} »` : ""}</p>
-          {d.description && <p className="text-xs text-gray-500 mt-1">{d.description}</p>}
-          <p className="text-[11px] text-gray-600 mt-1">{trial !== null ? <>Sur la ligne d&apos;essai : <span className="text-gray-300">{trial}</span></> : null}{d.ownerEmail ? ` · par ${d.ownerEmail}` : ""}</p>
+          <p className="text-xs text-ui-fg2 mt-1.5 font-mono break-all">{describeRule(d)}{d.rule.fallback ? ` · sinon « ${d.rule.fallback} »` : ""}</p>
+          {d.description && <p className="text-xs text-ui-muted mt-1">{d.description}</p>}
+          <p className="text-[11px] text-ui-muted mt-1">{trial !== null ? <>Sur la ligne d&apos;essai : <span className="text-ui-fg2">{trial}</span></> : null}{d.ownerEmail ? ` · par ${d.ownerEmail}` : ""}</p>
           {err && <p className="text-xs text-red-400 mt-1">{err}</p>}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <button type="button" onClick={onEdit} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}><Pencil className="w-3.5 h-3.5" /> Modifier</button>
-          <button type="button" onClick={() => void remove()} disabled={busy} className={`${SMALL_BUTTON} bg-gray-900 hover:bg-red-950 text-gray-400 hover:text-red-300 border border-gray-800`}><Trash2 className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={onEdit} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}><Pencil className="w-3.5 h-3.5" /> Modifier</button>
+          <button type="button" onClick={() => void remove()} disabled={busy} className={`${SMALL_BUTTON} bg-ui-card hover:bg-red-950 text-ui-fg2 hover:text-red-300 border border-ui-line`}><Trash2 className="w-3.5 h-3.5" /></button>
         </div>
       </div>
     </div>
@@ -320,7 +320,7 @@ function DimensionEditor({ id, initial, sampleRow, onCancel, onSaved }: { id?: s
   }
 
   return (
-    <div className="rounded-xl border border-violet-800/60 bg-gray-950/60 px-4 py-4 space-y-3">
+    <div className="rounded-xl border border-ui-accent bg-ui-bg px-4 py-4 space-y-3">
       <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
         <div><label className={LABEL}>Clé (dans les pages)</label><input value={f.key} onChange={(e) => set({ key: e.target.value.toLowerCase() })} placeholder="verticale" className={MONO_FIELD} disabled={!!id} /></div>
         <div><label className={LABEL}>Libellé</label><input value={f.label} onChange={(e) => set({ label: e.target.value })} placeholder="Verticale" className={FIELD} /></div>
@@ -344,19 +344,19 @@ function DimensionEditor({ id, initial, sampleRow, onCancel, onSaved }: { id?: s
           {f.values.map((v, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2">
               <input value={v.match} onChange={(e) => setLine(i, { match: e.target.value })} placeholder="brand" className={`${MONO_FIELD} flex-1 min-w-[10rem]`} spellCheck={false} />
-              <span className="text-gray-500">→</span>
+              <span className="text-ui-muted">→</span>
               <input value={v.value} onChange={(e) => setLine(i, { value: e.target.value })} placeholder="Marque" className={`${FIELD} flex-1 min-w-[10rem]`} />
-              <label className="inline-flex items-center gap-1 text-[11px] text-gray-400"><input type="checkbox" checked={v.regex} onChange={(e) => setLine(i, { regex: e.target.checked })} /> regex</label>
-              <button type="button" aria-label="Retirer" onClick={() => set({ values: f.values.filter((_, j) => j !== i) })} className="text-gray-600 hover:text-red-400"><X className="w-4 h-4" /></button>
+              <label className="inline-flex items-center gap-1 text-[11px] text-ui-fg2"><input type="checkbox" checked={v.regex} onChange={(e) => setLine(i, { regex: e.target.checked })} /> regex</label>
+              <button type="button" aria-label="Retirer" onClick={() => set({ values: f.values.filter((_, j) => j !== i) })} className="text-ui-muted hover:text-red-400"><X className="w-4 h-4" /></button>
             </div>
           ))}
-          <button type="button" onClick={() => set({ values: [...f.values, { match: "", value: "", regex: false }] })} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}><Plus className="w-3.5 h-3.5" /> Ajouter un motif</button>
+          <button type="button" onClick={() => set({ values: [...f.values, { match: "", value: "", regex: false }] })} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}><Plus className="w-3.5 h-3.5" /> Ajouter un motif</button>
         </div>
       )}
       {f.kind !== "field" && <div><label className={LABEL}>Valeur quand rien ne correspond</label><input value={f.fallback} onChange={(e) => set({ fallback: e.target.value })} className={`${FIELD} sm:w-64`} /></div>}
       <div><label className={LABEL}>Description (facultative, lue par le copilote)</label><input value={f.description} onChange={(e) => set({ description: e.target.value })} placeholder="La verticale entre crochets dans le nom de campagne" className={FIELD} /></div>
       {check && !check.ok && <p className="text-xs text-amber-400">{check.error}</p>}
-      {check?.ok && trial !== null && <p className="text-[11px] text-gray-500">Sur la ligne d&apos;essai : <span className="text-gray-200">{trial}</span></p>}
+      {check?.ok && trial !== null && <p className="text-[11px] text-ui-muted">Sur la ligne d&apos;essai : <span className="text-ui-fg">{trial}</span></p>}
       {err && <p className="text-xs text-red-400">{err}</p>}
       <div className="flex items-center gap-2">
         <button type="button" onClick={() => void save()} disabled={busy || !f.key || !f.label || !check?.ok} className={PRIMARY_BUTTON}>{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Enregistrer</button>
@@ -372,26 +372,26 @@ function ReferenceSection({ reference }: { reference: ReferencePlatform[] }) {
   const [open, setOpen] = useState<string | null>(null);
   if (!reference.length) return null;
   return (
-    <Section title="Référence : les champs que les connecteurs renvoient" icon={<BookOpen className="w-4 h-4 text-violet-400" />}>
-      <p className="text-xs text-gray-500 mb-3">Les noms à écrire dans une formule ou comme champ source (camelCase ou snake_case indifférent ; pour Google Ads, « metrics. » peut être omis). Les outils peuvent en renvoyer d&apos;autres : le copilote lit la réponse réelle avant d&apos;écrire un jeu.</p>
+    <Section title="Référence : les champs que les connecteurs renvoient" icon={<BookOpen className="w-4 h-4 text-ui-accent-ink" />}>
+      <p className="text-xs text-ui-muted mb-3">Les noms à écrire dans une formule ou comme champ source (camelCase ou snake_case indifférent ; pour Google Ads, « metrics. » peut être omis). Les outils peuvent en renvoyer d&apos;autres : le copilote lit la réponse réelle avant d&apos;écrire un jeu.</p>
       <div className="space-y-2">
         {reference.map((p) => (
-          <div key={p.platform} className="rounded-xl border border-gray-800">
+          <div key={p.platform} className="rounded-xl border border-ui-line">
             <button type="button" onClick={() => setOpen(open === p.platform ? null : p.platform)} className="w-full flex items-center justify-between px-4 py-2.5 text-left">
-              <span className="text-sm font-semibold text-white">{p.title}</span>
-              <span className="text-[11px] text-gray-500">{p.fields.length} champs · {open === p.platform ? "replier" : "déplier"}</span>
+              <span className="text-sm font-medium text-ui-fg">{p.title}</span>
+              <span className="text-[11px] text-ui-muted">{p.fields.length} champs · {open === p.platform ? "replier" : "déplier"}</span>
             </button>
             {open === p.platform && (
               <div className="px-4 pb-3">
-                <p className="text-[11px] text-gray-500 mb-2">{p.tool}</p>
+                <p className="text-[11px] text-ui-muted mb-2">{p.tool}</p>
                 <table className="w-full text-xs">
                   <tbody>
                     {p.fields.map((fl) => (
-                      <tr key={fl.name} className="border-t border-gray-800/80">
-                        <td className="py-1.5 pr-3 font-mono text-gray-200 whitespace-nowrap">{fl.name}</td>
-                        <td className="py-1.5 pr-3 text-gray-300">{fl.label}</td>
+                      <tr key={fl.name} className="border-t border-ui-line">
+                        <td className="py-1.5 pr-3 font-mono text-ui-fg whitespace-nowrap">{fl.name}</td>
+                        <td className="py-1.5 pr-3 text-ui-fg2">{fl.label}</td>
                         <td className="py-1.5 pr-3"><Pill>{fl.kind === "metric" ? "métrique" : "dimension"}</Pill></td>
-                        <td className="py-1.5 text-gray-500">{fl.note ?? ""}</td>
+                        <td className="py-1.5 text-ui-muted">{fl.note ?? ""}</td>
                       </tr>
                     ))}
                   </tbody>

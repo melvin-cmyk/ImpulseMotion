@@ -93,8 +93,8 @@ export function parseJsonField(label: string, text: string): { value: unknown; e
   }
 }
 
-export const FIELD = "w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-500 disabled:opacity-60";
+export const FIELD = "w-full bg-ui-bg border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg focus:outline-none focus:border-ui-accent disabled:opacity-60";
 export const MONO_FIELD = `${FIELD} font-mono text-xs leading-relaxed`;
-export const PRIMARY_BUTTON = "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed";
-export const SECONDARY_BUTTON = "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-semibold border border-gray-700";
-export const SMALL_BUTTON = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed";
+export const PRIMARY_BUTTON = "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ui-accent hover:brightness-110 text-ui-on-accent text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed";
+export const SECONDARY_BUTTON = "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ui-raised hover:bg-ui-line-strong text-ui-fg text-sm font-medium border border-ui-line-strong";
+export const SMALL_BUTTON = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed";

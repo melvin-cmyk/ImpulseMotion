@@ -146,32 +146,32 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
   }
 
   const tab = (k: Kind, label: string, Icon: typeof ImageIcon) => (
-    <button key={k} type="button" onClick={() => switchKind(k)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border ${kind === k ? "bg-violet-600 border-violet-500 text-white" : "border-gray-800 text-gray-300 hover:text-white"}`}>
+    <button key={k} type="button" onClick={() => switchKind(k)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border ${kind === k ? "bg-ui-accent border-ui-accent text-ui-on-accent" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>
       <Icon className="w-4 h-4" /> {label}
     </button>
   );
 
   return (
     <div className="space-y-4" data-generate-tab>
-      <div className="rounded-xl border border-gray-800 bg-gray-950 p-4 space-y-4">
+      <div className="rounded-xl border border-ui-line bg-ui-bg p-4 space-y-4">
         <div className="flex flex-wrap items-center gap-2">
           {tab("image", "Image", ImageIcon)}
           {tab("video", "Vidéo", Clapperboard)}
-          <span className="ml-auto text-xs text-gray-500">Pour <span className="text-gray-200">{client.name}</span> · seuls votre texte et vos images sont envoyés, aucune donnée de compte.</span>
+          <span className="ml-auto text-xs text-ui-muted">Pour <span className="text-ui-fg">{client.name}</span> · seuls votre texte et vos images sont envoyés, aucune donnée de compte.</span>
         </div>
 
         {kind === "video" && source && (
-          <div className="flex items-center gap-3 rounded-lg border border-violet-500/40 bg-violet-500/5 p-2">
+          <div className="flex items-center gap-3 rounded-lg border border-ui-accent bg-ui-accent-soft p-2">
             {source.url && <img src={source.url} alt="" className="w-14 h-14 object-cover rounded" />}
-            <span className="text-xs text-gray-300 flex-1">La vidéo partira de ce visuel (première image). Décrivez le mouvement, la caméra, l&apos;ambiance.</span>
-            <button type="button" onClick={onSourceUsed} className="text-gray-500 hover:text-white" aria-label="Retirer"><X className="w-4 h-4" /></button>
+            <span className="text-xs text-ui-fg2 flex-1">La vidéo partira de ce visuel (première image). Décrivez le mouvement, la caméra, l&apos;ambiance.</span>
+            <button type="button" onClick={onSourceUsed} className="text-ui-muted hover:text-ui-fg" aria-label="Retirer"><X className="w-4 h-4" /></button>
           </div>
         )}
 
         {kind === "image" && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {([["free", "Création libre"], ["edit", "Modifier une image"], ["product", "Photo produit"]] as const).map(([m, l]) => (
-              <button key={m} type="button" onClick={() => setMode(m)} className={`px-2.5 py-1 rounded-md border ${mode === m ? "border-violet-500 text-white bg-violet-500/10" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
+              <button key={m} type="button" onClick={() => setMode(m)} className={`px-2.5 py-1 rounded-md border ${mode === m ? "border-ui-accent text-ui-fg bg-ui-accent-soft" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>{l}</button>
             ))}
             {mode === "product" && (
               <>
@@ -181,7 +181,7 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
                 {scene === "custom" && <input value={sceneCustom} onChange={(e) => setSceneCustom(e.target.value)} placeholder="Ex. : sur un comptoir de cuisine en marbre" className={`${FIELD} min-w-[16rem]`} />}
               </>
             )}
-            <span className="text-gray-500">
+            <span className="text-ui-muted">
               {mode === "product" ? "Ajoutez la photo du produit : il est gardé identique, seul le décor change." : mode === "edit" ? "Ajoutez l'image à modifier et dites ce qui change." : ""}
             </span>
           </div>
@@ -191,10 +191,10 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
           placeholder={kind === "image"
             ? "Ex. : photo produit d'une gourde isotherme sur une plage ensoleillée, lumière douce, espace libre à gauche pour le texte"
             : "Ex. : les vagues roulent en arrière-plan, reflets de soleil sur la gourde, lent travelling avant"}
-          className="w-full resize-y bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-violet-500" />
+          className="w-full resize-y bg-ui-bg border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg outline-none focus:border-ui-accent" />
 
         <div className="flex flex-wrap items-end gap-3 text-sm">
-          <label className="flex flex-col gap-1 text-xs text-gray-400">
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">
             Format
             <select value={ratio} onChange={(e) => setRatio(e.target.value)} className={FIELD}>
               {(kind === "image" ? IMAGE_RATIOS : VIDEO_RATIOS).map(([r, l]) => <option key={r} value={r}>{l}</option>)}
@@ -202,7 +202,7 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
           </label>
           {kind === "image" ? (
             <>
-              <label className="flex flex-col gap-1 text-xs text-gray-400">
+              <label className="flex flex-col gap-1 text-xs text-ui-fg2">
                 Moteur{chosenEngine ? "" : " (le moins cher qui convient)"}
                 <select value={engineId} onChange={(e) => setChosenEngine(e.target.value)} className={`${FIELD} max-w-[22rem]`} data-engine-select
                   title={engine ? `${engine.provider === "fal" ? "fal.ai" : "Agnes"} · ${engine.refs ? "accepte des images de référence" : "texte seul, sans image de référence"} · ${enginePrice(engine)}` : undefined}>
@@ -212,7 +212,7 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
                 </select>
               </label>
               {!engineId.startsWith("fal-ai/") && (
-                <label className="flex flex-col gap-1 text-xs text-gray-400">
+                <label className="flex flex-col gap-1 text-xs text-ui-fg2">
                   Définition
                   <select value={size} onChange={(e) => setSize(e.target.value as "1K" | "2K")} className={FIELD}>
                     <option value="2K">Haute (2K)</option>
@@ -220,7 +220,7 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
                   </select>
                 </label>
               )}
-              <label className="flex flex-col gap-1 text-xs text-gray-400">
+              <label className="flex flex-col gap-1 text-xs text-ui-fg2">
                 Variantes
                 <select value={variants} onChange={(e) => setVariants(Number(e.target.value))} className={FIELD}>
                   {[1, 2, 3, 4].map((v) => <option key={v} value={v}>{v}</option>)}
@@ -229,11 +229,11 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
             </>
           ) : (
             <>
-              <label className="flex flex-col gap-1 text-xs text-gray-400">
+              <label className="flex flex-col gap-1 text-xs text-ui-fg2">
                 Durée : {seconds} s
                 <input type="range" min={4} max={12} value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} className="w-40" />
               </label>
-              <label className="flex flex-col gap-1 text-xs text-gray-400">
+              <label className="flex flex-col gap-1 text-xs text-ui-fg2">
                 Qualité
                 <select value={quality} onChange={(e) => setQuality(e.target.value as Quality)} className={FIELD}>
                   <option value="fast">Rapide — 720p, gratuit</option>
@@ -242,14 +242,14 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
               </label>
             </>
           )}
-          <div className="flex flex-col gap-1 text-xs text-gray-400">
+          <div className="flex flex-col gap-1 text-xs text-ui-fg2">
             {kind === "image" ? `Images de référence (facultatif, ${MAX_REFS} max)` : "Photo à animer (facultatif)"}
             <div className="flex items-center gap-2">
               <button type="button" onClick={() => fileRef.current?.click()} className={BTN}><ImagePlus className="w-4 h-4" /> Ajouter</button>
               {refs.map((r, i) => (
                 <span key={i} className="relative">
                   <img src={r.dataUri} alt={r.name} className="w-9 h-9 object-cover rounded" />
-                  <button type="button" onClick={() => setRefs((l) => l.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 bg-gray-900 rounded-full text-gray-400 hover:text-white" aria-label="Retirer"><X className="w-3 h-3" /></button>
+                  <button type="button" onClick={() => setRefs((l) => l.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 bg-ui-card rounded-full text-ui-fg2 hover:text-ui-fg" aria-label="Retirer"><X className="w-3 h-3" /></button>
                 </span>
               ))}
             </div>
@@ -262,13 +262,13 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
         </div>
 
         {brandAssets.length > 0 && (kind === "image" || !source) && (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-ui-fg2">
             <span>Éléments de marque de {client.name} :</span>
             {brandAssets.slice(0, 12).map((a) => {
               const used = refs.some((r) => r.assetId === a.id);
               return (
                 <button key={a.id} type="button" onClick={() => void addBrandAsset(a)} disabled={used || (kind === "image" && refs.length >= MAX_REFS)} title={used ? "Déjà en référence" : `Ajouter « ${a.prompt} » en référence`}
-                  className={`w-9 h-9 rounded border overflow-hidden bg-gray-900 disabled:opacity-40 ${used ? "border-violet-500" : "border-gray-800 hover:border-violet-500/60"}`}>
+                  className={`w-9 h-9 rounded border overflow-hidden bg-ui-card disabled:opacity-40 ${used ? "border-ui-accent" : "border-ui-line hover:border-ui-accent"}`}>
                   {a.url && <img src={a.url} alt={a.prompt} className="w-full h-full object-contain" />}
                 </button>
               );
@@ -278,33 +278,33 @@ export function GenerateTab({ client, engines, quota, brandAssets, recent, sourc
 
         {switched && chosen && <p className="text-[12px] text-amber-300">{chosen.label} ne prend pas d&apos;image de référence : {engine?.label} ({engine ? enginePrice(engine) : ""}) sera utilisé.</p>}
         {reminder && (
-          <p className={`text-[12px] ${reminder.over ? "text-rose-300" : reminder.warn ? "text-amber-300" : "text-gray-400"}`} title="Plafonds journaliers posés par les admins (Admin → Quotas)">
+          <p className={`text-[12px] ${reminder.over ? "text-rose-300" : reminder.warn ? "text-amber-300" : "text-ui-fg2"}`} title="Plafonds journaliers posés par les admins (Admin → Quotas)">
             {reminder.over ? "Plafond du jour atteint — " : reminder.warn ? "Proche du plafond — " : ""}{reminder.text}
           </p>
         )}
-        <div className="flex flex-wrap gap-4 text-xs text-gray-400">
+        <div className="flex flex-wrap gap-4 text-xs text-ui-fg2">
           <label className="flex items-center gap-1.5" title="Votre demande est réécrite en consigne précise (ce qui reste identique, ce qui change, une seule image) par le modèle texte d'Agnes, gratuit."><input type="checkbox" checked={enhance} onChange={(e) => setEnhance(e.target.checked)} /> Améliorer ma consigne (recommandé, gratuit)</label>
           {kind === "image" && <label className="flex items-center gap-1.5" title="L'IA dessine mal les textes et les logos : posez-les ensuite exactement avec « Textes & logo »."><input type="checkbox" checked={textless} onChange={(e) => setTextless(e.target.checked)} /> Sans texte ni logo dans l&apos;image (je les pose ensuite)</label>}
         </div>
-        {kind === "video" && <p className="text-[11px] text-gray-500">Une vidéo prend en général 1 à 3 minutes : elle apparaît dans « Créas générées » dès qu&apos;elle est prête, vous pouvez continuer à travailler.</p>}
+        {kind === "video" && <p className="text-[11px] text-ui-muted">Une vidéo prend en général 1 à 3 minutes : elle apparaît dans « Créas générées » dès qu&apos;elle est prête, vous pouvez continuer à travailler.</p>}
         {error && <p className="text-sm text-rose-300">{error}</p>}
       </div>
 
       {recent.length > 0 && (
         <div className="space-y-2">
-          <div className="text-xs text-gray-400">Dernières générations libres pour {client.name}</div>
+          <div className="text-xs text-ui-fg2">Dernières générations libres pour {client.name}</div>
           <ul className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
             {recent.slice(0, 12).map((a) => (
               <li key={a.id}>
-                <button type="button" onClick={() => onOpen(a)} className="w-full text-left rounded-xl border border-gray-800 hover:border-violet-500/60 overflow-hidden bg-gray-950">
-                  <div className="relative bg-gray-900 flex items-center justify-center" style={{ aspectRatio: aspect(a.params.ratio) }}>
+                <button type="button" onClick={() => onOpen(a)} className="w-full text-left rounded-xl border border-ui-line hover:border-ui-accent overflow-hidden bg-ui-bg">
+                  <div className="relative bg-ui-card flex items-center justify-center" style={{ aspectRatio: aspect(a.params.ratio) }}>
                     {a.status === "completed" && a.url
                       ? (a.kind === "video" ? <video src={a.url} className="w-full h-full object-cover" muted loop playsInline onMouseEnter={(e) => void e.currentTarget.play()} onMouseLeave={(e) => e.currentTarget.pause()} /> : <img src={a.url} alt={a.prompt} className="w-full h-full object-cover" loading="lazy" />)
                       : a.status === "failed" ? <span className="text-xs text-rose-300 px-2 text-center">Échec</span>
-                      : <span className="text-xs text-gray-400 flex flex-col items-center gap-1"><Loader2 className="w-4 h-4 animate-spin" />{a.progress ? `${a.progress} %` : "En cours…"}</span>}
+                      : <span className="text-xs text-ui-fg2 flex flex-col items-center gap-1"><Loader2 className="w-4 h-4 animate-spin" />{a.progress ? `${a.progress} %` : "En cours…"}</span>}
                     <span className="absolute top-1 left-1"><Pill className="text-[10px]">{a.kind === "video" ? `Vidéo ${String(a.params.seconds ?? "")} s` : "Image"}</Pill></span>
                   </div>
-                  <p className="px-2 py-1.5 text-[10px] text-gray-500 truncate">{a.createdByName} · {when(a.createdAt)}{a.costUsd > 0 ? ` · ${usd(a.costUsd)}` : ""}</p>
+                  <p className="px-2 py-1.5 text-[10px] text-ui-muted truncate">{a.createdByName} · {when(a.createdAt)}{a.costUsd > 0 ? ` · ${usd(a.costUsd)}` : ""}</p>
                 </button>
               </li>
             ))}

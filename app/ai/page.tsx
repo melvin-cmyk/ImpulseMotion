@@ -409,47 +409,47 @@ function Console() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="border-b border-gray-800 px-6 py-3 flex flex-wrap items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center">
-          <Bot className="w-4 h-4 text-white" />
+      <div className="border-b border-ui-line px-6 py-3 flex flex-wrap items-center gap-3">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-ui-accent">
+          <Bot className="w-4 h-4 text-ui-fg" />
         </div>
         <div className="min-w-0">
-          <h1 className="text-sm font-semibold text-white">Assistant IA</h1>
-          <p className="text-xs text-gray-500">
+          <h1 className="text-sm font-medium text-ui-fg">Assistant IA</h1>
+          <p className="text-xs text-ui-muted">
             Meta, Google Ads, GA4, HQ, Sheets, web, Python
-            {runningCount > 0 && <span className="text-violet-300"> · {runningCount} réponse{runningCount > 1 ? "s" : ""} en cours</span>}
+            {runningCount > 0 && <span className="text-ui-accent-ink"> · {runningCount} réponse{runningCount > 1 ? "s" : ""} en cours</span>}
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <div className="hidden md:block w-[420px]"><ModelPicker prefs={prefs} onChange={updatePrefs} disabled={isLoading} idPrefix="console" /></div>
-          <Button variant="ghost" size="sm" onClick={openMemo} disabled={!canMemorize} title="Résume les conclusions de cette conversation dans le journal HQ d'un client" className="text-xs text-gray-300">
+          <Button variant="ghost" size="sm" onClick={openMemo} disabled={!canMemorize} title="Résume les conclusions de cette conversation dans le journal HQ d'un client" className="text-xs text-ui-fg2">
             Mémoriser dans HQ
           </Button>
           <div className="relative">
             <Button variant="ghost" size="icon" onClick={() => setShowHistory((v) => !v)} title="Conversations récentes"><History className="w-4 h-4" /></Button>
             {showHistory && (
-              <div className="absolute right-0 mt-1 w-72 max-h-80 overflow-auto bg-gray-950 border border-gray-800 rounded-xl shadow-2xl z-30 p-1">
-                {conversations.length === 0 && <div className="text-xs text-gray-500 px-3 py-2">Aucune conversation enregistrée.</div>}
+              <div className="absolute right-0 mt-1 w-72 max-h-80 overflow-auto bg-ui-bg border border-ui-line rounded-xl shadow-2xl z-30 p-1">
+                {conversations.length === 0 && <div className="text-xs text-ui-muted px-3 py-2">Aucune conversation enregistrée.</div>}
                 {conversations.map((c) => {
                   const running = !!live[c.id] || !!c.jobId
                   return (
-                    <div key={c.id} className="group flex items-center rounded-lg hover:bg-gray-900">
-                      <button type="button" onClick={() => openConversation(c.id)} className={`flex-1 min-w-0 text-left px-3 py-2 text-xs ${c.id === conversationId ? "text-violet-300" : "text-gray-300"}`}>
+                    <div key={c.id} className="group flex items-center rounded-lg hover:bg-ui-raised">
+                      <button type="button" onClick={() => openConversation(c.id)} className={`flex-1 min-w-0 text-left px-3 py-2 text-xs ${c.id === conversationId ? "text-ui-accent-ink" : "text-ui-fg2"}`}>
                         <div className="truncate flex items-center gap-1.5">
-                          {running && <Loader2 className="w-3 h-3 shrink-0 text-violet-400 animate-spin" aria-label="Réponse en cours" />}
+                          {running && <Loader2 className="w-3 h-3 shrink-0 text-ui-accent-ink animate-spin" aria-label="Réponse en cours" />}
                           <span className="truncate">{c.title}</span>
                         </div>
-                        <div className="text-[10px] text-gray-600">{running ? "Réponse en cours…" : new Date(c.updatedAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</div>
+                        <div className="text-[10px] text-ui-muted">{running ? "Réponse en cours…" : new Date(c.updatedAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</div>
                       </button>
                       {!running && (
-                        <button type="button" onClick={() => deleteConversation(c.id)} title="Supprimer cette conversation" className="px-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 focus:opacity-100">
+                        <button type="button" onClick={() => deleteConversation(c.id)} title="Supprimer cette conversation" className="px-2 text-ui-muted hover:text-red-400 opacity-0 group-hover:opacity-100 focus:opacity-100">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
                   )
                 })}
-                <div className="text-[10px] text-gray-600 px-3 py-2 border-t border-gray-900 mt-1">Historique privé : visible uniquement depuis votre compte. Les réponses continuent quand vous changez de conversation ou de page.</div>
+                <div className="text-[10px] text-ui-muted px-3 py-2 border-t border-ui-line mt-1">Historique privé : visible uniquement depuis votre compte. Les réponses continuent quand vous changez de conversation ou de page.</div>
               </div>
             )}
           </div>
@@ -459,16 +459,16 @@ function Console() {
       </div>
 
       {(memo.open || memo.note) && (
-        <div className="border-b border-gray-800 px-6 py-2 flex flex-wrap items-center gap-2 text-xs">
+        <div className="border-b border-ui-line px-6 py-2 flex flex-wrap items-center gap-2 text-xs">
           {memo.open && (
             <>
-              <span className="text-gray-400">Dossier HQ du client :</span>
-              <select value={memo.project} onChange={(e) => setMemo((m) => ({ ...m, project: e.target.value }))} disabled={memo.busy} className="px-2 py-1 rounded-md bg-gray-900 border border-gray-800 text-gray-200 focus:border-violet-500 focus:outline-none">
+              <span className="text-ui-fg2">Dossier HQ du client :</span>
+              <select value={memo.project} onChange={(e) => setMemo((m) => ({ ...m, project: e.target.value }))} disabled={memo.busy} className="px-2 py-1 rounded-md bg-ui-card border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none">
                 {memo.projects.length === 0 && <option value="">Chargement…</option>}
                 {memo.projects.map((p) => <option key={p.slug} value={p.slug}>{p.name !== p.slug ? `${p.name} (${p.slug})` : p.slug}</option>)}
               </select>
-              <Button size="sm" onClick={memorize} disabled={!memo.project || memo.busy} className="bg-violet-600 hover:bg-violet-700 text-xs">{memo.busy ? "Mémorisation…" : "Consigner la note"}</Button>
-              <Button variant="ghost" size="sm" onClick={() => setMemo((m) => ({ ...m, open: false }))} className="text-xs text-gray-400">Annuler</Button>
+              <Button size="sm" onClick={memorize} disabled={!memo.project || memo.busy} className="bg-ui-accent hover:brightness-110 text-xs">{memo.busy ? "Mémorisation…" : "Consigner la note"}</Button>
+              <Button variant="ghost" size="sm" onClick={() => setMemo((m) => ({ ...m, open: false }))} className="text-xs text-ui-fg2">Annuler</Button>
             </>
           )}
           {memo.note && <span className={memo.note.ok ? "text-emerald-400" : "text-amber-400"}>{memo.note.text}</span>}
@@ -481,15 +481,15 @@ function Console() {
       <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4 space-y-4" onDrop={att.onDrop} onDragOver={att.onDragOver}>
         {shown.length === 0 && !sending && (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/20 to-purple-700/20 flex items-center justify-center mb-4">
-              <Bot className="w-8 h-8 text-violet-400" />
+            <div className="w-16 h-16 rounded-xl flex items-center justify-center mb-4 bg-ui-accent">
+              <Bot className="w-8 h-8 text-ui-accent-ink" />
             </div>
-            <h2 className="text-lg font-semibold text-white mb-2">Impulse AI Assistant</h2>
-            <p className="text-sm text-gray-400 max-w-md mb-2">
+            <h2 className="text-lg font-medium text-ui-fg mb-2">Impulse AI Assistant</h2>
+            <p className="text-sm text-ui-fg2 max-w-md mb-2">
               Données Meta Ads, Google Ads et GA4 de ton périmètre, mémoire HQ des clients, Google Sheets, recherche web
               et analyses Python avec graphiques et exports.
             </p>
-            <p className="text-xs text-gray-500 max-w-md mb-6">
+            <p className="text-xs text-ui-muted max-w-md mb-6">
               Joins des images, Excel, CSV, PDF ou Word avec le trombone, en les collant ou en les déposant ici.
               Tu peux changer de page ou ouvrir une autre conversation pendant que l&apos;assistant travaille.
             </p>
@@ -503,7 +503,7 @@ function Console() {
                 <button
                   key={suggestion}
                   onClick={() => setInput(suggestion)}
-                  className="text-left text-xs text-gray-400 border border-gray-800 rounded-lg px-3 py-2 hover:border-violet-600 hover:text-gray-200 transition-colors"
+                  className="text-left text-xs text-ui-fg2 border border-ui-line rounded-lg px-3 py-2 hover:border-ui-accent hover:text-ui-fg transition-colors"
                 >
                   {suggestion}
                 </button>
@@ -515,23 +515,23 @@ function Console() {
         {shown.map((msg) => (
           <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""}`}>
             {msg.role === "assistant" && (
-              <div className="w-7 h-7 rounded-lg bg-violet-600/20 flex items-center justify-center shrink-0 mt-1">
-                <Bot className="w-4 h-4 text-violet-400" />
+              <div className="w-7 h-7 rounded-lg bg-ui-accent-soft flex items-center justify-center shrink-0 mt-1">
+                <Bot className="w-4 h-4 text-ui-accent-ink" />
               </div>
             )}
 
-            <div className={`max-w-[85%] ${msg.role === "user" ? "bg-violet-600 rounded-2xl rounded-tr-sm px-4 py-2.5" : "flex-1 min-w-0"}`}>
+            <div className={`max-w-[85%] ${msg.role === "user" ? "bg-ui-accent rounded-xl rounded-tr-sm px-4 py-2.5" : "flex-1 min-w-0"}`}>
               {msg.role === "user" ? (
                 <div>
                   <MessageAttachments images={msg.images} files={msg.files} />
-                  <p className="text-sm text-white whitespace-pre-wrap">{msg.content.replace(FILES_NOTE_RE, "")}</p>
+                  <p className="text-sm text-ui-fg whitespace-pre-wrap">{msg.content.replace(FILES_NOTE_RE, "")}</p>
                 </div>
               ) : (
                 <div>
                   {msg.toolCalls && msg.toolCalls.length > 0 && (
                     <div className="mb-3 space-y-1">
                       {msg.toolCalls.map((tc, i) => (
-                        <div key={i} className="flex items-center gap-2 text-xs text-gray-500">
+                        <div key={i} className="flex items-center gap-2 text-xs text-ui-muted">
                           <Wrench className="w-3 h-3" />
                           <span>{formatToolName(tc.name)}</span>
                           {msg.toolResults?.find((r) => r.id === tc.id) ? (
@@ -548,7 +548,7 @@ function Console() {
                     <AiMarkdown
                       content={msg.content}
                       filesBase={filesBase}
-                      className="prose prose-sm prose-invert max-w-none prose-table:text-xs prose-th:bg-gray-800/50 prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 prose-th:text-left prose-table:border-collapse prose-th:border prose-th:border-gray-700 prose-td:border prose-td:border-gray-800"
+                      className="prose prose-sm ui-prose max-w-none prose-table:text-xs prose-th:bg-ui-raised prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 prose-th:text-left prose-table:border-collapse prose-th:border prose-th:border-ui-line-strong prose-td:border prose-td:border-ui-line"
                     />
                   )}
 
@@ -559,10 +559,10 @@ function Console() {
                   {msg.content && !msg.isStreaming && (
                     <div className="flex items-center gap-1 mt-3">
                       <Button variant="ghost" size="icon-xs" onClick={() => handleCopy(msg.id, msg.content)} title="Copier">
-                        {copiedId === msg.id ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3 text-gray-500" />}
+                        {copiedId === msg.id ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3 text-ui-muted" />}
                       </Button>
                       {msg.usage && (
-                        <span className="text-[10px] text-gray-600 ml-auto">{(msg.usage.duration / 1000).toFixed(1)}s</span>
+                        <span className="text-[10px] text-ui-muted ml-auto">{(msg.usage.duration / 1000).toFixed(1)}s</span>
                       )}
                     </div>
                   )}
@@ -571,24 +571,24 @@ function Console() {
             </div>
 
             {msg.role === "user" && (
-              <div className="w-7 h-7 rounded-lg bg-gray-700 flex items-center justify-center shrink-0 mt-1">
-                <User className="w-4 h-4 text-gray-300" />
+              <div className="w-7 h-7 rounded-lg bg-ui-line-strong flex items-center justify-center shrink-0 mt-1">
+                <User className="w-4 h-4 text-ui-fg2" />
               </div>
             )}
           </div>
         ))}
         {sending && !liveMessage && (
-          <div className="flex items-center gap-2 text-xs text-gray-500"><Loader2 className="w-3 h-3 animate-spin" /> Envoi…</div>
+          <div className="flex items-center gap-2 text-xs text-ui-muted"><Loader2 className="w-3 h-3 animate-spin" /> Envoi…</div>
         )}
       </div>
 
       {/* Input */}
-      <div className="border-t border-gray-800 px-6 py-3">
+      <div className="border-t border-ui-line px-6 py-3">
         <div className="max-w-4xl mx-auto space-y-2">
           <PendingAttachments att={att} />
           {att.error && <div className="text-[11px] text-amber-400">{att.error}</div>}
           <div className="flex items-end gap-2">
-            <AttachButton att={att} disabled={isLoading} className="h-11 px-3 rounded-xl text-base bg-gray-900 border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 disabled:opacity-50" />
+            <AttachButton att={att} disabled={isLoading} className="h-11 px-3 rounded-xl text-base bg-ui-card border border-ui-line-strong text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong disabled:opacity-50" />
             <div className="flex-1 relative">
               <textarea
                 ref={inputRef}
@@ -599,7 +599,7 @@ function Console() {
                 placeholder={liveMessage ? "Réponse en cours — ouvre une autre conversation (+) pour poser une nouvelle question." : att.hasPending ? "Que faire de ces fichiers ?" : "Demande des données, des analyses, des graphiques, des exports..."}
                 rows={1}
                 disabled={!!liveMessage}
-                className="w-full resize-none bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-violet-600 transition-colors disabled:opacity-60"
+                className="w-full resize-none bg-ui-card border border-ui-line-strong rounded-xl px-4 py-3 text-sm text-ui-fg placeholder:text-ui-muted focus:outline-none focus:border-ui-accent transition-colors disabled:opacity-60"
                 style={{ minHeight: "44px", maxHeight: "120px" }}
                 onInput={(e) => {
                   const target = e.target as HTMLTextAreaElement
@@ -609,7 +609,7 @@ function Console() {
               />
             </div>
             {liveMessage ? (
-              <Button onClick={() => void stopActive()} disabled={liveMessage.stopping} size="icon" title="Arrêter la réponse" className="bg-gray-800 hover:bg-gray-700 rounded-xl h-11 w-11 shrink-0">
+              <Button onClick={() => void stopActive()} disabled={liveMessage.stopping} size="icon" title="Arrêter la réponse" className="bg-ui-raised hover:bg-ui-line-strong rounded-xl h-11 w-11 shrink-0">
                 <Square className="w-4 h-4" />
               </Button>
             ) : (
@@ -617,7 +617,7 @@ function Console() {
                 onClick={handleSubmit}
                 disabled={(!input.trim() && !att.hasPending) || att.busy || sending}
                 size="icon"
-                className="bg-violet-600 hover:bg-violet-700 rounded-xl h-11 w-11 shrink-0"
+                className="bg-ui-accent hover:brightness-110 rounded-xl h-11 w-11 shrink-0"
               >
                 {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </Button>

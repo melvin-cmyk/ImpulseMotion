@@ -18,9 +18,9 @@ export const aspect = (r?: unknown) => { const [w, h] = String(r ?? "1:1").split
 
 export const ORIGIN_LABEL: Record<string, string> = { studio: "Génération libre", template: "Depuis un template", variation: "Variante", factory: "Fabrique", asset: "Élément de marque" };
 
-export const BTN = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-gray-700 text-gray-200 hover:text-white hover:border-gray-500 disabled:opacity-40";
-export const BTN_PRIMARY = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-violet-600 hover:bg-violet-500 text-white font-medium disabled:opacity-40";
-export const FIELD = "bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-sm text-white outline-none focus:border-violet-500";
+export const BTN = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm border border-ui-line-strong text-ui-fg hover:text-ui-fg hover:border-ui-line-strong disabled:opacity-40";
+export const BTN_PRIMARY = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-ui-accent hover:brightness-110 text-ui-on-accent font-medium disabled:opacity-40";
+export const FIELD = "bg-ui-bg border border-ui-line rounded-lg px-2.5 py-1.5 text-sm text-ui-fg outline-none focus:border-ui-accent";
 
 /** The price line shown before a generation: unit × n, what the team and the consultant spent today, amber near a cap, red over it. */
 export function priceReminder(quota: QuotaInfo | null, unitUsd: number, n: number): { text: string; over: boolean; warn: boolean } | null {

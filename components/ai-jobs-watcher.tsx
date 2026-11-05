@@ -123,18 +123,18 @@ export function AiJobsWatcher({ enabled, children }: { enabled: boolean; childre
       {notices.length > 0 && (
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm" role="status" aria-live="polite">
           {notices.map((job) => (
-            <div key={job.id} className="flex items-start gap-3 rounded-xl border border-violet-500/30 bg-gray-950/95 shadow-2xl px-4 py-3 text-sm text-gray-100 backdrop-blur">
-              <div className="w-8 h-8 rounded-lg bg-violet-600/20 text-violet-300 flex items-center justify-center shrink-0">
+            <div key={job.id} className="flex items-start gap-3 rounded-xl border border-ui-accent bg-ui-bg shadow-2xl px-4 py-3 text-sm text-ui-fg backdrop-blur">
+              <div className="w-8 h-8 rounded-lg bg-ui-accent-soft text-ui-accent-ink flex items-center justify-center shrink-0">
                 <Bot className="w-4 h-4" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-medium">{job.status === "done" ? "Réponse prête" : job.status === "stopped" ? "Réponse arrêtée" : "L'assistant n'a pas pu répondre"}</div>
-                <div className="text-xs text-gray-400 truncate" title={job.title}>{SURFACE_LABEL[job.surface]} · {job.title || "Conversation"}</div>
-                <Link href={job.href} onClick={() => setNotices((prev) => prev.filter((n) => n.id !== job.id))} className="inline-block mt-1.5 text-xs font-medium text-violet-300 hover:text-white">
+                <div className="text-xs text-ui-fg2 truncate" title={job.title}>{SURFACE_LABEL[job.surface]} · {job.title || "Conversation"}</div>
+                <Link href={job.href} onClick={() => setNotices((prev) => prev.filter((n) => n.id !== job.id))} className="inline-block mt-1.5 text-xs font-medium text-ui-accent-ink hover:text-ui-fg">
                   Ouvrir la conversation →
                 </Link>
               </div>
-              <button type="button" aria-label="Fermer" onClick={() => setNotices((prev) => prev.filter((n) => n.id !== job.id))} className="text-gray-500 hover:text-gray-200">
+              <button type="button" aria-label="Fermer" onClick={() => setNotices((prev) => prev.filter((n) => n.id !== job.id))} className="text-ui-muted hover:text-ui-fg">
                 <X className="w-4 h-4" />
               </button>
             </div>

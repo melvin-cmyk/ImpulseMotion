@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { HelpCircle, X, ChevronDown } from "lucide-react";
+import { HelpCircle, X, ChevronDown, Lightbulb } from "lucide-react";
 
 interface PageHelpProps {
   title: string;
@@ -23,7 +23,7 @@ export function PageHelp({ title, description, steps, tip }: PageHelpProps) {
   }, []);
 
   return (
-    <div className="bg-blue-950/30 border border-blue-800/30 rounded-2xl overflow-hidden mb-6">
+    <div className="bg-blue-950/30 border border-blue-800/30 rounded-xl overflow-hidden mb-6">
       {/* Header — toujours visible */}
       <button
         onClick={() => setIsOpen((v) => !v)}
@@ -34,7 +34,7 @@ export function PageHelp({ title, description, steps, tip }: PageHelpProps) {
           <HelpCircle className="w-4 h-4 text-blue-400" />
         </div>
         <div className="flex-1 text-left">
-          <span className="text-sm font-semibold text-blue-200">{title}</span>
+          <span className="text-sm font-medium text-blue-200">{title}</span>
           {!isOpen && (
             <span className="text-xs text-blue-400/70 ml-2 hidden sm:inline">
               — cliquer pour en savoir plus
@@ -54,13 +54,13 @@ export function PageHelp({ title, description, steps, tip }: PageHelpProps) {
 
           {/* Steps */}
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold text-blue-400/60 uppercase tracking-widest">
+            <p className="text-[10px] font-medium text-blue-400/60 ">
               Comment l&apos;utiliser
             </p>
             <ol className="space-y-1.5">
               {steps.map((step, i) => (
                 <li key={i} className="flex items-start gap-2.5 text-sm text-blue-100/70">
-                  <span className="w-5 h-5 rounded-full bg-blue-800/50 text-blue-300 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                  <span className="w-5 h-5 rounded-full bg-blue-800/50 text-blue-300 text-[10px] font-medium flex items-center justify-center shrink-0 mt-0.5">
                     {i + 1}
                   </span>
                   {step}
@@ -71,10 +71,10 @@ export function PageHelp({ title, description, steps, tip }: PageHelpProps) {
 
           {/* Conseil optionnel */}
           {tip && (
-            <div className="flex items-start gap-2 bg-blue-900/20 border border-blue-700/20 rounded-xl px-4 py-3">
-              <span className="text-base shrink-0">💡</span>
-              <p className="text-xs text-blue-200/70 leading-relaxed">
-                <span className="font-semibold text-blue-200/90">Conseil : </span>
+            <div className="flex items-start gap-2 bg-ui-raised rounded-xl px-4 py-3">
+              <Lightbulb className="w-4 h-4 shrink-0 text-ui-muted mt-0.5" strokeWidth={1.5} />
+              <p className="text-xs text-ui-fg2 leading-relaxed">
+                <span className="font-medium text-ui-fg">Conseil : </span>
                 {tip}
               </p>
             </div>

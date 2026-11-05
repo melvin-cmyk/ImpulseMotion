@@ -38,7 +38,7 @@ function TypeIcon({ config }: { config: ViewConfig }) {
   const comparative = config.groupBy !== "creative" && config.groupBy !== "ad";
   return comparative
     ? <span className="w-[18px] h-[18px] rounded-[5px] bg-sky-500/15 text-sky-300 flex items-center justify-center shrink-0"><svg viewBox="0 0 16 16" className="w-3 h-3" fill="currentColor"><rect x="2" y="8" width="3" height="6" rx="1" /><rect x="6.5" y="4" width="3" height="10" rx="1" /><rect x="11" y="6" width="3" height="8" rx="1" /></svg></span>
-    : <span className="w-[18px] h-[18px] rounded-[5px] bg-violet-500/15 flex items-center justify-center shrink-0"><span className="w-2 h-2 rounded-[2px] border border-violet-300" /></span>;
+    : <span className="w-[18px] h-[18px] rounded-[5px] bg-ui-accent-soft flex items-center justify-center shrink-0"><span className="w-2 h-2 rounded-[2px] border border-ui-accent" /></span>;
 }
 
 export function ReportSidebar({ clientLabel, section, onSection, accountKey, saved, loading, activeId, onPick, onCreate, onRename, onDelete }: Props) {
@@ -54,9 +54,9 @@ export function ReportSidebar({ clientLabel, section, onSection, accountKey, sav
 
   const toReview = usePlaybookReviewCount(accountKey);
   const nav = (id: AnalyseSection, Icon: typeof Trophy, label: string, badge = 0) => (
-    <button key={id} type="button" onClick={() => onSection(id)} className={`w-full h-9 flex items-center gap-2.5 rounded-[10px] px-2 text-sm ${section === id ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800/60"}`}>
-      <Icon className="w-4 h-4 text-gray-400" /><span className="flex-1 text-left">{label}</span>
-      {badge > 0 && <span className="rounded-md bg-violet-500/25 px-1.5 text-[11px] text-violet-100" title={`${badge} apprentissage(s) proposé(s) par l'IA à valider`}>{badge}</span>}
+    <button key={id} type="button" onClick={() => onSection(id)} className={`w-full h-9 flex items-center gap-2.5 rounded-[10px] px-2 text-sm ${section === id ? "bg-ui-raised text-ui-fg" : "text-ui-fg2 hover:bg-ui-raised"}`}>
+      <Icon className="w-4 h-4 text-ui-fg2" /><span className="flex-1 text-left">{label}</span>
+      {badge > 0 && <span className="rounded-md bg-ui-accent-soft px-1.5 text-[11px] text-ui-accent-ink" title={`${badge} apprentissage(s) proposé(s) par l'IA à valider`}>{badge}</span>}
     </button>
   );
 
@@ -65,19 +65,19 @@ export function ReportSidebar({ clientLabel, section, onSection, accountKey, sav
     if (editing === id && custom) {
       return (
         <form key={id} className="flex items-center gap-1 pl-7 pr-1 py-1" onSubmit={async (e) => { e.preventDefault(); await onRename(id, name.trim() || custom.name, custom.emoji); setEditing(null); }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus className="flex-1 min-w-0 h-7 rounded-md border border-gray-700 bg-gray-900 px-2 text-sm text-white" />
-          <button type="button" onClick={() => setEditing(null)} className="p-1 text-gray-500 hover:text-white"><X className="w-3.5 h-3.5" /></button>
+          <input value={name} onChange={(e) => setName(e.target.value)} autoFocus className="flex-1 min-w-0 h-7 rounded-md border border-ui-line-strong bg-ui-card px-2 text-sm text-ui-fg" />
+          <button type="button" onClick={() => setEditing(null)} className="p-1 text-ui-muted hover:text-ui-fg"><X className="w-3.5 h-3.5" /></button>
         </form>
       );
     }
     return (
-      <div key={id} onClick={() => { onSection("ads"); onPick(id, config); }} className={`group h-9 flex items-center gap-2 rounded-[10px] pl-7 pr-2 text-sm cursor-pointer ${active ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800/60"}`}>
+      <div key={id} onClick={() => { onSection("ads"); onPick(id, config); }} className={`group h-9 flex items-center gap-2 rounded-[10px] pl-7 pr-2 text-sm cursor-pointer ${active ? "bg-ui-raised text-ui-fg" : "text-ui-fg2 hover:bg-ui-raised"}`}>
         <TypeIcon config={config} />
         <span className="flex-1 min-w-0 truncate" title={label}>{label}</span>
         {custom && (
           <span className="hidden group-hover:flex items-center gap-1">
-            <button type="button" title="Renommer" onClick={(e) => { e.stopPropagation(); setEditing(id); setName(custom.name); }} className="text-gray-500 hover:text-white"><Pencil className="w-3.5 h-3.5" /></button>
-            <button type="button" title="Supprimer" onClick={async (e) => { e.stopPropagation(); if (confirm(`Supprimer le rapport « ${custom.name} » ?`)) await onDelete(id); }} className="text-gray-500 hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            <button type="button" title="Renommer" onClick={(e) => { e.stopPropagation(); setEditing(id); setName(custom.name); }} className="text-ui-muted hover:text-ui-fg"><Pencil className="w-3.5 h-3.5" /></button>
+            <button type="button" title="Supprimer" onClick={async (e) => { e.stopPropagation(); if (confirm(`Supprimer le rapport « ${custom.name} » ?`)) await onDelete(id); }} className="text-ui-muted hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
           </span>
         )}
       </div>
@@ -85,7 +85,7 @@ export function ReportSidebar({ clientLabel, section, onSection, accountKey, sav
   };
 
   return (
-    <aside className="w-[250px] shrink-0 border-r border-gray-800 bg-gray-950 flex flex-col min-h-0">
+    <aside className="w-[250px] shrink-0 border-r border-ui-line bg-ui-bg flex flex-col min-h-0">
       <div className="p-3 pb-2"><AccountPicker variant="workspace" label={clientLabel} /></div>
       <nav className="px-3 space-y-0.5">
         {nav("leaderboard", Trophy, "Leaderboard")}
@@ -98,30 +98,30 @@ export function ReportSidebar({ clientLabel, section, onSection, accountKey, sav
         {nav("playbook", BookOpen, "Playbook", toReview)}
         {nav("glossary", Tags, "Glossaire")}
         {nav("agents", Bot, "Agents IA")}
-        <button type="button" onClick={onCreate} disabled={!accountKey} className="w-full h-9 flex items-center gap-2.5 rounded-[10px] px-2 text-sm font-semibold text-white hover:bg-gray-800/60 disabled:opacity-40">
+        <button type="button" onClick={onCreate} disabled={!accountKey} className="w-full h-9 flex items-center gap-2.5 rounded-[10px] px-2 text-sm font-medium text-ui-fg hover:bg-ui-raised disabled:opacity-40">
           <PlusCircle className="w-4 h-4" />Créer un rapport
         </button>
       </nav>
 
       <div className="mt-4 px-3 flex items-center justify-between h-8">
-        <span className="px-2 text-sm font-medium text-gray-500">Dossiers</span>
+        <span className="px-2 text-sm font-medium text-ui-muted">Dossiers</span>
         <span className="flex items-center gap-1">
-          <button type="button" onClick={() => { setSearching((v) => !v); setQ(""); }} title="Rechercher un rapport" className="p-1 rounded-md text-gray-500 hover:text-white"><Search className="w-4 h-4" /></button>
-          <button type="button" onClick={onCreate} disabled={!accountKey} title="Nouveau rapport" className="p-1 rounded-md text-gray-500 hover:text-white disabled:opacity-40"><FolderPlus className="w-4 h-4" /></button>
+          <button type="button" onClick={() => { setSearching((v) => !v); setQ(""); }} title="Rechercher un rapport" className="p-1 rounded-md text-ui-muted hover:text-ui-fg"><Search className="w-4 h-4" /></button>
+          <button type="button" onClick={onCreate} disabled={!accountKey} title="Nouveau rapport" className="p-1 rounded-md text-ui-muted hover:text-ui-fg disabled:opacity-40"><FolderPlus className="w-4 h-4" /></button>
         </span>
       </div>
-      {searching && <div className="px-3 pb-1"><input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Rechercher…" className="w-full h-8 rounded-[10px] border border-gray-800 bg-gray-900 px-2.5 text-sm text-white placeholder:text-gray-600" /></div>}
+      {searching && <div className="px-3 pb-1"><input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Rechercher…" className="w-full h-8 rounded-[10px] border border-ui-line bg-ui-card px-2.5 text-sm text-ui-fg placeholder:text-ui-muted" /></div>}
 
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-3 pb-4">
-        <button type="button" onClick={() => setOpenReports((v) => !v)} className="w-full h-9 flex items-center gap-1.5 px-2 text-sm text-gray-500 hover:text-gray-300">
+        <button type="button" onClick={() => setOpenReports((v) => !v)} className="w-full h-9 flex items-center gap-1.5 px-2 text-sm text-ui-muted hover:text-ui-fg2">
           {openReports ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}Rapports
         </button>
         {openReports && (loading
-          ? <div className="pl-7 h-9 flex items-center gap-1.5 text-sm text-gray-500"><Loader2 className="w-3.5 h-3.5 animate-spin" />Chargement…</div>
+          ? <div className="pl-7 h-9 flex items-center gap-1.5 text-sm text-ui-muted"><Loader2 className="w-3.5 h-3.5 animate-spin" />Chargement…</div>
           : savedShown.length === 0
-            ? <div className="pl-7 pr-2 py-1.5 text-xs text-gray-600">{accountKey ? "Aucun rapport enregistré pour ce client : « Créer un rapport »." : "Choisis un client."}</div>
+            ? <div className="pl-7 pr-2 py-1.5 text-xs text-ui-muted">{accountKey ? "Aucun rapport enregistré pour ce client : « Créer un rapport »." : "Choisis un client."}</div>
             : savedShown.map((v) => row(v.id, v.name, v.config, v)))}
-        <button type="button" onClick={() => setOpenTemplates((v) => !v)} className="w-full h-9 flex items-center gap-1.5 px-2 text-sm text-gray-500 hover:text-gray-300">
+        <button type="button" onClick={() => setOpenTemplates((v) => !v)} className="w-full h-9 flex items-center gap-1.5 px-2 text-sm text-ui-muted hover:text-ui-fg2">
           {openTemplates ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}Modèles
         </button>
         {openTemplates && templatesShown.map((t) => row(`tpl:${t.id}`, t.name, t.config))}

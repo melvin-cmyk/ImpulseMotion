@@ -28,7 +28,7 @@ const STATUS_LABEL: Record<Frontmatter["statut"], { label: string; tone: "defaul
   confirme: { label: "Confirmé", tone: "emerald" },
 };
 
-const MD_CLASS = "prose prose-invert prose-sm max-w-none text-gray-300";
+const MD_CLASS = "prose ui-prose prose-sm max-w-none text-ui-fg2";
 const ACCEPTED = ".txt,.csv,.md,.json,.tsv,text/plain,text/csv,text/markdown,application/json";
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -163,7 +163,7 @@ export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
   };
 
   if (error && !data) return <p className="text-sm text-red-300">{error}</p>;
-  if (!data) return <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du dossier HQ…</p>;
+  if (!data) return <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du dossier HQ…</p>;
 
   const hq = data.hq;
   const draft = data.draft;
@@ -174,66 +174,66 @@ export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
     <div className="space-y-4">
       <Card padded>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <Users className="w-4 h-4 text-violet-300" />
-          <span className="text-white font-semibold">Personas</span>
+          <Users className="w-4 h-4 text-ui-accent-ink" />
+          <span className="text-ui-fg font-medium">Personas</span>
           {status && <Pill tone={status.tone}>{status.label}</Pill>}
           {hq?.stale && <Pill tone="amber">À rafraîchir (plus de {data.refreshDays} j)</Pill>}
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-ui-muted">
             {data.slug
-              ? <>Fiche client HQ : <code className="text-gray-400">projects/{data.slug}/brain/recherche/personas.md</code>{hq?.frontmatter.maj ? <>, mise à jour le {fmtDate(hq.frontmatter.maj)}</> : null}{hq?.frontmatter.confirme_par ? <>, confirmée par {hq.frontmatter.confirme_par}</> : null}.</>
-              : <>Aucune fiche HQ rattachée : <Link href={`/portfolio/${dashboardId}`} className="text-violet-300 hover:text-white">renseigner le slug HQ dans la fiche client</Link> pour lire et écrire les personas.</>}
+              ? <>Fiche client HQ : <code className="text-ui-fg2">projects/{data.slug}/brain/recherche/personas.md</code>{hq?.frontmatter.maj ? <>, mise à jour le {fmtDate(hq.frontmatter.maj)}</> : null}{hq?.frontmatter.confirme_par ? <>, confirmée par {hq.frontmatter.confirme_par}</> : null}.</>
+              : <>Aucune fiche HQ rattachée : <Link href={`/portfolio/${dashboardId}`} className="text-ui-accent-ink hover:text-ui-fg">renseigner le slug HQ dans la fiche client</Link> pour lire et écrire les personas.</>}
           </span>
         </div>
-        <div className="mt-3 rounded-xl border border-violet-900/40 bg-violet-500/5 px-4 py-3 text-xs text-gray-300 space-y-2">
-          <div className="text-white font-semibold">Ce qui se passe ici, et où ça va</div>
+        <div className="mt-3 rounded-xl border border-ui-accent bg-ui-accent-soft px-4 py-3 text-xs text-ui-fg2 space-y-2">
+          <div className="text-ui-fg font-medium">Ce qui se passe ici, et où ça va</div>
           <p>
-            Ce que vous validez ici <span className="text-white">entre dans la fiche HQ du client</span> (le « cerveau client » de l&apos;agence), pas seulement dans ImpulseMotion. C&apos;est le même fichier que lisent ensuite les rapports IA, les skills de wording et de briefs créa, et vos collègues dans HQ.
+            Ce que vous validez ici <span className="text-ui-fg">entre dans la fiche HQ du client</span> (le « cerveau client » de l&apos;agence), pas seulement dans ImpulseMotion. C&apos;est le même fichier que lisent ensuite les rapports IA, les skills de wording et de briefs créa, et vos collègues dans HQ.
           </p>
           <ol className="list-decimal pl-5 space-y-1">
-            <li><span className="text-white">Vous déposez des avis clients</span> (Trustpilot, Google, SAV…). Sans avis, l&apos;IA ne produit que des hypothèses, marquées comme telles : c&apos;est la règle HQ, un persona se déduit de ce que les clients disent.</li>
-            <li><span className="text-white">L&apos;IA rédige un brouillon</span> (5 à 7 avatars priorisés, angles, hooks, matrice de messages). Le brouillon reste dans ImpulseMotion : HQ n&apos;est pas touché.</li>
-            <li><span className="text-white">Vous relisez et corrigez.</span> « Enregistrer dans HQ (à confirmer) » dépose le texte dans la fiche avec le statut <em>à confirmer</em> : visible par l&apos;équipe, mais aucun livrable ne s&apos;appuie dessus.</li>
-            <li><span className="text-white">« Confirmer et écrire dans HQ »</span> passe la fiche en <em>confirmé</em> avec votre nom. À partir de là, les rapports IA et les outils de rédaction s&apos;en servent comme référence. Vous pouvez toujours corriger ensuite ; HQ garde l&apos;historique.</li>
+            <li><span className="text-ui-fg">Vous déposez des avis clients</span> (Trustpilot, Google, SAV…). Sans avis, l&apos;IA ne produit que des hypothèses, marquées comme telles : c&apos;est la règle HQ, un persona se déduit de ce que les clients disent.</li>
+            <li><span className="text-ui-fg">L&apos;IA rédige un brouillon</span> (5 à 7 avatars priorisés, angles, hooks, matrice de messages). Le brouillon reste dans ImpulseMotion : HQ n&apos;est pas touché.</li>
+            <li><span className="text-ui-fg">Vous relisez et corrigez.</span> « Enregistrer dans HQ (à confirmer) » dépose le texte dans la fiche avec le statut <em>à confirmer</em> : visible par l&apos;équipe, mais aucun livrable ne s&apos;appuie dessus.</li>
+            <li><span className="text-ui-fg">« Confirmer et écrire dans HQ »</span> passe la fiche en <em>confirmé</em> avec votre nom. À partir de là, les rapports IA et les outils de rédaction s&apos;en servent comme référence. Vous pouvez toujours corriger ensuite ; HQ garde l&apos;historique.</li>
           </ol>
-          <p className="text-gray-500">Rien n&apos;est écrit dans HQ sans un clic explicite de votre part, et jamais par-dessus une modification faite entre-temps dans HQ (la page vous demande alors de relire).</p>
+          <p className="text-ui-muted">Rien n&apos;est écrit dans HQ sans un clic explicite de votre part, et jamais par-dessus une modification faite entre-temps dans HQ (la page vous demande alors de relire).</p>
         </div>
         {data.warning && <p className="text-xs text-amber-300 mt-2">{data.warning}</p>}
       </Card>
 
       {error && <div className="text-sm text-red-300 bg-red-950/40 border border-red-900/50 rounded-xl px-4 py-3">{error}</div>}
-      {notice && <div className="text-sm text-emerald-200 bg-emerald-950/30 border border-emerald-900/50 rounded-xl px-4 py-3 flex justify-between gap-3"><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="text-gray-500 hover:text-white">✕</button></div>}
+      {notice && <div className="text-sm text-emerald-200 bg-emerald-950/30 border border-emerald-900/50 rounded-xl px-4 py-3 flex justify-between gap-3"><span>{notice}</span><button type="button" onClick={() => setNotice(null)} className="text-ui-muted hover:text-ui-fg">✕</button></div>}
 
       {/* Draft written by the AI, or an edit in progress */}
       {(draft || editing) && (
         <Card padded>
           <div className="flex flex-wrap items-center gap-3 text-sm mb-3">
-            <Sparkles className="w-4 h-4 text-violet-300" />
-            <span className="text-white font-semibold">{editing?.from === "hq" ? "Correction du fichier HQ" : "Brouillon de l'IA"}</span>
+            <Sparkles className="w-4 h-4 text-ui-accent-ink" />
+            <span className="text-ui-fg font-medium">{editing?.from === "hq" ? "Correction du fichier HQ" : "Brouillon de l'IA"}</span>
             {draft && !editing && <Pill tone={draft.kind === "hypothese" ? "amber" : "blue"}>{draft.kind === "hypothese" ? "Hypothèses (sans avis)" : "Personas"}</Pill>}
             {draft && !editing && (
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-ui-muted">
                 {fmtDate(draft.updatedAt)} · avis : {draft.inputs.reviewsChars ? `${Math.round(draft.inputs.reviewsChars / 1000)} k car.${draft.inputs.reviewsSource ? ` (${draft.inputs.reviewsSource})` : ""}` : "aucun"} · fichiers HQ lus : {draft.inputs.hqFiles?.length ?? 0} · créas Meta : {draft.inputs.ads ?? 0}
               </span>
             )}
             <div className="ml-auto flex flex-wrap gap-2">
               {!editing && draft && (
-                <button type="button" onClick={() => setEditing({ from: "draft", markdown: draft.markdown })} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200">Modifier</button>
+                <button type="button" onClick={() => setEditing({ from: "draft", markdown: draft.markdown })} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg">Modifier</button>
               )}
               {editing && (
-                <button type="button" onClick={() => setEditing(null)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200">Annuler</button>
+                <button type="button" onClick={() => setEditing(null)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg">Annuler</button>
               )}
               {data.slug && (
                 <>
-                  <button type="button" disabled={busy} onClick={() => write("a_confirmer")} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 disabled:opacity-50 inline-flex items-center gap-1">
+                  <button type="button" disabled={busy} onClick={() => write("a_confirmer")} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg disabled:opacity-50 inline-flex items-center gap-1">
                     {writing === "a_confirmer" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />} Enregistrer dans HQ (à confirmer)
                   </button>
-                  <button type="button" disabled={busy} onClick={() => write("confirme")} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 inline-flex items-center gap-1">
+                  <button type="button" disabled={busy} onClick={() => write("confirme")} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 inline-flex items-center gap-1">
                     {writing === "confirme" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Confirmer et écrire dans HQ
                   </button>
                 </>
               )}
               {draft && !editing && (
-                <button type="button" disabled={busy} onClick={dropDraft} className="px-2 py-1.5 rounded-lg text-xs text-gray-500 hover:text-red-300 inline-flex items-center gap-1" title="Supprimer le brouillon"><Trash2 className="w-3.5 h-3.5" /></button>
+                <button type="button" disabled={busy} onClick={dropDraft} className="px-2 py-1.5 rounded-lg text-xs text-ui-muted hover:text-red-300 inline-flex items-center gap-1" title="Supprimer le brouillon"><Trash2 className="w-3.5 h-3.5" /></button>
               )}
             </div>
           </div>
@@ -243,10 +243,10 @@ export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
               onChange={(e) => setEditing({ ...editing, markdown: e.target.value })}
               rows={28}
               spellCheck={false}
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:border-violet-600"
+              className="w-full bg-ui-bg border border-ui-line rounded-xl px-3 py-2 text-xs font-mono text-ui-fg focus:outline-none focus:border-ui-accent"
             />
           ) : draft ? (
-            <AiMarkdown content={draft.markdown} filesBase={null} className={`${MD_CLASS} bg-gray-950/60 border border-gray-800 rounded-xl px-4 py-3`} />
+            <AiMarkdown content={draft.markdown} filesBase={null} className={`${MD_CLASS} bg-ui-bg border border-ui-line rounded-xl px-4 py-3`} />
           ) : null}
         </Card>
       )}
@@ -254,52 +254,52 @@ export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
       {/* Generation */}
       <Card padded>
         <div className="flex flex-wrap items-center gap-3 text-sm mb-3">
-          <Sparkles className="w-4 h-4 text-violet-300" />
-          <span className="text-white font-semibold">{hq ? "Regénérer ou compléter avec l'IA" : "Générer avec l'IA"}</span>
-          <span className="text-xs text-gray-500">L&apos;IA lit aussi le dossier HQ du client (langage client, voix, contexte, concurrents) et les textes des créas Meta des 90 derniers jours.</span>
+          <Sparkles className="w-4 h-4 text-ui-accent-ink" />
+          <span className="text-ui-fg font-medium">{hq ? "Regénérer ou compléter avec l'IA" : "Générer avec l'IA"}</span>
+          <span className="text-xs text-ui-muted">L&apos;IA lit aussi le dossier HQ du client (langage client, voix, contexte, concurrents) et les textes des créas Meta des 90 derniers jours.</span>
         </div>
         <div className="grid gap-3 md:grid-cols-[2fr_1fr]">
           <div className="space-y-2">
-            <label className="text-xs text-gray-400 flex items-center justify-between">
+            <label className="text-xs text-ui-fg2 flex items-center justify-between">
               <span>Avis clients (Trustpilot, Google, Amazon, App Store, SAV, verbatims d&apos;appels…)</span>
-              <span className="text-gray-600">{reviews.length ? `${reviews.length.toLocaleString("fr-FR")} car.` : ""}</span>
+              <span className="text-ui-muted">{reviews.length ? `${reviews.length.toLocaleString("fr-FR")} car.` : ""}</span>
             </label>
             <textarea
               value={reviews}
               onChange={(e) => setReviews(e.target.value)}
               rows={8}
               placeholder="Collez ici les avis bruts (un avis par ligne ou par paragraphe), ou déposez un export .txt / .csv. Plus il y en a, plus les personas sont solides : 1 500 caractères minimum pour sortir du mode « hypothèses »."
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600"
+              className="w-full bg-ui-bg border border-ui-line rounded-xl px-3 py-2 text-sm text-ui-fg focus:outline-none focus:border-ui-accent"
             />
             <div className="flex flex-wrap items-center gap-2">
               <input ref={fileRef} type="file" accept={ACCEPTED} onChange={onFile} className="hidden" id={`persona-file-${dashboardId}`} />
-              <label htmlFor={`persona-file-${dashboardId}`} className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 inline-flex items-center gap-1"><Upload className="w-3.5 h-3.5" /> Déposer un export (.txt, .csv, .md)</label>
+              <label htmlFor={`persona-file-${dashboardId}`} className="cursor-pointer px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg inline-flex items-center gap-1"><Upload className="w-3.5 h-3.5" /> Déposer un export (.txt, .csv, .md)</label>
               <input
                 value={reviewsSource}
                 onChange={(e) => setReviewsSource(e.target.value)}
                 placeholder="Provenance (ex. Trustpilot, 320 avis, 2026)"
-                className="flex-1 min-w-[200px] bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-violet-600"
+                className="flex-1 min-w-[200px] bg-ui-bg border border-ui-line rounded-lg px-3 py-1.5 text-xs text-ui-fg focus:outline-none focus:border-ui-accent"
               />
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-xs text-gray-400">Consignes (facultatif)</label>
+            <label className="text-xs text-ui-fg2">Consignes (facultatif)</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={8}
               placeholder="Ex. : se concentrer sur l'offre B2B ; le persona « parent » est déjà validé, ne pas le refaire ; marché FR + BE…"
-              className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600"
+              className="w-full bg-ui-bg border border-ui-line rounded-xl px-3 py-2 text-sm text-ui-fg focus:outline-none focus:border-ui-accent"
             />
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3 mt-3">
-          <button type="button" disabled={busy} onClick={generate} className="px-4 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50 inline-flex items-center gap-2">
+          <button type="button" disabled={busy} onClick={generate} className="px-4 py-2 rounded-lg text-sm font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50 inline-flex items-center gap-2">
             {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
             {generating ? `Rédaction en cours… ${elapsed} s` : hq ? "Regénérer un brouillon" : "Générer un brouillon"}
           </button>
           {!reviews.trim() && <span className="text-xs text-amber-300">Sans avis, le résultat sera marqué « hypothèses » et ne pourra pas être confirmé comme persona.</span>}
-          {generating && <span className="text-xs text-gray-500">Comptez 2 à 4 minutes. Le brouillon n&apos;est pas écrit dans HQ tant que vous ne le confirmez pas.</span>}
+          {generating && <span className="text-xs text-ui-muted">Comptez 2 à 4 minutes. Le brouillon n&apos;est pas écrit dans HQ tant que vous ne le confirmez pas.</span>}
         </div>
       </Card>
 
@@ -307,29 +307,29 @@ export function PersonaPanel({ dashboardId }: { dashboardId: string }) {
       {hq && (
         <Card padded>
           <div className="flex flex-wrap items-center gap-3 text-sm mb-3">
-            <FileText className="w-4 h-4 text-violet-300" />
-            <span className="text-white font-semibold">Dans HQ aujourd&apos;hui</span>
+            <FileText className="w-4 h-4 text-ui-accent-ink" />
+            <span className="text-ui-fg font-medium">Dans HQ aujourd&apos;hui</span>
             {status && <Pill tone={status.tone}>{status.label}</Pill>}
-            {hq.frontmatter.source && <span className="text-xs text-gray-500">source : {hq.frontmatter.source}</span>}
+            {hq.frontmatter.source && <span className="text-xs text-ui-muted">source : {hq.frontmatter.source}</span>}
             <div className="ml-auto flex flex-wrap gap-2">
-              <button type="button" onClick={() => void load()} className="px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:text-white inline-flex items-center gap-1" title="Relire HQ"><RefreshCw className="w-3.5 h-3.5" /></button>
-              <button type="button" onClick={() => setShowHq((v) => !v)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200">{showHq ? "Replier" : "Afficher"}</button>
+              <button type="button" onClick={() => void load()} className="px-2 py-1.5 rounded-lg text-xs text-ui-fg2 hover:text-ui-fg inline-flex items-center gap-1" title="Relire HQ"><RefreshCw className="w-3.5 h-3.5" /></button>
+              <button type="button" onClick={() => setShowHq((v) => !v)} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg">{showHq ? "Replier" : "Afficher"}</button>
               {!editing && (
-                <button type="button" disabled={busy} onClick={() => setEditing({ from: "hq", markdown: hq.body })} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 disabled:opacity-50">Corriger</button>
+                <button type="button" disabled={busy} onClick={() => setEditing({ from: "hq", markdown: hq.body })} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg disabled:opacity-50">Corriger</button>
               )}
               {hq.frontmatter.statut !== "confirme" && !editing && !draft && (
-                <button type="button" disabled={busy} onClick={() => write("confirme")} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 inline-flex items-center gap-1">
+                <button type="button" disabled={busy} onClick={() => write("confirme")} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 inline-flex items-center gap-1">
                   {writing === "confirme" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Confirmer tel quel
                 </button>
               )}
             </div>
           </div>
-          {showHq && <AiMarkdown content={hq.body} filesBase={null} className={`${MD_CLASS} bg-gray-950/60 border border-gray-800 rounded-xl px-4 py-3`} />}
+          {showHq && <AiMarkdown content={hq.body} filesBase={null} className={`${MD_CLASS} bg-ui-bg border border-ui-line rounded-xl px-4 py-3`} />}
         </Card>
       )}
 
       {!hq && data.slug && !draft && (
-        <p className="text-xs text-gray-500">Aucun fichier personas.md dans le dossier HQ de ce client pour l&apos;instant.</p>
+        <p className="text-xs text-ui-muted">Aucun fichier personas.md dans le dossier HQ de ce client pour l&apos;instant.</p>
       )}
     </div>
   );

@@ -21,9 +21,9 @@ export function Freshness({
   className?: string;
 }) {
   return (
-    <div className={`flex items-center gap-2 flex-wrap text-xs text-gray-400 ${className ?? ""}`}>
-      {rangeLabel && <span className="text-gray-300">{rangeLabel}</span>}
-      {fetchedAt && <span className="text-gray-500">· données au {fmtTime(fetchedAt)}</span>}
+    <div className={`flex items-center gap-2 flex-wrap text-xs text-ui-fg2 ${className ?? ""}`}>
+      {rangeLabel && <span className="text-ui-fg2">{rangeLabel}</span>}
+      {fetchedAt && <span className="text-ui-muted">· données au {fmtTime(fetchedAt)}</span>}
       {timedOut && (
         <span className="inline-flex items-center gap-1 text-amber-400" title="Le budget de temps a été atteint : certains clients n'ont pas été résolus.">
           <AlertTriangle className="w-3 h-3" /> résultats partiels
@@ -34,7 +34,7 @@ export function Freshness({
           type="button"
           onClick={onRefresh}
           disabled={refreshing}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-800 bg-gray-900 text-gray-300 hover:text-white hover:border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-ui-line bg-ui-card text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong disabled:opacity-50 disabled:cursor-not-allowed"
           title="Recharger depuis Meta / Google (ignore le cache)"
         >
           {refreshing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
@@ -67,7 +67,7 @@ export function WithoutDataBanner({ items, unlinked }: { items: WithoutDataItem[
           <ul className="mt-2 space-y-1 text-xs text-amber-100/90">
             {items.map((c) => (
               <li key={c.id} className="flex items-start gap-2">
-                <Link href={`/portfolio/${c.id}`} className="font-medium text-white hover:text-violet-300 shrink-0">{c.name}</Link>
+                <Link href={`/portfolio/${c.id}`} className="font-medium text-ui-fg hover:text-ui-accent-ink shrink-0">{c.name}</Link>
                 <span>— {errorKindLabel(c.error?.kind)}</span>
                 {c.error?.message && <span className="text-amber-400/60 truncate" title={c.error.message}>· {c.error.message}</span>}
               </li>
@@ -82,7 +82,7 @@ export function WithoutDataBanner({ items, unlinked }: { items: WithoutDataItem[
           </summary>
           <ul className="mt-1 space-y-0.5 text-xs text-amber-100/80">
             {unlinked!.map((d) => (
-              <li key={d.id}><Link href={`/d/${d.id}`} className="hover:text-white">{d.name}</Link> — liez un compte Meta ou Google dans ses réglages</li>
+              <li key={d.id}><Link href={`/d/${d.id}`} className="hover:text-ui-fg">{d.name}</Link> — liez un compte Meta ou Google dans ses réglages</li>
             ))}
           </ul>
         </details>
@@ -94,10 +94,10 @@ export function WithoutDataBanner({ items, unlinked }: { items: WithoutDataItem[
 /** Grey "n/d" KPI card for a metric that could not be resolved. */
 export function KpiUnavailable({ label, reason, compact }: { label: string; reason?: string; compact?: boolean }) {
   return (
-    <div className={`bg-gray-900/60 border border-dashed border-gray-800 rounded-xl ${compact ? "px-3 py-2" : "px-3 py-2.5"}`} title={reason}>
-      <div className="text-[10px] uppercase tracking-wider text-gray-600 font-semibold">{label}</div>
-      <div className="text-lg font-bold text-gray-600 tabular-nums mt-0.5">n/d</div>
-      {reason && !compact && <div className="text-[11px] text-gray-600 truncate">{reason}</div>}
+    <div className={`bg-ui-card border border-dashed border-ui-line rounded-xl ${compact ? "px-3 py-2" : "px-3 py-2.5"}`} title={reason}>
+      <div className="text-[10px] text-ui-muted font-medium">{label}</div>
+      <div className="text-lg font-medium text-ui-muted tabular-nums mt-0.5">n/d</div>
+      {reason && !compact && <div className="text-[11px] text-ui-muted truncate">{reason}</div>}
     </div>
   );
 }

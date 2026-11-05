@@ -32,27 +32,27 @@ export function AdNotes({ platform, adId }: { platform: string; adId: string }) 
     } finally { setSaving(false); }
   }
 
-  if (!ann) return <div className="text-xs text-gray-500 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Chargement…</div>;
+  if (!ann) return <div className="text-xs text-ui-muted flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Chargement…</div>;
   const note = draft ?? ann.note;
   return (
     <div className="space-y-4">
       <div>
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Tags personnalisés</div>
+        <div className="text-[10px] text-ui-muted mb-1">Tags personnalisés</div>
         <div className="flex flex-wrap gap-1.5 items-center">
-          {ann.tags.map((t) => <span key={t} className="inline-flex items-center gap-1 rounded-md bg-violet-500/15 text-violet-200 px-2 py-0.5 text-[11px]">{t}<button type="button" onClick={() => save({ tags: ann.tags.filter((x) => x !== t) })} className="hover:text-white"><X className="w-3 h-3" /></button></span>)}
+          {ann.tags.map((t) => <span key={t} className="inline-flex items-center gap-1 rounded-md bg-ui-accent-soft text-ui-accent-ink px-2 py-0.5 text-[11px]">{t}<button type="button" onClick={() => save({ tags: ann.tags.filter((x) => x !== t) })} className="hover:text-ui-fg"><X className="w-3 h-3" /></button></span>)}
           <form className="inline-flex items-center gap-1" onSubmit={(e) => { e.preventDefault(); const t = tagInput.trim(); if (t && !ann.tags.includes(t)) void save({ tags: [...ann.tags, t] }); setTagInput(""); }}>
-            <input value={tagInput} onChange={(e) => setTagInput(e.target.value)} placeholder="Ajouter…" className="w-24 bg-gray-900 border border-gray-800 rounded-md px-1.5 py-0.5 text-[11px] text-white placeholder:text-gray-600" />
-            <button type="submit" className="text-gray-400 hover:text-white"><Plus className="w-3.5 h-3.5" /></button>
+            <input value={tagInput} onChange={(e) => setTagInput(e.target.value)} placeholder="Ajouter…" className="w-24 bg-ui-card border border-ui-line rounded-md px-1.5 py-0.5 text-[11px] text-ui-fg placeholder:text-ui-muted" />
+            <button type="submit" className="text-ui-fg2 hover:text-ui-fg"><Plus className="w-3.5 h-3.5" /></button>
           </form>
         </div>
-        <div className="mt-1.5 flex flex-wrap gap-1">{SUGGESTED.filter((s) => !ann.tags.includes(s)).map((s) => <button key={s} type="button" onClick={() => save({ tags: [...ann.tags, s] })} className="rounded-md border border-gray-800 px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-white hover:border-gray-600">+ {s}</button>)}</div>
+        <div className="mt-1.5 flex flex-wrap gap-1">{SUGGESTED.filter((s) => !ann.tags.includes(s)).map((s) => <button key={s} type="button" onClick={() => save({ tags: [...ann.tags, s] })} className="rounded-md border border-ui-line px-1.5 py-0.5 text-[10px] text-ui-muted hover:text-ui-fg hover:border-ui-line-strong">+ {s}</button>)}</div>
       </div>
       <div>
-        <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Note de l&apos;équipe</div>
-        <textarea value={note} onChange={(e) => setDraft(e.target.value)} rows={6} placeholder="Ce qu'on a appris de cette créa, ce qu'on veut tester ensuite…" className="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-violet-500" />
+        <div className="text-[10px] text-ui-muted mb-1">Note de l&apos;équipe</div>
+        <textarea value={note} onChange={(e) => setDraft(e.target.value)} rows={6} placeholder="Ce qu'on a appris de cette créa, ce qu'on veut tester ensuite…" className="w-full bg-ui-card border border-ui-line rounded-lg px-3 py-2 text-xs text-ui-fg placeholder:text-ui-muted focus:outline-none focus:border-ui-accent" />
         <div className="flex items-center justify-between mt-1">
-          <span className="text-[10px] text-gray-600">{ann.updatedAt ? `Modifié ${new Date(ann.updatedAt).toLocaleString("fr-FR")}${ann.updatedByName ? ` par ${ann.updatedByName}` : ""}` : "Aucune note"}</span>
-          {draft !== null && draft !== ann.note && <button type="button" disabled={saving} onClick={async () => { await save({ note: draft }); setDraft(null); }} className="rounded-md bg-violet-600 hover:bg-violet-500 px-2.5 py-1 text-[11px] text-white disabled:opacity-50">{saving ? "Enregistrement…" : "Enregistrer la note"}</button>}
+          <span className="text-[10px] text-ui-muted">{ann.updatedAt ? `Modifié ${new Date(ann.updatedAt).toLocaleString("fr-FR")}${ann.updatedByName ? ` par ${ann.updatedByName}` : ""}` : "Aucune note"}</span>
+          {draft !== null && draft !== ann.note && <button type="button" disabled={saving} onClick={async () => { await save({ note: draft }); setDraft(null); }} className="rounded-md bg-ui-accent hover:brightness-110 px-2.5 py-1 text-[11px] text-ui-on-accent disabled:opacity-50">{saving ? "Enregistrement…" : "Enregistrer la note"}</button>}
         </div>
       </div>
     </div>

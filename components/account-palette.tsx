@@ -101,18 +101,18 @@ function PaletteBody({ onClose, accounts, loading, currentId, primary, onPick, t
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[10vh] bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center p-4 pt-[10vh] bg-black/50 backdrop-blur-sm"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={title ?? "Changer de client"}
     >
       <div
-        className="w-full max-w-2xl bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden"
+        className="w-full max-w-2xl bg-ui-bg border border-ui-line rounded-xl shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-800">
-          <Search className="w-4 h-4 text-gray-500 shrink-0" />
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-ui-line">
+          <Search className="w-4 h-4 text-ui-muted shrink-0" />
           <input
             ref={inputRef}
             type="text"
@@ -123,16 +123,16 @@ function PaletteBody({ onClose, accounts, loading, currentId, primary, onPick, t
             }}
             onKeyDown={handleKey}
             placeholder={title ?? "Rechercher un client…"}
-            className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-gray-500"
+            className="flex-1 bg-transparent outline-none text-sm text-ui-fg placeholder:text-ui-muted"
           />
-          <span className="text-xs text-gray-600">{filtered.length} compte{filtered.length > 1 ? "s" : ""}</span>
+          <span className="text-xs text-ui-muted">{filtered.length} compte{filtered.length > 1 ? "s" : ""}</span>
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto">
           {loading && accounts.length === 0 ? (
-            <div className="px-4 py-12 text-center text-sm text-gray-500">Chargement…</div>
+            <div className="px-4 py-12 text-center text-sm text-ui-muted">Chargement…</div>
           ) : filtered.length === 0 ? (
-            <div className="px-4 py-12 text-center text-sm text-gray-500">
+            <div className="px-4 py-12 text-center text-sm text-ui-muted">
               {accounts.length === 0 ? "Aucun compte ne vous est attribué. Demandez à un admin." : `Aucun compte ne correspond à "${query}".`}
             </div>
           ) : (
@@ -146,7 +146,7 @@ function PaletteBody({ onClose, accounts, loading, currentId, primary, onPick, t
                       onMouseEnter={() => setHighlight(i)}
                       className={`group w-full px-4 py-2.5 flex items-center gap-3 transition-colors ${
                         a.outOfScope ? "opacity-50" : ""
-                      } ${active ? "bg-violet-500/10" : ""}`}
+                      } ${active ? "bg-ui-accent-soft" : ""}`}
                     >
                       <button
                         type="button"
@@ -155,10 +155,10 @@ function PaletteBody({ onClose, accounts, loading, currentId, primary, onPick, t
                         className="flex-1 min-w-0 text-left disabled:cursor-not-allowed"
                       >
                         <div className="flex items-center gap-2">
-                          <span className={`text-sm font-medium truncate ${isCurrent ? "text-violet-300" : "text-white"}`}>
+                          <span className={`text-sm font-medium truncate ${isCurrent ? "text-ui-accent-ink" : "text-ui-fg"}`}>
                             {a.clientName ?? a.name}
                           </span>
-                          {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" title="Compte analysé actuellement" />}
+                          {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-ui-accent shrink-0" title="Compte analysé actuellement" />}
                           {a.outOfScope && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-300 shrink-0">hors BM</span>
                           )}
@@ -169,20 +169,20 @@ function PaletteBody({ onClose, accounts, loading, currentId, primary, onPick, t
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-gray-500 mt-0.5 truncate">
+                        <div className="text-xs text-ui-muted mt-0.5 truncate">
                           {a.clientName && a.clientName !== a.name ? `${a.name} · ` : ""}{a.id}
                         </div>
                       </button>
 
                       <div className="flex items-center gap-4 shrink-0 text-xs">
                         <div className="text-right w-16">
-                          <div className="text-gray-500">Spend 7j</div>
-                          <div className="font-semibold text-white">{fmtMoney(a.spend7d)}</div>
+                          <div className="text-ui-muted">Spend 7j</div>
+                          <div className="font-medium text-ui-fg">{fmtMoney(a.spend7d)}</div>
                         </div>
                         <div className="text-right w-12">
-                          <div className="text-gray-500">ROAS</div>
-                          <div className={`font-semibold inline-flex items-center gap-1 ${
-                            a.roas7d === 0 ? "text-gray-600" : a.roas7d >= 2 ? "text-emerald-400" : "text-amber-400"
+                          <div className="text-ui-muted">ROAS</div>
+                          <div className={`font-medium inline-flex items-center gap-1 ${
+                            a.roas7d === 0 ? "text-ui-muted" : a.roas7d >= 2 ? "text-emerald-400" : "text-amber-400"
                           }`}>
                             {a.roas7d > 0 && (a.roas7d >= 2 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />)}
                             {a.roas7d > 0 ? `${a.roas7d.toFixed(2)}x` : "—"}
@@ -217,12 +217,12 @@ function PaletteBody({ onClose, accounts, loading, currentId, primary, onPick, t
           )}
         </div>
 
-        <div className="flex items-center justify-between px-4 py-2 border-t border-gray-800 text-[11px] text-gray-500">
+        <div className="flex items-center justify-between px-4 py-2 border-t border-ui-line text-[11px] text-ui-muted">
           <div className="flex items-center gap-3">
-            <span><kbd className="px-1 py-0.5 rounded bg-gray-800 text-gray-400">↑↓</kbd> naviguer</span>
-            <span className="inline-flex items-center gap-1"><kbd className="px-1 py-0.5 rounded bg-gray-800 text-gray-400 inline-flex"><CornerDownLeft className="w-2.5 h-2.5" /></kbd> {ACTION_LABEL[primary]}</span>
-            <span className="inline-flex items-center gap-1"><kbd className="px-1 py-0.5 rounded bg-gray-800 text-gray-400 inline-flex"><ArrowRight className="w-2.5 h-2.5" /></kbd> {ACTION_LABEL[secondary]}</span>
-            <span><kbd className="px-1 py-0.5 rounded bg-gray-800 text-gray-400">esc</kbd> fermer</span>
+            <span><kbd className="px-1 py-0.5 rounded bg-ui-raised text-ui-fg2">↑↓</kbd> naviguer</span>
+            <span className="inline-flex items-center gap-1"><kbd className="px-1 py-0.5 rounded bg-ui-raised text-ui-fg2 inline-flex"><CornerDownLeft className="w-2.5 h-2.5" /></kbd> {ACTION_LABEL[primary]}</span>
+            <span className="inline-flex items-center gap-1"><kbd className="px-1 py-0.5 rounded bg-ui-raised text-ui-fg2 inline-flex"><ArrowRight className="w-2.5 h-2.5" /></kbd> {ACTION_LABEL[secondary]}</span>
+            <span><kbd className="px-1 py-0.5 rounded bg-ui-raised text-ui-fg2">esc</kbd> fermer</span>
           </div>
           <span>Trié par alertes puis spend 7j</span>
         </div>
@@ -242,8 +242,8 @@ function RowAction({ icon: Icon, label, primary, disabled, title, onClick }: {
       title={title}
       className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
         primary
-          ? "bg-violet-600/20 border-violet-500/40 text-violet-200 hover:bg-violet-600/30"
-          : "bg-gray-900 border-gray-800 text-gray-300 hover:border-gray-600 hover:text-white"
+          ? "bg-ui-accent-soft border-ui-accent text-ui-accent-ink hover:bg-ui-accent-soft"
+          : "bg-ui-card border-ui-line text-ui-fg2 hover:border-ui-line-strong hover:text-ui-fg"
       }`}
     >
       <Icon className="w-3 h-3" /> {label}

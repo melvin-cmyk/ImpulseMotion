@@ -25,7 +25,7 @@ export function ModelPicker({ prefs, onChange, disabled, idPrefix = "ai" }: {
       .catch(() => {});
   }, []);
 
-  const cls = "min-w-0 px-2 py-1 rounded-md text-[11px] bg-gray-900 border border-gray-800 text-gray-300 focus:border-violet-500 focus:outline-none disabled:opacity-60";
+  const cls = "min-w-0 px-2 py-1 rounded-md text-[11px] bg-ui-card border border-ui-line text-ui-fg2 focus:border-ui-accent focus:outline-none disabled:opacity-60";
   const account = prefs.account ?? "auto";
   return (
     <div className="flex gap-2" title="Changer de modèle en cours de conversation redémarre la session côté IA (l'historique est renvoyé). Changer de compte Max est transparent.">

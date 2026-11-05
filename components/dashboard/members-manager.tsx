@@ -27,7 +27,7 @@ type Role = "consultant" | "client";
 type Invite = { email: string; tempPassword: string };
 
 const inputCls =
-  "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
+  "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
 
 export function DashboardMembersManager({
   dashboardId,
@@ -113,8 +113,8 @@ export function DashboardMembersManager({
   function group(title: string, list: DashboardMemberEntry[], tone: "violet" | "blue", withBot: boolean) {
     return (
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[11px] uppercase tracking-wide font-medium text-gray-500 w-24 shrink-0">{title}</span>
-        {list.length === 0 && <span className="text-xs text-gray-600">aucun</span>}
+        <span className="text-[11px] font-medium text-ui-muted w-24 shrink-0">{title}</span>
+        {list.length === 0 && <span className="text-xs text-ui-muted">aucun</span>}
         {list.map((m) => (
           <Pill key={m.id} tone={tone} className="inline-flex items-center gap-1.5">
             {label(m)}
@@ -142,21 +142,21 @@ export function DashboardMembersManager({
   }
 
   return (
-    <div className="mt-3 pt-3 border-t border-gray-800/60 space-y-2">
+    <div className="mt-3 pt-3 border-t border-ui-line space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1.5 min-w-0">
           {consultants.length > 0 && group("Consultants", consultants, "violet", false)}
           {group("Clients", clients, "blue", true)}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] uppercase tracking-wide font-medium text-gray-500 w-24 shrink-0">Bot privé</span>
+            <span className="text-[11px] font-medium text-ui-muted w-24 shrink-0">Bot privé</span>
             {bot ? (
               <>
                 <Pill tone={bot.enabled ? "emerald" : "default"}>{bot.name} · {bot.enabled ? "actif" : "désactivé"}</Pill>
                 <Pill tone="amber">IA AWS Bedrock · UE</Pill>
-                <span className="text-xs text-gray-500">{botUsers.size} client{botUsers.size > 1 ? "s" : ""} autorisé{botUsers.size > 1 ? "s" : ""}</span>
+                <span className="text-xs text-ui-muted">{botUsers.size} client{botUsers.size > 1 ? "s" : ""} autorisé{botUsers.size > 1 ? "s" : ""}</span>
               </>
             ) : (
-              <span className="text-xs text-gray-600">non configuré</span>
+              <span className="text-xs text-ui-muted">non configuré</span>
             )}
           </div>
         </div>
@@ -164,7 +164,7 @@ export function DashboardMembersManager({
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
-            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors shrink-0"
+            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors shrink-0"
           >
             {open ? "Fermer" : "Gérer les accès"}
           </button>
@@ -172,7 +172,7 @@ export function DashboardMembersManager({
       </div>
 
       {isAdmin && open && (
-        <form onSubmit={add} className="rounded-xl bg-gray-950 border border-gray-800 p-3 flex flex-wrap items-center gap-2">
+        <form onSubmit={add} className="rounded-xl bg-ui-bg border border-ui-line p-3 flex flex-wrap items-center gap-2">
           <input
             type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
             placeholder="email@exemple.fr" className={inputCls + " w-64"}
@@ -182,11 +182,11 @@ export function DashboardMembersManager({
           </select>
           <button
             type="submit" disabled={busy}
-            className="px-3 py-2 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50"
+            className="px-3 py-2 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors disabled:opacity-50"
           >
             {busy ? "…" : "Donner l'accès"}
           </button>
-          <p className="basis-full text-[11px] text-gray-500">
+          <p className="basis-full text-[11px] text-ui-muted">
             Email inconnu → le compte est créé et son mot de passe temporaire s&apos;affiche ici une seule fois.
           </p>
         </form>
@@ -203,9 +203,9 @@ export function InviteList({ invites }: { invites: Invite[] }) {
   if (invites.length === 0) return null;
   return (
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
-      <p className="text-xs font-semibold text-amber-300">Comptes créés — mots de passe temporaires (affichés une seule fois)</p>
+      <p className="text-xs font-medium text-amber-300">Comptes créés — mots de passe temporaires (affichés une seule fois)</p>
       {invites.map((i) => (
-        <p key={i.email} className="text-xs text-gray-300 font-mono break-all">
+        <p key={i.email} className="text-xs text-ui-fg2 font-mono break-all">
           {i.email} · {i.tempPassword}
         </p>
       ))}

@@ -139,8 +139,8 @@ export function AlertsAssistant() {
         action={
           <div className="flex items-center gap-4 shrink-0 ml-4">
             {/* The rules set by hand still run: they keep a way in. */}
-            <Link href="/admin/alerts" className="text-xs text-gray-400 hover:text-white underline whitespace-nowrap">Règles manuelles</Link>
-            <button type="button" onClick={newAlert} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold">
+            <Link href="/admin/alerts" className="text-xs text-ui-fg2 hover:text-ui-fg underline whitespace-nowrap">Règles manuelles</Link>
+            <button type="button" onClick={newAlert} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ui-accent hover:brightness-110 text-ui-on-accent text-sm font-medium">
               <Plus className="w-4 h-4" /> Nouvelle alerte
             </button>
           </div>
@@ -150,11 +150,11 @@ export function AlertsAssistant() {
       {error && (
         <Card padded className="border-red-900/40">
           <p className="text-sm text-red-400">Les alertes n&apos;ont pas pu être chargées ({error}).</p>
-          <button type="button" onClick={() => void load(showAll)} className="mt-2 text-xs underline text-gray-300">Réessayer</button>
+          <button type="button" onClick={() => void load(showAll)} className="mt-2 text-xs underline text-ui-fg2">Réessayer</button>
         </Card>
       )}
 
-      {!data && !error && <div className="flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>}
+      {!data && !error && <div className="flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>}
 
       {data && (
         <>
@@ -165,22 +165,22 @@ export function AlertsAssistant() {
           />
 
           <div className="grid gap-6 items-start lg:grid-cols-[22rem_minmax(0,1fr)]">
-            <section className="order-2 lg:order-1 bg-gray-900 border border-gray-800 rounded-2xl min-w-0">
-              <header className="px-4 py-3 border-b border-gray-800 flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <section className="order-2 lg:order-1 bg-ui-card border border-ui-line rounded-xl min-w-0">
+              <header className="px-4 py-3 border-b border-ui-line flex items-center justify-between gap-3">
+                <h2 className="text-sm font-medium text-ui-fg flex items-center gap-2">
                   {showAll ? "Toutes les alertes" : "Mes alertes"}
-                  <span className="text-gray-500 font-normal tabular-nums">{data.alerts.length}</span>
-                  {refreshing && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />}
+                  <span className="text-ui-muted font-normal tabular-nums">{data.alerts.length}</span>
+                  {refreshing && <Loader2 className="w-3.5 h-3.5 animate-spin text-ui-muted" />}
                 </h2>
                 {data.viewer.realAdmin && (
-                  <label className="flex items-center gap-1.5 text-xs text-gray-400">
-                    <input type="checkbox" className="accent-violet-500" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
+                  <label className="flex items-center gap-1.5 text-xs text-ui-fg2">
+                    <input type="checkbox" className="accent-ui-accent" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} />
                     Toutes les alertes
                   </label>
                 )}
               </header>
               {data.alerts.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-gray-400 leading-relaxed">
+                <p className="px-4 py-6 text-sm text-ui-fg2 leading-relaxed">
                   {showAll ? "Personne n'a encore créé d'alerte." : "Aucune alerte pour l'instant. Cochez un ou plusieurs clients, écrivez votre demande, validez : c'est tout."}
                 </p>
               ) : (
@@ -198,7 +198,7 @@ export function AlertsAssistant() {
                 </div>
               )}
               {showAll && mineCount < data.alerts.length && (
-                <p className="px-4 py-2 border-t border-gray-800 text-[11px] text-gray-500">
+                <p className="px-4 py-2 border-t border-ui-line text-[11px] text-ui-muted">
                   Les alertes des autres se lisent, se mettent en pause et se suppriment ; seule la personne qui a créé une alerte peut la modifier.
                 </p>
               )}
@@ -225,9 +225,9 @@ export function AlertsAssistant() {
             </div>
           </div>
 
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-ui-muted">
             Ces alertes sont les vôtres, en message privé. Les vérifications faites pour toute l&apos;agence, dans les canaux des clients, se règlent dans{" "}
-            <Link href="/admin/auto-alerts" className="underline text-gray-400 hover:text-gray-200">Alertes automatiques</Link>.
+            <Link href="/admin/auto-alerts" className="underline text-ui-fg2 hover:text-ui-fg">Alertes automatiques</Link>.
           </p>
         </>
       )}

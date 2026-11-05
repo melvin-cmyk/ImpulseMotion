@@ -55,85 +55,85 @@ function ProposalCard({ proposal, client, onPrepared }: { proposal: PilotProposa
       });
       const j = await readJson<{ action?: PilotActionView }>(res);
       if (!res.ok || !j.action) { setErrors(j.errors?.length ? j.errors : [j.error ?? `Erreur ${res.status}`]); return; }
-      onPrepared(j.action);
-    } catch (e) {
-      setErrors([e instanceof Error ? e.message : String(e)]);
-    } finally {
-      setBusy(false);
-    }
-  }
+ onPrepared(j.action);
+ } catch (e) {
+ setErrors([e instanceof Error ? e.message : String(e)]);
+ } finally {
+ setBusy(false);
+ }
+ }
 
-  return (
-    <div className="mt-2 rounded-lg border border-violet-500/40 bg-violet-500/5 p-3 space-y-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <Sparkles className="w-3.5 h-3.5 text-violet-300" />
-        <span className="font-semibold text-white">Proposition</span>
-        <Pill tone="violet" className="text-[10px]">{PLATFORM_FR[proposal.platform]}</Pill>
-        <span className="text-gray-400 truncate">« {account?.name ?? proposal.accountId} »</span>
-      </div>
-      <ul className="space-y-1 text-sm text-gray-200">
-        {proposal.requests.map((r, i) => (
-          <li key={`${r.objectId}-${r.kind}-${i}`} className="break-words">
+ return (
+ <div className="mt-2 rounded-lg border border-ui-accent bg-ui-accent-soft p-3 space-y-2">
+ <div className="flex flex-wrap items-center gap-2 text-xs">
+ <Sparkles className="w-3.5 h-3.5 text-ui-accent-ink" />
+ <span className="font-medium text-ui-fg">Proposition</span>
+ <Pill tone="violet" className="text-[10px]">{PLATFORM_FR[proposal.platform]}</Pill>
+ <span className="text-ui-fg2 truncate">« {account?.name ?? proposal.accountId} »</span>
+ </div>
+ <ul className="space-y-1 text-sm text-ui-fg">
+ {proposal.requests.map((r, i) => (
+ <li key={`${r.objectId}-${r.kind}-${i}`} className="break-words">
             • {proposal.labels[i] || `${objectLabel(proposal.platform, r.objectType)} ${r.objectId} : ${r.kind} → ${r.value}`}
-          </li>
-        ))}
-      </ul>
-      {proposal.why && <p className="text-xs text-gray-400"><span className="text-gray-500">Pourquoi :</span> {proposal.why}</p>}
-      {!check.ok && <p className="text-xs text-red-300">{check.error}</p>}
-      {errors.length > 0 && <ul className="text-xs text-red-300 space-y-0.5">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
-      <button type="button" onClick={() => void prepare()} disabled={busy || !check.ok}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-xs text-white font-medium">
-        {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-        Préparer l&apos;aperçu
-      </button>
-      <p className="text-[11px] text-gray-500">Rien n&apos;est envoyé ici : l&apos;aperçu relit les valeurs sur la plateforme, puis vous confirmez dans « Modifier ».</p>
-    </div>
-  );
+ </li>
+ ))}
+ </ul>
+ {proposal.why && <p className="text-xs text-ui-fg2"><span className="text-ui-muted">Pourquoi :</span> {proposal.why}</p>}
+ {!check.ok && <p className="text-xs text-red-300">{check.error}</p>}
+ {errors.length > 0 && <ul className="text-xs text-red-300 space-y-0.5">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
+ <button type="button" onClick={() => void prepare()} disabled={busy || !check.ok}
+ className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ui-accent hover:brightness-110 disabled:opacity-40 text-xs text-ui-on-accent font-medium">
+ {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+ Préparer l&apos;aperçu
+ </button>
+ <p className="text-[11px] text-ui-muted">Rien n&apos;est envoyé ici : l&apos;aperçu relit les valeurs sur la plateforme, puis vous confirmez dans « Modifier ».</p>
+ </div>
+ );
 }
 
 export function PilotAssistant({ client, focus, onPrepared, initialPrompt = null }: {
-  client: PilotClient;
-  /** The account open on the page: read first by the AI. */
-  focus: { platform: string; accountId: string } | null;
-  /** A question put in the box when the page opens from a link (a report's next step): sent by the consultant, never alone. */
-  initialPrompt?: string | null;
-  onPrepared: (action: PilotActionView) => void;
+ client: PilotClient;
+ /** The account open on the page: read first by the AI. */
+ focus: { platform: string; accountId: string } | null;
+ /** A question put in the box when the page opens from a link (a report's next step): sent by the consultant, never alone. */
+ initialPrompt?: string | null;
+ onPrepared: (action: PilotActionView) => void;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState(initialPrompt ?? "");
-  const [streamText, setStreamText] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activity, setActivity] = useState<ActivityState>(INITIAL_ACTIVITY);
-  const [startedAt, setStartedAt] = useState(0);
-  const [thread, setThread] = useState(newThread);
-  const endRef = useRef<HTMLDivElement>(null);
+ const [messages, setMessages] = useState<Message[]>([]);
+ const [input, setInput] = useState(initialPrompt ?? "");
+ const [streamText, setStreamText] = useState<string | null>(null);
+ const [busy, setBusy] = useState(false);
+ const [error, setError] = useState<string | null>(null);
+ const [activity, setActivity] = useState<ActivityState>(INITIAL_ACTIVITY);
+ const [startedAt, setStartedAt] = useState(0);
+ const [thread, setThread] = useState(newThread);
+ const endRef = useRef<HTMLDivElement>(null);
 
-  // One conversation per client.
-  useEffect(() => { setMessages([]); setStreamText(null); setError(null); setThread(newThread()); }, [client.id]);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: "nearest" }); }, [messages, streamText]);
+ // One conversation per client.
+ useEffect(() => { setMessages([]); setStreamText(null); setError(null); setThread(newThread()); }, [client.id]);
+ useEffect(() => { endRef.current?.scrollIntoView({ block: "nearest" }); }, [messages, streamText]);
 
-  async function send(text: string) {
-    const content = text.trim();
-    if (!content || busy) return;
-    const next: Message[] = [...messages, { role: "user", content }];
-    setMessages(next);
-    setInput("");
-    setError(null);
-    setBusy(true);
-    setActivity(INITIAL_ACTIVITY);
-    setStartedAt(Date.now());
-    setStreamText("");
-    let acc = "";
-    try {
-      const res = await fetch("/api/pilot/assistant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId: client.id, thread, focus, messages: next.slice(-PILOT_CHAT_MAX_MESSAGES) }),
-      });
-      if (!res.ok || !res.body) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error ?? `Erreur ${res.status}`);
+ async function send(text: string) {
+ const content = text.trim();
+ if (!content || busy) return;
+ const next: Message[] = [...messages, { role: "user", content }];
+ setMessages(next);
+ setInput("");
+ setError(null);
+ setBusy(true);
+ setActivity(INITIAL_ACTIVITY);
+ setStartedAt(Date.now());
+ setStreamText("");
+ let acc = "";
+ try {
+ const res = await fetch("/api/pilot/assistant", {
+ method: "POST",
+ headers: { "Content-Type": "application/json" },
+ body: JSON.stringify({ clientId: client.id, thread, focus, messages: next.slice(-PILOT_CHAT_MAX_MESSAGES) }),
+ });
+ if (!res.ok || !res.body) {
+ const j = await res.json().catch(() => ({}));
+ throw new Error(j.error ?? `Erreur ${res.status}`);
       }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -173,12 +173,12 @@ export function PilotAssistant({ client, focus, onPrepared, initialPrompt = null
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-ui-fg2">
           L&apos;IA lit les comptes {platforms} de {client.name} ({client.accounts.length}) et propose des modifications ; vous les vérifiez dans l&apos;aperçu avant tout envoi.
         </p>
         {messages.length > 0 && (
           <button type="button" onClick={() => { setMessages([]); setThread(newThread()); setError(null); }} disabled={busy}
-            className="shrink-0 text-xs text-gray-500 hover:text-white flex items-center gap-1">
+            className="shrink-0 text-xs text-ui-muted hover:text-ui-fg flex items-center gap-1">
             <RotateCcw className="w-3.5 h-3.5" /> Nouvelle conversation
           </button>
         )}
@@ -188,7 +188,7 @@ export function PilotAssistant({ client, focus, onPrepared, initialPrompt = null
         {messages.length === 0 && !busy && (
           <div className="flex flex-wrap gap-2">
             {SUGGESTIONS.map((s) => (
-              <button key={s} type="button" onClick={() => void send(s)} className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-800 text-gray-300 hover:border-violet-500/60 hover:text-white">
+              <button key={s} type="button" onClick={() => void send(s)} className="text-xs px-2.5 py-1.5 rounded-lg border border-ui-line text-ui-fg2 hover:border-ui-accent hover:text-ui-fg">
                 {s}
               </button>
             ))}
@@ -197,12 +197,12 @@ export function PilotAssistant({ client, focus, onPrepared, initialPrompt = null
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
             {m.role === "user" ? (
-              <div className="max-w-[85%] rounded-xl bg-violet-600/20 border border-violet-500/30 px-3 py-2 text-sm text-white whitespace-pre-wrap">{m.content}</div>
+              <div className="max-w-[85%] rounded-xl bg-ui-accent-soft border border-ui-accent px-3 py-2 text-sm text-ui-fg whitespace-pre-wrap">{m.content}</div>
             ) : (
               <div className="flex gap-2">
-                <Bot className="w-4 h-4 text-violet-300 shrink-0 mt-1" />
+                <Bot className="w-4 h-4 text-ui-accent-ink shrink-0 mt-1" />
                 <div className="min-w-0 flex-1">
-                  <AiMarkdown content={stripPilotBlocks(m.content)} filesBase={null} className="prose prose-invert prose-sm max-w-none" />
+                  <AiMarkdown content={stripPilotBlocks(m.content)} filesBase={null} className="prose ui-prose prose-sm max-w-none" />
                   {extractPilotProposals(m.content).map((p, j) => p.ok
                     ? <ProposalCard key={j} proposal={p.proposal} client={client} onPrepared={onPrepared} />
                     : <p key={j} className="mt-2 text-xs text-red-300">{p.error} Demandez à l&apos;IA de la reformuler.</p>)}
@@ -213,9 +213,9 @@ export function PilotAssistant({ client, focus, onPrepared, initialPrompt = null
         ))}
         {streamText !== null && (
           <div className="flex gap-2">
-            <Bot className="w-4 h-4 text-violet-300 shrink-0 mt-1" />
+            <Bot className="w-4 h-4 text-ui-accent-ink shrink-0 mt-1" />
             <div className="min-w-0 flex-1">
-              {streamText && <AiMarkdown content={stripPilotBlocks(streamText)} filesBase={null} className="prose prose-invert prose-sm max-w-none" />}
+              {streamText && <AiMarkdown content={stripPilotBlocks(streamText)} filesBase={null} className="prose ui-prose prose-sm max-w-none" />}
               <AiActivity state={activity} startedAt={startedAt} className={streamText ? "mt-2" : undefined} />
             </div>
           </div>
@@ -231,9 +231,9 @@ export function PilotAssistant({ client, focus, onPrepared, initialPrompt = null
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); } }}
           rows={2}
           placeholder="Ex. : baisse de 20 % le budget des campagnes Meta dont le CPA dépasse 40 €"
-          className="flex-1 resize-none bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-violet-500"
+          className="flex-1 resize-none bg-ui-bg border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg outline-none focus:border-ui-accent"
         />
-        <button type="submit" disabled={busy || !input.trim()} className="p-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white" aria-label="Envoyer">
+        <button type="submit" disabled={busy || !input.trim()} className="p-2.5 rounded-lg bg-ui-accent hover:brightness-110 disabled:opacity-40 text-ui-on-accent" aria-label="Envoyer">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </form>

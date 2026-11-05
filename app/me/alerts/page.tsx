@@ -37,8 +37,8 @@ type Rule = AlertRuleExt & {
 
 type Account = { platform: string; accountId: string; label: string | null };
 
-const inputCls = "mt-1 w-full px-3 py-2 rounded-lg text-sm bg-black/40 border border-gray-800 text-white";
-const labelCls = "text-xs text-gray-400";
+const inputCls = "mt-1 w-full px-3 py-2 rounded-lg text-sm bg-black/50 border border-ui-line text-ui-fg";
+const labelCls = "text-xs text-ui-fg2";
 
 export default function MeAlertsPage() {
   const [rules, setRules] = useState<Rule[]>([]);
@@ -131,21 +131,21 @@ export default function MeAlertsPage() {
     <div className="p-6 space-y-4 max-w-4xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Mes alertes</h1>
-          <p className="text-sm text-gray-400 mt-1">
+          <h1 className="text-2xl font-medium text-ui-fg">Mes alertes</h1>
+          <p className="text-sm text-ui-fg2 mt-1">
             Détection proactive d&apos;anomalies sur tes comptes Meta Ads, Google Ads et TikTok Ads.
           </p>
         </div>
         <button
           onClick={() => setShowCreate((s) => !s)}
-          className="px-4 py-2 rounded-lg font-semibold text-sm bg-gradient-to-br from-violet-600 to-purple-600 text-white"
+          className="px-4 py-2 rounded-lg font-medium text-sm text-ui-on-accent bg-ui-accent"
         >
           + Nouvelle règle
         </button>
       </div>
 
       {showCreate && (
-        <form onSubmit={handleCreate} className="p-5 rounded-xl space-y-3 bg-gray-900 border border-gray-800">
+        <form onSubmit={handleCreate} className="p-5 rounded-xl space-y-3 bg-ui-card border border-ui-line">
           <ComposeBlock
             text={draft.description}
             onTextChange={(description) => patchDraft({ description })}
@@ -177,10 +177,10 @@ export default function MeAlertsPage() {
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex gap-2 justify-end">
-            <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-gray-400">
+            <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-ui-fg2">
               Annuler
             </button>
-            <button type="submit" className="px-4 py-1.5 rounded-lg text-sm font-semibold bg-gradient-to-br from-violet-600 to-purple-600 text-white">
+            <button type="submit" className="px-4 py-1.5 rounded-lg text-sm font-medium text-ui-on-accent bg-ui-accent">
               Créer
             </button>
           </div>
@@ -190,47 +190,47 @@ export default function MeAlertsPage() {
       {error && !showCreate && <p className="text-sm text-red-400">{error}</p>}
 
       {loading ? (
-        <p className="text-gray-400">Chargement…</p>
+        <p className="text-ui-fg2">Chargement…</p>
       ) : rules.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 border border-dashed border-gray-800 rounded-2xl space-y-2">
+        <div className="text-center py-12 text-ui-muted border border-dashed border-ui-line rounded-xl space-y-2">
           <p>Aucune règle d&apos;alerte configurée.</p>
           <p className="text-xs">Exemple : ROAS Meta en dessous de 1,5 sur 7 jours, ou mot-clé Google à plus de 100 € sans conversion.</p>
-          <button onClick={() => setShowCreate(true)} className="px-4 py-2 rounded-lg font-semibold text-sm bg-gradient-to-br from-violet-600 to-purple-600 text-white">+ Créer une première règle</button>
+          <button onClick={() => setShowCreate(true)} className="px-4 py-2 rounded-lg font-medium text-sm text-ui-on-accent bg-ui-accent">+ Créer une première règle</button>
         </div>
       ) : (
         <div className="space-y-2">
           {rules.map((r) => (
-            <div key={r.id} className="p-4 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-between">
+            <div key={r.id} className="p-4 rounded-xl bg-ui-card border border-ui-line flex items-center justify-between">
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-gray-800">
+                  <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-ui-raised">
                     {ruleTitle(r)}
                   </span>
                   <RuleKindPills rule={r} />
                   {ruleMode(r) !== "ai" && (
                     <>
-                      <span className="text-sm text-gray-400">
+                      <span className="text-sm text-ui-fg2">
                         {CONDITIONS.find((c) => c.value === r.condition)?.label ?? r.condition}
                       </span>
-                      <span className="font-semibold text-white">{r.threshold}{r.condition === "drop_pct" ? "%" : ""}</span>
+                      <span className="font-medium text-ui-fg">{r.threshold}{r.condition === "drop_pct" ? "%" : ""}</span>
                     </>
                   )}
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300">{r.window}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-ui-accent-soft text-ui-accent-ink">{r.window}</span>
                   {notifyLabel(r.notifyJson) && <span className="text-xs px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300">{notifyLabel(r.notifyJson)}</span>}
                   {r.enabled ? (
                     <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 ml-2">actif</span>
                   ) : (
-                    <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 ml-2">désactivé</span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-ui-raised text-ui-fg2 ml-2">désactivé</span>
                   )}
                 </div>
-                <div className="text-xs mt-1 text-gray-500">
+                <div className="text-xs mt-1 text-ui-muted">
                   {r.clientId ?? "tous mes comptes"} · {r._count.events} déclenchement{r._count.events > 1 ? "s" : ""}
                   {r.lastTriggeredAt && <> · dernier : {new Date(r.lastTriggeredAt).toLocaleString("fr-FR")}</>}
                 </div>
                 <RuleDetails rule={r} />
               </div>
               <div className="flex gap-2">
-                <button onClick={() => handleToggle(r)} className="text-xs px-2 py-1 text-gray-400 hover:text-white">
+                <button onClick={() => handleToggle(r)} className="text-xs px-2 py-1 text-ui-fg2 hover:text-ui-fg">
                   {r.enabled ? "Désactiver" : "Activer"}
                 </button>
                 <button onClick={() => handleDelete(r.id)} className="text-xs px-2 py-1 text-red-400 hover:text-red-300">
@@ -242,9 +242,9 @@ export default function MeAlertsPage() {
         </div>
       )}
 
-      <section className="rounded-xl bg-gray-900 border border-gray-800">
-        <header className="px-4 py-3 border-b border-gray-800">
-          <h2 className="text-sm font-semibold text-white">Derniers déclenchements</h2>
+      <section className="rounded-xl bg-ui-card border border-ui-line">
+        <header className="px-4 py-3 border-b border-ui-line">
+          <h2 className="text-sm font-medium text-ui-fg">Derniers déclenchements</h2>
         </header>
         <div className="px-4 py-2">
           <AlertEventsList refreshKey={eventsKey} accountLabel={accountLabelFor} accountPlatform={accountPlatformFor} />

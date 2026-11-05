@@ -27,9 +27,9 @@ export function CommentsPane({ adIds, dynamic = false }: { adIds: string[]; dyna
     return () => { live = false; };
   }, [key]);
 
-  if (!res) return <div className="py-16 flex items-center justify-center gap-2 text-sm text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Lecture des commentaires…</div>;
+  if (!res) return <div className="py-16 flex items-center justify-center gap-2 text-sm text-ui-fg2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture des commentaires…</div>;
   if (res.error) return <div className="py-16 text-center text-sm text-red-300">{res.error}</div>;
-  if (!res.open) return <div className="py-16 text-center text-sm text-gray-400">La lecture des commentaires Meta n&apos;est pas activée.</div>;
+  if (!res.open) return <div className="py-16 text-center text-sm text-ui-fg2">La lecture des commentaires Meta n&apos;est pas activée.</div>;
   const shown = all ? res.comments : res.comments.slice(0, 30);
   return (
     <div className="space-y-3">
@@ -39,25 +39,25 @@ export function CommentsPane({ adIds, dynamic = false }: { adIds: string[]; dyna
         </div>
       )}
       {!res.comments.length ? (
-        <div className="py-12 text-center text-sm text-gray-400">
+        <div className="py-12 text-center text-sm text-ui-fg2">
           {res.errors ? "Aucun commentaire lisible." : "Aucun commentaire utile sous cette créa."}
-          {dynamic && <p className="mt-2 mx-auto max-w-sm text-xs text-gray-500">Pub dynamique : Meta range ses commentaires sous les posts de chaque variante, que l&apos;API ne donne pas (l&apos;aperçu Meta, lui, affiche le total).</p>}
+          {dynamic && <p className="mt-2 mx-auto max-w-sm text-xs text-ui-muted">Pub dynamique : Meta range ses commentaires sous les posts de chaque variante, que l&apos;API ne donne pas (l&apos;aperçu Meta, lui, affiche le total).</p>}
         </div>
       ) : (
         <>
-          <div className="text-xs text-gray-500 flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> {res.comments.length} commentaire{res.comments.length > 1 ? "s" : ""}, les plus aimés d&apos;abord (spam et simples mentions retirés)</div>
+          <div className="text-xs text-ui-muted flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> {res.comments.length} commentaire{res.comments.length > 1 ? "s" : ""}, les plus aimés d&apos;abord (spam et simples mentions retirés)</div>
           <ul className="space-y-2">
             {shown.map((c, i) => (
-              <li key={`${c.adId}-${i}`} className="rounded-xl border border-gray-800 bg-gray-900 px-3 py-2">
-                <p className="text-sm text-gray-100 whitespace-pre-wrap break-words">{c.text}</p>
-                <div className="mt-1 flex items-center gap-3 text-[11px] text-gray-500">
+              <li key={`${c.adId}-${i}`} className="rounded-xl border border-ui-line bg-ui-card px-3 py-2">
+                <p className="text-sm text-ui-fg whitespace-pre-wrap break-words">{c.text}</p>
+                <div className="mt-1 flex items-center gap-3 text-[11px] text-ui-muted">
                   {c.likes > 0 && <span className="inline-flex items-center gap-1"><Heart className="w-3 h-3" /> {c.likes}</span>}
                   {c.at && <span>{new Date(c.at).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })}</span>}
                 </div>
               </li>
             ))}
           </ul>
-          {res.comments.length > 30 && <button type="button" onClick={() => setAll((x) => !x)} className="text-xs text-gray-400 hover:text-white">{all ? "Réduire" : `Voir les ${res.comments.length} commentaires`}</button>}
+          {res.comments.length > 30 && <button type="button" onClick={() => setAll((x) => !x)} className="text-xs text-ui-fg2 hover:text-ui-fg">{all ? "Réduire" : `Voir les ${res.comments.length} commentaires`}</button>}
         </>
       )}
     </div>

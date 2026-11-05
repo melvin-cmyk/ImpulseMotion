@@ -54,27 +54,27 @@ export function AccountPicker({ variant = "default", label: labelOverride }: { v
           type="button"
           onClick={() => setOpen(true)}
           title="Changer de client (⌘K)"
-          className="group w-full h-9 inline-flex items-center gap-2 rounded-[10px] border border-gray-800 bg-gray-900 pl-1.5 pr-2 text-sm text-gray-100 hover:border-gray-700"
+          className="group w-full h-9 inline-flex items-center gap-2 rounded-[10px] border border-ui-line bg-ui-card pl-1.5 pr-2 text-sm text-ui-fg hover:border-ui-line-strong"
         >
-          <span className="w-6 h-6 rounded-md bg-violet-500 text-white text-xs font-semibold inline-flex items-center justify-center shrink-0">{(label.trim()[0] ?? "?").toUpperCase()}</span>
+          <span className="w-6 h-6 rounded-md bg-ui-accent text-ui-on-accent text-xs font-medium inline-flex items-center justify-center shrink-0">{(label.trim()[0] ?? "?").toUpperCase()}</span>
           <span className="flex-1 min-w-0 truncate text-left">{label}</span>
-          <ChevronDown className="w-4 h-4 text-gray-500 group-hover:text-gray-300 shrink-0" />
+          <ChevronDown className="w-4 h-4 text-ui-muted group-hover:text-ui-fg2 shrink-0" />
         </button>
       ) : (
       <button
         type="button"
         onClick={() => setOpen(true)}
         title="Changer le compte analysé (⌘K)"
-        className="group inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900 pl-2 pr-2.5 py-1 text-sm text-gray-200 hover:border-violet-500/50 hover:bg-gray-900/80 transition-colors"
+        className="group inline-flex items-center gap-2 rounded-lg border border-ui-line bg-ui-card pl-2 pr-2.5 py-1 text-sm text-ui-fg hover:border-ui-accent hover:bg-ui-raised transition-colors"
       >
-        <span className="w-6 h-6 rounded-md bg-violet-500/15 text-violet-300 inline-flex items-center justify-center shrink-0">
+        <span className="w-6 h-6 rounded-md bg-ui-accent-soft text-ui-accent-ink inline-flex items-center justify-center shrink-0">
           <Building2 className="w-3.5 h-3.5" />
         </span>
         <span className="flex flex-col items-start leading-tight">
-          <span className="text-[10px] uppercase tracking-wider text-gray-500">Compte analysé</span>
+          <span className="text-[10px] text-ui-muted">Compte analysé</span>
           <span className="max-w-[220px] truncate font-medium">{label}</span>
         </span>
-        <ChevronDown className="w-3.5 h-3.5 text-gray-500 group-hover:text-gray-300 shrink-0" />
+        <ChevronDown className="w-3.5 h-3.5 text-ui-muted group-hover:text-ui-fg2 shrink-0" />
       </button>
       )}
 

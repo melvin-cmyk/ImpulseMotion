@@ -387,7 +387,7 @@ function TextWidget({ widget }: { widget: ResolvedWidget }) {
   const d = widget.data as { markdown: string };
   if (!d.markdown) return <div className="text-sm text-ui-muted py-2">Texte vide</div>;
   return (
-    <div className="prose prose-invert prose-sm max-w-none text-ui-fg2 [&_a]:text-ui-accent-ink">
+    <div className="prose ui-prose prose-sm max-w-none text-ui-fg2 [&_a]:text-ui-accent-ink">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{d.markdown}</ReactMarkdown>
     </div>
   );

@@ -38,15 +38,15 @@ export function actionForKey(key: string): CreativeAction | null {
 export function CardActions({ item, busy, onAction }: { item: MoCreative; busy: CreativeAction | null; onAction: (action: CreativeAction) => void }) {
   const actions = actionsFor(item);
   return (
-    <div data-card-actions className="absolute inset-x-1.5 bottom-1.5 flex flex-wrap items-center justify-center gap-0.5 rounded-xl border border-white/10 bg-[#0d0a1a]/90 backdrop-blur px-1 py-1 opacity-0 translate-y-1 transition-all group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto">
+    <div data-card-actions className="absolute inset-x-1.5 bottom-1.5 flex flex-wrap items-center justify-center gap-0.5 rounded-xl border border-ui-line bg-ui-bg/90 backdrop-blur px-1 py-1 opacity-0 translate-y-1 transition-colors group-hover:opacity-100 group-hover:translate-y-0 group-focus-within:opacity-100 group-focus-within:translate-y-0 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto">
       {actions.map((a) => {
         const Icon = ICONS[a];
         const active = (a === "keep" && item.verdict === "keep") || (a === "cut" && item.verdict === "cut");
-        const tone = a === "keep" ? "hover:bg-emerald-500/25 hover:text-emerald-200" : a === "cut" ? "hover:bg-white/15 hover:text-gray-100" : a === "publish" ? "hover:bg-violet-500/30 hover:text-violet-100" : "hover:bg-white/10 hover:text-white";
+        const tone = a === "keep" ? "hover:bg-emerald-500/25 hover:text-emerald-200" : a === "cut" ? "hover:bg-ui-raised hover:text-ui-fg" : a === "publish" ? "hover:bg-ui-accent-soft hover:text-ui-accent-ink" : "hover:bg-ui-raised hover:text-ui-fg";
         return (
           <button key={a} type="button" data-action={a} title={ACTION_LABELS[a]} aria-label={ACTION_LABELS[a]} disabled={!!busy}
             onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onAction(a); }}
-            className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-gray-300 transition-colors disabled:opacity-50 ${tone} ${active ? (a === "keep" ? "bg-emerald-500/25 text-emerald-200" : "bg-white/15 text-gray-100") : ""}`}>
+            className={`inline-flex items-center justify-center w-7 h-7 rounded-lg text-ui-fg2 transition-colors disabled:opacity-50 ${tone} ${active ? (a === "keep" ? "bg-emerald-500/25 text-emerald-200" : "bg-ui-raised text-ui-fg") : ""}`}>
             {busy === a ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
           </button>
         );
@@ -59,7 +59,7 @@ export function CardActions({ item, busy, onAction }: { item: MoCreative; busy: 
 export function VerdictBadge({ verdict }: { verdict: MoCreative["verdict"] }) {
   if (!verdict) return null;
   return (
-    <span data-verdict={verdict} className={`absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow ${verdict === "keep" ? "bg-emerald-500/90 text-white" : "bg-gray-600/90 text-gray-100"}`}>
+    <span data-verdict={verdict} className={`absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium shadow ${verdict === "keep" ? "bg-emerald-500/90 text-ui-fg" : "bg-ui-line-strong text-ui-fg"}`}>
       {verdict === "keep" ? <Check className="w-3 h-3" /> : <Scissors className="w-3 h-3" />} {verdict === "keep" ? "Gardée" : "Coupée"}
     </span>
   );

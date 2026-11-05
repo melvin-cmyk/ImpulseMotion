@@ -18,8 +18,8 @@ export default async function BotIndex() {
     return (
       <div className="h-full flex items-center justify-center px-6 py-16">
         <div className="text-center space-y-2 max-w-sm">
-          <h1 className="text-lg font-semibold text-white">Choisissez un assistant dans le panneau de gauche</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="text-lg font-medium text-ui-fg">Choisissez un assistant dans le panneau de gauche</h1>
+          <p className="text-sm text-ui-muted">
             Chaque assistant répond à partir des données d&apos;un seul client. Le panneau indique lesquels sont visibles par les clients.
           </p>
         </div>

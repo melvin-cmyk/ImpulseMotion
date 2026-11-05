@@ -8,7 +8,7 @@ export function LogoMark({ size = 28, className = "" }: { size?: number; classNa
       style={{ width: size, height: size, borderRadius: Math.round(size * 0.28) }}
       aria-hidden
     >
-      <Zap className="text-white fill-white" style={{ width: size * 0.5, height: size * 0.5 }} />
+      <Zap className="text-ui-fg fill-white" style={{ width: size * 0.5, height: size * 0.5 }} />
     </span>
   );
 }

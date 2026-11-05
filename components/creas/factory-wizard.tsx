@@ -55,12 +55,12 @@ export function FactoryWizard({ client, templates, engines, quota, preselected, 
   const [error, setError] = useState<string | null>(null);
   const update = (r: FactoryRun) => { setRun(r); onRunChange(r); };
   return (
-    <div className="rounded-2xl border border-gray-800 bg-gray-950 p-4 space-y-4" data-factory-wizard data-step={step}>
+    <div className="rounded-xl border border-ui-line bg-ui-bg p-4 space-y-4" data-factory-wizard data-step={step}>
       <ol className="flex flex-wrap items-center gap-2 text-xs">
         {[[1, "Templates"], [2, "Copys à valider"], [3, "Génération"]].map(([n, l]) => (
-          <li key={n} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${step === n ? "border-violet-500 text-white bg-violet-500/10" : step > (n as number) ? "border-emerald-500/50 text-emerald-200" : "border-gray-800 text-gray-500"}`}>{step > (n as number) ? <Check className="w-3 h-3" /> : <span>{n}.</span>} {l}</li>
+          <li key={n} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${step === n ? "border-ui-accent text-ui-fg bg-ui-accent-soft" : step > (n as number) ? "border-emerald-500/50 text-emerald-200" : "border-ui-line text-ui-muted"}`}>{step > (n as number) ? <Check className="w-3 h-3" /> : <span>{n}.</span>} {l}</li>
         ))}
-        <li className="ml-auto"><button type="button" onClick={onCancel} className="text-gray-500 hover:text-white">Fermer</button></li>
+        <li className="ml-auto"><button type="button" onClick={onCancel} className="text-ui-muted hover:text-ui-fg">Fermer</button></li>
       </ol>
       {error && <p className="text-sm text-rose-300 whitespace-pre-wrap" data-factory-error>{error}</p>}
       {step === 1 && <StepTemplates client={client} templates={templates} preselected={preselected} onError={setError} onCreated={(r, err) => { update(r); if (err) setError(err); setStep(2); }} />}
@@ -97,22 +97,22 @@ function StepTemplates({ client, templates, preselected, onError, onCreated }: {
     <div className="space-y-4">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <p className="text-sm text-gray-200">Templates de la fabrique <span className="text-gray-500">— {picked.length} coché{picked.length > 1 ? "s" : ""} (12 max)</span></p>
-          <div className="flex gap-2 text-xs"><button type="button" onClick={() => setPicked(usable.slice(0, 12).map((t) => t.id))} className="text-gray-400 hover:text-white">Tout cocher</button><button type="button" onClick={() => setPicked([])} className="text-gray-400 hover:text-white">Aucun</button></div>
+          <p className="text-sm text-ui-fg">Templates de la fabrique <span className="text-ui-muted">— {picked.length} coché{picked.length > 1 ? "s" : ""} (12 max)</span></p>
+          <div className="flex gap-2 text-xs"><button type="button" onClick={() => setPicked(usable.slice(0, 12).map((t) => t.id))} className="text-ui-fg2 hover:text-ui-fg">Tout cocher</button><button type="button" onClick={() => setPicked([])} className="text-ui-fg2 hover:text-ui-fg">Aucun</button></div>
         </div>
-        {usable.length === 0 ? <p className="text-sm text-gray-500 mt-2">Aucun template avec image pour {client.name} : ajoutez-en depuis l&apos;onglet « Templates & concurrents ».</p> : (
+        {usable.length === 0 ? <p className="text-sm text-ui-muted mt-2">Aucun template avec image pour {client.name} : ajoutez-en depuis l&apos;onglet « Templates & concurrents ».</p> : (
           <ul className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {usable.map((t) => { const a = t.analysis; const on = picked.includes(t.id); return (
               <li key={t.id}>
-                <button type="button" onClick={() => toggle(t.id)} data-factory-template={t.id} aria-pressed={on} className={`relative w-full text-left rounded-lg overflow-hidden border-2 flex gap-3 p-2 ${on ? "border-violet-500 bg-violet-500/5" : "border-gray-800 hover:border-gray-600"}`}>
-                  <div className="w-24 shrink-0 aspect-[4/5] bg-gray-900 rounded-md overflow-hidden">{t.image && <img src={t.image} alt={t.name} className="w-full h-full object-cover" loading="lazy" />}</div>
-                  <span className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-md inline-flex items-center justify-center ${on ? "bg-violet-600 text-white" : "bg-black/60 text-transparent"}`}><Check className="w-3.5 h-3.5" /></span>
+                <button type="button" onClick={() => toggle(t.id)} data-factory-template={t.id} aria-pressed={on} className={`relative w-full text-left rounded-lg overflow-hidden border-2 flex gap-3 p-2 ${on ? "border-ui-accent bg-ui-accent-soft" : "border-ui-line hover:border-ui-line-strong"}`}>
+                  <div className="w-24 shrink-0 aspect-[4/5] bg-ui-card rounded-md overflow-hidden">{t.image && <img src={t.image} alt={t.name} className="w-full h-full object-cover" loading="lazy" />}</div>
+                  <span className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-md inline-flex items-center justify-center ${on ? "bg-ui-accent text-ui-on-accent" : "bg-black/50 text-transparent"}`}><Check className="w-3.5 h-3.5" /></span>
                   <div className="min-w-0 flex-1 space-y-0.5 text-[11px]">
-                    <p className="text-sm text-gray-100 line-clamp-1">{t.brand ? `${t.brand} · ` : ""}{t.name}</p>
-                    {a.hook && <p className="text-gray-300"><span className="text-gray-500">Accroche :</span> {a.hook}</p>}
-                    {a.structure && <p className="text-gray-400 line-clamp-2"><span className="text-gray-500">Structure :</span> {a.structure}</p>}
-                    {a.textZones.length > 0 && <p className="text-gray-400 line-clamp-2"><span className="text-gray-500">Zones de texte :</span> {a.textZones.map((z) => `${z.role}${z.text ? ` « ${z.text} »` : ""}`).join(" · ")}</p>}
-                    {a.brief && <p className="text-gray-500 line-clamp-2" title={a.brief}><span>Brief :</span> {a.brief}</p>}
+                    <p className="text-sm text-ui-fg line-clamp-1">{t.brand ? `${t.brand} · ` : ""}{t.name}</p>
+                    {a.hook && <p className="text-ui-fg2"><span className="text-ui-muted">Accroche :</span> {a.hook}</p>}
+                    {a.structure && <p className="text-ui-fg2 line-clamp-2"><span className="text-ui-muted">Structure :</span> {a.structure}</p>}
+                    {a.textZones.length > 0 && <p className="text-ui-fg2 line-clamp-2"><span className="text-ui-muted">Zones de texte :</span> {a.textZones.map((z) => `${z.role}${z.text ? ` « ${z.text} »` : ""}`).join(" · ")}</p>}
+                    {a.brief && <p className="text-ui-muted line-clamp-2" title={a.brief}><span>Brief :</span> {a.brief}</p>}
                     {!a.hook && !a.structure && <p className="text-amber-300">Pas encore lu par l&apos;IA (« Relire avec l&apos;IA » dans sa fiche).</p>}
                   </div>
                 </button>
@@ -122,19 +122,19 @@ function StepTemplates({ client, templates, preselected, onError, onCreated }: {
         )}
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
-        <label className="flex flex-col gap-1 text-xs text-gray-400">Type de fabrique
+        <label className="flex flex-col gap-1 text-xs text-ui-fg2">Type de fabrique
           <select value={kind} onChange={(e) => setKind(e.target.value as FactoryKind)} className={FIELD}>{KINDS.map((k) => <option key={k} value={k}>{FACTORY_KIND_LABEL[k]}</option>)}</select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-gray-400">Propositions de copy par template
+        <label className="flex flex-col gap-1 text-xs text-ui-fg2">Propositions de copy par template
           <select value={perTemplate} onChange={(e) => setPerTemplate(Number(e.target.value))} className={FIELD}>{[2, 3, 4, 5, 6].map((k) => <option key={k} value={k}>{k}</option>)}</select>
         </label>
-        <div className="text-xs text-gray-500 self-end pb-1">L&apos;IA lit aussi ce que disent les templates choisis, vos avis collés et vos consignes.</div>
+        <div className="text-xs text-ui-muted self-end pb-1">L&apos;IA lit aussi ce que disent les templates choisis, vos avis collés et vos consignes.</div>
       </div>
       <ContextPanel client={client} />
-      <label className="flex flex-col gap-1 text-xs text-gray-400">Ce que vous voulez (offre, produit, ton — facultatif)
+      <label className="flex flex-col gap-1 text-xs text-ui-fg2">Ce que vous voulez (offre, produit, ton — facultatif)
         <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={2} placeholder={kind === "offer" ? "Ex. : rentrée, 1er cours offert, cible parents de collégiens" : "Ex. : mettre en avant le suivi personnalisé, ton rassurant"} className={`${FIELD} resize-y`} />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-gray-400">Avis clients collés (facultatif) — la voix des clients, reprise mot pour mot dans les copys
+      <label className="flex flex-col gap-1 text-xs text-ui-fg2">Avis clients collés (facultatif) — la voix des clients, reprise mot pour mot dans les copys
         <textarea value={reviews} onChange={(e) => setReviews(e.target.value)} rows={3} placeholder="Collez des avis Google, Trustpilot, des verbatims… (plus il y en a, mieux c'est)" className={`${FIELD} resize-y`} />
       </label>
       <div className="flex items-center justify-end gap-2">
@@ -177,23 +177,23 @@ function StepCopies({ run, templates, onError, onUpdated, onValidated }: { run: 
 
   return (
     <div className="space-y-4">
-      <div className="text-xs text-gray-400">
-        <span className="text-gray-200">{run.copies.length} copys proposés</span> pour {run.templateIds.length} template{run.templateIds.length > 1 ? "s" : ""} · contexte lu : {sourceSummary || "aucune source"} ·{" "}
-        <details className="inline"><summary className="cursor-pointer inline hover:text-white">voir le contexte</summary><pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap rounded-lg border border-gray-800 p-2 text-[11px] text-gray-300">{run.contextMd}</pre></details>
+      <div className="text-xs text-ui-fg2">
+        <span className="text-ui-fg">{run.copies.length} copys proposés</span> pour {run.templateIds.length} template{run.templateIds.length > 1 ? "s" : ""} · contexte lu : {sourceSummary || "aucune source"} ·{" "}
+        <details className="inline"><summary className="cursor-pointer inline hover:text-ui-fg">voir le contexte</summary><pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap rounded-lg border border-ui-line p-2 text-[11px] text-ui-fg2">{run.contextMd}</pre></details>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-gray-300">{approvedCount} coché{approvedCount > 1 ? "s" : ""}</span>
-        <button type="button" onClick={() => setAll("approved")} className="text-gray-400 hover:text-white">Tout cocher</button>
-        <button type="button" onClick={() => setAll("rejected")} className="text-gray-400 hover:text-white">Tout décocher</button>
+        <span className="text-ui-fg2">{approvedCount} coché{approvedCount > 1 ? "s" : ""}</span>
+        <button type="button" onClick={() => setAll("approved")} className="text-ui-fg2 hover:text-ui-fg">Tout cocher</button>
+        <button type="button" onClick={() => setAll("rejected")} className="text-ui-fg2 hover:text-ui-fg">Tout décocher</button>
       </div>
       {byTemplate.map(({ template, id, copies }, ti) => (
-        <section key={id} className="rounded-xl border border-gray-800 overflow-hidden">
-          <header className="flex items-center gap-3 px-3 py-2 bg-gray-900/60">
-            {template?.image && <img src={template.image} alt="" className="w-10 h-12 object-cover rounded-md border border-gray-800" />}
-            <div className="min-w-0"><p className="text-sm text-white truncate">T{ti + 1} · {template?.name ?? "Template"}</p><p className="text-[11px] text-gray-500">{template?.brand ? `${template.brand} · ` : ""}{template?.analysis.hook || ""}{template?.analysis.textZones.length ? ` · zones : ${template.analysis.textZones.map((z) => z.role).join(", ")}` : ""}</p></div>
+        <section key={id} className="rounded-xl border border-ui-line overflow-hidden">
+          <header className="flex items-center gap-3 px-3 py-2 bg-ui-card">
+            {template?.image && <img src={template.image} alt="" className="w-10 h-12 object-cover rounded-md border border-ui-line" />}
+            <div className="min-w-0"><p className="text-sm text-ui-fg truncate">T{ti + 1} · {template?.name ?? "Template"}</p><p className="text-[11px] text-ui-muted">{template?.brand ? `${template.brand} · ` : ""}{template?.analysis.hook || ""}{template?.analysis.textZones.length ? ` · zones : ${template.analysis.textZones.map((z) => z.role).join(", ")}` : ""}</p></div>
           </header>
-          {copies.length === 0 ? <p className="px-3 py-2 text-xs text-gray-500">Aucune proposition pour ce template.</p> : (
-            <ul className="divide-y divide-gray-800">
+          {copies.length === 0 ? <p className="px-3 py-2 text-xs text-ui-muted">Aucune proposition pour ce template.</p> : (
+            <ul className="divide-y divide-ui-line">
               {copies.map((c) => { const d = draftOf(c); return (
                 <li key={c.id} data-factory-copy={c.id} data-approved={d.status === "approved"} className={`grid gap-2 px-3 py-2 sm:grid-cols-[auto_1fr] ${d.status === "approved" ? "" : "opacity-60"}`}>
                   <label className="pt-1.5"><input type="checkbox" checked={d.status === "approved"} onChange={(e) => set(c.id, { status: e.target.checked ? "approved" : "rejected" })} aria-label="Garder ce copy" /></label>
@@ -203,7 +203,7 @@ function StepCopies({ run, templates, onError, onUpdated, onValidated }: { run: 
                       <input value={d.subline} onChange={(e) => set(c.id, { subline: e.target.value })} placeholder="Sous-titre (facultatif)" className={`${FIELD} w-full`} aria-label="Sous-titre" />
                       <input value={d.cta} onChange={(e) => set(c.id, { cta: e.target.value })} placeholder="Bouton" className={`${FIELD} w-full`} aria-label="Bouton" />
                     </div>
-                    <p className="text-[11px] text-gray-500">{c.angle && <span>Angle : <span className="text-gray-300">{c.angle}</span> · </span>}{c.persona && <span>Persona : <span className="text-gray-300">{c.persona}</span> · </span>}Source : <span className="text-gray-300" data-copy-source>{c.voiceSource || "proposition"}</span>{c.editedByHuman || d.headline !== c.headline || d.subline !== c.subline || d.cta !== c.cta ? <Pill className="ml-2 text-[10px]">modifié</Pill> : null}</p>
+                    <p className="text-[11px] text-ui-muted">{c.angle && <span>Angle : <span className="text-ui-fg2">{c.angle}</span> · </span>}{c.persona && <span>Persona : <span className="text-ui-fg2">{c.persona}</span> · </span>}Source : <span className="text-ui-fg2" data-copy-source>{c.voiceSource || "proposition"}</span>{c.editedByHuman || d.headline !== c.headline || d.subline !== c.subline || d.cta !== c.cta ? <Pill className="ml-2 text-[10px]">modifié</Pill> : null}</p>
                   </div>
                 </li>
               ); })}
@@ -211,7 +211,7 @@ function StepCopies({ run, templates, onError, onUpdated, onValidated }: { run: 
           )}
         </section>
       ))}
-      <label className="flex flex-col gap-1 text-xs text-gray-400">Retour sur cette fournée (facultatif) — gardé pour les prochaines fabriques et ajouté au journal HQ du client
+      <label className="flex flex-col gap-1 text-xs text-ui-fg2">Retour sur cette fournée (facultatif) — gardé pour les prochaines fabriques et ajouté au journal HQ du client
         <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)} rows={2} placeholder="Ex. : jamais de -50 % sans mon accord, plus de citations à la première personne" className={`${FIELD} resize-y`} data-factory-run-feedback />
       </label>
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -257,26 +257,26 @@ function StepGenerate({ run, templates, engines, quota, onError, onRun, onAssets
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-200">{approved.length} copy{approved.length > 1 ? "s" : ""} validé{approved.length > 1 ? "s" : ""} sur {tplNames.length} template{tplNames.length > 1 ? "s" : ""} <span className="text-gray-500">({tplNames.join(", ")})</span>. Chaque visuel = un template × un copy validé, à tour de rôle — des bases à reprendre dans FigCraft, pas du volume. Au-delà de {BACKGROUND_FROM}, la génération continue en arrière-plan ({UI_MAX_RUN_IMAGES} max ici).</p>
+      <p className="text-sm text-ui-fg">{approved.length} copy{approved.length > 1 ? "s" : ""} validé{approved.length > 1 ? "s" : ""} sur {tplNames.length} template{tplNames.length > 1 ? "s" : ""} <span className="text-ui-muted">({tplNames.join(", ")})</span>. Chaque visuel = un template × un copy validé, à tour de rôle — des bases à reprendre dans FigCraft, pas du volume. Au-delà de {BACKGROUND_FROM}, la génération continue en arrière-plan ({UI_MAX_RUN_IMAGES} max ici).</p>
       {!started && (
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-xs text-gray-400">Visuels à générer
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">Visuels à générer
             <input type="number" min={1} max={UI_MAX_RUN_IMAGES} value={n} onChange={(e) => setN(Math.max(1, Math.min(UI_MAX_RUN_IMAGES, Math.round(Number(e.target.value) || 1))))} className={`${FIELD} w-24`} data-factory-n />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-400">Moteur
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">Moteur
             <select value={chosen} onChange={(e) => setEngine(e.target.value)} className={`${FIELD} max-w-[280px]`}>{falEngines.map((e) => <option key={e.id} value={e.id}>{e.label} · {e.usd} $</option>)}{!falEngines.length && <option value={chosen}>{chosen}</option>}</select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-400">Format
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">Format
             <select value={ratio} onChange={(e) => setRatio(e.target.value)} className={FIELD}>{[["1:1", "Carré 1:1"], ["3:4", "Portrait 3:4"], ["9:16", "Vertical 9:16"], ["16:9", "Paysage 16:9"], ["4:3", "Paysage 4:3"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </label>
-          <label className="flex items-center gap-1.5 text-xs text-gray-400 pb-2"><input type="checkbox" checked={textless} onChange={(e) => setTextless(e.target.checked)} /> Sans texte (posés ensuite)</label>
+          <label className="flex items-center gap-1.5 text-xs text-ui-fg2 pb-2"><input type="checkbox" checked={textless} onChange={(e) => setTextless(e.target.checked)} /> Sans texte (posés ensuite)</label>
         </div>
       )}
-      <p className={`text-sm ${price.over ? "text-rose-300" : "text-gray-300"}`} data-factory-price>{price.over ? "Plafond du jour dépassé — " : ""}{price.text}</p>
+      <p className={`text-sm ${price.over ? "text-rose-300" : "text-ui-fg2"}`} data-factory-price>{price.over ? "Plafond du jour dépassé — " : ""}{price.text}</p>
       {progress && (
         <div className="space-y-1" data-factory-progress>
-          <div className="h-2 rounded-full bg-gray-800 overflow-hidden"><div className="h-full bg-violet-500 transition-all" style={{ width: `${Math.min(100, Math.round(((progress.done + progress.failed) / Math.max(1, started ? run.settings.n : n)) * 100))}%` }} /></div>
-          <p className="text-xs text-gray-400">{progress.done} / {started ? run.settings.n : n} visuel{progress.done > 1 ? "s" : ""} généré{progress.done > 1 ? "s" : ""}{progress.failed ? ` · ${progress.failed} en échec` : ""}{busy ? " · génération en cours (paquets de 4, 12 par passage)…" : run.remaining ? ` · ${run.remaining} restant${run.remaining > 1 ? "s" : ""}` : ""}</p>
+          <div className="h-2 rounded-full bg-ui-raised overflow-hidden"><div className="h-full bg-ui-accent transition-colors" style={{ width: `${Math.min(100, Math.round(((progress.done + progress.failed) / Math.max(1, started ? run.settings.n : n)) * 100))}%` }} /></div>
+          <p className="text-xs text-ui-fg2">{progress.done} / {started ? run.settings.n : n} visuel{progress.done > 1 ? "s" : ""} généré{progress.done > 1 ? "s" : ""}{progress.failed ? ` · ${progress.failed} en échec` : ""}{busy ? " · génération en cours (paquets de 4, 12 par passage)…" : run.remaining ? ` · ${run.remaining} restant${run.remaining > 1 ? "s" : ""}` : ""}</p>
         </div>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2">

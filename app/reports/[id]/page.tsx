@@ -105,21 +105,21 @@ export default function ReportPage() {
   if (error) {
     return (
       <div className="p-6 max-w-3xl mx-auto">
-        <Link href="/reports" className="text-sm text-violet-400 inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Rapports</Link>
+        <Link href="/reports" className="text-sm text-ui-accent-ink inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Rapports</Link>
         <div className="mt-4 text-red-400 text-sm">{error}</div>
       </div>
     );
   }
   if (!report) {
-    return <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>;
+    return <div className="p-6 flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>;
   }
 
-  const btn = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-gray-900 border-gray-800 text-gray-300 hover:text-white hover:border-gray-700 disabled:opacity-50 transition-colors";
+  const btn = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-ui-card border-ui-line text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong disabled:opacity-50 transition-colors";
 
   return (
     <div className={`p-6 max-w-5xl mx-auto space-y-6 ${showChat ? "sm:pr-[460px]" : ""}`}>
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Link href="/reports" className="text-sm text-gray-400 hover:text-white inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Rapports</Link>
+        <Link href="/reports" className="text-sm text-ui-fg2 hover:text-ui-fg inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Rapports</Link>
         <div className="flex items-center gap-2 flex-wrap">
           <Link href={`/portfolio/${report.dashboard.id}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Fiche client</Link>
           <button type="button" onClick={regenerate} disabled={generating} className={btn}><RefreshCw className={`w-3.5 h-3.5 ${generating ? "animate-spin" : ""}`} /> Régénérer</button>
@@ -128,7 +128,7 @@ export default function ReportPage() {
             type="button"
             onClick={() => setShowChat((v) => !v)}
             disabled={report.status !== "ready"}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50 ${showChat ? "bg-violet-600 border-violet-500 text-white" : "bg-gray-900 border-gray-800 text-gray-300 hover:text-white"}`}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${showChat ? "bg-ui-accent border-ui-accent text-ui-on-accent" : "bg-ui-card border-ui-line text-ui-fg2 hover:text-ui-fg"}`}
           >
             <MessageSquare className="w-3.5 h-3.5" /> Chat IA
           </button>
@@ -137,9 +137,9 @@ export default function ReportPage() {
       </div>
 
       <header>
-        <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold">{report.dashboard.name}</div>
-        <h1 className="text-2xl font-bold text-white mt-1">{report.title}</h1>
-        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 flex-wrap">
+        <div className="text-[11px] text-ui-accent-ink font-medium">{report.dashboard.name}</div>
+        <h1 className="text-2xl font-medium text-ui-fg mt-1">{report.title}</h1>
+        <div className="flex items-center gap-3 mt-2 text-xs text-ui-muted flex-wrap">
           <span>{fmtPeriod(report.periodSince, report.periodUntil)}</span>
           {report.compareSince && report.compareUntil && <span>· comparé à {fmtPeriod(report.compareSince, report.compareUntil)}</span>}
           <span>· généré le {new Date(report.createdAt).toLocaleDateString("fr-FR")}</span>
@@ -151,25 +151,25 @@ export default function ReportPage() {
       </header>
 
       {report.instructions && (
-        <div className="text-[11px] text-gray-400 bg-gray-900/60 border border-gray-800 rounded-lg px-3 py-2">
-          <span className="text-gray-500 uppercase tracking-wider font-semibold text-[10px] mr-2">Consignes</span>
+        <div className="text-[11px] text-ui-fg2 bg-ui-card border border-ui-line rounded-lg px-3 py-2">
+          <span className="text-ui-muted font-medium text-[10px] mr-2">Consignes</span>
           {report.instructions}
         </div>
       )}
 
       {report.status === "generating" && (
         <Card padded className="flex items-center gap-3">
-          <Loader2 className="w-5 h-5 animate-spin text-violet-400" />
+          <Loader2 className="w-5 h-5 animate-spin text-ui-accent-ink" />
           <div>
-            <div className="text-sm text-white font-medium">L&apos;IA rédige le rapport…</div>
-            <div className="text-xs text-gray-500">Collecte des données puis rédaction : 1 à 3 minutes. La page se met à jour automatiquement.</div>
+            <div className="text-sm text-ui-fg font-medium">L&apos;IA rédige le rapport…</div>
+            <div className="text-xs text-ui-muted">Collecte des données puis rédaction : 1 à 3 minutes. La page se met à jour automatiquement.</div>
           </div>
         </Card>
       )}
       {report.status === "failed" && (
         <Card padded className="border-red-900/40">
           <div className="text-sm text-red-300 font-medium">La génération a échoué</div>
-          <div className="text-xs text-gray-400 mt-1 break-words">{report.error}</div>
+          <div className="text-xs text-ui-fg2 mt-1 break-words">{report.error}</div>
           <button type="button" onClick={regenerate} className={`${btn} mt-3`}><RefreshCw className="w-3.5 h-3.5" /> Réessayer</button>
         </Card>
       )}
@@ -180,7 +180,7 @@ export default function ReportPage() {
           <VideoViewsTable data={report.data} />
           <TopCreativesStrip data={report.data} />
           {report.data?.hqContext ? (
-            <div className="text-[11px] text-violet-300/80 bg-violet-500/5 border border-violet-900/30 rounded-lg px-3 py-2">
+            <div className="text-[11px] text-ui-accent-ink bg-ui-accent-soft border border-ui-accent rounded-lg px-3 py-2">
               Rédigé avec le contexte HQ du client (projects/{report.data.hqContext.slug}, lu le {new Date(report.data.hqContext.fetchedAt).toLocaleDateString("fr-FR")}) : objectifs, KPI cible, décisions et tests en cours.
             </div>
           ) : null}
@@ -194,8 +194,8 @@ export default function ReportPage() {
           </Card>
           <section>
             <div className="flex items-baseline justify-between mb-3">
-              <h2 className="text-base font-semibold text-white">Next steps</h2>
-              <span className="text-xs text-gray-500 tabular-nums">{report.nextSteps.filter((s) => s.done).length}/{report.nextSteps.length} faits</span>
+              <h2 className="text-base font-medium text-ui-fg">Next steps</h2>
+              <span className="text-xs text-ui-muted tabular-nums">{report.nextSteps.filter((s) => s.done).length}/{report.nextSteps.length} faits</span>
             </div>
             <NextStepsList
               steps={report.nextSteps}

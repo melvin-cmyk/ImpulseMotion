@@ -265,161 +265,161 @@ export function DesignPage({ id, ask }: { id: string; ask?: string }) {
       const a = document.createElement("a");
       a.href = url;
       a.download = (res.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1]) ?? `${design?.name ?? "design"}.${format}`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Export impossible");
-    } finally {
-      setExporting(null);
-    }
-  }
+ a.click();
+ setTimeout(() => URL.revokeObjectURL(url), 10_000);
+ } catch (e) {
+ setError(e instanceof Error ? e.message : "Export impossible");
+ } finally {
+ setExporting(null);
+ }
+ }
 
-  const messages = useMemo(() => design?.messages ?? [], [design]);
-  const busy = !!run || !!foreignJob || sending;
+ const messages = useMemo(() => design?.messages ?? [], [design]);
+ const busy = !!run || !!foreignJob || sending;
 
-  if (loadError) {
-    return (
-      <div className="p-6 max-w-3xl mx-auto space-y-4">
-        <Link href="/design" className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-white"><ArrowLeft className="w-4 h-4" /> Design</Link>
-        <div className="text-sm text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2">{loadError}</div>
-      </div>
-    );
-  }
-  if (!design) return <div className="p-6 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Chargement du design…</div>;
+ if (loadError) {
+ return (
+ <div className="p-6 max-w-3xl mx-auto space-y-4">
+ <Link href="/design" className="inline-flex items-center gap-1 text-sm text-ui-fg2 hover:text-ui-fg"><ArrowLeft className="w-4 h-4" /> Design</Link>
+ <div className="text-sm text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2">{loadError}</div>
+ </div>
+ );
+ }
+ if (!design) return <div className="p-6 text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Chargement du design…</div>;
 
-  return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 bg-gray-950/80 shrink-0 flex-wrap">
-        <Link href="/design" className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-white"><ArrowLeft className="w-4 h-4" /> Design</Link>
-        <div className="h-4 w-px bg-gray-800" />
-        {renaming ? (
-          <form onSubmit={(e) => { e.preventDefault(); void rename(); }} className="flex items-center gap-2">
-            <input className={`${FIELD} w-72 py-1`} value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} autoFocus maxLength={120} onBlur={() => void rename()} />
-          </form>
-        ) : (
-          <button type="button" className="text-sm font-semibold text-white inline-flex items-center gap-2 group" onClick={() => { if (design.canManage) { setNameDraft(design.name); setRenaming(true); } }} title={design.canManage ? "Renommer" : undefined}>
-            {design.name}
-            {design.canManage && <Pencil className="w-3.5 h-3.5 text-gray-600 group-hover:text-gray-300" />}
-          </button>
-        )}
-        {design.clientName ? <Pill tone="blue"><Users className="w-3 h-3" /> {design.clientName}</Pill> : <Pill>Agence</Pill>}
-        <div className="ml-auto flex items-center gap-2 flex-wrap">
-          {(["png", "svg", "pdf"] as const).map((f) => (
-            <button key={f} type="button" onClick={() => void exportAs(f)} disabled={!!exporting} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700`} title={`Exporter la page en ${f.toUpperCase()}${f === "png" ? " (×2)" : ""}`}>
+ return (
+ <div className="flex flex-col h-full min-h-0">
+ {/* Header */}
+ <div className="flex items-center gap-3 px-4 py-2.5 border-b border-ui-line bg-ui-bg shrink-0 flex-wrap">
+ <Link href="/design" className="inline-flex items-center gap-1 text-sm text-ui-fg2 hover:text-ui-fg"><ArrowLeft className="w-4 h-4" /> Design</Link>
+ <div className="h-4 w-px bg-ui-raised" />
+ {renaming ? (
+ <form onSubmit={(e) => { e.preventDefault(); void rename(); }} className="flex items-center gap-2">
+ <input className={`${FIELD} w-72 py-1`} value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} autoFocus maxLength={120} onBlur={() => void rename()} />
+ </form>
+ ) : (
+ <button type="button" className="text-sm font-medium text-ui-fg inline-flex items-center gap-2 group" onClick={() => { if (design.canManage) { setNameDraft(design.name); setRenaming(true); } }} title={design.canManage ? "Renommer" : undefined}>
+ {design.name}
+ {design.canManage && <Pencil className="w-3.5 h-3.5 text-ui-muted group-hover:text-ui-fg2" />}
+ </button>
+ )}
+ {design.clientName ? <Pill tone="blue"><Users className="w-3 h-3" /> {design.clientName}</Pill> : <Pill>Agence</Pill>}
+ <div className="ml-auto flex items-center gap-2 flex-wrap">
+ {(["png", "svg", "pdf"] as const).map((f) => (
+ <button key={f} type="button" onClick={() => void exportAs(f)} disabled={!!exporting} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg border border-ui-line-strong`} title={`Exporter la page en ${f.toUpperCase()}${f === "png" ? " (×2)" : ""}`}>
               {exporting === f ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />} {f.toUpperCase()}
             </button>
           ))}
           {design.editorUrl && (
-            <a href={design.editorUrl} target="_blank" rel="noopener noreferrer" className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700`} title="Ouvrir l'éditeur dans un onglet">
+            <a href={design.editorUrl} target="_blank" rel="noopener noreferrer" className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg border border-ui-line-strong`} title="Ouvrir l'éditeur dans un onglet">
               <ExternalLink className="w-3.5 h-3.5" /> Plein écran
             </a>
           )}
-          <button type="button" onClick={toggleMenu} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700`} title={menuCollapsed ? "Déployer le menu de gauche" : "Replier le menu de gauche"}>
+          <button type="button" onClick={toggleMenu} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg border border-ui-line-strong`} title={menuCollapsed ? "Déployer le menu de gauche" : "Replier le menu de gauche"}>
             {menuCollapsed ? <PanelLeftOpen className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />} Menu
           </button>
-          <button type="button" onClick={togglePanel} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700`} title={panelOpen ? "Masquer le copilote : l'éditeur prend toute la fenêtre" : "Afficher le copilote"}>
+          <button type="button" onClick={togglePanel} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg border border-ui-line-strong`} title={panelOpen ? "Masquer le copilote : l'éditeur prend toute la fenêtre" : "Afficher le copilote"}>
             {panelOpen ? <PanelRightClose className="w-3.5 h-3.5" /> : <MessageSquare className="w-3.5 h-3.5" />} {panelOpen ? "Plein éditeur" : "Copilote"}
           </button>
           {design.canManage && (
             <button type="button" onClick={() => void remove()} className={`${SMALL_BUTTON} text-red-300 hover:bg-red-950/50`} title="Supprimer le design">
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
+ <Trash2 className="w-3.5 h-3.5" />
+ </button>
+ )}
+ </div>
+ </div>
 
-      {error && (
-        <div className="mx-4 mt-2 text-sm text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2 flex items-start gap-2 shrink-0">
-          <span className="flex-1">{error}</span>
-          <button type="button" onClick={() => setError(null)} className="text-red-400 hover:text-red-200"><X className="w-4 h-4" /></button>
-        </div>
-      )}
+ {error && (
+ <div className="mx-4 mt-2 text-sm text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2 flex items-start gap-2 shrink-0">
+ <span className="flex-1">{error}</span>
+ <button type="button" onClick={() => setError(null)} className="text-red-400 hover:text-red-200"><X className="w-4 h-4" /></button>
+ </div>
+ )}
 
-      {/* Editor + copilot */}
-      <div className="flex flex-1 min-h-0">
-        <div className="flex-1 min-w-0 relative bg-[#2c2c2c]">
-          {design.editorUrl ? (
-            <iframe
-              src={design.editorUrl}
-              title={`${design.kind === "photocraft" ? "Éditeur PhotoCraft" : "Éditeur FigCraft"} — ${design.name}`}
-              className="absolute inset-0 w-full h-full border-0"
-              allow="fullscreen; clipboard-read; clipboard-write"
-              allowFullScreen
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-400 p-6 text-center">
-              L’éditeur n’est pas configuré ({design.kind === "photocraft" ? "NEXT_PUBLIC_PHOTOCRAFT_URL" : "NEXT_PUBLIC_FIGCRAFT_URL"}). Prévenez un administrateur.
-            </div>
-          )}
-          {showHint && design.editorUrl && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-gray-950/95 border border-violet-800/70 text-gray-200 text-xs rounded-lg px-3 py-2 flex items-center gap-3 shadow-lg max-w-[90%]">
-              <span>{design.kind === "photocraft"
-                ? <>Retouche : déposez votre image dans la conversation, le copilote la travaille et vous rend ses fichiers à télécharger. Ouvrez-les dans l’éditeur par <strong>Fichier › Ouvrir</strong> (ou glissez-les dessus) pour finir à la main.</>
-                : <>À l’ouverture, cliquez sur <strong>Join</strong> dans l’éditeur : le fichier partagé s’affiche et reste synchronisé avec le copilote.</>}</span>
-              <button type="button" onClick={dismissHint} className="text-gray-400 hover:text-white" aria-label="Fermer"><X className="w-3.5 h-3.5" /></button>
-            </div>
-          )}
-        </div>
+ {/* Editor + copilot */}
+ <div className="flex flex-1 min-h-0">
+ <div className="flex-1 min-w-0 relative bg-ui-bg">
+ {design.editorUrl ? (
+ <iframe
+ src={design.editorUrl}
+ title={`${design.kind === "photocraft" ? "Éditeur PhotoCraft" : "Éditeur FigCraft"} — ${design.name}`}
+ className="absolute inset-0 w-full h-full border-0"
+ allow="fullscreen; clipboard-read; clipboard-write"
+ allowFullScreen
+ />
+ ) : (
+ <div className="absolute inset-0 flex items-center justify-center text-sm text-ui-fg2 p-6 text-center">
+ L’éditeur n’est pas configuré ({design.kind === "photocraft" ? "NEXT_PUBLIC_PHOTOCRAFT_URL" : "NEXT_PUBLIC_FIGCRAFT_URL"}). Prévenez un administrateur.
+ </div>
+ )}
+ {showHint && design.editorUrl && (
+ <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-ui-bg border border-ui-accent text-ui-fg text-xs rounded-lg px-3 py-2 flex items-center gap-3 shadow-lg max-w-[90%]">
+ <span>{design.kind === "photocraft"
+ ? <>Retouche : déposez votre image dans la conversation, le copilote la travaille et vous rend ses fichiers à télécharger. Ouvrez-les dans l’éditeur par <strong>Fichier › Ouvrir</strong> (ou glissez-les dessus) pour finir à la main.</>
+ : <>À l’ouverture, cliquez sur <strong>Join</strong> dans l’éditeur : le fichier partagé s’affiche et reste synchronisé avec le copilote.</>}</span>
+ <button type="button" onClick={dismissHint} className="text-ui-fg2 hover:text-ui-fg" aria-label="Fermer"><X className="w-3.5 h-3.5" /></button>
+ </div>
+ )}
+ </div>
 
-        <aside className={`w-[400px] shrink-0 border-l border-gray-800 bg-gray-950 flex-col min-h-0 ${panelOpen ? "flex" : "hidden"}`}>
-          <div className="px-4 py-2.5 border-b border-gray-800 shrink-0">
-            <div className="text-sm font-semibold text-white">Copilote design</div>
-            <div className="text-xs text-gray-500">Il dessine dans le fichier à côté : demandez un visuel, une déclinaison, une correction.</div>
-          </div>
+ <aside className={`w-[400px] shrink-0 border-l border-ui-line bg-ui-bg flex-col min-h-0 ${panelOpen ? "flex" : "hidden"}`}>
+ <div className="px-4 py-2.5 border-b border-ui-line shrink-0">
+ <div className="text-sm font-medium text-ui-fg">Copilote design</div>
+ <div className="text-xs text-ui-muted">Il dessine dans le fichier à côté : demandez un visuel, une déclinaison, une correction.</div>
+ </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
-            {messages.length === 0 && !run && (
-              <div className="text-xs text-gray-500 space-y-2">
-                <p>Exemples :</p>
-                <ul className="list-disc pl-4 space-y-1">
-                  <li>« Une bannière 1080×1080 pour la promo de rentrée : -30 % sur la gamme bio, CTA “J’en profite”. »</li>
-                  <li>« Décline la planche en story 1080×1920 et en paysage 1200×628. »</li>
-                  <li>« Place mon logo (déposé) en haut à gauche, rends le titre plus lisible. »</li>
-                </ul>
-              </div>
-            )}
-            {messages.map((m: DesignMessage, i: number) => (
-              <div key={`${m.at}-${i}`} className={m.role === "user" ? "flex flex-col items-end" : ""}>
-                {m.role === "user" ? (
-                  <div className="max-w-[92%] bg-violet-600/20 border border-violet-800/50 rounded-xl px-3 py-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
-                    {m.content}
-                    {m.files?.length ? <div className="mt-1 text-[11px] text-violet-200/80">{m.files.map((f) => f.name).join(", ")}</div> : null}
-                  </div>
-                ) : (
-                  <AiMarkdown content={m.content} filesBase={filesBase} className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 break-words" />
-                )}
-                <div className="text-[10px] text-gray-600 mt-0.5">{m.role === "user" ? (m.author || "vous") : "copilote"} · {when(m.at)}</div>
-              </div>
-            ))}
-            {run && (
-              <div>
-                {run.text && <AiMarkdown content={run.text} filesBase={filesBase} className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 break-words" />}
-                <AiActivity state={run.stopping ? { ...run.activity, phase: "starting" } : run.activity} startedAt={run.startedAt} className={run.text ? "mt-2" : undefined} />
-              </div>
-            )}
-            {foreignJob && (
-              <div className="text-xs text-amber-300 bg-amber-950/30 border border-amber-900/50 rounded-lg px-3 py-2 flex items-center gap-2">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Un autre consultant a une réponse en cours sur ce design. Le fil se mettra à jour à la fin.
-              </div>
-            )}
-            <div ref={threadEnd} />
-          </div>
+ <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
+ {messages.length === 0 && !run && (
+ <div className="text-xs text-ui-muted space-y-2">
+ <p>Exemples :</p>
+ <ul className="list-disc pl-4 space-y-1">
+ <li>« Une bannière 1080×1080 pour la promo de rentrée : -30 % sur la gamme bio, CTA “J’en profite”. »</li>
+ <li>« Décline la planche en story 1080×1920 et en paysage 1200×628. »</li>
+ <li>« Place mon logo (déposé) en haut à gauche, rends le titre plus lisible. »</li>
+ </ul>
+ </div>
+ )}
+ {messages.map((m: DesignMessage, i: number) => (
+ <div key={`${m.at}-${i}`} className={m.role === "user" ? "flex flex-col items-end" : ""}>
+ {m.role === "user" ? (
+ <div className="max-w-[92%] bg-ui-accent-soft border border-ui-accent rounded-xl px-3 py-2 text-sm text-ui-fg whitespace-pre-wrap break-words">
+ {m.content}
+ {m.files?.length ? <div className="mt-1 text-[11px] text-ui-accent-ink">{m.files.map((f) => f.name).join(", ")}</div> : null}
+ </div>
+ ) : (
+ <AiMarkdown content={m.content} filesBase={filesBase} className="prose ui-prose prose-sm max-w-none text-ui-fg2 bg-ui-card border border-ui-line rounded-xl px-3 py-2 break-words" />
+ )}
+ <div className="text-[10px] text-ui-muted mt-0.5">{m.role === "user" ? (m.author || "vous") : "copilote"} · {when(m.at)}</div>
+ </div>
+ ))}
+ {run && (
+ <div>
+ {run.text && <AiMarkdown content={run.text} filesBase={filesBase} className="prose ui-prose prose-sm max-w-none text-ui-fg2 bg-ui-card border border-ui-line rounded-xl px-3 py-2 break-words" />}
+ <AiActivity state={run.stopping ? { ...run.activity, phase: "starting" } : run.activity} startedAt={run.startedAt} className={run.text ? "mt-2" : undefined} />
+ </div>
+ )}
+ {foreignJob && (
+ <div className="text-xs text-amber-300 bg-amber-950/30 border border-amber-900/50 rounded-lg px-3 py-2 flex items-center gap-2">
+ <Loader2 className="w-3.5 h-3.5 animate-spin" /> Un autre consultant a une réponse en cours sur ce design. Le fil se mettra à jour à la fin.
+ </div>
+ )}
+ <div ref={threadEnd} />
+ </div>
 
-          <form onSubmit={send} className="border-t border-gray-800 p-3 space-y-2 shrink-0" onDrop={(e) => { e.preventDefault(); void addFiles(e.dataTransfer.files); }} onDragOver={(e) => e.preventDefault()}>
-            {(pending.files.length > 0 || uploading) && (
-              <div className="flex flex-wrap gap-1.5">
-                {pending.files.map((f) => (
-                  <span key={f.path} className="inline-flex items-center gap-1 text-[11px] bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-gray-300">
-                    {f.name} <span className="text-gray-500">{fmtBytes(f.bytes)}</span>
-                    <button type="button" onClick={() => setPending((p) => ({ images: p.images, files: p.files.filter((x) => x.path !== f.path) }))} className="text-gray-500 hover:text-white"><X className="w-3 h-3" /></button>
-                  </span>
-                ))}
-                {uploading && <span className="inline-flex items-center gap-1 text-[11px] text-gray-400"><Loader2 className="w-3 h-3 animate-spin" /> {uploading}</span>}
-              </div>
-            )}
-            <textarea
-              className={`${FIELD} resize-none h-20`}
+ <form onSubmit={send} className="border-t border-ui-line p-3 space-y-2 shrink-0" onDrop={(e) => { e.preventDefault(); void addFiles(e.dataTransfer.files); }} onDragOver={(e) => e.preventDefault()}>
+ {(pending.files.length > 0 || uploading) && (
+ <div className="flex flex-wrap gap-1.5">
+ {pending.files.map((f) => (
+ <span key={f.path} className="inline-flex items-center gap-1 text-[11px] bg-ui-raised border border-ui-line-strong rounded px-1.5 py-0.5 text-ui-fg2">
+ {f.name} <span className="text-ui-muted">{fmtBytes(f.bytes)}</span>
+ <button type="button" onClick={() => setPending((p) => ({ images: p.images, files: p.files.filter((x) => x.path !== f.path) }))} className="text-ui-muted hover:text-ui-fg"><X className="w-3 h-3" /></button>
+ </span>
+ ))}
+ {uploading && <span className="inline-flex items-center gap-1 text-[11px] text-ui-fg2"><Loader2 className="w-3 h-3 animate-spin" /> {uploading}</span>}
+ </div>
+ )}
+ <textarea
+ className={`${FIELD} resize-none h-20`}
               placeholder={foreignJob ? "Réponse en cours par un autre consultant…" : "Décrivez le visuel à créer ou la retouche à faire…"}
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -429,7 +429,7 @@ export function DesignPage({ id, ask }: { id: string; ask?: string }) {
             />
             <div className="flex items-center gap-2">
               <input ref={fileInput} type="file" multiple accept={DESIGN_FILES_ACCEPT} className="hidden" onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-              <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !!uploading} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700`} title="Déposer un logo, une photo, un SVG…">
+              <button type="button" onClick={() => fileInput.current?.click()} disabled={busy || !!uploading} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg border border-ui-line-strong`} title="Déposer un logo, une photo, un SVG…">
                 <Paperclip className="w-3.5 h-3.5" />
               </button>
               <ModelPicker prefs={prefs} onChange={updatePrefs} disabled={busy} idPrefix="design-copilot" />

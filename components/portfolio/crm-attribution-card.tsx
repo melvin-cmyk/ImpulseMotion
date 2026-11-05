@@ -38,7 +38,7 @@ export function CrmAttributionCard({
   return (
     <Section
       title="Attribution HubSpot"
-      icon={<Link2 className="w-4 h-4 text-violet-400" />}
+      icon={<Link2 className="w-4 h-4 text-ui-accent-ink" />}
       className={className}
       tone={error ? "critical" : crm?.partial ? "warning" : "default"}
       action={
@@ -50,7 +50,7 @@ export function CrmAttributionCard({
               type="button"
               onClick={onRefresh}
               disabled={busy}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-800 bg-gray-900 text-xs text-gray-300 hover:text-white hover:border-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-ui-line bg-ui-card text-xs text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong disabled:opacity-50 disabled:cursor-not-allowed"
               title="Recharger depuis HubSpot (ignore le cache)"
             >
               {refreshing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
@@ -70,9 +70,9 @@ export function CrmAttributionCard({
               <div className="space-y-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <CrmLevelBadge level={0} withTitle />
-                  <span className="text-sm text-gray-400">Aucun contact sur la période</span>
+                  <span className="text-sm text-ui-fg2">Aucun contact sur la période</span>
                 </div>
-                <p className="text-xs text-gray-500">Aucun contact HubSpot n&apos;a été créé sur la période sélectionnée : élargissez la plage de dates ou vérifiez que le formulaire du site alimente bien ce portail.</p>
+                <p className="text-xs text-ui-muted">Aucun contact HubSpot n&apos;a été créé sur la période sélectionnée : élargissez la plage de dates ou vérifiez que le formulaire du site alimente bien ce portail.</p>
                 {crm.diagnostic.recommendations.length > 0 && <CrmDiagnosticBlock diagnostic={crm.diagnostic} />}
               </div>
             ) : (
@@ -80,21 +80,21 @@ export function CrmAttributionCard({
                 <CrmDiagnosticBlock diagnostic={crm.diagnostic} />
                 {crm.bySource.length > 0 && (
                   <div>
-                    <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Par source d&apos;origine</div>
-                    <div className="rounded-xl border border-gray-800 overflow-hidden">
+                    <div className="text-[11px] font-medium text-ui-fg2 mb-1.5">Par source d&apos;origine</div>
+                    <div className="rounded-xl border border-ui-line overflow-hidden">
                       <CrmSourceTable rows={crm.bySource} currency={cur} />
                     </div>
                   </div>
                 )}
                 <div>
-                  <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
+                  <div className="text-[11px] font-medium text-ui-fg2 mb-1.5">
                     Top campagnes (utm_campaign){crm.byCampaign.length > TOP_CAMPAIGNS ? ` · ${TOP_CAMPAIGNS} sur ${crm.byCampaign.length}` : ""}
                   </div>
-                  <div className="rounded-xl border border-gray-800 overflow-hidden">
+                  <div className="rounded-xl border border-ui-line overflow-hidden">
                     <CrmCampaignTable rows={crm.byCampaign} currency={cur} limit={TOP_CAMPAIGNS} />
                   </div>
                 </div>
-                <p className="text-[11px] text-gray-600">
+                <p className="text-[11px] text-ui-muted">
                   CPL = dépense pub de la source / campagne ÷ contacts créés · ROAS réel = montant des deals gagnés ÷ dépense pub (à comparer au ROAS plateforme, basé sur les conversions déclarées).
                 </p>
               </>

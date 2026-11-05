@@ -45,10 +45,10 @@ const STATUS: Record<SlackStatus, { label: string; tone: "emerald" | "amber" | "
   unknown: { label: "État Slack inconnu", tone: "amber", help: "La liste des canaux Slack n'a pas pu être lue." },
 };
 
-const selectCls = "px-2.5 py-1.5 rounded-lg text-xs bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
-const btnCls = "px-3 py-1.5 rounded-lg text-xs font-medium bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
-const primaryBtnCls = "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-40";
-const ghostBtnCls = "px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 transition-colors disabled:opacity-40";
+const selectCls = "px-2.5 py-1.5 rounded-lg text-xs bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
+const btnCls = "px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+const primaryBtnCls = "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors disabled:opacity-40";
+const ghostBtnCls = "px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-card hover:bg-ui-raised text-ui-fg2 border border-ui-line transition-colors disabled:opacity-40";
 
 const since = (iso: string) => {
   const h = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 3_600_000));
@@ -101,7 +101,7 @@ export default function AutoAlertsPage() {
   }, [load]);
 
   if (error) return <p className="text-sm text-red-400">{error}</p>;
-  if (!data) return <p className="text-sm text-gray-500">Chargement…</p>;
+  if (!data) return <p className="text-sm text-ui-muted">Chargement…</p>;
 
   const plain = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const q = plain(query.trim());
@@ -176,11 +176,11 @@ export default function AutoAlertsPage() {
               })}>Tout appliquer</button>
             </div>
           }
-          bodyClassName="divide-y divide-gray-800"
+          bodyClassName="divide-y divide-ui-line"
         >
           {suggestions.map((s) => (
             <div key={s.clientId} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
-              <span className="text-white">{s.client} <span className="text-gray-500">→</span> <span className="text-violet-300">#{s.channel.name}</span></span>
+              <span className="text-ui-fg">{s.client} <span className="text-ui-muted">→</span> <span className="text-ui-accent-ink">#{s.channel.name}</span></span>
               <span className="flex items-center gap-2">
                 <Pill tone={s.by === "nom identique" ? "emerald" : "amber"}>{s.by}</Pill>
                 {s.channel.isPrivate && !s.channel.isMember && <Pill tone="red">bot à inviter</Pill>}
@@ -195,15 +195,15 @@ export default function AutoAlertsPage() {
       )}
 
       {scan && (
-        <Section title="Résultat de la vérification" action={<button className={ghostBtnCls} onClick={() => setScan(null)}>Fermer</button>} bodyClassName="divide-y divide-gray-800">
-          {scan.filter((r) => r.findings.length || r.errors.length).length === 0 && <p className="px-4 py-3 text-sm text-gray-400">Rien à signaler sur les comptes vérifiés.</p>}
+        <Section title="Résultat de la vérification" action={<button className={ghostBtnCls} onClick={() => setScan(null)}>Fermer</button>} bodyClassName="divide-y divide-ui-line">
+          {scan.filter((r) => r.findings.length || r.errors.length).length === 0 && <p className="px-4 py-3 text-sm text-ui-fg2">Rien à signaler sur les comptes vérifiés.</p>}
           {scan.filter((r) => r.findings.length || r.errors.length).map((r) => (
             <div key={r.clientId} className="px-4 py-3 space-y-1">
-              <p className="text-sm font-medium text-white">{r.name} {r.sent && <Pill tone="emerald">envoyé dans Slack</Pill>}</p>
+              <p className="text-sm font-medium text-ui-fg">{r.name} {r.sent && <Pill tone="emerald">envoyé dans Slack</Pill>}</p>
               {r.findings.map((f, i) => (
-                <p key={i} className="text-xs text-gray-300"><Pill tone={f.severity === "critical" ? "red" : "amber"}>{f.title}</Pill> <span className="ml-1">{f.detail}</span></p>
+                <p key={i} className="text-xs text-ui-fg2"><Pill tone={f.severity === "critical" ? "red" : "amber"}>{f.title}</Pill> <span className="ml-1">{f.detail}</span></p>
               ))}
-              {r.errors.map((e, i) => <p key={i} className="text-xs text-gray-500">Lecture incomplète : {e}</p>)}
+              {r.errors.map((e, i) => <p key={i} className="text-xs text-ui-muted">Lecture incomplète : {e}</p>)}
             </div>
           ))}
         </Section>
@@ -214,18 +214,18 @@ export default function AutoAlertsPage() {
         action={
           <div className="flex items-center gap-3">
             {dormantCount > 0 && (
-              <label className="flex items-center gap-1.5 text-xs text-gray-400">
-                <input type="checkbox" className="accent-violet-500" checked={hideDormant} onChange={(e) => setHideDormant(e.target.checked)} />
+              <label className="flex items-center gap-1.5 text-xs text-ui-fg2">
+                <input type="checkbox" className="accent-ui-accent" checked={hideDormant} onChange={(e) => setHideDormant(e.target.checked)} />
                 Masquer les {dormantCount} sans dépense
               </label>
             )}
             <input className={`${selectCls} w-48`} type="search" placeholder="Chercher un client, un compte" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Chercher un client" />
           </div>
         }
-        bodyClassName="divide-y divide-gray-800"
+        bodyClassName="divide-y divide-ui-line"
       >
-        {data.clients.length === 0 && <p className="px-4 py-3 text-sm text-gray-400">Aucun compte publicitaire lu. Cliquez sur « Actualiser les comptes ».</p>}
-        {data.clients.length > 0 && shown.length === 0 && <p className="px-4 py-3 text-sm text-gray-400">Aucun client ne correspond.</p>}
+        {data.clients.length === 0 && <p className="px-4 py-3 text-sm text-ui-fg2">Aucun compte publicitaire lu. Cliquez sur « Actualiser les comptes ».</p>}
+        {data.clients.length > 0 && shown.length === 0 && <p className="px-4 py-3 text-sm text-ui-fg2">Aucun client ne correspond.</p>}
         {shown.map((c) => {
           const st = STATUS[c.slackStatus];
           const isOpen = open === c.clientId;
@@ -238,8 +238,8 @@ export default function AutoAlertsPage() {
             <div key={c.clientId} className={c.enabled ? "" : "opacity-60"}>
               <div className="px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
                 <button className="text-left min-w-0 flex-1" onClick={() => setOpen(isOpen ? null : c.clientId)}>
-                  <span className="text-sm font-medium text-white">{c.name}</span>
-                  <span className="ml-2 text-[11px] text-gray-500">
+                  <span className="text-sm font-medium text-ui-fg">{c.name}</span>
+                  <span className="ml-2 text-[11px] text-ui-muted">
                     {[c.meta && "Meta", c.google && "Google", c.tiktok && "TikTok"].filter(Boolean).join(" · ")}
                     {c.accounts.length > 1 && ` · ${c.accounts.length} comptes`}
                   </span>
@@ -273,42 +273,42 @@ export default function AutoAlertsPage() {
 
               {c.slackStatus === "absent" && (
                 <p className="px-4 pb-3 -mt-1 text-xs text-red-300">
-                  Canal privé : dans Slack, ouvrez {c.slackChannel ?? "le canal"} et tapez <code className="text-white">/invite @BotAds</code>, puis cliquez sur « Vérifier ».
+                  Canal privé : dans Slack, ouvrez {c.slackChannel ?? "le canal"} et tapez <code className="text-ui-fg">/invite @BotAds</code>, puis cliquez sur « Vérifier ».
                 </p>
               )}
 
               {isOpen && (
                 <div className="px-4 pb-4 grid gap-4 md:grid-cols-2">
                   <div className="md:col-span-2 space-y-1">
-                    <p className="text-xs text-gray-400">Compte{c.accounts.length > 1 ? "s" : ""} surveillé{c.accounts.length > 1 ? "s" : ""}</p>
+                    <p className="text-xs text-ui-fg2">Compte{c.accounts.length > 1 ? "s" : ""} surveillé{c.accounts.length > 1 ? "s" : ""}</p>
                     {c.accounts.map((a) => (
-                      <p key={`${a.platform}:${a.accountId}`} className="text-xs text-gray-300">
-                        {a.platform === "meta" ? "Meta Ads" : a.platform === "google" ? "Google Ads" : "TikTok Ads"} · {a.name} <span className="text-gray-600">{a.accountId}</span>
+                      <p key={`${a.platform}:${a.accountId}`} className="text-xs text-ui-fg2">
+                        {a.platform === "meta" ? "Meta Ads" : a.platform === "google" ? "Google Ads" : "TikTok Ads"} · {a.name} <span className="text-ui-muted">{a.accountId}</span>
                       </p>
                     ))}
                   </div>
                   <div className="space-y-2">
-                    <p className="text-xs text-gray-400">Sujets surveillés</p>
+                    <p className="text-xs text-ui-fg2">Sujets surveillés</p>
                     {data.topics.map((t) => (
-                      <label key={t.id} className="flex items-start gap-2 text-sm text-gray-200">
-                        <input type="checkbox" className="mt-1 accent-violet-500" checked={c.config.topics[t.id] !== false} disabled={!!busy}
+                      <label key={t.id} className="flex items-start gap-2 text-sm text-ui-fg">
+                        <input type="checkbox" className="mt-1 accent-ui-accent" checked={c.config.topics[t.id] !== false} disabled={!!busy}
                           onChange={(e) => setConfig(c, { topics: { ...c.config.topics, [t.id]: e.target.checked } })} />
-                        <span>{t.label}<span className="block text-[11px] text-gray-500">{t.hint}</span></span>
+                        <span>{t.label}<span className="block text-[11px] text-ui-muted">{t.hint}</span></span>
                       </label>
                     ))}
                   </div>
                   <div className="space-y-3">
-                    <label className="block text-xs text-gray-400">Récurrence
+                    <label className="block text-xs text-ui-fg2">Récurrence
                       <select className={`${selectCls} mt-1 w-full`} value={c.config.frequency} disabled={!!busy} onChange={(e) => setConfig(c, { frequency: e.target.value })}>
                         {data.frequencies.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
                       </select>
                     </label>
-                    <label className="flex items-center gap-2 text-sm text-gray-200">
-                      <input type="checkbox" className="accent-violet-500" checked={c.config.weekdaysOnly} disabled={!!busy} onChange={(e) => setConfig(c, { weekdaysOnly: e.target.checked })} />
+                    <label className="flex items-center gap-2 text-sm text-ui-fg">
+                      <input type="checkbox" className="accent-ui-accent" checked={c.config.weekdaysOnly} disabled={!!busy} onChange={(e) => setConfig(c, { weekdaysOnly: e.target.checked })} />
                       Du lundi au vendredi seulement
                     </label>
-                    <label className="flex items-center gap-2 text-sm text-gray-200">
-                      <input type="checkbox" className="accent-violet-500" checked={c.enabled} disabled={!!busy}
+                    <label className="flex items-center gap-2 text-sm text-ui-fg">
+                      <input type="checkbox" className="accent-ui-accent" checked={c.enabled} disabled={!!busy}
                         onChange={(e) => act(`enabled:${c.clientId}`, async () => { await call("PATCH", { clientId: c.clientId, autoAlerts: e.target.checked }); })} />
                       Surveillance active pour ce client
                     </label>
@@ -322,12 +322,12 @@ export default function AutoAlertsPage() {
                   </div>
                   {c.incidents.length > 0 && (
                     <div className="md:col-span-2 space-y-1.5">
-                      <p className="text-xs text-gray-400">Points en cours</p>
+                      <p className="text-xs text-ui-fg2">Points en cours</p>
                       {c.incidents.map((i) => (
-                        <p key={i.id} className="text-xs text-gray-300">
+                        <p key={i.id} className="text-xs text-ui-fg2">
                           <Pill tone={i.severity === "critical" ? "red" : "amber"}>{i.title}</Pill>
                           <span className="ml-1">{i.detail}</span>
-                          <span className="ml-1 text-gray-500">({since(i.firstSeenAt)}{i.notifiedAt ? ", envoyé dans Slack" : i.notifyError ? `, envoi échoué : ${i.notifyError}` : ", non envoyé"})</span>
+                          <span className="ml-1 text-ui-muted">({since(i.firstSeenAt)}{i.notifiedAt ? ", envoyé dans Slack" : i.notifyError ? `, envoi échoué : ${i.notifyError}` : ", non envoyé"})</span>
                         </p>
                       ))}
                     </div>

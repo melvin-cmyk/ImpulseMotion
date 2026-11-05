@@ -417,125 +417,125 @@ export function StaffCopilotPanel({
 
   const filesBase = `/api/staff-dashboards/${encodeURIComponent(dashboardId)}/assistant/files`;
 
-  function renderMessage(m: ChatMessage, i: number) {
-    if (m.role === "user") {
-      return (
-        <div key={i} className="ml-8 bg-violet-950/50 border border-violet-900/40 rounded-xl px-3 py-2 text-sm text-gray-200 whitespace-pre-wrap">
-          <MessageAttachments images={m.images} files={m.files} />
-          {m.content.replace(NOTES_RE, "").replace(FILES_NOTE_RE, "")}
-        </div>
-      );
-    }
-    const clean = stripProposalBlocks(m.content);
-    const mine = Object.values(proposals).filter((p) => p.key.startsWith(`${i}-`)).sort((a, b) => Number(a.key.split("-")[1]) - Number(b.key.split("-")[1]));
-    const pendingKeys = mine.filter((p) => p.status === "pending").map((p) => p.key);
-    return (
-      <div key={i} className="mr-4 space-y-2">
-        {clean && (
-          <AiMarkdown content={clean} filesBase={filesBase} className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2" />
-        )}
-        {mine.map((p) => (
-          <div key={p.key} className={`bg-gray-900 border rounded-xl px-3 py-2 ${p.status === "invalid" ? "border-amber-800/60" : "border-violet-800/50"}`}>
-            <div className="text-xs font-semibold text-violet-300">{proposalLabel(p.proposal)}</div>
-            <details className="mt-1">
-              <summary className="cursor-pointer text-[11px] text-gray-500 hover:text-gray-300">Détail</summary>
-              <pre className="text-[10px] text-gray-400 mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all">{proposalPreview(p.proposal)}</pre>
-            </details>
-            {p.status === "invalid" ? (
-              <div className="text-[11px] mt-1 text-amber-400">Proposition inapplicable : {p.error} — reformulez votre demande.</div>
-            ) : p.status === "pending" || p.status === "applying" ? (
-              <div className="flex gap-2 mt-2">
-                <button type="button" disabled={p.status === "applying"} onClick={() => void apply(p)} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50">
-                  {p.status === "applying" ? "Application…" : "Appliquer"}
-                </button>
-                <button type="button" disabled={p.status === "applying"} onClick={() => refuse(p)} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-50">
-                  Refuser
-                </button>
-              </div>
-            ) : (
-              <div className={`flex flex-wrap items-center gap-2 text-[11px] mt-1 ${p.status === "applied" ? "text-emerald-400" : p.status === "failed" ? "text-red-400" : "text-gray-500"}`}>
+ function renderMessage(m: ChatMessage, i: number) {
+ if (m.role === "user") {
+ return (
+ <div key={i} className="ml-8 bg-ui-accent-soft border border-ui-accent rounded-xl px-3 py-2 text-sm text-ui-fg whitespace-pre-wrap">
+ <MessageAttachments images={m.images} files={m.files} />
+ {m.content.replace(NOTES_RE, "").replace(FILES_NOTE_RE, "")}
+ </div>
+ );
+ }
+ const clean = stripProposalBlocks(m.content);
+ const mine = Object.values(proposals).filter((p) => p.key.startsWith(`${i}-`)).sort((a, b) => Number(a.key.split("-")[1]) - Number(b.key.split("-")[1]));
+ const pendingKeys = mine.filter((p) => p.status === "pending").map((p) => p.key);
+ return (
+ <div key={i} className="mr-4 space-y-2">
+ {clean && (
+ <AiMarkdown content={clean} filesBase={filesBase} className="prose ui-prose prose-sm max-w-none text-ui-fg2 bg-ui-card border border-ui-line rounded-xl px-3 py-2" />
+ )}
+ {mine.map((p) => (
+ <div key={p.key} className={`bg-ui-card border rounded-xl px-3 py-2 ${p.status === "invalid" ? "border-amber-800/60" : "border-ui-accent"}`}>
+ <div className="text-xs font-medium text-ui-accent-ink">{proposalLabel(p.proposal)}</div>
+ <details className="mt-1">
+ <summary className="cursor-pointer text-[11px] text-ui-muted hover:text-ui-fg2">Détail</summary>
+ <pre className="text-[10px] text-ui-fg2 mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all">{proposalPreview(p.proposal)}</pre>
+ </details>
+ {p.status === "invalid" ? (
+ <div className="text-[11px] mt-1 text-amber-400">Proposition inapplicable : {p.error} — reformulez votre demande.</div>
+ ) : p.status === "pending" || p.status === "applying" ? (
+ <div className="flex gap-2 mt-2">
+ <button type="button" disabled={p.status === "applying"} onClick={() => void apply(p)} className="px-2.5 py-1 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50">
+ {p.status === "applying" ? "Application…" : "Appliquer"}
+ </button>
+ <button type="button" disabled={p.status === "applying"} onClick={() => refuse(p)} className="px-2.5 py-1 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg2 disabled:opacity-50">
+ Refuser
+ </button>
+ </div>
+ ) : (
+ <div className={`flex flex-wrap items-center gap-2 text-[11px] mt-1 ${p.status === "applied" ? "text-emerald-400" : p.status === "failed" ? "text-red-400" : "text-ui-muted"}`}>
                 <span>{p.status === "applied" ? "✓ Appliqué — la page a été rechargée" : p.status === "failed" ? `Échec : ${p.error}` : "Refusé"}</span>
-                {p.status === "applied" && p.undoVersionId && (
-                  <button type="button" disabled={busy || !!restoring} onClick={() => void restore(p.undoVersionId!, "la version d'avant cette modification")} className="underline decoration-dotted text-gray-400 hover:text-white disabled:opacity-50">
-                    {restoring === p.undoVersionId ? "Retour…" : "Annuler"}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-        {pendingKeys.length > 1 && (
-          <button type="button" onClick={() => void applyMany(pendingKeys)} className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-700 hover:bg-violet-600 text-white">
-            Tout appliquer ({pendingKeys.length}) dans l&apos;ordre
-          </button>
-        )}
-      </div>
-    );
-  }
+ {p.status === "applied" && p.undoVersionId && (
+ <button type="button" disabled={busy || !!restoring} onClick={() => void restore(p.undoVersionId!, "la version d'avant cette modification")} className="underline decoration-dotted text-ui-fg2 hover:text-ui-on-accent disabled:opacity-50">
+ {restoring === p.undoVersionId ? "Retour…" : "Annuler"}
+ </button>
+ )}
+ </div>
+ )}
+ </div>
+ ))}
+ {pendingKeys.length > 1 && (
+ <button type="button" onClick={() => void applyMany(pendingKeys)} className="px-2.5 py-1 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent">
+ Tout appliquer ({pendingKeys.length}) dans l&apos;ordre
+ </button>
+ )}
+ </div>
+ );
+ }
 
-  return (
-    <aside className={`fixed right-0 ${flush ? "top-0" : "top-12"} bottom-0 w-full sm:w-[440px] bg-gray-950 border-l border-gray-800 flex flex-col z-40 shadow-2xl`}>
-      <div className="px-4 py-3 border-b border-gray-800 space-y-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-white">Copilote IA</h2>
-            <p className="text-[11px] text-gray-500">{autoApply ? "Construit et modifie la page directement — chaque version est gardée, Annuler revient en arrière" : "Propose des modifications que vous appliquez ou refusez"}</p>
-          </div>
-          <button type="button" onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
-        </div>
-        <ModelPicker prefs={prefs} onChange={updatePrefs} disabled={busy} idPrefix="staff-copilot" />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-          <label className="inline-flex items-center gap-1.5 text-gray-400 cursor-pointer select-none">
-            <input type="checkbox" checked={autoApply} onChange={(e) => updateAutoApply(e.target.checked)} className="accent-violet-500" />
-            Appliquer automatiquement
-          </label>
-          <button type="button" onClick={() => { const next = !showHistory; setShowHistory(next); if (next && versions === null) void loadVersions(); }} aria-pressed={showHistory} className="text-gray-400 hover:text-white underline decoration-dotted">
-            Historique des versions
-          </button>
-        </div>
-        {showHistory && (
-          <div className="max-h-48 overflow-y-auto bg-gray-900 border border-gray-800 rounded-lg divide-y divide-gray-800">
-            {versions === null && <p className="px-3 py-2 text-[11px] text-gray-500">Chargement…</p>}
-            {versions !== null && versions.length === 0 && <p className="px-3 py-2 text-[11px] text-gray-500">Aucune version pour l&apos;instant : la première modification en créera une.</p>}
-            {(versions ?? []).map((v) => (
-              <div key={v.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-[11px] text-gray-300 truncate" title={v.label ?? undefined}>{versionWhen(v.createdAt)} · {v.origin === "copilot" ? "copilote" : v.origin === "restore" ? "avant retour" : "éditeur"}</div>
-                  <div className="text-[10px] text-gray-500 truncate">{v.label ?? "—"} · {v.datasetCount} source{v.datasetCount > 1 ? "s" : ""}, {v.htmlChars.toLocaleString("fr-FR")} car.</div>
-                </div>
-                <button type="button" disabled={busy || !!restoring} onClick={() => void restore(v.id, `la version du ${versionWhen(v.createdAt)}`)} className="shrink-0 px-2 py-0.5 rounded text-[11px] font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 disabled:opacity-50">
-                  {restoring === v.id ? "Retour…" : "Revenir"}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+ return (
+ <aside className={`fixed right-0 ${flush ? "top-0" : "top-14"} bottom-0 w-full sm:w-[440px] bg-ui-bg border-l border-ui-line flex flex-col z-40 shadow-2xl`}>
+ <div className="px-4 py-3 border-b border-ui-line space-y-2">
+ <div className="flex items-center justify-between">
+ <div>
+ <h2 className="text-sm font-medium text-ui-fg">Copilote IA</h2>
+ <p className="text-[11px] text-ui-muted">{autoApply ? "Construit et modifie la page directement — chaque version est gardée, Annuler revient en arrière" : "Propose des modifications que vous appliquez ou refusez"}</p>
+ </div>
+ <button type="button" onClick={onClose} className="text-ui-muted hover:text-ui-fg text-sm">✕</button>
+ </div>
+ <ModelPicker prefs={prefs} onChange={updatePrefs} disabled={busy} idPrefix="staff-copilot" />
+ <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+ <label className="inline-flex items-center gap-1.5 text-ui-fg2 cursor-pointer select-none">
+ <input type="checkbox" checked={autoApply} onChange={(e) => updateAutoApply(e.target.checked)} className="accent-ui-accent" />
+ Appliquer automatiquement
+ </label>
+ <button type="button" onClick={() => { const next = !showHistory; setShowHistory(next); if (next && versions === null) void loadVersions(); }} aria-pressed={showHistory} className="text-ui-fg2 hover:text-ui-fg underline decoration-dotted">
+ Historique des versions
+ </button>
+ </div>
+ {showHistory && (
+ <div className="max-h-48 overflow-y-auto bg-ui-card border border-ui-line rounded-lg divide-y divide-ui-line">
+ {versions === null && <p className="px-3 py-2 text-[11px] text-ui-muted">Chargement…</p>}
+ {versions !== null && versions.length === 0 && <p className="px-3 py-2 text-[11px] text-ui-muted">Aucune version pour l&apos;instant : la première modification en créera une.</p>}
+ {(versions ?? []).map((v) => (
+ <div key={v.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
+ <div className="min-w-0">
+ <div className="text-[11px] text-ui-fg2 truncate" title={v.label ?? undefined}>{versionWhen(v.createdAt)} · {v.origin === "copilot" ? "copilote" : v.origin === "restore" ? "avant retour" : "éditeur"}</div>
+ <div className="text-[10px] text-ui-muted truncate">{v.label ?? "—"} · {v.datasetCount} source{v.datasetCount > 1 ? "s" : ""}, {v.htmlChars.toLocaleString("fr-FR")} car.</div>
+ </div>
+ <button type="button" disabled={busy || !!restoring} onClick={() => void restore(v.id, `la version du ${versionWhen(v.createdAt)}`)} className="shrink-0 px-2 py-0.5 rounded text-[11px] font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg disabled:opacity-50">
+ {restoring === v.id ? "Retour…" : "Revenir"}
+ </button>
+ </div>
+ ))}
+ </div>
+ )}
+ </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        <StaleBuildBanner />
-        {messages.length === 0 && !streamText && (
-          <div className="text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 space-y-1.5">
-            <p>
-              Exemples : « Ajoute un tableau des 10 campagnes les plus dépensières », « Passe les montants en euros », « Ajoute une source Meta sur le compte act_… et une courbe de dépense par jour », « Construis une page de pacing budget pour ce client ».
-            </p>
-            <p>
-              L&apos;IA lit la page et les sources, teste les requêtes sur les vrais comptes, puis construit ou modifie la page directement, comme un artefact : chaque version est gardée et « Annuler » revient en arrière. Joignez une capture d&apos;écran d&apos;un dashboard à reproduire avec le trombone.
-              Un Google Sheet comme source ? Partagez-le avec <span className="text-gray-300">{sheetsShareEmail}</span> puis donnez le lien et l&apos;onglet.
-            </p>
-            {driveFolderUrl && (
-              <p>
-                Fichiers de l&apos;équipe (CSV, Excel, Sheets) : déposez-les dans le{" "}
-                <a href={driveFolderUrl} target="_blank" rel="noreferrer" className="text-violet-300 underline decoration-dotted hover:text-white">dossier Drive des dashboards</a>
-                {" "}puis dites à l&apos;IA lequel utiliser : elle le lit, et le convertit en Google Sheet pour en faire une source de la page.
-              </p>
-            )}
-          </div>
-        )}
-        {messages.map(renderMessage)}
-        {streamText !== null && (
-          <div className="mr-4 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-300 whitespace-pre-wrap break-words">
-            {streamText.length > 4000 ? `${streamText.slice(0, 1500)}\n\n… [rédaction en cours : ${streamText.length.toLocaleString("fr-FR")} caractères]` : streamText}
+ <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+ <StaleBuildBanner />
+ {messages.length === 0 && !streamText && (
+ <div className="text-xs text-ui-muted bg-ui-card border border-ui-line rounded-xl px-3 py-3 space-y-1.5">
+ <p>
+ Exemples : « Ajoute un tableau des 10 campagnes les plus dépensières », « Passe les montants en euros », « Ajoute une source Meta sur le compte act_… et une courbe de dépense par jour », « Construis une page de pacing budget pour ce client ».
+ </p>
+ <p>
+ L&apos;IA lit la page et les sources, teste les requêtes sur les vrais comptes, puis construit ou modifie la page directement, comme un artefact : chaque version est gardée et « Annuler » revient en arrière. Joignez une capture d&apos;écran d&apos;un dashboard à reproduire avec le trombone.
+ Un Google Sheet comme source ? Partagez-le avec <span className="text-ui-fg2">{sheetsShareEmail}</span> puis donnez le lien et l&apos;onglet.
+ </p>
+ {driveFolderUrl && (
+ <p>
+ Fichiers de l&apos;équipe (CSV, Excel, Sheets) : déposez-les dans le{" "}
+ <a href={driveFolderUrl} target="_blank" rel="noreferrer" className="text-ui-accent-ink underline decoration-dotted hover:text-ui-fg">dossier Drive des dashboards</a>
+ {" "}puis dites à l&apos;IA lequel utiliser : elle le lit, et le convertit en Google Sheet pour en faire une source de la page.
+ </p>
+ )}
+ </div>
+ )}
+ {messages.map(renderMessage)}
+ {streamText !== null && (
+ <div className="mr-4 bg-ui-card border border-ui-line rounded-xl px-3 py-2 text-sm text-ui-fg2 whitespace-pre-wrap break-words">
+ {streamText.length > 4000 ? `${streamText.slice(0, 1500)}\n\n… [rédaction en cours : ${streamText.length.toLocaleString("fr-FR")} caractères]` : streamText}
             <AiActivity state={activity} startedAt={startedAt} round={round} className={streamText ? "mt-2" : undefined} />
           </div>
         )}
@@ -548,7 +548,7 @@ export function StaffCopilotPanel({
         <div ref={bottomRef} />
       </div>
 
-      <form onSubmit={(e) => { e.preventDefault(); void send(); }} onDragOver={att.onDragOver} onDrop={att.onDrop} className="p-3 border-t border-gray-800 space-y-2">
+      <form onSubmit={(e) => { e.preventDefault(); void send(); }} onDragOver={att.onDragOver} onDrop={att.onDrop} className="p-3 border-t border-ui-line space-y-2">
         <PendingAttachments att={att} />
         {att.error && <div className="text-[11px] text-amber-400">{att.error}</div>}
         <div className="flex gap-2">
@@ -561,9 +561,9 @@ export function StaffCopilotPanel({
             placeholder={att.hasPending ? "Que faire de ces fichiers ?" : "Décrivez la modification ou la page à construire…"}
             disabled={busy}
             rows={2}
-            className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-white focus:border-violet-500 focus:outline-none disabled:opacity-60 resize-y"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm bg-ui-card border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none disabled:opacity-60 resize-y"
           />
-          <button type="submit" disabled={busy || att.busy || (!input.trim() && !att.hasPending)} className="px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50 self-end">
+          <button type="submit" disabled={busy || att.busy || (!input.trim() && !att.hasPending)} className="px-3 py-2 rounded-lg text-sm font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50 self-end">
             {busy ? "…" : "Envoyer"}
           </button>
         </div>

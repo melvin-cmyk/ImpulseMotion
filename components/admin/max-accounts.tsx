@@ -80,10 +80,10 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
 
   return (
     <section className="space-y-2">
-      <h2 className="text-base font-semibold text-white">Pool de comptes Claude Max</h2>
-      <p className="text-xs text-gray-500">
+      <h2 className="text-base font-medium text-ui-fg">Pool de comptes Claude Max</h2>
+      <p className="text-xs text-ui-muted">
         Les chats staff partent sur le compte choisi par le consultant tant qu&apos;il a de la marge, sinon sur le compte le moins utilisé. Ils ne passent jamais sur Amazon Bedrock, réservé aux bots clients : quand tous les comptes sont saturés, le consultant est prévenu de l'heure où le premier se libère.
-        Pour ajouter un compte : sur un Mac connecté à cet abonnement, lancer <code className="text-gray-300">claude setup-token</code> et coller le jeton ci-dessous. Il est vérifié auprès d&apos;Anthropic puis stocké chiffré sur le serveur du relay, jamais réaffiché.
+        Pour ajouter un compte : sur un Mac connecté à cet abonnement, lancer <code className="text-ui-fg2">claude setup-token</code> et coller le jeton ci-dessous. Il est vérifié auprès d&apos;Anthropic puis stocké chiffré sur le serveur du relay, jamais réaffiché.
       </p>
       {error && <Card padded><p className="text-sm text-red-400">{error}</p></Card>}
       {notice && <Card padded><p className="text-sm text-emerald-300">{notice}</p></Card>}
@@ -95,30 +95,30 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
             <Card key={a.id} padded>
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="text-sm font-semibold text-white">{a.label}</div>
+                  <div className="text-sm font-medium text-ui-fg">{a.label}</div>
                   <div className={`text-[11px] mt-0.5 ${a.fallbackActive ? "text-amber-300" : "text-emerald-300"}`}>{a.fallbackActive ? "saturé — hors rotation" : "disponible"}</div>
                 </div>
                 {a.id !== "host" && canManage && (
-                  <button type="button" onClick={() => remove(a.id, a.label)} disabled={busy} className="text-[11px] text-gray-500 hover:text-red-400 disabled:opacity-50">Retirer</button>
+                  <button type="button" onClick={() => remove(a.id, a.label)} disabled={busy} className="text-[11px] text-ui-muted hover:text-red-400 disabled:opacity-50">Retirer</button>
                 )}
               </div>
               {a.usageVisible === false ? (
-                <div className="mt-3 text-[11px] text-gray-500">
+                <div className="mt-3 text-[11px] text-ui-muted">
                   Utilisation non visible pour ce type de jeton : le compte est retiré de la rotation quand Claude signale son quota, jusqu&apos;à la fenêtre suivante.
                 </div>
               ) : (
               <div className="mt-3 space-y-2">
                 <div>
-                  <div className="flex justify-between text-[11px] text-gray-500"><span>5 heures</span><span className="tabular-nums text-gray-300">{p5} %</span></div>
-                  <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden mt-1"><div className={`h-full ${tone(p5)}`} style={{ width: `${p5}%` }} /></div>
+                  <div className="flex justify-between text-[11px] text-ui-muted"><span>5 heures</span><span className="tabular-nums text-ui-fg2">{p5} %</span></div>
+                  <div className="h-1.5 rounded-full bg-ui-raised overflow-hidden mt-1"><div className={`h-full ${tone(p5)}`} style={{ width: `${p5}%` }} /></div>
                 </div>
                 <div>
-                  <div className="flex justify-between text-[11px] text-gray-500"><span>7 jours</span><span className="tabular-nums text-gray-300">{p7} %</span></div>
-                  <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden mt-1"><div className={`h-full ${tone(p7)}`} style={{ width: `${p7}%` }} /></div>
+                  <div className="flex justify-between text-[11px] text-ui-muted"><span>7 jours</span><span className="tabular-nums text-ui-fg2">{p7} %</span></div>
+                  <div className="h-1.5 rounded-full bg-ui-raised overflow-hidden mt-1"><div className={`h-full ${tone(p7)}`} style={{ width: `${p7}%` }} /></div>
                 </div>
               </div>
               )}
-              <div className="text-[11px] text-gray-600 mt-2">
+              <div className="text-[11px] text-ui-muted mt-2">
                 {a.error ? `erreur : ${a.error}` : a.checkedAt ? `vérifié à ${new Date(a.checkedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "pas encore vérifié"}
               </div>
             </Card>
@@ -126,15 +126,15 @@ export function MaxAccountsPanel({ warnPct, switchPct }: { warnPct: number; swit
         })}
       </div>
       {canManage && <form onSubmit={add} className="flex flex-wrap items-end gap-2">
-        <label className="text-xs text-gray-400 flex flex-col gap-1">
+        <label className="text-xs text-ui-fg2 flex flex-col gap-1">
           Libellé
-          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Max Sung-Min" maxLength={60} className="px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-white focus:border-violet-500 focus:outline-none w-48" />
+          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Max Sung-Min" maxLength={60} className="px-3 py-2 rounded-lg text-sm bg-ui-card border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none w-48" />
         </label>
-        <label className="text-xs text-gray-400 flex flex-col gap-1 flex-1 min-w-[260px]">
+        <label className="text-xs text-ui-fg2 flex flex-col gap-1 flex-1 min-w-[260px]">
           Jeton claude setup-token
-          <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="sk-ant-oat01-…" type="password" autoComplete="off" className="px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-white focus:border-violet-500 focus:outline-none font-mono" />
+          <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="sk-ant-oat01-…" type="password" autoComplete="off" className="px-3 py-2 rounded-lg text-sm bg-ui-card border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none font-mono" />
         </label>
-        <button type="submit" disabled={busy || !label.trim() || !token.trim()} className="px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50">
+        <button type="submit" disabled={busy || !label.trim() || !token.trim()} className="px-3 py-2 rounded-lg text-sm font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50">
           {busy ? "Vérification…" : "Ajouter le compte"}
         </button>
       </form>}

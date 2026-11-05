@@ -89,8 +89,8 @@ export default async function DashboardsIndex() {
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-white">Dashboards consultant</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-medium text-ui-fg">Dashboards consultant</h1>
+          <p className="text-sm text-ui-muted mt-1">
             Un dashboard par client. Toute l&apos;équipe les voit ; un client ne voit que ceux qu&apos;un admin lui a ouverts.
           </p>
         </div>
@@ -101,12 +101,12 @@ export default async function DashboardsIndex() {
         {dashboards.map((d) => (
           <div
             key={d.id}
-            className="bg-gray-900 border border-gray-800 hover:border-violet-700 rounded-xl px-5 py-4 transition-colors"
+            className="bg-ui-card border border-ui-line hover:border-ui-accent rounded-xl px-5 py-4 transition-colors"
           >
             <Link href={`/d/${d.id}`} className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-semibold text-white">{d.name}</div>
-                <div className="text-xs text-gray-500 mt-0.5">
+                <div className="text-sm font-medium text-ui-fg">{d.name}</div>
+                <div className="text-xs text-ui-muted mt-0.5">
                   Créé par {d.user.name ?? d.user.email} · {d._count.widgets} widgets
                   {d.metaAccountId ? ` · Meta ${d.metaAccountId}` : ""}
                   {d.googleCustomerId ? ` · Google ${d.googleCustomerId}` : ""}
@@ -114,7 +114,7 @@ export default async function DashboardsIndex() {
                   {d.duplicates > 0 ? ` · ${d.duplicates} doublon${d.duplicates > 1 ? "s" : ""} masqué${d.duplicates > 1 ? "s" : ""}` : ""}
                 </div>
               </div>
-              <span className="text-gray-600 text-sm">→</span>
+              <span className="text-ui-muted text-sm">→</span>
             </Link>
             <DashboardMembersManager
               dashboardId={d.id}
@@ -124,7 +124,7 @@ export default async function DashboardsIndex() {
           </div>
         ))}
         {dashboards.length === 0 && (
-          <div className="text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-5 py-6">
+          <div className="text-sm text-ui-muted bg-ui-card border border-ui-line rounded-xl px-5 py-6">
             {isAdmin
               ? "Aucun dashboard pour l'instant — créez le premier avec « Nouveau dashboard »."
               : "Aucun dashboard ne vous a été attribué — demandez à un admin de vous y rattacher."}

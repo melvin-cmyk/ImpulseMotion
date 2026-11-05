@@ -176,7 +176,7 @@ export function DashFrame({ dashboardId, title, html, datasets, params, onSource
   return (
     <div className="space-y-2">
       {pending > 0 && (
-        <p className="text-xs text-gray-400 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement des données…</p>
+        <p className="text-xs text-ui-fg2 flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement des données…</p>
       )}
       {error && <p className="text-xs text-red-400 break-words">Les données n&apos;ont pas pu être lues ({error}).</p>}
       {origin ? (

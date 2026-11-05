@@ -304,98 +304,98 @@ export function RoutineChat({
 
   function refuse(key: string, proposal: RoutineProposal) {
     pendingNotesRef.current.push(`la proposition « ${proposal.name} » a été refusée par le consultant`);
-    setStatus(key, "refused");
-  }
+ setStatus(key, "refused");
+ }
 
-  function renderProposal(content: string, index: number) {
-    const local = extractRoutineProposal(content);
-    if (local.kind === "none") return null;
-    const key = proposalKey(index);
-    const check = checks[key];
-    const outcome = outcomes[key] ?? {};
-    const draftName = local.kind === "candidate" && typeof local.raw.name === "string" ? local.raw.name : null;
+ function renderProposal(content: string, index: number) {
+ const local = extractRoutineProposal(content);
+ if (local.kind === "none") return null;
+ const key = proposalKey(index);
+ const check = checks[key];
+ const outcome = outcomes[key] ?? {};
+ const draftName = local.kind === "candidate" && typeof local.raw.name === "string" ? local.raw.name : null;
 
-    let state: ProposalState;
-    let errors: string[] | undefined;
-    if (local.kind === "malformed") { state = "invalid"; errors = local.errors; }
-    else if (!check) state = verifying ? "checking" : "unverified";
-    else if (!check.ok) { state = "invalid"; errors = check.errors; }
-    else if (outcome.applying) state = "applying";
-    else {
-      const stored = statuses[key];
-      state = stored === "applied" || stored === "refused" || stored === "failed" ? stored : "pending";
-      if (state === "failed") errors = outcome.errors;
-    }
-    const proposal = check?.ok && local.kind === "candidate" ? check.proposal : null;
-    // An archived routine keeps its cards, without any way to act.
-    if (readOnly && (state === "pending" || state === "failed")) state = "refused";
+ let state: ProposalState;
+ let errors: string[] | undefined;
+ if (local.kind === "malformed") { state = "invalid"; errors = local.errors; }
+ else if (!check) state = verifying ? "checking" : "unverified";
+ else if (!check.ok) { state = "invalid"; errors = check.errors; }
+ else if (outcome.applying) state = "applying";
+ else {
+ const stored = statuses[key];
+ state = stored === "applied" || stored === "refused" || stored === "failed" ? stored : "pending";
+ if (state === "failed") errors = outcome.errors;
+ }
+ const proposal = check?.ok && local.kind === "candidate" ? check.proposal : null;
+ // An archived routine keeps its cards, without any way to act.
+ if (readOnly && (state === "pending" || state === "failed")) state = "refused";
 
-    return (
-      <ProposalCard
-        state={state}
-        proposal={proposal}
-        draftName={draftName}
-        errors={errors}
-        issues={outcome.issues}
-        notices={check?.ok && (state === "pending" || state === "failed" || state === "applying") ? check.notices : undefined}
-        metaAccountId={metaAccountId}
-        timezone={timezone}
-        onApply={() => { if (proposal) void apply(key, proposal); }}
-        onRefuse={() => { if (proposal) refuse(key, proposal); }}
-        onRecheck={() => { void save(messages, statusesRef.current); }}
-      />
-    );
-  }
+ return (
+ <ProposalCard
+ state={state}
+ proposal={proposal}
+ draftName={draftName}
+ errors={errors}
+ issues={outcome.issues}
+ notices={check?.ok && (state === "pending" || state === "failed" || state === "applying") ? check.notices : undefined}
+ metaAccountId={metaAccountId}
+ timezone={timezone}
+ onApply={() => { if (proposal) void apply(key, proposal); }}
+ onRefuse={() => { if (proposal) refuse(key, proposal); }}
+ onRecheck={() => { void save(messages, statusesRef.current); }}
+ />
+ );
+ }
 
-  function renderMessage(m: ChatMessage, i: number) {
-    if (m.role === "user") {
-      if (m.content === AUTO_CONTINUE_PROMPT) return null;
-      return (
-        <div key={i} className="ml-6 sm:ml-16 bg-violet-950/50 border border-violet-900/40 rounded-xl px-3 py-2 text-sm text-gray-200 whitespace-pre-wrap break-words">
-          {m.content.replace(NOTES_RE, "")}
-        </div>
-      );
-    }
-    const clean = stripRoutineBlocks(m.content);
-    return (
-      <div key={i} className="sm:mr-10 space-y-2">
-        {clean && (
-          <AiMarkdown content={clean} filesBase={null} className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-950/60 border border-gray-800 rounded-xl px-3 py-2 break-words" />
-        )}
-        {renderProposal(m.content, i)}
-      </div>
-    );
-  }
+ function renderMessage(m: ChatMessage, i: number) {
+ if (m.role === "user") {
+ if (m.content === AUTO_CONTINUE_PROMPT) return null;
+ return (
+ <div key={i} className="ml-6 sm:ml-16 bg-ui-accent-soft border border-ui-accent rounded-xl px-3 py-2 text-sm text-ui-fg whitespace-pre-wrap break-words">
+ {m.content.replace(NOTES_RE, "")}
+ </div>
+ );
+ }
+ const clean = stripRoutineBlocks(m.content);
+ return (
+ <div key={i} className="sm:mr-10 space-y-2">
+ {clean && (
+ <AiMarkdown content={clean} filesBase={null} className="prose ui-prose prose-sm max-w-none text-ui-fg2 bg-ui-bg border border-ui-line rounded-xl px-3 py-2 break-words" />
+ )}
+ {renderProposal(m.content, i)}
+ </div>
+ );
+ }
 
-  const writing = streamText !== null && /```routine\b/i.test(streamText);
+ const writing = streamText !== null && /```routine\b/i.test(streamText);
 
   return (
-    <section className="bg-gray-900 border border-gray-800 rounded-2xl flex flex-col min-w-0 min-h-[420px] max-h-[75vh]">
-      <header className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
-        <Bot className="w-4 h-4 text-violet-400 shrink-0" />
+    <section className="bg-ui-card border border-ui-line rounded-xl flex flex-col min-w-0 min-h-[420px] max-h-[75vh]">
+      <header className="px-4 py-3 border-b border-ui-line flex items-center gap-2">
+        <Bot className="w-4 h-4 text-ui-accent-ink shrink-0" />
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-white">Créer la routine avec l&apos;IA</h2>
-          <p className="text-[11px] text-gray-500">Décrivez ce que vous voulez. L&apos;IA propose, vous appliquez : rien n&apos;est enregistré sans votre clic.</p>
+          <h2 className="text-sm font-medium text-ui-fg">Créer la routine avec l&apos;IA</h2>
+          <p className="text-[11px] text-ui-muted">Décrivez ce que vous voulez. L&apos;IA propose, vous appliquez : rien n&apos;est enregistré sans votre clic.</p>
         </div>
       </header>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-3 space-y-3">
-        {!loaded && <div className="text-xs text-gray-500">Chargement de la conversation…</div>}
+        {!loaded && <div className="text-xs text-ui-muted">Chargement de la conversation…</div>}
         {loadError && (
           <div className="text-xs text-red-400">La conversation n&apos;a pas pu être chargée ({loadError}). Rechargez la page avant d&apos;écrire : un nouveau message remplacerait l&apos;ancienne conversation.</div>
         )}
         {loaded && !loadError && messages.length === 0 && streamText === null && (
-          <div className="text-xs text-gray-400 bg-gray-950/50 border border-gray-800 rounded-xl px-3 py-3 space-y-1.5">
+          <div className="text-xs text-ui-fg2 bg-ui-bg border border-ui-line rounded-xl px-3 py-3 space-y-1.5">
             <p>Dites ce que la routine doit faire, quand, et où va le résultat. L&apos;IA pose ses questions une par une, vérifie ce qu&apos;elle peut (en-tête du Sheet, campagne, ensemble de publicités), puis propose la routine.</p>
-            <p>Un Google Sheet ? Partagez-le en Éditeur avec <span className="text-gray-200 font-mono">{ROUTINE_SHEETS_SHARE_EMAIL}</span>, puis collez son lien avec le nom de l&apos;onglet.</p>
-            <p className="text-gray-500">Première version : publicités Meta créées en pause dans un ensemble existant, média par adresse https publique, message Slack dans un canal.</p>
+            <p>Un Google Sheet ? Partagez-le en Éditeur avec <span className="text-ui-fg font-mono">{ROUTINE_SHEETS_SHARE_EMAIL}</span>, puis collez son lien avec le nom de l&apos;onglet.</p>
+            <p className="text-ui-muted">Première version : publicités Meta créées en pause dans un ensemble existant, média par adresse https publique, message Slack dans un canal.</p>
           </div>
         )}
         {messages.map(renderMessage)}
         {streamText !== null && (
-          <div className="sm:mr-10 bg-gray-950/60 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-300 whitespace-pre-wrap break-words">
+          <div className="sm:mr-10 bg-ui-bg border border-ui-line rounded-xl px-3 py-2 text-sm text-ui-fg2 whitespace-pre-wrap break-words">
             {stripRoutineBlocks(streamText)}
-            {writing && <div className="text-xs text-violet-300 mt-2">Rédaction de la proposition de routine…</div>}
+            {writing && <div className="text-xs text-ui-accent-ink mt-2">Rédaction de la proposition de routine…</div>}
             <AiActivity state={activity} startedAt={startedAt} round={round} className={streamText ? "mt-2" : undefined} />
           </div>
         )}
@@ -419,9 +419,9 @@ export function RoutineChat({
       </div>
 
       {readOnly ? (
-        <div className="p-3 border-t border-gray-800 text-xs text-gray-500">Routine archivée : la conversation est en lecture seule.</div>
+        <div className="p-3 border-t border-ui-line text-xs text-ui-muted">Routine archivée : la conversation est en lecture seule.</div>
       ) : (
-        <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="p-3 border-t border-gray-800 flex items-end gap-2">
+        <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="p-3 border-t border-ui-line flex items-end gap-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -430,12 +430,12 @@ export function RoutineChat({
             placeholder="Ex. : tous les lundis à 9 h, envoie dans #client le top 5 des campagnes…"
             disabled={busy || !loaded || !!loadError}
             aria-label="Message à l'IA"
-            className="flex-1 min-w-0 resize-none px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white placeholder:text-gray-600 focus:border-violet-500 focus:outline-none disabled:opacity-60"
+            className="flex-1 min-w-0 resize-none px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg placeholder:text-ui-muted focus:border-ui-accent focus:outline-none disabled:opacity-60"
           />
           <button
             type="submit"
             disabled={busy || !loaded || !!loadError || !input.trim()}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50"
           >
             <Send className="w-4 h-4" />
             <span className="hidden sm:inline">{busy ? "En cours…" : "Envoyer"}</span>

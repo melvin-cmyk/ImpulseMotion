@@ -64,26 +64,26 @@ export function LaunchFunnel({ rows, goal, onGoal, stage, onStage, launchedSince
     { id: "opportunities", icon: Flag, count: opportunities, title: "Opportunités", sub: "itérations suggérées" },
   ];
   return (
-    <div className="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-gray-800 text-xs">
-        <span className="text-gray-500">Objectif</span>
-        <select value={goal.metric} onChange={(e) => onGoal({ ...goal, metric: e.target.value as FunnelGoal["metric"] })} className="rounded-md border border-gray-800 bg-gray-950 px-1.5 py-1 text-gray-200">
+    <div className="rounded-xl border border-ui-line bg-ui-card overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-ui-line text-xs">
+        <span className="text-ui-muted">Objectif</span>
+        <select value={goal.metric} onChange={(e) => onGoal({ ...goal, metric: e.target.value as FunnelGoal["metric"] })} className="rounded-md border border-ui-line bg-ui-bg px-1.5 py-1 text-ui-fg">
           <option value="cpa">CPA ≤</option>
           <option value="roas">ROAS ≥</option>
         </select>
-        <input type="number" min={0} step="0.1" value={goal.value} onChange={(e) => onGoal({ ...goal, value: Number(e.target.value) || 0 })} className="w-20 rounded-md border border-gray-800 bg-gray-950 px-1.5 py-1 text-gray-200 tabular-nums" />
-        <span className="text-gray-500 ml-2">Scalée à partir de</span>
-        <input type="number" min={0} step="10" value={goal.spend} onChange={(e) => onGoal({ ...goal, spend: Number(e.target.value) || 0 })} className="w-24 rounded-md border border-gray-800 bg-gray-950 px-1.5 py-1 text-gray-200 tabular-nums" />
-        <span className="text-gray-500">{currency ?? "€"} dépensés</span>
-        <span className="ml-auto text-gray-600">Taux de réussite : {launched ? Math.round((winners / launched) * 100) : 0} %</span>
+        <input type="number" min={0} step="0.1" value={goal.value} onChange={(e) => onGoal({ ...goal, value: Number(e.target.value) || 0 })} className="w-20 rounded-md border border-ui-line bg-ui-bg px-1.5 py-1 text-ui-fg tabular-nums" />
+        <span className="text-ui-muted ml-2">Scalée à partir de</span>
+        <input type="number" min={0} step="10" value={goal.spend} onChange={(e) => onGoal({ ...goal, spend: Number(e.target.value) || 0 })} className="w-24 rounded-md border border-ui-line bg-ui-bg px-1.5 py-1 text-ui-fg tabular-nums" />
+        <span className="text-ui-muted">{currency ?? "€"} dépensés</span>
+        <span className="ml-auto text-ui-muted">Taux de réussite : {launched ? Math.round((winners / launched) * 100) : 0} %</span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4">
         {tabs.map((t) => (
-          <button key={t.id} type="button" onClick={() => onStage(t.id)} className={`flex items-center gap-3 px-4 py-3 text-left border-b-2 ${stage === t.id ? "border-violet-500 bg-gray-900" : "border-transparent bg-gray-950/40 hover:bg-gray-900"}`}>
-            <span className={`w-8 h-8 rounded-full flex items-center justify-center ${stage === t.id ? "bg-violet-500/20 text-violet-200" : "bg-gray-800 text-gray-400"}`}><t.icon className="w-4 h-4" /></span>
+          <button key={t.id} type="button" onClick={() => onStage(t.id)} className={`flex items-center gap-3 px-4 py-3 text-left border-b-2 ${stage === t.id ? "border-ui-accent bg-ui-card" : "border-transparent bg-ui-bg hover:bg-ui-raised"}`}>
+            <span className={`w-8 h-8 rounded-full flex items-center justify-center ${stage === t.id ? "bg-ui-accent-soft text-ui-accent-ink" : "bg-ui-raised text-ui-fg2"}`}><t.icon className="w-4 h-4" /></span>
             <span>
-              <span className="block text-sm text-white"><span className="font-semibold tabular-nums">{t.count}</span> {t.title}</span>
-              <span className="block text-xs text-gray-500">{t.sub}</span>
+              <span className="block text-sm text-ui-fg"><span className="font-medium tabular-nums">{t.count}</span> {t.title}</span>
+              <span className="block text-xs text-ui-muted">{t.sub}</span>
             </span>
           </button>
         ))}

@@ -107,23 +107,23 @@ export function DesignList() {
       <Card padded>
         <form onSubmit={create} className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_1fr_auto] items-end">
           <label className="block">
-            <span className="block text-xs text-gray-400 mb-1">Nom du design</span>
+            <span className="block text-xs text-ui-fg2 mb-1">Nom du design</span>
             <input className={FIELD} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Promo rentrée — bannières Meta" maxLength={120} required />
           </label>
           <label className="block">
-            <span className="block text-xs text-gray-400 mb-1">Éditeur</span>
+            <span className="block text-xs text-ui-fg2 mb-1">Éditeur</span>
             <select className={FIELD} value={kind} onChange={(e) => setKind(e.target.value as DesignKind)} title="Mise en page : FigCraft (type Figma, fichier partagé en direct avec le copilote). Retouche : PhotoCraft (type Photoshop, calques et masques sur vos images).">
               {(Object.keys(DESIGN_KIND_LABEL) as DesignKind[]).map((k) => <option key={k} value={k}>{DESIGN_KIND_LABEL[k]}</option>)}
             </select>
           </label>
           <label className="block">
-            <span className="block text-xs text-gray-400 mb-1">{kind === "photocraft" ? "Planche (sans effet en retouche)" : "Planche de départ"}</span>
+            <span className="block text-xs text-ui-fg2 mb-1">{kind === "photocraft" ? "Planche (sans effet en retouche)" : "Planche de départ"}</span>
             <select className={FIELD} value={preset} onChange={(e) => setPreset(e.target.value as DesignPresetKey)} disabled={kind === "photocraft"}>
               {DESIGN_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
             </select>
           </label>
           <label className="block">
-            <span className="block text-xs text-gray-400 mb-1">Client (facultatif)</span>
+            <span className="block text-xs text-ui-fg2 mb-1">Client (facultatif)</span>
             <select className={FIELD} value={clientId} onChange={(e) => setClientId(e.target.value)}>
               <option value="">— Agence / sans client —</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -137,28 +137,28 @@ export function DesignList() {
       </Card>
 
       {clientParam && (
-        <div className="text-xs text-gray-400 flex items-center gap-2">
+        <div className="text-xs text-ui-fg2 flex items-center gap-2">
           <Users className="w-3.5 h-3.5" /> Designs du client {clients.find((c) => c.id === clientParam)?.name ?? "sélectionné"} ·{" "}
-          <Link href="/design" className="text-violet-400 hover:text-white">tous les designs</Link>
+          <Link href="/design" className="text-ui-accent-ink hover:text-ui-fg">tous les designs</Link>
         </div>
       )}
       {error && <div className="text-sm text-red-300 bg-red-950/40 border border-red-900/60 rounded-lg px-3 py-2">{error}</div>}
 
       {designs === null ? (
-        <div className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
+        <div className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
       ) : designs.length === 0 ? (
-        <Card padded className="text-sm text-gray-400">Aucun design pour l’instant. Créez-en un ci-dessus.</Card>
+        <Card padded className="text-sm text-ui-fg2">Aucun design pour l’instant. Créez-en un ci-dessus.</Card>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {designs.map((d) => (
             <Card key={d.id} padded interactive className="flex flex-col gap-2">
               <Link href={`/design/${d.id}`} className="flex items-start gap-3 group">
-                <div className="w-9 h-9 rounded-lg bg-violet-600/20 border border-violet-800/60 flex items-center justify-center shrink-0">
-                  <PenTool className="w-4 h-4 text-violet-300" />
+                <div className="w-9 h-9 rounded-lg bg-ui-accent-soft border border-ui-accent flex items-center justify-center shrink-0">
+                  <PenTool className="w-4 h-4 text-ui-accent-ink" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold text-white truncate group-hover:text-violet-200">{d.name}</div>
-                  <div className="text-xs text-gray-500 truncate">
+                  <div className="text-sm font-medium text-ui-fg truncate group-hover:text-ui-accent-ink">{d.name}</div>
+                  <div className="text-xs text-ui-muted truncate">
                     {d.ownerName || d.ownerEmail || "—"} · modifié {dateLabel(d.updatedAt)}
                   </div>
                 </div>

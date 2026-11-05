@@ -14,7 +14,7 @@ interface Quotas { teamDailyUsd: number; userDailyUsd: number; teamDailyImages: 
 interface Today { team: { usd: number; images: number }; user: { usd: number; images: number } }
 
 const usd = (v: number) => `${v.toFixed(2).replace(".", ",")} $`;
-const inputCls = "w-28 px-2.5 py-1.5 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
+const inputCls = "w-28 px-2.5 py-1.5 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
 
 export function QuotasPanel({ compact = false }: { compact?: boolean }) {
   const [quotas, setQuotas] = useState<Quotas | null>(null);
@@ -50,33 +50,33 @@ export function QuotasPanel({ compact = false }: { compact?: boolean }) {
   }
 
   const field = (key: keyof Quotas, label: string, hint: string, unit: string) => (
-    <label className="flex flex-col gap-1 text-xs text-gray-400">
-      <span className="text-gray-300">{label}</span>
-      <span className="flex items-center gap-1.5"><input value={draft?.[key] ?? ""} onChange={(e) => setDraft((d) => (d ? { ...d, [key]: e.target.value } : d))} inputMode="decimal" className={inputCls} /> <span className="text-gray-500">{unit}</span></span>
-      <span className="text-[11px] text-gray-500">{hint}</span>
+    <label className="flex flex-col gap-1 text-xs text-ui-fg2">
+      <span className="text-ui-fg2">{label}</span>
+      <span className="flex items-center gap-1.5"><input value={draft?.[key] ?? ""} onChange={(e) => setDraft((d) => (d ? { ...d, [key]: e.target.value } : d))} inputMode="decimal" className={inputCls} /> <span className="text-ui-muted">{unit}</span></span>
+      <span className="text-[11px] text-ui-muted">{hint}</span>
     </label>
   );
 
   const bar = (value: number, cap: number) => {
     const pct = cap > 0 ? Math.min(100, (value / cap) * 100) : 0;
-    const tone = cap > 0 && pct >= (quotas?.warnAtPct ?? 80) ? (pct >= 100 ? "bg-rose-500" : "bg-amber-400") : "bg-violet-500";
-    return <span className="block h-1.5 w-40 rounded-full bg-gray-800 overflow-hidden"><span className={`block h-full ${tone}`} style={{ width: `${cap > 0 ? pct : 0}%` }} /></span>;
+    const tone = cap > 0 && pct >= (quotas?.warnAtPct ?? 80) ? (pct >= 100 ? "bg-rose-500" : "bg-amber-400") : "bg-ui-accent";
+    return <span className="block h-1.5 w-40 rounded-full bg-ui-raised overflow-hidden"><span className={`block h-full ${tone}`} style={{ width: `${cap > 0 ? pct : 0}%` }} /></span>;
   };
 
   return (
-    <Section title="Quotas IA & génération" action={<button type="button" onClick={() => void save()} disabled={saving || !draft} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50">{saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Enregistrer</button>}>
+    <Section title="Quotas IA & génération" action={<button type="button" onClick={() => void save()} disabled={saving || !draft} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50">{saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />} Enregistrer</button>}>
       <div className="p-4 space-y-4">
-        {!compact && <p className="text-xs text-gray-400">Chaque génération d&apos;image ou de vidéo rappelle son prix et ce qui a déjà été dépensé dans la journée (jour de Paris) ; au-delà d&apos;un plafond, la génération est refusée jusqu&apos;au lendemain. 0 = pas de plafond.</p>}
+        {!compact && <p className="text-xs text-ui-fg2">Chaque génération d&apos;image ou de vidéo rappelle son prix et ce qui a déjà été dépensé dans la journée (jour de Paris) ; au-delà d&apos;un plafond, la génération est refusée jusqu&apos;au lendemain. 0 = pas de plafond.</p>}
         {today && quotas && (
           <div className="grid gap-3 sm:grid-cols-2 text-xs">
-            <div className="rounded-lg border border-gray-800 bg-gray-950/50 px-3 py-2 space-y-1">
-              <div className="text-gray-400">Équipe aujourd&apos;hui</div>
-              <div className="text-white text-sm">{usd(today.team.usd)}{quotas.teamDailyUsd > 0 ? ` / ${usd(quotas.teamDailyUsd)}` : ""} · {today.team.images} image{today.team.images > 1 ? "s" : ""}{quotas.teamDailyImages > 0 ? ` / ${quotas.teamDailyImages}` : ""}</div>
+            <div className="rounded-lg border border-ui-line bg-ui-bg px-3 py-2 space-y-1">
+              <div className="text-ui-fg2">Équipe aujourd&apos;hui</div>
+              <div className="text-ui-fg text-sm">{usd(today.team.usd)}{quotas.teamDailyUsd > 0 ? ` / ${usd(quotas.teamDailyUsd)}` : ""} · {today.team.images} image{today.team.images > 1 ? "s" : ""}{quotas.teamDailyImages > 0 ? ` / ${quotas.teamDailyImages}` : ""}</div>
               {bar(today.team.usd, quotas.teamDailyUsd)}
             </div>
-            <div className="rounded-lg border border-gray-800 bg-gray-950/50 px-3 py-2 space-y-1">
-              <div className="text-gray-400">Toi aujourd&apos;hui</div>
-              <div className="text-white text-sm">{usd(today.user.usd)}{quotas.userDailyUsd > 0 ? ` / ${usd(quotas.userDailyUsd)}` : ""} · {today.user.images} image{today.user.images > 1 ? "s" : ""}</div>
+            <div className="rounded-lg border border-ui-line bg-ui-bg px-3 py-2 space-y-1">
+              <div className="text-ui-fg2">Toi aujourd&apos;hui</div>
+              <div className="text-ui-fg text-sm">{usd(today.user.usd)}{quotas.userDailyUsd > 0 ? ` / ${usd(quotas.userDailyUsd)}` : ""} · {today.user.images} image{today.user.images > 1 ? "s" : ""}</div>
               {bar(today.user.usd, quotas.userDailyUsd)}
             </div>
           </div>
@@ -89,7 +89,7 @@ export function QuotasPanel({ compact = false }: { compact?: boolean }) {
             {field("botDailyMessages", "Messages par jour et par bot client", "Valeur par défaut ; chaque bot peut avoir la sienne (fiche du bot). 0 = illimité.", "messages / jour")}
             {field("warnAtPct", "Avertir à partir de", "Le rappel de prix passe en orange à ce pourcentage du plafond.", "% du plafond")}
           </div>
-        ) : <p className="text-xs text-gray-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement…</p>}
+        ) : <p className="text-xs text-ui-muted flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement…</p>}
         {msg && <p className={`text-xs ${msg.tone === "ok" ? "text-emerald-300" : "text-rose-300"}`}>{msg.text}</p>}
       </div>
     </Section>

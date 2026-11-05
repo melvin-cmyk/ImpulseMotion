@@ -223,40 +223,40 @@ export function MoDock() {
   return (
     <div className="fixed bottom-5 right-[11.5rem] z-40 flex flex-col items-end gap-2 print:hidden pointer-events-none">
       {hint && !bubble && !status && (
-        <div className="pointer-events-auto max-w-[18rem] rounded-xl border border-violet-400/30 bg-[#0d0a1a]/95 backdrop-blur px-3 py-2 text-[12px] text-gray-200 shadow-xl">
+        <div className="pointer-events-auto max-w-[18rem] rounded-xl border border-ui-accent bg-ui-bg/95 backdrop-blur px-3 py-2 text-[12px] text-ui-fg shadow-xl">
           <div className="flex items-start gap-2">
-            <AudioLines className="w-4 h-4 text-violet-300 shrink-0 mt-0.5" />
-            <div>Je suis Mo. Maintiens l&apos;orbe ou <kbd className="px-1 rounded border border-white/15 bg-white/5 text-[10px]">Alt+M</kbd> et parle : « ouvre le cockpit de Naturalia », « CPA de LPEV cette semaine »…</div>
-            <button type="button" onClick={dismissHint} className="text-gray-500 hover:text-white" aria-label="Fermer"><X className="w-3.5 h-3.5" /></button>
+            <AudioLines className="w-4 h-4 text-ui-accent-ink shrink-0 mt-0.5" />
+            <div>Je suis Mo. Maintiens l&apos;orbe ou <kbd className="px-1 rounded border border-ui-line bg-ui-raised text-[10px]">Alt+M</kbd> et parle : « ouvre le cockpit de Naturalia », « CPA de LPEV cette semaine »…</div>
+            <button type="button" onClick={dismissHint} className="text-ui-muted hover:text-ui-fg" aria-label="Fermer"><X className="w-3.5 h-3.5" /></button>
           </div>
         </div>
       )}
       {(bubble || status || voice.error) && (
-        <div className={`pointer-events-auto w-[min(90vw,22rem)] rounded-2xl border bg-[#0d0a1a]/95 backdrop-blur-xl shadow-2xl px-3.5 py-2.5 text-[13px] text-gray-100 space-y-1 ${bubble?.error || voice.error ? "border-rose-400/40" : "border-violet-400/25"}`}>
-          {bubble?.you && !listening && <div className="text-gray-400 line-clamp-2"><span className="text-gray-600">Toi ·</span> {bubble.you}</div>}
+        <div className={`pointer-events-auto w-[min(90vw,22rem)] rounded-xl border bg-ui-bg/95 backdrop-blur-xl shadow-2xl px-3.5 py-2.5 text-[13px] text-ui-fg space-y-1 ${bubble?.error || voice.error ? "border-rose-400/40" : "border-ui-accent"}`}>
+          {bubble?.you && !listening && <div className="text-ui-fg2 line-clamp-2"><span className="text-ui-muted">Toi ·</span> {bubble.you}</div>}
           {status ? (
-            <div className="flex items-center gap-2 text-violet-100">{(run || voice.transcribing) && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}<span className="truncate">{status}{run ? "…" : ""}</span></div>
+            <div className="flex items-center gap-2 text-ui-accent-ink">{(run || voice.transcribing) && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}<span className="truncate">{status}{run ? "…" : ""}</span></div>
           ) : bubble?.mo ? (
-            <div className="leading-snug flex items-start gap-2"><span>{voice.speaking ? <Volume2 className="w-3.5 h-3.5 text-violet-300 inline" /> : <span className="text-violet-300">Mo ·</span>} {bubble.mo}</span>{voice.speaking && <button type="button" onClick={() => voice.hush()} className="ml-auto text-[11px] text-gray-400 hover:text-white shrink-0">stop</button>}</div>
+            <div className="leading-snug flex items-start gap-2"><span>{voice.speaking ? <Volume2 className="w-3.5 h-3.5 text-ui-accent-ink inline" /> : <span className="text-ui-accent-ink">Mo ·</span>} {bubble.mo}</span>{voice.speaking && <button type="button" onClick={() => voice.hush()} className="ml-auto text-[11px] text-ui-fg2 hover:text-ui-fg shrink-0">stop</button>}</div>
           ) : null}
           {bubble?.chips && !status && (
             <div className="flex flex-wrap gap-1.5 pt-1">
-              {bubble.chips.map((c) => <button key={c.label} type="button" onClick={() => void send(c.text)} className="rounded-full border border-violet-400/40 bg-violet-500/15 px-2.5 py-0.5 text-[12px] text-violet-100 hover:bg-violet-500/30">{c.label}</button>)}
+              {bubble.chips.map((c) => <button key={c.label} type="button" onClick={() => void send(c.text)} className="rounded-full border border-ui-accent bg-ui-accent-soft px-2.5 py-0.5 text-[12px] text-ui-accent-ink hover:bg-ui-accent-soft">{c.label}</button>)}
             </div>
           )}
-          {bubble?.cards ? <Link href="/mo" className="inline-flex items-center gap-1 text-[12px] text-violet-300 hover:text-white"><AudioLines className="w-3.5 h-3.5" /> {bubble.cards} carte{bubble.cards > 1 ? "s" : ""} · voir sur mon espace →</Link> : null}
+          {bubble?.cards ? <Link href="/mo" className="inline-flex items-center gap-1 text-[12px] text-ui-accent-ink hover:text-ui-fg"><AudioLines className="w-3.5 h-3.5" /> {bubble.cards} carte{bubble.cards > 1 ? "s" : ""} · voir sur mon espace →</Link> : null}
           {(bubble?.error || voice.error) && (
             <div className="flex items-center gap-2 text-[12px] text-rose-300">
               <span className="flex-1">{bubble?.error ?? voice.error}</span>
-              {bubble?.retry && <button type="button" onClick={() => void send(bubble.retry!)} className="inline-flex items-center gap-1 text-gray-300 hover:text-white"><RotateCcw className="w-3 h-3" /> réessayer</button>}
+              {bubble?.retry && <button type="button" onClick={() => void send(bubble.retry!)} className="inline-flex items-center gap-1 text-ui-fg2 hover:text-ui-fg"><RotateCcw className="w-3 h-3" /> réessayer</button>}
             </div>
           )}
-          {(bubble?.cards || bubble?.error || bubble?.chips) ? <button type="button" onClick={() => showBubble(null)} className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gray-800 border border-white/10 text-gray-400 hover:text-white inline-flex items-center justify-center" aria-label="Fermer"><X className="w-3 h-3" /></button> : null}
+          {(bubble?.cards || bubble?.error || bubble?.chips) ? <button type="button" onClick={() => showBubble(null)} className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-ui-raised border border-ui-line text-ui-fg2 hover:text-ui-fg inline-flex items-center justify-center" aria-label="Fermer"><X className="w-3 h-3" /></button> : null}
         </div>
       )}
       <div className="pointer-events-auto flex items-center gap-1.5">
         {run ? (
-          <button type="button" onClick={() => void stopJob(run.jobId).catch(() => undefined)} className="w-11 h-11 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 shadow-[0_0_30px_rgba(139,92,246,0.5)] inline-flex items-center justify-center text-white mo-orb-think" title="Arrêter Mo" aria-label="Arrêter Mo"><Square className="w-4 h-4" /></button>
+          <button type="button" onClick={() => void stopJob(run.jobId).catch(() => undefined)} className="w-11 h-11 rounded-full inline-flex items-center justify-center text-ui-on-accent mo-orb-think bg-ui-accent" title="Arrêter Mo" aria-label="Arrêter Mo"><Square className="w-4 h-4" /></button>
         ) : (
           <button
             type="button"
@@ -264,7 +264,7 @@ export function MoDock() {
             onPointerUp={() => voice.end()}
             onPointerLeave={() => { if (voice.listening) voice.end(); }}
             onContextMenu={(e) => { e.preventDefault(); setHidden(true); }}
-            className={`rounded-full inline-flex items-center justify-center text-white transition-all ${listening ? "w-14 h-14 bg-gradient-to-br from-fuchsia-500 to-violet-600 shadow-[0_0_50px_rgba(217,70,239,0.7)]" : voice.transcribing ? "w-11 h-11 bg-gradient-to-br from-violet-500 to-purple-700 mo-orb-think" : "w-11 h-11 bg-gradient-to-br from-violet-500/90 to-purple-700/90 shadow-[0_0_24px_rgba(139,92,246,0.4)] opacity-80 hover:opacity-100 hover:scale-105"}`}
+            className={`rounded-full inline-flex items-center justify-center text-white transition-colors ${listening ? "w-14 h-14 bg-ui-accent" : voice.transcribing ? "w-11 h-11 mo-orb-think bg-ui-accent" : "w-11 h-11 opacity-80 hover:opacity-100 hover:scale-105 bg-ui-accent"}`}
             style={listening ? { transform: `scale(${1 + voice.level * 0.25})` } : undefined}
             title={voice.supported ? "Mo — maintiens pour parler (ou Alt+M) · clic droit pour masquer" : "Mo — maintiens pour parler (enregistrement, transcription sur le serveur)"}
             aria-label="Parler à Mo"

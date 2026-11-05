@@ -194,7 +194,7 @@ export function CreasPage() {
   }
 
   const tabBtn = (t: Tab, label: string, count?: number) => (
-    <button key={t} type="button" onClick={() => switchTab(t)} data-tab={t} className={`px-3 py-1.5 rounded-lg text-sm border ${tab === t ? "bg-violet-600 border-violet-500 text-white" : "border-gray-800 text-gray-300 hover:text-white"}`}>{label}{typeof count === "number" ? <span className="ml-1.5 text-[11px] opacity-70">{count}</span> : null}</button>
+    <button key={t} type="button" onClick={() => switchTab(t)} data-tab={t} className={`px-3 py-1.5 rounded-lg text-sm border ${tab === t ? "bg-ui-accent border-ui-accent text-ui-on-accent" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>{label}{typeof count === "number" ? <span className="ml-1.5 text-[11px] opacity-70">{count}</span> : null}</button>
   );
 
   return (
@@ -220,8 +220,8 @@ export function CreasPage() {
         {tabBtn("assets", "Éléments de marque", brandAssets.length)}
         {tabBtn("fabrique", "Fabrique")}
         <div className="ml-auto flex items-center gap-2">
-          {quota && <span className="text-[11px] text-gray-500" title="Dépense du jour (jour de Paris) et plafonds posés par les admins">Aujourd&apos;hui : équipe {usd(quota.today.team.usd)}{quota.quotas.teamDailyUsd > 0 ? ` / ${usd(quota.quotas.teamDailyUsd)}` : ""} · toi {usd(quota.today.user.usd)}{quota.quotas.userDailyUsd > 0 ? ` / ${usd(quota.quotas.userDailyUsd)}` : ""}</span>}
-          <button type="button" onClick={() => { if (client) void load(client); loadQuota(); }} className="text-gray-500 hover:text-white" title="Actualiser"><RefreshCw className="w-4 h-4" /></button>
+          {quota && <span className="text-[11px] text-ui-muted" title="Dépense du jour (jour de Paris) et plafonds posés par les admins">Aujourd&apos;hui : équipe {usd(quota.today.team.usd)}{quota.quotas.teamDailyUsd > 0 ? ` / ${usd(quota.quotas.teamDailyUsd)}` : ""} · toi {usd(quota.today.user.usd)}{quota.quotas.userDailyUsd > 0 ? ` / ${usd(quota.quotas.userDailyUsd)}` : ""}</span>}
+          <button type="button" onClick={() => { if (client) void load(client); loadQuota(); }} className="text-ui-muted hover:text-ui-fg" title="Actualiser"><RefreshCw className="w-4 h-4" /></button>
           {tab === "templates" && <button type="button" onClick={() => setStudying(true)} className={BTN} data-playbook-open><BookOpen className="w-4 h-4" /> Étudier une marque</button>}
           {tab === "templates" && <button type="button" onClick={() => setAdding(true)} className={BTN_PRIMARY}><Plus className="w-4 h-4" /> Ajouter un template</button>}
           {tab === "creas" && <button type="button" onClick={() => switchTab("generer")} className={BTN}><Wand2 className="w-4 h-4" /> Générer</button>}
@@ -243,35 +243,35 @@ export function CreasPage() {
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {([["all", "Toutes"], ["todo", "À trier"], ["keep", "Gardées"], ["cut", "Coupées"]] as const).map(([v, l]) => (
-              <button key={v} type="button" onClick={() => setVerdict(v)} className={`px-2.5 py-1 rounded-md border ${verdict === v ? "border-violet-500 text-white" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
+              <button key={v} type="button" onClick={() => setVerdict(v)} className={`px-2.5 py-1 rounded-md border ${verdict === v ? "border-ui-accent text-ui-fg" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>{l}</button>
             ))}
           </div>
-          {assets === null ? <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
+          {assets === null ? <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
           : shownAssets.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-gray-800 p-8 text-center text-sm text-gray-500 space-y-2">
-              <Images className="w-6 h-6 mx-auto text-gray-600" />
+            <div className="rounded-xl border border-dashed border-ui-line p-8 text-center text-sm text-ui-muted space-y-2">
+              <Images className="w-6 h-6 mx-auto text-ui-muted" />
               <p>{assets.length ? "Rien dans ce filtre." : `Aucun visuel généré pour ${client?.name ?? "ce client"} pour l'instant.`}</p>
-              {!assets.length && <p>Commencez par un template (onglet « Templates & concurrents » → « Copier à la marque ») ou par l&apos;onglet <button type="button" onClick={() => switchTab("generer")} className="text-violet-400 hover:text-violet-300">Générer</button>.</p>}
+              {!assets.length && <p>Commencez par un template (onglet « Templates & concurrents » → « Copier à la marque ») ou par l&apos;onglet <button type="button" onClick={() => switchTab("generer")} className="text-ui-accent-ink hover:text-ui-accent-ink">Générer</button>.</p>}
             </div>
           ) : (
             <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {shownAssets.map((a) => (
-                <li key={a.id} className={`group rounded-xl border overflow-hidden bg-gray-950 ${a.feedback === "keep" ? "border-emerald-500/50" : a.feedback === "cut" ? "border-rose-500/40 opacity-70" : "border-gray-800 hover:border-violet-500/60"}`}>
+                <li key={a.id} className={`group rounded-xl border overflow-hidden bg-ui-bg ${a.feedback === "keep" ? "border-emerald-500/50" : a.feedback === "cut" ? "border-rose-500/40 opacity-70" : "border-ui-line hover:border-ui-accent"}`}>
                   <button type="button" onClick={() => setOpenAsset(a)} className="w-full text-left">
-                    <div className="relative bg-gray-900" style={{ aspectRatio: aspect(a.params.ratio) }}>
-                      {a.url ? (a.kind === "video" ? <video src={a.url} className="w-full h-full object-cover" muted loop playsInline onMouseEnter={(e) => void e.currentTarget.play()} onMouseLeave={(e) => e.currentTarget.pause()} /> : <img src={a.url} alt={a.prompt} className="w-full h-full object-cover" loading="lazy" />) : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">{a.status === "failed" ? "Échec" : "En cours…"}</div>}
+                    <div className="relative bg-ui-card" style={{ aspectRatio: aspect(a.params.ratio) }}>
+                      {a.url ? (a.kind === "video" ? <video src={a.url} className="w-full h-full object-cover" muted loop playsInline onMouseEnter={(e) => void e.currentTarget.play()} onMouseLeave={(e) => e.currentTarget.pause()} /> : <img src={a.url} alt={a.prompt} className="w-full h-full object-cover" loading="lazy" />) : <div className="w-full h-full flex items-center justify-center text-xs text-ui-muted">{a.status === "failed" ? "Échec" : "En cours…"}</div>}
                       <span className="absolute top-1.5 left-1.5"><Pill className="text-[10px]">{a.origin === "template" ? templateName(a.templateId) ?? "Template" : ORIGIN_LABEL[a.origin] ?? a.origin}</Pill></span>
                       {a.feedback && <span className={`absolute top-1.5 right-1.5 w-6 h-6 rounded-full inline-flex items-center justify-center ${a.feedback === "keep" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"}`}>{a.feedback === "keep" ? <Check className="w-3.5 h-3.5" /> : <Scissors className="w-3.5 h-3.5" />}</span>}
                     </div>
                     <div className="px-2.5 py-2">
-                      <p className="text-xs text-gray-200 line-clamp-2">{a.prompt}</p>
-                      <p className="text-[10px] text-gray-500">{a.createdByName} · {when(a.createdAt)}{a.costUsd > 0 ? ` · ${usd(a.costUsd)}` : ""}</p>
+                      <p className="text-xs text-ui-fg line-clamp-2">{a.prompt}</p>
+                      <p className="text-[10px] text-ui-muted">{a.createdByName} · {when(a.createdAt)}{a.costUsd > 0 ? ` · ${usd(a.costUsd)}` : ""}</p>
                     </div>
                   </button>
                   <div className="flex items-center gap-1 px-2 pb-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button type="button" onClick={() => void setFeedback(a, a.feedback === "keep" ? null : "keep")} className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[11px] border ${a.feedback === "keep" ? "border-emerald-500 text-emerald-200" : "border-gray-800 text-gray-300 hover:text-white"}`}><Check className="w-3 h-3" /> Garder</button>
-                    <button type="button" onClick={() => void setFeedback(a, a.feedback === "cut" ? null : "cut")} className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[11px] border ${a.feedback === "cut" ? "border-rose-500 text-rose-200" : "border-gray-800 text-gray-300 hover:text-white"}`}><Scissors className="w-3 h-3" /> Couper</button>
-                    {a.kind === "image" && <button type="button" onClick={() => setVarying(a)} className="inline-flex items-center justify-center px-2 py-1 rounded-md text-[11px] border border-gray-800 text-gray-300 hover:text-white" title="Plus comme ça"><Sparkles className="w-3 h-3" /></button>}
+                    <button type="button" onClick={() => void setFeedback(a, a.feedback === "keep" ? null : "keep")} className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[11px] border ${a.feedback === "keep" ? "border-emerald-500 text-emerald-200" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}><Check className="w-3 h-3" /> Garder</button>
+                    <button type="button" onClick={() => void setFeedback(a, a.feedback === "cut" ? null : "cut")} className={`flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[11px] border ${a.feedback === "cut" ? "border-rose-500 text-rose-200" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}><Scissors className="w-3 h-3" /> Couper</button>
+                    {a.kind === "image" && <button type="button" onClick={() => setVarying(a)} className="inline-flex items-center justify-center px-2 py-1 rounded-md text-[11px] border border-ui-line text-ui-fg2 hover:text-ui-fg" title="Plus comme ça"><Sparkles className="w-3 h-3" /></button>}
                   </div>
                 </li>
               ))}
@@ -282,38 +282,38 @@ export function CreasPage() {
 
       {/* ── Templates ─────────────────────────────────────────────────── */}
       {tab === "templates" && (
-        templates === null ? <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
+        templates === null ? <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
         : templates.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-800 p-8 text-center text-sm text-gray-500 space-y-2">
-            <BookmarkPlus className="w-6 h-6 mx-auto text-gray-600" />
+          <div className="rounded-xl border border-dashed border-ui-line p-8 text-center text-sm text-ui-muted space-y-2">
+            <BookmarkPlus className="w-6 h-6 mx-auto text-ui-muted" />
             <p>Pas encore de template pour {client?.name ?? "ce client"}.</p>
-            <p>Ajoutez une pub de concurrent (capture, lien, bibliothèque Meta) ou gardez une gagnante depuis <Link href={`/analyse?client=${client?.id ?? ""}`} className="text-violet-400">Analyse Ads</Link> (« Garder comme template »).</p>
+            <p>Ajoutez une pub de concurrent (capture, lien, bibliothèque Meta) ou gardez une gagnante depuis <Link href={`/analyse?client=${client?.id ?? ""}`} className="text-ui-accent-ink">Analyse Ads</Link> (« Garder comme template »).</p>
             <button type="button" onClick={() => setAdding(true)} className={BTN_PRIMARY}><Plus className="w-4 h-4" /> Ajouter un template</button>
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400" data-template-selection>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-ui-fg2" data-template-selection>
               <span>Cochez des templates pour lancer une fabrique{selected.length ? ` — ${selected.length} sélectionné${selected.length > 1 ? "s" : ""}` : ""}.</span>
-              {selected.length > 0 && <button type="button" onClick={() => setSelected([])} className="hover:text-white">Tout décocher</button>}
+              {selected.length > 0 && <button type="button" onClick={() => setSelected([])} className="hover:text-ui-fg">Tout décocher</button>}
               {selected.length > 0 && <button type="button" onClick={() => { setPreselected(selected); setSelected([]); switchTab("fabrique"); }} className={`${BTN_PRIMARY} ml-auto`} data-factory-launch><Factory className="w-4 h-4" /> Lancer une fabrique ({selected.length})</button>}
             </div>
             <ul className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {templates.map((t) => (
-                <li key={t.id} className={`relative rounded-xl border overflow-hidden bg-gray-950 ${selected.includes(t.id) ? "border-violet-500" : "border-gray-800 hover:border-violet-500/60"}`}>
+                <li key={t.id} className={`relative rounded-xl border overflow-hidden bg-ui-bg ${selected.includes(t.id) ? "border-ui-accent" : "border-ui-line hover:border-ui-accent"}`}>
                   <button type="button" onClick={() => setOpenTemplate(t)} className="w-full text-left">
-                    <div className="relative bg-gray-900 aspect-[4/5]">
-                      {t.image ? <img src={t.image} alt={t.name} className="w-full h-full object-cover" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-xs text-gray-500 px-3 text-center">{t.title ?? "Sans image"}</div>}
+                    <div className="relative bg-ui-card aspect-[4/5]">
+                      {t.image ? <img src={t.image} alt={t.name} className="w-full h-full object-cover" loading="lazy" /> : <div className="w-full h-full flex items-center justify-center text-xs text-ui-muted px-3 text-center">{t.title ?? "Sans image"}</div>}
                       <span className="absolute top-1.5 left-9"><Pill tone={t.source === "competitor" ? "amber" : t.source === "own" ? "emerald" : "default"} className="text-[10px]">{t.source === "competitor" && t.brand ? t.brand : SOURCE_LABEL[t.source]}</Pill></span>
                       {!t.clientId && <span className="absolute top-1.5 right-1.5"><Pill className="text-[10px]">Agence</Pill></span>}
                     </div>
                     <div className="px-2.5 py-2">
-                      <p className="text-xs text-gray-200 line-clamp-2">{t.name}</p>
-                      <p className="text-[10px] text-gray-500">{t.analysis.hook || "—"}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""}` : ""}{t.kept + t.cut ? <> · <span className="text-emerald-300">{t.kept} gardée{t.kept > 1 ? "s" : ""}</span> / <span className="text-rose-300">{t.cut} coupée{t.cut > 1 ? "s" : ""}</span></> : null}</p>
+                      <p className="text-xs text-ui-fg line-clamp-2">{t.name}</p>
+                      <p className="text-[10px] text-ui-muted">{t.analysis.hook || "—"}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""}` : ""}{t.kept + t.cut ? <> · <span className="text-emerald-300">{t.kept} gardée{t.kept > 1 ? "s" : ""}</span> / <span className="text-rose-300">{t.cut} coupée{t.cut > 1 ? "s" : ""}</span></> : null}</p>
                       {t.retiredAt ? <p className="text-[10px] text-amber-300">Écarté des fabriques</p> : shouldSuggestRetire(t) ? <p className="text-[10px] text-amber-300">Très coupé : à écarter ?</p> : null}
                     </div>
                   </button>
                   {t.image && (
-                    <label className={`absolute top-1.5 left-1.5 w-6 h-6 rounded-md inline-flex items-center justify-center cursor-pointer ${selected.includes(t.id) ? "bg-violet-600 text-white" : "bg-black/60 text-gray-300 hover:text-white"}`} title="Sélectionner pour une fabrique">
+                    <label className={`absolute top-1.5 left-1.5 w-6 h-6 rounded-md inline-flex items-center justify-center cursor-pointer ${selected.includes(t.id) ? "bg-ui-accent text-ui-on-accent" : "bg-black/50 text-ui-fg2 hover:text-ui-fg"}`} title="Sélectionner pour une fabrique">
                       <input type="checkbox" className="sr-only" checked={selected.includes(t.id)} onChange={(e) => setSelected((l) => (e.target.checked ? [...l, t.id] : l.filter((x) => x !== t.id)))} data-template-check={t.id} aria-label={`Sélectionner ${t.name}`} />
                       <Check className={`w-3.5 h-3.5 ${selected.includes(t.id) ? "" : "opacity-40"}`} />
                     </label>
@@ -327,7 +327,7 @@ export function CreasPage() {
 
       {/* ── Fabrique ──────────────────────────────────────────────────── */}
       {tab === "fabrique" && client && (
-        templates === null ? <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
+        templates === null ? <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
         : <FactoryTab key={client.id} client={client} templates={templates} engines={engines} quota={quota} initialRunId={runId} preselected={preselected} onPreselectedUsed={() => setPreselected([])}
             onRunUrl={setRunUrl} onNotice={setNotice} onError={setError} onOpenTemplate={(t) => setOpenTemplate(t)} onOpenIn={(editor, src) => void openIn(editor, src)} onVariation={(a) => setVarying(a)}
             onAssetsCreated={(created) => { setAssets((l) => { const list = l ?? []; const ids = new Set(created.map((a) => a.id)); return [...created.filter((a) => !list.some((x) => x.id === a.id)), ...list.map((x) => (ids.has(x.id) ? created.find((a) => a.id === x.id)! : x))]; }); }} onQuotaChanged={loadQuota} />
@@ -336,19 +336,19 @@ export function CreasPage() {
       {/* ── Brand assets ──────────────────────────────────────────────── */}
       {tab === "assets" && client && (
         <div className="space-y-3">
-          <p className="text-xs text-gray-400">Logo, packshots, photos produit : ils sont envoyés en référence lors d&apos;une copie de template pour que le produit reste le vrai.</p>
+          <p className="text-xs text-ui-fg2">Logo, packshots, photos produit : ils sont envoyés en référence lors d&apos;une copie de template pour que le produit reste le vrai.</p>
           <BrandAssetUpload clientId={client.clientId} onCreated={(a) => setBrandAssets((l) => [a, ...l])} />
           {brandAssets.length ? (
             <ul className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-8 gap-3">
               {brandAssets.map((a) => (
-                <li key={a.id} className="group relative rounded-lg border border-gray-800 overflow-hidden bg-gray-900 aspect-square">
+                <li key={a.id} className="group relative rounded-lg border border-ui-line overflow-hidden bg-ui-card aspect-square">
                   {a.url && <img src={a.url} alt={a.prompt} className="w-full h-full object-contain" />}
-                  <span className="absolute bottom-0 inset-x-0 bg-black/60 text-[10px] text-gray-200 px-1.5 py-0.5 truncate">{a.prompt}</span>
-                  <button type="button" onClick={() => void removeAsset(a)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-gray-300 hover:text-white opacity-0 group-hover:opacity-100 inline-flex items-center justify-center" aria-label="Retirer"><X className="w-3 h-3" /></button>
+                  <span className="absolute bottom-0 inset-x-0 bg-black/50 text-[10px] text-ui-fg px-1.5 py-0.5 truncate">{a.prompt}</span>
+                  <button type="button" onClick={() => void removeAsset(a)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/50 text-ui-fg2 hover:text-ui-fg opacity-0 group-hover:opacity-100 inline-flex items-center justify-center" aria-label="Retirer"><X className="w-3 h-3" /></button>
                 </li>
               ))}
             </ul>
-          ) : <p className="text-sm text-gray-500">Aucun élément de marque pour l&apos;instant.</p>}
+          ) : <p className="text-sm text-ui-muted">Aucun élément de marque pour l&apos;instant.</p>}
         </div>
       )}
 
@@ -383,10 +383,10 @@ function Drawer({ title, onClose, children }: { title: React.ReactNode; onClose:
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <aside className="relative w-full max-w-2xl h-full bg-gray-950 border-l border-gray-800 overflow-y-auto">
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-gray-950/95 border-b border-gray-800">
-          <div className="min-w-0 text-sm font-semibold text-white truncate">{title}</div>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-md text-gray-400 hover:text-white hover:bg-gray-800" aria-label="Fermer"><X className="w-4 h-4" /></button>
+      <aside className="relative w-full max-w-2xl h-full bg-ui-bg border-l border-ui-line overflow-y-auto">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 bg-ui-bg border-b border-ui-line">
+          <div className="min-w-0 text-sm font-medium text-ui-fg truncate">{title}</div>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-md text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised" aria-label="Fermer"><X className="w-4 h-4" /></button>
         </div>
         <div className="p-4 space-y-4">{children}</div>
       </aside>
@@ -400,13 +400,13 @@ function AssetDrawer({ asset: a, templateName, onClose, onFeedback, onVariation,
   const p = a.params as { ratio?: string; engine?: string; promptSent?: string; templateName?: string };
   return (
     <Drawer title={<span>{a.clientName || "Sans client"} · {a.origin === "template" ? `depuis « ${templateName ?? p.templateName ?? "template"} »` : ORIGIN_LABEL[a.origin] ?? a.origin}</span>} onClose={onClose}>
-      {a.url ? (a.kind === "video" ? <video src={a.url} controls className="max-h-[52vh] mx-auto rounded-lg" /> : <img src={a.url} alt={a.prompt} className="max-h-[52vh] mx-auto rounded-lg" />) : <p className="text-sm text-gray-400">{a.status === "failed" ? `Échec : ${a.error}` : "En cours de génération…"}</p>}
-      <p className="text-sm text-gray-200 whitespace-pre-wrap">{a.prompt}</p>
-      <p className="text-xs text-gray-500">{a.createdByName} · {when(a.createdAt)} · {a.model}{p.ratio ? ` · ${p.ratio}` : ""}{a.costUsd > 0 ? ` · ${usd(a.costUsd)}` : " · gratuit"}</p>
-      {p.promptSent && <details className="text-xs text-gray-500"><summary className="cursor-pointer hover:text-gray-300">Consigne envoyée au moteur</summary><p className="mt-1 whitespace-pre-wrap">{p.promptSent}</p></details>}
+      {a.url ? (a.kind === "video" ? <video src={a.url} controls className="max-h-[52vh] mx-auto rounded-lg" /> : <img src={a.url} alt={a.prompt} className="max-h-[52vh] mx-auto rounded-lg" />) : <p className="text-sm text-ui-fg2">{a.status === "failed" ? `Échec : ${a.error}` : "En cours de génération…"}</p>}
+      <p className="text-sm text-ui-fg whitespace-pre-wrap">{a.prompt}</p>
+      <p className="text-xs text-ui-muted">{a.createdByName} · {when(a.createdAt)} · {a.model}{p.ratio ? ` · ${p.ratio}` : ""}{a.costUsd > 0 ? ` · ${usd(a.costUsd)}` : " · gratuit"}</p>
+      {p.promptSent && <details className="text-xs text-ui-muted"><summary className="cursor-pointer hover:text-ui-fg2">Consigne envoyée au moteur</summary><p className="mt-1 whitespace-pre-wrap">{p.promptSent}</p></details>}
 
-      <div className="rounded-lg border border-gray-800 p-3 space-y-2">
-        <div className="text-xs text-gray-400">Votre verdict — il nourrit la mémoire HQ du client (ce qui marche, ce qu&apos;on arrête)</div>
+      <div className="rounded-lg border border-ui-line p-3 space-y-2">
+        <div className="text-xs text-ui-fg2">Votre verdict — il nourrit la mémoire HQ du client (ce qui marche, ce qu&apos;on arrête)</div>
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => onFeedback(a.feedback === "keep" ? null : "keep", note)} className={`${BTN} ${a.feedback === "keep" ? "border-emerald-500 text-emerald-200" : ""}`}><Check className="w-4 h-4" /> Garder</button>
           <button type="button" onClick={() => onFeedback(a.feedback === "cut" ? null : "cut", note)} className={`${BTN} ${a.feedback === "cut" ? "border-rose-500 text-rose-200" : ""}`}><Scissors className="w-4 h-4" /> Couper</button>
@@ -434,33 +434,33 @@ function AssetDrawer({ asset: a, templateName, onClose, onFeedback, onVariation,
 function TemplateDrawer({ template: t, onClose, onCopy, onOpenIn, onReanalyse, onRemove, onFactory, onRetire }: { template: Template; onClose: () => void; onCopy: () => void; onOpenIn: (editor: "figcraft" | "photocraft") => void; onReanalyse: () => void; onRemove: () => void; onFactory: () => void; onRetire: (retired: boolean) => void }) {
   const a = t.analysis;
   const [rereading, setRereading] = useState(false);
-  const row = (label: string, value?: string | null) => (value ? <div><div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div><div className="text-sm text-gray-200">{value}</div></div> : null);
+  const row = (label: string, value?: string | null) => (value ? <div><div className="text-[10px] text-ui-muted">{label}</div><div className="text-sm text-ui-fg">{value}</div></div> : null);
   return (
-    <Drawer title={<span>{t.name} <span className="text-gray-500 font-normal">· {t.source === "competitor" && t.brand ? `concurrent ${t.brand}` : SOURCE_LABEL[t.source]}{t.clientName ? ` · ${t.clientName}` : " · agence"}</span></span>} onClose={onClose}>
+    <Drawer title={<span>{t.name} <span className="text-ui-muted font-normal">· {t.source === "competitor" && t.brand ? `concurrent ${t.brand}` : SOURCE_LABEL[t.source]}{t.clientName ? ` · ${t.clientName}` : " · agence"}</span></span>} onClose={onClose}>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={onCopy} className={BTN_PRIMARY} disabled={!t.image} title={t.image ? "Génère des visuels à la marque du client à partir de ce template (références + éléments de marque)" : "Ce template n'a pas d'image"}><Wand2 className="w-4 h-4" /> Copier à la marque</button>
         <button type="button" onClick={onFactory} className={BTN} disabled={!t.image} title="Fabrique de statics : copys écrits par l'IA et validés, puis un lot de visuels"><Factory className="w-4 h-4" /> Lancer une fabrique</button>
         <button type="button" onClick={() => onOpenIn("figcraft")} className={BTN} disabled={!t.image} title="Reconstruit le template en calques modifiables (copilote IA)"><PenTool className="w-4 h-4" /> Modifier dans FigCraft</button>
         <button type="button" onClick={() => onOpenIn("photocraft")} className={BTN} disabled={!t.image} title="Retouche de l'image (copilote IA)"><PenTool className="w-4 h-4" /> Retoucher dans PhotoCraft</button>
       </div>
-      {t.image ? <img src={t.image} alt={t.name} className="max-h-[48vh] mx-auto rounded-lg border border-gray-800" /> : <div className="rounded-lg border border-dashed border-gray-800 p-6 text-center text-xs text-gray-500">Sans image — {t.sourceUrl ? <a href={t.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-violet-300 hover:text-white">voir la pub</a> : "ajoutez une capture pour la copier"}.</div>}
-      {(t.title || t.body) && <div className="space-y-1">{t.title && <p className="text-sm text-white">{t.title}</p>}{t.body && <p className="text-xs text-gray-400 whitespace-pre-wrap">{t.body}</p>}</div>}
+      {t.image ? <img src={t.image} alt={t.name} className="max-h-[48vh] mx-auto rounded-lg border border-ui-line" /> : <div className="rounded-lg border border-dashed border-ui-line p-6 text-center text-xs text-ui-muted">Sans image — {t.sourceUrl ? <a href={t.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-ui-accent-ink hover:text-ui-fg">voir la pub</a> : "ajoutez une capture pour la copier"}.</div>}
+      {(t.title || t.body) && <div className="space-y-1">{t.title && <p className="text-sm text-ui-fg">{t.title}</p>}{t.body && <p className="text-xs text-ui-fg2 whitespace-pre-wrap">{t.body}</p>}</div>}
       <div className="grid gap-3 sm:grid-cols-2">
         {row("Accroche", a.hook)}{row("Style", a.style)}{row("Structure", a.structure)}{row("Appel à l'action", a.cta)}
-        {a.textZones.length ? <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Zones de texte</div><ul className="text-sm text-gray-200 space-y-0.5">{a.textZones.map((z, i) => <li key={i}><span className="text-gray-500">{z.role} :</span> {z.text || "—"}</li>)}</ul></div> : null}
-        {a.palette.length ? <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Palette</div><div className="flex flex-wrap gap-1.5 mt-1">{a.palette.map((c, i) => <span key={i} className="inline-flex items-center gap-1 text-[11px] text-gray-300"><span className="w-3.5 h-3.5 rounded-full border border-white/20" style={{ background: /^#|^rgb|^hsl/.test(c) ? c : undefined }} />{c}</span>)}</div></div> : null}
+        {a.textZones.length ? <div><div className="text-[10px] text-ui-muted">Zones de texte</div><ul className="text-sm text-ui-fg space-y-0.5">{a.textZones.map((z, i) => <li key={i}><span className="text-ui-muted">{z.role} :</span> {z.text || "—"}</li>)}</ul></div> : null}
+        {a.palette.length ? <div><div className="text-[10px] text-ui-muted">Palette</div><div className="flex flex-wrap gap-1.5 mt-1">{a.palette.map((c, i) => <span key={i} className="inline-flex items-center gap-1 text-[11px] text-ui-fg2"><span className="w-3.5 h-3.5 rounded-full border border-ui-line" style={{ background: /^#|^rgb|^hsl/.test(c) ? c : undefined }} />{c}</span>)}</div></div> : null}
       </div>
       {row("Pourquoi ça marche", a.whyItWorks)}
       <TemplateFeedbackList templateId={t.id} />
-      {a.brief && <div><div className="text-[10px] uppercase tracking-wide text-gray-500">Brief pour une autre marque</div><p className="text-sm text-gray-200 whitespace-pre-wrap">{a.brief}</p></div>}
-      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+      {a.brief && <div><div className="text-[10px] text-ui-muted">Brief pour une autre marque</div><p className="text-sm text-ui-fg whitespace-pre-wrap">{a.brief}</p></div>}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-ui-muted">
         <span>{t.createdByName} · {when(t.createdAt)}{t.uses ? ` · ${t.uses} visuel${t.uses > 1 ? "s" : ""} généré${t.uses > 1 ? "s" : ""}` : ""}{t.tags.length ? ` · ${t.tags.join(", ")}` : ""}</span>
-        {t.sourceUrl && <a href={t.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-violet-300 hover:text-white">Source <ExternalLink className="w-3 h-3" /></a>}
-        <button type="button" onClick={() => { setRereading(true); onReanalyse(); setTimeout(() => setRereading(false), 20000); }} disabled={rereading} className="inline-flex items-center gap-1 hover:text-white disabled:opacity-50">{rereading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Relire avec l&apos;IA</button>
+        {t.sourceUrl && <a href={t.sourceUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-ui-accent-ink hover:text-ui-fg">Source <ExternalLink className="w-3 h-3" /></a>}
+        <button type="button" onClick={() => { setRereading(true); onReanalyse(); setTimeout(() => setRereading(false), 20000); }} disabled={rereading} className="inline-flex items-center gap-1 hover:text-ui-fg disabled:opacity-50">{rereading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} Relire avec l&apos;IA</button>
         {t.kept + t.cut > 0 && <span><span className="text-emerald-300">{t.kept} gardée{t.kept > 1 ? "s" : ""}</span> / <span className="text-rose-300">{t.cut} coupée{t.cut > 1 ? "s" : ""}</span></span>}
         {t.retiredAt
-          ? <button type="button" onClick={() => onRetire(false)} className="inline-flex items-center gap-1 text-amber-300 hover:text-white" data-template-unretire>Écarté des fabriques — le remettre</button>
-          : <button type="button" onClick={() => onRetire(true)} className={`inline-flex items-center gap-1 hover:text-white ${shouldSuggestRetire(t) ? "text-amber-300" : ""}`} title="Ne plus le proposer dans les nouvelles fabriques (il reste ici)" data-template-retire>{shouldSuggestRetire(t) ? "Très coupé : l'écarter des fabriques" : "Écarter des fabriques"}</button>}
+          ? <button type="button" onClick={() => onRetire(false)} className="inline-flex items-center gap-1 text-amber-300 hover:text-ui-fg" data-template-unretire>Écarté des fabriques — le remettre</button>
+          : <button type="button" onClick={() => onRetire(true)} className={`inline-flex items-center gap-1 hover:text-ui-fg ${shouldSuggestRetire(t) ? "text-amber-300" : ""}`} title="Ne plus le proposer dans les nouvelles fabriques (il reste ici)" data-template-retire>{shouldSuggestRetire(t) ? "Très coupé : l'écarter des fabriques" : "Écarter des fabriques"}</button>}
         {t.mine && <button type="button" onClick={onRemove} className="ml-auto inline-flex items-center gap-1 text-rose-300 hover:text-rose-200"><Trash2 className="w-3.5 h-3.5" /> Retirer</button>}
       </div>
     </Drawer>

@@ -19,7 +19,7 @@ const SEVERITY_CLASS: Record<Severity, string> = {
 
 export function SeverityBadge({ severity, label }: { severity: Severity; label?: string }) {
   return (
-    <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold ${SEVERITY_CLASS[severity]}`}>
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${SEVERITY_CLASS[severity]}`}>
       {label ?? SEVERITY_LABEL[severity]}
     </span>
   );
@@ -29,7 +29,7 @@ const TONE_CLASS: Record<Tone, string> = {
   bad: "bg-red-500/15 text-red-300",
   warn: "bg-amber-500/15 text-amber-300",
   good: "bg-emerald-500/15 text-emerald-300",
-  flat: "bg-gray-800 text-gray-400",
+  flat: "bg-ui-raised text-ui-fg2",
 };
 
 /** A delta with its reference (« 8 sem. », « S-1 »), coloured by the cockpit thresholds. */
@@ -42,13 +42,13 @@ export function Chip({ d, kind, label, mode }: { d: number | null; kind: "spend"
 }
 
 export function Tag({ children, className }: { children: ReactNode; className?: string }) {
-  return <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none ${className ?? "bg-gray-800 text-gray-300"}`}>{children}</span>;
+  return <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${className ?? "bg-ui-raised text-ui-fg2"}`}>{children}</span>;
 }
 
 const PLATFORM_TAG: Record<CockpitPlatform, { letter: string; className: string }> = {
   meta: { letter: "M", className: "bg-blue-500/20 text-blue-300" },
   google: { letter: "G", className: "bg-emerald-500/20 text-emerald-300" },
-  tiktok: { letter: "T", className: "bg-fuchsia-500/20 text-fuchsia-300" },
+  tiktok: { letter: "T", className: "bg-ui-accent-soft text-ui-accent-ink" },
 };
 
 /** One letter per platform (M, G, T), its name on hover. */
@@ -65,10 +65,10 @@ export function Badges({ c }: { c: ClientRow & { missing?: string[] } }) {
       <Tag>{c.mixed ? "MIX ¤" : c.ccy ?? "—"}</Tag>
       {platforms.some((p) => p.data_issue) && <Tag className="bg-red-500/20 text-red-300">DONNÉES À VÉRIFIER</Tag>}
       {(c.missing ?? []).map((m) => <Tag key={m} className="bg-amber-500/20 text-amber-300">{m.toUpperCase()} NON RELIÉ</Tag>)}
-      {c.blended.n_base < 2 && <Tag className="bg-violet-500/20 text-violet-300">NEW</Tag>}
+      {c.blended.n_base < 2 && <Tag className="bg-ui-accent-soft text-ui-accent-ink">NEW</Tag>}
       {c.kpi_mode === "brand"
-        ? <Tag className="bg-violet-500/20 text-violet-300">{TXT.brand.toUpperCase()}</Tag>
-        : c.blended.low_vol ? <Tag className="bg-violet-500/20 text-violet-300">{TXT.lowVol.toUpperCase()}</Tag> : null}
+        ? <Tag className="bg-ui-accent-soft text-ui-accent-ink">{TXT.brand.toUpperCase()}</Tag>
+        : c.blended.low_vol ? <Tag className="bg-ui-accent-soft text-ui-accent-ink">{TXT.lowVol.toUpperCase()}</Tag> : null}
     </span>
   );
 }
@@ -84,7 +84,7 @@ export function Spark({ weeks, starts, width = 120, height = 26 }: { weeks: numb
       {weeks.map((v, i) => {
         const h = Math.max(1, (v / max) * (height - 2));
         return (
-          <rect key={i} x={i * (width / n) + 1} y={height - h} width={bw} height={h} rx={1.5} fill={i === n - 1 ? "#8b5cf6" : "#8b5cf64d"}>
+          <rect key={i} x={i * (width / n) + 1} y={height - h} width={bw} height={h} rx={1.5} fill={i === n - 1 ? "var(--ui-accent)" : "color-mix(in srgb, var(--ui-accent) 30%, transparent)"}>
             <title>{`${starts[i] ?? ""} : ${Math.round(v).toLocaleString("fr-FR")}`}</title>
           </rect>
         );
@@ -97,25 +97,25 @@ const PACE_TEXT = { bad: "text-red-300", warn: "text-amber-300", ok: "text-emera
 
 /** Share of the monthly budget spent (bar) against the share of the month elapsed (mark). */
 export function PaceGauge({ p }: { p: Pacing | null }) {
-  if (!p) return <span className="text-xs text-gray-500">{TXT.noBudget}</span>;
+  if (!p) return <span className="text-xs text-ui-muted">{TXT.noBudget}</span>;
   const pts = pacePts(p);
   const spent = Math.round(p.pct_spent * 100);
   const expected = Math.round(p.pct_month * 100);
   return (
     <span className="inline-flex min-w-[170px] flex-col gap-1">
-      <span className="relative block h-1.5 w-full rounded-full bg-gray-800" role="img" aria-label={`${spent}% du budget dépensé, attendu ${expected}%`}>
-        <span className="absolute inset-y-0 left-0 rounded-full bg-violet-500" style={{ width: `${Math.min(spent, 100)}%` }} />
-        <span className="absolute -top-1 h-3.5 w-0.5 rounded bg-white" style={{ left: `${Math.min(expected, 100)}%` }} />
+      <span className="relative block h-1.5 w-full rounded-full bg-ui-raised" role="img" aria-label={`${spent}% du budget dépensé, attendu ${expected}%`}>
+        <span className="absolute inset-y-0 left-0 rounded-full bg-ui-accent" style={{ width: `${Math.min(spent, 100)}%` }} />
+        <span className="absolute -top-1 h-3.5 w-0.5 rounded bg-ui-inverse" style={{ left: `${Math.min(expected, 100)}%` }} />
       </span>
-      <span className="text-[11px] tabular-nums text-gray-400">
+      <span className="text-[11px] tabular-nums text-ui-fg2">
         {spent}% dépensé · attendu {expected}%{" "}
-        <span className={`font-semibold ${PACE_TEXT[paceTone(p)]}`}>{pts > 0 ? "+" : ""}{Math.round(pts)} pts</span>{" "}
-        <span className="text-gray-500">{Math.abs(pts) < 1 ? "dans les clous" : pts > 0 ? "d'avance" : "de retard"}</span>
+        <span className={`font-medium ${PACE_TEXT[paceTone(p)]}`}>{pts > 0 ? "+" : ""}{Math.round(pts)} pts</span>{" "}
+        <span className="text-ui-muted">{Math.abs(pts) < 1 ? "dans les clous" : pts > 0 ? "d'avance" : "de retard"}</span>
       </span>
     </span>
   );
 }
 
 export function Muted({ children }: { children: ReactNode }) {
-  return <span className="text-gray-500">{children}</span>;
+  return <span className="text-ui-muted">{children}</span>;
 }

@@ -61,31 +61,31 @@ export function PlaybookDialog({ client, onClose, onKept }: { client: ClientOpti
     <Modal title="Étudier une marque (bibliothèque Meta)" onClose={onClose} wide>
       <div className="space-y-3" data-playbook>
         <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); void study(); }}>
-          <label className="flex flex-col gap-1 text-xs text-gray-400 flex-1 min-w-[12rem]">Marque
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2 flex-1 min-w-[12rem]">Marque
             <input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Ex. : Acadomia, Huel, La Fourche" className={FIELD} data-playbook-brand />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-400">Pays
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">Pays
             <input value={country} onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))} className={`${FIELD} w-16`} />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-400">Pubs lues
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">Pubs lues
             <select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className={FIELD}>{[12, 18, 24, 30].map((n) => <option key={n} value={n}>{n}</option>)}</select>
           </label>
           <button type="submit" className={BTN_PRIMARY} disabled={!!busy || brand.trim().length < 2} data-playbook-study>{busy === "study" ? <Loader2 className="w-4 h-4 animate-spin" /> : <BookOpen className="w-4 h-4" />} {busy === "study" ? "Lecture des pubs… (1 à 2 min)" : "Étudier"}</button>
         </form>
-        <p className="text-[11px] text-gray-500">Les pubs de la marque (actives, puis passées en complément) sont cherchées dans la bibliothèque Meta, puis chaque pub avec image est lue par l&apos;IA (environ 0,02 $ la pub). L&apos;étude est gardée 7 jours.</p>
+        <p className="text-[11px] text-ui-muted">Les pubs de la marque (actives, puis passées en complément) sont cherchées dans la bibliothèque Meta, puis chaque pub avec image est lue par l&apos;IA (environ 0,02 $ la pub). L&apos;étude est gardée 7 jours.</p>
         {error && <p className="text-sm text-rose-300 whitespace-pre-wrap">{error}</p>}
         {playbook && (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-gray-300">{playbook.analysed} pubs lues sur {playbook.total} · {new Date(playbook.at).toLocaleDateString("fr-FR")}</span>
-              <button type="button" onClick={() => void study(true)} className="text-gray-400 hover:text-white inline-flex items-center gap-1" disabled={!!busy}><RefreshCw className="w-3 h-3" /> Refaire</button>
-              <button type="button" onClick={() => setShowDoc((v) => !v)} className="text-gray-400 hover:text-white">{showDoc ? "Masquer" : "Voir"} le playbook</button>
+              <span className="text-ui-fg2">{playbook.analysed} pubs lues sur {playbook.total} · {new Date(playbook.at).toLocaleDateString("fr-FR")}</span>
+              <button type="button" onClick={() => void study(true)} className="text-ui-fg2 hover:text-ui-fg inline-flex items-center gap-1" disabled={!!busy}><RefreshCw className="w-3 h-3" /> Refaire</button>
+              <button type="button" onClick={() => setShowDoc((v) => !v)} className="text-ui-fg2 hover:text-ui-fg">{showDoc ? "Masquer" : "Voir"} le playbook</button>
             </div>
-            {showDoc && <pre className="text-[11px] text-gray-300 whitespace-pre-wrap bg-gray-900 border border-gray-800 rounded-lg p-3 max-h-60 overflow-auto">{playbook.md}</pre>}
+            {showDoc && <pre className="text-[11px] text-ui-fg2 whitespace-pre-wrap bg-ui-card border border-ui-line rounded-lg p-3 max-h-60 overflow-auto">{playbook.md}</pre>}
             <div className="flex flex-wrap gap-1.5" data-playbook-formats>
-              <button type="button" onClick={() => setFormat(null)} className={`px-2 py-1 rounded-full border text-[11px] ${!format ? "border-violet-500 text-white" : "border-gray-800 text-gray-400"}`}>Tous ({playbook.candidates.length})</button>
+              <button type="button" onClick={() => setFormat(null)} className={`px-2 py-1 rounded-full border text-[11px] ${!format ? "border-ui-accent text-ui-fg" : "border-ui-line text-ui-fg2"}`}>Tous ({playbook.candidates.length})</button>
               {playbook.formats.map((f) => (
-                <button key={f.label} type="button" onClick={() => setFormat(f.label)} title={f.structure} className={`px-2 py-1 rounded-full border text-[11px] ${format === f.label ? "border-violet-500 text-white" : "border-gray-800 text-gray-300"}`}>
+                <button key={f.label} type="button" onClick={() => setFormat(f.label)} title={f.structure} className={`px-2 py-1 rounded-full border text-[11px] ${format === f.label ? "border-ui-accent text-ui-fg" : "border-ui-line text-ui-fg2"}`}>
                   {f.label} · {f.count} ({f.share} %){f.verdict === "polyvalent" ? " · polyvalent" : ""}
                 </button>
               ))}
@@ -93,19 +93,19 @@ export function PlaybookDialog({ client, onClose, onKept }: { client: ClientOpti
             <ul className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 max-h-[50vh] overflow-auto">
               {shown.map((c) => { const on = picked.includes(c.libraryId); const n = playbook.candidates.indexOf(c) + 1; return (
                 <li key={c.libraryId}>
-                  <button type="button" onClick={() => toggle(c.libraryId)} aria-pressed={on} data-playbook-ad={c.libraryId} className={`relative w-full text-left rounded-lg overflow-hidden border-2 ${on ? "border-violet-500" : "border-gray-800 hover:border-gray-600"}`}>
-                    <div className="aspect-[4/5] bg-gray-900">{c.image && <img src={proxied(c.image)} alt="" className="w-full h-full object-cover" loading="lazy" />}</div>
-                    <span className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-md inline-flex items-center justify-center text-[10px] ${on ? "bg-violet-600 text-white" : "bg-black/60 text-gray-200"}`}>{on ? <Check className="w-3.5 h-3.5" /> : n}</span>
+                  <button type="button" onClick={() => toggle(c.libraryId)} aria-pressed={on} data-playbook-ad={c.libraryId} className={`relative w-full text-left rounded-lg overflow-hidden border-2 ${on ? "border-ui-accent" : "border-ui-line hover:border-ui-line-strong"}`}>
+                    <div className="aspect-[4/5] bg-ui-card">{c.image && <img src={proxied(c.image)} alt="" className="w-full h-full object-cover" loading="lazy" />}</div>
+                    <span className={`absolute top-1.5 left-1.5 w-5 h-5 rounded-md inline-flex items-center justify-center text-[10px] ${on ? "bg-ui-accent text-ui-on-accent" : "bg-black/50 text-ui-fg"}`}>{on ? <Check className="w-3.5 h-3.5" /> : n}</span>
                     <div className="p-1.5 space-y-0.5 text-[10px]">
-                      <p className="text-gray-200">{c.format}{c.video ? " · vidéo" : ""}</p>
-                      {c.analysis.hook && <p className="text-gray-400 line-clamp-2">{c.analysis.hook}</p>}
+                      <p className="text-ui-fg">{c.format}{c.video ? " · vidéo" : ""}</p>
+                      {c.analysis.hook && <p className="text-ui-fg2 line-clamp-2">{c.analysis.hook}</p>}
                     </div>
                   </button>
                 </li>
               ); })}
             </ul>
             <div className="flex items-center justify-end gap-2">
-              <span className="text-xs text-gray-500 mr-auto">{picked.length} cochée{picked.length > 1 ? "s" : ""} (12 max) · gardées comme templates {client ? `de ${client.name}` : "de l'agence"}, avec le tag « playbook:{playbook.brand.toLowerCase()} » et leur format</span>
+              <span className="text-xs text-ui-muted mr-auto">{picked.length} cochée{picked.length > 1 ? "s" : ""} (12 max) · gardées comme templates {client ? `de ${client.name}` : "de l'agence"}, avec le tag « playbook:{playbook.brand.toLowerCase()} » et leur format</span>
               <button type="button" onClick={onClose} className={BTN}>Fermer</button>
               <button type="button" onClick={() => void keep()} disabled={!picked.length || !!busy} className={BTN_PRIMARY} data-playbook-keep>{busy === "keep" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Garder {picked.length || ""} comme templates</button>
             </div>

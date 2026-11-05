@@ -250,35 +250,35 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
     const budget = row.dailyBudget ? `${money(row.dailyBudget, currency)}/j` : row.lifetimeBudget ? `${money(row.lifetimeBudget, currency)} total` : "";
     return (
       <div key={row.id} id={`pilot-object-${row.id}`}>
-        <div className={`group flex items-center gap-2 py-1.5 pr-2 rounded-lg hover:bg-gray-800/40 ${hasPending ? "bg-violet-500/5" : ""}`} style={{ paddingLeft: 8 + depth * 18 }}>
-          <button type="button" onClick={() => toggleSelect(row)} className={`shrink-0 ${selected.has(row.id) ? "text-violet-300" : "text-gray-600 hover:text-gray-300"}`} aria-label={selected.has(row.id) ? "Retirer de la sélection" : "Sélectionner"} title="Sélectionner pour une modification groupée">
+        <div className={`group flex items-center gap-2 py-1.5 pr-2 rounded-lg hover:bg-ui-raised ${hasPending ? "bg-ui-accent-soft" : ""}`} style={{ paddingLeft: 8 + depth * 18 }}>
+          <button type="button" onClick={() => toggleSelect(row)} className={`shrink-0 ${selected.has(row.id) ? "text-ui-accent-ink" : "text-ui-muted hover:text-ui-fg2"}`} aria-label={selected.has(row.id) ? "Retirer de la sélection" : "Sélectionner"} title="Sélectionner pour une modification groupée">
             {selected.has(row.id) ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
           </button>
           {expandable ? (
-            <button type="button" onClick={() => (row.type === "campaign" ? setOpen((o) => ({ ...o, [row.id]: !o[row.id] })) : void toggleAdset(row.id))} className="text-gray-500 hover:text-white" aria-label={open[row.id] ? "Replier" : "Déplier"}>
+            <button type="button" onClick={() => (row.type === "campaign" ? setOpen((o) => ({ ...o, [row.id]: !o[row.id] })) : void toggleAdset(row.id))} className="text-ui-muted hover:text-ui-fg" aria-label={open[row.id] ? "Replier" : "Déplier"}>
               {open[row.id] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           ) : <span className="w-4" />}
-          <span className="text-[10px] uppercase tracking-wide text-gray-500 w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "meta" ? "Ens." : "Groupe") : row.type === "keyword" ? (row.negative ? "Négatif" : "Mot-clé") : "Annonce"}</span>
-          <span className="text-sm text-gray-200 truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
+          <span className="text-[10px] text-ui-muted w-14 shrink-0">{row.type === "campaign" ? "Camp." : row.type === "adset" ? (platform === "meta" ? "Ens." : "Groupe") : row.type === "keyword" ? (row.negative ? "Négatif" : "Mot-clé") : "Annonce"}</span>
+          <span className="text-sm text-ui-fg truncate flex-1 min-w-0" title={row.name}>{row.name}</span>
           {hasPending && <Pill tone="violet" className="text-[10px]">à envoyer</Pill>}
           {row.type === "ad" && row.format && <Pill tone="default" className="text-[10px] normal-case">{AD_OBJECT_FORMAT_FR[row.format] ?? row.format}</Pill>}
           {row.type === "adset" && row.dynamicCreative && <span title="Ensemble créé en création dynamique : il prend une seule publicité, dynamique (plusieurs visuels et textes)"><Pill tone="default" className="text-[10px] normal-case">dynamique</Pill></span>}
           {row.type === "ad" && row.pilot && <span title={`Créée depuis le Pilotage par ${row.pilot.by}${row.pilot.at ? ` le ${dateText(row.pilot.at)}` : ""}`}><Pill tone="violet" className="text-[10px] normal-case">Pilotage</Pill></span>}
           {statusPill(row)}
-          <span className="text-xs text-gray-400 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{row.type === "keyword" && row.bidAmount ? `CPC ${money(row.bidAmount, currency)}` : budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
-          <span className="text-xs text-gray-500 w-20 text-right hidden md:inline" title="Dépense des 7 derniers jours">{money(Math.round(row.spend7d * (currencyOffset(currency))), currency)}</span>
+          <span className="text-xs text-ui-fg2 w-24 text-right hidden sm:inline" title={row.budgetLock ?? undefined}>{row.type === "keyword" && row.bidAmount ? `CPC ${money(row.bidAmount, currency)}` : budget}{budget && row.budgetLock ? " · partagé" : ""}</span>
+          <span className="text-xs text-ui-muted w-20 text-right hidden md:inline" title="Dépense des 7 derniers jours">{money(Math.round(row.spend7d * (currencyOffset(currency))), currency)}</span>
           <div className="relative">
-            <button type="button" onClick={() => setMenu(menu === row.id ? null : row.id)} className="text-xs flex items-center gap-1 px-2 py-1 rounded-md text-gray-300 hover:text-white hover:bg-gray-800">
+            <button type="button" onClick={() => setMenu(menu === row.id ? null : row.id)} className="text-xs flex items-center gap-1 px-2 py-1 rounded-md text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised">
               <Pencil className="w-3 h-3" /> Modifier
             </button>
             {menu === row.id && (
-              <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl py-1">
+              <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-ui-card border border-ui-line-strong rounded-lg shadow-xl py-1">
                 {choices(row, platform).map((c) => {
                   const taken = pendingKeys.has(changeKey({ objectId: row.id, kind: c.kind }));
                   return (
                     <button key={`${c.kind}-${c.value}`} type="button" disabled={taken} onClick={() => choose(row, c.kind, c.value)}
-                      className={`w-full text-left text-xs px-3 py-1.5 hover:bg-gray-800 disabled:opacity-40 ${c.value === "DELETED" ? "text-red-300" : "text-gray-200"}`}>
+                      className={`w-full text-left text-xs px-3 py-1.5 hover:bg-ui-raised disabled:opacity-40 ${c.value === "DELETED" ? "text-red-300" : "text-ui-fg"}`}>
                       {c.label}{taken ? " (déjà prévu)" : ""}
                     </button>
                   );
@@ -289,7 +289,7 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
         </div>
         {editor && editor.row.id === row.id && (
           <form onSubmit={(e) => { e.preventDefault(); submitEditor(); }} className="flex flex-wrap items-center gap-2 py-2 pr-2 text-xs" style={{ paddingLeft: 30 + depth * 18 }}>
-            <span className="text-gray-400">{choices(row, platform).find((c) => c.kind === editor.kind)?.label} :</span>
+            <span className="text-ui-fg2">{choices(row, platform).find((c) => c.kind === editor.kind)?.label} :</span>
             <input
               autoFocus
               type={DATE_KINDS.has(editor.kind) ? "datetime-local" : TEXT_KINDS.has(editor.kind) ? "text" : "number"}
@@ -297,19 +297,19 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
               min={DATE_KINDS.has(editor.kind) || TEXT_KINDS.has(editor.kind) ? undefined : editor.kind === "set_target_roas" ? "0.1" : "1"}
               value={editor.value}
               onChange={(e) => setEditor({ ...editor, value: e.target.value })}
-              className={`bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white ${TEXT_KINDS.has(editor.kind) ? "flex-1 min-w-[12rem]" : "w-40"}`}
+              className={`bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg ${TEXT_KINDS.has(editor.kind) ? "flex-1 min-w-[12rem]" : "w-40"}`}
             />
             {!TEXT_KINDS.has(editor.kind) && !DATE_KINDS.has(editor.kind) && (
-              <span className="text-gray-500">{editor.kind === "set_target_roas" ? "× (3 = 300 %)" : `${currency}${editor.kind === "set_daily_budget" ? " / jour" : ""}`}</span>
+              <span className="text-ui-muted">{editor.kind === "set_target_roas" ? "× (3 = 300 %)" : `${currency}${editor.kind === "set_daily_budget" ? " / jour" : ""}`}</span>
             )}
-            {editor.kind === "duplicate" && <span className="text-gray-500">copie en pause{row.type === "ad" ? "" : ", avec tout ce qu'elle contient"}</span>}
+            {editor.kind === "duplicate" && <span className="text-ui-muted">copie en pause{row.type === "ad" ? "" : ", avec tout ce qu'elle contient"}</span>}
             {KEYWORD_KINDS.has(editor.kind) && (
-              <select value={editor.matchType ?? "PHRASE"} onChange={(e) => setEditor({ ...editor, matchType: e.target.value as KeywordMatchType })} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white">
+              <select value={editor.matchType ?? "PHRASE"} onChange={(e) => setEditor({ ...editor, matchType: e.target.value as KeywordMatchType })} className="bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg">
                 {KEYWORD_MATCH_TYPES.map((m) => <option key={m} value={m}>{MATCH_FR[m]}</option>)}
               </select>
             )}
-            <button type="submit" className="px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-500 text-white">Ajouter</button>
-            <button type="button" onClick={() => setEditor(null)} className="px-2 py-1 text-gray-400 hover:text-white">Annuler</button>
+            <button type="submit" className="px-2.5 py-1 rounded-md bg-ui-accent hover:brightness-110 text-ui-on-accent">Ajouter</button>
+            <button type="button" onClick={() => setEditor(null)} className="px-2 py-1 text-ui-fg2 hover:text-ui-fg">Annuler</button>
           </form>
         )}
         {expandable && open[row.id] && row.type === "campaign" && (adsetsOf.get(row.id) ?? []).filter(visible).map((a) => renderRow(a, depth + 1, true))}
@@ -317,9 +317,9 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
         {expandable && open[row.id] && row.type === "adset" && (() => {
           const list = ads[row.id];
           const what = platform === "google" ? "mots-clés et annonces" : "annonces";
-          if (list === "loading" || list === undefined) return <p className="text-xs text-gray-500 py-1 flex items-center gap-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}><Loader2 className="w-3 h-3 animate-spin" /> Lecture des {what}…</p>;
+          if (list === "loading" || list === undefined) return <p className="text-xs text-ui-muted py-1 flex items-center gap-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}><Loader2 className="w-3 h-3 animate-spin" /> Lecture des {what}…</p>;
           if (!Array.isArray(list)) return <p className="text-xs text-red-300 py-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}>{list.error}</p>;
-          if (!list.length) return <p className="text-xs text-gray-500 py-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}>{platform === "google" ? "Aucun mot-clé." : "Aucune annonce."}</p>;
+          if (!list.length) return <p className="text-xs text-ui-muted py-1" style={{ paddingLeft: 30 + (depth + 1) * 18 }}>{platform === "google" ? "Aucun mot-clé." : "Aucune annonce."}</p>;
           return list.filter(visible).map((ad) => renderRow(ad, depth + 1, false));
         })()}
       </div>
@@ -360,45 +360,45 @@ export function StructureTree({ clientId, accountId, platform, currency, campaig
         />
       )}
       <div className="flex flex-wrap items-center gap-3 mb-3">
-        <label className="flex items-center gap-2 flex-1 min-w-[12rem] bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5">
-          <Search className="w-3.5 h-3.5 text-gray-500" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={platform === "meta" ? "Chercher une campagne ou un ensemble" : "Chercher une campagne ou un groupe d'annonces"} className="bg-transparent text-sm text-white outline-none flex-1" />
+        <label className="flex items-center gap-2 flex-1 min-w-[12rem] bg-ui-bg border border-ui-line rounded-lg px-2.5 py-1.5">
+          <Search className="w-3.5 h-3.5 text-ui-muted" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={platform === "meta" ? "Chercher une campagne ou un ensemble" : "Chercher une campagne ou un groupe d'annonces"} className="bg-transparent text-sm text-ui-fg outline-none flex-1" />
         </label>
-        <label className="flex items-center gap-2 text-xs text-gray-400">
+        <label className="flex items-center gap-2 text-xs text-ui-fg2">
           <input type="checkbox" checked={hidePaused} onChange={(e) => setHidePaused(e.target.checked)} /> Actifs seulement
         </label>
       </div>
       {selected.size > 0 && (
-        <div className="mb-3 rounded-xl border border-violet-500/40 bg-violet-500/5 px-3 py-2 space-y-2 text-xs">
+        <div className="mb-3 rounded-xl border border-ui-accent bg-ui-accent-soft px-3 py-2 space-y-2 text-xs">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-white font-semibold">{selected.size} sélectionné{selected.size > 1 ? "s" : ""}</span>
-            <span className="text-gray-500">— appliquer à tous :</span>
-            <button type="button" onClick={() => bulkStatus("PAUSED")} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Mettre en pause</button>
-            <button type="button" onClick={() => bulkStatus("ACTIVE")} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Activer</button>
-            <button type="button" onClick={() => setBulk({ kind: "budget_pct", value: "-20" })} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Budget ± %</button>
-            <button type="button" onClick={() => setBulk({ kind: "budget_set", value: "" })} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Budget =</button>
-            {platform !== "google" && <button type="button" onClick={() => setBulk({ kind: "set_end_time", value: localDateTime(null, 7) })} className="px-2 py-1 rounded-md border border-gray-700 text-gray-200 hover:border-violet-500">Date de fin</button>}
+            <span className="text-ui-fg font-medium">{selected.size} sélectionné{selected.size > 1 ? "s" : ""}</span>
+            <span className="text-ui-muted">— appliquer à tous :</span>
+            <button type="button" onClick={() => bulkStatus("PAUSED")} className="px-2 py-1 rounded-md border border-ui-line-strong text-ui-fg hover:border-ui-accent">Mettre en pause</button>
+            <button type="button" onClick={() => bulkStatus("ACTIVE")} className="px-2 py-1 rounded-md border border-ui-line-strong text-ui-fg hover:border-ui-accent">Activer</button>
+            <button type="button" onClick={() => setBulk({ kind: "budget_pct", value: "-20" })} className="px-2 py-1 rounded-md border border-ui-line-strong text-ui-fg hover:border-ui-accent">Budget ± %</button>
+            <button type="button" onClick={() => setBulk({ kind: "budget_set", value: "" })} className="px-2 py-1 rounded-md border border-ui-line-strong text-ui-fg hover:border-ui-accent">Budget =</button>
+            {platform !== "google" && <button type="button" onClick={() => setBulk({ kind: "set_end_time", value: localDateTime(null, 7) })} className="px-2 py-1 rounded-md border border-ui-line-strong text-ui-fg hover:border-ui-accent">Date de fin</button>}
             <button type="button" onClick={() => { if (window.confirm(`Supprimer ${selected.size} objet(s) ? Chaque suppression demandera une seconde confirmation à l'envoi.`)) bulkStatus("DELETED"); }} className="px-2 py-1 rounded-md border border-red-900 text-red-300 hover:border-red-500">Supprimer</button>
-            <button type="button" onClick={() => setSelected(new Map())} className="ml-auto text-gray-400 hover:text-white">Tout désélectionner</button>
+            <button type="button" onClick={() => setSelected(new Map())} className="ml-auto text-ui-fg2 hover:text-ui-fg">Tout désélectionner</button>
           </div>
           {bulk && (
             <form onSubmit={(e) => { e.preventDefault(); if (bulk.kind === "set_end_time") applyBulk("set_end_time", (row) => (row.type === "ad" || row.endTimeLock ? null : new Date(bulk.value).toISOString()), (row, v) => pendingLabel(platform, row, "set_end_time", String(v), currency)); else bulkBudget(bulk.kind, bulk.value); }} className="flex flex-wrap items-center gap-2">
-              <span className="text-gray-400">{bulk.kind === "budget_pct" ? "Budget : variation en % (−20 = baisse de 20 %)" : bulk.kind === "budget_set" ? `Budget : nouveau montant en ${currency}` : "Date de fin"}</span>
-              <input autoFocus type={bulk.kind === "set_end_time" ? "datetime-local" : "number"} step={bulk.kind === "set_end_time" ? undefined : "0.01"} value={bulk.value} onChange={(e) => setBulk({ ...bulk, value: e.target.value })} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-white w-44" />
-              <button type="submit" className="px-2.5 py-1 rounded-md bg-violet-600 hover:bg-violet-500 text-white">Appliquer à la sélection</button>
-              <button type="button" onClick={() => setBulk(null)} className="text-gray-400 hover:text-white">Annuler</button>
-              <span className="text-gray-500">Les budgets journaliers et totaux sont traités chacun à leur niveau ; les objets sans budget sont ignorés.</span>
+              <span className="text-ui-fg2">{bulk.kind === "budget_pct" ? "Budget : variation en % (−20 = baisse de 20 %)" : bulk.kind === "budget_set" ? `Budget : nouveau montant en ${currency}` : "Date de fin"}</span>
+              <input autoFocus type={bulk.kind === "set_end_time" ? "datetime-local" : "number"} step={bulk.kind === "set_end_time" ? undefined : "0.01"} value={bulk.value} onChange={(e) => setBulk({ ...bulk, value: e.target.value })} className="bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg w-44" />
+              <button type="submit" className="px-2.5 py-1 rounded-md bg-ui-accent hover:brightness-110 text-ui-on-accent">Appliquer à la sélection</button>
+              <button type="button" onClick={() => setBulk(null)} className="text-ui-fg2 hover:text-ui-fg">Annuler</button>
+              <span className="text-ui-muted">Les budgets journaliers et totaux sont traités chacun à leur niveau ; les objets sans budget sont ignorés.</span>
             </form>
           )}
         </div>
       )}
-      <div className="flex items-center gap-2 px-2 pb-1 text-[10px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+      <div className="flex items-center gap-2 px-2 pb-1 text-[10px] text-ui-muted border-b border-ui-line">
         <span className="flex-1 pl-24">Nom</span>
         <span className="w-24 text-right hidden sm:inline">Budget</span>
         <span className="w-20 text-right hidden md:inline">Dépense 7 j</span>
         <span className="w-20" />
       </div>
-      {shownCampaigns.length ? shownCampaigns.map((c) => renderRow(c, 0, true)) : <p className="text-sm text-gray-500 py-6 text-center">Aucune campagne à afficher.</p>}
+      {shownCampaigns.length ? shownCampaigns.map((c) => renderRow(c, 0, true)) : <p className="text-sm text-ui-muted py-6 text-center">Aucune campagne à afficher.</p>}
     </div>
   );
 }

@@ -270,7 +270,7 @@ export function draftToBody(d: AlertDraft): Record<string, unknown> {
 export type FieldClasses = { input: string; label: string };
 
 const switchBtn = (active: boolean) =>
-  `px-3 py-1.5 text-sm font-medium transition-colors ${active ? "bg-violet-600 text-white" : "bg-transparent text-gray-400 hover:text-white"}`;
+  `px-3 py-1.5 text-sm font-medium transition-colors ${active ? "bg-ui-accent text-ui-on-accent" : "bg-transparent text-ui-fg2 hover:text-ui-fg"}`;
 
 type PlatformSwitchProps = {
   value: AlertPlatform;
@@ -287,7 +287,7 @@ export function PlatformSwitch({ value, onChange, classes, className }: Platform
   return (
     <div className={`block ${className ?? ""}`}>
       <span className={classes.label}>Plateforme</span>
-      <div className="mt-1 inline-flex rounded-lg border border-gray-800 overflow-hidden" role="group" aria-label="Plateforme">
+      <div className="mt-1 inline-flex rounded-lg border border-ui-line overflow-hidden" role="group" aria-label="Plateforme">
         {PLATFORMS.map((p) => (
           <button
             key={p.value}
@@ -345,9 +345,9 @@ export function ComposeBlock({ text, onTextChange, accountId, platform, onPropos
   }
 
   return (
-    <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-3 space-y-2">
+    <div className="rounded-xl border border-ui-accent bg-ui-accent-soft p-3 space-y-2">
       <label className="block">
-        <span className={`${classes.label} font-semibold`}>Décris ton alerte</span>
+        <span className={`${classes.label} font-medium`}>Décris ton alerte</span>
         <textarea
           value={text}
           onChange={(e) => onTextChange(e.target.value)}
@@ -361,16 +361,16 @@ export function ComposeBlock({ text, onTextChange, accountId, platform, onPropos
           type="button"
           onClick={compose}
           disabled={busy || !text.trim()}
-          className="px-3 py-1.5 rounded-lg text-sm font-medium bg-violet-500/15 hover:bg-violet-500/25 text-violet-300 border border-violet-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-3 py-1.5 rounded-lg text-sm font-medium bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {busy ? "L'IA lit ta demande…" : "Proposer avec l'IA"}
         </button>
-        <span className="text-xs text-gray-500">Les champs ci-dessous sont pré-remplis (plateforme comprise) — tu peux tout ajuster avant de créer.</span>
+        <span className="text-xs text-ui-muted">Les champs ci-dessous sont pré-remplis (plateforme comprise) — tu peux tout ajuster avant de créer.</span>
       </div>
       {error && <p className="text-xs text-red-400">{error}</p>}
       {explanation && (
-        <p className="text-xs text-violet-300 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2">
-          <span className="font-semibold">L&apos;IA propose :</span> {explanation}
+        <p className="text-xs text-ui-accent-ink bg-ui-accent-soft border border-ui-accent rounded-lg px-3 py-2">
+          <span className="font-medium">L&apos;IA propose :</span> {explanation}
         </p>
       )}
     </div>
@@ -404,7 +404,7 @@ export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsPro
     <>
       <div className="col-span-2 flex items-center gap-3 flex-wrap">
         <span className={classes.label}>Type d&apos;alerte</span>
-        <div className="inline-flex rounded-lg border border-gray-800 overflow-hidden">
+        <div className="inline-flex rounded-lg border border-ui-line overflow-hidden">
           <button type="button" onClick={() => setMode("rule")} className={switchBtn(!ai)} aria-pressed={!ai}>
             Règle classique
           </button>
@@ -414,8 +414,8 @@ export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsPro
             </button>
           )}
         </div>
-        {ai && <span className="text-xs text-gray-500">~1 appel IA léger par jour</span>}
-        {draft.platform === "tiktok" && <span className="text-xs text-gray-500">TikTok Ads : règle classique sur le compte entier</span>}
+        {ai && <span className="text-xs text-ui-muted">~1 appel IA léger par jour</span>}
+        {draft.platform === "tiktok" && <span className="text-xs text-ui-muted">TikTok Ads : règle classique sur le compte entier</span>}
       </div>
 
       <label className="block">
@@ -451,7 +451,7 @@ export function AlertRuleFields({ draft, onChange, classes }: AlertRuleFieldsPro
             }
             className={`${classes.input} resize-y`}
           />
-          <span className="text-[11px] text-gray-500">L&apos;IA lit les données {google ? "Google Ads" : "Meta"} de la fenêtre choisie au niveau sélectionné et décide si l&apos;alerte doit partir. ~1 appel IA léger par jour.</span>
+          <span className="text-[11px] text-ui-muted">L&apos;IA lit les données {google ? "Google Ads" : "Meta"} de la fenêtre choisie au niveau sélectionné et décide si l&apos;alerte doit partir. ~1 appel IA léger par jour.</span>
         </label>
       ) : (
         <>

@@ -8,7 +8,6 @@ import { AiJobsWatcher } from "@/components/ai-jobs-watcher";
 import { GuideBot } from "@/components/guide-bot";
 import { MoDock } from "@/components/mo/mo-dock";
 import { auth } from "@/auth";
-import { UserNav } from "@/components/user-nav";
 import { CommandPalette } from "@/components/command-palette";
 import { CreativesProvider } from "@/lib/creatives-context";
 import { ClientNavLink } from "@/components/bot/client-nav-link";
@@ -66,14 +65,12 @@ export default async function RootLayout({
     }
   }
 
-  // Day / night: the client's choice (cookie). Staff surfaces are drawn for
-  // the night only, so the staff app always stays dark.
+  // Day / night: each person's choice (cookie), read here so the page is
+  // drawn in the right theme from the first byte.
   let theme: UiTheme = "dark";
-  if (!showApp || isClient) {
-    try {
-      theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
-    } catch { /* default */ }
-  }
+  try {
+    theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
+  } catch { /* default */ }
 
   return (
     <html lang="fr" data-theme={theme}>
@@ -104,19 +101,22 @@ export default async function RootLayout({
                 <main className="flex-1 overflow-auto min-h-0">{children}</main>
               </div>
             ) : showApp ? (
-              <div className="flex h-screen bg-gray-950 text-gray-100">
+              <div className="flex h-screen bg-ui-bg text-ui-fg">
                 {/* Staff only: clients get their own chrome above, without the guide. */}
                 <GuideBot />
                 {/* Mo on every staff page: hold the orb, speak, Mo answers and opens the page asked for (components/mo/mo-dock.tsx). */}
                 <MoDock />
                 <Sidebar />
                 <div className="flex-1 flex flex-col overflow-hidden">
-                  <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
+                  <header className="h-14 border-b border-ui-line flex items-center justify-between gap-4 px-4 sm:px-6 flex-shrink-0">
                     {/* Global client search (⌘K): navigates to a client, never
                         filters the page. The analysed account lives in the
                         Analyse Ads context bar, the only place it applies. */}
                     <CommandPalette userId={session?.userId ?? null} />
-                    {session ? <UserNav session={session} /> : null}
+                    <div className="flex items-center gap-4">
+                      <ThemeToggle initial={theme} />
+                      {session ? <ClientUserNav session={session} /> : null}
+                    </div>
                   </header>
                   <SecondaryNav />
                   {/* pb-16: the Mo orb floats over the bottom of the page (components/mo/mo-dock.tsx). */}

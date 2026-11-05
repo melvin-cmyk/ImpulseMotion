@@ -987,14 +987,14 @@ export function MoPage() {
   const railTop = "top-14", railBottom = "bottom-28";
 
   return (
-    <div className="fixed inset-0 z-[70] bg-[#07050f] text-gray-100 overflow-hidden" data-mo-ready={board ? "1" : undefined} data-mo-page-kind={board?.kind}>
+    <div className="fixed inset-0 z-[70] bg-ui-bg text-ui-fg overflow-hidden" data-mo-ready={board ? "1" : undefined} data-mo-page-kind={board?.kind}>
       <WaveCanvas mood={mood} level={voice.level} levelRef={voice.levelRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(7,5,15,0)_0%,rgba(7,5,15,0.55)_70%,rgba(7,5,15,0.85)_100%)] pointer-events-none" />
+
 
       {/* Intro wordmark */}
       <div className={`absolute inset-0 flex flex-col items-center justify-center pointer-events-none transition-opacity duration-700 ${intro ? "opacity-100" : "opacity-0"}`}>
-        <div className="text-[96px] font-semibold tracking-tight bg-gradient-to-r from-violet-200 via-fuchsia-200 to-violet-300 bg-clip-text text-transparent mo-intro-title">Mo</div>
-        <div className="text-sm text-violet-200/70 mo-intro-sub">Maintiens <kbd className="px-1.5 py-0.5 rounded border border-white/15 bg-white/5 text-[11px]">espace</kbd> et parle-moi</div>
+        <div className="text-[96px] font-medium tracking-tight text-ui-fg mo-intro-title">Mo</div>
+        <div className="text-sm text-ui-accent-ink mo-intro-sub">Maintiens <kbd className="px-1.5 py-0.5 rounded border border-ui-line bg-ui-raised text-[11px]">espace</kbd> et parle-moi</div>
       </div>
 
       {/* Board — inset by the open rails, so « tout voir » and the focus on a card fit between them */}
@@ -1011,8 +1011,8 @@ export function MoPage() {
               return (
                 <g key={l.id}>
                   <path d={l.d} stroke={hot ? "#f0abfc" : "rgba(167,139,250,0.45)"} strokeWidth={hot ? 3 : 2} strokeDasharray={hot ? undefined : "6 6"} fill="none" markerEnd={`url(#${hot ? "mo-arrow-hot" : "mo-arrow"})`} />
-                  <circle cx={l.mid.x} cy={l.mid.y} r={11} fill="#100c1f" stroke={hot ? "#f0abfc" : "rgba(167,139,250,0.6)"} strokeWidth={1.5} />
-                  <text x={l.mid.x} y={l.mid.y + 4} textAnchor="middle" fontSize={12} fill={hot ? "#f0abfc" : "#c4b5fd"}>Δ</text>
+                  <circle cx={l.mid.x} cy={l.mid.y} r={11} fill="var(--ui-card)" stroke={hot ? "#f0abfc" : "rgba(167,139,250,0.6)"} strokeWidth={1.5} />
+                  <text x={l.mid.x} y={l.mid.y + 4} textAnchor="middle" fontSize={12} fill={hot ? "#f0abfc" : "var(--ui-accent-ink)"}>Δ</text>
                 </g>
               );
             })}
@@ -1045,32 +1045,32 @@ export function MoPage() {
 
       {/* Board toolbar: ranger · fit · shortcuts — and the undo toast after a removal */}
       <div className="absolute bottom-5 left-5 flex items-center gap-1.5 pointer-events-auto">
-        <button type="button" onClick={() => arrange()} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Ranger les cartes (R)"><LayoutGrid className="w-3.5 h-3.5" /> Ranger</button>
-        <button type="button" onClick={() => arrange("row")} className="inline-flex items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur w-7 h-7 text-gray-300 hover:text-white hover:bg-white/10" title="Ranger en ligne, de gauche à droite (H)" aria-label="Ranger en ligne"><Columns3 className="w-3.5 h-3.5" /></button>
-        <button type="button" onClick={() => arrange("column")} className="inline-flex items-center justify-center rounded-full border border-white/10 bg-black/40 backdrop-blur w-7 h-7 text-gray-300 hover:text-white hover:bg-white/10" title="Ranger en colonne, de haut en bas (V)" aria-label="Ranger en colonne"><Rows3 className="w-3.5 h-3.5" /></button>
-        <span className="hidden md:inline text-[10px] text-gray-600 ml-1">⌘K clients, actions, pages · ⌘0 tout voir · F nouvelles cartes · R ranger · H en ligne · V en colonne · Suppr retirer · G garder · X couper · P publier · glisse un fichier</span>
+        <button type="button" onClick={() => arrange()} className="inline-flex items-center gap-1.5 rounded-full border border-ui-line bg-black/50 backdrop-blur px-3 py-1.5 text-xs text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised" title="Ranger les cartes (R)"><LayoutGrid className="w-3.5 h-3.5" /> Ranger</button>
+        <button type="button" onClick={() => arrange("row")} className="inline-flex items-center justify-center rounded-full border border-ui-line bg-black/50 backdrop-blur w-7 h-7 text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised" title="Ranger en ligne, de gauche à droite (H)" aria-label="Ranger en ligne"><Columns3 className="w-3.5 h-3.5" /></button>
+        <button type="button" onClick={() => arrange("column")} className="inline-flex items-center justify-center rounded-full border border-ui-line bg-black/50 backdrop-blur w-7 h-7 text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised" title="Ranger en colonne, de haut en bas (V)" aria-label="Ranger en colonne"><Rows3 className="w-3.5 h-3.5" /></button>
+        <span className="hidden md:inline text-[10px] text-ui-muted ml-1">⌘K clients, actions, pages · ⌘0 tout voir · F nouvelles cartes · R ranger · H en ligne · V en colonne · Suppr retirer · G garder · X couper · P publier · glisse un fichier</span>
       </div>
       {undo && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 inline-flex items-center gap-3 rounded-full border border-white/10 bg-[#0d0a1a]/95 backdrop-blur px-4 py-2 text-xs text-gray-200 shadow-xl pointer-events-auto">
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 inline-flex items-center gap-3 rounded-full border border-ui-line bg-ui-bg/95 backdrop-blur px-4 py-2 text-xs text-ui-fg shadow-xl pointer-events-auto">
           {undo.cards.length > 1 ? `${undo.cards.length} cartes retirées` : "Carte retirée"}
-          <button type="button" onClick={undoRemove} className="font-semibold text-violet-300 hover:text-white">Annuler</button>
+          <button type="button" onClick={undoRemove} className="font-medium text-ui-accent-ink hover:text-ui-fg">Annuler</button>
         </div>
       )}
 
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 pointer-events-none">
         <div className="flex items-center gap-2 pointer-events-auto">
-          <Link href="/cockpit" className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10"><ArrowLeft className="w-3.5 h-3.5" /> Quitter</Link>
-          <button type="button" data-rail-toggle="left" onClick={() => toggleRail("left")} className={`inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-2.5 py-1.5 text-xs hover:bg-white/10 ${railLeft ? "text-violet-200" : "text-gray-300"}`} title="Pages (rail de gauche)"><PanelLeft className="w-3.5 h-3.5" /></button>
-          <div data-mo-page-title className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-200 max-w-[320px]">
-            {board?.kind === "client" ? <Briefcase className="w-3.5 h-3.5 text-violet-300 shrink-0" /> : <span className="w-2 h-2 rounded-full bg-violet-400 shrink-0" />}<span className="truncate">{currentTitle || "…"}</span>
+          <Link href="/cockpit" className="inline-flex items-center gap-1.5 rounded-full border border-ui-line bg-black/50 backdrop-blur px-3 py-1.5 text-xs text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised"><ArrowLeft className="w-3.5 h-3.5" /> Quitter</Link>
+          <button type="button" data-rail-toggle="left" onClick={() => toggleRail("left")} className={`inline-flex items-center gap-1.5 rounded-full border border-ui-line bg-black/50 backdrop-blur px-2.5 py-1.5 text-xs hover:bg-ui-raised ${railLeft ? "text-ui-accent-ink" : "text-ui-fg2"}`} title="Pages (rail de gauche)"><PanelLeft className="w-3.5 h-3.5" /></button>
+          <div data-mo-page-title className="inline-flex items-center gap-1.5 rounded-full border border-ui-line bg-black/50 backdrop-blur px-3 py-1.5 text-xs text-ui-fg max-w-[320px]">
+            {board?.kind === "client" ? <Briefcase className="w-3.5 h-3.5 text-ui-accent-ink shrink-0" /> : <span className="w-2 h-2 rounded-full bg-ui-accent shrink-0" />}<span className="truncate">{currentTitle || "…"}</span>
           </div>
         </div>
         <div className="flex items-center gap-2 pointer-events-auto">
-          <button type="button" data-mo-palette-button onClick={() => setPalette({ open: true, mode: "all" })} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Clients, actions, pages (⌘K)"><Search className="w-3.5 h-3.5" /> <span className="hidden md:inline">Rechercher</span> <kbd className="hidden md:inline text-[10px] text-gray-500 border border-white/10 rounded px-1">⌘K</kbd></button>
-          <button type="button" onClick={fitAll} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title="Tout voir"><Maximize2 className="w-3.5 h-3.5" /> Tout voir</button>
-          <button type="button" onClick={() => { setMuted((m) => { if (!m) voice.hush(); return !m; }); }} className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-2.5 py-1.5 text-xs text-gray-300 hover:text-white hover:bg-white/10" title={muted ? "Réactiver la voix de Mo" : "Couper la voix de Mo"}>{muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>
-          <button type="button" data-rail-toggle="right" onClick={() => toggleRail("right")} className={`inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 backdrop-blur px-2.5 py-1.5 text-xs hover:bg-white/10 ${railRight ? "text-violet-200" : "text-gray-300"}`} title="Journal du jour (rail de droite)"><PanelRight className="w-3.5 h-3.5" /></button>
+          <button type="button" data-mo-palette-button onClick={() => setPalette({ open: true, mode: "all" })} className="inline-flex items-center gap-1.5 rounded-full border border-ui-line bg-black/50 backdrop-blur px-3 py-1.5 text-xs text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised" title="Clients, actions, pages (⌘K)"><Search className="w-3.5 h-3.5" /> <span className="hidden md:inline">Rechercher</span> <kbd className="hidden md:inline text-[10px] text-ui-muted border border-ui-line rounded px-1">⌘K</kbd></button>
+          <button type="button" onClick={fitAll} className="inline-flex items-center gap-1.5 rounded-full border border-ui-line bg-black/50 backdrop-blur px-3 py-1.5 text-xs text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised" title="Tout voir"><Maximize2 className="w-3.5 h-3.5" /> Tout voir</button>
+          <button type="button" onClick={() => { setMuted((m) => { if (!m) voice.hush(); return !m; }); }} className="inline-flex items-center gap-1.5 rounded-full border border-ui-line bg-black/50 backdrop-blur px-2.5 py-1.5 text-xs text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised" title={muted ? "Réactiver la voix de Mo" : "Couper la voix de Mo"}>{muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>
+          <button type="button" data-rail-toggle="right" onClick={() => toggleRail("right")} className={`inline-flex items-center gap-1.5 rounded-full border border-ui-line bg-black/50 backdrop-blur px-2.5 py-1.5 text-xs hover:bg-ui-raised ${railRight ? "text-ui-accent-ink" : "text-ui-fg2"}`} title="Journal du jour (rail de droite)"><PanelRight className="w-3.5 h-3.5" /></button>
         </div>
       </div>
 
@@ -1082,12 +1082,12 @@ export function MoPage() {
       {menu && menuFrame && (
         <>
           <div className="fixed inset-0 z-30" onMouseDown={() => setMenu(null)} onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
-          <div data-frame-context-menu className="fixed z-40 w-72 rounded-xl border border-white/10 bg-[#0d0a1a]/95 backdrop-blur-xl shadow-2xl p-1.5 text-xs" style={{ left: Math.min(menu.x, window.innerWidth - 300), top: Math.min(menu.y, window.innerHeight - 200) }}>
-            <div className="px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 flex items-center gap-1.5"><FrameIcon className="w-3 h-3" /> {menuFrame.clientName}</div>
-            {!menuFrameHasPage && <button type="button" data-menu-detach onClick={() => void detachFrame(menuFrame.id)} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-violet-200 hover:bg-white/10"><FileOutput className="w-3.5 h-3.5" /> Détacher en page</button>}
-            <button type="button" onClick={() => { setMenu(null); focusFrame(menuFrame.clientId); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-gray-200 hover:bg-white/10"><Maximize2 className="w-3.5 h-3.5" /> Voir le cadre</button>
-            <button type="button" onClick={() => { setMenu(null); onToggle(menuFrame.id); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-gray-200 hover:bg-white/10">{menuFrame.minimized ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />} {menuFrame.minimized ? "Déplier" : "Replier"}</button>
-            <button type="button" onClick={() => { setMenu(null); removeCards([menuFrame.id]); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-gray-400 hover:text-rose-300 hover:bg-white/10"><X className="w-3.5 h-3.5 shrink-0" /> <span className="whitespace-nowrap">Retirer le cadre <span className="text-gray-600">(les cartes restent)</span></span></button>
+          <div data-frame-context-menu className="fixed z-40 w-72 rounded-xl border border-ui-line bg-ui-bg/95 backdrop-blur-xl shadow-2xl p-1.5 text-xs" style={{ left: Math.min(menu.x, window.innerWidth - 300), top: Math.min(menu.y, window.innerHeight - 200) }}>
+            <div className="px-2.5 py-1.5 text-[10px] text-ui-muted flex items-center gap-1.5"><FrameIcon className="w-3 h-3" /> {menuFrame.clientName}</div>
+            {!menuFrameHasPage && <button type="button" data-menu-detach onClick={() => void detachFrame(menuFrame.id)} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-ui-accent-ink hover:bg-ui-raised"><FileOutput className="w-3.5 h-3.5" /> Détacher en page</button>}
+            <button type="button" onClick={() => { setMenu(null); focusFrame(menuFrame.clientId); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-ui-fg hover:bg-ui-raised"><Maximize2 className="w-3.5 h-3.5" /> Voir le cadre</button>
+            <button type="button" onClick={() => { setMenu(null); onToggle(menuFrame.id); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-ui-fg hover:bg-ui-raised">{menuFrame.minimized ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />} {menuFrame.minimized ? "Déplier" : "Replier"}</button>
+            <button type="button" onClick={() => { setMenu(null); removeCards([menuFrame.id]); }} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-ui-fg2 hover:text-rose-300 hover:bg-ui-raised"><X className="w-3.5 h-3.5 shrink-0" /> <span className="whitespace-nowrap">Retirer le cadre <span className="text-ui-muted">(les cartes restent)</span></span></button>
           </div>
         </>
       )}
@@ -1099,9 +1099,9 @@ export function MoPage() {
       {/* Empty state */}
       {board && !board.cards.length && !run && !intro && !ghost && (
         <div className="absolute inset-x-0 top-[28%] flex flex-col items-center pointer-events-none">
-          <div className="text-lg text-gray-300">Qu&apos;est-ce qu&apos;on regarde ?</div>
+          <div className="text-lg text-ui-fg2">Qu&apos;est-ce qu&apos;on regarde ?</div>
           <div className="mt-3 flex flex-col gap-1.5 items-center pointer-events-auto">
-            {SUGGESTIONS.map((s) => <button key={s} type="button" onClick={() => send(s)} className="rounded-full border border-white/10 bg-black/40 backdrop-blur px-3.5 py-1.5 text-xs text-gray-300 hover:text-white hover:border-violet-400/50">{s}</button>)}
+            {SUGGESTIONS.map((s) => <button key={s} type="button" onClick={() => send(s)} className="rounded-full border border-ui-line bg-black/50 backdrop-blur px-3.5 py-1.5 text-xs text-ui-fg2 hover:text-ui-fg hover:border-ui-accent">{s}</button>)}
           </div>
         </div>
       )}

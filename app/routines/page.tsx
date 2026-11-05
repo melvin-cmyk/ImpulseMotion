@@ -14,7 +14,7 @@ function NewButton() {
   return (
     <Link
       href="/routines/new"
-      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold shrink-0"
+      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ui-accent hover:brightness-110 text-ui-on-accent text-sm font-medium shrink-0"
     >
       <Plus className="w-4 h-4" /> Nouvelle routine
     </Link>
@@ -66,20 +66,20 @@ export default function RoutinesPage() {
       {error && (
         <Card padded className="border-red-900/40">
           <p className="text-sm text-red-400">Les routines n&apos;ont pas pu être chargées ({error}).</p>
-          <button type="button" onClick={() => void load()} className="mt-2 text-xs underline text-gray-300">Réessayer</button>
+          <button type="button" onClick={() => void load()} className="mt-2 text-xs underline text-ui-fg2">Réessayer</button>
         </Card>
       )}
 
       {routines === null && !error && (
-        <div className="flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
+        <div className="flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
       )}
 
       {empty && (
         <Card padded className="py-8">
           <div className="max-w-2xl mx-auto text-center">
-            <Repeat className="w-8 h-8 text-violet-400 mx-auto mb-3" />
-            <h2 className="text-base font-semibold text-white">Aucune routine pour l&apos;instant</h2>
-            <p className="text-sm text-gray-400 mt-2 leading-relaxed">
+            <Repeat className="w-8 h-8 text-ui-accent-ink mx-auto mb-3" />
+            <h2 className="text-base font-medium text-ui-fg">Aucune routine pour l&apos;instant</h2>
+            <p className="text-sm text-ui-fg2 mt-2 leading-relaxed">
               Une routine est une suite d&apos;étapes fixes que l&apos;application exécute pour vous, à heure dite : elle lit des données,
               les trie, puis agit. Vous la décrivez en français à une IA, qui la construit avec vous. Rien ne part sans un essai à blanc
               que vous avez relu.
@@ -90,11 +90,11 @@ export default function RoutinesPage() {
               const Icon = EXAMPLE_ICON[ex.key] ?? Repeat;
               return (
                 <Link key={ex.key} href={`/routines/new?exemple=${ex.key}`} className="block">
-                  <Card padded interactive className="h-full bg-gray-950/50">
-                    <Icon className="w-5 h-5 text-violet-400" />
-                    <h3 className="text-sm font-semibold text-white mt-2">{ex.title}</h3>
-                    <p className="text-xs text-gray-400 mt-1 leading-relaxed">{ex.text}</p>
-                    <span className="text-xs text-violet-300 mt-3 inline-block">Partir de cet exemple →</span>
+                  <Card padded interactive className="h-full bg-ui-bg">
+                    <Icon className="w-5 h-5 text-ui-accent-ink" />
+                    <h3 className="text-sm font-medium text-ui-fg mt-2">{ex.title}</h3>
+                    <p className="text-xs text-ui-fg2 mt-1 leading-relaxed">{ex.text}</p>
+                    <span className="text-xs text-ui-accent-ink mt-3 inline-block">Partir de cet exemple →</span>
                   </Card>
                 </Link>
               );
@@ -105,14 +105,14 @@ export default function RoutinesPage() {
 
       {routines !== null && !empty && (
         <>
-          <label className="flex items-center gap-2 text-xs text-gray-400 w-fit">
-            <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} className="accent-violet-600" />
+          <label className="flex items-center gap-2 text-xs text-ui-fg2 w-fit">
+            <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} className="accent-ui-accent" />
             Afficher les routines archivées
           </label>
 
           {routines.length === 0 ? (
             <Card padded className="text-center py-10">
-              <p className="text-sm text-gray-400">Aucune routine, archivée ou non.</p>
+              <p className="text-sm text-ui-fg2">Aucune routine, archivée ou non.</p>
             </Card>
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -124,14 +124,14 @@ export default function RoutinesPage() {
                     <Card padded interactive className="h-full">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold truncate">{routineClientLabel(r)}</div>
-                          <h3 className="text-sm font-semibold text-white mt-0.5 break-words">{r.name}</h3>
+                          <div className="text-[11px] text-ui-accent-ink font-medium truncate">{routineClientLabel(r)}</div>
+                          <h3 className="text-sm font-medium text-ui-fg mt-0.5 break-words">{r.name}</h3>
                         </div>
                         <Pill tone={st.tone} className="shrink-0">{st.label}</Pill>
                       </div>
 
-                      <div className="text-xs text-gray-400 mt-2 flex items-center gap-1.5">
-                        <CalendarClock className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                      <div className="text-xs text-ui-fg2 mt-2 flex items-center gap-1.5">
+                        <CalendarClock className="w-3.5 h-3.5 text-ui-muted shrink-0" />
                         {hasDefinition(r) ? scheduleTitle(r.schedule, r.timezone) : "Pas encore de définition"}
                       </div>
 
@@ -144,12 +144,12 @@ export default function RoutinesPage() {
 
                       <dl className="grid grid-cols-2 gap-2 mt-3 text-[11px]">
                         <div>
-                          <dt className="text-gray-600">Prochaine exécution</dt>
-                          <dd className="text-gray-300">{r.status === "active" ? dateTimeLabel(r.nextRunAt, r.timezone) : "—"}</dd>
+                          <dt className="text-ui-muted">Prochaine exécution</dt>
+                          <dd className="text-ui-fg2">{r.status === "active" ? dateTimeLabel(r.nextRunAt, r.timezone) : "—"}</dd>
                         </div>
                         <div>
-                          <dt className="text-gray-600">Dernière exécution</dt>
-                          <dd className="text-gray-300 flex flex-wrap items-center gap-1.5">
+                          <dt className="text-ui-muted">Dernière exécution</dt>
+                          <dd className="text-ui-fg2 flex flex-wrap items-center gap-1.5">
                             {r.lastRunAt ? dateTimeLabel(r.lastRunAt, r.timezone) : "Jamais"}
                             {last && r.lastRunAt && <Pill tone={last.tone} className="text-[10px]">{last.label}</Pill>}
                           </dd>

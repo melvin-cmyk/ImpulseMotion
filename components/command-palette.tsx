@@ -65,12 +65,12 @@ export function CommandPalette({ userId }: { userId: string | null }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-900/60 hover:bg-gray-900 hover:border-gray-700 px-2.5 py-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors w-64 max-w-[50vw]"
+        className="inline-flex items-center gap-2 rounded-lg border border-ui-line bg-ui-card hover:bg-ui-raised hover:border-ui-line-strong px-2.5 py-1.5 text-sm text-ui-fg2 hover:text-ui-fg transition-colors w-64 max-w-[50vw]"
         title="Rechercher un client (⌘K)"
       >
         <Search className="w-3.5 h-3.5 shrink-0" />
         <span className="flex-1 text-left truncate">Rechercher un client…</span>
-        <kbd className="hidden md:inline-flex items-center gap-0.5 text-[10px] text-gray-500 bg-gray-950 border border-gray-800 rounded px-1 py-0.5">
+        <kbd className="hidden md:inline-flex items-center gap-0.5 text-[10px] text-ui-muted bg-ui-bg border border-ui-line rounded px-1 py-0.5">
           <Command className="w-2.5 h-2.5" />K
         </kbd>
       </button>

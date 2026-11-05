@@ -190,21 +190,21 @@ export function TextEditor({ asset, onClose, onSaved }: {
     }
   }
 
-  const field = "w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-sm text-white outline-none focus:border-violet-500";
+  const field = "w-full bg-ui-bg border border-ui-line rounded-lg px-2.5 py-1.5 text-sm text-ui-fg outline-none focus:border-ui-accent";
   const set = <K extends keyof Layers>(k: K, v: Layers[K]) => setL((x) => ({ ...x, [k]: v }));
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-gray-950 border border-gray-800 rounded-2xl max-w-5xl w-full max-h-[94vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-          <span className="text-sm text-white font-semibold">Textes & logo — posés exactement, sans IA</span>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Fermer"><X className="w-5 h-5" /></button>
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-ui-bg border border-ui-line rounded-xl max-w-5xl w-full max-h-[94vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-ui-line">
+          <span className="text-sm text-ui-fg font-medium">Textes & logo — posés exactement, sans IA</span>
+          <button type="button" onClick={onClose} className="text-ui-fg2 hover:text-ui-fg" aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-4 grid md:grid-cols-[minmax(0,1fr)_300px] gap-4">
-          <div className="flex items-center justify-center bg-gray-900 rounded-lg min-h-[300px]">
-            {base ? <canvas ref={canvasRef} className="max-w-full max-h-[75vh] h-auto w-auto rounded" /> : <Loader2 className="w-6 h-6 animate-spin text-gray-500" />}
+          <div className="flex items-center justify-center bg-ui-card rounded-lg min-h-[300px]">
+            {base ? <canvas ref={canvasRef} className="max-w-full max-h-[75vh] h-auto w-auto rounded" /> : <Loader2 className="w-6 h-6 animate-spin text-ui-muted" />}
           </div>
-          <div className="space-y-3 text-xs text-gray-400">
+          <div className="space-y-3 text-xs text-ui-fg2">
             <label className="block">Titre<textarea value={L.headline} onChange={(e) => set("headline", e.target.value)} rows={2} className={`${field} mt-1 resize-y`} placeholder="ON FAIT ÉQUIPE TOUT L'HIVER" /></label>
             <label className="block">Sous-ligne<input value={L.subline} onChange={(e) => set("subline", e.target.value)} className={`${field} mt-1`} placeholder="Du 1er décembre au 31 janvier" /></label>
             <label className="block">Bouton (facultatif)<input value={L.cta} onChange={(e) => set("cta", e.target.value)} className={`${field} mt-1`} placeholder="J'en profite" /></label>
@@ -229,17 +229,17 @@ export function TextEditor({ asset, onClose, onSaved }: {
             <div>
               <span>Logo (PNG transparent de préférence)</span>
               <div className="flex items-center gap-2 mt-1">
-                <button type="button" onClick={() => logoRef.current?.click()} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-800 text-gray-300 hover:text-white"><ImagePlus className="w-4 h-4" /> {L.logo ? "Changer" : "Ajouter"}</button>
-                {L.logo && <button type="button" onClick={() => { setLogoImg(null); set("logo", null); }} className="text-gray-500 hover:text-white">Retirer</button>}
+                <button type="button" onClick={() => logoRef.current?.click()} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-ui-line text-ui-fg2 hover:text-ui-fg"><ImagePlus className="w-4 h-4" /> {L.logo ? "Changer" : "Ajouter"}</button>
+                {L.logo && <button type="button" onClick={() => { setLogoImg(null); set("logo", null); }} className="text-ui-muted hover:text-ui-fg">Retirer</button>}
               </div>
               <input ref={logoRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(e) => { void pickLogo(e.target.files?.[0]); e.target.value = ""; }} />
               {L.logo && <label className="block mt-2">Taille du logo : {L.logoSize} %<input type="range" min={8} max={40} value={L.logoSize} onChange={(e) => set("logoSize", Number(e.target.value))} className="w-full" /></label>}
             </div>
             {error && <p className="text-sm text-red-300">{error}</p>}
-            <button type="button" onClick={() => void save()} disabled={saving || !base} className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-sm text-white font-medium">
+            <button type="button" onClick={() => void save()} disabled={saving || !base} className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-ui-accent hover:brightness-110 disabled:opacity-40 text-sm text-ui-on-accent font-medium">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />} Enregistrer dans le Studio
             </button>
-            <p className="text-[11px] text-gray-500">Une nouvelle image est créée ; le visuel d&apos;origine reste intact.</p>
+            <p className="text-[11px] text-ui-muted">Une nouvelle image est créée ; le visuel d&apos;origine reste intact.</p>
           </div>
         </div>
       </div>

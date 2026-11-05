@@ -219,12 +219,12 @@ export default function ClientSheetPage() {
 
   if (error && !sheet) return (
     <div className="p-6 space-y-3">
-      <Link href="/portfolio" className="text-sm text-gray-400 hover:text-white inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Clients</Link>
+      <Link href="/portfolio" className="text-sm text-ui-fg2 hover:text-ui-fg inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Clients</Link>
       <div className="text-red-400 text-sm">{error}</div>
-      <button type="button" onClick={() => load(false)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white">Réessayer</button>
+      <button type="button" onClick={() => load(false)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent">Réessayer</button>
     </div>
   );
-  if (!sheet) return <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement de la fiche client…</div>;
+  if (!sheet) return <div className="p-6 flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement de la fiche client…</div>;
 
   const c = sheet.client;
   const d = sheet.data;
@@ -244,24 +244,24 @@ export default function ClientSheetPage() {
   const funnel = d.funnel as { steps: Array<{ label: string; value: number }>; rates: Array<{ label: string; pct: number }> } | undefined;
   const rangeQs = `?since=${sheet.range.since}&until=${sheet.range.until}`;
 
-  const btn = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-gray-900 border-gray-800 text-gray-300 hover:text-white hover:border-gray-700 transition-colors";
-  const dateInput = "bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]";
+  const btn = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-ui-card border-ui-line text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong transition-colors";
+  const dateInput = "bg-transparent text-xs text-ui-fg2 focus:outline-none";
 
   return (
     <div className={`p-6 space-y-6 max-w-7xl mx-auto ${refreshing || loading ? "opacity-80" : ""}`}>
       {toast && <Toast message={toast.message} tone={toast.tone} onClose={() => setToast(null)} />}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <Link href="/portfolio" className="text-sm text-gray-400 hover:text-white inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Clients</Link>
+        <Link href="/portfolio" className="text-sm text-ui-fg2 hover:text-ui-fg inline-flex items-center gap-1"><ArrowLeft className="w-4 h-4" /> Clients</Link>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${rangeError ? "border-red-700 bg-red-950/30" : "border-gray-800 bg-gray-900"}`} title="Appliqué à la sortie du champ ou avec Entrée">
+          <div className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${rangeError ? "border-red-700 bg-red-950/30" : "border-ui-line bg-ui-card"}`} title="Appliqué à la sortie du champ ou avec Entrée">
             <input type="date" value={draft.since} max={draft.until || undefined} onChange={(e) => setDraft((x) => ({ ...x, since: e.target.value }))} onBlur={applyDraft} onKeyDown={(e) => { if (e.key === "Enter") applyDraft(); }} className={dateInput} />
-            <span className="text-gray-600 text-xs">→</span>
+            <span className="text-ui-muted text-xs">→</span>
             <input type="date" value={draft.until} min={draft.since || undefined} onChange={(e) => setDraft((x) => ({ ...x, until: e.target.value }))} onBlur={applyDraft} onKeyDown={(e) => { if (e.key === "Enter") applyDraft(); }} className={dateInput} />
           </div>
           <Link href={`/d/${c.id}${rangeQs}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Dashboard consultant</Link>
           <Link href={`/analyse?client=${c.id}`} className={btn}><Sparkles className="w-3.5 h-3.5" /> Analyse Ads</Link>
           {session?.baseRole === "admin" && <Link href={`/admin/bots/${c.id}`} className={btn}><Bot className="w-3.5 h-3.5" /> Bot privé</Link>}
-          <Link href={`/reports?new=1&dashboardId=${c.id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white"><FileText className="w-3.5 h-3.5" /> Rapport IA</Link>
+          <Link href={`/reports?new=1&dashboardId=${c.id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent"><FileText className="w-3.5 h-3.5" /> Rapport IA</Link>
         </div>
       </div>
       {rangeError && <div className="text-xs text-red-400 -mt-4">{rangeError}</div>}
@@ -271,8 +271,8 @@ export default function ClientSheetPage() {
 
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-white">{c.name}</h1>
-          <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs text-gray-500">
+          <h1 className="text-2xl font-medium text-ui-fg">{c.name}</h1>
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs text-ui-muted">
             {c.metaAccountId && <Pill tone="blue">Meta · {c.metaAccountId}</Pill>}
             {c.googleCustomerId && <Pill tone="emerald">Google · {c.googleCustomerId}</Pill>}
             {(c.tiktokAccounts ?? []).map((a) => <Pill key={a.id} tone="violet">TikTok · {a.name ?? a.id}</Pill>)}
@@ -283,21 +283,21 @@ export default function ClientSheetPage() {
           <Freshness className="mt-2" rangeLabel={sheet.rangeLabel} fetchedAt={sheet.fetchedAt ?? sheet.generatedAt} onRefresh={() => load(true)} refreshing={refreshing} />
         </div>
         <div className="flex flex-col items-end gap-2">
-          <label className="text-xs text-gray-400 inline-flex items-center gap-2">
-            <Bot className="w-4 h-4 text-violet-400" /> Rapport automatique
+          <label className="text-xs text-ui-fg2 inline-flex items-center gap-2">
+            <Bot className="w-4 h-4 text-ui-accent-ink" /> Rapport automatique
             <select
               value={c.reportFrequency ?? "none"}
               disabled={savingFreq}
               onChange={(e) => setFrequency(e.target.value)}
-              className="bg-gray-900 border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500 disabled:opacity-60"
+              className="bg-ui-card border border-ui-line rounded-lg px-2 py-1.5 text-xs text-ui-fg focus:outline-none focus:border-ui-accent disabled:opacity-60"
             >
               <option value="none">désactivé</option>
               <option value="weekly">chaque lundi (7 derniers jours)</option>
               <option value="monthly">le 1er du mois (mois précédent)</option>
             </select>
           </label>
-          <label className="text-xs text-gray-400 inline-flex items-center gap-2" title="Dossier projects/{slug} du client dans HQ (mémoire de l'agence) : objectifs, KPI cible, décisions, tests. Lu avant chaque rapport IA, mis en cache 7 jours ; le copilote du dashboard ne consulte HQ qu'à votre demande.">
-            <BookOpen className="w-4 h-4 text-violet-400" /> Dossier HQ
+          <label className="text-xs text-ui-fg2 inline-flex items-center gap-2" title="Dossier projects/{slug} du client dans HQ (mémoire de l'agence) : objectifs, KPI cible, décisions, tests. Lu avant chaque rapport IA, mis en cache 7 jours ; le copilote du dashboard ne consulte HQ qu'à votre demande.">
+            <BookOpen className="w-4 h-4 text-ui-accent-ink" /> Dossier HQ
             <input
               type="text"
               placeholder="auto"
@@ -306,13 +306,13 @@ export default function ClientSheetPage() {
               onChange={(e) => setHqDraft(e.target.value)}
               onBlur={saveHqSlug}
               onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-              className="w-32 bg-gray-900 border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-violet-500 disabled:opacity-60"
+              className="w-32 bg-ui-card border border-ui-line rounded-lg px-2 py-1.5 text-xs text-ui-fg font-mono focus:outline-none focus:border-ui-accent disabled:opacity-60"
             />
             <button
               type="button"
               onClick={refreshHqContext}
               disabled={hqBusy}
-              className="inline-flex items-center gap-1 text-violet-300 hover:text-white disabled:opacity-60"
+              className="inline-flex items-center gap-1 text-ui-accent-ink hover:text-ui-fg disabled:opacity-60"
               title={c.hqContextAt ? `Contexte lu le ${new Date(c.hqContextAt).toLocaleDateString("fr-FR")} — relire maintenant` : "Aucun contexte HQ chargé — lire maintenant"}
             >
               {hqBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
@@ -320,8 +320,8 @@ export default function ClientSheetPage() {
             </button>
           </label>
           {c.metaAccountId && (
-            <label className="text-xs text-gray-400 inline-flex items-center gap-2" title="Budget média mensuel du client — alimente le pacing du portefeuille et du dashboard client">
-              <Target className="w-4 h-4 text-violet-400" /> Budget mensuel
+            <label className="text-xs text-ui-fg2 inline-flex items-center gap-2" title="Budget média mensuel du client — alimente le pacing du portefeuille et du dashboard client">
+              <Target className="w-4 h-4 text-ui-accent-ink" /> Budget mensuel
               <input
                 type="number"
                 min={0}
@@ -332,7 +332,7 @@ export default function ClientSheetPage() {
                 onChange={(e) => setBudgetDraft((b) => ({ ...b, amount: e.target.value }))}
                 onBlur={saveBudget}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="w-28 bg-gray-900 border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-white text-right tabular-nums focus:outline-none focus:border-violet-500 disabled:opacity-60"
+                className="w-28 bg-ui-card border border-ui-line rounded-lg px-2 py-1.5 text-xs text-ui-fg text-right tabular-nums focus:outline-none focus:border-ui-accent disabled:opacity-60"
               />
               <input
                 type="text"
@@ -343,10 +343,10 @@ export default function ClientSheetPage() {
                 onChange={(e) => setBudgetDraft((b) => ({ ...b, currency: e.target.value.toUpperCase() }))}
                 onBlur={saveBudget}
                 onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                className="w-14 bg-gray-900 border border-gray-800 rounded-lg px-2 py-1.5 text-xs text-white uppercase focus:outline-none focus:border-violet-500 disabled:opacity-60"
+                className="w-14 bg-ui-card border border-ui-line rounded-lg px-2 py-1.5 text-xs text-ui-fg uppercase focus:outline-none focus:border-ui-accent disabled:opacity-60"
               />
               {savingBudget && <Loader2 className="w-3 h-3 animate-spin" />}
-              {!savingBudget && c.budgetSource === "account_budget" && <span className="text-[10px] text-gray-600" title="Budget hérité d'un objectif défini dans Mes budgets ; saisir un montant ici le remplace">hérité</span>}
+              {!savingBudget && c.budgetSource === "account_budget" && <span className="text-[10px] text-ui-muted" title="Budget hérité d'un objectif défini dans Mes budgets ; saisir un montant ici le remplace">hérité</span>}
             </label>
           )}
         </div>
@@ -363,17 +363,17 @@ export default function ClientSheetPage() {
           if (!k) return <KpiUnavailable key={metric} label={KPI_LABELS[metric] ?? metric} reason={err} />;
           const unavailable = !!k.unavailable;
           return (
-            <div key={metric} className={`bg-gray-900 border border-gray-800 rounded-xl px-3 py-2.5 ${unavailable ? "opacity-70" : ""}`} title={k.partial ? k.errors?.join(" · ") : undefined}>
-              <div className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">{KPI_LABELS[metric] ?? metric}{k.estimated && !unavailable ? " *" : ""}{k.partial ? " (partiel)" : ""}</div>
-              <div className={`text-lg font-bold tabular-nums mt-0.5 ${unavailable ? "text-gray-500" : "text-white"}`}>
+            <div key={metric} className={`bg-ui-card border border-ui-line rounded-xl px-3 py-2.5 ${unavailable ? "opacity-70" : ""}`} title={k.partial ? k.errors?.join(" · ") : undefined}>
+              <div className="text-[10px] text-ui-muted font-medium">{KPI_LABELS[metric] ?? metric}{k.estimated && !unavailable ? " *" : ""}{k.partial ? " (partiel)" : ""}</div>
+              <div className={`text-lg font-medium tabular-nums mt-0.5 ${unavailable ? "text-ui-muted" : "text-ui-fg"}`}>
                 {fmtMetric(metric, k.value, k.currency ?? cur, { estimated: k.estimated, unavailable })}
               </div>
               {unavailable ? (
-                <div className="text-[11px] text-gray-600">revenu non tracké, pas de panier moyen</div>
+                <div className="text-[11px] text-ui-muted">revenu non tracké, pas de panier moyen</div>
               ) : (
                 <div className="flex items-center gap-1.5">
                   <DeltaBadge metric={metric} deltaPct={k.deltaPct} />
-                  {k.previous !== null && <span className="text-[11px] text-gray-600">vs {fmtMetric(metric, k.previous, k.currency ?? cur, { estimated: k.estimated })}</span>}
+                  {k.previous !== null && <span className="text-[11px] text-ui-muted">vs {fmtMetric(metric, k.previous, k.currency ?? cur, { estimated: k.estimated })}</span>}
                 </div>
               )}
             </div>
@@ -384,24 +384,24 @@ export default function ClientSheetPage() {
       <div className="grid lg:grid-cols-3 gap-4">
         <Section title="Dépenses quotidiennes" className="lg:col-span-2" bodyClassName="p-3">
           {chart.length === 0 ? (
-            <div className="text-xs text-gray-500 px-2 py-8 text-center">Aucune donnée quotidienne{sheet.errors["daily:meta"] ? ` — ${sheet.errors["daily:meta"]}` : ""}</div>
+            <div className="text-xs text-ui-muted px-2 py-8 text-center">Aucune donnée quotidienne{sheet.errors["daily:meta"] ? ` — ${sheet.errors["daily:meta"]}` : ""}</div>
           ) : (
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chart} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="gMeta" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.4} /><stop offset="100%" stopColor="#8b5cf6" stopOpacity={0} /></linearGradient>
+                    <linearGradient id="gMeta" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--ui-accent)" stopOpacity={0.4} /><stop offset="100%" stopColor="var(--ui-accent)" stopOpacity={0} /></linearGradient>
                     <linearGradient id="gGoogle" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#10b981" stopOpacity={0.4} /><stop offset="100%" stopColor="#10b981" stopOpacity={0} /></linearGradient>
                     <linearGradient id="gTikTok" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ec4899" stopOpacity={0.4} /><stop offset="100%" stopColor="#ec4899" stopOpacity={0} /></linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tickFormatter={fmtDay} tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={24} />
-                  <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} width={56} tickFormatter={(v) => fmtMoney(Number(v), cur, { digits: 0 })} />
+                  <XAxis dataKey="date" tickFormatter={fmtDay} tick={{ fill: "var(--ui-muted)", fontSize: 10 }} axisLine={false} tickLine={false} minTickGap={24} />
+                  <YAxis tick={{ fill: "var(--ui-muted)", fontSize: 10 }} axisLine={false} tickLine={false} width={56} tickFormatter={(v) => fmtMoney(Number(v), cur, { digits: 0 })} />
                   <Tooltip
-                    contentStyle={{ background: "#111827", border: "1px solid #1f2937", borderRadius: 8, fontSize: 12 }}
+                    contentStyle={{ background: "var(--ui-card)", border: "1px solid var(--ui-line-strong)", borderRadius: 8, fontSize: 12 }}
                     labelFormatter={(l) => fmtDay(String(l))}
                     formatter={(v, name) => [fmtMoney(Number(v ?? 0), cur, { digits: 0 }), String(name) === "meta" ? "Meta" : String(name) === "tiktok" ? "TikTok" : "Google"]}
                   />
-                  {dailyMeta.length > 0 && <Area type="monotone" dataKey="meta" stroke="#8b5cf6" fill="url(#gMeta)" strokeWidth={2} dot={false} />}
+                  {dailyMeta.length > 0 && <Area type="monotone" dataKey="meta" stroke="var(--ui-accent)" fill="url(#gMeta)" strokeWidth={2} dot={false} />}
                   {dailyGoogle.length > 0 && <Area type="monotone" dataKey="google" stroke="#10b981" fill="url(#gGoogle)" strokeWidth={2} dot={false} />}
                   {dailyTikTok.length > 0 && <Area type="monotone" dataKey="tiktok" stroke="#ec4899" fill="url(#gTikTok)" strokeWidth={2} dot={false} />}
                 </AreaChart>
@@ -413,7 +413,7 @@ export default function ClientSheetPage() {
         <div className="space-y-4">
           <Section title="Suivi du budget mensuel" bodyClassName="p-4">
             {pacing ? <PacingBar pacing={pacing} /> : (
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-ui-muted">
                 {sheet.errors.pacing?.includes("Aucun budget") || !sheet.errors.pacing
                   ? <>Aucun budget mensuel configuré. Saisissez-le dans le champ « Budget mensuel » ci-dessus.</>
                   : <>Pacing indisponible — {sheet.errors.pacing}</>}
@@ -425,12 +425,12 @@ export default function ClientSheetPage() {
               <div className="flex items-end justify-between gap-2">
                 {funnel.steps.map((s) => (
                   <div key={s.label} className="text-center flex-1">
-                    <div className="text-sm font-bold text-white tabular-nums">{fmtNumber(s.value)}</div>
-                    <div className="text-[10px] text-gray-500 uppercase tracking-wide">{s.label}</div>
+                    <div className="text-sm font-medium text-ui-fg tabular-nums">{fmtNumber(s.value)}</div>
+                    <div className="text-[10px] text-ui-muted ">{s.label}</div>
                   </div>
                 ))}
               </div>
-              <div className="flex justify-around mt-2 text-[11px] text-gray-400">
+              <div className="flex justify-around mt-2 text-[11px] text-ui-fg2">
                 {funnel.rates.map((r) => <span key={r.label}>{r.label} {r.pct} %</span>)}
               </div>
             </Section>
@@ -441,20 +441,20 @@ export default function ClientSheetPage() {
       {platforms?.rows?.length ? (
         <Section title="Vue par plateforme" bodyClassName="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-950/50">
+            <thead className="bg-ui-bg">
               <tr>
                 {["Plateforme", "Coût", "Impr.", "CTR", "Clics", "CPC", "CR", "Conv.", "CPA"].map((h, i) => (
-                  <th key={h} className={`px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide ${i === 0 ? "text-left" : "text-right"}`}>{h}</th>
+                  <th key={h} className={`px-3 py-2 text-[11px] font-medium text-ui-muted ${i === 0 ? "text-left" : "text-right"}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {platforms.rows.map((r) => (
-                <tr key={String(r.platform)} className="border-t border-gray-800">
-                  <td className="px-3 py-2 text-white font-medium">{String(r.platform)}</td>
+                <tr key={String(r.platform)} className="border-t border-ui-line">
+                  <td className="px-3 py-2 text-ui-fg font-medium">{String(r.platform)}</td>
                   {(["cost", "impressions", "ctr", "clicks", "cpc", "cr", "conversions", "cpa"] as const).map((k) => (
                     <td key={k} className="px-3 py-2 text-right tabular-nums">
-                      <div className="text-gray-200">{fmtMetric(k === "cost" ? "spend" : k === "conversions" ? "purchases" : k, Number(r[k] ?? 0), (r.currency as string | null) ?? cur)}</div>
+                      <div className="text-ui-fg">{fmtMetric(k === "cost" ? "spend" : k === "conversions" ? "purchases" : k, Number(r[k] ?? 0), (r.currency as string | null) ?? cur)}</div>
                       <DeltaBadge metric={k === "cost" ? "spend" : k} deltaPct={(r[`${k}DeltaPct`] as number | null) ?? null} />
                     </td>
                   ))}
@@ -470,23 +470,23 @@ export default function ClientSheetPage() {
           .filter((t) => t.rows.length > 0 || t.err)
           .map((t) => (
             <Section key={t.label} title={t.label} bodyClassName="overflow-x-auto">
-              {t.err ? <div className="px-4 py-6 text-xs text-gray-500">{t.err}</div> : (
+              {t.err ? <div className="px-4 py-6 text-xs text-ui-muted">{t.err}</div> : (
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-950/50">
+                  <thead className="bg-ui-bg">
                     <tr>
-                      <th className="text-left px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase">Campagne</th>
-                      <th className="text-right px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase">Dépenses</th>
-                      <th className="text-right px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase">Conv.</th>
-                      <th className="text-right px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase">ROAS</th>
+                      <th className="text-left px-3 py-2 text-[11px] font-medium text-ui-muted uppercase">Campagne</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-medium text-ui-muted uppercase">Dépenses</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-medium text-ui-muted uppercase">Conv.</th>
+                      <th className="text-right px-3 py-2 text-[11px] font-medium text-ui-muted uppercase">ROAS</th>
                     </tr>
                   </thead>
                   <tbody>
                     {t.rows.map((r) => (
-                      <tr key={r.name} className={`border-t border-gray-800 ${r.spend > 50 && r.conversions === 0 ? "bg-red-500/5" : ""}`}>
-                        <td className="px-3 py-2 text-gray-200 truncate max-w-[260px]" title={r.name}>{r.name}</td>
-                        <td className="px-3 py-2 text-right text-white tabular-nums">{fmtMoney(r.spend, cur)}</td>
-                        <td className="px-3 py-2 text-right text-gray-300 tabular-nums">{fmtNumber(r.conversions)}</td>
-                        <td className={`px-3 py-2 text-right tabular-nums ${r.roas >= 2 ? "text-emerald-400" : r.roas > 0 && r.roas < 1 ? "text-red-400" : "text-gray-300"}`}>{fmtRoas(r.roas)}</td>
+                      <tr key={r.name} className={`border-t border-ui-line ${r.spend > 50 && r.conversions === 0 ? "bg-red-500/5" : ""}`}>
+                        <td className="px-3 py-2 text-ui-fg truncate max-w-[260px]" title={r.name}>{r.name}</td>
+                        <td className="px-3 py-2 text-right text-ui-fg tabular-nums">{fmtMoney(r.spend, cur)}</td>
+                        <td className="px-3 py-2 text-right text-ui-fg2 tabular-nums">{fmtNumber(r.conversions)}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums ${r.roas >= 2 ? "text-emerald-400" : r.roas > 0 && r.roas < 1 ? "text-red-400" : "text-ui-fg2"}`}>{fmtRoas(r.roas)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -497,19 +497,19 @@ export default function ClientSheetPage() {
       </div>
 
       {creatives.length > 0 && (
-        <Section title="Top créas Meta (par dépense)" action={c.metaAccountId ? <Link href={`/analyse?client=${c.id}`} className="text-xs text-violet-400 hover:text-white">Analyse créas →</Link> : undefined} bodyClassName="p-3">
+        <Section title="Top créas Meta (par dépense)" action={c.metaAccountId ? <Link href={`/analyse?client=${c.id}`} className="text-xs text-ui-accent-ink hover:text-ui-fg">Analyse créas →</Link> : undefined} bodyClassName="p-3">
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
             {creatives.map((cr) => (
-              <div key={cr.adId} className="bg-gray-950 border border-gray-800 rounded-lg overflow-hidden">
-                <div className="aspect-square bg-gray-900">
+              <div key={cr.adId} className="bg-ui-bg border border-ui-line rounded-lg overflow-hidden">
+                <div className="aspect-square bg-ui-card">
                   {cr.imageUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={`/api/media/proxy-image?url=${encodeURIComponent(cr.imageUrl)}&upgrade=1`} alt="" className="h-full w-full object-cover" />
                   )}
                 </div>
                 <div className="px-2 py-1.5">
-                  <div className="text-[10px] text-gray-300 truncate" title={cr.name}>{cr.name}</div>
-                  <div className="text-[10px] text-gray-500 tabular-nums">{fmtMoney(cr.spend, cur)} · ROAS {fmtRoas(cr.roas, { estimated: cr.estimated })} · hook {cr.hookRate} %</div>
+                  <div className="text-[10px] text-ui-fg2 truncate" title={cr.name}>{cr.name}</div>
+                  <div className="text-[10px] text-ui-muted tabular-nums">{fmtMoney(cr.spend, cur)} · ROAS {fmtRoas(cr.roas, { estimated: cr.estimated })} · hook {cr.hookRate} %</div>
                 </div>
               </div>
             ))}
@@ -522,16 +522,16 @@ export default function ClientSheetPage() {
       <CrmAttributionCard crm={sheet.crm} error={sheet.errors.crm} currency={cur} refreshing={refreshing} onRefresh={() => load(true)} />
 
       <div className="grid lg:grid-cols-2 gap-4">
-        <Section title="Rapports IA" action={<Link href={`/reports?dashboardId=${c.id}`} className="text-xs text-violet-400 hover:text-white">Tous →</Link>}>
+        <Section title="Rapports IA" action={<Link href={`/reports?dashboardId=${c.id}`} className="text-xs text-ui-accent-ink hover:text-ui-fg">Tous →</Link>}>
           {sheet.reports.length === 0 ? (
-            <div className="px-4 py-6 text-xs text-gray-500">Aucun rapport pour ce client. <Link href={`/reports?new=1&dashboardId=${c.id}`} className="text-violet-400">Générer le premier →</Link></div>
+            <div className="px-4 py-6 text-xs text-ui-muted">Aucun rapport pour ce client. <Link href={`/reports?new=1&dashboardId=${c.id}`} className="text-ui-accent-ink">Générer le premier →</Link></div>
           ) : (
-            <div className="divide-y divide-gray-800">
+            <div className="divide-y divide-ui-line">
               {sheet.reports.slice(0, 6).map((r) => (
-                <Link key={r.id} href={`/reports/${r.id}`} className="flex items-center justify-between px-4 py-2.5 hover:bg-gray-800/30">
+                <Link key={r.id} href={`/reports/${r.id}`} className="flex items-center justify-between px-4 py-2.5 hover:bg-ui-raised">
                   <div className="min-w-0">
-                    <div className="text-sm text-white truncate">{r.title}</div>
-                    <div className="text-[11px] text-gray-500">{new Date(r.createdAt).toLocaleDateString("fr-FR")}{r.trigger === "cron" ? " · automatique" : ""}{r.nextStepsCount > 0 ? ` · ${r.nextStepsDone}/${r.nextStepsCount} actions` : ""}</div>
+                    <div className="text-sm text-ui-fg truncate">{r.title}</div>
+                    <div className="text-[11px] text-ui-muted">{new Date(r.createdAt).toLocaleDateString("fr-FR")}{r.trigger === "cron" ? " · automatique" : ""}{r.nextStepsCount > 0 ? ` · ${r.nextStepsDone}/${r.nextStepsCount} actions` : ""}</div>
                   </div>
                   <Pill tone={r.status === "ready" ? "emerald" : r.status === "failed" ? "red" : "blue"}>{r.status === "ready" ? "Prêt" : r.status === "failed" ? "Échec" : "En cours"}</Pill>
                 </Link>
@@ -541,13 +541,13 @@ export default function ClientSheetPage() {
         </Section>
         <Section title="Dernières alertes">
           {alerts.length === 0 ? (
-            <div className="px-4 py-6 text-xs text-gray-500">Aucune alerte sur ce client.</div>
+            <div className="px-4 py-6 text-xs text-ui-muted">Aucune alerte sur ce client.</div>
           ) : (
-            <div className="divide-y divide-gray-800">
+            <div className="divide-y divide-ui-line">
               {alerts.map((a) => (
                 <div key={a.id} className={`px-4 py-2.5 ${a.acknowledged ? "opacity-60" : ""}`}>
-                  <div className="text-sm text-white">{a.message}</div>
-                  <div className="text-[11px] text-gray-500">{new Date(a.triggeredAt).toLocaleString("fr-FR")}{a.acknowledged ? " · acquittée" : ""}</div>
+                  <div className="text-sm text-ui-fg">{a.message}</div>
+                  <div className="text-[11px] text-ui-muted">{new Date(a.triggeredAt).toLocaleString("fr-FR")}{a.acknowledged ? " · acquittée" : ""}</div>
                 </div>
               ))}
             </div>
@@ -556,7 +556,7 @@ export default function ClientSheetPage() {
       </div>
 
       {Object.keys(sheet.errors).length > 0 && (
-        <Card padded className="text-[11px] text-gray-500">
+        <Card padded className="text-[11px] text-ui-muted">
           <details>
             <summary className="cursor-pointer">Données indisponibles ({Object.keys(sheet.errors).length})</summary>
             <ul className="mt-1 space-y-0.5">{Object.entries(sheet.errors).map(([k, v]) => <li key={k}>{k} : {v}</li>)}</ul>

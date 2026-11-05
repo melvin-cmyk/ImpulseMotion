@@ -94,9 +94,9 @@ const secs = (ms: number | null) => (ms === null ? "—" : ms < 1000 ? `${ms} ms
 
 /** « Mo : vitesse et compréhension » — the measures of spec §6 over the last 7 days (table MoTurn). */
 function MoMeasuresBlock({ mo }: { mo: MoMeasures | null }) {
-  const body = !mo ? <Card padded><p className="text-sm text-gray-500">Chargement…</p></Card>
-    : "error" in mo ? <Card padded><p className="text-sm text-amber-300">Mesures indisponibles : {mo.error}</p><p className="text-xs text-gray-500 mt-1">La table MoTurn arrive avec la migration 20261028230000_mo_turn (déployée au prochain build).</p></Card>
-    : mo.summary.turns === 0 ? <Card padded><p className="text-sm text-gray-400">Aucun tour de Mo sur les {mo.days} derniers jours.</p></Card>
+  const body = !mo ? <Card padded><p className="text-sm text-ui-muted">Chargement…</p></Card>
+    : "error" in mo ? <Card padded><p className="text-sm text-amber-300">Mesures indisponibles : {mo.error}</p><p className="text-xs text-ui-muted mt-1">La table MoTurn arrive avec la migration 20261028230000_mo_turn (déployée au prochain build).</p></Card>
+    : mo.summary.turns === 0 ? <Card padded><p className="text-sm text-ui-fg2">Aucun tour de Mo sur les {mo.days} derniers jours.</p></Card>
     : (() => {
       const s = mo.summary;
       const days = [...new Set(s.actionsByDay.map((a) => a.day))].sort((a, b) => (a < b ? 1 : -1)).slice(0, 7);
@@ -113,7 +113,7 @@ function MoMeasuresBlock({ mo }: { mo: MoMeasures | null }) {
           <Card className="overflow-x-auto">
             <table className="w-full text-sm" data-mo-measures>
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+                <tr className="text-left text-[11px] text-ui-muted border-b border-ui-line">
                   <th className="px-4 py-3 font-medium">Chemin</th>
                   <th className="px-4 py-3 font-medium text-right">Tours</th>
                   <th className="px-4 py-3 font-medium text-right">Première carte p50</th>
@@ -128,14 +128,14 @@ function MoMeasuresBlock({ mo }: { mo: MoMeasures | null }) {
                   const target = MO_TARGET_MS[p.path];
                   const ok = target !== undefined && p.p50FirstCardMs !== null ? p.p50FirstCardMs <= target : null;
                   return (
-                    <tr key={p.path} className="border-b border-gray-800/60">
-                      <td className="px-4 py-3 text-white font-medium">{MO_PATH_LABEL[p.path] ?? p.path}</td>
-                      <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{int(p.turns)}</td>
-                      <td className={`px-4 py-3 text-right tabular-nums font-semibold ${ok === null ? "text-gray-300" : ok ? "text-emerald-300" : "text-amber-300"}`}>{secs(p.p50FirstCardMs)}</td>
-                      <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{secs(p.p90FirstCardMs)}</td>
-                      <td className="px-4 py-3 text-right text-gray-400 tabular-nums">{secs(p.p50TotalMs)}</td>
-                      <td className="px-4 py-3 text-right text-gray-300 tabular-nums">{p.misunderstood}{p.turns ? <span className="text-gray-500"> · {Math.round((p.misunderstood / p.turns) * 100)} %</span> : null}</td>
-                      <td className="px-4 py-3 text-xs text-gray-500">{target !== undefined ? `p50 < ${secs(target)}` : p.path === "ask" ? "puce cliquée = compris" : "—"}</td>
+                    <tr key={p.path} className="border-b border-ui-line">
+                      <td className="px-4 py-3 text-ui-fg font-medium">{MO_PATH_LABEL[p.path] ?? p.path}</td>
+                      <td className="px-4 py-3 text-right text-ui-fg2 tabular-nums">{int(p.turns)}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums font-medium ${ok === null ? "text-ui-fg2" : ok ? "text-emerald-300" : "text-amber-300"}`}>{secs(p.p50FirstCardMs)}</td>
+                      <td className="px-4 py-3 text-right text-ui-fg2 tabular-nums">{secs(p.p90FirstCardMs)}</td>
+                      <td className="px-4 py-3 text-right text-ui-fg2 tabular-nums">{secs(p.p50TotalMs)}</td>
+                      <td className="px-4 py-3 text-right text-ui-fg2 tabular-nums">{p.misunderstood}{p.turns ? <span className="text-ui-muted"> · {Math.round((p.misunderstood / p.turns) * 100)} %</span> : null}</td>
+                      <td className="px-4 py-3 text-xs text-ui-muted">{target !== undefined ? `p50 < ${secs(target)}` : p.path === "ask" ? "puce cliquée = compris" : "—"}</td>
                     </tr>
                   );
                 })}
@@ -143,13 +143,13 @@ function MoMeasuresBlock({ mo }: { mo: MoMeasures | null }) {
             </table>
           </Card>
           <div>
-            <h3 className="text-sm font-semibold text-white">Travail réel : actions par jour et par consultant</h3>
-            <p className="text-xs text-gray-500 mb-2">Verdicts, publications préparées / confirmées, fichiers déposés, visuels générés, envois Drive — la preuve que Mo est l&apos;endroit où l&apos;on travaille.</p>
-            {s.actionsByDay.length === 0 ? <Card padded><p className="text-sm text-gray-400">Aucune action sur la période.</p></Card> : (
+            <h3 className="text-sm font-medium text-ui-fg">Travail réel : actions par jour et par consultant</h3>
+            <p className="text-xs text-ui-muted mb-2">Verdicts, publications préparées / confirmées, fichiers déposés, visuels générés, envois Drive — la preuve que Mo est l&apos;endroit où l&apos;on travaille.</p>
+            {s.actionsByDay.length === 0 ? <Card padded><p className="text-sm text-ui-fg2">Aucune action sur la période.</p></Card> : (
               <Card className="overflow-x-auto">
                 <table className="w-full text-sm" data-mo-actions>
                   <thead>
-                    <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+                    <tr className="text-left text-[11px] text-ui-muted border-b border-ui-line">
                       <th className="px-4 py-3 font-medium">Consultant</th>
                       {days.map((d) => <th key={d} className="px-4 py-3 font-medium text-right">{new Date(`${d}T12:00:00Z`).toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "2-digit" })}</th>)}
                       <th className="px-4 py-3 font-medium text-right">Total</th>
@@ -159,10 +159,10 @@ function MoMeasuresBlock({ mo }: { mo: MoMeasures | null }) {
                     {people.map((u) => {
                       const total = s.actionsByDay.filter((a) => a.userId === u).reduce((t, a) => t + a.actions, 0);
                       return (
-                        <tr key={u} className="border-b border-gray-800/60">
-                          <td className="px-4 py-3 text-white font-medium">{mo.people[u] ?? u}</td>
-                          {days.map((d) => { const c = cell(d, u); return <td key={d} className="px-4 py-3 text-right text-gray-300 tabular-nums" title={c ? Object.entries(c.kinds).map(([k, n]) => `${n} ${MO_KIND_LABEL[k] ?? k}`).join(", ") : ""}>{c ? int(c.actions) : <span className="text-gray-700">·</span>}</td>; })}
-                          <td className="px-4 py-3 text-right font-semibold text-white tabular-nums">{int(total)}</td>
+                        <tr key={u} className="border-b border-ui-line">
+                          <td className="px-4 py-3 text-ui-fg font-medium">{mo.people[u] ?? u}</td>
+                          {days.map((d) => { const c = cell(d, u); return <td key={d} className="px-4 py-3 text-right text-ui-fg2 tabular-nums" title={c ? Object.entries(c.kinds).map(([k, n]) => `${n} ${MO_KIND_LABEL[k] ?? k}`).join(", ") : ""}>{c ? int(c.actions) : <span className="text-ui-muted">·</span>}</td>; })}
+                          <td className="px-4 py-3 text-right font-medium text-ui-fg tabular-nums">{int(total)}</td>
                         </tr>
                       );
                     })}
@@ -177,8 +177,8 @@ function MoMeasuresBlock({ mo }: { mo: MoMeasures | null }) {
   return (
     <section className="space-y-3" data-mo-block>
       <div>
-        <h2 className="text-base font-semibold text-white">Mo : vitesse et compréhension</h2>
-        <p className="text-xs text-gray-500">
+        <h2 className="text-base font-medium text-ui-fg">Mo : vitesse et compréhension</h2>
+        <p className="text-xs text-ui-muted">
           Les 7 derniers jours, tous consultants. « Première carte » = de l&apos;envoi à la première carte pleine (mesuré dans le navigateur) ; « compris sans modèle » = part des demandes résolues par la navigation, le chemin rapide et les actions ; « mal compris » = reformulation dans la minute, « non / pas ça », carte retirée dans les 30 s, 👎 ou question de Mo restée sans réponse. La part des tours modèle en session reprise se lit dans le journal du relay (journalctl -u impulsemotion-relay), pas ici.
         </p>
       </div>
@@ -198,12 +198,12 @@ function QuotaBar({ label, window, warn, limit }: { label: string; window: Quota
   const resets = window?.resetsAt ? new Date(window.resetsAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
   return (
     <Card padded>
-      <div className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">{label}</div>
-      <div className="mt-1 text-2xl font-bold text-white tabular-nums">{pct} %</div>
-      <div className="mt-2 h-2 rounded-full bg-gray-800 overflow-hidden">
+      <div className="text-[11px] text-ui-muted font-medium">{label}</div>
+      <div className="mt-1 text-2xl font-medium text-ui-fg tabular-nums">{pct} %</div>
+      <div className="mt-2 h-2 rounded-full bg-ui-raised overflow-hidden">
         <div className={`h-full ${tone}`} style={{ width: `${pct}%` }} />
       </div>
-      <div className="text-xs text-gray-500 mt-2">remise à zéro {resets}</div>
+      <div className="text-xs text-ui-muted mt-2">remise à zéro {resets}</div>
     </Card>
   );
 }
@@ -284,11 +284,11 @@ export default function AdminUsagePage() {
                 setError(null);
                 setMonth(e.target.value);
               }}
-              className="px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none"
+              className="px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none"
             />
             <a
               href={`/api/admin/usage?month=${month}&format=csv`}
-              className="px-3 py-2 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+              className="px-3 py-2 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors"
             >
               Export CSV
             </a>
@@ -302,24 +302,24 @@ export default function AdminUsagePage() {
         <Kpi label="Tokens générés" value={int(total.output)} sub="sortie" accent="amber" />
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-ui-muted">
         Compteurs renvoyés par Bedrock à chaque réponse. AWS facture les quatre types à des prix différents
         (le cache écrit coûte plus cher que l&apos;entrée, le cache lu beaucoup moins) : ils restent séparés pour ton calcul.
         Les tests faits par un admin ou un consultant sont comptés à part.
       </p>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
-      {loading && <p className="text-sm text-gray-500">Chargement…</p>}
+      {loading && <p className="text-sm text-ui-muted">Chargement…</p>}
       {!loading && !error && clients.length === 0 && (
         <Card padded>
-          <p className="text-sm text-gray-400">Aucune consommation Bedrock ce mois-ci.</p>
-          <p className="text-xs text-gray-500 mt-1">Le suivi démarre à la première réponse d&apos;un bot client.</p>
+          <p className="text-sm text-ui-fg2">Aucune consommation Bedrock ce mois-ci.</p>
+          <p className="text-xs text-ui-muted mt-1">Le suivi démarre à la première réponse d&apos;un bot client.</p>
         </Card>
       )}
 
       <section className="space-y-2">
-        <h2 className="text-base font-semibold text-white">Abonnement Claude Max</h2>
-        <p className="text-xs text-gray-500">
+        <h2 className="text-base font-medium text-ui-fg">Abonnement Claude Max</h2>
+        <p className="text-xs text-ui-muted">
           Utilisation de l&apos;abonnement qui fait tourner les chats, rapports et analyses. Au-delà du seuil de bascule, le relay envoie les chats de l&apos;équipe sur un autre compte Claude Max jusqu&apos;à la remise à zéro de la fenêtre. Amazon Bedrock reste réservé aux bots clients.
         </p>
         {quotaError && <Card padded><p className="text-sm text-red-400">Quota indisponible : {quotaError}</p></Card>}
@@ -328,16 +328,16 @@ export default function AdminUsagePage() {
             <QuotaBar label="Fenêtre 5 heures" window={quota.fiveHour} warn={quota.warnPct} limit={quota.switchPct} />
             <QuotaBar label="Fenêtre 7 jours" window={quota.sevenDay} warn={quota.warnPct} limit={quota.switchPct} />
             <Card padded>
-              <div className="text-[11px] uppercase tracking-wider text-gray-500 font-semibold">Mode actuel</div>
-              <div className={`mt-1 text-lg font-bold ${quota.fallbackActive ? "text-amber-300" : "text-emerald-300"}`}>
+              <div className="text-[11px] text-ui-muted font-medium">Mode actuel</div>
+              <div className={`mt-1 text-lg font-medium ${quota.fallbackActive ? "text-amber-300" : "text-emerald-300"}`}>
                 {quota.fallbackActive ? "Autre compte Claude Max (bascule)" : "Abonnement Claude"}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-ui-muted mt-1">
                 {quota.fallbackActive
                   ? `Compte saturé : l'équipe passe sur un autre compte Claude Max, retour ${quota.exhaustedUntil ? `vers ${new Date(quota.exhaustedUntil).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : "à la prochaine fenêtre"}`
                   : `Bascule sur un autre compte Claude Max à ${quota.switchPct} % · un seul message Slack, quand le quota est atteint`}
               </div>
-              {quota.checkedAt && <div className="text-[11px] text-gray-600 mt-2">vérifié à {new Date(quota.checkedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{quota.error ? ` · erreur : ${quota.error}` : ""}</div>}
+              {quota.checkedAt && <div className="text-[11px] text-ui-muted mt-2">vérifié à {new Date(quota.checkedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}{quota.error ? ` · erreur : ${quota.error}` : ""}</div>}
             </Card>
           </div>
         )}
@@ -348,18 +348,18 @@ export default function AdminUsagePage() {
       <MoMeasuresBlock mo={mo} />
 
       <section className="space-y-2">
-        <h2 className="text-base font-semibold text-white">Où partent les tokens (toutes surfaces)</h2>
-        <p className="text-xs text-gray-500">
+        <h2 className="text-base font-medium text-ui-fg">Où partent les tokens (toutes surfaces)</h2>
+        <p className="text-xs text-ui-muted">
           Toutes les sessions IA du mois, abonnement compris : par surface, modèle et effort. « Tokens / message » = poids moyen d&apos;une réponse,
           tous compteurs confondus — c&apos;est le chiffre à faire baisser.
         </p>
         {features.length === 0 ? (
-          <Card padded><p className="text-sm text-gray-400">Aucune session enregistrée ce mois-ci.</p></Card>
+          <Card padded><p className="text-sm text-ui-fg2">Aucune session enregistrée ce mois-ci.</p></Card>
         ) : (
           <Card className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+                <tr className="text-left text-[11px] text-ui-muted border-b border-ui-line">
                   <th className="px-4 py-3 font-medium">Surface</th>
                   <th className="px-4 py-3 font-medium">Modèle</th>
                   <th className="px-4 py-3 font-medium text-right">Messages</th>
@@ -373,12 +373,12 @@ export default function AdminUsagePage() {
               </thead>
               <tbody>
                 {features.map((f) => (
-                  <tr key={`${f.feature}|${f.provider}|${f.model}`} className="border-b border-gray-800/60">
-                    <td className="px-4 py-3 text-white font-medium">{FEATURE_LABEL[f.feature] ?? f.feature}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">{f.model}<span className="text-gray-600"> · {f.provider === "bedrock" ? "Bedrock" : "abonnement"}</span></td>
-                    <TokenCells t={f} className="px-4 py-3 text-right text-gray-300" />
+                  <tr key={`${f.feature}|${f.provider}|${f.model}`} className="border-b border-ui-line">
+                    <td className="px-4 py-3 text-ui-fg font-medium">{FEATURE_LABEL[f.feature] ?? f.feature}</td>
+                    <td className="px-4 py-3 text-ui-fg2 text-xs">{f.model}<span className="text-ui-muted"> · {f.provider === "bedrock" ? "Bedrock" : "abonnement"}</span></td>
+                    <TokenCells t={f} className="px-4 py-3 text-right text-ui-fg2" />
                     <td className="px-4 py-3 text-right text-amber-300 tabular-nums">{int(f.avgTokensPerMessage)}</td>
-                    <td className="px-4 py-3 text-right text-gray-500 tabular-nums">{f.messages ? (f.turns / f.messages).toFixed(1) : "—"}</td>
+                    <td className="px-4 py-3 text-right text-ui-muted tabular-nums">{f.messages ? (f.turns / f.messages).toFixed(1) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -390,25 +390,25 @@ export default function AdminUsagePage() {
       <section className="space-y-2">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="text-base font-semibold text-white">Consommation par profil</h2>
-            <p className="text-xs text-gray-500">
+            <h2 className="text-base font-medium text-ui-fg">Consommation par profil</h2>
+            <p className="text-xs text-ui-muted">
               Ce que chaque personne a consommé ce mois-ci, toutes surfaces confondues. « Automatique » = ce que l&apos;application lance seule
               (rapports programmés, alertes). Cliquez sur une ligne pour le détail par surface.
             </p>
           </div>
           {profiles.length > 0 && (
-            <a href={`/api/admin/usage?month=${month}&format=csv&by=profile`} className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-800">
+            <a href={`/api/admin/usage?month=${month}&format=csv&by=profile`} className="rounded-lg border border-ui-line bg-ui-card px-3 py-1.5 text-xs font-medium text-ui-fg2 hover:bg-ui-raised">
               Exporter en CSV
             </a>
           )}
         </div>
         {profiles.length === 0 ? (
-          <Card padded><p className="text-sm text-gray-400">Aucune session enregistrée ce mois-ci.</p></Card>
+          <Card padded><p className="text-sm text-ui-fg2">Aucune session enregistrée ce mois-ci.</p></Card>
         ) : (
           <Card className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+                <tr className="text-left text-[11px] text-ui-muted border-b border-ui-line">
                   <th className="px-4 py-3 font-medium">Profil</th>
                   <th className="px-4 py-3 font-medium">Rôle</th>
                   <th className="px-4 py-3 font-medium text-right">Messages</th>
@@ -426,33 +426,33 @@ export default function AdminUsagePage() {
                   const label = p.key === "system" ? "Automatique" : p.name || p.email || "Profil inconnu";
                   return (
                     <Fragment key={p.key}>
-                      <tr className="border-b border-gray-800/60 hover:bg-gray-900/60">
+                      <tr className="border-b border-ui-line hover:bg-ui-raised">
                         <td className="px-4 py-3">
                           <button type="button" onClick={() => setOpenProfile(isOpen ? null : p.key)} aria-expanded={isOpen} className="text-left">
-                            <span className="font-medium text-white">{isOpen ? "▾" : "▸"} {label}</span>
-                            {p.email && p.name && <span className="block text-[11px] text-gray-500">{p.email}</span>}
+                            <span className="font-medium text-ui-fg">{isOpen ? "▾" : "▸"} {label}</span>
+                            {p.email && p.name && <span className="block text-[11px] text-ui-muted">{p.email}</span>}
                           </button>
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-400">{ROLE_LABEL[p.role] ?? p.role}</td>
-                        <TokenCells t={p} className="px-4 py-3 text-right text-gray-300 tabular-nums" />
-                        <td className="px-4 py-3 text-right font-semibold text-white tabular-nums">{int(p.tokens)}</td>
+                        <td className="px-4 py-3 text-xs text-ui-fg2">{ROLE_LABEL[p.role] ?? p.role}</td>
+                        <TokenCells t={p} className="px-4 py-3 text-right text-ui-fg2 tabular-nums" />
+                        <td className="px-4 py-3 text-right font-medium text-ui-fg tabular-nums">{int(p.tokens)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-gray-800">
-                              <div className="h-full bg-violet-500" style={{ width: `${Math.max(1, Math.round(p.share * 100))}%` }} />
+                            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-ui-raised">
+                              <div className="h-full bg-ui-accent" style={{ width: `${Math.max(1, Math.round(p.share * 100))}%` }} />
                             </div>
-                            <span className="text-xs text-gray-400 tabular-nums">{Math.round(p.share * 100)} %</span>
+                            <span className="text-xs text-ui-fg2 tabular-nums">{Math.round(p.share * 100)} %</span>
                           </div>
                           {p.bedrockTokens > 0 && <span className="text-[10px] text-amber-300">dont {int(p.bedrockTokens)} sur Bedrock</span>}
                         </td>
                       </tr>
                       {isOpen && p.features.map((f) => (
-                        <tr key={`${p.key}|${f.feature}`} className="border-b border-gray-800/40 bg-gray-950/60 text-xs">
-                          <td className="px-4 py-2 pl-9 text-gray-300">{FEATURE_LABEL[f.feature] ?? f.feature}</td>
+                        <tr key={`${p.key}|${f.feature}`} className="border-b border-ui-line bg-ui-bg text-xs">
+                          <td className="px-4 py-2 pl-9 text-ui-fg2">{FEATURE_LABEL[f.feature] ?? f.feature}</td>
                           <td className="px-4 py-2" />
-                          <TokenCells t={f} className="px-4 py-2 text-right text-gray-400 tabular-nums" />
-                          <td className="px-4 py-2 text-right text-gray-200 tabular-nums">{int(f.tokens)}</td>
-                          <td className="px-4 py-2 text-gray-500 tabular-nums">{p.tokens ? Math.round((f.tokens / p.tokens) * 100) : 0} % de ce profil</td>
+                          <TokenCells t={f} className="px-4 py-2 text-right text-ui-fg2 tabular-nums" />
+                          <td className="px-4 py-2 text-right text-ui-fg tabular-nums">{int(f.tokens)}</td>
+                          <td className="px-4 py-2 text-ui-muted tabular-nums">{p.tokens ? Math.round((f.tokens / p.tokens) * 100) : 0} % de ce profil</td>
                         </tr>
                       ))}
                     </Fragment>
@@ -464,12 +464,12 @@ export default function AdminUsagePage() {
         )}
       </section>
 
-      <h2 className="text-base font-semibold text-white">Bedrock — facturation par client</h2>
+      <h2 className="text-base font-medium text-ui-fg">Bedrock — facturation par client</h2>
       {clients.length > 0 && (
         <Card className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+              <tr className="text-left text-[11px] text-ui-muted border-b border-ui-line">
                 <th className="px-4 py-3 font-medium">Client</th>
                 <th className="px-4 py-3 font-medium text-right">Messages</th>
                 <th className="px-4 py-3 font-medium text-right">Entrée</th>
@@ -484,22 +484,22 @@ export default function AdminUsagePage() {
                 <Fragment key={c.key}>
                   <tr
                     onClick={() => setOpenKey(openKey === c.key ? null : c.key)}
-                    className="border-b border-gray-800/60 hover:bg-gray-800/40 cursor-pointer"
+                    className="border-b border-ui-line hover:bg-ui-raised cursor-pointer"
                   >
-                    <td className="px-4 py-3 text-white font-medium">
+                    <td className="px-4 py-3 text-ui-fg font-medium">
                       {c.clientName}
-                      {c.clientKey && <span className="ml-2 text-xs text-gray-500">{c.clientKey}</span>}
+                      {c.clientKey && <span className="ml-2 text-xs text-ui-muted">{c.clientKey}</span>}
                     </td>
-                    <TokenCells t={c.billable} className="px-4 py-3 text-right text-gray-300" />
-                    <td className="px-4 py-3 text-right text-gray-500">{int(c.staff.messages)}</td>
+                    <TokenCells t={c.billable} className="px-4 py-3 text-right text-ui-fg2" />
+                    <td className="px-4 py-3 text-right text-ui-muted">{int(c.staff.messages)}</td>
                   </tr>
                   {openKey === c.key &&
                     c.users.map((u) => (
-                      <tr key={`${c.key}:${u.email}`} className="border-b border-gray-800/40 bg-gray-950/60 text-xs">
-                        <td className="px-4 py-2 pl-8 text-gray-400">
+                      <tr key={`${c.key}:${u.email}`} className="border-b border-ui-line bg-ui-bg text-xs">
+                        <td className="px-4 py-2 pl-8 text-ui-fg2">
                           {u.email} <Pill tone={u.role === "client" ? "blue" : "default"} className="ml-1">{u.role === "client" ? "client" : `${u.role} · non facturé`}</Pill>
                         </td>
-                        <TokenCells t={u} className="px-4 py-2 text-right text-gray-400" />
+                        <TokenCells t={u} className="px-4 py-2 text-right text-ui-fg2" />
                         <td className="px-4 py-2" />
                       </tr>
                     ))}

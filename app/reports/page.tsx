@@ -93,7 +93,7 @@ export default function ReportsPage() {
           <button
             type="button"
             onClick={() => setShowNew((v) => !v)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ui-accent hover:brightness-110 text-ui-on-accent text-sm font-medium"
           >
             <Plus className="w-4 h-4" /> Nouveau rapport
           </button>
@@ -103,8 +103,8 @@ export default function ReportsPage() {
       {showNew && (
         <Card padded>
           <div className="flex flex-wrap items-center gap-3 mb-4">
-            <h2 className="text-sm font-semibold text-white">Nouveau rapport</h2>
-            <div className="inline-flex rounded-lg border border-gray-800 bg-gray-950 p-0.5">
+            <h2 className="text-sm font-medium text-ui-fg">Nouveau rapport</h2>
+            <div className="inline-flex rounded-lg border border-ui-line bg-ui-bg p-0.5">
               {([
                 { key: "report", label: "Rapport de performance", icon: BarChart3 },
                 { key: "persona", label: "Persona", icon: Users },
@@ -113,20 +113,20 @@ export default function ReportsPage() {
                   key={k.key}
                   type="button"
                   onClick={() => setNewKind(k.key)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${newKind === k.key ? "bg-violet-600 text-white" : "text-gray-400 hover:text-white"}`}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${newKind === k.key ? "bg-ui-accent text-ui-on-accent" : "text-ui-fg2 hover:text-ui-fg"}`}
                 >
                   <k.icon className="w-3.5 h-3.5" /> {k.label}
                 </button>
               ))}
             </div>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-ui-muted">
               {newKind === "report"
                 ? "Synthèse, analyse et next steps sur une période, à partir des données Meta, Google et TikTok Ads."
                 : "Les personas du client tels qu'HQ les documente : lecture, rédaction par l'IA à partir des avis clients, confirmation puis écriture dans HQ."}
             </span>
           </div>
           {clients.length === 0 ? (
-            <p className="text-sm text-gray-500">Aucun client (dashboard) disponible. Créez d&apos;abord un dashboard client dans <Link href="/d" className="text-violet-400">Dashboards clients</Link>.</p>
+            <p className="text-sm text-ui-muted">Aucun client (dashboard) disponible. Créez d&apos;abord un dashboard client dans <Link href="/d" className="text-ui-accent-ink">Dashboards clients</Link>.</p>
           ) : newKind === "report" ? (
             <NewReportForm
               clients={clients}
@@ -137,11 +137,11 @@ export default function ReportsPage() {
           ) : (
             <div className="space-y-4">
               <div>
-                <label className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Client</label>
+                <label className="block text-[11px] text-ui-muted font-medium mb-1">Client</label>
                 <select
                   value={personaClientId || filter || clients[0]?.id || ""}
                   onChange={(e) => setPersonaClientId(e.target.value)}
-                  className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500"
+                  className="w-full bg-ui-bg border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg focus:outline-none focus:border-ui-accent"
                 >
                   {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -149,7 +149,7 @@ export default function ReportsPage() {
               {(personaClientId || filter || clients[0]?.id) && (
                 <PersonaPanel key={personaClientId || filter || clients[0].id} dashboardId={personaClientId || filter || clients[0].id} />
               )}
-              <button type="button" onClick={() => setShowNew(false)} className="px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white">Fermer</button>
+              <button type="button" onClick={() => setShowNew(false)} className="px-3 py-2 rounded-lg text-sm text-ui-fg2 hover:text-ui-fg">Fermer</button>
             </div>
           )}
         </Card>
@@ -159,13 +159,13 @@ export default function ReportsPage() {
         <select
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
+          className="bg-ui-card border border-ui-line rounded-lg px-3 py-1.5 text-sm text-ui-fg focus:outline-none focus:border-ui-accent"
         >
           <option value="">Tous les clients</option>
           {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         {clients.some((c) => c.reportFrequency) && (
-          <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+          <span className="text-xs text-ui-muted inline-flex items-center gap-1">
             <Clock className="w-3.5 h-3.5" />
             {clients.filter((c) => c.reportFrequency).length} client{clients.filter((c) => c.reportFrequency).length > 1 ? "s" : ""} en rapport automatique
           </span>
@@ -175,12 +175,12 @@ export default function ReportsPage() {
       {error && <div className="text-sm text-red-400">{error}</div>}
 
       {reports === null ? (
-        <div className="flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
+        <div className="flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement…</div>
       ) : reports.length === 0 ? (
         <Card padded className="text-center py-12">
-          <FileText className="w-8 h-8 text-gray-700 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">Aucun rapport pour l&apos;instant.</p>
-          <p className="text-xs text-gray-600 mt-1">Cliquez sur « Nouveau rapport » pour générer le premier.</p>
+          <FileText className="w-8 h-8 text-ui-muted mx-auto mb-3" />
+          <p className="text-sm text-ui-fg2">Aucun rapport pour l&apos;instant.</p>
+          <p className="text-xs text-ui-muted mt-1">Cliquez sur « Nouveau rapport » pour générer le premier.</p>
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
@@ -191,15 +191,15 @@ export default function ReportsPage() {
                 <Card padded interactive className="h-full">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold truncate">{r.dashboard.name}</div>
-                      <h3 className="text-sm font-semibold text-white mt-0.5 truncate">{r.title}</h3>
-                      <div className="text-xs text-gray-500 mt-0.5">{fmtPeriod(r.periodSince, r.periodUntil)}</div>
+                      <div className="text-[11px] text-ui-accent-ink font-medium truncate">{r.dashboard.name}</div>
+                      <h3 className="text-sm font-medium text-ui-fg mt-0.5 truncate">{r.title}</h3>
+                      <div className="text-xs text-ui-muted mt-0.5">{fmtPeriod(r.periodSince, r.periodUntil)}</div>
                     </div>
                     <Pill tone={st.tone}>{r.status === "generating" ? <span className="inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />{st.label}</span> : st.label}</Pill>
                   </div>
-                  {r.summary && <p className="text-xs text-gray-400 mt-3 line-clamp-3 leading-relaxed">{r.summary}</p>}
+                  {r.summary && <p className="text-xs text-ui-fg2 mt-3 line-clamp-3 leading-relaxed">{r.summary}</p>}
                   {r.error && r.status === "failed" && <p className="text-xs text-red-400 mt-3 line-clamp-2">{r.error}</p>}
-                  <div className="flex items-center gap-3 mt-3 text-[11px] text-gray-600">
+                  <div className="flex items-center gap-3 mt-3 text-[11px] text-ui-muted">
                     <span>{fmtDate(r.createdAt)}</span>
                     {r.trigger === "cron" ? <span className="inline-flex items-center gap-1"><Bot className="w-3 h-3" /> automatique</span> : r.author?.name ? <span>par {r.author.name}</span> : null}
                     {r.nextStepsCount > 0 && <span className="ml-auto tabular-nums">{r.nextStepsDone}/{r.nextStepsCount} actions faites</span>}

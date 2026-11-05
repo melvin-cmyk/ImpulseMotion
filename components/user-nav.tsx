@@ -13,8 +13,8 @@ interface UserNavProps {
 
 const providerLabel = (provider: string | null | undefined) => {
   if (provider === "facebook") return { label: "Meta Ads", color: "bg-blue-500" };
-  if (provider === "tiktok") return { label: "TikTok Ads", color: "bg-gray-800 border border-gray-700" };
-  return { label: "Connected", color: "bg-gray-700" };
+  if (provider === "tiktok") return { label: "TikTok Ads", color: "bg-ui-raised border border-ui-line-strong" };
+  return { label: "Connected", color: "bg-ui-line-strong" };
 };
 
 export function clearScopedStorage() {
@@ -40,7 +40,7 @@ export function UserNav({ session }: UserNavProps) {
   return (
     <div className="flex items-center gap-3">
       {/* Provider badge */}
-      <span className={`text-xs px-2 py-0.5 rounded-full text-white/80 ${color}`}>
+      <span className={`text-xs px-2 py-0.5 rounded-full text-ui-fg2 ${color}`}>
         {label}
       </span>
 
@@ -55,11 +55,11 @@ export function UserNav({ session }: UserNavProps) {
             className="rounded-full"
           />
         ) : (
-          <div className="w-7 h-7 rounded-full bg-violet-600 flex items-center justify-center text-xs font-semibold text-white">
+          <div className="w-7 h-7 rounded-full bg-ui-accent flex items-center justify-center text-xs font-medium text-ui-on-accent">
             {(user?.name ?? "U")[0].toUpperCase()}
           </div>
         )}
-        <span className="text-sm text-gray-300 hidden sm:block">
+        <span className="text-sm text-ui-fg2 hidden sm:block">
           {user?.name ?? "User"}
         </span>
       </div>
@@ -70,7 +70,7 @@ export function UserNav({ session }: UserNavProps) {
           clearScopedStorage();
           signOut({ callbackUrl: "/login" });
         }}
-        className="text-xs text-gray-500 hover:text-gray-300 transition-colors ml-1"
+        className="text-xs text-ui-muted hover:text-ui-fg2 transition-colors ml-1"
       >
         Déconnexion
       </button>

@@ -15,15 +15,15 @@ export function deltaTone(metric: string, deltaPct: number | null): "good" | "ba
 }
 
 export function DeltaBadge({ metric, deltaPct, className }: { metric: string; deltaPct: number | null | undefined; className?: string }) {
-  if (deltaPct === null || deltaPct === undefined) return <span className={cn("text-[11px] text-gray-600", className)}>—</span>;
+  if (deltaPct === null || deltaPct === undefined) return <span className={cn("text-[11px] text-ui-muted", className)}>—</span>;
   const tone = deltaTone(metric, deltaPct);
   return (
     <span
       className={cn(
-        "text-[11px] font-semibold tabular-nums",
+        "text-[11px] font-medium tabular-nums",
         tone === "good" && "text-emerald-400",
         tone === "bad" && "text-red-400",
-        tone === "neutral" && "text-gray-500",
+        tone === "neutral" && "text-ui-muted",
         className,
       )}
     >
@@ -48,22 +48,22 @@ export interface PacingLike {
 export function PacingBar({ pacing, compact }: { pacing: PacingLike; compact?: boolean }) {
   const unknown = pacing.status === "unknown";
   const critical = pacing.status.startsWith("critical");
-  const color = unknown ? "text-gray-500" : pacing.status === "on_track" ? "text-emerald-400" : critical ? "text-red-400" : "text-amber-400";
-  const bar = unknown ? "bg-gray-700" : pacing.status === "on_track" ? "bg-emerald-500" : critical ? "bg-red-500" : "bg-amber-500";
+  const color = unknown ? "text-ui-muted" : pacing.status === "on_track" ? "text-emerald-400" : critical ? "text-red-400" : "text-amber-400";
+  const bar = unknown ? "bg-ui-line-strong" : pacing.status === "on_track" ? "bg-emerald-500" : critical ? "bg-red-500" : "bg-amber-500";
   const elapsedPct = Math.round((pacing.daysElapsed / pacing.daysInMonth) * 100);
   const day = Math.floor(pacing.daysElapsed);
   return (
     <div className={compact ? "min-w-[120px]" : ""} title={unknown ? `Pacing inconnu : ${pacing.reason ?? "données Meta indisponibles"}` : PACING_STATUS_LABEL[pacing.status]}>
       <div className="flex items-center justify-between text-[11px] mb-1">
-        <span className="text-gray-500">J{day}/{pacing.daysInMonth}</span>
-        <span className={`font-bold tabular-nums ${color}`}>{unknown ? "n/d" : `${pacing.pacingPct} %`}</span>
+        <span className="text-ui-muted">J{day}/{pacing.daysInMonth}</span>
+        <span className={`font-medium tabular-nums ${color}`}>{unknown ? "n/d" : `${pacing.pacingPct} %`}</span>
       </div>
-      <div className="relative h-1.5 rounded-full bg-gray-800 overflow-hidden">
+      <div className="relative h-1.5 rounded-full bg-ui-raised overflow-hidden">
         <div className={`absolute top-0 bottom-0 ${bar}`} style={{ width: `${unknown ? 0 : Math.min(pacing.pacingPct, 100)}%` }} />
-        <div className="absolute top-0 bottom-0 w-px bg-white/30" style={{ left: `${Math.min(elapsedPct, 100)}%` }} />
+        <div className="absolute top-0 bottom-0 w-px bg-ui-raised" style={{ left: `${Math.min(elapsedPct, 100)}%` }} />
       </div>
       {!compact && (
-        <div className="flex items-center justify-between text-[11px] text-gray-500 mt-1">
+        <div className="flex items-center justify-between text-[11px] text-ui-muted mt-1">
           <span>MTD {fmtMoney(pacing.mtdSpend, pacing.currency)}</span>
           <span>Projeté {unknown ? "n/d" : fmtMoney(pacing.projectedSpend, pacing.currency)} / {fmtMoney(pacing.monthlyTarget, pacing.currency)}</span>
         </div>

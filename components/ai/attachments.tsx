@@ -1,5 +1,7 @@
 "use client";
 
+import { FileText, Image as ImageIcon, Paperclip } from "lucide-react";
+
 /**
  * Attachments for the staff AI surfaces: images (downsized in the browser,
  * sent inline with the message) and documents (uploaded to the conversation's
@@ -124,9 +126,9 @@ export function AttachButton({ att, disabled, className }: { att: Attachments; d
         disabled={disabled || att.busy}
         title="Joindre des images ou des fichiers (Excel, CSV, PDF, Word…)"
         aria-label="Joindre un fichier"
-        className={className ?? "px-2.5 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600 disabled:opacity-50"}
+        className={className ?? "px-2.5 py-2 rounded-lg text-sm bg-ui-card border border-ui-line text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong disabled:opacity-50"}
       >
-        📎
+        <Paperclip className="w-4 h-4" strokeWidth={1.5} />
       </button>
     </>
   );
@@ -138,21 +140,21 @@ export function PendingAttachments({ att }: { att: Attachments }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {att.files.map((f) => (
-        <span key={f.path} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-gray-900 border border-gray-700 text-gray-300">
-          📄 {f.name} <span className="text-gray-500">{fmtBytes(f.bytes)}</span>
-          <button type="button" aria-label="Retirer le fichier" onClick={() => att.removeFile(f.path)} className="text-gray-500 hover:text-red-400 ml-1">✕</button>
+        <span key={f.path} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-ui-card border border-ui-line-strong text-ui-fg2">
+          <FileText className="inline w-3.5 h-3.5 mr-1 -mt-0.5" strokeWidth={1.5} />{f.name} <span className="text-ui-muted">{fmtBytes(f.bytes)}</span>
+          <button type="button" aria-label="Retirer le fichier" onClick={() => att.removeFile(f.path)} className="text-ui-muted hover:text-red-400 ml-1">✕</button>
         </span>
       ))}
-      {att.uploading && <span className="text-[11px] text-gray-500 px-2 py-0.5">Envoi de {att.uploading}…</span>}
+      {att.uploading && <span className="text-[11px] text-ui-muted px-2 py-0.5">Envoi de {att.uploading}…</span>}
       {att.images.map((im, k) => (
         <div key={k} className="relative">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`data:${im.mediaType};base64,${im.data}`} alt={im.name ?? `Image ${k + 1}`} title={im.name} className="h-14 w-14 object-cover rounded-md border border-gray-700" />
+          <img src={`data:${im.mediaType};base64,${im.data}`} alt={im.name ?? `Image ${k + 1}`} title={im.name} className="h-14 w-14 object-cover rounded-md border border-ui-line-strong" />
           <button
             type="button"
             onClick={() => att.removeImage(k)}
             aria-label="Retirer l'image"
-            className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-gray-800 border border-gray-600 text-gray-300 text-[10px] leading-none hover:bg-red-700"
+            className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-ui-raised border border-ui-line-strong text-ui-fg2 text-[10px] leading-none hover:bg-red-700"
           >
             ✕
           </button>
@@ -168,8 +170,8 @@ export function MessageAttachments({ images, files }: { images?: ChatImage[]; fi
   return (
     <div className="flex flex-wrap gap-1.5 mb-1.5">
       {files?.map((f) => (
-        <span key={f.path} className="text-[11px] px-2 py-0.5 rounded-md bg-gray-900 border border-violet-900/60 text-gray-300" title={f.path}>
-          📄 {f.name} <span className="text-gray-500">{fmtBytes(f.bytes)}</span>
+        <span key={f.path} className="text-[11px] px-2 py-0.5 rounded-md bg-ui-card border border-ui-accent text-ui-fg2" title={f.path}>
+          <FileText className="inline w-3.5 h-3.5 mr-1 -mt-0.5" strokeWidth={1.5} />{f.name} <span className="text-ui-muted">{fmtBytes(f.bytes)}</span>
         </span>
       ))}
       {images?.map((im, k) => im.data ? (
@@ -179,11 +181,11 @@ export function MessageAttachments({ images, files }: { images?: ChatImage[]; fi
           src={`data:${im.mediaType};base64,${im.data}`}
           alt={im.name ?? `Image ${k + 1}`}
           title={im.name}
-          className="h-16 w-16 object-cover rounded-md border border-violet-900/60"
+          className="h-16 w-16 object-cover rounded-md border border-ui-accent"
         />
       ) : (
         // Restored from local storage without its pixels (kept small on purpose).
-        <span key={k} className="text-[11px] px-2 py-0.5 rounded-md bg-gray-900 border border-violet-900/60 text-gray-400">🖼 {im.name ?? `Image ${k + 1}`}</span>
+        <span key={k} className="text-[11px] px-2 py-0.5 rounded-md bg-ui-card border border-ui-accent text-ui-fg2"><ImageIcon className="inline w-3.5 h-3.5 mr-1 -mt-0.5" strokeWidth={1.5} />{im.name ?? `Image ${k + 1}`}</span>
       ))}
     </div>
   );

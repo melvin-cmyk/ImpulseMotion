@@ -67,7 +67,7 @@ const GROUPS: Array<{ value: GroupBy; label: string; hint: string }> = [
 ];
 const PERIODS = [7, 14, 30, 60, 90, 180];
 const LAUNCH = [{ v: 0, l: "Toutes" }, { v: 7, l: "7 derniers jours" }, { v: 14, l: "14 derniers jours" }, { v: 30, l: "30 derniers jours" }, { v: 90, l: "90 derniers jours" }];
-const LINE_COLORS = ["#8b5cf6", "#f59e0b", "#10b981", "#3b82f6", "#ec4899", "#14b8a6", "#f97316", "#a3e635"];
+const LINE_COLORS = ["var(--ui-accent)", "#f59e0b", "#10b981", "#3b82f6", "#ec4899", "#14b8a6", "#f97316", "#a3e635"];
 const LAST_VIEW = "impulsemotion.analyse.lastView";
 const RATIO_KEY = "impulsemotion.analyse.cardRatio";
 const ratioListeners = new Set<() => void>();
@@ -343,24 +343,24 @@ export function TopPerforming() {
 
       <div className="flex-1 min-w-0 flex flex-col min-h-0">
         {/* ── Top bar (Motion: report name · freshness · source · Save · Share · ⋯) ── */}
-        <div className="h-14 shrink-0 border-b border-gray-800 flex items-center gap-2 px-5">
-          <div className="flex-1 min-w-0 text-sm text-gray-200 truncate">{sectionTitle.replace(/^\S+\s/, "")}{section === "ads" && dirty && <span className="ml-2 text-xs text-gray-500">· modifié</span>}</div>
+        <div className="h-14 shrink-0 border-b border-ui-line flex items-center gap-2 px-5">
+          <div className="flex-1 min-w-0 text-sm text-ui-fg truncate">{sectionTitle.replace(/^\S+\s/, "")}{section === "ads" && dirty && <span className="ml-2 text-xs text-ui-muted">· modifié</span>}</div>
           {section === "ads" && result?.coverage.until && (
-            <span className={`hidden md:inline-flex items-center gap-1.5 text-sm ${result.coverage.errors ? "text-red-300" : "text-gray-500"}`} title={`Données au ${result.coverage.until}${result.coverage.since ? `, historique depuis le ${result.coverage.since}` : ""}${result.coverage.errors ? ` · synchro en erreur sur ${result.coverage.errors} compte(s)` : ""}${result.coverage.loading ? " · historique en cours" : ""}`}>
+            <span className={`hidden md:inline-flex items-center gap-1.5 text-sm ${result.coverage.errors ? "text-red-300" : "text-ui-muted"}`} title={`Données au ${result.coverage.until}${result.coverage.since ? `, historique depuis le ${result.coverage.since}` : ""}${result.coverage.errors ? ` · synchro en erreur sur ${result.coverage.errors} compte(s)` : ""}${result.coverage.loading ? " · historique en cours" : ""}`}>
               données au {fmtShort(result.coverage.until)}
-              {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} title="Synchroniser maintenant (admin)" className="hover:text-white disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} /></button>}
+              {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} title="Synchroniser maintenant (admin)" className="hover:text-ui-fg disabled:opacity-50"><RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} /></button>}
             </span>
           )}
           {section === "ads" && platforms.length > 0 && (
             <Popover width={200} align="right" trigger={({ toggle }) => (
-              <button type="button" onClick={toggle} className={`${PILL} bg-violet-500/10 border-violet-500/30 text-violet-100`} title="Sources de données du rapport">
-                {platforms.filter((p) => !platformsOff.has(p)).map(platformName).join(" + ") || "Aucune source"}<ChevronDown className="w-3.5 h-3.5 text-violet-300" />
+              <button type="button" onClick={toggle} className={`${PILL} bg-ui-accent-soft border-ui-accent text-ui-accent-ink`} title="Sources de données du rapport">
+                {platforms.filter((p) => !platformsOff.has(p)).map(platformName).join(" + ") || "Aucune source"}<ChevronDown className="w-3.5 h-3.5 text-ui-accent-ink" />
               </button>
             )}>
               <MenuLabel>Sources</MenuLabel>
               {platforms.map((p) => (
-                <label key={p} className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer">
-                  <input type="checkbox" className="accent-violet-500" checked={!platformsOff.has(p)} onChange={() => setPlatformsOff((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else if (activeAccounts.filter((a) => a.platform !== p).length) n.add(p); return n; })} />
+                <label key={p} className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-ui-fg hover:bg-ui-raised cursor-pointer">
+                  <input type="checkbox" className="accent-ui-accent" checked={!platformsOff.has(p)} onChange={() => setPlatformsOff((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else if (activeAccounts.filter((a) => a.platform !== p).length) n.add(p); return n; })} />
                   {platformName(p)}
                 </label>
               ))}
@@ -375,7 +375,7 @@ export function TopPerforming() {
               metrics: visibleMetrics, columns, cardKeys: Array.from(selectedKeys), ratio,
             } : null)} />
           ) : (
-            <button type="button" onClick={() => void share()} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] bg-white px-3 text-sm font-medium text-gray-900 hover:bg-gray-200">{shared ? <><Check className="w-3.5 h-3.5" />Lien copié</> : "Copier le lien"}</button>
+            <button type="button" onClick={() => void share()} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] bg-ui-inverse px-3 text-sm font-medium text-ui-on-inverse hover:opacity-90">{shared ? <><Check className="w-3.5 h-3.5" />Lien copié</> : "Copier le lien"}</button>
           )}
           <Popover width={220} align="right" trigger={({ toggle }) => <button type="button" onClick={toggle} className={`${PILL} px-2`} aria-label="Plus d'actions"><MoreHorizontal className="w-4 h-4" /></button>}>
             {(close) => (<>
@@ -390,9 +390,9 @@ export function TopPerforming() {
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="mx-auto w-full max-w-[1040px] px-6 pt-14 pb-16">
             {/* ── Title (Motion: emoji + name 28 px, grey description) ── */}
-            <h1 className="text-[28px] leading-9 font-semibold text-white">{sectionTitle}</h1>
-            {sectionText && <p className="mt-1 text-base text-gray-400">{sectionText}</p>}
-            {client && <p className="mt-1 text-sm text-gray-500">{client.name}</p>}
+            <h1 className="text-[28px] leading-9 font-medium text-ui-fg">{sectionTitle}</h1>
+            {sectionText && <p className="mt-1 text-base text-ui-fg2">{sectionText}</p>}
+            {client && <p className="mt-1 text-sm text-ui-muted">{client.name}</p>}
 
             {section === "competitors" ? <div className="mt-8 -mx-6"><CompetitorsPanel key={client?.clientId ?? "none"} clientId={client?.clientId ?? null} clientName={clientName} /></div>
               : section === "leaderboard" ? <div className="mt-8 -mx-6">{query ? <Leaderboard query={query} clientId={client?.clientId ?? null} /> : <Empty title="Choisis un client" text="Le classement se calcule sur le client sélectionné en haut à gauche." />}</div>
@@ -408,24 +408,24 @@ export function TopPerforming() {
               {/* ── Controls (Motion: period → Group by → filter chips → Add filter) ── */}
               <div className="mt-10 flex items-center gap-2 flex-wrap">
                 <Popover width={280} trigger={({ toggle }) => (
-                  <button type="button" onClick={toggle} className={PILL}><CalendarDays className="w-4 h-4 text-gray-400" />{periodLabel}{config.compare && <span className="text-gray-500 font-normal">vs période précédente</span>}<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>
+                  <button type="button" onClick={toggle} className={PILL}><CalendarDays className="w-4 h-4 text-ui-fg2" />{periodLabel}{config.compare && <span className="text-ui-muted font-normal">vs période précédente</span>}<ChevronDown className="w-3.5 h-3.5 text-ui-muted" /></button>
                 )}>
                   {(close) => (<>
                     {PERIODS.map((d) => <MenuItem key={d} active={!config.since && config.days === d} onClick={() => { patch({ days: d, since: undefined, until: undefined }); close(); }}>{d} derniers jours</MenuItem>)}
                     <MenuLabel>Dates</MenuLabel>
                     <div className="flex items-center gap-1 px-2.5 pb-2">
-                      <input type="date" value={range.since} max={range.until} onChange={(e) => patch({ since: e.target.value, until: range.until })} className="flex-1 h-8 rounded-lg border border-gray-800 bg-gray-900 px-1.5 text-xs text-gray-200" />
-                      <span className="text-gray-600">→</span>
-                      <input type="date" value={range.until} min={range.since} onChange={(e) => patch({ since: range.since, until: e.target.value })} className="flex-1 h-8 rounded-lg border border-gray-800 bg-gray-900 px-1.5 text-xs text-gray-200" />
+                      <input type="date" value={range.since} max={range.until} onChange={(e) => patch({ since: e.target.value, until: range.until })} className="flex-1 h-8 rounded-lg border border-ui-line bg-ui-card px-1.5 text-xs text-ui-fg" />
+                      <span className="text-ui-muted">→</span>
+                      <input type="date" value={range.until} min={range.since} onChange={(e) => patch({ since: range.since, until: e.target.value })} className="flex-1 h-8 rounded-lg border border-ui-line bg-ui-card px-1.5 text-xs text-ui-fg" />
                     </div>
-                    <div className="border-t border-gray-800 mt-1 pt-1">
-                      <label className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer"><input type="checkbox" className="accent-violet-500" checked={config.compare} onChange={(e) => patch({ compare: e.target.checked })} />Comparer à la période précédente</label>
+                    <div className="border-t border-ui-line mt-1 pt-1">
+                      <label className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-ui-fg hover:bg-ui-raised cursor-pointer"><input type="checkbox" className="accent-ui-accent" checked={config.compare} onChange={(e) => patch({ compare: e.target.checked })} />Comparer à la période précédente</label>
                     </div>
                   </>)}
                 </Popover>
                 <Popover width={260} trigger={({ toggle }) => (
                   <span className="inline-flex items-center gap-1">
-                    <button type="button" onClick={toggle} className={PILL}><span className="text-gray-400 font-normal">{config.groupBy === "custom" ? "Comparaison" : "Regrouper par"}</span>{groupLabel}<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>
+                    <button type="button" onClick={toggle} className={PILL}><span className="text-ui-fg2 font-normal">{config.groupBy === "custom" ? "Comparaison" : "Regrouper par"}</span>{groupLabel}<ChevronDown className="w-3.5 h-3.5 text-ui-muted" /></button>
                     {config.groupBy === "custom" && <button type="button" onClick={() => setGroupsOpen(true)} className={`${PILL} px-2`} title="Modifier les groupes"><Pencil className="w-3.5 h-3.5" /></button>}
                   </span>
                 )}>
@@ -434,15 +434,15 @@ export function TopPerforming() {
                     <MenuLabel>Comparatif</MenuLabel>
                     <MenuItem active={config.groupBy === "custom"} hint="Compare des groupes que tu définis (mots dans le nom d'annonce ou de campagne)" onClick={() => { close(); setGroupsOpen(true); }}>Groupes personnalisés…</MenuItem>
                     {result?.tagKeys.some((t) => t.key.startsWith("ai:")) && <MenuLabel>Tags IA</MenuLabel>}
-                    {result?.tagKeys.filter((t) => t.key.startsWith("ai:")).map((t) => <MenuItem key={t.key} active={config.groupBy === `tag:${t.key}`} onClick={() => { patch({ groupBy: `tag:${t.key}` }); close(); }}><span className="flex-1">{tagKeyLabel(t.key)}</span><span className="text-xs text-gray-600">{t.count}</span></MenuItem>)}
+                    {result?.tagKeys.filter((t) => t.key.startsWith("ai:")).map((t) => <MenuItem key={t.key} active={config.groupBy === `tag:${t.key}`} onClick={() => { patch({ groupBy: `tag:${t.key}` }); close(); }}><span className="flex-1">{tagKeyLabel(t.key)}</span><span className="text-xs text-ui-muted">{t.count}</span></MenuItem>)}
                     {result?.tagKeys.some((t) => !t.key.startsWith("ai:")) && <MenuLabel>Convention de nommage</MenuLabel>}
-                    {result?.tagKeys.filter((t) => !t.key.startsWith("ai:")).map((t) => <MenuItem key={t.key} active={config.groupBy === `tag:${t.key}`} onClick={() => { patch({ groupBy: `tag:${t.key}` }); close(); }}><span className="flex-1">{t.key}</span><span className="text-xs text-gray-600">{t.count}</span></MenuItem>)}
+                    {result?.tagKeys.filter((t) => !t.key.startsWith("ai:")).map((t) => <MenuItem key={t.key} active={config.groupBy === `tag:${t.key}`} onClick={() => { patch({ groupBy: `tag:${t.key}` }); close(); }}><span className="flex-1">{t.key}</span><span className="text-xs text-ui-muted">{t.count}</span></MenuItem>)}
                   </div>)}
                 </Popover>
                 {chips.map((c) => <FilterChip key={c.id} label={c.label} onClear={c.clear} />)}
                 {search.trim() && <FilterChip label={`Nom contient « ${search.trim()} »`} onClear={() => setSearch("")} />}
                 <Popover width={280} open={!!showAddFilter} onOpenChange={(v) => setShowAddFilter(v ? "menu" : null)} trigger={({ toggle }) => (
-                  <button type="button" onClick={toggle} className={PILL}><ListFilter className="w-4 h-4 text-gray-400" />Ajouter un filtre</button>
+                  <button type="button" onClick={toggle} className={PILL}><ListFilter className="w-4 h-4 text-ui-fg2" />Ajouter un filtre</button>
                 )}>
                   <div className="text-sm">
                     {showAddFilter === "menu" && (<div className="max-h-[420px] overflow-y-auto">
@@ -451,28 +451,28 @@ export function TopPerforming() {
                       <MenuItem onClick={() => setShowAddFilter("launch")}>Date de lancement</MenuItem>
                       <MenuItem onClick={() => setShowAddFilter("spend")}>Performance : dépense minimale</MenuItem>
                       <MenuLabel>Type d&apos;annonce</MenuLabel>
-                      <div className="px-2.5 pb-1 flex flex-wrap gap-1">{(["Video", "Image", "Carousel"] as AdFormat[]).map((fm) => <button key={fm} type="button" onClick={() => toggleFormat(fm)} className={`h-7 rounded-lg border px-2 text-xs ${f.formats?.includes(fm) ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-300 hover:text-white"}`}>{fm === "Video" ? "Vidéo" : fm === "Image" ? "Image" : "Carrousel"}</button>)}<button type="button" onClick={() => patchFilters({ dynamic: f.dynamic === true ? undefined : true })} className={`h-7 rounded-lg border px-2 text-xs ${f.dynamic === true ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-300 hover:text-white"}`}>Dynamic</button></div>
+                      <div className="px-2.5 pb-1 flex flex-wrap gap-1">{(["Video", "Image", "Carousel"] as AdFormat[]).map((fm) => <button key={fm} type="button" onClick={() => toggleFormat(fm)} className={`h-7 rounded-lg border px-2 text-xs ${f.formats?.includes(fm) ? "border-ui-accent bg-ui-accent-soft text-ui-accent-ink" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>{fm === "Video" ? "Vidéo" : fm === "Image" ? "Image" : "Carrousel"}</button>)}<button type="button" onClick={() => patchFilters({ dynamic: f.dynamic === true ? undefined : true })} className={`h-7 rounded-lg border px-2 text-xs ${f.dynamic === true ? "border-ui-accent bg-ui-accent-soft text-ui-accent-ink" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>Dynamic</button></div>
                       <MenuLabel>Statut</MenuLabel>
-                      <div className="px-2.5 pb-1 flex gap-1">{([["", "Toutes"], ["active", "Actives"], ["inactive", "En pause"]] as const).map(([v, l]) => <button key={v} type="button" onClick={() => patchFilters({ status: (v || undefined) as AdsFilters["status"] })} className={`h-7 rounded-lg border px-2 text-xs ${(f.status ?? "") === v ? "border-violet-500/60 bg-violet-500/10 text-violet-200" : "border-gray-800 text-gray-300 hover:text-white"}`}>{l}</button>)}</div>
+                      <div className="px-2.5 pb-1 flex gap-1">{([["", "Toutes"], ["active", "Actives"], ["inactive", "En pause"]] as const).map(([v, l]) => <button key={v} type="button" onClick={() => patchFilters({ status: (v || undefined) as AdsFilters["status"] })} className={`h-7 rounded-lg border px-2 text-xs ${(f.status ?? "") === v ? "border-ui-accent bg-ui-accent-soft text-ui-accent-ink" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>{l}</button>)}</div>
                       {facets.some((fa) => fa.key.startsWith("ai:")) && <MenuLabel>Tags IA</MenuLabel>}
-                      {facets.filter((fa) => fa.key.startsWith("ai:")).map((fa) => <MenuItem key={fa.key} onClick={() => setShowAddFilter(`tag:${fa.key}`)}><span className="flex-1">{tagKeyLabel(fa.key)}</span><ChevronRight className="w-3.5 h-3.5 text-gray-500" /></MenuItem>)}
+                      {facets.filter((fa) => fa.key.startsWith("ai:")).map((fa) => <MenuItem key={fa.key} onClick={() => setShowAddFilter(`tag:${fa.key}`)}><span className="flex-1">{tagKeyLabel(fa.key)}</span><ChevronRight className="w-3.5 h-3.5 text-ui-muted" /></MenuItem>)}
                       {facets.some((fa) => !fa.key.startsWith("ai:")) && <MenuLabel>Convention de nommage</MenuLabel>}
-                      {facets.filter((fa) => !fa.key.startsWith("ai:")).slice(0, 16).map((fa) => <MenuItem key={fa.key} onClick={() => setShowAddFilter(`tag:${fa.key}`)}><span className="flex-1">{fa.key}</span><ChevronRight className="w-3.5 h-3.5 text-gray-500" /></MenuItem>)}
+                      {facets.filter((fa) => !fa.key.startsWith("ai:")).slice(0, 16).map((fa) => <MenuItem key={fa.key} onClick={() => setShowAddFilter(`tag:${fa.key}`)}><span className="flex-1">{fa.key}</span><ChevronRight className="w-3.5 h-3.5 text-ui-muted" /></MenuItem>)}
                     </div>)}
-                    {showAddFilter === "name" && <div className="p-2 space-y-2"><div className="text-gray-400">Nom de l&apos;annonce contient</div><input autoFocus defaultValue={search} onKeyDown={(e) => { if (e.key === "Enter") { setSearch((e.target as HTMLInputElement).value.trim()); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-gray-800 bg-gray-900 px-2 text-white" placeholder="ex. UGC puis Entrée" /></div>}
-                    {showAddFilter === "spend" && <div className="p-2 space-y-2"><div className="text-gray-400">Dépense supérieure à</div><input type="number" min={0} autoFocus defaultValue={f.minSpend ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ minSpend: Number((e.target as HTMLInputElement).value) || undefined }); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-gray-800 bg-gray-900 px-2 text-white" placeholder="ex. 100 puis Entrée" /></div>}
+                    {showAddFilter === "name" && <div className="p-2 space-y-2"><div className="text-ui-fg2">Nom de l&apos;annonce contient</div><input autoFocus defaultValue={search} onKeyDown={(e) => { if (e.key === "Enter") { setSearch((e.target as HTMLInputElement).value.trim()); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-ui-line bg-ui-card px-2 text-ui-fg" placeholder="ex. UGC puis Entrée" /></div>}
+                    {showAddFilter === "spend" && <div className="p-2 space-y-2"><div className="text-ui-fg2">Dépense supérieure à</div><input type="number" min={0} autoFocus defaultValue={f.minSpend ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ minSpend: Number((e.target as HTMLInputElement).value) || undefined }); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-ui-line bg-ui-card px-2 text-ui-fg" placeholder="ex. 100 puis Entrée" /></div>}
                     {showAddFilter === "launch" && <div>{LAUNCH.map((o) => <MenuItem key={o.v} active={(config.launchDays ?? 0) === o.v} onClick={() => { patch({ launchDays: o.v }); setShowAddFilter(null); }}>{o.l}</MenuItem>)}</div>}
-                    {showAddFilter === "campaign" && <div className="p-2 space-y-2"><div className="text-gray-400">Nom de campagne ou d&apos;ad set contient</div><input autoFocus defaultValue={f.campaignContains ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ campaignContains: (e.target as HTMLInputElement).value.trim() || undefined }); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-gray-800 bg-gray-900 px-2 text-white" placeholder="ex. retargeting puis Entrée" /></div>}
+                    {showAddFilter === "campaign" && <div className="p-2 space-y-2"><div className="text-ui-fg2">Nom de campagne ou d&apos;ad set contient</div><input autoFocus defaultValue={f.campaignContains ?? ""} onKeyDown={(e) => { if (e.key === "Enter") { patchFilters({ campaignContains: (e.target as HTMLInputElement).value.trim() || undefined }); setShowAddFilter(null); } }} className="w-full h-8 rounded-lg border border-ui-line bg-ui-card px-2 text-ui-fg" placeholder="ex. retargeting puis Entrée" /></div>}
                     {showAddFilter?.startsWith("tag:") && (() => { const k = showAddFilter.slice(4); const fa = facets.find((x) => x.key === k); return (
                       <div className="max-h-80 overflow-y-auto">
                         <MenuLabel>{tagKeyLabel(k)} est…</MenuLabel>
-                        {(fa?.values ?? []).map((v) => <MenuItem key={v.value} onClick={() => { patchFilters({ tags: { ...(f.tags ?? {}), [k]: v.value } }); setShowAddFilter(null); }}><span className="flex-1 truncate">{v.value}</span><span className="text-xs text-gray-600">{v.count}</span></MenuItem>)}
+                        {(fa?.values ?? []).map((v) => <MenuItem key={v.value} onClick={() => { patchFilters({ tags: { ...(f.tags ?? {}), [k]: v.value } }); setShowAddFilter(null); }}><span className="flex-1 truncate">{v.value}</span><span className="text-xs text-ui-muted">{v.count}</span></MenuItem>)}
                       </div>
                     ); })()}
-                    {showAddFilter && showAddFilter !== "menu" && <div className="border-t border-gray-800 mt-1 pt-1"><MenuItem onClick={() => setShowAddFilter("menu")}>← Tous les filtres</MenuItem></div>}
+                    {showAddFilter && showAddFilter !== "menu" && <div className="border-t border-ui-line mt-1 pt-1"><MenuItem onClick={() => setShowAddFilter("menu")}>← Tous les filtres</MenuItem></div>}
                   </div>
                 </Popover>
-                {loading && <Loader2 className="w-4 h-4 animate-spin text-gray-500" />}
+                {loading && <Loader2 className="w-4 h-4 animate-spin text-ui-muted" />}
                 {error && <span className="text-sm text-red-400">{error}</span>}
               </div>
 
@@ -480,8 +480,8 @@ export function TopPerforming() {
               {result && result.rows.length > 0 && (
                 <div className="mt-4 flex items-center gap-2 flex-wrap">
                   {COPILOT_SUGGESTIONS.map((sg) => (
-                    <button key={sg.id} type="button" onClick={() => setCopilot({ open: true, prompt: sg.prompt || null })} className="h-11 inline-flex items-center gap-2 rounded-full bg-gray-900 px-4 text-sm text-gray-200 hover:bg-gray-800">
-                      {sg.id === "ask" ? <MessageSquare className="w-4 h-4 text-gray-400" /> : <Sparkles className="w-4 h-4 text-violet-300" />}{sg.label}
+                    <button key={sg.id} type="button" onClick={() => setCopilot({ open: true, prompt: sg.prompt || null })} className="h-11 inline-flex items-center gap-2 rounded-full bg-ui-card px-4 text-sm text-ui-fg hover:bg-ui-raised">
+                      {sg.id === "ask" ? <MessageSquare className="w-4 h-4 text-ui-fg2" /> : <Sparkles className="w-4 h-4 text-ui-accent-ink" />}{sg.label}
                     </button>
                   ))}
                 </div>
@@ -490,7 +490,7 @@ export function TopPerforming() {
               {!hasAccounts && <Empty title="Choisis un client" text="Analyse Ads lit l'entrepôt créa du client sélectionné (en haut à gauche, ⌘K, ou le bouton Analyse Ads de la liste des clients)." />}
               {hasAccounts && noWarehouse && (
                 <Empty title={`${clientName ?? "Ce client"} n'est pas encore synchronisé`} text="L'entrepôt se remplit automatiquement (30 jours d'abord, puis l'historique).">
-                  {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} className="mt-3 inline-flex items-center gap-2 rounded-[10px] bg-white px-3 h-8 text-sm text-gray-900 disabled:opacity-50">{syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Synchroniser maintenant (≈ 1 min)</button>}
+                  {isAdmin && <button type="button" onClick={syncNow} disabled={syncing} className="mt-3 inline-flex items-center gap-2 rounded-[10px] bg-ui-inverse px-3 h-8 text-sm text-ui-on-inverse disabled:opacity-50">{syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Synchroniser maintenant (≈ 1 min)</button>}
                 </Empty>
               )}
 
@@ -500,29 +500,29 @@ export function TopPerforming() {
                 )}
 
                 {/* ── Chart card (Motion: + AI tags · + Add metric · numbered chips · ⚙ · cards | bars | line) ── */}
-                <section className="mt-6 rounded-2xl border border-gray-800 bg-gray-900 p-4">
+                <section className="mt-6 rounded-xl border border-ui-line bg-ui-card p-4">
                   <div className="flex items-start gap-2">
                     <div className="flex-1 flex items-center gap-2 flex-wrap">
-                      <button type="button" onClick={() => patch({ showTags: !config.showTags })} className={`${PILL} ${config.showTags ? "border-violet-500/50 text-violet-100" : ""}`} title="Afficher les tags IA sur les cartes"><Plus className="w-4 h-4" />Tags IA</button>
+                      <button type="button" onClick={() => patch({ showTags: !config.showTags })} className={`${PILL} ${config.showTags ? "border-ui-accent text-ui-accent-ink" : ""}`} title="Afficher les tags IA sur les cartes"><Plus className="w-4 h-4" />Tags IA</button>
                       <Popover width={300} trigger={({ toggle }) => <button type="button" onClick={toggle} disabled={config.metrics.length >= 6} className={PILL} title={config.metrics.length >= 6 ? "6 métriques au maximum : retire-en une" : "Ajouter une métrique"}><Plus className="w-4 h-4" />Ajouter une métrique</button>}>
                         <MetricPicker selected={config.metrics} onToggle={toggleChartMetric} />
                       </Popover>
                       {visibleMetrics.map((k, i) => (
-                        <span key={k} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] border border-gray-800 bg-gray-900 pl-1.5 pr-1 text-sm font-medium text-gray-100">
-                          <span className={`w-[18px] h-[18px] rounded-[5px] text-[11px] font-semibold flex items-center justify-center ${RANK_SWATCH[i % RANK_SWATCH.length]}`}>{i + 1}</span>
-                          <button type="button" onClick={() => onSort(k)} title={`${METRIC_BY_KEY[k]?.hint ?? ""} — trier`} className={config.sort.key === k ? "text-white underline underline-offset-4 decoration-gray-600" : ""}>{METRIC_BY_KEY[k]?.label ?? k}</button>
-                          <button type="button" onClick={() => toggleChartMetric(k)} className="p-0.5 rounded text-gray-500 hover:text-white" aria-label="Retirer"><X className="w-3.5 h-3.5" /></button>
+                        <span key={k} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] border border-ui-line bg-ui-card pl-1.5 pr-1 text-sm font-medium text-ui-fg">
+                          <span className={`w-[18px] h-[18px] rounded-[5px] text-[11px] font-medium flex items-center justify-center ${RANK_SWATCH[i % RANK_SWATCH.length]}`}>{i + 1}</span>
+                          <button type="button" onClick={() => onSort(k)} title={`${METRIC_BY_KEY[k]?.hint ?? ""} — trier`} className={config.sort.key === k ? "text-ui-fg underline underline-offset-4 decoration-gray-600" : ""}>{METRIC_BY_KEY[k]?.label ?? k}</button>
+                          <button type="button" onClick={() => toggleChartMetric(k)} className="p-0.5 rounded text-ui-muted hover:text-ui-fg" aria-label="Retirer"><X className="w-3.5 h-3.5" /></button>
                         </span>
                       ))}
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <Popover width={200} align="right" trigger={({ toggle }) => <button type="button" onClick={toggle} className={`${PILL} px-2 border-transparent bg-transparent`} title="Réglages des cartes"><Settings className="w-4 h-4 text-gray-400" /></button>}>
+                      <Popover width={200} align="right" trigger={({ toggle }) => <button type="button" onClick={toggle} className={`${PILL} px-2 border-transparent bg-transparent`} title="Réglages des cartes"><Settings className="w-4 h-4 text-ui-fg2" /></button>}>
                         <MenuLabel>Format des visuels</MenuLabel>
                         {(["9:16", "4:5", "1:1"] as const).map((r) => <MenuItem key={r} active={ratio === r} onClick={() => setRatio(r)}>{r === "9:16" ? "Vertical 9:16" : r === "4:5" ? "Portrait 4:5" : "Carré 1:1"}</MenuItem>)}
                       </Popover>
-                      <div className="h-8 flex items-center rounded-[10px] border border-gray-800 p-0.5">
+                      <div className="h-8 flex items-center rounded-[10px] border border-ui-line p-0.5">
                         {([["cards", LayoutGrid, "Cartes"], ["bar", BarChart3, "Barres"], ["chart", LineIcon, "Courbe"]] as const).map(([v, Icon, l]) => (
-                          <button key={v} type="button" onClick={() => patch({ view: v as ViewMode })} title={l} className={`h-full px-2 rounded-lg ${(config.view === "table" ? "cards" : config.view) === v ? "bg-gray-800 text-white" : "text-gray-500 hover:text-white"}`}><Icon className="w-4 h-4" /></button>
+                          <button key={v} type="button" onClick={() => patch({ view: v as ViewMode })} title={l} className={`h-full px-2 rounded-lg ${(config.view === "table" ? "cards" : config.view) === v ? "bg-ui-raised text-ui-fg" : "text-ui-muted hover:text-ui-fg"}`}><Icon className="w-4 h-4" /></button>
                         ))}
                       </div>
                     </div>
@@ -540,19 +540,19 @@ export function TopPerforming() {
                     {shownRows.length > 0 && config.view === "bar" && <AdsBar rows={shownRows} metrics={visibleMetrics} benchmark={result.benchmark} currency={result.currency} />}
                     {rows.length > 0 && config.view === "chart" && (
                       <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-sm text-gray-400">
+                        <div className="flex items-center gap-2 text-sm text-ui-fg2">
                           <span>Métrique</span>
-                          <select value={chartMetric} onChange={(e) => setChartMetric(e.target.value as MetricKey)} className="h-8 rounded-[10px] border border-gray-800 bg-gray-900 px-2 text-gray-200">{METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select>
-                          <span className="text-xs text-gray-600">Coche jusqu&apos;à 8 lignes dans le tableau ; sans sélection, la courbe montre tout le compte.</span>
+                          <select value={chartMetric} onChange={(e) => setChartMetric(e.target.value as MetricKey)} className="h-8 rounded-[10px] border border-ui-line bg-ui-card px-2 text-ui-fg">{METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}</select>
+                          <span className="text-xs text-ui-muted">Coche jusqu&apos;à 8 lignes dans le tableau ; sans sélection, la courbe montre tout le compte.</span>
                         </div>
                         <div className="h-80">
-                          {chartData.data.length === 0 ? <div className="h-full flex items-center justify-center text-gray-500 text-xs"><Loader2 className="w-4 h-4 animate-spin mr-2" /> Chargement…</div> : (
+                          {chartData.data.length === 0 ? <div className="h-full flex items-center justify-center text-ui-muted text-xs"><Loader2 className="w-4 h-4 animate-spin mr-2" /> Chargement…</div> : (
                             <ResponsiveContainer width="100%" height="100%">
                               <LineChart data={chartData.data} margin={{ top: 8, right: 16, left: -8, bottom: 0 }}>
-                                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} axisLine={false} tickFormatter={(d: string) => fmtShort(d)} />
-                                <YAxis tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} axisLine={false} />
-                                <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", fontSize: 12 }} formatter={(v, name) => [fmtMetric(chartMetric, Number(v ?? 0), result.currency), labelOf(String(name))]} />
-                                <Legend formatter={(v: string) => <span className="text-xs text-gray-300">{labelOf(v).slice(0, 40)}</span>} />
+                                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--ui-muted)" }} tickLine={false} axisLine={false} tickFormatter={(d: string) => fmtShort(d)} />
+                                <YAxis tick={{ fontSize: 11, fill: "var(--ui-muted)" }} tickLine={false} axisLine={false} />
+                                <Tooltip contentStyle={{ background: "var(--ui-card)", border: "1px solid var(--ui-line-strong)", fontSize: 12 }} formatter={(v, name) => [fmtMetric(chartMetric, Number(v ?? 0), result.currency), labelOf(String(name))]} />
+                                <Legend formatter={(v: string) => <span className="text-xs text-ui-fg2">{labelOf(v).slice(0, 40)}</span>} />
                                 {chartData.want.map((k, i) => <Line key={k} type="monotone" dataKey={k} stroke={LINE_COLORS[i % LINE_COLORS.length]} strokeWidth={2} dot={false} connectNulls />)}
                               </LineChart>
                             </ResponsiveContainer>
@@ -565,19 +565,19 @@ export function TopPerforming() {
 
                 {/* ── Table card (Motion: Custom ⌄ · Table settings ⌄ · + AI tags · + Add metric) ── */}
                 {rows.length > 0 && (
-                  <section className="mt-4 rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
-                    <div className="flex items-center gap-2 flex-wrap p-4 border-b border-gray-800">
+                  <section className="mt-4 rounded-xl border border-ui-line bg-ui-card overflow-hidden">
+                    <div className="flex items-center gap-2 flex-wrap p-4 border-b border-ui-line">
                       <PresetMenu columns={config.columns} metrics={visibleMetrics} team={presets} onApply={(cols, mets) => patch({ columns: cols, ...(mets ? { metrics: mets } : {}) })} onReload={loadPresets} />
-                      <Popover width={260} trigger={({ toggle }) => <button type="button" onClick={toggle} className={PILL}><Settings className="w-4 h-4 text-gray-400" />Paramètres du tableau<ChevronDown className="w-3.5 h-3.5 text-gray-500" /></button>}>
-                        <label className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer"><input type="checkbox" className="accent-violet-500" checked={config.compare} onChange={(e) => patch({ compare: e.target.checked })} />Variation vs période précédente</label>
+                      <Popover width={260} trigger={({ toggle }) => <button type="button" onClick={toggle} className={PILL}><Settings className="w-4 h-4 text-ui-fg2" />Paramètres du tableau<ChevronDown className="w-3.5 h-3.5 text-ui-muted" /></button>}>
+                        <label className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-ui-fg hover:bg-ui-raised cursor-pointer"><input type="checkbox" className="accent-ui-accent" checked={config.compare} onChange={(e) => patch({ compare: e.target.checked })} />Variation vs période précédente</label>
                         <MenuItem onClick={() => setChecked(() => new Set(rows.map((r) => r.key)))}>Tout sélectionner</MenuItem>
                         <MenuItem onClick={() => setChecked(() => new Set())}>Revenir au top 8</MenuItem>
                       </Popover>
-                      <button type="button" onClick={() => patch({ showTags: !config.showTags })} className={`${PILL} ${config.showTags ? "border-violet-500/50 text-violet-100" : ""}`}><Plus className="w-4 h-4" />Tags IA</button>
+                      <button type="button" onClick={() => patch({ showTags: !config.showTags })} className={`${PILL} ${config.showTags ? "border-ui-accent text-ui-accent-ink" : ""}`}><Plus className="w-4 h-4" />Tags IA</button>
                       <Popover width={300} trigger={({ toggle }) => <button type="button" onClick={toggle} className={PILL}><Plus className="w-4 h-4" />Ajouter une métrique</button>}>
                         <MetricPicker selected={columns} onToggle={(k) => { const cur = config.columns?.length ? config.columns : TABLE_COLUMNS; patch({ columns: cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k] }); }} />
                       </Popover>
-                      <span className="ml-auto text-xs text-gray-500">{result.total} {result.total > 1 ? groupNoun.many : groupNoun.one} · {fmtShort(range.since)} → {fmtShort(range.until)}{result.benchmark.estimated ? " · * valeur estimée" : ""}</span>
+                      <span className="ml-auto text-xs text-ui-muted">{result.total} {result.total > 1 ? groupNoun.many : groupNoun.one} · {fmtShort(range.since)} → {fmtShort(range.until)}{result.benchmark.estimated ? " · * valeur estimée" : ""}</span>
                     </div>
                     <AdsTable rows={rows} columns={columns} chartMetrics={visibleMetrics} onToggleChartMetric={toggleChartMetric} benchmark={result.benchmark} benchmarkPrevious={result.benchmarkPrevious} currency={result.currency} compare={config.compare} sort={config.sort} onSort={onSort}
                       selected={selectedKeys} onSelect={(k, on) => setChecked(() => { const n = new Set(selectedKeys); if (on) n.add(k); else n.delete(k); return n; })} onSelectAll={(on) => setChecked(() => (on ? new Set(rows.map((r) => r.key)) : new Set(["__none__"])))} onOpen={setOpen} signals={!!config.launchDays} groupNoun={groupNoun} />
@@ -607,12 +607,12 @@ function MetricPicker({ selected, onToggle }: { selected: MetricKey[]; onToggle:
   const list = METRICS.filter((m) => !q.trim() || m.label.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <div>
-      <div className="p-1"><input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Rechercher…" className="w-full h-8 rounded-lg border border-gray-800 bg-gray-900 px-2.5 text-sm text-white placeholder:text-gray-600" /></div>
+      <div className="p-1"><input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Rechercher…" className="w-full h-8 rounded-lg border border-ui-line bg-ui-card px-2.5 text-sm text-ui-fg placeholder:text-ui-muted" /></div>
       <div className="max-h-80 overflow-y-auto">
         {list.map((m) => (
-          <label key={m.key} title={m.hint} className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-gray-200 hover:bg-gray-800/70 cursor-pointer">
-            <input type="checkbox" className="accent-violet-500" checked={selected.includes(m.key)} onChange={() => onToggle(m.key)} />
-            <span className="flex-1">{m.label}</span>{m.video && <span className="text-[11px] text-gray-600">vidéo</span>}
+          <label key={m.key} title={m.hint} className="h-8 flex items-center gap-2 rounded-lg px-2.5 text-sm text-ui-fg hover:bg-ui-raised cursor-pointer">
+            <input type="checkbox" className="accent-ui-accent" checked={selected.includes(m.key)} onChange={() => onToggle(m.key)} />
+            <span className="flex-1">{m.label}</span>{m.video && <span className="text-[11px] text-ui-muted">vidéo</span>}
           </label>
         ))}
       </div>
@@ -623,8 +623,8 @@ function MetricPicker({ selected, onToggle }: { selected: MetricKey[]; onToggle:
 function Empty({ title, text, children }: { title: string; text: string; children?: React.ReactNode }) {
   return (
     <div className="my-10 mx-auto max-w-md text-center">
-      <div className="text-base font-semibold text-white">{title}</div>
-      <p className="mt-1 text-sm text-gray-400">{text}</p>
+      <div className="text-base font-medium text-ui-fg">{title}</div>
+      <p className="mt-1 text-sm text-ui-fg2">{text}</p>
       {children}
     </div>
   );

@@ -29,30 +29,30 @@ const timeOf = (iso: string) => new Date(iso).toLocaleTimeString("fr-FR", { hour
 export function JournalRail({ day, entries, loading, onDay, onOpen, className }: Props) {
   const today = localDay();
   return (
-    <aside data-journal-rail className={`flex flex-col rounded-2xl border border-white/10 bg-[#0d0a1a]/85 backdrop-blur-xl shadow-2xl text-gray-200 overflow-hidden ${className ?? ""}`}>
+    <aside data-journal-rail className={`flex flex-col rounded-xl border border-ui-line bg-ui-bg/85 backdrop-blur-xl shadow-2xl text-ui-fg overflow-hidden ${className ?? ""}`}>
       <div className="px-3 pt-3 pb-2 flex items-center gap-1">
-        <span className="text-[10px] uppercase tracking-wider text-gray-500 flex-1">Journal · {dayLabel(day)}</span>
-        <button type="button" onClick={() => onDay(shiftDay(day, -1))} title="Jour précédent" className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-white/10"><ChevronLeft className="w-3.5 h-3.5" /></button>
-        <button type="button" onClick={() => onDay(shiftDay(day, 1))} disabled={day >= today} title="Jour suivant" className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-white/10 disabled:opacity-30"><ChevronRight className="w-3.5 h-3.5" /></button>
+        <span className="text-[10px] text-ui-muted flex-1">Journal · {dayLabel(day)}</span>
+        <button type="button" onClick={() => onDay(shiftDay(day, -1))} title="Jour précédent" className="p-1 rounded-md text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised"><ChevronLeft className="w-3.5 h-3.5" /></button>
+        <button type="button" onClick={() => onDay(shiftDay(day, 1))} disabled={day >= today} title="Jour suivant" className="p-1 rounded-md text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised disabled:opacity-30"><ChevronRight className="w-3.5 h-3.5" /></button>
       </div>
       <div className="flex-1 min-h-0 overflow-auto mo-scroll px-1.5 pb-2">
-        {loading && !entries.length ? <div className="px-2 py-3 text-[12px] text-gray-500">Chargement…</div>
-          : !entries.length ? <div className="px-2 py-3 text-[12px] text-gray-500 leading-snug">{day === today ? "Rien encore aujourd'hui : demande des créas, des chiffres, dépose un visuel…" : "Rien ce jour-là."}</div>
+        {loading && !entries.length ? <div className="px-2 py-3 text-[12px] text-ui-muted">Chargement…</div>
+          : !entries.length ? <div className="px-2 py-3 text-[12px] text-ui-muted leading-snug">{day === today ? "Rien encore aujourd'hui : demande des créas, des chiffres, dépose un visuel…" : "Rien ce jour-là."}</div>
           : entries.map((e) => {
             const Icon = e.kind === "verdict" && /coup/i.test(e.label) ? Scissors : e.kind === "cards" && /créa|visuel/i.test(e.label) ? ImageIcon : ICONS[e.kind] ?? Sparkles;
             const color = e.clientId ? frameColorFor(e.clientId) : null;
             return (
-              <button key={e.id} type="button" data-journal-entry={e.id} onClick={() => onOpen(e)} className="w-full text-left flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-white/5 group">
-                <span className="text-[10px] text-gray-500 tabular-nums shrink-0 mt-0.5 w-9">{timeOf(e.at)}</span>
-                <Icon className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${e.kind === "verdict" ? "text-emerald-300" : e.kind.startsWith("publish") ? "text-amber-200" : "text-violet-300"}`} />
+              <button key={e.id} type="button" data-journal-entry={e.id} onClick={() => onOpen(e)} className="w-full text-left flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-ui-raised group">
+                <span className="text-[10px] text-ui-muted tabular-nums shrink-0 mt-0.5 w-9">{timeOf(e.at)}</span>
+                <Icon className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${e.kind === "verdict" ? "text-emerald-300" : e.kind.startsWith("publish") ? "text-amber-200" : "text-ui-accent-ink"}`} />
                 <span className="min-w-0 flex-1">
                   {(e.clientName || e.boardKind !== "home") && (
-                    <span className="flex items-center gap-1 text-[10px] text-gray-400 truncate">
+                    <span className="flex items-center gap-1 text-[10px] text-ui-fg2 truncate">
                       {color && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />}
                       <span className="truncate">{e.clientName ?? e.boardTitle}</span>
                     </span>
                   )}
-                  <span className="block text-[12px] text-gray-200 leading-snug line-clamp-2 group-hover:text-white">{e.label}</span>
+                  <span className="block text-[12px] text-ui-fg leading-snug line-clamp-2 group-hover:text-ui-fg">{e.label}</span>
                 </span>
               </button>
             );

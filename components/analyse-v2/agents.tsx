@@ -46,21 +46,21 @@ function Launcher({ scope, accountKey, query, creativeKey, onDone }: { scope: Ag
     <div>
       <div className={scope === "account" ? "grid grid-cols-1 md:grid-cols-3 gap-3" : "space-y-2"}>
         {list.map((w) => (
-          <div key={w.key} className={`rounded-2xl border bg-gray-900 p-4 ${open === w.key ? "border-violet-500/50" : "border-gray-800"}`}>
+          <div key={w.key} className={`rounded-xl border bg-ui-card p-4 ${open === w.key ? "border-ui-accent" : "border-ui-line"}`}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-white flex items-center gap-1.5"><Bot className="w-4 h-4 text-violet-300" />{w.title}</div>
-                <div className="mt-1 text-xs text-gray-400">{w.description}</div>
+                <div className="text-sm font-medium text-ui-fg flex items-center gap-1.5"><Bot className="w-4 h-4 text-ui-accent-ink" />{w.title}</div>
+                <div className="mt-1 text-xs text-ui-fg2">{w.description}</div>
               </div>
-              {open !== w.key && <button type="button" disabled={!!busy || !query} onClick={() => { setOpen(w.key); setInput(""); setError(null); }} className="shrink-0 h-8 px-3 inline-flex items-center gap-1.5 rounded-lg bg-white text-xs font-medium text-gray-900 disabled:opacity-40"><Play className="w-3.5 h-3.5" />Lancer</button>}
+              {open !== w.key && <button type="button" disabled={!!busy || !query} onClick={() => { setOpen(w.key); setInput(""); setError(null); }} className="shrink-0 h-8 px-3 inline-flex items-center gap-1.5 rounded-lg bg-ui-inverse text-xs font-medium text-ui-on-inverse disabled:opacity-40"><Play className="w-3.5 h-3.5" />Lancer</button>}
             </div>
             {open === w.key && (
               <div className="mt-3 space-y-2">
-                <input value={input} onChange={(e) => setInput(e.target.value)} disabled={!!busy} placeholder={`Consigne (optionnel). ${w.inputHint}`} className="w-full h-8 rounded-lg border border-gray-800 bg-gray-950 px-2 text-sm text-white placeholder:text-gray-600" onKeyDown={(e) => { if (e.key === "Enter") void run(w.key); }} />
+                <input value={input} onChange={(e) => setInput(e.target.value)} disabled={!!busy} placeholder={`Consigne (optionnel). ${w.inputHint}`} className="w-full h-8 rounded-lg border border-ui-line bg-ui-bg px-2 text-sm text-ui-fg placeholder:text-ui-muted" onKeyDown={(e) => { if (e.key === "Enter") void run(w.key); }} />
                 <div className="flex items-center justify-end gap-2">
-                  {busy === w.key ? <span className="text-xs text-gray-400 inline-flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" />L&apos;agent lit les données… (environ 1 min)</span> : <>
-                    <button type="button" onClick={() => setOpen(null)} className="h-8 px-3 rounded-lg border border-gray-700 text-xs text-gray-300">Annuler</button>
-                    <button type="button" onClick={() => void run(w.key)} className="h-8 px-3 inline-flex items-center gap-1.5 rounded-lg bg-violet-500 text-xs font-medium text-white"><Play className="w-3.5 h-3.5" />Lancer l&apos;agent</button>
+                  {busy === w.key ? <span className="text-xs text-ui-fg2 inline-flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" />L&apos;agent lit les données… (environ 1 min)</span> : <>
+                    <button type="button" onClick={() => setOpen(null)} className="h-8 px-3 rounded-lg border border-ui-line-strong text-xs text-ui-fg2">Annuler</button>
+                    <button type="button" onClick={() => void run(w.key)} className="h-8 px-3 inline-flex items-center gap-1.5 rounded-lg bg-ui-accent text-xs font-medium text-ui-on-accent"><Play className="w-3.5 h-3.5" />Lancer l&apos;agent</button>
                   </>}
                 </div>
               </div>
@@ -104,37 +104,37 @@ export function RunView({ run, accountKey, onChange, onDelete }: { run: AgentRun
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-base font-semibold text-white">{wf?.title ?? run.workflow}</div>
-          <div className="text-xs text-gray-500">{run.label}{run.label ? " · " : ""}{when(run.createdAt)}{run.createdByName ? ` · ${run.createdByName}` : ""}</div>
-          {run.input && <div className="mt-1 text-xs text-gray-400">Consigne : {run.input}</div>}
+          <div className="text-base font-medium text-ui-fg">{wf?.title ?? run.workflow}</div>
+          <div className="text-xs text-ui-muted">{run.label}{run.label ? " · " : ""}{when(run.createdAt)}{run.createdByName ? ` · ${run.createdByName}` : ""}</div>
+          {run.input && <div className="mt-1 text-xs text-ui-fg2">Consigne : {run.input}</div>}
         </div>
-        <button type="button" onClick={() => void remove()} title="Supprimer l'analyse" className="p-1.5 text-gray-500 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+        <button type="button" onClick={() => void remove()} title="Supprimer l'analyse" className="p-1.5 text-ui-muted hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
       </div>
-      {run.status === "running" && <div className="py-10 text-center text-sm text-gray-400"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Analyse en cours…</div>}
+      {run.status === "running" && <div className="py-10 text-center text-sm text-ui-fg2"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Analyse en cours…</div>}
       {run.status === "error" && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">{run.error || "L'agent a échoué."}</div>}
       {run.sections.map((s, i) => (
-        <div key={i} className="rounded-2xl border border-gray-800 bg-gray-900 p-4">
-          <div className="text-sm font-semibold text-white">{s.title}</div>
-          <div className="mt-1.5 text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{s.body}</div>
+        <div key={i} className="rounded-xl border border-ui-line bg-ui-card p-4">
+          <div className="text-sm font-medium text-ui-fg">{s.title}</div>
+          <div className="mt-1.5 text-sm text-ui-fg whitespace-pre-wrap leading-relaxed">{s.body}</div>
           <div className="mt-3 flex items-center gap-3">
-            <button type="button" title="Utile" onClick={() => void score(i, 1)} className={`p-1 rounded ${run.scores[String(i)] === 1 ? "text-emerald-300" : "text-gray-500 hover:text-white"}`}><ThumbsUp className="w-3.5 h-3.5" /></button>
-            <button type="button" title="Pas utile" onClick={() => void score(i, -1)} className={`p-1 rounded ${run.scores[String(i)] === -1 ? "text-red-300" : "text-gray-500 hover:text-white"}`}><ThumbsDown className="w-3.5 h-3.5" /></button>
+            <button type="button" title="Utile" onClick={() => void score(i, 1)} className={`p-1 rounded ${run.scores[String(i)] === 1 ? "text-emerald-300" : "text-ui-muted hover:text-ui-fg"}`}><ThumbsUp className="w-3.5 h-3.5" /></button>
+            <button type="button" title="Pas utile" onClick={() => void score(i, -1)} className={`p-1 rounded ${run.scores[String(i)] === -1 ? "text-red-300" : "text-ui-muted hover:text-ui-fg"}`}><ThumbsDown className="w-3.5 h-3.5" /></button>
             <AddToPlaybook compact accountKey={accountKey} source="copilot" defaultTitle={s.title.slice(0, 140)} aiNote={s.body} refInfo={run.creativeKey ? { creativeKey: run.creativeKey, label: run.label, linkUrl: `/analyse?creative=${encodeURIComponent(run.creativeKey)}` } : undefined} />
           </div>
         </div>
       ))}
       {run.followups.map((f, i) => (
-        <div key={i} className="rounded-2xl border border-gray-800 bg-gray-950 p-4 space-y-2">
-          <div className="text-sm text-violet-200 flex gap-2"><MessageSquare className="w-4 h-4 shrink-0 mt-0.5" />{f.prompt}</div>
-          <div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{f.answer}</div>
-          <div className="text-[11px] text-gray-600">{f.by}{f.by ? " · " : ""}{when(f.at)}</div>
+        <div key={i} className="rounded-xl border border-ui-line bg-ui-bg p-4 space-y-2">
+          <div className="text-sm text-ui-accent-ink flex gap-2"><MessageSquare className="w-4 h-4 shrink-0 mt-0.5" />{f.prompt}</div>
+          <div className="text-sm text-ui-fg whitespace-pre-wrap leading-relaxed">{f.answer}</div>
+          <div className="text-[11px] text-ui-muted">{f.by}{f.by ? " · " : ""}{when(f.at)}</div>
         </div>
       ))}
       {run.status === "done" && (
         <div>
           <div className="flex items-center gap-2">
-            <input value={q} onChange={(e) => setQ(e.target.value)} disabled={busy} onKeyDown={(e) => { if (e.key === "Enter") void ask(); }} placeholder="Une question sur cette analyse ? (ex. détaille l'itération 2)" className="flex-1 h-9 rounded-lg border border-gray-800 bg-gray-900 px-3 text-sm text-white placeholder:text-gray-600" />
-            <button type="button" onClick={() => void ask()} disabled={busy || q.trim().length < 3} className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg bg-white text-sm font-medium text-gray-900 disabled:opacity-40">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}Demander</button>
+            <input value={q} onChange={(e) => setQ(e.target.value)} disabled={busy} onKeyDown={(e) => { if (e.key === "Enter") void ask(); }} placeholder="Une question sur cette analyse ? (ex. détaille l'itération 2)" className="flex-1 h-9 rounded-lg border border-ui-line bg-ui-card px-3 text-sm text-ui-fg placeholder:text-ui-muted" />
+            <button type="button" onClick={() => void ask()} disabled={busy || q.trim().length < 3} className="h-9 px-3 inline-flex items-center gap-1.5 rounded-lg bg-ui-inverse text-sm font-medium text-ui-on-inverse disabled:opacity-40">{busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}Demander</button>
           </div>
           {error && <div className="mt-1 text-xs text-red-300">{error}</div>}
         </div>
@@ -148,12 +148,12 @@ function History({ runs, selected, onSelect }: { runs: AgentRunView[]; selected:
     <ul className="space-y-1">
       {runs.map((r) => (
         <li key={r.id}>
-          <button type="button" onClick={() => onSelect(r.id)} className={`w-full text-left rounded-lg px-3 py-2 ${selected === r.id ? "bg-gray-800" : "hover:bg-gray-900"}`}>
-            <div className="text-sm text-white truncate flex items-center gap-1.5">
+          <button type="button" onClick={() => onSelect(r.id)} className={`w-full text-left rounded-lg px-3 py-2 ${selected === r.id ? "bg-ui-raised" : "hover:bg-ui-raised"}`}>
+            <div className="text-sm text-ui-fg truncate flex items-center gap-1.5">
               <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.status === "done" ? "bg-emerald-400" : r.status === "error" ? "bg-red-400" : "bg-amber-400"}`} />
               {AGENT_BY_KEY[r.workflow]?.title ?? r.workflow}
             </div>
-            <div className="text-[11px] text-gray-500 truncate">{r.label || "—"} · {when(r.createdAt)}</div>
+            <div className="text-[11px] text-ui-muted truncate">{r.label || "—"} · {when(r.createdAt)}</div>
           </button>
         </li>
       ))}
@@ -170,15 +170,15 @@ export function AgentsPanel({ accountKey, query, clientName }: { accountKey: str
   return (
     <div className="px-6 pb-10 space-y-6">
       <div>
-        <div className="mb-2 text-xs text-gray-500">Agents sur le compte{clientName ? ` ${clientName}` : ""} (30 derniers jours comparés aux 30 d&apos;avant, playbook et glossaire du client). Pour une créa précise : ouvre-la, onglet « Agents IA ».</div>
+        <div className="mb-2 text-xs text-ui-muted">Agents sur le compte{clientName ? ` ${clientName}` : ""} (30 derniers jours comparés aux 30 d&apos;avant, playbook et glossaire du client). Pour une créa précise : ouvre-la, onglet « Agents IA ».</div>
         <Launcher scope="account" accountKey={accountKey} query={query} onDone={(r) => { upsert(r); setSelected(r.id); }} />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
         <div>
-          <div className="mb-2 text-xs font-medium text-gray-400">Historique</div>
-          {runs === null ? <Loader2 className="w-4 h-4 animate-spin text-gray-500" /> : runs.length ? <History runs={runs} selected={current?.id ?? null} onSelect={setSelected} /> : <div className="text-xs text-gray-500">Aucune analyse pour ce client.</div>}
+          <div className="mb-2 text-xs font-medium text-ui-fg2">Historique</div>
+          {runs === null ? <Loader2 className="w-4 h-4 animate-spin text-ui-muted" /> : runs.length ? <History runs={runs} selected={current?.id ?? null} onSelect={setSelected} /> : <div className="text-xs text-ui-muted">Aucune analyse pour ce client.</div>}
         </div>
-        <div>{current ? <RunView key={current.id} run={current} accountKey={accountKey} onChange={upsert} onDelete={() => { setRuns((l) => (l ?? []).filter((x) => x.id !== current.id)); setSelected(null); }} /> : runs?.length ? <div className="py-10 text-center text-sm text-gray-500">Choisis une analyse dans l&apos;historique, ou lance un agent.</div> : null}</div>
+        <div>{current ? <RunView key={current.id} run={current} accountKey={accountKey} onChange={upsert} onDelete={() => { setRuns((l) => (l ?? []).filter((x) => x.id !== current.id)); setSelected(null); }} /> : runs?.length ? <div className="py-10 text-center text-sm text-ui-muted">Choisis une analyse dans l&apos;historique, ou lance un agent.</div> : null}</div>
       </div>
     </div>
   );
@@ -186,7 +186,7 @@ export function AgentsPanel({ accountKey, query, clientName }: { accountKey: str
 
 /** « Agents IA » tab of a creative's sheet. */
 export function CreativeAgents({ accountKey, query, creativeKey }: { accountKey: string | null; query: AdsQuery; creativeKey: string }) {
-  if (!accountKey) return <div className="py-16 text-center text-sm text-gray-400">Choisis un client pour lancer un agent.</div>;
+  if (!accountKey) return <div className="py-16 text-center text-sm text-ui-fg2">Choisis un client pour lancer un agent.</div>;
   return <CreativeAgentsInner accountKey={accountKey} query={query} creativeKey={creativeKey} />;
 }
 
@@ -197,14 +197,14 @@ function CreativeAgentsInner({ accountKey, query, creativeKey }: { accountKey: s
   const upsert = (r: AgentRunView) => setRuns((list) => [r, ...(list ?? []).filter((x) => x.id !== r.id)]);
   if (current) return (
     <div className="space-y-3">
-      <button type="button" onClick={() => setSelected(null)} className="text-xs text-gray-400 hover:text-white">← Agents de la créa</button>
+      <button type="button" onClick={() => setSelected(null)} className="text-xs text-ui-fg2 hover:text-ui-fg">← Agents de la créa</button>
       <RunView key={current.id} run={current} accountKey={accountKey} onChange={upsert} onDelete={() => { setRuns((l) => (l ?? []).filter((x) => x.id !== current.id)); setSelected(null); }} />
     </div>
   );
   return (
     <div className="space-y-5">
       <Launcher scope="creative" accountKey={accountKey} query={query} creativeKey={creativeKey} onDone={(r) => { upsert(r); setSelected(r.id); }} />
-      {!!runs?.length && <div><div className="mb-2 text-xs font-medium text-gray-400">Analyses de cette créa</div><History runs={runs} selected={null} onSelect={setSelected} /></div>}
+      {!!runs?.length && <div><div className="mb-2 text-xs font-medium text-ui-fg2">Analyses de cette créa</div><History runs={runs} selected={null} onSelect={setSelected} /></div>}
     </div>
   );
 }

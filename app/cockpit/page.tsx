@@ -23,7 +23,7 @@ export default function CockpitPage() {
             type="button"
             onClick={() => setView(id)}
             aria-current={view === id}
-            className={`rounded-lg px-3 py-1.5 text-sm ${view === id ? "bg-violet-600 text-white" : "text-gray-400 hover:bg-gray-900 hover:text-gray-200"}`}
+            className={`rounded-lg px-3 py-1.5 text-sm ${view === id ? "bg-ui-accent text-ui-on-accent" : "text-ui-fg2 hover:bg-ui-raised hover:text-ui-fg"}`}
           >
             {label}
           </button>

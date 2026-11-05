@@ -19,13 +19,13 @@ const PLATFORM: Record<BotPlatform, { label: string; cls: string }> = {
 };
 
 const inputCls =
-  "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
+  "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
 const primaryBtnCls =
-  "px-3 py-1.5 rounded-lg font-semibold text-xs bg-violet-600 hover:bg-violet-500 text-white transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed";
+  "px-3 py-1.5 rounded-lg font-medium text-xs bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed";
 const secondaryBtnCls =
-  "text-xs font-medium px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors whitespace-nowrap";
+  "text-xs font-medium px-3 py-1.5 rounded-lg bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors whitespace-nowrap";
 const ghostBtnCls =
-  "px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-900 hover:bg-gray-800 text-gray-300 border border-gray-800 transition-colors";
+  "px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-card hover:bg-ui-raised text-ui-fg2 border border-ui-line transition-colors";
 const chipCls = "inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] leading-5";
 const GRID = "lg:grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.7fr)_minmax(0,2.2fr)_auto] lg:gap-4";
 
@@ -49,12 +49,12 @@ function AccountChip({ account }: { account: BotClientAccount }) {
   const shared = account.conflicts.length > 0;
   return (
     <span
-      className={`${chipCls} ${shared ? "border-amber-500/50 bg-amber-500/10" : "border-gray-800 bg-gray-950/50"}`}
+      className={`${chipCls} ${shared ? "border-amber-500/50 bg-amber-500/10" : "border-ui-line bg-ui-bg"}`}
       title={`${PLATFORM[account.platform].label} · ${account.name} · ${account.accountId}${shared ? ` — aussi chez ${conflictText(account)}` : ""}`}
     >
-      <span className={`font-semibold shrink-0 ${PLATFORM[account.platform].cls}`}>{PLATFORM[account.platform].label}</span>
-      <span className="text-gray-200 truncate">{account.name}</span>
-      <span className="text-gray-600 font-mono shrink-0">{account.accountId}</span>
+      <span className={`font-medium shrink-0 ${PLATFORM[account.platform].cls}`}>{PLATFORM[account.platform].label}</span>
+      <span className="text-ui-fg truncate">{account.name}</span>
+      <span className="text-ui-muted font-mono shrink-0">{account.accountId}</span>
     </span>
   );
 }
@@ -62,8 +62,8 @@ function AccountChip({ account }: { account: BotClientAccount }) {
 function Filter<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: ReadonlyArray<readonly [T, string]>; onChange: (v: T) => void }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-[11px] uppercase tracking-wide text-gray-500">{label}</span>
-      <div className="flex items-center gap-0.5 rounded-lg border border-gray-800 bg-gray-900 p-0.5">
+      <span className="text-[11px] text-ui-muted">{label}</span>
+      <div className="flex items-center gap-0.5 rounded-lg border border-ui-line bg-ui-card p-0.5">
         {options.map(([v, text]) => (
           <button
             key={v}
@@ -71,7 +71,7 @@ function Filter<T extends string>({ label, value, options, onChange }: { label: 
             aria-pressed={value === v}
             onClick={() => onChange(v)}
             className={`px-2 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-              value === v ? "bg-violet-600 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"
+              value === v ? "bg-ui-accent text-ui-on-accent" : "text-ui-fg2 hover:bg-ui-raised hover:text-ui-fg"
             }`}
           >
             {text}
@@ -92,23 +92,23 @@ function DashboardLine({ dashboard, accounts, owner }: { dashboard: BotDashboard
     return [{ platform, id, name: known?.name ?? id }];
   });
   return (
-    <li className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5 rounded-lg border border-gray-800/60 bg-gray-950/40 px-3 py-2">
+    <li className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5 rounded-lg border border-ui-line bg-ui-bg px-3 py-2">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Link href={`/d/${dashboard.id}`} className="text-sm text-white hover:text-violet-300 truncate" title="Ouvrir le dashboard">
+          <Link href={`/d/${dashboard.id}`} className="text-sm text-ui-fg hover:text-ui-accent-ink truncate" title="Ouvrir le dashboard">
             {dashboard.name}
           </Link>
           {!bot ? <Pill>Aucun bot</Pill> : bot.enabled ? <Pill tone="emerald">Bot actif</Pill> : <Pill tone="amber">Bot inactif</Pill>}
         </div>
-        <p className="text-[11px] text-gray-500">
+        <p className="text-[11px] text-ui-muted">
           {reads.length
             ? reads.map((r) => `${PLATFORM[r.platform].label} · ${r.name}`).join("  —  ")
             : "Aucun compte lié"}
           {owner && ` · propriétaire : ${owner}`}
         </p>
         {bot && (
-          <p className="text-[11px] text-gray-400">
-            <code className="text-gray-300">{bot.clientKey}</code>
+          <p className="text-[11px] text-ui-fg2">
+            <code className="text-ui-fg2">{bot.clientKey}</code>
             {" · "}
             {bot.accessCount ? plural(bot.accessCount, "accès client", "accès clients") : "aucun accès client"}
             {bot.lastIngestAt && ` · dernière ingestion le ${formatDate(bot.lastIngestAt)}`}
@@ -216,7 +216,7 @@ export default function AdminBotsPage() {
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <label className="relative w-full sm:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ui-muted" />
           <input
             type="search"
             value={query}
@@ -241,17 +241,17 @@ export default function AdminBotsPage() {
       </div>
 
       {loading ? (
-        <p className="text-sm text-gray-500">Chargement…</p>
+        <p className="text-sm text-ui-muted">Chargement…</p>
       ) : error ? (
         <p className="text-sm text-red-400">{error}</p>
       ) : (
         <>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-ui-muted">
             {plural(filtered.length, "client affiché", "clients affichés")} sur {clients.length}
             {activity === "active" && counts && counts.dormant > 0 && (
               <>
                 {" · "}
-                <button type="button" onClick={() => setActivity("all")} className="text-violet-300 hover:text-violet-200 underline underline-offset-2">
+                <button type="button" onClick={() => setActivity("all")} className="text-ui-accent-ink hover:text-ui-accent-ink underline underline-offset-2">
                   {plural(counts.dormant, "client dormant masqué", "clients dormants masqués")}
                 </button>{" "}
                 (aucune dépense depuis dix jours)
@@ -260,10 +260,10 @@ export default function AdminBotsPage() {
           </p>
 
           {filtered.length === 0 ? (
-            <p className="text-sm text-gray-500">Aucun client ne correspond à ces filtres.</p>
+            <p className="text-sm text-ui-muted">Aucun client ne correspond à ces filtres.</p>
           ) : (
             <Card className="overflow-hidden">
-              <div className={`hidden ${GRID} px-4 py-2.5 text-[11px] uppercase tracking-wide text-gray-500 font-medium border-b border-gray-800`}>
+              <div className={`hidden ${GRID} px-4 py-2.5 text-[11px] text-ui-muted font-medium border-b border-ui-line`}>
                 <span>Client</span>
                 <span>Comptes liés</span>
                 <span>Dashboards et bots</span>
@@ -274,10 +274,10 @@ export default function AdminBotsPage() {
                   const bots = c.dashboards.filter((d) => d.bot);
                   const open = choice?.clientId === c.id;
                   return (
-                    <li key={c.id} className="border-b border-gray-800/60 last:border-0">
-                      <div className={`${GRID} space-y-3 lg:space-y-0 px-4 py-3 hover:bg-gray-800/20`}>
+                    <li key={c.id} className="border-b border-ui-line last:border-0">
+                      <div className={`${GRID} space-y-3 lg:space-y-0 px-4 py-3 hover:bg-ui-raised`}>
                         <div className="min-w-0 space-y-1.5">
-                          <div className="text-white font-medium break-words">{c.name}</div>
+                          <div className="text-ui-fg font-medium break-words">{c.name}</div>
                           <div className="flex flex-wrap gap-1.5">
                             {bots.length === 0 ? (
                               <Pill>Aucun bot</Pill>
@@ -294,15 +294,15 @@ export default function AdminBotsPage() {
                           <div className="flex flex-wrap gap-1.5">
                             {c.accounts.map((a) => <AccountChip key={`${a.platform}:${a.accountId}`} account={a} />)}
                             {bots.map((d) => d.bot?.sources.ga4PropertyId && (
-                              <span key={`ga4:${d.id}`} className={`${chipCls} border-gray-800 bg-gray-950/50`} title={`Propriété GA4 lue par le bot du dashboard « ${d.name} »`}>
-                                <span className="font-semibold text-amber-300">GA4</span>
-                                <span className="text-gray-600 font-mono">{d.bot.sources.ga4PropertyId}</span>
+                              <span key={`ga4:${d.id}`} className={`${chipCls} border-ui-line bg-ui-bg`} title={`Propriété GA4 lue par le bot du dashboard « ${d.name} »`}>
+                                <span className="font-medium text-amber-300">GA4</span>
+                                <span className="text-ui-muted font-mono">{d.bot.sources.ga4PropertyId}</span>
                               </span>
                             ))}
                             {bots.map((d) => d.bot?.sources.data && (
-                              <span key={`data:${d.id}`} className={`${chipCls} border-gray-800 bg-gray-950/50`} title={`Entrepôt e-commerce « ${d.bot.clientKey} »`}>
-                                <span className="font-semibold text-violet-300">E-commerce</span>
-                                <span className="text-gray-400">{d.bot.lastIngestAt ? `reçu le ${formatDate(d.bot.lastIngestAt)}` : "rien reçu"}</span>
+                              <span key={`data:${d.id}`} className={`${chipCls} border-ui-line bg-ui-bg`} title={`Entrepôt e-commerce « ${d.bot.clientKey} »`}>
+                                <span className="font-medium text-ui-accent-ink">E-commerce</span>
+                                <span className="text-ui-fg2">{d.bot.lastIngestAt ? `reçu le ${formatDate(d.bot.lastIngestAt)}` : "rien reçu"}</span>
                               </span>
                             ))}
                           </div>
@@ -316,10 +316,10 @@ export default function AdminBotsPage() {
 
                         <div className="min-w-0">
                           {c.dashboards.length === 0 ? (
-                            <p className="text-xs text-gray-500">Aucun dashboard</p>
+                            <p className="text-xs text-ui-muted">Aucun dashboard</p>
                           ) : (
                             <div className="space-y-1.5">
-                              <p className="text-[11px] text-gray-500">{plural(c.dashboards.length, "dashboard", "dashboards")}</p>
+                              <p className="text-[11px] text-ui-muted">{plural(c.dashboards.length, "dashboard", "dashboards")}</p>
                               <ul className="space-y-1.5">
                                 {c.dashboards.map((d) => <DashboardLine key={d.id} dashboard={d} accounts={c.accounts} />)}
                               </ul>
@@ -337,10 +337,10 @@ export default function AdminBotsPage() {
                       </div>
 
                       {open && choice && (
-                        <div className="mx-4 mb-3 rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
+                        <div className="mx-4 mb-3 rounded-xl border border-ui-accent bg-ui-accent-soft p-4 space-y-3">
                           <div>
-                            <p className="text-sm font-semibold text-white">Ouvrir un bot à {c.name}</p>
-                            <p className="text-xs text-gray-400 mt-0.5">
+                            <p className="text-sm font-medium text-ui-fg">Ouvrir un bot à {c.name}</p>
+                            <p className="text-xs text-ui-fg2 mt-0.5">
                               Un dashboard est créé à votre nom pour ce client, sans aucun accès client. Le bot ne lira que les comptes choisis ici.
                             </p>
                           </div>
@@ -349,7 +349,7 @@ export default function AdminBotsPage() {
                               const list = c.accounts.filter((a) => a.platform === platform);
                               if (!list.length) return null;
                               return (
-                                <label key={platform} className="block text-xs text-gray-400 space-y-1">
+                                <label key={platform} className="block text-xs text-ui-fg2 space-y-1">
                                   <span>Compte {PLATFORM[platform].label}{list.length > 1 && ` — ${list.length} comptes, un seul par bot`}</span>
                                   <select
                                     value={choice[platform]}
@@ -390,7 +390,7 @@ export default function AdminBotsPage() {
               title={`Dashboards hors liste (${data.orphans.length})`}
               bodyClassName="p-4 space-y-3"
             >
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-ui-muted">
                 Leurs comptes n&apos;appartiennent à aucun client connu : compte devenu illisible, ou dashboard sans compte.
               </p>
               <ul className="space-y-1.5">

@@ -59,9 +59,9 @@ export function formatLock(format: AdFormatTab, fit: AdsetFit): string | null {
   return fit.dynamic ? DYNAMIC_ADSET_ONLY_FORMAT : null;
 }
 
-export const input = "w-full bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-sm text-white outline-none focus:border-violet-500";
+export const input = "w-full bg-ui-bg border border-ui-line rounded-lg px-2.5 py-1.5 text-sm text-ui-fg outline-none focus:border-ui-accent";
 export const tabClass = (on: boolean, disabled = false) =>
-  `px-3 py-1.5 text-xs rounded-lg border outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${disabled ? "border-gray-800/60 text-gray-600 cursor-not-allowed" : on ? "border-violet-500 text-white bg-violet-500/10" : "border-gray-800 text-gray-400 hover:text-white"}`;
+  `px-3 py-1.5 text-xs rounded-lg border outline-none focus-visible:ring-2 focus-visible:ring-ui-accent/40 ${disabled ? "border-ui-line text-ui-muted cursor-not-allowed" : on ? "border-ui-accent text-ui-fg bg-ui-accent-soft" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`;
 
 /** Left/Right (and Home/End) move between the tabs of a tablist, as the ARIA pattern asks. */
 export function tabKeyNav<T extends string>(e: React.KeyboardEvent, ids: T[], current: T, select: (id: T) => void) {

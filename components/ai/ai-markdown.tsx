@@ -30,7 +30,7 @@ export function AiMarkdown({ content, filesBase, className }: { content: string;
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={local ? "inline-flex items-center gap-1 text-violet-300 hover:text-violet-200 no-underline border border-violet-900/60 rounded-md px-2 py-0.5" : undefined}
+                className={local ? "inline-flex items-center gap-1 text-ui-accent-ink hover:text-ui-accent-ink no-underline border border-ui-accent rounded-md px-2 py-0.5" : undefined}
               >
                 {local ? "⬇ " : null}{children}
               </a>

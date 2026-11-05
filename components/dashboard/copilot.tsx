@@ -417,7 +417,7 @@ export function CopilotPanel({
   function renderMessage(m: ChatMessage, i: number) {
     if (m.role === "user") {
       return (
-        <div key={i} className="ml-8 bg-violet-950/50 border border-violet-900/40 rounded-xl px-3 py-2 text-sm text-gray-200 whitespace-pre-wrap">
+        <div key={i} className="ml-8 bg-ui-accent-soft border border-ui-accent rounded-xl px-3 py-2 text-sm text-ui-fg whitespace-pre-wrap">
           <MessageAttachments images={m.images} files={m.files} />
           {m.content.replace(/^\[Résultat des propositions précédentes[^\]]*\]\n\n/, "").replace(FILES_NOTE_RE, "")}
         </div>
@@ -428,12 +428,12 @@ export function CopilotPanel({
     return (
       <div key={i} className="mr-4 space-y-2">
         {clean && (
-          <AiMarkdown content={clean} filesBase={filesBase} className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2" />
+          <AiMarkdown content={clean} filesBase={filesBase} className="prose ui-prose prose-sm max-w-none text-ui-fg2 bg-ui-card border border-ui-line rounded-xl px-3 py-2" />
         )}
         {msgProposals.map((p) => (
-          <div key={p.key} className={`bg-gray-900 border rounded-xl px-3 py-2 ${p.status === "invalid" ? "border-amber-800/60" : "border-violet-800/50"}`}>
-            <div className="text-xs font-semibold text-violet-300">{proposalLabel(p.action, widgets)}</div>
-            <pre className="text-[10px] text-gray-500 mt-1 overflow-x-auto">{JSON.stringify(p.action, null, 1)}</pre>
+          <div key={p.key} className={`bg-ui-card border rounded-xl px-3 py-2 ${p.status === "invalid" ? "border-amber-800/60" : "border-ui-accent"}`}>
+            <div className="text-xs font-medium text-ui-accent-ink">{proposalLabel(p.action, widgets)}</div>
+            <pre className="text-[10px] text-ui-muted mt-1 overflow-x-auto">{JSON.stringify(p.action, null, 1)}</pre>
             {p.status === "invalid" ? (
               <div className="text-[11px] mt-1 text-amber-400">
                 Proposition invalide : {p.error} — reformulez votre demande.
@@ -444,20 +444,20 @@ export function CopilotPanel({
                   type="button"
                   disabled={p.status === "applying"}
                   onClick={() => applyProposal(p)}
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50"
                 >
                   {p.status === "applying" ? "Application…" : "Appliquer"}
                 </button>
                 <button
                   type="button"
                   onClick={() => refuseProposal(p)}
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-300"
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg2"
                 >
                   Refuser
                 </button>
               </div>
             ) : (
-              <div className={`text-[11px] mt-1 ${p.status === "applied" ? "text-emerald-400" : p.status === "failed" ? "text-red-400" : "text-gray-500"}`}>
+              <div className={`text-[11px] mt-1 ${p.status === "applied" ? "text-emerald-400" : p.status === "failed" ? "text-red-400" : "text-ui-muted"}`}>
                 {p.status === "applied" ? "✓ Appliqué — le dashboard est à jour" : p.status === "failed" ? `Échec : ${p.error}` : "Refusé"}
               </div>
             )}
@@ -468,12 +468,12 @@ export function CopilotPanel({
   }
 
   return (
-    <aside className="fixed right-0 top-12 bottom-0 w-full sm:w-[420px] bg-gray-950 border-l border-gray-800 flex flex-col z-40 shadow-2xl">
-      <div className="px-4 py-3 border-b border-gray-800 space-y-2">
+    <aside className="fixed right-0 top-14 bottom-0 w-full sm:w-[420px] bg-ui-bg border-l border-ui-line flex flex-col z-40 shadow-2xl">
+      <div className="px-4 py-3 border-b border-ui-line space-y-2">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-bold text-white">Copilote IA</h2>
-            <p className="text-[11px] text-gray-500">Propose des widgets — rien n&apos;est appliqué sans validation</p>
+            <h2 className="text-sm font-medium text-ui-fg">Copilote IA</h2>
+            <p className="text-[11px] text-ui-muted">Propose des widgets — rien n&apos;est appliqué sans validation</p>
           </div>
           <div className="flex items-center gap-2">
             {messages.length >= 2 && (
@@ -482,12 +482,12 @@ export function CopilotPanel({
                 onClick={memorize}
                 disabled={memorizing || busy}
                 title="Résume les conclusions de cette conversation dans le journal HQ du client"
-                className="px-2 py-1 rounded-md text-[11px] font-semibold bg-gray-900 border border-gray-800 text-gray-300 hover:text-white hover:border-violet-700 disabled:opacity-50"
+                className="px-2 py-1 rounded-md text-[11px] font-medium bg-ui-card border border-ui-line text-ui-fg2 hover:text-ui-fg hover:border-ui-accent disabled:opacity-50"
               >
                 {memorizing ? "Mémorisation…" : "Mémoriser dans HQ"}
               </button>
             )}
-            <button type="button" onClick={onClose} className="text-gray-500 hover:text-white text-sm">✕</button>
+            <button type="button" onClick={onClose} className="text-ui-muted hover:text-ui-fg text-sm">✕</button>
           </div>
         </div>
         {memoNote && (
@@ -501,7 +501,7 @@ export function CopilotPanel({
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         <StaleBuildBanner />
         {messages.length === 0 && !streamText && (
-          <div className="text-xs text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-3 py-3 space-y-1.5">
+          <div className="text-xs text-ui-muted bg-ui-card border border-ui-line rounded-xl px-3 py-3 space-y-1.5">
             <p>
               Exemples : « Ajoute une courbe du ROAS sur 90 jours », « Passe le tableau
               Google en pleine largeur », « Que dire des perfs de ce compte ? »
@@ -509,13 +509,13 @@ export function CopilotPanel({
             <p>
               Joignez des images, Excel, CSV, PDF ou Word avec le trombone, en les collant ou en les déposant :
               l&apos;IA les analyse avec Python et peut produire graphiques et exports.
-              Un Google Sheet vivant ? Partagez-le avec <span className="text-gray-300">{sheetsShareEmail}</span> puis collez le lien.
+              Un Google Sheet vivant ? Partagez-le avec <span className="text-ui-fg2">{sheetsShareEmail}</span> puis collez le lien.
             </p>
           </div>
         )}
         {messages.map(renderMessage)}
         {streamText !== null && (
-          <div className="mr-4 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-300 whitespace-pre-wrap">
+          <div className="mr-4 bg-ui-card border border-ui-line rounded-xl px-3 py-2 text-sm text-ui-fg2 whitespace-pre-wrap">
             {streamText}
             <AiActivity state={activity} startedAt={startedAt} round={round} className={streamText ? "mt-2" : undefined} />
           </div>
@@ -533,22 +533,22 @@ export function CopilotPanel({
         onSubmit={(e) => { e.preventDefault(); send(); }}
         onDragOver={att.onDragOver}
         onDrop={att.onDrop}
-        className="p-3 border-t border-gray-800 space-y-2"
+        className="p-3 border-t border-ui-line space-y-2"
       >
         {showSheetHelp && (
-          <div className="text-[11px] text-gray-300 bg-gray-900 border border-violet-900/50 rounded-lg px-3 py-2 space-y-1">
+          <div className="text-[11px] text-ui-fg2 bg-ui-card border border-ui-accent rounded-lg px-3 py-2 space-y-1">
             <div className="flex items-start justify-between gap-2">
-              <div className="font-semibold text-violet-300">Partager un Excel ou un CSV</div>
-              <button type="button" onClick={() => setShowSheetHelp(false)} className="text-gray-500 hover:text-white">✕</button>
+              <div className="font-medium text-ui-accent-ink">Partager un Excel ou un CSV</div>
+              <button type="button" onClick={() => setShowSheetHelp(false)} className="text-ui-muted hover:text-ui-fg">✕</button>
             </div>
-            <ol className="list-decimal pl-4 space-y-0.5 text-gray-400">
+            <ol className="list-decimal pl-4 space-y-0.5 text-ui-fg2">
               <li>Importez le fichier dans Google Sheets (Fichier → Importer).</li>
               <li>
                 Partagez la feuille avec{" "}
-                <button type="button" onClick={copyShareEmail} title="Copier l'adresse" className="font-mono text-gray-200 hover:text-white underline decoration-dotted">
+                <button type="button" onClick={copyShareEmail} title="Copier l'adresse" className="font-mono text-ui-fg hover:text-ui-fg underline decoration-dotted">
                   {sheetsShareEmail}
                 </button>{" "}
-                en <span className="text-gray-200">Éditeur</span>.{copiedEmail && <span className="text-emerald-400"> Copié</span>}
+                en <span className="text-ui-fg">Éditeur</span>.{copiedEmail && <span className="text-emerald-400"> Copié</span>}
               </li>
               <li>Collez le lien de la feuille ici, avec le nom de l&apos;onglet à lire.</li>
             </ol>
@@ -563,7 +563,7 @@ export function CopilotPanel({
             onClick={() => setShowSheetHelp((v) => !v)}
             title="Partager un Google Sheet vivant avec le copilote"
             aria-label="Aide Google Sheets"
-            className="px-2.5 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-gray-400 hover:text-white hover:border-gray-600"
+            className="px-2.5 py-2 rounded-lg text-sm bg-ui-card border border-ui-line text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong"
           >
             ▦
           </button>
@@ -573,12 +573,12 @@ export function CopilotPanel({
             onPaste={att.onPaste}
             placeholder={att.hasPending ? "Que faire de ces fichiers ?" : "Demandez un ajout, une analyse…"}
             disabled={busy}
-            className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm bg-gray-900 border border-gray-800 text-white focus:border-violet-500 focus:outline-none disabled:opacity-60"
+            className="flex-1 min-w-0 px-3 py-2 rounded-lg text-sm bg-ui-card border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none disabled:opacity-60"
           />
           <button
             type="submit"
             disabled={busy || att.busy || (!input.trim() && !att.hasPending)}
-            className="px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
+            className="px-3 py-2 rounded-lg text-sm font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50"
           >
             {busy ? "…" : "Envoyer"}
           </button>

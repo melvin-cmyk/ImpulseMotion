@@ -49,7 +49,7 @@ export function RunHistory({ routineId, timezone, refreshKey }: { routineId: str
   }, [load, refreshKey]);
 
   if (runs === null && !error) {
-    return <div className="p-4 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement de l&apos;historique…</div>;
+    return <div className="p-4 flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement de l&apos;historique…</div>;
   }
 
   return (
@@ -63,9 +63,9 @@ export function RunHistory({ routineId, timezone, refreshKey }: { routineId: str
 
       {runs && runs.length === 0 && !error && (
         <div className="text-center py-8">
-          <History className="w-8 h-8 text-gray-700 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">Aucune exécution pour l&apos;instant.</p>
-          <p className="text-xs text-gray-600 mt-1">Les essais à blanc et les exécutions apparaîtront ici, avec le détail de chaque étape.</p>
+          <History className="w-8 h-8 text-ui-muted mx-auto mb-3" />
+          <p className="text-sm text-ui-fg2">Aucune exécution pour l&apos;instant.</p>
+          <p className="text-xs text-ui-muted mt-1">Les essais à blanc et les exécutions apparaîtront ici, avec le détail de chaque étape.</p>
         </div>
       )}
 
@@ -76,26 +76,26 @@ export function RunHistory({ routineId, timezone, refreshKey }: { routineId: str
             const expanded = open === run.id;
             const dry = run.trigger === "dry_run";
             return (
-              <li key={run.id} className="bg-gray-950/50 border border-gray-800 rounded-xl">
+              <li key={run.id} className="bg-ui-bg border border-ui-line rounded-xl">
                 <button
                   type="button"
                   onClick={() => setOpen(expanded ? null : run.id)}
                   aria-expanded={expanded}
                   className="w-full text-left px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1"
                 >
-                  {expanded ? <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-500 shrink-0" />}
-                  <span className="text-sm text-white">{dateTimeLabel(run.startedAt, timezone)}</span>
+                  {expanded ? <ChevronDown className="w-4 h-4 text-ui-muted shrink-0" /> : <ChevronRight className="w-4 h-4 text-ui-muted shrink-0" />}
+                  <span className="text-sm text-ui-fg">{dateTimeLabel(run.startedAt, timezone)}</span>
                   <Pill tone={st.tone}>{st.label}</Pill>
-                  <span className="text-xs text-gray-500">{RUN_TRIGGER[run.trigger] ?? run.trigger}</span>
-                  <span className="text-xs text-gray-400 ml-auto tabular-nums flex flex-wrap gap-x-3">
+                  <span className="text-xs text-ui-muted">{RUN_TRIGGER[run.trigger] ?? run.trigger}</span>
+                  <span className="text-xs text-ui-fg2 ml-auto tabular-nums flex flex-wrap gap-x-3">
                     {/* One counter per nature of write, the same for a dry run and a live run. */}
                     {runCounters(run).map((c) => <span key={c.key + c.text} className={COUNTER_TONE[c.tone]}>{c.text}</span>)}
                     {run.timedOut && <span className="text-amber-300">temps écoulé</span>}
-                    {run.durationMs > 0 && <span className="text-gray-600">{durationLabel(run.durationMs)}</span>}
+                    {run.durationMs > 0 && <span className="text-ui-muted">{durationLabel(run.durationMs)}</span>}
                   </span>
                 </button>
                 {expanded && (
-                  <div className="px-3 pb-3 space-y-2 border-t border-gray-800 pt-3">
+                  <div className="px-3 pb-3 space-y-2 border-t border-ui-line pt-3">
                     {run.error && <p className="text-xs text-red-300 break-words">{run.error}</p>}
                     <RunSteps steps={run.steps} dryRun={dry} />
                   </div>
@@ -107,11 +107,11 @@ export function RunHistory({ routineId, timezone, refreshKey }: { routineId: str
       )}
 
       {pages > 1 && (
-        <div className="flex items-center justify-between text-xs text-gray-500">
+        <div className="flex items-center justify-between text-xs text-ui-muted">
           <span>{total} exécution{total > 1 ? "s" : ""} · page {page} sur {pages}</span>
           <div className="flex gap-2">
-            <button type="button" disabled={page <= 1 || loading} onClick={() => void load(page - 1)} className="px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-40">Plus récentes</button>
-            <button type="button" disabled={page >= pages || loading} onClick={() => void load(page + 1)} className="px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-40">Plus anciennes</button>
+            <button type="button" disabled={page <= 1 || loading} onClick={() => void load(page - 1)} className="px-2.5 py-1 rounded-lg bg-ui-raised hover:bg-ui-line-strong text-ui-fg2 disabled:opacity-40">Plus récentes</button>
+            <button type="button" disabled={page >= pages || loading} onClick={() => void load(page + 1)} className="px-2.5 py-1 rounded-lg bg-ui-raised hover:bg-ui-line-strong text-ui-fg2 disabled:opacity-40">Plus anciennes</button>
           </div>
         </div>
       )}

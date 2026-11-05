@@ -229,17 +229,17 @@ export const Board = forwardRef<BoardHandle, Props>(function Board({ children, u
     // The caller positions and sizes the board (« absolute inset-0 »). No `relative` here: Tailwind emits
     // `.relative` after `.absolute`, so it won the position and the board, with no height of its own,
     // was a 0 px strip whose overflow hid every card.
-    <div ref={el} data-board data-drag-over={dragOver ? "1" : undefined} className={`overflow-hidden touch-none select-none cursor-grab active:cursor-grabbing ${dragOver ? "ring-2 ring-inset ring-violet-400/60" : ""} ${className ?? "relative w-full h-full"}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+    <div ref={el} data-board data-drag-over={dragOver ? "1" : undefined} className={`overflow-hidden touch-none select-none cursor-grab active:cursor-grabbing ${dragOver ? "ring-2 ring-inset ring-ui-accent/40" : ""} ${className ?? "relative w-full h-full"}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       <div ref={layer} className="absolute left-0 top-0 origin-top-left will-change-transform" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
         {underlay}
         {children}
         {overlay}
       </div>
-      {dragOver && <div className="absolute inset-x-0 top-14 flex justify-center pointer-events-none"><span className="rounded-full border border-violet-400/40 bg-[#0d0a1a]/90 px-4 py-1.5 text-xs text-violet-100">Lâche ici : visuel → Créas du client · PDF / Word → Briefs</span></div>}
-      <div className="absolute bottom-5 right-5 flex items-center gap-1 rounded-full border border-white/10 bg-black/50 backdrop-blur px-1.5 py-1 text-xs text-gray-300">
-        <button type="button" onClick={() => { const host = el.current; if (host) zoomAround(viewRef.current.k / 1.25, host.clientWidth / 2, host.clientHeight / 2, true); }} className="w-7 h-7 rounded-full hover:bg-white/10" aria-label="Zoom arrière">−</button>
+      {dragOver && <div className="absolute inset-x-0 top-14 flex justify-center pointer-events-none"><span className="rounded-full border border-ui-accent bg-ui-bg/90 px-4 py-1.5 text-xs text-ui-accent-ink">Lâche ici : visuel → Créas du client · PDF / Word → Briefs</span></div>}
+      <div className="absolute bottom-5 right-5 flex items-center gap-1 rounded-full border border-ui-line bg-black/50 backdrop-blur px-1.5 py-1 text-xs text-ui-fg2">
+        <button type="button" onClick={() => { const host = el.current; if (host) zoomAround(viewRef.current.k / 1.25, host.clientWidth / 2, host.clientHeight / 2, true); }} className="w-7 h-7 rounded-full hover:bg-ui-raised" aria-label="Zoom arrière">−</button>
         <span className="tabular-nums w-11 text-center">{Math.round(view.k * 100)} %</span>
-        <button type="button" onClick={() => { const host = el.current; if (host) zoomAround(viewRef.current.k * 1.25, host.clientWidth / 2, host.clientHeight / 2, true); }} className="w-7 h-7 rounded-full hover:bg-white/10" aria-label="Zoom avant">+</button>
+        <button type="button" onClick={() => { const host = el.current; if (host) zoomAround(viewRef.current.k * 1.25, host.clientWidth / 2, host.clientHeight / 2, true); }} className="w-7 h-7 rounded-full hover:bg-ui-raised" aria-label="Zoom avant">+</button>
       </div>
     </div>
   );

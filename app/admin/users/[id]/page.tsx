@@ -31,12 +31,12 @@ const PLATFORMS = [
 ];
 
 const inputCls =
-  "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
-const sectionTitleCls = "text-sm font-bold uppercase tracking-wider mb-3 text-violet-300";
+  "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
+const sectionTitleCls = "text-sm font-medium mb-3 text-ui-accent-ink";
 const primaryBtnCls =
-  "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-600 hover:bg-violet-500 text-white transition-colors";
+  "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors";
 const secondaryBtnCls =
-  "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors";
+  "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors";
 const dangerBtnCls =
   "text-xs px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 transition-colors";
 
@@ -260,7 +260,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     if (res.ok) setNewPassword("");
   }
 
-  if (loading) return <div className="text-sm text-gray-500">Chargement…</div>;
+  if (loading) return <div className="text-sm text-ui-muted">Chargement…</div>;
   if (!user) return <div className="text-sm text-red-400">Utilisateur introuvable</div>;
 
   const mcpEnabled = new Set(user.mcpPermissions.map((p) => p.mcpServer));
@@ -272,18 +272,18 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/admin" className="text-xs text-gray-400 hover:text-white hover:underline">
+        <Link href="/admin" className="text-xs text-ui-fg2 hover:text-ui-fg hover:underline">
           ← Retour
         </Link>
-        <h1 className="text-2xl font-bold text-white mt-2">{user.email}</h1>
-        <div className="text-xs mt-1 text-gray-500 flex items-center gap-2">
+        <h1 className="text-2xl font-medium text-ui-fg mt-2">{user.email}</h1>
+        <div className="text-xs mt-1 text-ui-muted flex items-center gap-2">
           Rôle :
           <select
             value={user.role}
             onChange={(e) => changeRole(e.target.value)}
             disabled={isSelf && user.role === "admin"}
             title={isSelf && user.role === "admin" ? "Vous ne pouvez pas retirer votre propre rôle admin" : undefined}
-            className="px-2 py-1 rounded bg-gray-950 border border-gray-800 text-violet-300 text-xs focus:border-violet-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-2 py-1 rounded bg-ui-bg border border-ui-line text-ui-accent-ink text-xs focus:border-ui-accent focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="client">client</option>
             <option value="consultant">consultant</option>
@@ -296,10 +296,10 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         <section>
           <h2 className={sectionTitleCls}>Accès</h2>
           <Card padded>
-            <p className="text-sm text-gray-300">
+            <p className="text-sm text-ui-fg2">
               {user.role === "admin" ? "Admin" : "Consultant"} : accès à tous les comptes publicitaires, à tous les clients et à tous les outils de l&apos;IA. Rien à attribuer.
             </p>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-ui-muted mt-1">
               {user.role === "admin"
                 ? "Un admin gère en plus la partie client : les logins, les dashboards ouverts aux clients et leur assistant IA."
                 : "La partie client (logins, dashboards ouverts aux clients, assistant IA des clients) reste gérée par les admins."}
@@ -321,22 +321,22 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             >
               {bulkBusy ? "Attribution en cours…" : "Donner accès à tous les comptes"}
             </button>
-            {bulkStatus && <span className="text-[11px] text-gray-400">{bulkStatus}</span>}
+            {bulkStatus && <span className="text-[11px] text-ui-fg2">{bulkStatus}</span>}
           </div>
         </div>
-        <p className="text-xs text-gray-500 mb-3">
+        <p className="text-xs text-ui-muted mb-3">
           Les comptes dont ce client peut voir les données. Ils sont ajoutés automatiquement quand un dashboard lui est ouvert.
         </p>
         <div className="flex flex-col gap-2 mb-4">
           {user.adAccounts.length === 0 && (
-            <p className="text-sm text-gray-500">Aucun compte attribué — ce client ne voit aucune donnée.</p>
+            <p className="text-sm text-ui-muted">Aucun compte attribué — ce client ne voit aucune donnée.</p>
           )}
           {user.adAccounts.map((a) => (
             <Card key={a.id} padded className="flex items-center justify-between !p-3">
               <div className="flex items-center gap-3">
-                <Pill tone="violet" className="uppercase font-bold tracking-wide">{a.platform}</Pill>
-                <code className="text-sm text-white">{a.accountId}</code>
-                {a.label && <span className="text-xs text-gray-400">— {a.label}</span>}
+                <Pill tone="violet" className=" font-medium ">{a.platform}</Pill>
+                <code className="text-sm text-ui-fg">{a.accountId}</code>
+                {a.label && <span className="text-xs text-ui-fg2">— {a.label}</span>}
               </div>
               <button onClick={() => removeAdAccount(a.id)} className={dangerBtnCls}>
                 Retirer
@@ -390,15 +390,15 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
                   className={inputCls}
                 />
                 {currentLoading && (
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-ui-fg2">
                     Chargement des comptes{addPlatform === "google" ? " (peut prendre ~5s)" : ""}…
                   </p>
                 )}
                 {currentError && <p className="text-xs text-red-400">{currentError}</p>}
                 {currentOptions && (
-                  <div className="max-h-64 overflow-y-auto rounded-lg bg-gray-950 border border-gray-800">
+                  <div className="max-h-64 overflow-y-auto rounded-lg bg-ui-bg border border-ui-line">
                     {filteredOptions.length === 0 ? (
-                      <p className="p-3 text-xs text-gray-500">
+                      <p className="p-3 text-xs text-ui-muted">
                         Aucun compte {pickerSearch ? "ne correspond" : "disponible"}.
                       </p>
                     ) : (
@@ -409,17 +409,17 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
                             type="button"
                             key={opt.accountId}
                             onClick={() => pickAccount(opt)}
-                            className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors border-b border-gray-800/60 last:border-0 ${
-                              selected ? "bg-violet-500/15" : "hover:bg-gray-800/50"
+                            className={`w-full flex items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors border-b border-ui-line last:border-0 ${
+                              selected ? "bg-ui-accent-soft" : "hover:bg-ui-raised"
                             }`}
                           >
                             <span className="flex-1 truncate">
-                              <span className={selected ? "text-violet-300" : "text-white"}>{opt.name}</span>
+                              <span className={selected ? "text-ui-accent-ink" : "text-ui-fg"}>{opt.name}</span>
                               {opt.currency && (
-                                <span className="ml-2 text-xs text-gray-500">{opt.currency}</span>
+                                <span className="ml-2 text-xs text-ui-muted">{opt.currency}</span>
                               )}
                             </span>
-                            <code className="text-xs shrink-0 text-gray-400">{opt.accountId}</code>
+                            <code className="text-xs shrink-0 text-ui-fg2">{opt.accountId}</code>
                           </button>
                         );
                       })
@@ -441,11 +441,11 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
       <section>
         <h2 className={sectionTitleCls}>Dashboards</h2>
         {dashboardsLoading ? (
-          <p className="text-sm text-gray-500">Chargement…</p>
+          <p className="text-sm text-ui-muted">Chargement…</p>
         ) : dashboardsError ? (
           <p className="text-xs text-red-400">{dashboardsError}</p>
         ) : userDashboards.length === 0 ? (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-ui-muted">
             Aucun dashboard — ce user n&apos;est ni propriétaire ni membre d&apos;un dashboard.
           </p>
         ) : (
@@ -456,16 +456,16 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
                   <Pill tone={d.userId === id ? "violet" : "blue"} className="shrink-0">
                     {d.userId === id ? "Propriétaire" : "Membre"}
                   </Pill>
-                  <span className="text-sm text-white truncate">{d.name}</span>
+                  <span className="text-sm text-ui-fg truncate">{d.name}</span>
                   {d._count && (
-                    <span className="text-xs text-gray-500 shrink-0">
+                    <span className="text-xs text-ui-muted shrink-0">
                       {d._count.widgets} widget{d._count.widgets > 1 ? "s" : ""}
                     </span>
                   )}
                 </div>
                 <Link
                   href={`/d/${d.id}`}
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors shrink-0"
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors shrink-0"
                 >
                   Ouvrir →
                 </Link>
@@ -481,14 +481,14 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         <div className="flex flex-col gap-2">
           {MCP_SERVERS.map((s) => (
             <label key={s}>
-              <Card padded className="!p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-800/30">
+              <Card padded className="!p-3 flex items-center gap-3 cursor-pointer hover:bg-ui-raised">
                 <input
                   type="checkbox"
                   checked={mcpEnabled.has(s)}
                   onChange={(e) => toggleMcp(s, e.target.checked)}
-                  className="accent-violet-500"
+                  className="accent-ui-accent"
                 />
-                <code className="text-sm text-white">{s}</code>
+                <code className="text-sm text-ui-fg">{s}</code>
               </Card>
             </label>
           ))}
@@ -510,7 +510,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
             Mettre à jour
           </button>
         </form>
-        {passwordStatus && <p className="text-xs mt-2 text-gray-400">{passwordStatus}</p>}
+        {passwordStatus && <p className="text-xs mt-2 text-ui-fg2">{passwordStatus}</p>}
       </section>
     </div>
   );

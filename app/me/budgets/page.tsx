@@ -39,9 +39,9 @@ type Budget = {
 };
 
 const inputCls =
-  "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
+  "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
 const primaryBtnCls =
-  "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-600 hover:bg-violet-500 text-white transition-colors";
+  "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors";
 
 function fmtMoney(n: number, currency = "EUR"): string {
   return new Intl.NumberFormat("fr-FR", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
@@ -79,16 +79,16 @@ function PacingBar({ pacing }: { pacing: Pacing }) {
 
   return (
     <div className="space-y-1.5">
-      <div className="relative h-2.5 rounded-full bg-gray-800 overflow-hidden">
+      <div className="relative h-2.5 rounded-full bg-ui-raised overflow-hidden">
         {/* Time-elapsed marker */}
         <div
-          className="absolute top-0 bottom-0 w-px bg-white/30"
+          className="absolute top-0 bottom-0 w-px bg-ui-raised"
           style={{ left: `${Math.min(elapsedPct, 100)}%` }}
           title={`Jour ${pacing.daysElapsed} / ${pacing.daysInMonth}`}
         />
         {/* MTD spend (filled, gray) */}
         <div
-          className="absolute top-0 bottom-0 bg-gray-600"
+          className="absolute top-0 bottom-0 bg-ui-line-strong"
           style={{ width: `${Math.min((pacing.mtdSpend / pacing.monthlyTarget) * 100, 100)}%` }}
         />
         {/* Projection (colored, semi-transparent on top) */}
@@ -97,13 +97,13 @@ function PacingBar({ pacing }: { pacing: Pacing }) {
           style={{ width: `${Math.min(projectedPct, 100)}%` }}
         />
       </div>
-      <div className="flex items-center justify-between text-[11px] text-gray-500">
+      <div className="flex items-center justify-between text-[11px] text-ui-muted">
         <span>
-          MTD : <span className="text-white">{fmtMoney(pacing.mtdSpend, pacing.currency)}</span> ·
-          Run rate : <span className="text-white">{fmtMoney(pacing.dailyRunRate, pacing.currency)}/j</span>
+          MTD : <span className="text-ui-fg">{fmtMoney(pacing.mtdSpend, pacing.currency)}</span> ·
+          Run rate : <span className="text-ui-fg">{fmtMoney(pacing.dailyRunRate, pacing.currency)}/j</span>
         </span>
         <span>
-          Projeté : <span className="text-white">{fmtMoney(pacing.projectedSpend, pacing.currency)}</span> /
+          Projeté : <span className="text-ui-fg">{fmtMoney(pacing.projectedSpend, pacing.currency)}</span> /
           <span> {fmtMoney(pacing.monthlyTarget, pacing.currency)}</span>
         </span>
       </div>
@@ -193,7 +193,7 @@ export default function MeBudgetsPage() {
           <form onSubmit={handleCreate} className="flex flex-col gap-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <label className="block">
-                <span className="text-xs text-gray-400">Compte</span>
+                <span className="text-xs text-ui-fg2">Compte</span>
                 <select
                   value={formAccountId}
                   onChange={(e) => setFormAccountId(e.target.value)}
@@ -207,7 +207,7 @@ export default function MeBudgetsPage() {
                 </select>
               </label>
               <label className="block">
-                <span className="text-xs text-gray-400">Budget mensuel</span>
+                <span className="text-xs text-ui-fg2">Budget mensuel</span>
                 <input
                   type="number"
                   step="0.01"
@@ -220,7 +220,7 @@ export default function MeBudgetsPage() {
                 />
               </label>
               <label className="block">
-                <span className="text-xs text-gray-400">Devise</span>
+                <span className="text-xs text-ui-fg2">Devise</span>
                 <select
                   value={formCurrency}
                   onChange={(e) => setFormCurrency(e.target.value)}
@@ -234,7 +234,7 @@ export default function MeBudgetsPage() {
             </div>
             {error && <p className="text-sm text-red-400">{error}</p>}
             <div className="flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-white">
+              <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-ui-fg2 hover:text-ui-fg">
                 Annuler
               </button>
               <button type="submit" className={primaryBtnCls.replace("py-2", "py-1.5")}>
@@ -246,10 +246,10 @@ export default function MeBudgetsPage() {
       )}
 
       {loading ? (
-        <p className="text-gray-400">Chargement…</p>
+        <p className="text-ui-fg2">Chargement…</p>
       ) : budgets.length === 0 ? (
-        <Card padded className="text-center text-gray-500 border-dashed">
-          <Target className="w-8 h-8 mx-auto mb-2 text-gray-700" />
+        <Card padded className="text-center text-ui-muted border-dashed">
+          <Target className="w-8 h-8 mx-auto mb-2 text-ui-muted" />
           Aucun budget configuré. Définis un budget mensuel pour suivre ton pacing par compte.
         </Card>
       ) : (
@@ -263,19 +263,19 @@ export default function MeBudgetsPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-white">{label}</span>
+                      <span className="font-medium text-ui-fg">{label}</span>
                       <Pill tone="violet">{PLATFORM_LABEL[b.platform] ?? b.platform}</Pill>
                       {p && <Pill tone={STATUS_TONE[p.status]}>{STATUS_LABEL[p.status]}</Pill>}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      Objectif : <span className="text-white">{fmtMoney(b.monthlyTarget, b.currency)}</span>
+                    <div className="text-xs text-ui-muted mt-1">
+                      Objectif : <span className="text-ui-fg">{fmtMoney(b.monthlyTarget, b.currency)}</span>
                       {p && <> · J{p.daysElapsed}/{p.daysInMonth} · reste {p.daysRemaining}j</>}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     {p && p.status !== "unknown" && (
                       <div className="text-right">
-                        <div className={`text-2xl font-bold inline-flex items-center gap-1 ${
+                        <div className={`text-2xl font-medium inline-flex items-center gap-1 ${
                           p.status === "on_track"
                             ? "text-emerald-400"
                             : p.status.startsWith("critical")
@@ -287,7 +287,7 @@ export default function MeBudgetsPage() {
                           {p.pacingPct > 100 ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
                           {p.pacingPct}%
                         </div>
-                        <div className="text-[10px] text-gray-500 uppercase tracking-wide">pacing</div>
+                        <div className="text-[10px] text-ui-muted ">pacing</div>
                       </div>
                     )}
                     <button onClick={() => handleDelete(b.id)} className="text-xs text-red-400 hover:text-red-300 ml-2">
@@ -296,7 +296,7 @@ export default function MeBudgetsPage() {
                   </div>
                 </div>
                 {p && p.status !== "unknown" && <PacingBar pacing={p} />}
-                {p?.status === "unknown" && p.reason && <p className="text-[11px] text-gray-500">{p.reason}</p>}
+                {p?.status === "unknown" && p.reason && <p className="text-[11px] text-ui-muted">{p.reason}</p>}
               </Card>
             );
           })}

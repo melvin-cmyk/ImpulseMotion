@@ -7,7 +7,6 @@ import { usePathname } from "next/navigation"
 import { useSession } from "next-auth/react"
 import {
   Settings,
-  Zap,
   Sparkles,
   FileText,
   Bot,
@@ -22,6 +21,7 @@ import {
   SlidersHorizontal,
   PenTool, PanelLeftClose, PanelLeftOpen, ChevronDown, AudioLines, Images,
 } from "lucide-react"
+import { LogoMark } from "@/components/brand/logo-mark"
 import { cn } from "@/lib/utils"
 import { ANALYSE_ROUTES } from "@/lib/nav-routes"
 import { useAiJobs } from "@/components/ai-jobs-watcher"
@@ -183,20 +183,18 @@ export function Sidebar() {
   const runningFor = (href: string) => running.filter((j) => (href === "/ai" ? j.surface === "console" : href === "/bot" ? j.surface === "bot" : href === "/design" ? j.surface === "design" : href === "/mo" ? j.surface === "mo" : false)).length
 
   return (
-    <div className={cn("bg-gray-950 border-r border-gray-800 flex flex-col py-4 gap-1 shrink-0 overflow-y-auto overflow-x-hidden no-scrollbar transition-[width] duration-150", collapsed ? "w-14 px-2" : "w-52 px-3")}>
-      <div className={cn("flex items-center gap-2.5 mb-4", collapsed ? "justify-center px-0" : "px-2")}>
-        <div className="w-9 h-9 bg-gradient-to-br from-violet-500 to-purple-700 rounded-xl flex items-center justify-center shrink-0" title="ImpulseMotion">
-          <Zap className="w-5 h-5 text-white" />
-        </div>
-        {!collapsed && <span className="text-sm font-semibold text-white tracking-tight flex-1 truncate">ImpulseMotion</span>}
+    <div className={cn("bg-ui-sunken border-r border-ui-line flex flex-col pb-4 gap-1 shrink-0 overflow-y-auto overflow-x-hidden no-scrollbar transition-[width] duration-150", collapsed ? "w-14 px-2" : "w-60 px-3")}>
+      <div className={cn("h-14 flex items-center gap-2 mb-2 shrink-0", collapsed ? "justify-center px-0" : "px-2")} title="ImpulseMotion">
+        <LogoMark size={24} />
+        {!collapsed && <span className="text-[15px] font-medium text-ui-fg flex-1 truncate">ImpulseMotion</span>}
         {!collapsed && (
-          <button type="button" onClick={toggleCollapsed} title="Replier le menu" className="p-1 rounded-md text-gray-500 hover:text-gray-200 hover:bg-gray-800/70">
+          <button type="button" onClick={toggleCollapsed} title="Replier le menu" className="p-1 rounded-md text-ui-muted hover:text-ui-fg hover:bg-ui-raised">
             <PanelLeftClose className="w-4 h-4" />
           </button>
         )}
       </div>
       {collapsed && !pathname.startsWith("/analyse") && (
-        <button type="button" onClick={toggleCollapsed} title="Déployer le menu" className="mx-auto mb-2 w-9 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800/70">
+        <button type="button" onClick={toggleCollapsed} title="Déployer le menu" className="mx-auto mb-2 w-9 h-8 flex items-center justify-center rounded-lg text-ui-muted hover:text-ui-fg hover:bg-ui-raised">
           <PanelLeftOpen className="w-4 h-4" />
         </button>
       )}
@@ -205,26 +203,26 @@ export function Sidebar() {
         const items = section.items.filter((it) => (!it.adminOnly || isAdmin) && (!it.realAdminOnly || baseRole === "admin") && (!it.routinesOnly || session?.routinesAccess === true))
         if (items.length === 0) return null
         return (
-          <div key={section.label} className="mb-3">
+          <div key={section.label} className="mt-4 first:mt-0">
             {collapsed ? (
-              <div className="mx-2 mb-2 border-t border-gray-800" title={section.label} />
+              <div className="mx-2 mb-2 border-t border-ui-line" title={section.label} />
             ) : (
               <button
                 type="button"
                 onClick={() => toggleSection(section.label)}
                 aria-expanded={!folded[section.label]}
                 title={folded[section.label] ? "Déplier" : "Replier"}
-                className="w-full px-2 mb-1 flex items-center gap-1 text-left group"
+                className="w-full px-2 mb-2 flex items-center gap-1 text-left group"
               >
                 <span className="flex-1 min-w-0">
-                  <span className="block text-[10px] uppercase tracking-wider text-gray-600 group-hover:text-gray-400 font-semibold">
+                  <span className="block text-xs text-ui-muted group-hover:text-ui-fg2">
                     {section.label}
                   </span>
                   {section.hint && !folded[section.label] && (
-                    <span className="block text-[10px] text-gray-700">{section.hint}</span>
+                    <span className="block text-xs text-ui-muted/80">{section.hint}</span>
                   )}
                 </span>
-                <ChevronDown className={cn("w-3.5 h-3.5 text-gray-600 group-hover:text-gray-400 transition-transform", folded[section.label] ? "-rotate-90" : "")} />
+                <ChevronDown className={cn("w-3.5 h-3.5 text-ui-muted group-hover:text-ui-fg2 transition-transform", folded[section.label] ? "-rotate-90" : "")} />
               </button>
             )}
             <div className={cn("flex flex-col gap-0.5", !collapsed && folded[section.label] ? "hidden" : "")}>
@@ -236,24 +234,25 @@ export function Sidebar() {
                     href={href}
                     title={collapsed ? label : undefined}
                     className={cn(
-                      "relative flex items-center gap-3 h-9 rounded-xl text-sm font-medium transition-all duration-150",
-                      collapsed ? "justify-center px-0" : "px-3",
+                      "relative flex items-center gap-2.5 h-8 rounded-lg text-sm transition-colors duration-150",
+                      collapsed ? "justify-center px-0" : "px-2",
                       active
-                        ? "bg-violet-600 text-white"
-                        : "text-gray-400 hover:text-gray-100 hover:bg-gray-800/70"
+                        ? "bg-ui-raised text-ui-fg"
+                        : "text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised/60"
                     )}
+                    aria-current={active ? "page" : undefined}
                   >
-                    <Icon className="w-5 h-5 shrink-0" />
+                    <Icon className={cn("w-4 h-4 shrink-0", active ? "text-ui-accent-ink" : "text-ui-muted")} strokeWidth={1.5} />
                     {!collapsed && <span className="truncate">{label}</span>}
                     {collapsed && runningFor(href) > 0 && (
-                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-violet-300 animate-pulse" title={`${runningFor(href)} réponse(s) en cours`} />
+                      <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-ui-accent" title={`${runningFor(href)} réponse(s) en cours`} />
                     )}
                     {!collapsed && runningFor(href) > 0 && (
                       <span
                         title={`${runningFor(href)} réponse${runningFor(href) > 1 ? "s" : ""} en cours`}
-                        className={cn("ml-auto inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full", active ? "bg-white/20 text-white" : "bg-violet-600/20 text-violet-300")}
+                        className="ml-auto inline-flex items-center gap-1 font-mono text-xs tabular-nums text-ui-accent-ink"
                       >
-                        <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-ui-accent" />
                         {runningFor(href)}
                       </span>
                     )}
@@ -267,13 +266,13 @@ export function Sidebar() {
 
       <div className={cn("mt-auto flex flex-col gap-2 pt-3", collapsed ? "items-center" : "px-2")}>
         <div className="flex items-center gap-2" title={collapsed ? `${session?.user?.name ?? session?.user?.email ?? ""} · ${ROLE_LABELS[baseRole] ?? baseRole}` : undefined}>
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center text-xs font-semibold text-white shrink-0">
+          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium text-ui-fg2 shrink-0 bg-ui-raised">
             {(session?.user?.name ?? "IM").slice(0, 2).toUpperCase()}
           </div>
           {!collapsed && (
             <div className="min-w-0">
-              <div className="text-xs text-gray-400 truncate">{session?.user?.name ?? session?.user?.email ?? "Impulse Media"}</div>
-              <div className="text-[10px] text-violet-400 font-semibold uppercase tracking-wide">{ROLE_LABELS[baseRole] ?? baseRole}</div>
+              <div className="text-xs text-ui-fg2 truncate">{session?.user?.name ?? session?.user?.email ?? "Impulse Media"}</div>
+              <div className="text-xs text-ui-muted">{ROLE_LABELS[baseRole] ?? baseRole}</div>
             </div>
           )}
         </div>

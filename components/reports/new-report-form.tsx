@@ -94,12 +94,12 @@ export function NewReportForm({
     }
   }
 
-  const selectCls = "w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500";
+  const selectCls = "w-full bg-ui-bg border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg focus:outline-none focus:border-ui-accent";
 
   return (
     <form onSubmit={submit} className="space-y-4">
       <div>
-        <label className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Client</label>
+        <label className="block text-[11px] text-ui-muted font-medium mb-1">Client</label>
         <select value={clientId} onChange={(e) => setClientId(e.target.value)} className={selectCls} disabled={busy}>
           {clients.map((c) => (
             <option key={c.id} value={c.id}>
@@ -110,7 +110,7 @@ export function NewReportForm({
       </div>
 
       <div>
-        <label className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Période</label>
+        <label className="block text-[11px] text-ui-muted font-medium mb-1">Période</label>
         <div className="flex flex-wrap gap-1.5 mb-2">
           {P.map((p) => (
             <button
@@ -118,7 +118,7 @@ export function NewReportForm({
               type="button"
               disabled={busy}
               onClick={() => { setPreset(p.key); setSince(p.since); setUntil(p.until); }}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${preset === p.key ? "bg-violet-600 border-violet-500 text-white" : "bg-gray-950 border-gray-800 text-gray-400 hover:text-white"}`}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${preset === p.key ? "bg-ui-accent border-ui-accent text-ui-on-accent" : "bg-ui-bg border-ui-line text-ui-fg2 hover:text-ui-fg"}`}
             >
               {p.label}
             </button>
@@ -127,20 +127,20 @@ export function NewReportForm({
             type="button"
             disabled={busy}
             onClick={() => setPreset("custom")}
-            className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${preset === "custom" ? "bg-violet-600 border-violet-500 text-white" : "bg-gray-950 border-gray-800 text-gray-400 hover:text-white"}`}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${preset === "custom" ? "bg-ui-accent border-ui-accent text-ui-on-accent" : "bg-ui-bg border-ui-line text-ui-fg2 hover:text-ui-fg"}`}
           >
             Personnalisée
           </button>
         </div>
         <div className="flex items-center gap-2">
-          <input type="date" value={since} max={until} onChange={(e) => { setSince(e.target.value); setPreset("custom"); }} disabled={busy} className={`${selectCls} [color-scheme:dark]`} />
-          <span className="text-gray-600 text-xs">→</span>
-          <input type="date" value={until} min={since} onChange={(e) => { setUntil(e.target.value); setPreset("custom"); }} disabled={busy} className={`${selectCls} [color-scheme:dark]`} />
+          <input type="date" value={since} max={until} onChange={(e) => { setSince(e.target.value); setPreset("custom"); }} disabled={busy} className={`${selectCls}`} />
+          <span className="text-ui-muted text-xs">→</span>
+          <input type="date" value={until} min={since} onChange={(e) => { setUntil(e.target.value); setPreset("custom"); }} disabled={busy} className={`${selectCls}`} />
         </div>
       </div>
 
       <div>
-        <label className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Comparaison</label>
+        <label className="block text-[11px] text-ui-muted font-medium mb-1">Comparaison</label>
         <select value={compare} onChange={(e) => setCompare(e.target.value as typeof compare)} className={selectCls} disabled={busy}>
           <option value="prev">vs période précédente</option>
           <option value="year">vs année précédente</option>
@@ -149,7 +149,7 @@ export function NewReportForm({
       </div>
 
       <div>
-        <label className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Consignes pour l&apos;IA <span className="normal-case tracking-normal font-normal text-gray-600">(optionnel)</span></label>
+        <label className="block text-[11px] text-ui-muted font-medium mb-1">Consignes pour l&apos;IA <span className="normal-case tracking-normal font-normal text-ui-muted">(optionnel)</span></label>
         <textarea
           value={instructions}
           onChange={(e) => setInstructions(e.target.value.slice(0, 2000))}
@@ -158,7 +158,7 @@ export function NewReportForm({
           placeholder="Ex. : insiste sur les créas vidéo, compare les campagnes retargeting, ne parle pas du budget…"
           className={`${selectCls} resize-y min-h-[72px]`}
         />
-        <div className="text-[11px] text-gray-600 mt-1">L&apos;IA suit ces consignes pour l&apos;angle et les priorités, sans changer le format ni inventer de chiffre.</div>
+        <div className="text-[11px] text-ui-muted mt-1">L&apos;IA suit ces consignes pour l&apos;angle et les priorités, sans changer le format ni inventer de chiffre.</div>
       </div>
 
       {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-900/40 rounded-lg px-3 py-2">{error}</div>}
@@ -167,14 +167,14 @@ export function NewReportForm({
         <button
           type="submit"
           disabled={busy || !clientId}
-          className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold"
+          className="px-4 py-2 rounded-lg bg-ui-accent hover:brightness-110 disabled:opacity-50 text-ui-on-accent text-sm font-medium"
         >
           {busy ? "Génération en cours…" : "Générer le rapport IA"}
         </button>
         {onCancel && !busy && (
-          <button type="button" onClick={onCancel} className="px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white">Annuler</button>
+          <button type="button" onClick={onCancel} className="px-3 py-2 rounded-lg text-sm text-ui-fg2 hover:text-ui-fg">Annuler</button>
         )}
-        {busy && phase && <span className="text-xs text-gray-500 animate-pulse">{phase} (1 à 3 min)</span>}
+        {busy && phase && <span className="text-xs text-ui-muted animate-pulse">{phase} (1 à 3 min)</span>}
       </div>
     </form>
   );

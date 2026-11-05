@@ -69,8 +69,8 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
   const undoable = (a.status === "done" || a.status === "partial") && !a.undoneById && a.operations.some((o) => o.status === "done" && !o.irreversible);
   return (
     <li className="py-4 space-y-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
-        <span className="text-gray-200 font-medium">{a.createdByName}</span>
+      <div className="flex flex-wrap items-center gap-2 text-xs text-ui-fg2">
+        <span className="text-ui-fg font-medium">{a.createdByName}</span>
         <span>· {when(a.executedAt ?? a.createdAt)}</span>
         {showClient && <span>· {a.clientName}</span>}
         <span>· {PLATFORM_FR[a.platform] ?? a.platform} « {a.accountName || a.accountId} »</span>
@@ -79,12 +79,12 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
         {a.undoOfId && <Pill tone="violet" className="text-[10px]">annulation</Pill>}
         {a.undoneById && <Pill tone="default" className="text-[10px]">annulée depuis</Pill>}
         {a.ruleId && <Pill tone="amber" className="text-[10px]">règle automatique</Pill>}
-        {a.status === "scheduled" && a.scheduledAt && <span className="text-violet-200">envoi le {when(a.scheduledAt)}</span>}
-        {a.revertAt && !a.revertedAt && <span className="text-violet-200">retour en arrière le {when(a.revertAt)}</span>}
+        {a.status === "scheduled" && a.scheduledAt && <span className="text-ui-accent-ink">envoi le {when(a.scheduledAt)}</span>}
+        {a.revertAt && !a.revertedAt && <span className="text-ui-accent-ink">retour en arrière le {when(a.revertAt)}</span>}
         {a.revertedAt && <span>retour fait le {when(a.revertedAt)}</span>}
       </div>
       <OperationLines action={a} showStatus onActivate={(op) => void activate(op)} activating={busy?.startsWith("activate:") ? busy.slice("activate:".length) : null} />
-      <p className="text-xs text-gray-400"><span className="text-gray-500">Pourquoi :</span> {a.why || "—"}{goal ? <> · <span className="text-gray-500">Objectif :</span> {goal}</> : null}</p>
+      <p className="text-xs text-ui-fg2"><span className="text-ui-muted">Pourquoi :</span> {a.why || "—"}{goal ? <> · <span className="text-ui-muted">Objectif :</span> {goal}</> : null}</p>
       <ImpactCards impacts={a.impacts ?? []} platform={a.platform} subject={(a.status === "done" || a.status === "partial") && !a.undoOfId ? { kind: "action", id: a.id } : undefined} />
       <div className="flex flex-wrap items-center gap-3 text-xs">
         {a.hqWrittenAt
@@ -92,18 +92,18 @@ export function ActionCard({ action: a, showClient, onUndo, onChanged }: {
           : a.executedAt && a.status !== "running" && a.hqProject
             ? <>
               <span className="text-amber-300">HQ : {a.hqError ?? "pas encore consigné"}</span>
-              <button type="button" disabled={busy !== null} onClick={() => void post("hq")} className="flex items-center gap-1 text-gray-300 hover:text-white disabled:opacity-40">
+              <button type="button" disabled={busy !== null} onClick={() => void post("hq")} className="flex items-center gap-1 text-ui-fg2 hover:text-ui-fg disabled:opacity-40">
                 {busy === "hq" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />} Réécrire dans HQ
               </button>
             </>
             : null}
         {a.mine && (a.status === "scheduled" || (a.revertAt && !a.revertedAt && (a.status === "done" || a.status === "partial"))) && (
-          <button type="button" disabled={busy !== null} onClick={() => { if (window.confirm(a.status === "scheduled" ? "Annuler cet envoi programmé ?" : "Annuler le retour en arrière programmé ?")) void post("unschedule"); }} className="flex items-center gap-1 text-amber-300 hover:text-white disabled:opacity-40">
+          <button type="button" disabled={busy !== null} onClick={() => { if (window.confirm(a.status === "scheduled" ? "Annuler cet envoi programmé ?" : "Annuler le retour en arrière programmé ?")) void post("unschedule"); }} className="flex items-center gap-1 text-amber-300 hover:text-ui-fg disabled:opacity-40">
             {busy === "unschedule" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null} {a.status === "scheduled" ? "Annuler l'envoi programmé" : "Annuler le retour programmé"}
           </button>
         )}
         {undoable && (
-          <button type="button" disabled={busy !== null} onClick={() => void post("undo")} className="flex items-center gap-1 text-gray-300 hover:text-white disabled:opacity-40">
+          <button type="button" disabled={busy !== null} onClick={() => void post("undo")} className="flex items-center gap-1 text-ui-fg2 hover:text-ui-fg disabled:opacity-40">
             {busy === "undo" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Undo2 className="w-3.5 h-3.5" />} Annuler cette modification
           </button>
         )}
@@ -121,10 +121,10 @@ export function PilotJournal({ actions, loading, showClient, onUndo, onChanged }
   onChanged: (action: PilotActionView) => void;
 }) {
   const shown = actions.filter((a) => a.status !== "draft");
-  if (loading && !shown.length) return <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du journal…</p>;
-  if (!shown.length) return <p className="text-sm text-gray-500">Aucune modification faite depuis ImpulseMotion pour le moment.</p>;
+  if (loading && !shown.length) return <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du journal…</p>;
+  if (!shown.length) return <p className="text-sm text-ui-muted">Aucune modification faite depuis ImpulseMotion pour le moment.</p>;
   return (
-    <ul className="divide-y divide-gray-800">
+    <ul className="divide-y divide-ui-line">
       {shown.map((a) => <ActionCard key={a.id} action={a} showClient={showClient} onUndo={onUndo} onChanged={onChanged} />)}
     </ul>
   );

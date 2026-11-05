@@ -30,7 +30,7 @@ const TABS: Array<{ key: Tab; label: string }> = [
   { key: "history", label: "Historique" },
 ];
 
-const BUTTON = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed";
+const BUTTON = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed";
 
 export default function RoutinePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -114,7 +114,7 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
   if (loadError && !routine) {
     return (
       <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-4">
-        <Link href="/routines" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white"><ArrowLeft className="w-3.5 h-3.5" /> Routines</Link>
+        <Link href="/routines" className="inline-flex items-center gap-1.5 text-xs text-ui-fg2 hover:text-ui-fg"><ArrowLeft className="w-3.5 h-3.5" /> Routines</Link>
         <Card padded className="border-red-900/40">
           <p className="text-sm text-red-400">
             {loadError.status === 404 ? "Cette routine n'existe pas ou a été supprimée."
@@ -122,7 +122,7 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
               : `La routine n'a pas pu être chargée (${loadError.message}).`}
           </p>
           {loadError.status !== 404 && loadError.status !== 403 && (
-            <button type="button" onClick={() => void load()} className="mt-2 text-xs underline text-gray-300">Réessayer</button>
+            <button type="button" onClick={() => void load()} className="mt-2 text-xs underline text-ui-fg2">Réessayer</button>
           )}
         </Card>
       </div>
@@ -130,7 +130,7 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
   }
 
   if (!routine) {
-    return <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement de la routine…</div>;
+    return <div className="p-6 flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement de la routine…</div>;
   }
 
   const st = ROUTINE_STATUS[routine.status] ?? { label: routine.status, tone: "default" as const };
@@ -146,13 +146,13 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-5">
-      <Link href="/routines" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white">
+      <Link href="/routines" className="inline-flex items-center gap-1.5 text-xs text-ui-fg2 hover:text-ui-fg">
         <ArrowLeft className="w-3.5 h-3.5" /> Routines
       </Link>
 
       <div className="space-y-2">
-        <PageHeader title={routine.name} subtitle={<span className="text-violet-300">{routineClientLabel(routine)}</span>} />
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+        <PageHeader title={routine.name} subtitle={<span className="text-ui-accent-ink">{routineClientLabel(routine)}</span>} />
+        <div className="flex flex-wrap items-center gap-2 text-xs text-ui-fg2">
           <Pill tone={st.tone}>{st.label}</Pill>
           {routine.running && <Pill tone="blue">Exécution en cours</Pill>}
           <span className="inline-flex items-center gap-1"><CalendarClock className="w-3.5 h-3.5" />{hasDefinition(routine) ? scheduleTitle(routine.schedule, routine.timezone) : "Pas encore de définition"}</span>
@@ -201,24 +201,24 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
               {spinner("activate") ?? <Power className="w-3.5 h-3.5" />} Activer
             </button>
           )}
-          <button type="button" onClick={() => void act("pause")} disabled={!!blocked.pause || !!pending} title={blocked.pause ?? undefined} className={`${BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>
+          <button type="button" onClick={() => void act("pause")} disabled={!!blocked.pause || !!pending} title={blocked.pause ?? undefined} className={`${BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}>
             {spinner("pause") ?? <Pause className="w-3.5 h-3.5" />} Mettre en pause
           </button>
-          <button type="button" onClick={() => void act("run")} disabled={!!blocked.run || !!pending} title={blocked.run ?? undefined} className={`${BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>
+          <button type="button" onClick={() => void act("run")} disabled={!!blocked.run || !!pending} title={blocked.run ?? undefined} className={`${BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}>
             {spinner("run") ?? <Zap className="w-3.5 h-3.5" />} {pending === "run" ? "Exécution en cours…" : "Exécuter maintenant"}
           </button>
-          <button type="button" onClick={() => void act("archive")} disabled={archived || !!pending} className={`${BUTTON} bg-gray-900 border border-gray-800 hover:border-red-900 text-gray-400 hover:text-red-300 sm:ml-auto`}>
+          <button type="button" onClick={() => void act("archive")} disabled={archived || !!pending} className={`${BUTTON} bg-ui-card border border-ui-line hover:border-red-900 text-ui-fg2 hover:text-red-300 sm:ml-auto`}>
             {spinner("archive") ?? <Archive className="w-3.5 h-3.5" />} Archiver
           </button>
         </div>
         {/* The reason is written, not only in a tooltip: a greyed button must explain itself on a phone too. */}
         {!archived && routine.status !== "active" && routine.status !== "paused" && blocked.activate && (
-          <p className="text-xs text-gray-500"><span className="text-gray-400">Activer est grisé :</span> {blocked.activate}</p>
+          <p className="text-xs text-ui-muted"><span className="text-ui-fg2">Activer est grisé :</span> {blocked.activate}</p>
         )}
         {routine.status === "paused" && blocked.resume && (
-          <p className="text-xs text-gray-500"><span className="text-gray-400">Reprendre est grisé :</span> {blocked.resume}</p>
+          <p className="text-xs text-ui-muted"><span className="text-ui-fg2">Reprendre est grisé :</span> {blocked.resume}</p>
         )}
-        {archived && <p className="text-xs text-gray-500">Routine archivée : elle ne s&apos;exécute plus, son historique reste consultable.</p>}
+        {archived && <p className="text-xs text-ui-muted">Routine archivée : elle ne s&apos;exécute plus, son historique reste consultable.</p>}
         {notice && <p className={`text-xs break-words ${notice.ok ? "text-emerald-300" : "text-red-400"}`}>{notice.text}</p>}
       </Card>
 
@@ -239,7 +239,7 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
         />
 
         <Card className="min-w-0">
-          <div className="px-3 py-2 border-b border-gray-800">
+          <div className="px-3 py-2 border-b border-ui-line">
             <div role="tablist" aria-label="Détail de la routine" className="flex gap-1 overflow-x-auto">
               {TABS.map((t) => (
                 <button
@@ -248,7 +248,7 @@ export default function RoutinePage({ params }: { params: Promise<{ id: string }
                   role="tab"
                   aria-selected={tab === t.key}
                   onClick={() => setTab(t.key)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${tab === t.key ? "bg-violet-600 text-white" : "text-gray-400 hover:text-gray-100 hover:bg-gray-800"}`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${tab === t.key ? "bg-ui-accent text-ui-on-accent" : "text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised"}`}
                 >
                   {t.label}
                 </button>

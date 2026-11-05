@@ -49,7 +49,7 @@ type SectionProps = {
 };
 
 const TONE_BORDER: Record<NonNullable<SectionProps["tone"]>, string> = {
-  default: "border-gray-800",
+  default: "border-ui-line",
   warning: "border-amber-900/40",
   critical: "border-red-900/40",
   positive: "border-emerald-900/40",
@@ -57,10 +57,10 @@ const TONE_BORDER: Record<NonNullable<SectionProps["tone"]>, string> = {
 
 export function Section({ title, icon, action, children, className, bodyClassName, tone = "default" }: SectionProps) {
   return (
-    <section className={cn("bg-gray-900 border rounded-2xl", TONE_BORDER[tone], className)}>
+    <section className={cn("bg-ui-card border rounded-xl", TONE_BORDER[tone], className)}>
       {(title || action) && (
-        <header className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+        <header className="px-4 py-3 border-b border-ui-line flex items-center justify-between">
+          <h2 className="text-sm font-medium text-ui-fg flex items-center gap-2">
             {icon}
             {title}
           </h2>
@@ -81,26 +81,26 @@ type KpiProps = {
 };
 
 const ACCENT_BG: Record<NonNullable<KpiProps["accent"]>, string> = {
-  violet: "bg-violet-500/15 text-violet-400",
+  violet: "bg-ui-accent-soft text-ui-accent-ink",
   emerald: "bg-emerald-500/15 text-emerald-400",
   amber: "bg-amber-500/15 text-amber-400",
   red: "bg-red-500/15 text-red-400",
   blue: "bg-blue-500/15 text-blue-400",
-  gray: "bg-gray-800 text-gray-500",
+  gray: "bg-ui-raised text-ui-muted",
 };
 
 export function Kpi({ label, value, sub, icon, accent = "violet" }: KpiProps) {
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 flex items-start gap-3">
+    <div className="bg-ui-card border border-ui-line rounded-xl p-4 flex items-start gap-3">
       {icon && (
         <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center shrink-0", ACCENT_BG[accent])}>
           {icon}
         </div>
       )}
       <div className="min-w-0">
-        <p className="text-[11px] text-gray-500 uppercase tracking-wide font-medium">{label}</p>
-        <p className="text-xl font-bold text-white mt-0.5 truncate">{value}</p>
-        {sub && <p className="text-[11px] text-gray-500 mt-0.5">{sub}</p>}
+        <p className="text-[11px] text-ui-muted font-medium">{label}</p>
+        <p className="text-xl font-medium text-ui-fg mt-0.5 truncate">{value}</p>
+        {sub && <p className="text-[11px] text-ui-muted mt-0.5">{sub}</p>}
       </div>
     </div>
   );
@@ -116,8 +116,8 @@ export function PageHeader({ title, subtitle, action }: PageHeaderProps) {
   return (
     <div className="flex items-end justify-between">
       <div>
-        <h1 className="text-2xl font-bold text-white">{title}</h1>
-        {subtitle && <p className="text-sm text-gray-400 mt-1">{subtitle}</p>}
+        <h1 className="text-2xl font-medium text-ui-fg">{title}</h1>
+        {subtitle && <p className="text-sm text-ui-fg2 mt-1">{subtitle}</p>}
       </div>
       {action}
     </div>

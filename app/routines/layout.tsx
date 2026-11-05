@@ -11,5 +11,5 @@ export default async function RoutinesLayout({ children }: { children: React.Rea
   const session = await auth();
   if (!session?.userId) redirect("/login");
   if (!hasRoutinesAccess(session)) redirect(session.role === "client" ? "/d" : "/");
-  return <Suspense fallback={<div className="p-6 text-sm text-gray-500">Chargement…</div>}>{children}</Suspense>;
+  return <Suspense fallback={<div className="p-6 text-sm text-ui-muted">Chargement…</div>}>{children}</Suspense>;
 }

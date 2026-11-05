@@ -137,10 +137,10 @@ export function CockpitActivity() {
   if (error && !data) return (
     <div className="p-6 space-y-3">
       <div className="text-red-400 text-sm">{error}</div>
-      <button type="button" onClick={() => load(false)} className="text-xs text-violet-400 hover:text-white">Réessayer</button>
+      <button type="button" onClick={() => load(false)} className="text-xs text-ui-accent-ink hover:text-ui-fg">Réessayer</button>
     </div>
   );
-  if (!data) return <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement du cockpit (30 derniers jours complets)…</div>;
+  if (!data) return <div className="p-6 flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement du cockpit (30 derniers jours complets)…</div>;
 
   const s = data.summary;
   const currencies = Object.values(s.totalsByCurrency);
@@ -158,7 +158,7 @@ export function CockpitActivity() {
           </div>
         }
         action={
-          <button type="button" onClick={() => load(true)} disabled={refreshing} className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white disabled:opacity-50">
+          <button type="button" onClick={() => load(true)} disabled={refreshing} className="inline-flex items-center gap-1.5 text-xs text-ui-fg2 hover:text-ui-fg disabled:opacity-50">
             {refreshing && <Loader2 className="w-3 h-3 animate-spin" />} {refreshing ? "Actualisation…" : "Rafraîchir"}
           </button>
         }
@@ -193,34 +193,34 @@ export function CockpitActivity() {
           <Section
             title={<span className="flex items-center gap-2"><Activity className="w-4 h-4 text-amber-400" /> Clients à surveiller</span>}
             tone={data.attention.some((c) => c.attention >= 50) ? "critical" : data.attention.length ? "warning" : "default"}
-            action={<Link href="/portfolio" className="text-xs text-violet-400 hover:text-violet-300">Tous les clients →</Link>}
+            action={<Link href="/portfolio" className="text-xs text-ui-accent-ink hover:text-ui-accent-ink">Tous les clients →</Link>}
           >
             {data.attention.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-gray-500">
+              <div className="px-4 py-8 text-center text-sm text-ui-muted">
                 {s.clientCount === 0
-                  ? <>Aucun client. <Link href="/d" className="text-violet-400">Créer un dashboard client →</Link></>
+                  ? <>Aucun client. <Link href="/d" className="text-ui-accent-ink">Créer un dashboard client →</Link></>
                   : s.clientsWithoutData === s.clientCount
                     ? "Aucune donnée disponible — voir le détail ci-dessus."
                     : "Aucune dérive détectée sur la période."}
               </div>
             ) : (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-ui-line">
                 {data.attention.map((c) => (
                   <div key={c.id} className="px-4 py-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <Link href={`/portfolio/${c.id}`} className="text-sm text-white font-medium hover:text-violet-300 truncate">{c.name}</Link>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${c.attention >= 50 ? "bg-red-500/15 text-red-300" : "bg-amber-500/15 text-amber-300"}`}>{c.attention}</span>
+                        <Link href={`/portfolio/${c.id}`} className="text-sm text-ui-fg font-medium hover:text-ui-accent-ink truncate">{c.name}</Link>
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${c.attention >= 50 ? "bg-red-500/15 text-red-300" : "bg-amber-500/15 text-amber-300"}`}>{c.attention}</span>
                       </div>
-                      <p className="text-xs text-gray-500 mt-0.5 truncate" title={c.attentionReasons.join(" · ")}>
+                      <p className="text-xs text-ui-muted mt-0.5 truncate" title={c.attentionReasons.join(" · ")}>
                         {c.attentionReasons.join(" · ")} · {fmtMoney(c.spend.value, c.currency)} dépensés · ROAS {fmtRoas(c.roas.value, { estimated: c.roas.estimated, unavailable: c.roas.unavailable })}
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       {c.metaAccountId && (
-                        <Link href={`/analyse?client=${c.id}`} className="text-xs text-gray-400 hover:text-white">Créas</Link>
+                        <Link href={`/analyse?client=${c.id}`} className="text-xs text-ui-fg2 hover:text-ui-fg">Créas</Link>
                       )}
-                      <Link href={`/portfolio/${c.id}`} className="inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300">Fiche <ArrowRight className="w-3 h-3" /></Link>
+                      <Link href={`/portfolio/${c.id}`} className="inline-flex items-center gap-1 text-xs text-ui-accent-ink hover:text-ui-accent-ink">Fiche <ArrowRight className="w-3 h-3" /></Link>
                     </div>
                   </div>
                 ))}
@@ -230,34 +230,34 @@ export function CockpitActivity() {
 
           <Section
             title={<span className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-400" /> Alertes du jour</span>}
-            action={<Link href="/admin/alerts" className="text-xs text-violet-400 hover:text-violet-300">{noRules ? "Créer une règle →" : "Configurer →"}</Link>}
+            action={<Link href="/admin/alerts" className="text-xs text-ui-accent-ink hover:text-ui-accent-ink">{noRules ? "Créer une règle →" : "Configurer →"}</Link>}
           >
             {data.alerts.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-gray-500">
+              <div className="px-4 py-8 text-center text-sm text-ui-muted">
                 {noRules
-                  ? <>Aucune règle d&apos;alerte configurée. <Link href="/admin/alerts" className="text-violet-400">Créer une première règle →</Link> (ex. ROAS &lt; 1,5 sur 7 jours)</>
+                  ? <>Aucune règle d&apos;alerte configurée. <Link href="/admin/alerts" className="text-ui-accent-ink">Créer une première règle →</Link> (ex. ROAS &lt; 1,5 sur 7 jours)</>
                   : "Aucune alerte ouverte — les règles actives n'ont rien déclenché."}
               </div>
             ) : (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-ui-line">
                 {data.alerts.slice(0, 8).map((ev) => (
                   <div key={ev.id} className="px-4 py-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white">{ev.message}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {ev.client ? <Link href={`/portfolio/${ev.client.id}`} className="hover:text-violet-300">{ev.client.name}</Link> : ev.clientId} · {timeAgo(ev.triggeredAt)}
+                        <p className="text-sm text-ui-fg">{ev.message}</p>
+                        <p className="text-xs text-ui-muted mt-0.5">
+                          {ev.client ? <Link href={`/portfolio/${ev.client.id}`} className="hover:text-ui-accent-ink">{ev.client.name}</Link> : ev.clientId} · {timeAgo(ev.triggeredAt)}
                         </p>
                       </div>
                       <div className="flex gap-3 shrink-0">
-                        <button type="button" onClick={() => generatePlan(ev.id)} disabled={recommendingId === ev.id} className="inline-flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 disabled:opacity-50">
+                        <button type="button" onClick={() => generatePlan(ev.id)} disabled={recommendingId === ev.id} className="inline-flex items-center gap-1 text-xs text-ui-accent-ink hover:text-ui-accent-ink disabled:opacity-50">
                           {recommendingId === ev.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Plan IA
                         </button>
-                        <button type="button" onClick={() => ackEvent(ev.id)} className="text-xs text-gray-400 hover:text-white">Acquitter</button>
+                        <button type="button" onClick={() => ackEvent(ev.id)} className="text-xs text-ui-fg2 hover:text-ui-fg">Acquitter</button>
                       </div>
                     </div>
                     {recommendations[ev.id] && (
-                      <div className="mt-2 p-3 rounded-lg bg-violet-500/5 border border-violet-500/20 text-xs text-gray-200 whitespace-pre-wrap">{recommendations[ev.id]}</div>
+                      <div className="mt-2 p-3 rounded-lg bg-ui-accent-soft border border-ui-accent text-xs text-ui-fg whitespace-pre-wrap">{recommendations[ev.id]}</div>
                     )}
                   </div>
                 ))}
@@ -269,32 +269,32 @@ export function CockpitActivity() {
             title={<span className="flex items-center gap-2"><GitCompareArrows className="w-4 h-4 text-blue-400" /> Ce qui a changé (30 j complets vs 30 j précédents, Meta)</span>}
             action={
               changesLoading ? undefined
-                : !changes ? <button type="button" onClick={() => loadChanges(false)} className="text-xs text-violet-400 hover:text-violet-300">Détecter →</button>
-                : <button type="button" onClick={() => loadChanges(true)} className="text-xs text-gray-400 hover:text-white">Actualiser</button>
+                : !changes ? <button type="button" onClick={() => loadChanges(false)} className="text-xs text-ui-accent-ink hover:text-ui-accent-ink">Détecter →</button>
+                : <button type="button" onClick={() => loadChanges(true)} className="text-xs text-ui-fg2 hover:text-ui-fg">Actualiser</button>
             }
           >
             {changesLoading ? (
-              <div className="px-4 py-8 text-center text-sm text-gray-500 flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Analyse en cours…</div>
+              <div className="px-4 py-8 text-center text-sm text-ui-muted flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Analyse en cours…</div>
             ) : !changes ? (
-              <div className="px-4 py-8 text-center text-sm text-gray-500">Cliquez sur « Détecter » pour analyser les mouvements de spend, ROAS, fréquence et créas.</div>
+              <div className="px-4 py-8 text-center text-sm text-ui-muted">Cliquez sur « Détecter » pour analyser les mouvements de spend, ROAS, fréquence et créas.</div>
             ) : changes.events.length === 0 ? (
-              <div className="px-4 py-8 text-center text-sm text-gray-500">
+              <div className="px-4 py-8 text-center text-sm text-ui-muted">
                 {changes.accountCount === 0 ? "Aucun compte Meta dans le portefeuille." : `Aucun changement significatif détecté sur ${changes.accountCount} compte${changes.accountCount > 1 ? "s" : ""}.`}
               </div>
             ) : (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-ui-line">
                 {changes.events.slice(0, 12).map((c, i) => {
                   const sev = c.severity === "critical" ? "bg-red-500/15 text-red-300 border-red-500/30"
                     : c.severity === "warning" ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
                     : c.severity === "positive" ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                    : "bg-gray-800 text-gray-300 border-gray-700";
+                    : "bg-ui-raised text-ui-fg2 border-ui-line-strong";
                   return (
                     <div key={i} className="px-4 py-3 flex items-start gap-3">
-                      <span className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border shrink-0 ${sev}`}>{c.severity}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${sev}`}>{c.severity}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white">{c.title}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {c.clientId ? <Link href={`/portfolio/${c.clientId}`} className="hover:text-violet-300">{c.accountLabel ?? c.accountId}</Link> : (c.accountLabel ?? c.accountId)} — {c.detail}
+                        <p className="text-sm text-ui-fg">{c.title}</p>
+                        <p className="text-xs text-ui-muted mt-0.5">
+                          {c.clientId ? <Link href={`/portfolio/${c.clientId}`} className="hover:text-ui-accent-ink">{c.accountLabel ?? c.accountId}</Link> : (c.accountLabel ?? c.accountId)} — {c.detail}
                         </p>
                       </div>
                     </div>
@@ -303,7 +303,7 @@ export function CockpitActivity() {
               </div>
             )}
             {changes && (changes.truncated || changes.timedOut || (changes.failures?.length ?? 0) > 0) && (
-              <div className="px-4 py-2 border-t border-gray-800 text-[11px] text-amber-400/80">
+              <div className="px-4 py-2 border-t border-ui-line text-[11px] text-amber-400/80">
                 {changes.truncated && <span>Limité aux {changes.accountCount} premiers comptes sur {changes.totalAccounts}. </span>}
                 {changes.timedOut && <span>Budget de temps atteint : analyse partielle. </span>}
                 {(changes.failures?.length ?? 0) > 0 && <span>{changes.failures!.length} compte{changes.failures!.length > 1 ? "s" : ""} en erreur ({changes.failures!.map((f) => f.label ?? f.accountId).join(", ")}).</span>}
@@ -315,19 +315,19 @@ export function CockpitActivity() {
         <div className="space-y-4">
           <Section
             title={<span className="flex items-center gap-2"><FileText className="w-4 h-4 text-blue-400" /> Rapports IA récents</span>}
-            action={<Link href="/reports?new=1" className="text-xs text-violet-400 hover:text-violet-300">Nouveau →</Link>}
+            action={<Link href="/reports?new=1" className="text-xs text-ui-accent-ink hover:text-ui-accent-ink">Nouveau →</Link>}
           >
             {data.recentReports.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-gray-500">Aucun rapport généré. <Link href="/reports?new=1" className="text-violet-400">Générer le premier →</Link></div>
+              <div className="px-4 py-6 text-center text-xs text-ui-muted">Aucun rapport généré. <Link href="/reports?new=1" className="text-ui-accent-ink">Générer le premier →</Link></div>
             ) : (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-ui-line">
                 {data.recentReports.slice(0, 8).map((r) => (
-                  <Link key={r.id} href={`/reports/${r.id}`} className="block px-4 py-2.5 hover:bg-gray-800/30">
+                  <Link key={r.id} href={`/reports/${r.id}`} className="block px-4 py-2.5 hover:bg-ui-raised">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm text-white truncate">{r.clientName}</p>
+                      <p className="text-sm text-ui-fg truncate">{r.clientName}</p>
                       <Pill tone={r.status === "ready" ? "emerald" : r.status === "failed" ? "red" : "blue"}>{r.status === "ready" ? "Prêt" : r.status === "failed" ? "Échec" : "En cours"}</Pill>
                     </div>
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">
+                    <p className="text-xs text-ui-muted mt-0.5 truncate">
                       {r.startDate} → {r.endDate} · {timeAgo(r.createdAt)}{r.trigger === "cron" ? " · auto" : ""}
                     </p>
                   </Link>
@@ -337,20 +337,20 @@ export function CockpitActivity() {
           </Section>
 
           <Section
-            title={<span className="flex items-center gap-2"><Target className="w-4 h-4 text-violet-400" /> Pacing budgets</span>}
-            action={<Link href="/portfolio" className="text-xs text-violet-400 hover:text-violet-300">{noBudgets ? "Définir un budget →" : "Tous les clients →"}</Link>}
+            title={<span className="flex items-center gap-2"><Target className="w-4 h-4 text-ui-accent-ink" /> Pacing budgets</span>}
+            action={<Link href="/portfolio" className="text-xs text-ui-accent-ink hover:text-ui-accent-ink">{noBudgets ? "Définir un budget →" : "Tous les clients →"}</Link>}
           >
             {data.pacing.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-gray-500">
+              <div className="px-4 py-6 text-center text-xs text-ui-muted">
                 {noBudgets
-                  ? <>Aucun budget mensuel configuré. Saisissez-le dans la <Link href="/portfolio" className="text-violet-400">fiche client</Link> (champ « Budget mensuel »).</>
+                  ? <>Aucun budget mensuel configuré. Saisissez-le dans la <Link href="/portfolio" className="text-ui-accent-ink">fiche client</Link> (champ « Budget mensuel »).</>
                   : "Pacing indisponible pour les budgets configurés (comptes sans données)."}
               </div>
             ) : (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-ui-line">
                 {data.pacing.slice(0, 8).map((p) => (
                   <div key={p.id} className="px-4 py-3">
-                    <Link href={`/portfolio/${p.id}`} className="text-sm text-white font-medium hover:text-violet-300">{p.name}</Link>
+                    <Link href={`/portfolio/${p.id}`} className="text-sm text-ui-fg font-medium hover:text-ui-accent-ink">{p.name}</Link>
                     <div className="mt-1"><PacingBar pacing={p.pacing} /></div>
                   </div>
                 ))}
@@ -361,16 +361,16 @@ export function CockpitActivity() {
             )}
           </Section>
 
-          <Section title={<span className="flex items-center gap-2"><Briefcase className="w-4 h-4 text-gray-400" /> Top dépenses</span>}>
+          <Section title={<span className="flex items-center gap-2"><Briefcase className="w-4 h-4 text-ui-fg2" /> Top dépenses</span>}>
             {data.topClients.length === 0 ? (
-              <div className="px-4 py-6 text-center text-xs text-gray-500">Aucune donnée.</div>
+              <div className="px-4 py-6 text-center text-xs text-ui-muted">Aucune donnée.</div>
             ) : (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-ui-line">
                 {data.topClients.map((c) => (
-                  <Link key={c.id} href={`/portfolio/${c.id}`} className="flex items-center justify-between px-4 py-2 hover:bg-gray-800/30">
-                    <span className="text-sm text-gray-200 truncate">{c.name}</span>
+                  <Link key={c.id} href={`/portfolio/${c.id}`} className="flex items-center justify-between px-4 py-2 hover:bg-ui-raised">
+                    <span className="text-sm text-ui-fg truncate">{c.name}</span>
                     <span className="text-right shrink-0">
-                      <span className="text-sm text-white font-semibold tabular-nums">{fmtMoney(c.spend.value, c.currency)}</span>
+                      <span className="text-sm text-ui-fg font-medium tabular-nums">{fmtMoney(c.spend.value, c.currency)}</span>
                       <span className="block"><DeltaBadge metric="spend" deltaPct={c.spend.deltaPct} /></span>
                     </span>
                   </Link>
@@ -380,7 +380,7 @@ export function CockpitActivity() {
           </Section>
 
           {s.reportsEnabled > 0 && (
-            <div className="text-[11px] text-gray-600 inline-flex items-center gap-1 px-1"><Bot className="w-3 h-3" /> {s.reportsEnabled} client{s.reportsEnabled > 1 ? "s" : ""} en rapport automatique (cron 07h UTC)</div>
+            <div className="text-[11px] text-ui-muted inline-flex items-center gap-1 px-1"><Bot className="w-3 h-3" /> {s.reportsEnabled} client{s.reportsEnabled > 1 ? "s" : ""} en rapport automatique (cron 07h UTC)</div>
           )}
         </div>
       </div>

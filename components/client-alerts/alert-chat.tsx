@@ -362,99 +362,99 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
       pendingNotesRef.current.push(lotSaved.length
         ? `${label} a été validée par le consultant : elle est maintenant en service pour ${lotSaved.length} client(s) du lot${skipped.length ? `, pas pour ${skipped.join(" ; ")}` : ""}`
         : `${label} a été validée par le consultant : c'est maintenant l'alerte en service`);
-      setStatus(key, "applied");
-      if (lotSaved.length) setLotInService(true);
-      onActivated(body.alert as AlertView, lotSaved.filter((a) => a.id !== (body.alert as AlertView).id));
-    } catch (e) {
-      setOutcomes((o) => ({ ...o, [key]: { errors: [e instanceof Error ? e.message : String(e)] } }));
-    }
-  }
+ setStatus(key, "applied");
+ if (lotSaved.length) setLotInService(true);
+ onActivated(body.alert as AlertView, lotSaved.filter((a) => a.id !== (body.alert as AlertView).id));
+ } catch (e) {
+ setOutcomes((o) => ({ ...o, [key]: { errors: [e instanceof Error ? e.message : String(e)] } }));
+ }
+ }
 
-  function renderProposal(content: string, index: number) {
-    const local = extractAlertProposal(content);
-    if (local.kind === "none") return null;
-    const key = proposalKey(index);
-    const check = checks[key];
-    const outcome = outcomes[key] ?? {};
-    const draftLabel = local.kind === "candidate" && typeof local.raw.label === "string" ? local.raw.label : null;
+ function renderProposal(content: string, index: number) {
+ const local = extractAlertProposal(content);
+ if (local.kind === "none") return null;
+ const key = proposalKey(index);
+ const check = checks[key];
+ const outcome = outcomes[key] ?? {};
+ const draftLabel = local.kind === "candidate" && typeof local.raw.label === "string" ? local.raw.label : null;
 
-    const state: CardState = cardStateOf({
-      key, malformed: local.kind === "malformed", check, verifying, outcome, stored: statuses[key],
-      alert, latestValid: latestValidKey(checks), blocked: !!blocked,
-    });
-    const errors: string[] | undefined = state === "closed" ? [blocked ?? ""]
-      : local.kind === "malformed" ? local.errors
-      : check && !check.ok ? check.errors
-      : state === "failed" ? outcome.errors
-      : undefined;
-    const valid = check?.ok && !blocked ? check : null;
+ const state: CardState = cardStateOf({
+ key, malformed: local.kind === "malformed", check, verifying, outcome, stored: statuses[key],
+ alert, latestValid: latestValidKey(checks), blocked: !!blocked,
+ });
+ const errors: string[] | undefined = state === "closed" ? [blocked ?? ""]
+ : local.kind === "malformed" ? local.errors
+ : check && !check.ok ? check.errors
+ : state === "failed" ? outcome.errors
+ : undefined;
+ const valid = check?.ok && !blocked ? check : null;
 
-    return (
-      <ProposalCard
-        state={state}
-        proposal={valid?.proposal ?? null}
-        draftLabel={draftLabel}
-        backtest={valid?.backtest ?? null}
-        warnings={valid?.warnings}
-        errors={errors}
-        notice={outcome.notice}
-        confirmCount={outcome.confirm || valid?.backtest.messages.length}
-        confirmClients={outcome.confirmClients}
-        lot={check?.lot ?? null}
-        replaces={lotClients ? lotInService : alert.status === "active" && !!alert.definition}
-        onValidate={() => {
-          if (!valid) return;
-          // Known to be noisy: the question comes before any request.
-          if (valid.noisy && state !== "failed") {
-            const loud = valid.lot?.clients.filter((c) => c.noisy) ?? [];
-            const count = loud.length ? Math.max(...loud.map((c) => c.messages ?? 0)) : valid.backtest.messages.length;
-            setOutcomes((o) => ({ ...o, [key]: { confirm: count, confirmClients: loud.length ? loud.map((c) => c.clientName) : undefined } }));
-          } else void activate(key, valid.proposal, false, valid.lot);
-        }}
-        onConfirm={() => { if (valid) void activate(key, valid.proposal, true, valid.lot); }}
-        onCancel={() => setOutcomes((o) => ({ ...o, [key]: {} }))}
-        onRecheck={() => { void save(messages, statusesRef.current); }}
-      />
-    );
-  }
+ return (
+ <ProposalCard
+ state={state}
+ proposal={valid?.proposal ?? null}
+ draftLabel={draftLabel}
+ backtest={valid?.backtest ?? null}
+ warnings={valid?.warnings}
+ errors={errors}
+ notice={outcome.notice}
+ confirmCount={outcome.confirm || valid?.backtest.messages.length}
+ confirmClients={outcome.confirmClients}
+ lot={check?.lot ?? null}
+ replaces={lotClients ? lotInService : alert.status === "active" && !!alert.definition}
+ onValidate={() => {
+ if (!valid) return;
+ // Known to be noisy: the question comes before any request.
+ if (valid.noisy && state !== "failed") {
+ const loud = valid.lot?.clients.filter((c) => c.noisy) ?? [];
+ const count = loud.length ? Math.max(...loud.map((c) => c.messages ?? 0)) : valid.backtest.messages.length;
+ setOutcomes((o) => ({ ...o, [key]: { confirm: count, confirmClients: loud.length ? loud.map((c) => c.clientName) : undefined } }));
+ } else void activate(key, valid.proposal, false, valid.lot);
+ }}
+ onConfirm={() => { if (valid) void activate(key, valid.proposal, true, valid.lot); }}
+ onCancel={() => setOutcomes((o) => ({ ...o, [key]: {} }))}
+ onRecheck={() => { void save(messages, statusesRef.current); }}
+ />
+ );
+ }
 
-  function renderMessage(m: ChatMessage, i: number) {
-    if (m.role === "user") {
-      return (
-        <div key={i} className="ml-6 sm:ml-16 bg-violet-950/50 border border-violet-900/40 rounded-xl px-3 py-2 text-sm text-gray-200 whitespace-pre-wrap break-words">
-          {stripProposalNotes(m.content)}
-        </div>
-      );
-    }
-    // Text and a card: no image is ever loaded from what a model wrote.
-    const clean = stripImages(stripAlertBlocks(m.content));
-    return (
-      <div key={i} className="sm:mr-10 space-y-2">
-        {clean && (
-          <AiMarkdown content={clean} filesBase={null} className="prose prose-invert prose-sm max-w-none text-gray-300 bg-gray-950/60 border border-gray-800 rounded-xl px-3 py-2 break-words" />
-        )}
-        {renderProposal(m.content, i)}
-      </div>
-    );
-  }
+ function renderMessage(m: ChatMessage, i: number) {
+ if (m.role === "user") {
+ return (
+ <div key={i} className="ml-6 sm:ml-16 bg-ui-accent-soft border border-ui-accent rounded-xl px-3 py-2 text-sm text-ui-fg whitespace-pre-wrap break-words">
+ {stripProposalNotes(m.content)}
+ </div>
+ );
+ }
+ // Text and a card: no image is ever loaded from what a model wrote.
+ const clean = stripImages(stripAlertBlocks(m.content));
+ return (
+ <div key={i} className="sm:mr-10 space-y-2">
+ {clean && (
+ <AiMarkdown content={clean} filesBase={null} className="prose ui-prose prose-sm max-w-none text-ui-fg2 bg-ui-bg border border-ui-line rounded-xl px-3 py-2 break-words" />
+ )}
+ {renderProposal(m.content, i)}
+ </div>
+ );
+ }
 
-  const writing = streamText !== null && /```alert\b/i.test(streamText);
+ const writing = streamText !== null && /```alert\b/i.test(streamText);
   const status = ALERT_STATUS[alert.status];
   const lotted = !!lotClients && lotClients.length > 1;
   const examples = exampleRequests(lotted ? lotClients.flatMap((c) => c.platforms.map((platform) => ({ platform }))) : alert.accounts);
 
   return (
-    <section className="bg-gray-900 border border-gray-800 rounded-2xl flex flex-col min-w-0 h-[calc(100vh-13rem)] min-h-[460px]">
-      <header className="px-4 py-3 border-b border-gray-800 flex items-start justify-between gap-3">
+    <section className="bg-ui-card border border-ui-line rounded-xl flex flex-col min-w-0 h-[calc(100vh-13rem)] min-h-[460px]">
+      <header className="px-4 py-3 border-b border-ui-line flex items-start justify-between gap-3">
         <div className="min-w-0 flex items-start gap-2">
-          <BellRing className="w-4 h-4 text-violet-400 shrink-0 mt-0.5" />
+          <BellRing className="w-4 h-4 text-ui-accent-ink shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-white flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-medium text-ui-fg flex flex-wrap items-center gap-2">
               {lotted ? <span>Lot de {lotClients.length} clients</span> : <span className="truncate">{alert.clientName}</span>}
               {!lotted && <PlatformBadges accounts={alert.accounts} />}
               {alert.status !== "draft" && <Pill tone={status.tone} className="text-[10px]">{status.label}</Pill>}
             </h2>
-            <p className="text-[11px] text-gray-500 break-words">
+            <p className="text-[11px] text-ui-muted break-words">
               {alert.label ? `${alert.label} — pour la modifier, dites simplement ce qui doit changer.` : "Dites de quoi vous voulez être prévenu. L'IA propose, vous validez : rien n'est enregistré sans votre clic."}
             </p>
             {lotted && (
@@ -468,18 +468,18 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
             )}
           </div>
         </div>
-        <button type="button" onClick={onClose} aria-label="Fermer la conversation" title="Fermer la conversation" className="shrink-0 p-1 rounded-md text-gray-500 hover:text-gray-200 hover:bg-gray-800">
+        <button type="button" onClick={onClose} aria-label="Fermer la conversation" title="Fermer la conversation" className="shrink-0 p-1 rounded-md text-ui-muted hover:text-ui-fg hover:bg-ui-raised">
           <X className="w-4 h-4" />
         </button>
       </header>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-3 space-y-3">
-        {!loaded && !fresh && <div className="flex items-center gap-2 text-xs text-gray-500"><Loader2 className="w-3.5 h-3.5 animate-spin" />Chargement de la conversation…</div>}
+        {!loaded && !fresh && <div className="flex items-center gap-2 text-xs text-ui-muted"><Loader2 className="w-3.5 h-3.5 animate-spin" />Chargement de la conversation…</div>}
         {loadError && (
           <div className="text-xs text-red-400">La conversation n&apos;a pas pu être chargée ({loadError}). Rechargez la page avant d&apos;écrire : un nouveau message remplacerait l&apos;ancienne conversation.</div>
         )}
         {ready && messages.length === 0 && streamText === null && (
-          <div className="text-xs text-gray-400 bg-gray-950/50 border border-gray-800 rounded-xl px-3 py-3 space-y-2">
+          <div className="text-xs text-ui-fg2 bg-ui-bg border border-ui-line rounded-xl px-3 py-3 space-y-2">
             <p>
               {lotted
                 ? "Écrivez votre demande en une phrase, comme vous la diriez à un collègue. La même alerte sera créée pour chacun de ces clients, jugé sur ses propres comptes : l'IA lit leurs chiffres, propose la règle et vous montre ce qu'elle aurait donné sur les 30 derniers jours, client par client."
@@ -491,13 +491,13 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
                   key={ex}
                   type="button"
                   onClick={() => { setInput(ex); inputRef.current?.focus(); }}
-                  className="text-left px-2.5 py-1.5 rounded-lg text-xs bg-violet-500/10 hover:bg-violet-500/20 text-violet-200 border border-violet-500/30 transition-colors"
+                  className="text-left px-2.5 py-1.5 rounded-lg text-xs bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors"
                 >
                   {ex}
                 </button>
               ))}
             </div>
-            <p className="text-gray-500">Un exemple se place dans la zone de saisie : ajustez-le, puis Entrée.</p>
+            <p className="text-ui-muted">Un exemple se place dans la zone de saisie : ajustez-le, puis Entrée.</p>
           </div>
         )}
         {blocked && (
@@ -521,13 +521,13 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         )}
         {messages.map(renderMessage)}
         {streamText !== null && (
-          <div className="sm:mr-10 min-h-[3.5rem] bg-gray-950/60 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-300 whitespace-pre-wrap break-words">
+          <div className="sm:mr-10 min-h-[3.5rem] bg-ui-bg border border-ui-line rounded-xl px-3 py-2 text-sm text-ui-fg2 whitespace-pre-wrap break-words">
             {stripAlertBlocks(streamText)}
-            {writing && <div className="text-xs text-violet-300 mt-2">Préparation de la proposition…</div>}
+            {writing && <div className="text-xs text-ui-accent-ink mt-2">Préparation de la proposition…</div>}
             {streaming ? (
               <AiActivity state={activity} startedAt={startedAt} className={streamText ? "mt-2" : undefined} />
             ) : (
-              <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-violet-300">
+              <div role="status" aria-live="polite" className="flex items-center gap-2 text-xs text-ui-accent-ink">
                 <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />{lotted ? "Lecture des chiffres des clients…" : "Lecture des chiffres du client…"}
               </div>
             )}
@@ -552,7 +552,7 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
         ) : null}
       </div>
 
-      <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="p-3 border-t border-gray-800">
+      <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="p-3 border-t border-ui-line">
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}
@@ -563,18 +563,18 @@ export function AlertChat({ alert, fresh, onActivated, onClose }: {
             placeholder={messages.length ? "Ex. : plutôt 70 €, et seulement du lundi au vendredi" : "Ex. : préviens-moi si le CPA dépasse 60 € sur 3 jours"}
             disabled={busy || !ready}
             aria-label="Votre demande à l'IA"
-            className="flex-1 min-w-0 resize-none px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white placeholder:text-gray-600 focus:border-violet-500 focus:outline-none disabled:opacity-60"
+            className="flex-1 min-w-0 resize-none px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg placeholder:text-ui-muted focus:border-ui-accent focus:outline-none disabled:opacity-60"
           />
           <button
             type="submit"
             disabled={busy || !ready || !input.trim()}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-50"
           >
             <Send className="w-4 h-4" />
             <span className="hidden sm:inline">{busy ? "En cours…" : "Envoyer"}</span>
           </button>
         </div>
-        <p className="mt-1.5 text-[11px] text-gray-600">
+        <p className="mt-1.5 text-[11px] text-ui-muted">
           Entrée pour envoyer, Maj + Entrée pour aller à la ligne.
           {figures?.ok && figures.until ? ` Chiffres ${lotted ? "des clients" : "du client"} lus jusqu'au ${dayLabel(figures.until)}.` : ""}
         </p>

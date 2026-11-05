@@ -58,9 +58,9 @@ function VariantList({ label, values, max, min = 0, maxChars, rows, placeholder,
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-gray-400">{label} <span className="text-gray-600">· {filled}/{max}</span></span>
+        <span className="text-xs text-ui-fg2">{label} <span className="text-ui-muted">· {filled}/{max}</span></span>
         {values.length < max && (
-          <button type="button" onClick={() => onChange([...values, ""])} className="inline-flex items-center gap-1 text-[11px] text-gray-400 hover:text-white"><Plus className="w-3 h-3" /> Ajouter</button>
+          <button type="button" onClick={() => onChange([...values, ""])} className="inline-flex items-center gap-1 text-[11px] text-ui-fg2 hover:text-ui-fg"><Plus className="w-3 h-3" /> Ajouter</button>
         )}
       </div>
       {values.map((v, i) => (
@@ -70,7 +70,7 @@ function VariantList({ label, values, max, min = 0, maxChars, rows, placeholder,
           ) : (
             <input id={`${idPrefix}-${i}`} value={v} onChange={(e) => onChange(values.map((x, k) => (k === i ? e.target.value : x)))} className={input} maxLength={maxChars} placeholder={placeholder} aria-label={`${label} ${i + 1}`} />
           )}
-          <button type="button" onClick={() => onChange(values.filter((_, k) => k !== i))} disabled={values.length <= min} className="shrink-0 mt-1 text-gray-500 hover:text-red-300 disabled:opacity-30" aria-label={`Retirer ${label.toLowerCase()} ${i + 1}`}><Trash2 className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={() => onChange(values.filter((_, k) => k !== i))} disabled={values.length <= min} className="shrink-0 mt-1 text-ui-muted hover:text-red-300 disabled:opacity-30" aria-label={`Retirer ${label.toLowerCase()} ${i + 1}`}><Trash2 className="w-3.5 h-3.5" /></button>
         </div>
       ))}
     </div>
@@ -118,24 +118,24 @@ export function DynamicEditor({ media, onMediaChange, variants, onVariantsChange
     <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-xs text-gray-400">Visuels <span className="text-gray-600">· {images.length}/{DYNAMIC_LIMITS.images} images · {videos.length}/{DYNAMIC_LIMITS.videos} vidéos</span></span>
+          <span className="text-xs text-ui-fg2">Visuels <span className="text-ui-muted">· {images.length}/{DYNAMIC_LIMITS.images} images · {videos.length}/{DYNAMIC_LIMITS.videos} vidéos</span></span>
         </div>
         <div className="grid grid-cols-5 gap-1" role="group" aria-label="Visuels de la publicité dynamique">
           {media.map((m, i) => (
             <button key={i} type="button" aria-pressed={active === i} onClick={() => setActive(i)} title={m.kind === "video" ? `Vidéo ${i + 1}` : `Image ${i + 1}`}
-              className={`relative aspect-square rounded overflow-hidden border outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${active === i ? "border-violet-500" : "border-gray-800 hover:border-gray-600"}`}>
+              className={`relative aspect-square rounded overflow-hidden border outline-none focus-visible:ring-2 focus-visible:ring-ui-accent/40 ${active === i ? "border-ui-accent" : "border-ui-line hover:border-ui-line-strong"}`}>
               <MediaThumb media={m} className="w-full h-full object-cover" />
-              {m.kind === "video" && <span className="absolute bottom-0.5 right-0.5 rounded bg-black/70 px-1 text-[9px] text-white">vidéo</span>}
+              {m.kind === "video" && <span className="absolute bottom-0.5 right-0.5 rounded bg-black/50 px-1 text-[9px] text-ui-fg">vidéo</span>}
               {m.kind === "video" && !m.thumbUrl && <span className="absolute inset-x-0 top-0 bg-amber-500/80 text-[9px] text-black text-center">vignette ?</span>}
             </button>
           ))}
           {!full && (
-            <button type="button" onClick={() => setActive(null)} aria-label="Ajouter un visuel" className={`aspect-square rounded border border-dashed flex items-center justify-center text-gray-500 hover:text-white outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${active === null ? "border-violet-500 text-violet-300" : "border-gray-700"}`}>
+            <button type="button" onClick={() => setActive(null)} aria-label="Ajouter un visuel" className={`aspect-square rounded border border-dashed flex items-center justify-center text-ui-muted hover:text-ui-fg outline-none focus-visible:ring-2 focus-visible:ring-ui-accent/40 ${active === null ? "border-ui-accent text-ui-accent-ink" : "border-ui-line-strong"}`}>
               <Plus className="w-4 h-4" />
             </button>
           )}
         </div>
-        <p className="text-[11px] text-gray-500">{active === null ? "Choisissez un visuel à ajouter." : `Visuel ${active + 1} : remplacez-le, ou retirez-le avec la croix.`}</p>
+        <p className="text-[11px] text-ui-muted">{active === null ? "Choisissez un visuel à ajouter." : `Visuel ${active + 1} : remplacez-le, ou retirez-le avec la croix.`}</p>
         <MediaPicker key={active ?? "new"} kind="any" clientId={clientId} studio={studio} value={current} onChange={pick} idPrefix={`ad-dynamic-${active ?? "new"}`} compact />
       </div>
 
@@ -146,20 +146,20 @@ export function DynamicEditor({ media, onMediaChange, variants, onVariantsChange
           <VariantList label="Descriptions" values={variants.description} max={DYNAMIC_LIMITS.descriptions} maxChars={255} placeholder="Description (facultatif)" idPrefix="ad-dyn-description" onChange={(description) => onVariantsChange({ ...variants, description })} />
         </div>
         <div className="space-y-1.5">
-          <span className="text-xs text-gray-400">Boutons que Meta peut choisir <span className="text-gray-600">· {variants.ctas.length}/{DYNAMIC_LIMITS.callToActions}</span></span>
+          <span className="text-xs text-ui-fg2">Boutons que Meta peut choisir <span className="text-ui-muted">· {variants.ctas.length}/{DYNAMIC_LIMITS.callToActions}</span></span>
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Boutons">
             {ctas.map(([value, label]) => {
               const on = variants.ctas.includes(value);
               return (
                 <button key={value} type="button" aria-pressed={on} onClick={() => toggleCta(value)} disabled={!on && variants.ctas.length >= DYNAMIC_LIMITS.callToActions}
-                  className={`px-2 py-1 text-[11px] rounded-md border outline-none focus-visible:ring-2 focus-visible:ring-violet-400 disabled:opacity-40 ${on ? "border-violet-500 text-white bg-violet-500/10" : "border-gray-800 text-gray-400 hover:text-white"}`}>
+                  className={`px-2 py-1 text-[11px] rounded-md border outline-none focus-visible:ring-2 focus-visible:ring-ui-accent/40 disabled:opacity-40 ${on ? "border-ui-accent text-ui-fg bg-ui-accent-soft" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>
                   {label}
                 </button>
               );
             })}
           </div>
         </div>
-        <p className="text-[11px] text-gray-500">
+        <p className="text-[11px] text-ui-muted">
           {combos.toLocaleString("fr-FR")} combinaison{combos > 1 ? "s" : ""} possible{combos > 1 ? "s" : ""} : Meta assemble visuels, textes, titres, descriptions et boutons, et montre les meilleures. Un seul lien pour toutes.
         </p>
       </div>

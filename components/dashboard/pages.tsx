@@ -122,7 +122,7 @@ export function PageForm({ dashboardId, onDone, onCancel }: { dashboardId: strin
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-medium text-ui-fg flex items-center gap-2"><Sparkles className="w-4 h-4 text-ui-accent-ink" /> Nouvelle page</h3>
         <label className="text-xs text-ui-fg2 inline-flex items-center gap-2">
-          <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} className="accent-violet-500" />
+          <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} className="accent-ui-accent" />
           Composer avec l&apos;IA
         </label>
       </div>
@@ -146,7 +146,7 @@ export function PageForm({ dashboardId, onDone, onCancel }: { dashboardId: strin
       {error && <div className="text-xs text-ui-neg bg-red-500/10 border border-red-900/40 rounded-lg px-3 py-2">{error}</div>}
       <div className="flex items-center gap-2 justify-end">
         <button type="button" onClick={onCancel} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs text-ui-fg2 hover:text-ui-fg">Annuler</button>
-        <button type="submit" disabled={busy} className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 disabled:opacity-50 text-ui-fg">
+        <button type="submit" disabled={busy} className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 disabled:opacity-50 text-ui-on-accent">
           {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {useAi ? "L'IA compose la page…" : "Création…"}</> : useAi ? "Composer la page" : "Créer la page"}
         </button>
       </div>

@@ -17,8 +17,8 @@ import { Loader2, SearchCheck } from "lucide-react";
 import { Pill } from "@/components/ui/surface";
 import { dateTimeLabel, toItemsToCheck, type ItemToCheckView } from "@/components/routines/routine-model";
 
-const FIELD = "bg-gray-950 border border-gray-800 rounded-lg px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-violet-500 w-44";
-const BUTTON = "px-2.5 py-1 rounded-lg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed";
+const FIELD = "bg-ui-bg border border-ui-line rounded-lg px-2 py-1 text-xs text-ui-fg focus:outline-none focus:border-ui-accent w-44";
+const BUTTON = "px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed";
 
 export function ItemsToCheck({ routineId, timezone, refreshKey, readOnly, onChanged }: {
   routineId: string; timezone: string | null; refreshKey: number; readOnly: boolean; onChanged: () => void;
@@ -73,24 +73,24 @@ export function ItemsToCheck({ routineId, timezone, refreshKey, readOnly, onChan
   if (!items || items.length === 0) return notice ? <p className={`text-xs ${notice.ok ? "text-emerald-300" : "text-red-400"}`}>{notice.text}</p> : null;
 
   return (
-    <div className="bg-gray-900 border border-amber-900/50 rounded-2xl">
-      <div className="px-4 py-3 border-b border-gray-800 flex items-center gap-2">
+    <div className="bg-ui-card border border-amber-900/50 rounded-xl">
+      <div className="px-4 py-3 border-b border-ui-line flex items-center gap-2">
         <SearchCheck className="w-4 h-4 text-amber-300" />
-        <h2 className="text-sm font-semibold text-white">Lignes à vérifier ({items.length})</h2>
+        <h2 className="text-sm font-medium text-ui-fg">Lignes à vérifier ({items.length})</h2>
       </div>
-      <p className="px-4 pt-3 text-xs text-gray-400">
+      <p className="px-4 pt-3 text-xs text-ui-fg2">
         La routine ne recrée jamais ces lignes d&apos;elle-même. Regardez dans le Gestionnaire de publicités, puis dites ce qu&apos;il en est : votre réponse est gardée dans le journal de la routine.
       </p>
       <ul className="p-4 space-y-2">
         {items.map((item) => (
-          <li key={item.id} className="bg-gray-950/50 border border-gray-800 rounded-xl px-3 py-2.5 space-y-1.5">
+          <li key={item.id} className="bg-ui-bg border border-ui-line rounded-xl px-3 py-2.5 space-y-1.5">
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span className="font-mono text-gray-200 break-all">{item.rowKey}</span>
-              {item.label && <span className="text-gray-400 break-words">« {item.label} »</span>}
+              <span className="font-mono text-ui-fg break-all">{item.rowKey}</span>
+              {item.label && <span className="text-ui-fg2 break-words">« {item.label} »</span>}
               <Pill tone={item.status === "abandoned" ? "red" : "amber"} className="text-[10px]">{item.status === "abandoned" ? `Abandonnée après ${item.attempts} tentatives` : "À vérifier"}</Pill>
-              <span className="text-[11px] text-gray-600 ml-auto">{dateTimeLabel(item.updatedAt, timezone)}</span>
+              <span className="text-[11px] text-ui-muted ml-auto">{dateTimeLabel(item.updatedAt, timezone)}</span>
             </div>
-            <div className="text-[11px] text-gray-500 break-words">
+            <div className="text-[11px] text-ui-muted break-words">
               {item.adsetId ? `Ensemble de publicités ${item.adsetId}` : "Ensemble de publicités inconnu"}
               {item.externalId ? ` · publicité connue : ${item.externalId}` : " · aucun identifiant de publicité connu"}
             </div>
@@ -106,11 +106,11 @@ export function ItemsToCheck({ routineId, timezone, refreshKey, readOnly, onChan
                   disabled={!!busy || !!item.externalId}
                   className={FIELD}
                 />
-                <button type="button" onClick={() => void decide(item, "exists")} disabled={!!busy} className={`${BUTTON} bg-violet-600 hover:bg-violet-500 text-white`}>
+                <button type="button" onClick={() => void decide(item, "exists")} disabled={!!busy} className={`${BUTTON} bg-ui-accent hover:brightness-110 text-ui-on-accent`}>
                   {busy === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : "J'ai vérifié : la publicité existe"}
                 </button>
                 {!item.externalId && (
-                  <button type="button" onClick={() => void decide(item, "retry")} disabled={!!busy} className={`${BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>
+                  <button type="button" onClick={() => void decide(item, "retry")} disabled={!!busy} className={`${BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}>
                     J&apos;ai vérifié : rien n&apos;a été créé, réessayer
                   </button>
                 )}

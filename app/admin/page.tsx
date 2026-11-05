@@ -16,9 +16,9 @@ type User = {
 };
 
 const inputCls =
-  "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
+  "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
 const primaryBtnCls =
-  "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50";
+  "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors disabled:opacity-50";
 
 const ROLES = ["client", "consultant", "admin"] as const;
 type Role = (typeof ROLES)[number];
@@ -128,18 +128,18 @@ export default function AdminUsersPage() {
 
       {lastCreated && (
         <Card padded className="border-emerald-900/40 bg-emerald-500/5">
-          <div className="text-sm font-semibold text-emerald-300 mb-1">Compte créé</div>
-          <div className="text-xs text-gray-300">
-            Email : <code className="text-white">{lastCreated.email}</code>
+          <div className="text-sm font-medium text-emerald-300 mb-1">Compte créé</div>
+          <div className="text-xs text-ui-fg2">
+            Email : <code className="text-ui-fg">{lastCreated.email}</code>
           </div>
-          <div className="text-xs text-gray-300 mt-0.5">
+          <div className="text-xs text-ui-fg2 mt-0.5">
             Mot de passe temporaire :{" "}
-            <code className="px-2 py-0.5 rounded bg-gray-950 text-white">{lastCreated.password}</code>
+            <code className="px-2 py-0.5 rounded bg-ui-bg text-ui-fg">{lastCreated.password}</code>
           </div>
-          <div className="text-xs mt-2 text-gray-500">
+          <div className="text-xs mt-2 text-ui-muted">
             Notez-le maintenant — il ne sera plus affiché.
           </div>
-          <button onClick={() => setLastCreated(null)} className="mt-2 text-xs text-gray-400 hover:text-white underline">
+          <button onClick={() => setLastCreated(null)} className="mt-2 text-xs text-ui-fg2 hover:text-ui-fg underline">
             Fermer
           </button>
         </Card>
@@ -190,13 +190,13 @@ export default function AdminUsersPage() {
             onClick={() => setRoleFilter(f.value)}
             className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
               roleFilter === f.value
-                ? "bg-violet-500/15 text-violet-300 border-violet-500/30"
-                : "bg-gray-900 text-gray-400 border-gray-800 hover:text-white"
+                ? "bg-ui-accent-soft text-ui-accent-ink border-ui-accent"
+                : "bg-ui-card text-ui-fg2 border-ui-line hover:text-ui-fg"
             }`}
           >
             {f.label}
             {!loading && (
-              <span className="ml-1.5 text-gray-500">
+              <span className="ml-1.5 text-ui-muted">
                 {f.value === "all" ? users.length : users.filter((u) => u.role === f.value).length}
               </span>
             )}
@@ -207,9 +207,9 @@ export default function AdminUsersPage() {
       {roleError && <p className="text-xs text-red-400">{roleError}</p>}
 
       {loading ? (
-        <p className="text-gray-500">Chargement…</p>
+        <p className="text-ui-muted">Chargement…</p>
       ) : filteredUsers.length === 0 ? (
-        <Card padded className="text-center text-gray-500 border-dashed">
+        <Card padded className="text-center text-ui-muted border-dashed">
           {users.length === 0
             ? "Aucun utilisateur. Crée-en un avec le bouton ci-dessus."
             : "Aucun utilisateur pour ce filtre."}
@@ -220,8 +220,8 @@ export default function AdminUsersPage() {
             <Card key={u.id} padded className="flex items-center justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-sm text-white truncate">{u.email}</span>
-                  <Pill tone={ROLE_TONE[u.role] ?? "default"} className="uppercase font-bold tracking-wide">
+                  <span className="font-medium text-sm text-ui-fg truncate">{u.email}</span>
+                  <Pill tone={ROLE_TONE[u.role] ?? "default"} className=" font-medium ">
                     {u.role}
                   </Pill>
                   <select
@@ -233,21 +233,21 @@ export default function AdminUsersPage() {
                         ? "Vous ne pouvez pas retirer votre propre rôle admin"
                         : "Changer le rôle"
                     }
-                    className="px-2 py-1 rounded bg-gray-950 border border-gray-800 text-gray-300 text-xs focus:border-violet-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 rounded bg-ui-bg border border-ui-line text-ui-fg2 text-xs focus:border-ui-accent focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {ROLES.map((r) => (
                       <option key={r} value={r}>{r}</option>
                     ))}
                   </select>
                 </div>
-                <div className="text-xs mt-1 text-gray-500">
+                <div className="text-xs mt-1 text-ui-muted">
                   {u.adAccounts.length} compte{u.adAccounts.length > 1 ? "s" : ""} pub · {u.mcpPermissions.length} serveur{u.mcpPermissions.length > 1 ? "s" : ""} MCP
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Link
                   href={`/admin/users/${u.id}`}
-                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors"
+                  className="text-xs font-medium px-3 py-1.5 rounded-lg bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors"
                 >
                   Gérer
                 </Link>

@@ -41,7 +41,7 @@ export function RuleKindPills({ rule }: { rule: AlertRuleExt }) {
       {level !== "account" && <Pill tone="amber">{LEVEL_LABEL[level]}</Pill>}
       {ai && (
         <span title="Condition évaluée chaque matin par l'IA">
-          <Pill tone="violet" className="font-semibold">IA</Pill>
+          <Pill tone="violet" className="font-medium">IA</Pill>
         </span>
       )}
     </>
@@ -54,7 +54,7 @@ export function RuleDetails({ rule }: { rule: AlertRuleExt }) {
   const prompt = ruleMode(rule) === "ai" ? rule.prompt?.trim() : null;
   if (!summary && !prompt) return null;
   return (
-    <div className="text-xs mt-1 text-gray-500 space-y-0.5">
+    <div className="text-xs mt-1 text-ui-muted space-y-0.5">
       {summary && <div>{summary}</div>}
       {prompt && (
         <div className="truncate max-w-xl italic" title={prompt}>
@@ -99,11 +99,11 @@ function stripEntityPrefix(message: string, name: string): string {
 
 export function EventLine({ event }: { event: AlertEventRow }) {
   const name = event.entityName?.trim();
-  if (!name) return <span className="text-sm text-white">{event.message}</span>;
+  if (!name) return <span className="text-sm text-ui-fg">{event.message}</span>;
   return (
-    <span className="text-sm text-white">
-      <span className="font-semibold">{entityLabel(event.entityLevel)} « {name} »</span>
-      <span className="text-gray-400"> — </span>
+    <span className="text-sm text-ui-fg">
+      <span className="font-medium">{entityLabel(event.entityLevel)} « {name} »</span>
+      <span className="text-ui-fg2"> — </span>
       {stripEntityPrefix(event.message, name)}
     </span>
   );
@@ -144,21 +144,21 @@ export function AlertEventsList({ refreshKey = 0, limit = 15, accountLabel, acco
     load();
   }, [load, refreshKey]);
 
-  if (events === null) return <p className="text-xs text-gray-500">Chargement des déclenchements…</p>;
+  if (events === null) return <p className="text-xs text-ui-muted">Chargement des déclenchements…</p>;
   if (error) return <p className="text-xs text-red-400">{error}</p>;
-  if (events.length === 0) return <p className="text-xs text-gray-500">Aucun déclenchement pour l&apos;instant.</p>;
+  if (events.length === 0) return <p className="text-xs text-ui-muted">Aucun déclenchement pour l&apos;instant.</p>;
 
   const shown = showAll ? events : events.slice(0, limit);
   return (
     <div className={className}>
-      <ul className="divide-y divide-gray-800">
+      <ul className="divide-y divide-ui-line">
         {shown.map((ev) => {
           const platform = accountPlatform?.(ev.clientId);
           return (
             <li key={ev.id} className="py-2 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <EventLine event={ev} />
-                <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                <div className="text-[11px] text-ui-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
                   {isPlatform(platform) && <PlatformPill platform={platform} />}
                   <span>
                     {accountLabel ? accountLabel(ev.clientId) : ev.clientId} · {new Date(ev.triggeredAt).toLocaleString("fr-FR")}
@@ -171,7 +171,7 @@ export function AlertEventsList({ refreshKey = 0, limit = 15, accountLabel, acco
         })}
       </ul>
       {events.length > limit && (
-        <button type="button" onClick={() => setShowAll((s) => !s)} className="mt-2 text-xs text-violet-400 hover:text-violet-300">
+        <button type="button" onClick={() => setShowAll((s) => !s)} className="mt-2 text-xs text-ui-accent-ink hover:text-ui-accent-ink">
           {showAll ? "Réduire" : `Voir les ${events.length} déclenchements`}
         </button>
       )}

@@ -18,8 +18,8 @@ const COMPONENT: Record<string, string> = { cpm: "CPM", ctr: "CTR", cvr: "CVR", 
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-800/70 py-2 text-sm first:border-t-0">
-      <span className="text-xs text-gray-500">{label}</span>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ui-line py-2 text-sm first:border-t-0">
+      <span className="text-xs text-ui-muted">{label}</span>
       <span className="flex flex-wrap items-center justify-end gap-1.5 tabular-nums">{children}</span>
     </div>
   );
@@ -27,8 +27,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function PlatformBlock({ c, v, starts, o, words }: { c: ClientRow; v: PlatformRow; starts: string[]; o: MoneyOptions; words: PeriodWords }) {
   return (
-    <section className="rounded-xl border border-gray-800 bg-gray-900/60 p-3">
-      <h4 className="mb-1 flex flex-wrap items-center gap-1.5 text-sm font-semibold text-white">
+    <section className="rounded-xl border border-ui-line bg-ui-card p-3">
+      <h4 className="mb-1 flex flex-wrap items-center gap-1.5 text-sm font-medium text-ui-fg">
         <PlatformTag plat={v.plat} />
         {v.label}
         {c.kpi_mode === "mixte" && <Muted>· {modeLabel(v.mode)}</Muted>}
@@ -38,7 +38,7 @@ function PlatformBlock({ c, v, starts, o, words }: { c: ClientRow; v: PlatformRo
       ) : (
         <>
           <Row label={words.spend}>
-            <b className="text-white">{money(v.spend, v.ccy, o)}</b>
+            <b className="text-ui-fg">{money(v.spend, v.ccy, o)}</b>
             <Chip d={v.spend_d} kind="spend" label={words.base} />
             <Chip d={v.spend_d_wow} kind="spend" label={words.prev} />
           </Row>
@@ -46,7 +46,7 @@ function PlatformBlock({ c, v, starts, o, words }: { c: ClientRow; v: PlatformRo
             <Row label="KPI"><Muted>{TXT.brandDetail}</Muted></Row>
           ) : (
             <Row label={v.mode === "roas" ? "ROAS" : "CPA"}>
-              <b className="text-white">{kpiText(v.kpi, v.mode, v.ccy, o)}</b>
+              <b className="text-ui-fg">{kpiText(v.kpi, v.mode, v.ccy, o)}</b>
               {v.zero_conv ? <Tag className="bg-red-500/20 text-red-300">0 conv</Tag>
                 : v.low_vol ? <Muted>{TXT.lowVol} · {Math.round(v.conv)} conv</Muted>
                 : <><Chip d={v.kpi_d} kind="perf" label={words.base} mode={v.mode} /><Chip d={v.kpi_d_wow} kind="perf" label={words.prev} mode={v.mode} /></>}
@@ -57,7 +57,7 @@ function PlatformBlock({ c, v, starts, o, words }: { c: ClientRow; v: PlatformRo
               const bad = k === "cpm" ? d > 0.10 : d < -0.10;
               const good = k === "cpm" ? d < -0.10 : d > 0.10;
               return (
-                <span key={k} className={`text-xs ${bad ? "text-red-300" : good ? "text-emerald-300" : "text-gray-400"}`}>
+                <span key={k} className={`text-xs ${bad ? "text-red-300" : good ? "text-emerald-300" : "text-ui-fg2"}`}>
                   {COMPONENT[k]} {d > 0 ? "+" : ""}{Math.round(d * 100)}%
                 </span>
               );
@@ -71,7 +71,7 @@ function PlatformBlock({ c, v, starts, o, words }: { c: ClientRow; v: PlatformRo
   );
 }
 
-const field = "w-full rounded-lg border border-gray-800 bg-gray-950 px-2.5 py-1.5 text-sm text-white focus:border-violet-500 focus:outline-none";
+const field = "w-full rounded-lg border border-ui-line bg-ui-bg px-2.5 py-1.5 text-sm text-ui-fg focus:border-ui-accent focus:outline-none";
 
 export function DiagnosticPanel({
   client, starts, words, evolution, action, o, onClose, onSaved,
@@ -127,15 +127,15 @@ export function DiagnosticPanel({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/60" onClick={onClose} aria-hidden />
-      <aside role="dialog" aria-modal="true" aria-labelledby="cockpit-panel-title" className="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-gray-800 bg-gray-950 shadow-2xl">
-        <header className="border-b border-gray-800 px-5 py-4">
+      <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} aria-hidden />
+      <aside role="dialog" aria-modal="true" aria-labelledby="cockpit-panel-title" className="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-ui-line bg-ui-bg shadow-2xl">
+        <header className="border-b border-ui-line px-5 py-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-violet-400">Diagnostic</span>
-              <h2 id="cockpit-panel-title" className="text-lg font-semibold text-white">{c.name}</h2>
+              <span className="text-[11px] font-medium text-ui-accent-ink">Diagnostic</span>
+              <h2 id="cockpit-panel-title" className="text-lg font-medium text-ui-fg">{c.name}</h2>
             </div>
-            <button ref={closeRef} type="button" onClick={onClose} aria-label="Fermer le diagnostic" className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-800 hover:text-white">
+            <button ref={closeRef} type="button" onClick={onClose} aria-label="Fermer le diagnostic" className="rounded-lg p-1.5 text-ui-fg2 hover:bg-ui-raised hover:text-ui-fg">
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -144,23 +144,23 @@ export function DiagnosticPanel({
 
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
           <section>
-            <h4 className="text-sm font-semibold text-white">{c.alert.reason}</h4>
-            {c.alert.next_action && <p className="mt-0.5 text-sm text-gray-400">{c.alert.next_action}</p>}
+            <h4 className="text-sm font-medium text-ui-fg">{c.alert.reason}</h4>
+            {c.alert.next_action && <p className="mt-0.5 text-sm text-ui-fg2">{c.alert.next_action}</p>}
           </section>
 
-          <section className="rounded-xl border border-gray-800 bg-gray-900/60 p-3">
-            <h4 className="mb-1 text-sm font-semibold text-white">
+          <section className="rounded-xl border border-ui-line bg-ui-card p-3">
+            <h4 className="mb-1 text-sm font-medium text-ui-fg">
               Vue d&apos;ensemble — {c.kpi_mode === "mixte" ? TXT.mixte : modeLabel(c.kpi_mode)}{c.ccy ? ` · ${c.ccy}` : ""}
             </h4>
             <Row label={words.spend}>
-              <b className="text-white">{spendText(c, o)}</b>
+              <b className="text-ui-fg">{spendText(c, o)}</b>
               <Chip d={r.spend_d} kind="spend" label={words.base} />
               <Chip d={r.spend_d_wow} kind="spend" label={words.prev} />
             </Row>
             {c.kpi_mode === "brand" ? <Row label="KPI"><Muted>{TXT.brandDetail}</Muted></Row>
               : c.kpi_mode === "mixte" ? null : (
                 <Row label={c.kpi_mode === "roas" ? "ROAS" : "CPA"}>
-                  <b className="text-white">{kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b>
+                  <b className="text-ui-fg">{kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b>
                   {r.low_vol ? <Muted>{TXT.lowVol} · {Math.round(r.conv)} conv · KPI non significatif</Muted>
                     : <><Chip d={r.kpi_d} kind="perf" label={words.base} mode={c.kpi_mode} /><Chip d={r.kpi_d_wow} kind="perf" label={words.prev} mode={c.kpi_mode} /></>}
                 </Row>
@@ -179,17 +179,17 @@ export function DiagnosticPanel({
           </section>
 
           <section className="space-y-2">
-            <h4 className="text-sm font-semibold text-white">Performance par canal</h4>
+            <h4 className="text-sm font-medium text-ui-fg">Performance par canal</h4>
             {Object.values(c.platforms).map((v) => <PlatformBlock key={v.key} c={c} v={v} starts={starts} o={o} words={words} />)}
           </section>
 
           {history.length > 1 && (
-            <section className="rounded-xl border border-gray-800 bg-gray-900/60 p-3">
-              <h4 className="mb-2 text-sm font-semibold text-white">Évolution du niveau</h4>
+            <section className="rounded-xl border border-ui-line bg-ui-card p-3">
+              <h4 className="mb-2 text-sm font-medium text-ui-fg">Évolution du niveau</h4>
               <ol className="space-y-1.5">
                 {[...history].reverse().map((p) => (
-                  <li key={p.at} className="flex items-center gap-2 text-xs text-gray-400">
-                    <span className="w-12 shrink-0 tabular-nums text-gray-500">{new Date(p.at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}</span>
+                  <li key={p.at} className="flex items-center gap-2 text-xs text-ui-fg2">
+                    <span className="w-12 shrink-0 tabular-nums text-ui-muted">{new Date(p.at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })}</span>
                     <SeverityBadge severity={p.severity} label={SEVERITY_LABEL[p.severity]} />
                     <span className="truncate">{p.reason}</span>
                   </li>
@@ -198,14 +198,14 @@ export function DiagnosticPanel({
             </section>
           )}
 
-          <section className="space-y-2 rounded-xl border border-gray-800 bg-gray-900/60 p-3">
+          <section className="space-y-2 rounded-xl border border-ui-line bg-ui-card p-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-semibold text-white">Plan d&apos;action</h4>
-              <span className={`text-[11px] ${saving === "error" ? "text-red-300" : "text-gray-500"}`} aria-live="polite">
+              <h4 className="text-sm font-medium text-ui-fg">Plan d&apos;action</h4>
+              <span className={`text-[11px] ${saving === "error" ? "text-red-300" : "text-ui-muted"}`} aria-live="polite">
                 {saving === "saving" ? "Enregistrement…" : saving === "saved" ? "Enregistré" : saving === "error" ? "Non enregistré — réessayez" : ""}
               </span>
             </div>
-            <label className="block text-xs text-gray-400">Statut
+            <label className="block text-xs text-ui-fg2">Statut
               <select value={draft.state} onChange={(e) => update({ state: e.target.value })} className={`${field} mt-1`}>
                 <option value="">Aucune action planifiée</option>
                 <option value="todo">À faire</option>
@@ -214,17 +214,17 @@ export function DiagnosticPanel({
               </select>
             </label>
             <div className="grid grid-cols-2 gap-2">
-              <label className="block text-xs text-gray-400">Responsable
+              <label className="block text-xs text-ui-fg2">Responsable
                 <input type="text" value={draft.owner} placeholder="Prénom" onChange={(e) => update({ owner: e.target.value })} className={`${field} mt-1`} />
               </label>
-              <label className="block text-xs text-gray-400">Échéance
+              <label className="block text-xs text-ui-fg2">Échéance
                 <input type="date" value={draft.due} onChange={(e) => update({ due: e.target.value })} className={`${field} mt-1`} />
               </label>
             </div>
-            <label className="block text-xs text-gray-400">Note
+            <label className="block text-xs text-ui-fg2">Note
               <textarea value={draft.note} rows={3} placeholder="Contexte, décision, next step…" onChange={(e) => update({ note: e.target.value })} className={`${field} mt-1 resize-y`} />
             </label>
-            {action?.updatedBy && <p className="text-[11px] text-gray-600">Dernière modification : {action.updatedBy}, {new Date(action.updatedAt).toLocaleDateString("fr-FR")}</p>}
+            {action?.updatedBy && <p className="text-[11px] text-ui-muted">Dernière modification : {action.updatedBy}, {new Date(action.updatedAt).toLocaleDateString("fr-FR")}</p>}
           </section>
         </div>
       </aside>

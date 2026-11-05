@@ -19,7 +19,7 @@
 import { useRef, useState } from "react";
 import { Maximize2, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import type { AdSample } from "@/lib/ads-warehouse/query";
-import { adImageSrc, colorFor } from "./shared";
+import { adImageSrc } from "./shared";
 
 /** Ads whose MP4 Meta refused during this session: not requested again. */
 const unavailable = new Set<string>();
@@ -33,7 +33,7 @@ function posterOf(ad: AdSample | null): string | undefined {
 
 /** One visual, contained over its own blurred copy. */
 function ContainedImage({ src, fallbackId }: { src: string | undefined; fallbackId: string }) {
-  if (!src) return <div className={`absolute inset-0 bg-gradient-to-br ${colorFor(fallbackId)}`} />;
+  if (!src) return <div className={`absolute inset-0 bg-ui-raised`} />;
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element -- Meta CDN, many hosts */}
@@ -62,8 +62,8 @@ export function AdMedia({ ad, ads, ratio = "9:16", caption, badge, onOpen }: Pro
   const tiles = (ads ?? []).filter((a) => { const k = a.imageUrl ?? a.thumbnailUrl; if (!k || seen.has(k)) return false; seen.add(k); return true; }).slice(0, 4);
   const canPlay = !!ad && ad.platform === "meta" && ad.format === "Video" && !!ad.videoId && tiles.length < 2;
   return (
-    <div className="relative w-full overflow-hidden rounded-2xl" style={{ aspectRatio: RATIO_CSS[ratio] }}>
-      <div className="absolute inset-1 overflow-hidden rounded-xl bg-gray-950">
+    <div className="relative w-full overflow-hidden rounded-xl" style={{ aspectRatio: RATIO_CSS[ratio] }}>
+      <div className="absolute inset-1 overflow-hidden rounded-xl bg-ui-bg">
         {tiles.length >= 2 ? (
           <div className={`absolute inset-0 grid gap-0.5 ${tiles.length === 2 ? "grid-cols-2" : "grid-cols-2 grid-rows-2"}`}>
             {tiles.map((a, i) => (
@@ -79,7 +79,7 @@ export function AdMedia({ ad, ads, ratio = "9:16", caption, badge, onOpen }: Pro
             <ContainedImage src={posterOf(ad)} fallbackId={ad?.adId ?? "x"} />
             {ad?.format === "Video" && (
               <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <span className="w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center"><Play className="w-4 h-4 text-white fill-white ml-0.5" /></span>
+                <span className="w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center"><Play className="w-4 h-4 text-ui-fg fill-white ml-0.5" /></span>
               </span>
             )}
           </>
@@ -99,16 +99,16 @@ function TextAd({ ad }: { ad: AdSample }) {
   try { host = ad.landingUrl ? new URL(ad.landingUrl).hostname.replace(/^www\./, "") : ""; } catch { /* keep empty */ }
   const title = (ad.title ?? ad.name).split(/\s*[|\n]\s*/).filter(Boolean).slice(0, 3).join(" | ");
   return (
-    <div className="absolute inset-0 flex flex-col justify-center gap-2 bg-gray-900 p-4 text-left">
-      <div className="text-[11px] text-gray-400">Sponsorisé{host ? ` · ${host}` : ""}</div>
+    <div className="absolute inset-0 flex flex-col justify-center gap-2 bg-ui-card p-4 text-left">
+      <div className="text-[11px] text-ui-fg2">Sponsorisé{host ? ` · ${host}` : ""}</div>
       <div className="text-sm font-medium leading-snug text-sky-300 line-clamp-4">{title}</div>
-      {ad.body && <div className="text-xs leading-relaxed text-gray-300 line-clamp-6">{ad.body}</div>}
+      {ad.body && <div className="text-xs leading-relaxed text-ui-fg2 line-clamp-6">{ad.body}</div>}
     </div>
   );
 }
 
 export function MediaCaption({ children, tone = "plain" }: { children: React.ReactNode; tone?: "plain" | "accent" }) {
-  return <span className={`rounded-md bg-black/40 backdrop-blur-sm px-2 py-0.5 text-xs font-medium ${tone === "accent" ? "text-violet-200" : "text-white"}`}>{children}</span>;
+  return <span className={`rounded-md bg-black/50 backdrop-blur-sm px-2 py-0.5 text-xs font-medium ${tone === "accent" ? "text-ui-accent-ink" : "text-ui-fg"}`}>{children}</span>;
 }
 
 function InlineVideo({ ad, onOpen }: { ad: AdSample; onOpen?: () => void }) {
@@ -178,7 +178,7 @@ function InlineVideo({ ad, onOpen }: { ad: AdSample; onOpen?: () => void }) {
         onEnded={() => { setPlaying(false); setProgress(0); }}
         onError={() => { setFailed(true); setVisible(false); setPlaying(false); if (wantPlay.current) { wantPlay.current = false; onOpen?.(); } }}
       />
-      {scrubX !== null && visible && <div className="absolute top-0 bottom-0 z-[4] w-0.5 -translate-x-px bg-white/70 pointer-events-none" style={{ left: `${scrubX}%` }} />}
+      {scrubX !== null && visible && <div className="absolute top-0 bottom-0 z-[4] w-0.5 -translate-x-px bg-ui-raised pointer-events-none" style={{ left: `${scrubX}%` }} />}
       {(
         <div className={`absolute left-1/2 top-1/2 z-[5] -translate-x-1/2 -translate-y-1/2 transition-opacity ${!playing || hover ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
           <button
@@ -186,7 +186,7 @@ function InlineVideo({ ad, onOpen }: { ad: AdSample; onOpen?: () => void }) {
             onClick={toggle}
             aria-label={failed ? "Voir la vidéo dans le détail" : playing ? "Mettre en pause" : "Lire la vidéo"}
             title={failed ? "Lecture dans la carte indisponible (accès à la Page du client requis) : ouvre l'aperçu officiel" : undefined}
-            className="relative w-12 h-12 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-sm flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            className="relative w-12 h-12 rounded-full bg-black/50 hover:bg-black/50 backdrop-blur-sm flex items-center justify-center transition-transform hover:scale-105 active:scale-95"
           >
             {playing && (
               <span
@@ -199,19 +199,19 @@ function InlineVideo({ ad, onOpen }: { ad: AdSample; onOpen?: () => void }) {
                 }}
               />
             )}
-            {playing ? <Pause className="w-4 h-4 text-white fill-white" /> : <Play className="w-4 h-4 text-white fill-white ml-0.5" />}
+            {playing ? <Pause className="w-4 h-4 text-ui-fg fill-white" /> : <Play className="w-4 h-4 text-ui-fg fill-white ml-0.5" />}
           </button>
         </div>
       )}
       <div className={`absolute right-2 top-2 z-[5] flex gap-2 transition-opacity ${hover ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
         {!failed && (
-          <button type="button" onClick={(e) => { stop(e); setMuted((m) => !m); }} aria-label={muted ? "Activer le son" : "Couper le son"} className="w-8 h-8 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-sm flex items-center justify-center">
-            {muted ? <VolumeX className="w-4 h-4 text-white" /> : <Volume2 className="w-4 h-4 text-white" />}
+          <button type="button" onClick={(e) => { stop(e); setMuted((m) => !m); }} aria-label={muted ? "Activer le son" : "Couper le son"} className="w-8 h-8 rounded-full bg-black/50 hover:bg-black/50 backdrop-blur-sm flex items-center justify-center">
+            {muted ? <VolumeX className="w-4 h-4 text-ui-fg" /> : <Volume2 className="w-4 h-4 text-ui-fg" />}
           </button>
         )}
         {onOpen && (
-          <button type="button" onClick={(e) => { stop(e); onOpen(); }} aria-label="Ouvrir la créa" className="w-8 h-8 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur-sm flex items-center justify-center">
-            <Maximize2 className="w-4 h-4 text-white" />
+          <button type="button" onClick={(e) => { stop(e); onOpen(); }} aria-label="Ouvrir la créa" className="w-8 h-8 rounded-full bg-black/50 hover:bg-black/50 backdrop-blur-sm flex items-center justify-center">
+            <Maximize2 className="w-4 h-4 text-ui-fg" />
           </button>
         )}
       </div>

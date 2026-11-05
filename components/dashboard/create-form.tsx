@@ -16,7 +16,7 @@ interface InviteResult { email: string; role: string; created: boolean; tempPass
 interface AvailableClient { id: string; name: string; metaAccountId: string | null; googleCustomerId: string | null; tiktokAdvertiserId?: string }
 
 const inputCls =
-  "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
+  "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
 
 export function CreateDashboardForm() {
   const router = useRouter();
@@ -87,7 +87,7 @@ export function CreateDashboardForm() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors"
         >
           + Nouveau dashboard
         </button>
@@ -102,15 +102,15 @@ export function CreateDashboardForm() {
   const chosen = available?.find((c) => c.id === picked) ?? null;
 
   return (
-    <form onSubmit={submit} className="bg-gray-900 border border-violet-800/60 rounded-xl p-4 space-y-3 w-full max-w-2xl">
+    <form onSubmit={submit} className="bg-ui-card border border-ui-accent rounded-xl p-4 space-y-3 w-full max-w-2xl">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-white">Nouveau dashboard</h2>
-        <button type="button" onClick={() => setOpen(false)} className="text-xs text-gray-500 hover:text-gray-300">Annuler</button>
+        <h2 className="text-sm font-medium text-ui-fg">Nouveau dashboard</h2>
+        <button type="button" onClick={() => setOpen(false)} className="text-xs text-ui-muted hover:text-ui-fg2">Annuler</button>
       </div>
 
       {!manual ? (
         <div className="space-y-2">
-          <label className="flex flex-col gap-1 text-[11px] text-gray-400">
+          <label className="flex flex-col gap-1 text-[11px] text-ui-fg2">
             Client
             <select value={picked} onChange={(e) => pick(e.target.value)} className={inputCls} disabled={available === null}>
               <option value="">{available === null ? "Chargement des clients…" : available.length ? "Choisir un client" : "Tous les clients ont déjà un dashboard"}</option>
@@ -122,12 +122,12 @@ export function CreateDashboardForm() {
             </select>
           </label>
           {chosen && (
-            <label className="flex flex-col gap-1 text-[11px] text-gray-400">
+            <label className="flex flex-col gap-1 text-[11px] text-ui-fg2">
               Nom du dashboard
               <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
             </label>
           )}
-          <button type="button" onClick={() => { setManual(true); setPicked(""); }} className="text-[11px] text-gray-500 underline hover:text-gray-300">
+          <button type="button" onClick={() => { setManual(true); setPicked(""); }} className="text-[11px] text-ui-muted underline hover:text-ui-fg2">
             Le client n&apos;est pas dans la liste : saisir les comptes à la main
           </button>
         </div>
@@ -139,27 +139,27 @@ export function CreateDashboardForm() {
             <input value={googleId} onChange={(e) => setGoogleId(e.target.value)} placeholder="Customer Google Ads" className={inputCls + " w-56"} />
             <input value={tiktokId} onChange={(e) => setTikTokId(e.target.value)} inputMode="numeric" placeholder="Compte TikTok Ads (identifiant)" className={inputCls + " w-56 font-mono"} />
           </div>
-          <p className="text-[11px] text-gray-500">Le compte TikTok Ads est retrouvé chez TikTok à la création ; d&apos;autres comptes TikTok se rattachent ensuite depuis la fiche client (Sources de données).</p>
-          <button type="button" onClick={() => { setManual(false); setName(""); setMetaId(""); setGoogleId(""); setTikTokId(""); }} className="text-[11px] text-gray-500 underline hover:text-gray-300">
+          <p className="text-[11px] text-ui-muted">Le compte TikTok Ads est retrouvé chez TikTok à la création ; d&apos;autres comptes TikTok se rattachent ensuite depuis la fiche client (Sources de données).</p>
+          <button type="button" onClick={() => { setManual(false); setName(""); setMetaId(""); setGoogleId(""); setTikTokId(""); }} className="text-[11px] text-ui-muted underline hover:text-ui-fg2">
             Revenir à la liste des clients
           </button>
         </div>
       )}
 
       {canInviteClients && (
-        <label className="flex flex-col gap-1 text-[11px] text-gray-400">
+        <label className="flex flex-col gap-1 text-[11px] text-ui-fg2">
           Ouvrir au client (emails, séparés par une virgule) — facultatif
           <input
             value={clients} onChange={(e) => setClients(e.target.value)}
             placeholder="contact@marque.fr" className={inputCls}
           />
-          <span className="text-gray-500">Email inconnu → compte créé, mot de passe temporaire affiché une seule fois après la création.</span>
+          <span className="text-ui-muted">Email inconnu → compte créé, mot de passe temporaire affiché une seule fois après la création.</span>
         </label>
       )}
       {error && <div className="text-xs text-red-400">{error}</div>}
       <button
         type="submit" disabled={saving}
-        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50"
+        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors disabled:opacity-50"
       >
         {saving ? "Création…" : "Créer le dashboard"}
       </button>

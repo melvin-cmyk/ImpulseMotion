@@ -53,7 +53,7 @@ export default function ReportPrintPage() {
   }, [report, params]);
 
   return (
-    <div className="report-print-root fixed inset-0 z-50 overflow-auto bg-neutral-200 text-neutral-900">
+    <div data-theme="light" className="report-print-root fixed inset-0 z-50 overflow-auto bg-neutral-200 text-neutral-900">
       <div className="print:hidden sticky top-0 z-10 bg-neutral-900 text-white px-4 h-11 flex items-center justify-between text-sm">
         <Link href={`/reports/${id}`} className="text-neutral-300 hover:text-white">← Retour au rapport</Link>
         <div className="flex items-center gap-3">

@@ -33,7 +33,7 @@ interface ClientOption {
 
 interface PageOption { id: string; name: string }
 
-const FIELD = "w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-500 disabled:opacity-60";
+const FIELD = "w-full bg-ui-bg border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg focus:outline-none focus:border-ui-accent disabled:opacity-60";
 
 export default function NewRoutinePage() {
   const router = useRouter();
@@ -145,7 +145,7 @@ export default function NewRoutinePage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
-      <Link href="/routines" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white">
+      <Link href="/routines" className="inline-flex items-center gap-1.5 text-xs text-ui-fg2 hover:text-ui-fg">
         <ArrowLeft className="w-3.5 h-3.5" /> Routines
       </Link>
       <PageHeader
@@ -159,11 +159,11 @@ export default function NewRoutinePage() {
           ["client", "Pour un client", "Ses comptes Meta, Google Ads et TikTok ; seule une routine de client peut créer des publicités."],
           ["free", "Sans client (routine libre)", "Pour n'importe quoi : un Google Sheet, plusieurs clients ou tous ceux de l'agence, un résumé IA, Slack ou e-mail."],
         ] as const).map(([value, title, text]) => (
-          <label key={value} className={`flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer ${mode === value ? "border-violet-500 bg-violet-950/20" : "border-gray-800 bg-gray-950/50"}`}>
-            <input type="radio" name="routine-mode" value={value} checked={mode === value} onChange={() => { setMode(value); setPageId(""); }} disabled={busy} className="accent-violet-600 mt-1" />
+          <label key={value} className={`flex items-start gap-2 rounded-lg border px-3 py-2 cursor-pointer ${mode === value ? "border-ui-accent bg-ui-accent-soft" : "border-ui-line bg-ui-bg"}`}>
+            <input type="radio" name="routine-mode" value={value} checked={mode === value} onChange={() => { setMode(value); setPageId(""); }} disabled={busy} className="accent-ui-accent mt-1" />
             <span className="min-w-0">
-              <span className="block text-sm text-gray-200 font-medium">{title}</span>
-              <span className="block text-[11px] text-gray-500">{text}</span>
+              <span className="block text-sm text-ui-fg font-medium">{title}</span>
+              <span className="block text-[11px] text-ui-muted">{text}</span>
             </span>
           </label>
         ))}
@@ -172,18 +172,18 @@ export default function NewRoutinePage() {
       {!free && loadError && (
         <Card padded className="border-red-900/40">
           <p className="text-sm text-red-400">La liste des clients n&apos;a pas pu être chargée ({loadError}).</p>
-          <button type="button" onClick={() => window.location.reload()} className="mt-2 text-xs underline text-gray-300">Recharger la page</button>
+          <button type="button" onClick={() => window.location.reload()} className="mt-2 text-xs underline text-ui-fg2">Recharger la page</button>
         </Card>
       )}
 
       {!free && clients === null && !loadError && (
-        <div className="flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement des clients…</div>
+        <div className="flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement des clients…</div>
       )}
 
       {!free && clients !== null && clients.length === 0 && (
         <Card padded>
-          <p className="text-sm text-gray-400">
-            Aucun client disponible. Créez d&apos;abord un dashboard client dans <Link href="/d" className="text-violet-400">Dashboards clients</Link>.
+          <p className="text-sm text-ui-fg2">
+            Aucun client disponible. Créez d&apos;abord un dashboard client dans <Link href="/d" className="text-ui-accent-ink">Dashboards clients</Link>.
           </p>
         </Card>
       )}
@@ -193,7 +193,7 @@ export default function NewRoutinePage() {
           <form onSubmit={submit} className="space-y-5">
             {free && (
               <div>
-                <label htmlFor="routine-label" className="block text-xs font-semibold text-gray-300 mb-1">Libellé <span className="font-normal text-gray-500">(facultatif)</span></label>
+                <label htmlFor="routine-label" className="block text-xs font-medium text-ui-fg2 mb-1">Libellé <span className="font-normal text-ui-muted">(facultatif)</span></label>
                 <input
                   id="routine-label"
                   value={label}
@@ -203,7 +203,7 @@ export default function NewRoutinePage() {
                   placeholder="Ex. : Portefeuille, Équipe e-commerce"
                   className={FIELD}
                 />
-                <p className="text-[11px] text-gray-500 mt-1">
+                <p className="text-[11px] text-ui-muted mt-1">
                   Remplace le nom du client dans la liste des routines. La routine n&apos;a aucun compte à elle : ses étapes de lecture
                   nomment les clients qu&apos;elles lisent (ou tous les clients de l&apos;agence : 40 comptes au plus par exécution, les plus
                   dépensiers d&apos;abord), relus à chaque exécution dans votre périmètre. Elle ne crée pas de publicités, et ses messages
@@ -217,7 +217,7 @@ export default function NewRoutinePage() {
 
             {!free && (
             <div>
-              <label htmlFor="routine-client" className="block text-xs font-semibold text-gray-300 mb-1">Client</label>
+              <label htmlFor="routine-client" className="block text-xs font-medium text-ui-fg2 mb-1">Client</label>
               <select
                 id="routine-client"
                 value={clientId}
@@ -234,37 +234,37 @@ export default function NewRoutinePage() {
 
             {client && (
               <fieldset>
-                <legend className="block text-xs font-semibold text-gray-300 mb-1">Comptes que la routine peut utiliser</legend>
+                <legend className="block text-xs font-medium text-ui-fg2 mb-1">Comptes que la routine peut utiliser</legend>
                 <div className="space-y-2">
                   {client.metaAccountId ? (
-                    <label className="flex items-start gap-2 text-sm text-gray-300 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
-                      <input type="checkbox" checked={useMeta} onChange={(e) => setUseMeta(e.target.checked)} disabled={busy} className="accent-violet-600 mt-1" />
+                    <label className="flex items-start gap-2 text-sm text-ui-fg2 bg-ui-bg border border-ui-line rounded-lg px-3 py-2">
+                      <input type="checkbox" checked={useMeta} onChange={(e) => setUseMeta(e.target.checked)} disabled={busy} className="accent-ui-accent mt-1" />
                       <span className="min-w-0">
-                        Meta Ads <span className="font-mono text-xs text-gray-400 break-all">{client.metaAccountId}</span>
-                        <span className="block text-[11px] text-gray-500">Lecture des performances ; création de publicités en pause si la routine le prévoit.</span>
+                        Meta Ads <span className="font-mono text-xs text-ui-fg2 break-all">{client.metaAccountId}</span>
+                        <span className="block text-[11px] text-ui-muted">Lecture des performances ; création de publicités en pause si la routine le prévoit.</span>
                       </span>
                     </label>
                   ) : (
-                    <p className="text-xs text-gray-500 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">Pas de compte Meta Ads lié à ce client.</p>
+                    <p className="text-xs text-ui-muted bg-ui-bg border border-ui-line rounded-lg px-3 py-2">Pas de compte Meta Ads lié à ce client.</p>
                   )}
                   {client.googleCustomerId ? (
-                    <label className="flex items-start gap-2 text-sm text-gray-300 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
-                      <input type="checkbox" checked={useGoogle} onChange={(e) => setUseGoogle(e.target.checked)} disabled={busy} className="accent-violet-600 mt-1" />
+                    <label className="flex items-start gap-2 text-sm text-ui-fg2 bg-ui-bg border border-ui-line rounded-lg px-3 py-2">
+                      <input type="checkbox" checked={useGoogle} onChange={(e) => setUseGoogle(e.target.checked)} disabled={busy} className="accent-ui-accent mt-1" />
                       <span className="min-w-0">
-                        Google Ads <span className="font-mono text-xs text-gray-400 break-all">{client.googleCustomerId}</span>
-                        <span className="block text-[11px] text-gray-500">Lecture seule.</span>
+                        Google Ads <span className="font-mono text-xs text-ui-fg2 break-all">{client.googleCustomerId}</span>
+                        <span className="block text-[11px] text-ui-muted">Lecture seule.</span>
                       </span>
                     </label>
                   ) : (
-                    <p className="text-xs text-gray-500 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">Pas de compte Google Ads lié à ce client.</p>
+                    <p className="text-xs text-ui-muted bg-ui-bg border border-ui-line rounded-lg px-3 py-2">Pas de compte Google Ads lié à ce client.</p>
                   )}
                   {!client.id.startsWith("account:") && (
-                    <p className="text-xs text-gray-500 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
+                    <p className="text-xs text-ui-muted bg-ui-bg border border-ui-line rounded-lg px-3 py-2">
                       TikTok Ads : les comptes TikTok rattachés à ce client (carte « Sources de données » de sa fiche) sont lus à chaque exécution, en lecture seule.
                     </p>
                   )}
                 </div>
-                <p className="text-[11px] text-gray-500 mt-1.5">
+                <p className="text-[11px] text-ui-muted mt-1.5">
                   Ces comptes sont fixés à la création : l&apos;IA et chaque exécution y sont limitées. Une étape peut aussi lire d&apos;autres clients de votre périmètre si vous le demandez à l&apos;IA.
                 </p>
                 {needsMeta && (
@@ -275,9 +275,9 @@ export default function NewRoutinePage() {
 
             {meta && (
               <div>
-                <label htmlFor="routine-page" className="block text-xs font-semibold text-gray-300 mb-1">Page Facebook qui publiera les publicités <span className="font-normal text-gray-500">(facultatif)</span></label>
+                <label htmlFor="routine-page" className="block text-xs font-medium text-ui-fg2 mb-1">Page Facebook qui publiera les publicités <span className="font-normal text-ui-muted">(facultatif)</span></label>
                 {!pagesOfAccount && (
-                  <div className="flex items-center gap-2 text-gray-500 text-xs"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Lecture des Pages du compte…</div>
+                  <div className="flex items-center gap-2 text-ui-muted text-xs"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Lecture des Pages du compte…</div>
                 )}
                 {pagesOfAccount && pagesOfAccount.list.length > 0 && (
                   <select id="routine-page" value={chosenPage ? pageId : ""} onChange={(e) => setPageId(e.target.value)} disabled={busy} className={FIELD}>
@@ -286,13 +286,13 @@ export default function NewRoutinePage() {
                   </select>
                 )}
                 {pagesOfAccount && pagesOfAccount.list.length === 0 && (
-                  <p className="text-xs text-gray-500 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2">
+                  <p className="text-xs text-ui-muted bg-ui-bg border border-ui-line rounded-lg px-3 py-2">
                     {pagesOfAccount.error
                       ? `La liste des Pages n'a pas pu être lue (${pagesOfAccount.error}). Vous pourrez donner la Page à l'IA.`
                       : "Aucune Page à promouvoir n'est rattachée à ce compte. Vous pourrez donner la Page à l'IA."}
                   </p>
                 )}
-                <p className="text-[11px] text-gray-500 mt-1">
+                <p className="text-[11px] text-ui-muted mt-1">
                   Utile seulement si la routine crée des publicités : la Page est transmise à l&apos;IA, qui n&apos;aura pas à vous la demander.
                   {pagesOfAccount && !pagesOfAccount.complete ? " La liste est incomplète : ce compte a plus de 200 Pages." : ""}
                 </p>
@@ -300,7 +300,7 @@ export default function NewRoutinePage() {
             )}
 
             <div>
-              <label htmlFor="routine-name" className="block text-xs font-semibold text-gray-300 mb-1">Nom de la routine</label>
+              <label htmlFor="routine-name" className="block text-xs font-medium text-ui-fg2 mb-1">Nom de la routine</label>
               <input
                 id="routine-name"
                 value={name}
@@ -311,7 +311,7 @@ export default function NewRoutinePage() {
                 placeholder="Ex. : Point hebdo Slack"
                 className={FIELD}
               />
-              <p className="text-[11px] text-gray-500 mt-1">L&apos;IA pourra proposer un nom plus précis avec la routine.</p>
+              <p className="text-[11px] text-ui-muted mt-1">L&apos;IA pourra proposer un nom plus précis avec la routine.</p>
             </div>
 
             {error && <div className="text-sm text-red-400 break-words">{error}</div>}
@@ -320,12 +320,12 @@ export default function NewRoutinePage() {
               <button
                 type="submit"
                 disabled={busy || (!client && !free) || (free && example?.key === "creas") || !name.trim()}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ui-accent hover:brightness-110 text-ui-on-accent text-sm font-medium disabled:opacity-50"
               >
                 {busy && <Loader2 className="w-4 h-4 animate-spin" />}
                 {busy ? "Création…" : "Créer et décrire la routine"}
               </button>
-              <Link href="/routines" className="text-sm text-gray-400 hover:text-white">Annuler</Link>
+              <Link href="/routines" className="text-sm text-ui-fg2 hover:text-ui-fg">Annuler</Link>
             </div>
           </form>
         </Card>

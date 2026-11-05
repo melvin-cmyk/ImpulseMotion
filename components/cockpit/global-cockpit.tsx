@@ -38,7 +38,7 @@ interface Payload {
 
 const TOP_CARDS = 5;
 const eur = (v: number): string => `≈€${Math.round(v).toLocaleString("fr-FR")}`;
-const select = "rounded-lg border border-gray-800 bg-gray-900 px-2 py-1.5 text-xs text-gray-200 focus:border-violet-500 focus:outline-none";
+const select = "rounded-lg border border-ui-line bg-ui-card px-2 py-1.5 text-xs text-ui-fg focus:border-ui-accent focus:outline-none";
 
 /** Level of the client one build earlier than the one shown, when it differs. */
 function previousLevel(points: EvolutionPoint[] | undefined, current: Severity): Severity | null {
@@ -55,7 +55,7 @@ function ActionButton({ action, onClick, name, full }: { action: CockpitActionVi
       type="button"
       onClick={onClick}
       aria-label={`${has ? "Modifier l'action" : "Planifier une action"} pour ${name}`}
-      className={`rounded-lg border px-2.5 py-1.5 text-left text-xs ${full ? "w-full" : ""} ${has ? "border-violet-700/60 bg-violet-950/40 text-violet-200" : "border-gray-800 text-gray-500 hover:border-gray-700 hover:text-gray-300"}`}
+      className={`rounded-lg border px-2.5 py-1.5 text-left text-xs ${full ? "w-full" : ""} ${has ? "border-ui-accent bg-ui-accent-soft text-ui-accent-ink" : "border-ui-line text-ui-muted hover:border-ui-line-strong hover:text-ui-fg2"}`}
     >
       {has ? bits.join(" · ") : "Planifier une action"}
     </button>
@@ -174,20 +174,20 @@ export function GlobalCockpit() {
   }, [clients, tab, query, platform, model, category, trend, sort]);
 
   if (error && !payload) return <div className="rounded-xl border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-200">Cockpit indisponible : {error}</div>;
-  if (!payload) return <div className="flex items-center gap-2 p-6 text-sm text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> Chargement du cockpit…</div>;
+  if (!payload) return <div className="flex items-center gap-2 p-6 text-sm text-ui-fg2"><Loader2 className="h-4 w-4 animate-spin" /> Chargement du cockpit…</div>;
 
   if (!data) {
     return (
-      <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 text-sm text-gray-300">
-        <p className="font-semibold text-white">Le cockpit n&apos;a pas encore été calculé.</p>
-        <p className="mt-1 text-gray-400">Il est construit deux fois par jour à partir de la feuille des budgets et des comptes Meta, Google Ads et TikTok Ads.</p>
+      <div className="rounded-xl border border-ui-line bg-ui-card p-6 text-sm text-ui-fg2">
+        <p className="font-medium text-ui-fg">Le cockpit n&apos;a pas encore été calculé.</p>
+        <p className="mt-1 text-ui-fg2">Il est construit deux fois par jour à partir de la feuille des budgets et des comptes Meta, Google Ads et TikTok Ads.</p>
         {payload.canEdit && (
-          <button type="button" onClick={rebuild} disabled={building} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-60">
+          <button type="button" onClick={rebuild} disabled={building} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-ui-accent px-3 py-2 text-xs font-medium text-ui-on-accent hover:brightness-110 disabled:opacity-60">
             {building ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             {building ? "Calcul en cours, jusqu'à 4 minutes…" : "Calculer maintenant"}
           </button>
         )}
-        {buildNote && <p className="mt-2 text-xs text-gray-400">{buildNote}</p>}
+        {buildNote && <p className="mt-2 text-xs text-ui-fg2">{buildNote}</p>}
       </div>
     );
   }
@@ -217,15 +217,15 @@ export function GlobalCockpit() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-white">Global Cockpit</h1>
-          <p className="text-xs text-gray-400">
+          <h1 className="text-xl font-medium text-ui-fg">Global Cockpit</h1>
+          <p className="text-xs text-ui-fg2">
             {words.read} {data.w0_label} · vs {words.baseLong} · actualisé le{" "}
             {new Date(data.generated).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
             {payload.status === "partial" && <span className="ml-2 text-amber-300">· données partielles</span>}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div role="group" aria-label="Période lue" className="inline-flex overflow-hidden rounded-lg border border-gray-800">
+          <div role="group" aria-label="Période lue" className="inline-flex overflow-hidden rounded-lg border border-ui-line">
             {PERIOD_KINDS.map((p) => {
               const ready = available.includes(p);
               return (
@@ -236,22 +236,22 @@ export function GlobalCockpit() {
                   disabled={!ready}
                   aria-pressed={period === p}
                   title={ready ? undefined : "Disponible après la prochaine actualisation du cockpit"}
-                  className={`px-3 py-1.5 text-xs font-medium ${period === p ? "bg-violet-600 text-white" : "text-gray-300 hover:bg-gray-900"} disabled:cursor-not-allowed disabled:text-gray-600`}
+                  className={`px-3 py-1.5 text-xs font-medium ${period === p ? "bg-ui-accent text-ui-on-accent" : "text-ui-fg2 hover:bg-ui-raised"} disabled:cursor-not-allowed disabled:text-ui-muted`}
                 >
                   {periodWords(p, 0).tab}
                 </button>
               );
             })}
           </div>
-          <button type="button" onClick={() => setToEur((v) => !v)} aria-pressed={toEur} className={`rounded-lg border px-2.5 py-1.5 text-xs ${toEur ? "border-violet-600 bg-violet-950/50 text-violet-200" : "border-gray-800 text-gray-300 hover:border-gray-700"}`}>
+          <button type="button" onClick={() => setToEur((v) => !v)} aria-pressed={toEur} className={`rounded-lg border px-2.5 py-1.5 text-xs ${toEur ? "border-ui-accent bg-ui-accent-soft text-ui-accent-ink" : "border-ui-line text-ui-fg2 hover:border-ui-line-strong"}`}>
             {toEur ? "Devises : tout en €" : "Devises : locales"}
           </button>
           {payload.canEdit && (
             <>
-              <button type="button" onClick={() => setConfig(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-800 px-2.5 py-1.5 text-xs text-gray-300 hover:border-gray-700">
+              <button type="button" onClick={() => setConfig(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-ui-line px-2.5 py-1.5 text-xs text-ui-fg2 hover:border-ui-line-strong">
                 <Settings2 className="h-3.5 w-3.5" /> Clients et comptes
               </button>
-              <button type="button" onClick={rebuild} disabled={building} className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-violet-500 disabled:opacity-60">
+              <button type="button" onClick={rebuild} disabled={building} className="inline-flex items-center gap-1.5 rounded-lg bg-ui-accent px-2.5 py-1.5 text-xs font-medium text-ui-on-accent hover:brightness-110 disabled:opacity-60">
                 {building ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 {building ? "Calcul en cours…" : "Actualiser"}
               </button>
@@ -260,45 +260,45 @@ export function GlobalCockpit() {
         </div>
       </header>
 
-      {buildNote && <p className="rounded-lg border border-gray-800 bg-gray-900/60 px-3 py-2 text-xs text-gray-300">{buildNote}</p>}
+      {buildNote && <p className="rounded-lg border border-ui-line bg-ui-card px-3 py-2 text-xs text-ui-fg2">{buildNote}</p>}
       {data.warnings.map((w) => <p key={w} className="rounded-lg border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">{w}</p>)}
 
-      <details className="rounded-xl border border-gray-800 bg-gray-900/40 px-4 py-2 text-xs text-gray-400">
-        <summary className="cursor-pointer text-gray-300">Comment lire ce cockpit</summary>
+      <details className="rounded-xl border border-ui-line bg-ui-card px-4 py-2 text-xs text-ui-fg2">
+        <summary className="cursor-pointer text-ui-fg2">Comment lire ce cockpit</summary>
         <div className="mt-2 space-y-1">
-          <p><b className="text-gray-200">À traiter</b> = Urgences + Actions requises. Urgence : intervenir aujourd&apos;hui (dégradation majeure sur un compte à fortes dépenses). Action requise : à traiter cette semaine. À surveiller : dérive naissante. Sans alerte : RAS.</p>
-          <p><b className="text-gray-200">Jour, Semaine, Mois</b> : la même lecture sur la journée d&apos;hier, sur la dernière semaine complète, ou sur le mois en cours comparé aux mêmes jours des mois précédents. Les seuils en euros et en conversions suivent la durée de la période.</p>
-          <p><b className="text-gray-200">Δ {words.base}</b> = vs {words.baseLong} (structurel) · <b className="text-gray-200">Δ {words.prev}</b> = vs {words.prevLong}.</p>
-          <p><b className="text-gray-200">Cause</b> = composant du funnel (CPM × CTR × CVR, × AOV en ROAS) qui explique le plus la dérive.</p>
-          <p><b className="text-gray-200">Rythme budgétaire</b> : jauge = % du budget mensuel dépensé, repère = attendu à ce stade du mois, écart en points. Les budgets viennent de la feuille des budgets de l&apos;agence.</p>
-          <p><b className="text-gray-200">Devises</b> : chaque client dans la devise de son compte ; le bouton convertit tout en €. Les totaux du haut sont toujours en € ({data.fx_note}).</p>
+          <p><b className="text-ui-fg">À traiter</b> = Urgences + Actions requises. Urgence : intervenir aujourd&apos;hui (dégradation majeure sur un compte à fortes dépenses). Action requise : à traiter cette semaine. À surveiller : dérive naissante. Sans alerte : RAS.</p>
+          <p><b className="text-ui-fg">Jour, Semaine, Mois</b> : la même lecture sur la journée d&apos;hier, sur la dernière semaine complète, ou sur le mois en cours comparé aux mêmes jours des mois précédents. Les seuils en euros et en conversions suivent la durée de la période.</p>
+          <p><b className="text-ui-fg">Δ {words.base}</b> = vs {words.baseLong} (structurel) · <b className="text-ui-fg">Δ {words.prev}</b> = vs {words.prevLong}.</p>
+          <p><b className="text-ui-fg">Cause</b> = composant du funnel (CPM × CTR × CVR, × AOV en ROAS) qui explique le plus la dérive.</p>
+          <p><b className="text-ui-fg">Rythme budgétaire</b> : jauge = % du budget mensuel dépensé, repère = attendu à ce stade du mois, écart en points. Les budgets viennent de la feuille des budgets de l&apos;agence.</p>
+          <p><b className="text-ui-fg">Devises</b> : chaque client dans la devise de son compte ; le bouton convertit tout en €. Les totaux du haut sont toujours en € ({data.fx_note}).</p>
         </div>
       </details>
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
-          <p className="text-xs text-gray-400">Dépenses totales</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-white">{eur(data.tot_eur_w0)}</p>
-          <p className="mt-1 text-[11px] text-gray-500">{data.w0_label} <Chip d={delta} kind="spend" label={`vs ${words.moy.toLowerCase()}`} /></p>
+        <div className="rounded-xl border border-ui-line bg-ui-card p-4">
+          <p className="text-xs text-ui-fg2">Dépenses totales</p>
+          <p className="mt-1 text-2xl font-medium tabular-nums text-ui-fg">{eur(data.tot_eur_w0)}</p>
+          <p className="mt-1 text-[11px] text-ui-muted">{data.w0_label} <Chip d={delta} kind="spend" label={`vs ${words.moy.toLowerCase()}`} /></p>
         </div>
-        <button type="button" onClick={() => setTab("act")} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 text-left hover:border-gray-700">
-          <p className="text-xs text-gray-400">Comptes prioritaires</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-white"><span className="text-red-300">{counts.n.urgent}</span> <span className="text-sm font-normal text-gray-500">urgences</span></p>
-          <p className="mt-1 text-[11px] text-gray-500">{counts.n.action} en action requise</p>
+        <button type="button" onClick={() => setTab("act")} className="rounded-xl border border-ui-line bg-ui-card p-4 text-left hover:border-ui-line-strong">
+          <p className="text-xs text-ui-fg2">Comptes prioritaires</p>
+          <p className="mt-1 text-2xl font-medium tabular-nums text-ui-fg"><span className="text-red-300">{counts.n.urgent}</span> <span className="text-sm font-normal text-ui-muted">urgences</span></p>
+          <p className="mt-1 text-[11px] text-ui-muted">{counts.n.action} en action requise</p>
         </button>
-        <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
-          <p className="text-xs text-gray-400">Dépenses des comptes à examiner</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-white">{eur(counts.exposed)}</p>
-          <p className="mt-1 text-[11px] text-gray-500">{data.tot_eur_w0 ? Math.round((counts.exposed / data.tot_eur_w0) * 100) : 0}% des dépenses totales · volume concerné, pas une estimation de perte</p>
+        <div className="rounded-xl border border-ui-line bg-ui-card p-4">
+          <p className="text-xs text-ui-fg2">Dépenses des comptes à examiner</p>
+          <p className="mt-1 text-2xl font-medium tabular-nums text-ui-fg">{eur(counts.exposed)}</p>
+          <p className="mt-1 text-[11px] text-ui-muted">{data.tot_eur_w0 ? Math.round((counts.exposed / data.tot_eur_w0) * 100) : 0}% des dépenses totales · volume concerné, pas une estimation de perte</p>
         </div>
-        <button type="button" onClick={() => setTab("budget")} disabled={!budget.rows.length} className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 text-left hover:border-gray-700 disabled:opacity-60">
-          <p className="text-xs text-gray-400">Urgences budget</p>
-          <p className={`mt-1 text-2xl font-semibold tabular-nums ${nBudget ? "text-amber-300" : "text-white"}`}>{budget.rows.length ? nBudget : "—"}</p>
-          <p className="mt-1 text-[11px] text-gray-500">{budget.rows.length ? `${budget.over.length} en surdépense · ${budget.under.length} en sous-dépense` : TXT.noBudget}</p>
+        <button type="button" onClick={() => setTab("budget")} disabled={!budget.rows.length} className="rounded-xl border border-ui-line bg-ui-card p-4 text-left hover:border-ui-line-strong disabled:opacity-60">
+          <p className="text-xs text-ui-fg2">Urgences budget</p>
+          <p className={`mt-1 text-2xl font-medium tabular-nums ${nBudget ? "text-amber-300" : "text-ui-fg"}`}>{budget.rows.length ? nBudget : "—"}</p>
+          <p className="mt-1 text-[11px] text-ui-muted">{budget.rows.length ? `${budget.over.length} en surdépense · ${budget.under.length} en sous-dépense` : TXT.noBudget}</p>
         </button>
       </section>
 
-      <p className="text-[11px] text-gray-500">
+      <p className="text-[11px] text-ui-muted">
         Qualité des données : {data.quality.accounts - data.quality.issues}/{data.quality.accounts} canaux actualisés · budgets du mois : {data.quality.budgeted}/{data.quality.accounts} canaux, couvrant {Math.round(data.quality.budget_coverage * 100)} % des dépenses {words.spendOf}. Les alertes budget suivent un rythme linéaire, à vérifier selon le plan média.
       </p>
 
@@ -309,11 +309,11 @@ export function GlobalCockpit() {
         </p>
       )}
 
-      <nav className="flex flex-wrap gap-1 border-b border-gray-800" aria-label="Vues du cockpit">
+      <nav className="flex flex-wrap gap-1 border-b border-ui-line" aria-label="Vues du cockpit">
         {tabs.map((t) => (
           <button key={t.id} type="button" onClick={() => { setTab(t.id); setFull(false); }} aria-current={tab === t.id}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === t.id ? "border-violet-500 text-white" : "border-transparent text-gray-400 hover:text-gray-200"}`}>
-            {t.label} <span className="ml-1 rounded-full bg-gray-800 px-1.5 text-[11px] tabular-nums text-gray-300">{t.n}</span>
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${tab === t.id ? "border-ui-accent text-ui-fg" : "border-transparent text-ui-fg2 hover:text-ui-fg"}`}>
+            {t.label} <span className="ml-1 rounded-full bg-ui-raised px-1.5 text-[11px] tabular-nums text-ui-fg2">{t.n}</span>
           </button>
         ))}
       </nav>
@@ -324,7 +324,7 @@ export function GlobalCockpit() {
         <>
           <div className="flex flex-wrap items-center gap-2">
             <label className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ui-muted" />
               <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un client" aria-label="Rechercher un client" className={`${select} w-48 pl-7`} />
             </label>
             <select value={platform} onChange={(e) => setPlatform(e.target.value)} className={select} aria-label="Plateforme">
@@ -344,26 +344,26 @@ export function GlobalCockpit() {
 
           {showPrio && (
             <section>
-              <h2 className="text-sm font-semibold text-white">Priorités du jour</h2>
-              <p className="text-xs text-gray-400">Les comptes qui nécessitent une action immédiate, classés par urgence, motif explicite.</p>
+              <h2 className="text-sm font-medium text-ui-fg">Priorités du jour</h2>
+              <p className="text-xs text-ui-fg2">Les comptes qui nécessitent une action immédiate, classés par urgence, motif explicite.</p>
               <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {top.map((c) => {
                   const ca = cause(c);
                   const before = previousLevel(payload.evolution[c.key], c.alert.severity);
                   return (
-                    <article key={c.key} className={`rounded-xl border bg-gray-900/60 p-4 ${c.alert.severity === "urgent" ? "border-red-500/40" : "border-amber-500/30"}`}>
+                    <article key={c.key} className={`rounded-xl border bg-ui-card p-4 ${c.alert.severity === "urgent" ? "border-red-500/40" : "border-amber-500/30"}`}>
                       <div className="flex items-start justify-between gap-2">
-                        <h3 className="text-sm font-semibold text-white">
+                        <h3 className="text-sm font-medium text-ui-fg">
                           <button type="button" onClick={() => setOpen(c.key)} className="hover:underline">{c.name}</button>
                           <Badges c={c} />
                         </h3>
                         <SeverityBadge severity={c.alert.severity} />
                       </div>
-                      <p className="mt-2 text-sm text-gray-200">{c.alert.reason}</p>
-                      <p className="mt-1 text-xs text-gray-400">{ca ? <>Signal à vérifier : <b className="text-red-300">{ca.txt}</b> ({ca.where})</> : `Cause : ${TXT.noCause.toLowerCase()}`}</p>
-                      <p className="mt-1 text-xs text-gray-500">{spendText(c, o)} de dépenses {words.here}{before ? ` · niveau précédent : ${before === "ok" ? "sans alerte" : before === "watch" ? "à surveiller" : before === "action" ? "action requise" : "urgence"}` : ""}</p>
+                      <p className="mt-2 text-sm text-ui-fg">{c.alert.reason}</p>
+                      <p className="mt-1 text-xs text-ui-fg2">{ca ? <>Signal à vérifier : <b className="text-red-300">{ca.txt}</b> ({ca.where})</> : `Cause : ${TXT.noCause.toLowerCase()}`}</p>
+                      <p className="mt-1 text-xs text-ui-muted">{spendText(c, o)} de dépenses {words.here}{before ? ` · niveau précédent : ${before === "ok" ? "sans alerte" : before === "watch" ? "à surveiller" : before === "action" ? "action requise" : "urgence"}` : ""}</p>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={() => setOpen(c.key)} className="rounded-lg bg-violet-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-violet-500">Ouvrir le diagnostic</button>
+                        <button type="button" onClick={() => setOpen(c.key)} className="rounded-lg bg-ui-accent px-2.5 py-1.5 text-xs font-medium text-ui-on-accent hover:brightness-110">Ouvrir le diagnostic</button>
                         <ActionButton action={payload.actions[c.key]} onClick={() => setOpen(c.key)} name={c.name} />
                       </div>
                     </article>
@@ -375,54 +375,54 @@ export function GlobalCockpit() {
 
           <section>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold text-white">{title}</h2>
+              <h2 className="text-sm font-medium text-ui-fg">{title}</h2>
               {showPrio && (
-                <button type="button" onClick={() => setFull((v) => !v)} className="text-xs text-violet-300 hover:text-violet-200">
+                <button type="button" onClick={() => setFull((v) => !v)} className="text-xs text-ui-accent-ink hover:text-ui-accent-ink">
                   {full ? "Masquer le Top 5 du tableau" : "Afficher la liste complète (Top 5 inclus)"}
                 </button>
               )}
             </div>
 
-            <div className="hidden overflow-x-auto rounded-xl border border-gray-800 lg:block">
+            <div className="hidden overflow-x-auto rounded-xl border border-ui-line lg:block">
               <table className="w-full text-sm">
-                <thead className="bg-gray-900/80 text-left text-[11px] uppercase tracking-wide text-gray-500">
+                <thead className="bg-ui-card text-left text-[11px] text-ui-muted">
                   <tr>
                     <th className="px-3 py-2 font-medium">Client</th>
                     <th className="px-3 py-2 font-medium">Niveau</th>
-                    <th className="px-3 py-2 text-right font-medium"><button type="button" onClick={() => sortBy("spend")} className="hover:text-gray-300">{words.spend}{arrow("spend")}</button></th>
-                    <th className="px-3 py-2 text-right font-medium"><button type="button" onClick={() => sortBy("perf")} className="hover:text-gray-300">CPA / ROAS{arrow("perf")}</button></th>
+                    <th className="px-3 py-2 text-right font-medium"><button type="button" onClick={() => sortBy("spend")} className="hover:text-ui-fg2">{words.spend}{arrow("spend")}</button></th>
+                    <th className="px-3 py-2 text-right font-medium"><button type="button" onClick={() => sortBy("perf")} className="hover:text-ui-fg2">CPA / ROAS{arrow("perf")}</button></th>
                     <th className="px-3 py-2 font-medium">Cause principale</th>
-                    <th className="px-3 py-2 font-medium"><button type="button" onClick={() => sortBy("pace")} className="hover:text-gray-300">Rythme budgétaire{arrow("pace")}</button></th>
+                    <th className="px-3 py-2 font-medium"><button type="button" onClick={() => sortBy("pace")} className="hover:text-ui-fg2">Rythme budgétaire{arrow("pace")}</button></th>
                     <th className="px-3 py-2 font-medium">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800/70">
+                <tbody className="divide-y divide-ui-line">
                   {table.map((c) => {
                     const r = c.blended;
                     const ca = cause(c);
                     const before = previousLevel(payload.evolution[c.key], c.alert.severity);
                     return (
-                      <tr key={c.key} className="align-top hover:bg-gray-900/40">
+                      <tr key={c.key} className="align-top hover:bg-ui-raised">
                         <td className="px-3 py-2.5">
-                          <button type="button" onClick={() => setOpen(c.key)} className="font-medium text-white hover:underline">{c.name}</button>
+                          <button type="button" onClick={() => setOpen(c.key)} className="font-medium text-ui-fg hover:underline">{c.name}</button>
                           <Badges c={c} />
                         </td>
                         <td className="px-3 py-2.5">
                           <SeverityBadge severity={c.alert.severity} />
-                          {before && <div className="mt-1 text-[10px] text-gray-500">avant : {before === "ok" ? "sans alerte" : before === "watch" ? "à surveiller" : before === "action" ? "action requise" : "urgence"}</div>}
+                          {before && <div className="mt-1 text-[10px] text-ui-muted">avant : {before === "ok" ? "sans alerte" : before === "watch" ? "à surveiller" : before === "action" ? "action requise" : "urgence"}</div>}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
-                          <b className="text-white">{spendText(c, o)}</b> <Chip d={r.spend_d} kind="spend" label={words.base} />
-                          {!c.mixed && <div className="mt-0.5 text-[11px] text-gray-500">{words.moy} {money(r.spend_base, c.ccy, o)} · {words.prev} {pct(r.spend_d_wow)}</div>}
+                          <b className="text-ui-fg">{spendText(c, o)}</b> <Chip d={r.spend_d} kind="spend" label={words.base} />
+                          {!c.mixed && <div className="mt-0.5 text-[11px] text-ui-muted">{words.moy} {money(r.spend_base, c.ccy, o)} · {words.prev} {pct(r.spend_d_wow)}</div>}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums">
-                          <b className="text-white">{noKpi(c.kpi_mode) ? <Muted>{c.kpi_mode === "brand" ? TXT.brand : TXT.mixte}</Muted> : kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b>{" "}
+                          <b className="text-ui-fg">{noKpi(c.kpi_mode) ? <Muted>{c.kpi_mode === "brand" ? TXT.brand : TXT.mixte}</Muted> : kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b>{" "}
                           {r.zero_conv ? <Tag className="bg-red-500/20 text-red-300">0 conv</Tag>
                             : noKpi(c.kpi_mode) ? null
                             : r.low_vol ? <Muted>{TXT.lowVol} · {Math.round(r.conv)} conv</Muted>
                             : <Chip d={r.kpi_d} kind="perf" label={words.base} mode={c.kpi_mode} />}
-                          {c.kpi_mode === "mixte" ? <div className="mt-0.5 text-[11px] text-gray-500">voir le détail par canal</div>
-                            : c.kpi_mode !== "brand" && r.kpi_base !== null ? <div className="mt-0.5 text-[11px] text-gray-500">{words.moy} {kpiText(r.kpi_base, c.kpi_mode, c.ccy, o)} · {words.prev} {pct(r.kpi_d_wow)}</div> : null}
+                          {c.kpi_mode === "mixte" ? <div className="mt-0.5 text-[11px] text-ui-muted">voir le détail par canal</div>
+                            : c.kpi_mode !== "brand" && r.kpi_base !== null ? <div className="mt-0.5 text-[11px] text-ui-muted">{words.moy} {kpiText(r.kpi_base, c.kpi_mode, c.ccy, o)} · {words.prev} {pct(r.kpi_d_wow)}</div> : null}
                         </td>
                         <td className="px-3 py-2.5 text-xs">
                           {ca ? <><b className="text-red-300">{ca.txt}</b><br /><Muted>{ca.where}</Muted></>
@@ -433,7 +433,7 @@ export function GlobalCockpit() {
                       </tr>
                     );
                   })}
-                  {!table.length && <tr><td colSpan={7} className="px-3 py-7 text-center text-sm text-gray-500">Aucun compte dans cette vue</td></tr>}
+                  {!table.length && <tr><td colSpan={7} className="px-3 py-7 text-center text-sm text-ui-muted">Aucun compte dans cette vue</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -443,20 +443,20 @@ export function GlobalCockpit() {
                 const r = c.blended;
                 const ca = cause(c);
                 return (
-                  <article key={c.key} className="space-y-2 rounded-xl border border-gray-800 bg-gray-900/60 p-3 text-sm">
+                  <article key={c.key} className="space-y-2 rounded-xl border border-ui-line bg-ui-card p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
-                      <button type="button" onClick={() => setOpen(c.key)} className="text-left font-medium text-white hover:underline">{c.name}</button>
+                      <button type="button" onClick={() => setOpen(c.key)} className="text-left font-medium text-ui-fg hover:underline">{c.name}</button>
                       <SeverityBadge severity={c.alert.severity} />
                     </div>
-                    <div className="flex items-center justify-between gap-2"><Muted>{words.spend}</Muted><span className="tabular-nums"><b className="text-white">{spendText(c, o)}</b> <Chip d={r.spend_d} kind="spend" label={words.base} /></span></div>
-                    <div className="flex items-center justify-between gap-2"><Muted>CPA / ROAS</Muted><span className="tabular-nums"><b className="text-white">{noKpi(c.kpi_mode) ? (c.kpi_mode === "brand" ? TXT.brand : TXT.mixte) : kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b> {noKpi(c.kpi_mode) || r.low_vol ? null : <Chip d={r.kpi_d} kind="perf" label={words.base} mode={c.kpi_mode} />}</span></div>
+                    <div className="flex items-center justify-between gap-2"><Muted>{words.spend}</Muted><span className="tabular-nums"><b className="text-ui-fg">{spendText(c, o)}</b> <Chip d={r.spend_d} kind="spend" label={words.base} /></span></div>
+                    <div className="flex items-center justify-between gap-2"><Muted>CPA / ROAS</Muted><span className="tabular-nums"><b className="text-ui-fg">{noKpi(c.kpi_mode) ? (c.kpi_mode === "brand" ? TXT.brand : TXT.mixte) : kpiText(r.kpi, c.kpi_mode, c.ccy, o)}</b> {noKpi(c.kpi_mode) || r.low_vol ? null : <Chip d={r.kpi_d} kind="perf" label={words.base} mode={c.kpi_mode} />}</span></div>
                     {ca && <div className="flex items-center justify-between gap-2"><Muted>Cause</Muted><span><b className="text-red-300">{ca.txt}</b> <Muted>{ca.where}</Muted></span></div>}
                     {c.pacing && <div className="flex items-center justify-between gap-2"><Muted>Rythme budgétaire</Muted><PaceGauge p={c.pacing} /></div>}
                     <ActionButton action={payload.actions[c.key]} onClick={() => setOpen(c.key)} name={c.name} full />
                   </article>
                 );
               })}
-              {!table.length && <p className="rounded-xl border border-gray-800 p-6 text-center text-sm text-gray-500">Aucun compte dans cette vue</p>}
+              {!table.length && <p className="rounded-xl border border-ui-line p-6 text-center text-sm text-ui-muted">Aucun compte dans cette vue</p>}
             </div>
           </section>
         </>
@@ -496,15 +496,15 @@ function BudgetView({ data, budget, total, o, onOpen }: {
     const cls = r.gap > 0 ? "text-red-300" : "text-amber-300";
     const diff = r.projection === null ? null : r.projection - r.p.budget;
     return (
-      <tr key={r.c.key} className="align-top hover:bg-gray-900/40">
-        <td className="px-3 py-2.5"><button type="button" onClick={() => onOpen(r.c.key)} className="font-medium text-white hover:underline">{r.c.name}</button> <Tag>{r.c.ccy ?? "—"}</Tag></td>
+      <tr key={r.c.key} className="align-top hover:bg-ui-raised">
+        <td className="px-3 py-2.5"><button type="button" onClick={() => onOpen(r.c.key)} className="font-medium text-ui-fg hover:underline">{r.c.name}</button> <Tag>{r.c.ccy ?? "—"}</Tag></td>
         <td className="px-3 py-2.5 text-right tabular-nums">{money(r.p.budget, r.c.ccy, o)}</td>
-        <td className="px-3 py-2.5 text-right tabular-nums"><b className="text-white">{money(r.p.mtd, r.c.ccy, o)}</b><div className="text-[11px] text-gray-500">{Math.round(r.p.pct_spent * 100)}% vs {Math.round(r.p.pct_month * 100)}% attendu</div></td>
+        <td className="px-3 py-2.5 text-right tabular-nums"><b className="text-ui-fg">{money(r.p.mtd, r.c.ccy, o)}</b><div className="text-[11px] text-ui-muted">{Math.round(r.p.pct_spent * 100)}% vs {Math.round(r.p.pct_month * 100)}% attendu</div></td>
         <td className="px-3 py-2.5"><PaceGauge p={r.p} /></td>
-        <td className="px-3 py-2.5 text-right tabular-nums"><span className={cls}>{signed(r.gapAmount, r.c.ccy)}</span><div className="text-[11px] text-gray-500">{r.gap > 0 ? "+" : ""}{Math.round(r.gap)} pts</div></td>
+        <td className="px-3 py-2.5 text-right tabular-nums"><span className={cls}>{signed(r.gapAmount, r.c.ccy)}</span><div className="text-[11px] text-ui-muted">{r.gap > 0 ? "+" : ""}{Math.round(r.gap)} pts</div></td>
         <td className="px-3 py-2.5 text-right tabular-nums">
           {r.projection === null || diff === null ? <Muted>{TXT.noData}</Muted> : (
-            <><b className="text-white">{money(r.projection, r.c.ccy, o)}</b><div className="text-[11px] text-gray-500"><span className={Math.abs(diff) / r.p.budget >= 0.12 ? cls : ""}>{signed(diff, r.c.ccy)}</span> vs budget</div></>
+            <><b className="text-ui-fg">{money(r.projection, r.c.ccy, o)}</b><div className="text-[11px] text-ui-muted"><span className={Math.abs(diff) / r.p.budget >= 0.12 ? cls : ""}>{signed(diff, r.c.ccy)}</span> vs budget</div></>
           )}
         </td>
       </tr>
@@ -512,17 +512,17 @@ function BudgetView({ data, budget, total, o, onOpen }: {
   };
   const group = (label: string, severity: Severity, rows: BudgetRow[]) => rows.length ? (
     <>
-      <tr className="bg-gray-900/70"><td colSpan={6} className="px-3 py-1.5"><SeverityBadge severity={severity} label={`${label} (${rows.length})`} /></td></tr>
+      <tr className="bg-ui-card"><td colSpan={6} className="px-3 py-1.5"><SeverityBadge severity={severity} label={`${label} (${rows.length})`} /></td></tr>
       {rows.map(row)}
     </>
   ) : null;
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold text-white">Urgences budgétaires ({flagged.length}) — {month}</h2>
-      <div className="overflow-x-auto rounded-xl border border-gray-800">
+      <h2 className="mb-2 text-sm font-medium text-ui-fg">Urgences budgétaires ({flagged.length}) — {month}</h2>
+      <div className="overflow-x-auto rounded-xl border border-ui-line">
         <table className="w-full min-w-[760px] text-sm">
-          <thead className="bg-gray-900/80 text-left text-[11px] uppercase tracking-wide text-gray-500">
+          <thead className="bg-ui-card text-left text-[11px] text-ui-muted">
             <tr>
               <th className="px-3 py-2 font-medium">Client</th>
               <th className="px-3 py-2 text-right font-medium">Budget mensuel</th>
@@ -532,14 +532,14 @@ function BudgetView({ data, budget, total, o, onOpen }: {
               <th className="px-3 py-2 text-right font-medium">Projection fin de mois</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-800/70">
+          <tbody className="divide-y divide-ui-line">
             {group("En surdépense", "urgent", budget.over)}
             {group("En sous-dépense", "action", budget.under)}
-            {!flagged.length && <tr><td colSpan={6} className="px-3 py-7 text-center text-sm text-gray-500">Tous les comptes budgétés sont dans les clous</td></tr>}
+            {!flagged.length && <tr><td colSpan={6} className="px-3 py-7 text-center text-sm text-ui-muted">Tous les comptes budgétés sont dans les clous</td></tr>}
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-[11px] text-gray-500">
+      <p className="mt-2 text-[11px] text-ui-muted">
         {inPace} autres comptes budgétés dans les clous (écart &lt; {COCKPIT_CFG.paceBadPts} pts) · {total - budget.rows.length} clients sans budget renseigné · dépensé du 1ᵉʳ du mois à hier · projection = rythme actuel maintenu jusqu&apos;à la fin du mois · budgets Meta, Google et TikTok de la feuille des budgets.
       </p>
     </section>

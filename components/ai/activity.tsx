@@ -22,20 +22,20 @@ export function AiActivity({ state, startedAt, round, className }: { state: Acti
 
   return (
     <div className={className} role="status" aria-live="polite">
-      <div className="flex items-center gap-2 text-xs text-violet-300">
+      <div className="flex items-center gap-2 text-xs text-ui-accent-ink">
         <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
         <span className="truncate">{activityLabel(state)}…</span>
-        <span className="text-gray-500 shrink-0 tabular-nums">
+        <span className="text-ui-muted shrink-0 tabular-nums">
           {state.steps > 0 ? `étape ${state.steps} · ` : ""}{formatElapsed(elapsed)}
         </span>
       </div>
       {round ? (
-        <div className="text-[11px] text-gray-500 mt-1">
+        <div className="text-[11px] text-ui-muted mt-1">
           Tâche longue : reprise automatique n° {round} après la limite de temps, le travail déjà fait est conservé.
         </div>
       ) : null}
       {!round && elapsed > LONG_TASK_MS && (
-        <div className="text-[11px] text-gray-500 mt-1">
+        <div className="text-[11px] text-ui-muted mt-1">
           L&apos;IA travaille toujours. Un deck ou une analyse complète peut prendre plusieurs minutes — laissez cette page ouverte.
         </div>
       )}

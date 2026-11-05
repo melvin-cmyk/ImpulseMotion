@@ -46,19 +46,19 @@ export function FactoryTab({ client, templates, engines, quota, initialRunId, pr
   return (
     <div className="space-y-3" data-factory-list>
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-gray-400 flex-1">Une fabrique = des templates du swipe file, lus par l&apos;IA → des copys sourcés dans la voix des clients, validés par vous → quelques visuels (0,06 $ l&apos;image) qui servent de base dans FigCraft / PhotoCraft → une grille à trier, copiée dans le dossier Drive « Créas » du client. Vos verdicts et retours nourrissent la mémoire HQ.</p>
+        <p className="text-sm text-ui-fg2 flex-1">Une fabrique = des templates du swipe file, lus par l&apos;IA → des copys sourcés dans la voix des clients, validés par vous → quelques visuels (0,06 $ l&apos;image) qui servent de base dans FigCraft / PhotoCraft → une grille à trier, copiée dans le dossier Drive « Créas » du client. Vos verdicts et retours nourrissent la mémoire HQ.</p>
         <button type="button" onClick={() => go({ mode: "wizard", preselected: [], run: null })} className={BTN_PRIMARY} data-factory-new><Plus className="w-4 h-4" /> Nouvelle fabrique</button>
       </div>
-      {runs === null ? <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
-      : runs.length === 0 ? <p className="rounded-xl border border-dashed border-gray-800 p-8 text-center text-sm text-gray-500">Aucune fabrique pour {client.name} pour l&apos;instant. Cochez des templates dans « Templates & concurrents » puis « Lancer une fabrique », ou commencez ici.</p>
+      {runs === null ? <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture…</p>
+      : runs.length === 0 ? <p className="rounded-xl border border-dashed border-ui-line p-8 text-center text-sm text-ui-muted">Aucune fabrique pour {client.name} pour l&apos;instant. Cochez des templates dans « Templates & concurrents » puis « Lancer une fabrique », ou commencez ici.</p>
       : (
-        <ul className="divide-y divide-gray-800 rounded-xl border border-gray-800">
+        <ul className="divide-y divide-ui-line rounded-xl border border-ui-line">
           {runs.map((r) => (
             <li key={r.id}>
-              <button type="button" onClick={() => (r.status === "copy_review" || r.status === "approved" ? go({ mode: "wizard", preselected: [], run: r }) : go({ mode: "run", runId: r.id }))} className="w-full text-left px-3 py-2.5 hover:bg-gray-900/60 flex flex-wrap items-center gap-x-3 gap-y-1" data-factory-run={r.id}>
-                <span className="text-sm text-white">Fabrique {FACTORY_KIND_LABEL[r.kind].toLowerCase()} · {when(r.createdAt)}</span>
+              <button type="button" onClick={() => (r.status === "copy_review" || r.status === "approved" ? go({ mode: "wizard", preselected: [], run: r }) : go({ mode: "run", runId: r.id }))} className="w-full text-left px-3 py-2.5 hover:bg-ui-raised flex flex-wrap items-center gap-x-3 gap-y-1" data-factory-run={r.id}>
+                <span className="text-sm text-ui-fg">Fabrique {FACTORY_KIND_LABEL[r.kind].toLowerCase()} · {when(r.createdAt)}</span>
                 <Pill tone={r.status === "review" ? "amber" : r.status === "done" ? "emerald" : "default"} className="text-[10px]">{RUN_STATUS_LABEL[r.status]}</Pill>
-                <span className="text-xs text-gray-500">{r.templateIds.length} template{r.templateIds.length > 1 ? "s" : ""} · {r.copies.length ? `${r.copies.filter((c) => c.status === "approved").length}/${r.copies.length} copys · ` : ""}{r.generated} visuel{r.generated > 1 ? "s" : ""}{r.settings.n ? ` / ${r.settings.n}` : ""} · <span className="text-emerald-300">{r.kept} gardée{r.kept > 1 ? "s" : ""}</span> · <span className="text-rose-300">{r.cut} coupée{r.cut > 1 ? "s" : ""}</span> · {usd(r.costUsd)} · {r.createdByName}</span>
+                <span className="text-xs text-ui-muted">{r.templateIds.length} template{r.templateIds.length > 1 ? "s" : ""} · {r.copies.length ? `${r.copies.filter((c) => c.status === "approved").length}/${r.copies.length} copys · ` : ""}{r.generated} visuel{r.generated > 1 ? "s" : ""}{r.settings.n ? ` / ${r.settings.n}` : ""} · <span className="text-emerald-300">{r.kept} gardée{r.kept > 1 ? "s" : ""}</span> · <span className="text-rose-300">{r.cut} coupée{r.cut > 1 ? "s" : ""}</span> · {usd(r.costUsd)} · {r.createdByName}</span>
               </button>
             </li>
           ))}

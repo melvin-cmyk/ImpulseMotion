@@ -13,7 +13,7 @@ import { fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
 
 const AGES = ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"];
 const G: Array<{ id: DemoCell["gender"]; label: string; bar: string }> = [
-  { id: "female", label: "Femmes", bar: "bg-fuchsia-400" },
+  { id: "female", label: "Femmes", bar: "bg-ui-accent" },
   { id: "male", label: "Hommes", bar: "bg-sky-400" },
 ];
 
@@ -32,12 +32,12 @@ export function DemographicsPane({ accountId, adIds, range, currency }: Props) {
     return () => { cancelled = true; };
   }, [accountId, adIds, range, key]);
 
-  if (!current) return <div className="py-10 flex items-center justify-center gap-2 text-sm text-gray-400"><Loader2 className="w-4 h-4 animate-spin" /> Répartition par âge et sexe…</div>;
+  if (!current) return <div className="py-10 flex items-center justify-center gap-2 text-sm text-ui-fg2"><Loader2 className="w-4 h-4 animate-spin" /> Répartition par âge et sexe…</div>;
   if (current.error || !current.data) return <div className="py-10 text-center text-sm text-red-300">Répartition indisponible : {current.error}</div>;
   const { cells, conversionLabel } = current.data;
   const cell = (age: string, g: DemoCell["gender"]) => cells.find((c) => c.age === age && c.gender === g);
   const total = cells.reduce((s, c) => s + c.spend, 0);
-  if (total <= 0) return <div className="py-10 text-center text-sm text-gray-500">Aucune dépense sur la période.</div>;
+  if (total <= 0) return <div className="py-10 text-center text-sm text-ui-muted">Aucune dépense sur la période.</div>;
   const max = Math.max(...cells.filter((c) => c.gender !== "unknown").map((c) => c.spend), 0.01);
   const share = (g: DemoCell["gender"]) => cells.filter((c) => c.gender === g).reduce((s, c) => s + c.spend, 0) / total;
   // Best segment: lowest cost per conversion among segments with at least 2 conversions, else best CTR.
@@ -50,32 +50,32 @@ export function DemographicsPane({ accountId, adIds, range, currency }: Props) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2">
         {G.map((g) => (
-          <div key={g.id} className="rounded-xl border border-gray-800 p-3">
-            <div className="text-xs text-gray-500">{g.label}</div>
-            <div className="text-lg font-semibold text-white tabular-nums">{Math.round(share(g.id) * 100)} %<span className="ml-1 text-xs font-normal text-gray-500">des dépenses</span></div>
+          <div key={g.id} className="rounded-xl border border-ui-line p-3">
+            <div className="text-xs text-ui-muted">{g.label}</div>
+            <div className="text-lg font-medium text-ui-fg tabular-nums">{Math.round(share(g.id) * 100)} %<span className="ml-1 text-xs font-normal text-ui-muted">des dépenses</span></div>
           </div>
         ))}
       </div>
       {best && (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-gray-200">
-          Meilleur segment : <span className="font-semibold text-white">{gl(best.gender)} {best.age}</span>
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-ui-fg">
+          Meilleur segment : <span className="font-medium text-ui-fg">{gl(best.gender)} {best.age}</span>
           {best.conversions >= 2 ? <> · {fmtMetric("cpa", best.spend / best.conversions, currency)} par {conversionLabel.replace(/s$/, "")}</> : <> · CTR {(best.linkClicks / best.impressions * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %</>}
         </div>
       )}
-      <div className="rounded-xl border border-gray-800">
-        <div className="grid grid-cols-[64px_1fr_1fr] gap-2 px-3 py-2 border-b border-gray-800 text-[11px] text-gray-500">
-          <span>Âge</span><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-fuchsia-400" />Femmes</span><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-sky-400" />Hommes</span>
+      <div className="rounded-xl border border-ui-line">
+        <div className="grid grid-cols-[64px_1fr_1fr] gap-2 px-3 py-2 border-b border-ui-line text-[11px] text-ui-muted">
+          <span>Âge</span><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-ui-accent" />Femmes</span><span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-sm bg-sky-400" />Hommes</span>
         </div>
         {AGES.map((age) => (
-          <div key={age} className="grid grid-cols-[64px_1fr_1fr] gap-2 px-3 py-2 border-b border-gray-800 last:border-0 items-center">
-            <span className="text-sm text-gray-300">{age}</span>
+          <div key={age} className="grid grid-cols-[64px_1fr_1fr] gap-2 px-3 py-2 border-b border-ui-line last:border-0 items-center">
+            <span className="text-sm text-ui-fg2">{age}</span>
             {G.map((g) => {
               const c = cell(age, g.id);
               const isBest = !!best && c === best;
               return (
                 <div key={g.id} className={`rounded-lg p-1.5 ${isBest ? "bg-emerald-500/10" : ""}`}>
-                  <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden"><div className={`h-full ${g.bar}`} style={{ width: `${c ? Math.max(2, (c.spend / max) * 100) : 0}%` }} /></div>
-                  <div className="mt-1 text-[11px] text-gray-400 tabular-nums">
+                  <div className="h-1.5 rounded-full bg-ui-raised overflow-hidden"><div className={`h-full ${g.bar}`} style={{ width: `${c ? Math.max(2, (c.spend / max) * 100) : 0}%` }} /></div>
+                  <div className="mt-1 text-[11px] text-ui-fg2 tabular-nums">
                     {c && c.spend > 0 ? <>{fmtMetric("spend", c.spend, currency)} · {c.conversions > 0 ? `${Math.round(c.conversions)} ${Math.round(c.conversions) > 1 ? conversionLabel : conversionLabel.replace(/s$/, "")} · ${fmtMetric("cpa", c.spend / c.conversions, currency)}` : `CTR ${c.impressions ? (c.linkClicks / c.impressions * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 }) : 0} %`}</> : "—"}
                   </div>
                 </div>
@@ -84,7 +84,7 @@ export function DemographicsPane({ accountId, adIds, range, currency }: Props) {
           </div>
         ))}
       </div>
-      <p className="text-[11px] text-gray-500">Répartition Meta des annonces de cette créa sur la période. Conversions comptées en {conversionLabel}, comme le reste du rapport.</p>
+      <p className="text-[11px] text-ui-muted">Répartition Meta des annonces de cette créa sur la période. Conversions comptées en {conversionLabel}, comme le reste du rapport.</p>
     </div>
   );
 }

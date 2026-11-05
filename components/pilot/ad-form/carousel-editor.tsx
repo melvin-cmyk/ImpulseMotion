@@ -81,47 +81,47 @@ export function CarouselEditor({ cards, onChange, options, onOptionsChange, stud
       {/* The cards, in the order shown. */}
       <div className="flex items-start gap-2 overflow-x-auto pb-1" role="list" aria-label="Cartes du carrousel">
         {cards.map((c, i) => (
-          <div key={i} role="listitem" className={`shrink-0 w-24 rounded-lg border p-1 space-y-1 ${i === active ? "border-violet-500 bg-violet-500/10" : "border-gray-800"}`}>
-            <button type="button" onClick={() => setActive(i)} aria-pressed={i === active} className="w-full aspect-square rounded overflow-hidden bg-gray-900 flex items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-violet-400" title={c.headline || `Carte ${i + 1}`}>
-              {c.media.url ? <MediaThumb media={c.media} className="w-full h-full object-cover" /> : <span className="text-[10px] text-gray-500 px-1 text-center">média ?</span>}
+          <div key={i} role="listitem" className={`shrink-0 w-24 rounded-lg border p-1 space-y-1 ${i === active ? "border-ui-accent bg-ui-accent-soft" : "border-ui-line"}`}>
+            <button type="button" onClick={() => setActive(i)} aria-pressed={i === active} className="w-full aspect-square rounded overflow-hidden bg-ui-card flex items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-ui-accent/40" title={c.headline || `Carte ${i + 1}`}>
+              {c.media.url ? <MediaThumb media={c.media} className="w-full h-full object-cover" /> : <span className="text-[10px] text-ui-muted px-1 text-center">média ?</span>}
             </button>
-            <div className="flex items-center justify-between text-[10px] text-gray-400">
+            <div className="flex items-center justify-between text-[10px] text-ui-fg2">
               <span>{i + 1}{c.media.kind === "video" ? " · vidéo" : ""}</span>
               <span className="flex gap-0.5">
-                <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="p-0.5 hover:text-white disabled:opacity-30" aria-label={`Monter la carte ${i + 1}`}><ArrowUp className="w-3 h-3" /></button>
-                <button type="button" onClick={() => move(i, 1)} disabled={i === cards.length - 1} className="p-0.5 hover:text-white disabled:opacity-30" aria-label={`Descendre la carte ${i + 1}`}><ArrowDown className="w-3 h-3" /></button>
+                <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="p-0.5 hover:text-ui-fg disabled:opacity-30" aria-label={`Monter la carte ${i + 1}`}><ArrowUp className="w-3 h-3" /></button>
+                <button type="button" onClick={() => move(i, 1)} disabled={i === cards.length - 1} className="p-0.5 hover:text-ui-fg disabled:opacity-30" aria-label={`Descendre la carte ${i + 1}`}><ArrowDown className="w-3 h-3" /></button>
                 <button type="button" onClick={() => remove(i)} className="p-0.5 hover:text-red-300" aria-label={`Retirer la carte ${i + 1}`}><Trash2 className="w-3 h-3" /></button>
               </span>
             </div>
           </div>
         ))}
-        <button type="button" onClick={add} disabled={cards.length >= CAROUSEL_CARDS.max} className="shrink-0 w-24 aspect-square rounded-lg border border-dashed border-gray-700 text-xs text-gray-400 hover:text-white hover:border-gray-500 disabled:opacity-40 flex flex-col items-center justify-center gap-1">
+        <button type="button" onClick={add} disabled={cards.length >= CAROUSEL_CARDS.max} className="shrink-0 w-24 aspect-square rounded-lg border border-dashed border-ui-line-strong text-xs text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong disabled:opacity-40 flex flex-col items-center justify-center gap-1">
           <Plus className="w-4 h-4" /> Ajouter
         </button>
       </div>
-      <p className="text-[11px] text-gray-500">{cards.length} carte{cards.length > 1 ? "s" : ""} sur {CAROUSEL_CARDS.max} ({CAROUSEL_CARDS.min} au moins, 3 conseillées). Images carrées 1:1, 1 080 px conseillés.</p>
+      <p className="text-[11px] text-ui-muted">{cards.length} carte{cards.length > 1 ? "s" : ""} sur {CAROUSEL_CARDS.max} ({CAROUSEL_CARDS.min} au moins, 3 conseillées). Images carrées 1:1, 1 080 px conseillés.</p>
 
       {/* The card being edited. */}
       {current && (
-        <div className="grid md:grid-cols-[220px_minmax(0,1fr)] gap-3 rounded-xl border border-gray-800 p-3">
+        <div className="grid md:grid-cols-[220px_minmax(0,1fr)] gap-3 rounded-xl border border-ui-line p-3">
           <div className="space-y-1">
-            <span className="text-xs text-gray-400">Carte {active + 1} — média</span>
+            <span className="text-xs text-ui-fg2">Carte {active + 1} — média</span>
             <MediaPicker key={active} kind="any" clientId={clientId} studio={studio} value={current.media.url ? current.media : null} onChange={(m) => update(active, { media: m ?? { kind: "image", url: "" } })} idPrefix={`card-${active}`} compact />
           </div>
           <div className="space-y-3">
             <div className="grid sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-gray-400">Titre de la carte <span className="text-gray-600">({(current.headline ?? "").length}/{CAROUSEL_HEADLINE_MAX})</span>
+              <label className="block text-xs text-ui-fg2">Titre de la carte <span className="text-ui-muted">({(current.headline ?? "").length}/{CAROUSEL_HEADLINE_MAX})</span>
                 <input value={current.headline ?? ""} onChange={(e) => update(active, { headline: e.target.value || undefined })} className={`${input} mt-1`} maxLength={CAROUSEL_HEADLINE_MAX} />
               </label>
-              <label className="block text-xs text-gray-400">Description <span className="text-gray-600">({(current.description ?? "").length}/{CAROUSEL_DESCRIPTION_MAX})</span>
+              <label className="block text-xs text-ui-fg2">Description <span className="text-ui-muted">({(current.description ?? "").length}/{CAROUSEL_DESCRIPTION_MAX})</span>
                 <input value={current.description ?? ""} onChange={(e) => update(active, { description: e.target.value || undefined })} className={`${input} mt-1`} maxLength={CAROUSEL_DESCRIPTION_MAX} />
               </label>
             </div>
             <div className="grid sm:grid-cols-[minmax(0,1fr)_180px] gap-3">
-              <label className="block text-xs text-gray-400">Lien de la carte
+              <label className="block text-xs text-ui-fg2">Lien de la carte
                 <input value={current.link} onChange={(e) => update(active, { link: e.target.value })} className={`${input} mt-1`} placeholder="https://…" />
               </label>
-              <label className="block text-xs text-gray-400">Bouton
+              <label className="block text-xs text-ui-fg2">Bouton
                 <select value={current.callToAction ?? ""} onChange={(e) => update(active, { callToAction: e.target.value || undefined })} className={`${input} mt-1`}>
                   <option value="">Comme la publicité</option>
                   {ctas.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -132,14 +132,14 @@ export function CarouselEditor({ cards, onChange, options, onOptionsChange, stud
         </div>
       )}
 
-      <div className="flex flex-wrap gap-4 text-xs text-gray-300">
+      <div className="flex flex-wrap gap-4 text-xs text-ui-fg2">
         <label className="inline-flex items-center gap-2">
-          <input type="checkbox" checked={options.multiShareOptimized} onChange={(e) => onOptionsChange({ ...options, multiShareOptimized: e.target.checked })} className="accent-violet-500" />
-          Ordre optimisé par Meta <span className="text-gray-500">(décoché : l&apos;ordre ci-dessus est respecté)</span>
+          <input type="checkbox" checked={options.multiShareOptimized} onChange={(e) => onOptionsChange({ ...options, multiShareOptimized: e.target.checked })} className="accent-ui-accent" />
+          Ordre optimisé par Meta <span className="text-ui-muted">(décoché : l&apos;ordre ci-dessus est respecté)</span>
         </label>
         <label className="inline-flex items-center gap-2">
-          <input type="checkbox" checked={options.endCard} onChange={(e) => onOptionsChange({ ...options, endCard: e.target.checked })} className="accent-violet-500" />
-          Carte de fin <span className="text-gray-500">(photo de la Page + lien « voir plus »)</span>
+          <input type="checkbox" checked={options.endCard} onChange={(e) => onOptionsChange({ ...options, endCard: e.target.checked })} className="accent-ui-accent" />
+          Carte de fin <span className="text-ui-muted">(photo de la Page + lien « voir plus »)</span>
         </label>
       </div>
     </div>

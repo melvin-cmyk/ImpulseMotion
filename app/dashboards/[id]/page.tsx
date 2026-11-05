@@ -219,14 +219,14 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
   if (loadError && !dashboard) {
     return (
       <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-4">
-        <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white"><ArrowLeft className="w-3.5 h-3.5" /> Mes dashboards</Link>
+        <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-ui-fg2 hover:text-ui-fg"><ArrowLeft className="w-3.5 h-3.5" /> Mes dashboards</Link>
         <Card padded className="border-red-900/40">
           <p className="text-sm text-red-400">
             {loadError.status === 404 ? "Ce dashboard n'existe pas, a été supprimé, ou n'est pas partagé avec vous."
               : `Le dashboard n'a pas pu être chargé (${loadError.message}).`}
           </p>
           {loadError.status !== 404 && (
-            <button type="button" onClick={() => void load()} className="mt-2 text-xs underline text-gray-300">Réessayer</button>
+            <button type="button" onClick={() => void load()} className="mt-2 text-xs underline text-ui-fg2">Réessayer</button>
           )}
         </Card>
       </div>
@@ -234,20 +234,20 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
   }
 
   if (!dashboard) {
-    return <div className="p-6 flex items-center gap-2 text-gray-500 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement du dashboard…</div>;
+    return <div className="p-6 flex items-center gap-2 text-ui-muted text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Chargement du dashboard…</div>;
   }
 
   const spinner = (key: string) => (busy === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null);
 
   return (
     <div className={`p-4 sm:p-6 max-w-[1600px] mx-auto space-y-5 ${showCopilot ? "sm:pr-[460px]" : ""}`}>
-      <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-white">
+      <Link href="/dashboards" className="inline-flex items-center gap-1.5 text-xs text-ui-fg2 hover:text-ui-fg">
         <ArrowLeft className="w-3.5 h-3.5" /> Mes dashboards
       </Link>
 
       <div className="space-y-2">
         <PageHeader title={dashboard.title} subtitle={dashboard.description ?? undefined} />
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-ui-fg2">
           {dashboard.shared ? <Pill tone={dashboard.mine ? "violet" : "blue"}>{dashboard.mine ? "Partagé à l'équipe" : "Partagé"}</Pill> : <Pill>Privé</Pill>}
           {!dashboard.mine && <span className="inline-flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {ownerLabel(dashboard)}</span>}
           <span className="inline-flex items-center gap-1"><Database className="w-3.5 h-3.5" /> {Object.keys(dashboard.datasets).length} jeu{Object.keys(dashboard.datasets).length > 1 ? "x" : ""} de données</span>
@@ -263,22 +263,22 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
       {/* Actions */}
       <Card padded className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => void refreshAll()} disabled={!!busy} className={`${SMALL_BUTTON} bg-violet-600 hover:bg-violet-500 text-white`}>
+          <button type="button" onClick={() => void refreshAll()} disabled={!!busy} className={`${SMALL_BUTTON} bg-ui-accent hover:brightness-110 text-ui-on-accent`}>
             {spinner("refresh") ?? <RefreshCw className="w-3.5 h-3.5" />} Actualiser les données
           </button>
-          <button type="button" onClick={() => void toggleFullscreen()} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`} title="Afficher la page seule, en plein écran (Échap pour sortir)">
+          <button type="button" onClick={() => void toggleFullscreen()} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`} title="Afficher la page seule, en plein écran (Échap pour sortir)">
             <Maximize2 className="w-3.5 h-3.5" /> Plein écran
           </button>
           <button
             type="button"
             onClick={() => setShowSources((v) => !v)}
             aria-pressed={showSources}
-            className={`${SMALL_BUTTON} ${showSources ? "bg-gray-700 text-white" : "bg-gray-800 hover:bg-gray-700 text-gray-200"}`}
+            className={`${SMALL_BUTTON} ${showSources ? "bg-ui-line-strong text-ui-fg" : "bg-ui-raised hover:bg-ui-line-strong text-ui-fg"}`}
           >
             <Database className="w-3.5 h-3.5" /> Sources {sources.length ? `(${sources.length})` : ""}
           </button>
           {(dashboard?.driveFolderUrl ?? STAFF_DASHBOARDS_DRIVE_FOLDER_URL) && (
-            <a href={dashboard?.driveFolderUrl ?? STAFF_DASHBOARDS_DRIVE_FOLDER_URL ?? "#"} target="_blank" rel="noreferrer" className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`} title={dashboard?.driveFolderUrl ? `Dossier Drive du client ${dashboard.driveClientName ?? ""} › Dashboards : déposez-y les fichiers (CSV, Excel, Sheets) que le copilote IA doit lire` : "Dossier Google Drive partagé : déposez-y les fichiers (CSV, Excel, Sheets) que le copilote IA doit lire"}>
+            <a href={dashboard?.driveFolderUrl ?? STAFF_DASHBOARDS_DRIVE_FOLDER_URL ?? "#"} target="_blank" rel="noreferrer" className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`} title={dashboard?.driveFolderUrl ? `Dossier Drive du client ${dashboard.driveClientName ?? ""} › Dashboards : déposez-y les fichiers (CSV, Excel, Sheets) que le copilote IA doit lire` : "Dossier Google Drive partagé : déposez-y les fichiers (CSV, Excel, Sheets) que le copilote IA doit lire"}>
               <FolderOpen className="w-3.5 h-3.5" /> Fichiers Drive
             </a>
           )}
@@ -288,7 +288,7 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
                 type="button"
                 onClick={() => setShowCopilot((v) => !v)}
                 aria-pressed={showCopilot}
-                className={`${SMALL_BUTTON} ${showCopilot ? "bg-violet-700 text-white" : "bg-gray-800 hover:bg-gray-700 text-violet-200"}`}
+                className={`${SMALL_BUTTON} ${showCopilot ? "bg-ui-accent text-ui-on-accent" : "bg-ui-raised hover:bg-ui-line-strong text-ui-accent-ink"}`}
               >
                 <Sparkles className="w-3.5 h-3.5" /> Copilote IA
               </button>
@@ -296,24 +296,24 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
                 type="button"
                 onClick={() => (showEditor ? setShowEditor(false) : openEditor())}
                 aria-pressed={showEditor}
-                className={`${SMALL_BUTTON} ${showEditor ? "bg-gray-700 text-white" : "bg-gray-800 hover:bg-gray-700 text-gray-200"}`}
+                className={`${SMALL_BUTTON} ${showEditor ? "bg-ui-line-strong text-ui-fg" : "bg-ui-raised hover:bg-ui-line-strong text-ui-fg"}`}
               >
                 <Pencil className="w-3.5 h-3.5" /> Modifier
               </button>
-              <label className="inline-flex items-center gap-2 text-xs text-gray-300 cursor-pointer select-none">
+              <label className="inline-flex items-center gap-2 text-xs text-ui-fg2 cursor-pointer select-none">
                 <button
                   type="button"
                   role="switch"
                   aria-checked={dashboard.shared}
                   disabled={!!busy}
                   onClick={() => void setShared(!dashboard.shared)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-40 ${dashboard.shared ? "bg-violet-600" : "bg-gray-700"}`}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-40 ${dashboard.shared ? "bg-ui-accent" : "bg-ui-line-strong"}`}
                 >
                   <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${dashboard.shared ? "translate-x-4" : "translate-x-0.5"}`} />
                 </button>
                 Partager à l&apos;équipe {spinner("share")}
               </label>
-              <button type="button" onClick={() => void remove()} disabled={!!busy} className={`${SMALL_BUTTON} bg-gray-900 border border-gray-800 hover:border-red-900 text-gray-400 hover:text-red-300 sm:ml-auto`}>
+              <button type="button" onClick={() => void remove()} disabled={!!busy} className={`${SMALL_BUTTON} bg-ui-card border border-ui-line hover:border-red-900 text-ui-fg2 hover:text-red-300 sm:ml-auto`}>
                 {spinner("delete") ?? <Trash2 className="w-3.5 h-3.5" />} Supprimer
               </button>
             </>
@@ -333,40 +333,40 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
       {dashboard.canEdit && showEditor && (
         <form onSubmit={save}>
           <Card padded className="space-y-4">
-            <h2 className="text-sm font-semibold text-white">Modifier le dashboard</h2>
+            <h2 className="text-sm font-medium text-ui-fg">Modifier le dashboard</h2>
             <label className="block">
-              <span className="text-xs font-medium text-gray-300">Titre <span className="text-red-400">*</span></span>
+              <span className="text-xs font-medium text-ui-fg2">Titre <span className="text-red-400">*</span></span>
               <input value={eTitle} onChange={(e) => setETitle(e.target.value)} required maxLength={120} className={`${FIELD} mt-1`} />
             </label>
             <label className="block">
-              <span className="text-xs font-medium text-gray-300">Description</span>
+              <span className="text-xs font-medium text-ui-fg2">Description</span>
               <input value={eDescription} onChange={(e) => setEDescription(e.target.value)} maxLength={2000} className={`${FIELD} mt-1`} />
             </label>
             <div>
-              <span className="text-xs font-medium text-gray-300">Sources</span>
-              <span className="block text-[11px] text-gray-500 mb-2">Plateformes et comptes de la page : le copilote IA construit ses jeux de données dessus.</span>
+              <span className="text-xs font-medium text-ui-fg2">Sources</span>
+              <span className="block text-[11px] text-ui-muted mb-2">Plateformes et comptes de la page : le copilote IA construit ses jeux de données dessus.</span>
               <SourcesPicker value={eSources} onChange={setESources} disabled={!!busy} />
             </div>
             <label className="block">
-              <span className="text-xs font-medium text-gray-300">Jeux de données (JSON)</span>
+              <span className="text-xs font-medium text-ui-fg2">Jeux de données (JSON)</span>
               <textarea value={eDatasets} onChange={(e) => setEDatasets(e.target.value)} rows={12} spellCheck={false} className={`${MONO_FIELD} mt-1`} />
               {datasetsParsed.error && <span className="block text-xs text-red-400 mt-1">{datasetsParsed.error}</span>}
             </label>
             <label className="block">
-              <span className="text-xs font-medium text-gray-300">Paramètres (JSON)</span>
+              <span className="text-xs font-medium text-ui-fg2">Paramètres (JSON)</span>
               <textarea value={eParams} onChange={(e) => setEParams(e.target.value)} rows={4} spellCheck={false} className={`${MONO_FIELD} mt-1`} />
               {paramsParsed.error && <span className="block text-xs text-red-400 mt-1">{paramsParsed.error}</span>}
             </label>
             <label className="block">
-              <span className="text-xs font-medium text-gray-300">Page (HTML)</span>
+              <span className="text-xs font-medium text-ui-fg2">Page (HTML)</span>
               <textarea value={eHtml} onChange={(e) => setEHtml(e.target.value)} rows={18} spellCheck={false} maxLength={262144} className={`${MONO_FIELD} mt-1 min-h-[300px]`} />
-              <span className="block text-[11px] text-gray-500 mt-1">{eHtml.length.toLocaleString("fr-FR")} / 262 144 caractères</span>
+              <span className="block text-[11px] text-ui-muted mt-1">{eHtml.length.toLocaleString("fr-FR")} / 262 144 caractères</span>
             </label>
             <div className="flex flex-wrap items-center gap-3">
               <button type="submit" disabled={!canSave} className={PRIMARY_BUTTON}>
                 {spinner("save")} Enregistrer
               </button>
-              <button type="button" onClick={() => setShowEditor(false)} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>Annuler</button>
+              <button type="button" onClick={() => setShowEditor(false)} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}>Annuler</button>
             </div>
           </Card>
         </form>
@@ -378,21 +378,21 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
           ref={stageRef}
           className={fullscreen === "off"
             ? "min-w-0"
-            : `bg-gray-950 overflow-y-auto ${fullscreen === "overlay" ? "fixed inset-0 z-50" : "w-full h-full"} ${showCopilot ? "sm:pr-[440px]" : ""}`}
+            : `bg-ui-bg overflow-y-auto ${fullscreen === "overlay" ? "fixed inset-0 z-50" : "w-full h-full"} ${showCopilot ? "sm:pr-[440px]" : ""}`}
         >
           {fullscreen !== "off" && (
-            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-2 bg-gray-950/95 border-b border-gray-800 text-xs text-gray-300">
-              <span className="font-semibold text-white truncate">{dashboard.title}</span>
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-2 bg-ui-bg border-b border-ui-line text-xs text-ui-fg2">
+              <span className="font-medium text-ui-fg truncate">{dashboard.title}</span>
               <div className="flex items-center gap-2 shrink-0">
-                <button type="button" onClick={() => void refreshAll()} disabled={!!busy} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>
+                <button type="button" onClick={() => void refreshAll()} disabled={!!busy} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}>
                   {spinner("refresh") ?? <RefreshCw className="w-3.5 h-3.5" />} Actualiser
                 </button>
                 {dashboard.canEdit && (
-                  <button type="button" onClick={() => setShowCopilot((v) => !v)} className={`${SMALL_BUTTON} ${showCopilot ? "bg-violet-700 text-white" : "bg-gray-800 hover:bg-gray-700 text-violet-200"}`}>
+                  <button type="button" onClick={() => setShowCopilot((v) => !v)} className={`${SMALL_BUTTON} ${showCopilot ? "bg-ui-accent text-ui-on-accent" : "bg-ui-raised hover:bg-ui-line-strong text-ui-accent-ink"}`}>
                     <Sparkles className="w-3.5 h-3.5" /> Copilote
                   </button>
                 )}
-                <button type="button" onClick={() => void toggleFullscreen()} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>
+                <button type="button" onClick={() => void toggleFullscreen()} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}>
                   <Minimize2 className="w-3.5 h-3.5" /> Quitter le plein écran
                 </button>
               </div>
@@ -425,45 +425,45 @@ export default function StaffDashboardPage({ params }: { params: Promise<{ id: s
 
         {showSources && (
           <Card className="min-w-0 lg:sticky lg:top-4">
-            <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white flex items-center gap-2"><Database className="w-4 h-4 text-violet-400" /> Sources</h2>
-              <button type="button" onClick={() => setShowSources(false)} className="text-xs text-gray-400 hover:text-white">Fermer</button>
+            <div className="px-4 py-3 border-b border-ui-line flex items-center justify-between">
+              <h2 className="text-sm font-medium text-ui-fg flex items-center gap-2"><Database className="w-4 h-4 text-ui-accent-ink" /> Sources</h2>
+              <button type="button" onClick={() => setShowSources(false)} className="text-xs text-ui-fg2 hover:text-ui-fg">Fermer</button>
             </div>
             <div className="p-3 space-y-2 max-h-[80vh] overflow-y-auto">
-              {sources.length === 0 && <p className="text-xs text-gray-500">La page n&apos;a pas encore décrit ses sources.</p>}
+              {sources.length === 0 && <p className="text-xs text-ui-muted">La page n&apos;a pas encore décrit ses sources.</p>}
               {sources.map((s) => {
                 const st = STATUS[s.status] ?? { label: s.status, tone: "default" as const };
                 const def = s.kind === "source" ? dashboard.datasets[s.id] : undefined;
                 return (
-                  <div key={s.id} className="bg-gray-950/50 border border-gray-800 rounded-xl p-3 space-y-1.5">
+                  <div key={s.id} className="bg-ui-bg border border-ui-line rounded-xl p-3 space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-xs font-mono text-white break-all">{s.id}</div>
-                        {(s.title ?? def?.title) && <div className="text-xs text-gray-300 mt-0.5">{s.title ?? def?.title}</div>}
+                        <div className="text-xs font-mono text-ui-fg break-all">{s.id}</div>
+                        {(s.title ?? def?.title) && <div className="text-xs text-ui-fg2 mt-0.5">{s.title ?? def?.title}</div>}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <Pill tone={s.kind === "calc" ? "amber" : "violet"} className="text-[10px]">{s.kind === "calc" ? "calcul" : "source"}</Pill>
                         <Pill tone={st.tone} className="text-[10px]">{st.label}</Pill>
                       </div>
                     </div>
-                    {(s.description ?? def?.description) && <p className="text-[11px] text-gray-400 leading-relaxed">{s.description ?? def?.description}</p>}
+                    {(s.description ?? def?.description) && <p className="text-[11px] text-ui-fg2 leading-relaxed">{s.description ?? def?.description}</p>}
                     {s.message && <p className="text-[11px] text-red-300 break-words">{s.message}</p>}
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ui-muted">
                       {s.rows !== null && <span>{s.rows.toLocaleString("fr-FR")} ligne{s.rows > 1 ? "s" : ""}</span>}
                       {s.at && <span>Lu le {dateLabel(s.at)}</span>}
                     </div>
                     {def && (
-                      <div className="text-[11px] text-gray-400 space-y-1">
-                        <div><span className="text-gray-500">Connecteur :</span> <span className="font-mono text-gray-300">{def.source.connector}</span></div>
-                        <div><span className="text-gray-500">Outil :</span> <span className="font-mono text-gray-300">{def.source.tool}</span></div>
+                      <div className="text-[11px] text-ui-fg2 space-y-1">
+                        <div><span className="text-ui-muted">Connecteur :</span> <span className="font-mono text-ui-fg2">{def.source.connector}</span></div>
+                        <div><span className="text-ui-muted">Outil :</span> <span className="font-mono text-ui-fg2">{def.source.tool}</span></div>
                         <details>
-                          <summary className="cursor-pointer text-gray-500 hover:text-gray-300">Arguments</summary>
-                          <pre className="mt-1 text-[10px] leading-snug text-gray-300 bg-gray-950 border border-gray-800 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(def.source.args, null, 2)}</pre>
+                          <summary className="cursor-pointer text-ui-muted hover:text-ui-fg2">Arguments</summary>
+                          <pre className="mt-1 text-[10px] leading-snug text-ui-fg2 bg-ui-bg border border-ui-line rounded-lg p-2 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(def.source.args, null, 2)}</pre>
                         </details>
                       </div>
                     )}
                     {s.kind === "source" && (
-                      <button type="button" onClick={() => void refreshOne(s.id)} disabled={!!busy} className={`${SMALL_BUTTON} bg-gray-800 hover:bg-gray-700 text-gray-200`}>
+                      <button type="button" onClick={() => void refreshOne(s.id)} disabled={!!busy} className={`${SMALL_BUTTON} bg-ui-raised hover:bg-ui-line-strong text-ui-fg`}>
                         {spinner(`source:${s.id}`) ?? <RefreshCw className="w-3 h-3" />} Relancer
                       </button>
                     )}

@@ -118,7 +118,7 @@ export function SourcesPicker({ value, onChange, disabled }: { value: StaffSourc
     setManual((m) => ({ ...m, [kind]: "" }));
   }
 
-  const chip = (active: boolean) => `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors disabled:opacity-50 ${active ? "bg-violet-600 border-violet-500 text-white" : "bg-gray-950 border-gray-800 text-gray-300 hover:border-gray-600 hover:text-white"}`;
+  const chip = (active: boolean) => `inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors disabled:opacity-50 ${active ? "bg-ui-accent border-ui-accent text-ui-on-accent" : "bg-ui-bg border-ui-line text-ui-fg2 hover:border-ui-line-strong hover:text-ui-fg"}`;
 
   return (
     <div className="space-y-3">
@@ -126,7 +126,7 @@ export function SourcesPicker({ value, onChange, disabled }: { value: StaffSourc
         {SOURCE_KINDS.map((k) => (
           <button key={k.kind} type="button" disabled={disabled} aria-pressed={selected.has(k.kind)} onClick={() => toggleKind(k.kind)} className={chip(selected.has(k.kind))} title={k.hint}>
             {k.label}
-            {selected.get(k.kind)?.accounts.length ? <span className="text-[10px] bg-white/20 rounded-full px-1.5">{selected.get(k.kind)!.accounts.length}</span> : null}
+            {selected.get(k.kind)?.accounts.length ? <span className="text-[10px] bg-ui-raised rounded-full px-1.5">{selected.get(k.kind)!.accounts.length}</span> : null}
           </button>
         ))}
       </div>
@@ -139,13 +139,13 @@ export function SourcesPicker({ value, onChange, disabled }: { value: StaffSourc
         const filtered = choices.filter((c) => matches(c, query));
         const shown = filtered.slice(0, LIST_LIMIT);
         return (
-          <div key={s.kind} className="rounded-lg border border-gray-800 bg-gray-950/60 p-3 space-y-2">
+          <div key={s.kind} className="rounded-lg border border-ui-line bg-ui-bg p-3 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-white">{info.label}</p>
-                <p className="text-[11px] text-gray-500">{info.hint}</p>
+                <p className="text-xs font-medium text-ui-fg">{info.label}</p>
+                <p className="text-[11px] text-ui-muted">{info.hint}</p>
               </div>
-              <button type="button" disabled={disabled} onClick={() => setSource(s.kind, null)} className="text-gray-500 hover:text-red-300 shrink-0" title={`Retirer ${info.label}`} aria-label={`Retirer ${info.label}`}>
+              <button type="button" disabled={disabled} onClick={() => setSource(s.kind, null)} className="text-ui-muted hover:text-red-300 shrink-0" title={`Retirer ${info.label}`} aria-label={`Retirer ${info.label}`}>
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -155,19 +155,19 @@ export function SourcesPicker({ value, onChange, disabled }: { value: StaffSourc
                 {s.accounts.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {s.accounts.map((a) => (
-                      <span key={a.id} className="inline-flex items-center gap-1 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-100 text-[11px] px-2 py-0.5 max-w-full">
-                        <span className="truncate">{a.name}{a.name !== a.id ? <span className="text-violet-300/70"> · {a.id}</span> : null}</span>
-                        <button type="button" disabled={disabled} onClick={() => toggleAccount(s.kind, a)} className="text-violet-300 hover:text-white" aria-label={`Retirer ${a.name}`}><X className="w-3 h-3" /></button>
+                      <span key={a.id} className="inline-flex items-center gap-1 rounded-md bg-ui-accent-soft border border-ui-accent text-ui-accent-ink text-[11px] px-2 py-0.5 max-w-full">
+                        <span className="truncate">{a.name}{a.name !== a.id ? <span className="text-ui-accent-ink"> · {a.id}</span> : null}</span>
+                        <button type="button" disabled={disabled} onClick={() => toggleAccount(s.kind, a)} className="text-ui-accent-ink hover:text-ui-fg" aria-label={`Retirer ${a.name}`}><X className="w-3 h-3" /></button>
                       </span>
                     ))}
                   </div>
                 )}
-                {loading && !catalogue && <p className="text-[11px] text-gray-500 inline-flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> Lecture des comptes de votre périmètre…</p>}
+                {loading && !catalogue && <p className="text-[11px] text-ui-muted inline-flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> Lecture des comptes de votre périmètre…</p>}
                 {loadError && <p className="text-[11px] text-amber-300">Comptes non listés ({loadError}) : saisissez l&apos;identifiant à la main.</p>}
                 {catalogue && choices.length > 0 && (
                   <div className="space-y-1.5">
                     <label className="relative block">
-                      <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <Search className="w-3.5 h-3.5 text-ui-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input
                         value={query}
                         disabled={disabled}
@@ -176,26 +176,26 @@ export function SourcesPicker({ value, onChange, disabled }: { value: StaffSourc
                         className={`${FIELD} pl-8 py-1.5 text-xs`}
                       />
                     </label>
-                    <ul className="max-h-44 overflow-y-auto divide-y divide-gray-900 rounded-md border border-gray-800">
+                    <ul className="max-h-44 overflow-y-auto divide-y divide-ui-line rounded-md border border-ui-line">
                       {shown.map((c) => (
                         <li key={c.id}>
-                          <label className="flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-gray-900">
-                            <input type="checkbox" disabled={disabled} checked={chosen.has(c.id)} onChange={() => toggleAccount(s.kind, { id: c.id, name: c.name })} className="accent-violet-600" />
+                          <label className="flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-ui-raised">
+                            <input type="checkbox" disabled={disabled} checked={chosen.has(c.id)} onChange={() => toggleAccount(s.kind, { id: c.id, name: c.name })} className="accent-ui-accent" />
                             <span className="min-w-0 flex-1 truncate">
-                              <span className="text-gray-200">{c.client}</span>
-                              {c.name !== c.client && <span className="text-gray-400"> › {c.name}</span>}
+                              <span className="text-ui-fg">{c.client}</span>
+                              {c.name !== c.client && <span className="text-ui-fg2"> › {c.name}</span>}
                             </span>
-                            <span className="text-[10px] text-gray-500 font-mono shrink-0">{c.id}{c.extra ? ` · ${c.extra}` : ""}</span>
+                            <span className="text-[10px] text-ui-muted font-mono shrink-0">{c.id}{c.extra ? ` · ${c.extra}` : ""}</span>
                           </label>
                         </li>
                       ))}
-                      {shown.length === 0 && <li className="px-2.5 py-2 text-[11px] text-gray-500">Aucun compte ne correspond.</li>}
-                      {filtered.length > shown.length && <li className="px-2.5 py-1.5 text-[11px] text-gray-500">… et {filtered.length - shown.length} autres : affinez la recherche.</li>}
+                      {shown.length === 0 && <li className="px-2.5 py-2 text-[11px] text-ui-muted">Aucun compte ne correspond.</li>}
+                      {filtered.length > shown.length && <li className="px-2.5 py-1.5 text-[11px] text-ui-muted">… et {filtered.length - shown.length} autres : affinez la recherche.</li>}
                     </ul>
                   </div>
                 )}
                 {catalogue && choices.length === 0 && !loadError && (
-                  <p className="text-[11px] text-gray-500">Aucun compte {info.label} dans votre périmètre : saisissez l&apos;identifiant à la main.</p>
+                  <p className="text-[11px] text-ui-muted">Aucun compte {info.label} dans votre périmètre : saisissez l&apos;identifiant à la main.</p>
                 )}
                 {info.idPlaceholder && (
                   <div className="flex items-center gap-2">
@@ -207,7 +207,7 @@ export function SourcesPicker({ value, onChange, disabled }: { value: StaffSourc
                       placeholder={`Autre identifiant (${info.idPlaceholder})`}
                       className={`${FIELD} py-1.5 text-xs font-mono`}
                     />
-                    <button type="button" disabled={disabled || !(manual[s.kind] ?? "").trim()} onClick={() => addManual(s.kind)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs disabled:opacity-40 shrink-0">
+                    <button type="button" disabled={disabled || !(manual[s.kind] ?? "").trim()} onClick={() => addManual(s.kind)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-ui-raised hover:bg-ui-line-strong text-ui-fg text-xs disabled:opacity-40 shrink-0">
                       <Plus className="w-3.5 h-3.5" /> Ajouter
                     </button>
                   </div>
@@ -217,7 +217,7 @@ export function SourcesPicker({ value, onChange, disabled }: { value: StaffSourc
 
             {info.detailLabel && (
               <label className="block">
-                <span className="text-[11px] text-gray-400">{info.detailLabel}</span>
+                <span className="text-[11px] text-ui-fg2">{info.detailLabel}</span>
                 <input value={s.detail} disabled={disabled} maxLength={600} onChange={(e) => setSource(s.kind, { detail: e.target.value })} className={`${FIELD} mt-1 py-1.5 text-xs`} />
               </label>
             )}

@@ -20,11 +20,11 @@ import {
 import { CONVERSION_PRESETS } from "@/lib/meta-actions";
 
 const inputCls =
-  "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
+  "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
 const btnCls =
-  "px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 transition-colors disabled:opacity-50";
+  "px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg transition-colors disabled:opacity-50";
 const primaryBtnCls =
-  "px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50";
+  "px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors disabled:opacity-50";
 
 interface WidgetFormState {
   type: WidgetType;
@@ -170,7 +170,7 @@ function ActionsChecklist({ selected, onChange, catalog, error }: {
   error: string | null;
 }) {
   if (error) return <div className="text-xs text-amber-400/90 mt-3">{error}</div>;
-  if (!catalog) return <div className="text-xs text-gray-500 mt-3">Chargement des actions Meta…</div>;
+  if (!catalog) return <div className="text-xs text-ui-muted mt-3">Chargement des actions Meta…</div>;
   // Selected types absent from the period stay listed so they can be unticked.
   const rows = [
     ...catalog.actions,
@@ -180,24 +180,24 @@ function ActionsChecklist({ selected, onChange, catalog, error }: {
     onChange(selected.includes(t) ? selected.filter((x) => x !== t) : [...selected, t].slice(0, META_ACTIONS_MAX));
   return (
     <div className="mt-3">
-      <div className="flex items-center justify-between text-[11px] text-gray-500 mb-1">
+      <div className="flex items-center justify-between text-[11px] text-ui-muted mb-1">
         <span>
           {selected.length === 0
             ? "Aucune sélection : toutes les actions du compte (doublons retirés), triées par volume."
             : `${selected.length} action(s) affichée(s), dans l'ordre de sélection.`}
         </span>
         {selected.length > 0 && (
-          <button type="button" onClick={() => onChange([])} className="text-violet-400 hover:text-violet-300">Tout décocher</button>
+          <button type="button" onClick={() => onChange([])} className="text-ui-accent-ink hover:text-ui-accent-ink">Tout décocher</button>
         )}
       </div>
-      <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-800 divide-y divide-gray-800/60">
-        {rows.length === 0 && <div className="text-xs text-gray-500 px-3 py-2">Aucune action Meta sur la période.</div>}
+      <div className="max-h-56 overflow-y-auto rounded-lg border border-ui-line divide-y divide-ui-line">
+        {rows.length === 0 && <div className="text-xs text-ui-muted px-3 py-2">Aucune action Meta sur la période.</div>}
         {rows.map((a) => (
-          <label key={a.actionType} className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-gray-800/40">
-            <input type="checkbox" checked={selected.includes(a.actionType)} onChange={() => toggle(a.actionType)} className="accent-violet-500" />
-            <span className="text-gray-200 flex-1 truncate" title={a.actionType}>{a.label}</span>
-            <span className="text-gray-600 truncate max-w-48 hidden sm:inline">{a.actionType}</span>
-            <span className="text-gray-400 tabular-nums w-16 text-right">{fmtCount(a.count)}</span>
+          <label key={a.actionType} className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-ui-raised">
+            <input type="checkbox" checked={selected.includes(a.actionType)} onChange={() => toggle(a.actionType)} className="accent-ui-accent" />
+            <span className="text-ui-fg flex-1 truncate" title={a.actionType}>{a.label}</span>
+            <span className="text-ui-muted truncate max-w-48 hidden sm:inline">{a.actionType}</span>
+            <span className="text-ui-fg2 tabular-nums w-16 text-right">{fmtCount(a.count)}</span>
           </label>
         ))}
       </div>
@@ -256,12 +256,12 @@ export function WidgetForm({
   const metricOptions = form.type === "kpi" ? KPI_METRICS : SERIES_METRICS;
 
   return (
-    <Card padded className="border-violet-800/60">
+    <Card padded className="border-ui-accent">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-white">
+        <h3 className="text-sm font-medium text-ui-fg">
           {widget ? `Modifier le widget${widget.title ? ` « ${widget.title} »` : ""}` : "Ajouter un widget"}
         </h3>
-        <button type="button" onClick={onCancel} className="text-xs text-gray-500 hover:text-gray-300">Annuler</button>
+        <button type="button" onClick={onCancel} className="text-xs text-ui-muted hover:text-ui-fg2">Annuler</button>
       </div>
       <div className="flex flex-wrap gap-3">
         {!widget && (
@@ -378,7 +378,7 @@ export function WidgetForm({
           />
         )}
         {isCrmType(form.type) && (
-          <span className="text-[11px] text-gray-500 self-center">Nécessite une source HubSpot connectée (fiche client → Sources de données).</span>
+          <span className="text-[11px] text-ui-muted self-center">Nécessite une source HubSpot connectée (fiche client → Sources de données).</span>
         )}
       </div>
       {form.type === "meta_actions" && (
@@ -440,10 +440,10 @@ export function DashboardSettingsForm({
   }
 
   return (
-    <Card padded className="border-violet-800/60">
+    <Card padded className="border-ui-accent">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-white">Réglages du dashboard</h3>
-        <button type="button" onClick={onCancel} className="text-xs text-gray-500 hover:text-gray-300">Annuler</button>
+        <h3 className="text-sm font-medium text-ui-fg">Réglages du dashboard</h3>
+        <button type="button" onClick={onCancel} className="text-xs text-ui-muted hover:text-ui-fg2">Annuler</button>
       </div>
       <div className="flex flex-wrap gap-3">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nom" className={inputCls + " w-48"} />
@@ -451,7 +451,7 @@ export function DashboardSettingsForm({
         <input value={googleId} onChange={(e) => setGoogleId(e.target.value)} placeholder="Customer Google Ads" className={inputCls + " w-48"} />
         <input value={tiktokId} onChange={(e) => setTikTokId(e.target.value)} inputMode="numeric" placeholder="Ajouter un compte TikTok Ads" className={inputCls + " w-56 font-mono"} />
       </div>
-      <p className="text-[11px] text-gray-500 mt-2">
+      <p className="text-[11px] text-ui-muted mt-2">
         Les accès (consultants, clients, bot) se gèrent par un admin depuis la liste des dashboards.
         Changer de compte met à jour les droits de toutes les personnes rattachées.
         Un compte TikTok Ads est retrouvé chez TikTok puis ajouté aux comptes déjà rattachés (liste et retrait : fiche client, Sources de données) ;
@@ -506,7 +506,7 @@ export function SortableWidgetFrame({ widget, children, editControls }: {
       ref={setActivatorNodeRef}
       {...attributes}
       {...listeners}
-      className="p-1 rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800 cursor-grab active:cursor-grabbing touch-none transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+      className="p-1 rounded-lg text-ui-muted hover:text-ui-fg hover:bg-ui-raised cursor-grab active:cursor-grabbing touch-none transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ui-accent/40"
       title="Glisser pour réordonner (ou Espace + flèches)"
       aria-label={`Réordonner le widget ${widget.title ?? ""}`.trim()}
     >

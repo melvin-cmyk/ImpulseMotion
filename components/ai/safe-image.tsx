@@ -24,8 +24,8 @@ function BotVideo({ src, alt }: { src: string; alt?: string }) {
   const [failed, setFailed] = useState(false);
   const poster = src.replace("/video?", "/image?");
   // eslint-disable-next-line @next/next/no-img-element
-  if (failed) return <img src={poster} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;
-  return <video src={src} poster={poster} controls playsInline preload="metadata" onError={() => setFailed(true)} className="max-w-full max-h-96 rounded-lg border border-gray-800 my-2 bg-black" aria-label={alt} />;
+  if (failed) return <img src={poster} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-ui-line my-2" loading="lazy" />;
+  return <video src={src} poster={poster} controls playsInline preload="metadata" onError={() => setFailed(true)} className="max-w-full max-h-96 rounded-lg border border-ui-line my-2 bg-black" aria-label={alt} />;
 }
 
 /** A client bot's image creative: a missing visual shows its name, not a broken image icon. */
@@ -33,9 +33,9 @@ const BOT_IMAGE = /^\/api\/bot\/[\w-]+\/image\?/;
 
 function BotImage({ src, alt }: { src: string; alt?: string }) {
   const [failed, setFailed] = useState(false);
-  if (failed) return <span className="block text-xs text-gray-500 my-2">Visuel momentanément indisponible{alt ? ` — ${alt}` : ""}</span>;
+  if (failed) return <span className="block text-xs text-ui-muted my-2">Visuel momentanément indisponible{alt ? ` — ${alt}` : ""}</span>;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt={alt ?? ""} onError={() => setFailed(true)} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;
+  return <img src={src} alt={alt ?? ""} onError={() => setFailed(true)} className="max-w-full max-h-72 w-auto rounded-lg border border-ui-line my-2" loading="lazy" />;
 }
 
 export function SafeImage({ src, alt }: { src?: unknown; alt?: string }) {
@@ -43,13 +43,13 @@ export function SafeImage({ src, alt }: { src?: unknown; alt?: string }) {
   if (typeof src === "string" && BOT_IMAGE.test(src)) return <BotImage src={src} alt={alt} />;
   if (isOwnImage(src)) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={src} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;
+    return <img src={src} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-ui-line my-2" loading="lazy" />;
   }
   let host = "";
   try { host = typeof src === "string" ? new URL(src).host : ""; } catch { host = ""; }
   return typeof src === "string" && /^https:\/\//.test(src)
-    ? <a href={src} target="_blank" rel="noopener noreferrer nofollow" className="text-xs text-gray-400 underline">image externe{host ? ` (${host})` : ""}{alt ? ` — ${alt}` : ""}</a>
-    : <span className="text-xs text-gray-500">[image non affichée]</span>;
+    ? <a href={src} target="_blank" rel="noopener noreferrer nofollow" className="text-xs text-ui-fg2 underline">image externe{host ? ` (${host})` : ""}{alt ? ` — ${alt}` : ""}</a>
+    : <span className="text-xs text-ui-muted">[image non affichée]</span>;
 }
 
 /** `components` for react-markdown wherever AI text is shown. */

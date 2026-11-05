@@ -73,12 +73,12 @@ type DatasetSummary = {
 };
 
 const inputCls =
-  "px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
-const sectionTitleCls = "text-sm font-bold uppercase tracking-wider mb-3 text-violet-300";
+  "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
+const sectionTitleCls = "text-sm font-medium mb-3 text-ui-accent-ink";
 const primaryBtnCls =
-  "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-600 hover:bg-violet-500 text-white transition-colors disabled:opacity-50";
+  "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors disabled:opacity-50";
 const secondaryBtnCls =
-  "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors disabled:opacity-50";
+  "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors disabled:opacity-50";
 const dangerBtnCls =
   "text-xs px-2 py-1 rounded bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30 transition-colors";
 
@@ -147,7 +147,7 @@ function CopyButton({ value, label = "Copier" }: { value: string; label?: string
           setCopied(false);
         }
       }}
-      className="text-[11px] px-2 py-0.5 rounded border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+      className="text-[11px] px-2 py-0.5 rounded border border-ui-line-strong text-ui-fg2 hover:text-ui-fg hover:border-ui-line-strong transition-colors"
     >
       {copied ? "Copié" : label}
     </button>
@@ -312,7 +312,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
     setData((prev) => (prev ? { ...prev, ingestConfigured: true } : prev));
   }
 
-  if (loading) return <div className="text-sm text-gray-500">Chargement…</div>;
+  if (loading) return <div className="text-sm text-ui-muted">Chargement…</div>;
   if (loadError || !data || !form) return <div className="text-sm text-red-400">{loadError ?? "Client introuvable"}</div>;
 
   const { dashboard, bot, accesses } = data;
@@ -321,13 +321,13 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/admin/bots" className="text-xs text-gray-400 hover:text-white hover:underline">
+        <Link href="/admin/bots" className="text-xs text-ui-fg2 hover:text-ui-fg hover:underline">
           ← Bots clients
         </Link>
         <div className="flex items-start justify-between gap-4 mt-2 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold text-white">{dashboard.name}</h1>
-            <div className="text-xs mt-1 text-gray-500 flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-medium text-ui-fg">{dashboard.name}</h1>
+            <div className="text-xs mt-1 text-ui-muted flex items-center gap-2 flex-wrap">
               <span>{dashboard.ownerEmail ?? "—"}</span>
               {!bot ? <Pill>Non configuré</Pill> : bot.enabled ? <Pill tone="emerald">Actif</Pill> : <Pill tone="amber">Inactif</Pill>}
               {dashboard.metaAccountId && <Pill tone="blue">Meta {dashboard.metaAccountId}</Pill>}
@@ -360,14 +360,14 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                 type="checkbox"
                 checked={form.enabled}
                 onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
-                className="accent-violet-500 w-4 h-4"
+                className="accent-ui-accent w-4 h-4"
               />
-              <span className="text-sm text-white font-medium">Bot activé</span>
-              <span className="text-xs text-gray-500">Désactivé : invisible pour les clients, même avec un accès.</span>
+              <span className="text-sm text-ui-fg font-medium">Bot activé</span>
+              <span className="text-xs text-ui-muted">Désactivé : invisible pour les clients, même avec un accès.</span>
             </label>
 
             <label className="flex flex-wrap items-center gap-3">
-              <span className="text-sm text-white font-medium">Quota journalier</span>
+              <span className="text-sm text-ui-fg font-medium">Quota journalier</span>
               <input
                 type="number"
                 min={0}
@@ -376,12 +376,12 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                 placeholder="défaut agence"
                 className={`${inputCls} w-36`}
               />
-              <span className="text-xs text-gray-500">messages par jour, tous les utilisateurs du bot ensemble · vide = défaut de l&apos;agence (Admin → Quotas), 0 = illimité.</span>
+              <span className="text-xs text-ui-muted">messages par jour, tous les utilisateurs du bot ensemble · vide = défaut de l&apos;agence (Admin → Quotas), 0 = illimité.</span>
             </label>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-gray-400">Nom affiché</span>
+                <span className="text-xs text-ui-fg2">Nom affiché</span>
                 <input
                   type="text"
                   value={form.name}
@@ -393,8 +393,8 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                 />
               </label>
               <label className="flex flex-col gap-1">
-                <span className="text-xs text-gray-400">
-                  Clé client <span className="text-gray-600">(client_key de l&apos;entrepôt e-commerce)</span>
+                <span className="text-xs text-ui-fg2">
+                  Clé client <span className="text-ui-muted">(client_key de l&apos;entrepôt e-commerce)</span>
                 </span>
                 <input
                   type="text"
@@ -410,7 +410,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
             </div>
 
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-gray-400">Contexte métier</span>
+              <span className="text-xs text-ui-fg2">Contexte métier</span>
               <textarea
                 value={form.businessContext}
                 onChange={(e) => setForm({ ...form, businessContext: e.target.value })}
@@ -419,11 +419,11 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                 className={`${inputCls} min-h-[220px] leading-relaxed`}
                 placeholder={CONTEXT_HELP}
               />
-              <span className="text-[11px] text-gray-500">{CONTEXT_HELP}</span>
+              <span className="text-[11px] text-ui-muted">{CONTEXT_HELP}</span>
             </label>
 
             <fieldset className="flex flex-col gap-2">
-              <legend className="text-xs text-gray-400 mb-1">Sources accessibles au bot</legend>
+              <legend className="text-xs text-ui-fg2 mb-1">Sources accessibles au bot</legend>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <SourceToggle
                   checked={Boolean(sources.meta)}
@@ -466,8 +466,8 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                       : "Import CSV / Excel par le client depuis le chat (dossier Drive facultatif, ci-dessous)"
                   }
                 />
-                <label className="flex flex-col gap-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2">
-                  <span className="text-sm text-white">GA4</span>
+                <label className="flex flex-col gap-1 bg-ui-bg border border-ui-line rounded-lg px-3 py-2">
+                  <span className="text-sm text-ui-fg">GA4</span>
                   <input
                     type="text"
                     value={sources.ga4PropertyId ?? ""}
@@ -494,7 +494,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                   {saveStatus.text}
                 </span>
               )}
-              {bot && <span className="text-[11px] text-gray-600">Modifié le {formatDate(bot.updatedAt)}</span>}
+              {bot && <span className="text-[11px] text-ui-muted">Modifié le {formatDate(bot.updatedAt)}</span>}
             </div>
           </form>
         </Card>
@@ -503,49 +503,49 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
       <section>
         <h2 className={sectionTitleCls}>Accès</h2>
         {!bot ? (
-          <p className="text-sm text-gray-500">Créez le bot pour pouvoir donner des accès.</p>
+          <p className="text-sm text-ui-muted">Créez le bot pour pouvoir donner des accès.</p>
         ) : (
           <div className="flex flex-col gap-3">
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ui-muted">
               Les admins et consultants ont accès à tous les bots actifs. Les accès ci-dessous concernent les clients.
             </p>
 
             {lastGranted && (
               <Card padded className="border-emerald-900/40 bg-emerald-500/5">
-                <div className="text-sm font-semibold text-emerald-300 mb-1">
+                <div className="text-sm font-medium text-emerald-300 mb-1">
                   {lastGranted.created ? "Compte créé et accès accordé" : "Accès accordé"}
                 </div>
-                <div className="text-xs text-gray-300">
-                  Email : <code className="text-white">{lastGranted.email}</code>
+                <div className="text-xs text-ui-fg2">
+                  Email : <code className="text-ui-fg">{lastGranted.email}</code>
                 </div>
                 {lastGranted.password ? (
                   <>
-                    <div className="text-xs text-gray-300 mt-0.5 flex items-center gap-2">
+                    <div className="text-xs text-ui-fg2 mt-0.5 flex items-center gap-2">
                       Mot de passe temporaire :
-                      <code className="px-2 py-0.5 rounded bg-gray-950 text-white">{lastGranted.password}</code>
+                      <code className="px-2 py-0.5 rounded bg-ui-bg text-ui-fg">{lastGranted.password}</code>
                       <CopyButton value={lastGranted.password} />
                     </div>
-                    <div className="text-xs mt-2 text-gray-500">Notez-le maintenant — il ne sera plus affiché.</div>
+                    <div className="text-xs mt-2 text-ui-muted">Notez-le maintenant — il ne sera plus affiché.</div>
                   </>
                 ) : (
-                  <div className="text-xs mt-1 text-gray-500">Utilisateur déjà existant : ses identifiants sont inchangés.</div>
+                  <div className="text-xs mt-1 text-ui-muted">Utilisateur déjà existant : ses identifiants sont inchangés.</div>
                 )}
-                <button onClick={() => setLastGranted(null)} className="mt-2 text-xs text-gray-400 hover:text-white underline">
+                <button onClick={() => setLastGranted(null)} className="mt-2 text-xs text-ui-fg2 hover:text-ui-fg underline">
                   Fermer
                 </button>
               </Card>
             )}
 
             {accesses.length === 0 ? (
-              <p className="text-sm text-gray-500">Aucun accès client.</p>
+              <p className="text-sm text-ui-muted">Aucun accès client.</p>
             ) : (
               accesses.map((a) => (
                 <Card key={a.userId} padded className="!p-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <Pill tone={a.role === "client" ? "default" : "blue"}>{a.role}</Pill>
                     <div className="min-w-0">
-                      <div className="text-sm text-white truncate">{a.email ?? a.userId}</div>
-                      <div className="text-[11px] text-gray-500">
+                      <div className="text-sm text-ui-fg truncate">{a.email ?? a.userId}</div>
+                      <div className="text-[11px] text-ui-muted">
                         {a.name ? `${a.name} · ` : ""}accès depuis le {formatDate(a.createdAt)}
                         {a.role === "client" && (a.dashboardHidden ? " · assistant seul (dashboard masqué)" : " · voit aussi le dashboard")}
                       </div>
@@ -553,12 +553,12 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {a.role === "client" && (
-                      <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer" title="Le client voit aussi le dashboard en plus de l'assistant IA">
-                        <input type="checkbox" checked={!a.dashboardHidden} onChange={() => toggleDashboard(a)} className="accent-violet-500" />
+                      <label className="flex items-center gap-1.5 text-xs text-ui-fg2 cursor-pointer" title="Le client voit aussi le dashboard en plus de l'assistant IA">
+                        <input type="checkbox" checked={!a.dashboardHidden} onChange={() => toggleDashboard(a)} className="accent-ui-accent" />
                         Dashboard
                       </label>
                     )}
-                    <Link href={`/admin/users/${a.userId}`} className="text-xs text-gray-400 hover:text-white underline">
+                    <Link href={`/admin/users/${a.userId}`} className="text-xs text-ui-fg2 hover:text-ui-fg underline">
                       Fiche
                     </Link>
                     <button onClick={() => revokeAccess(a.userId, a.email)} className={dangerBtnCls}>
@@ -571,7 +571,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
 
             <Card padded>
               <form onSubmit={grantAccess} className="flex flex-col gap-3">
-                <div className="text-xs text-gray-400">
+                <div className="text-xs text-ui-fg2">
                   Donner accès à un email — si l&apos;utilisateur n&apos;existe pas, un compte client est créé avec un mot de passe temporaire.
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -591,8 +591,8 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                     className={inputCls}
                   />
                 </div>
-                <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
-                  <input type="checkbox" checked={accessShowDashboard} onChange={(e) => setAccessShowDashboard(e.target.checked)} className="accent-violet-500" />
+                <label className="flex items-center gap-2 text-xs text-ui-fg2 cursor-pointer">
+                  <input type="checkbox" checked={accessShowDashboard} onChange={(e) => setAccessShowDashboard(e.target.checked)} className="accent-ui-accent" />
                   Le client voit aussi le dashboard (décoché : assistant IA seulement)
                 </label>
                 {accessError && <p className="text-xs text-red-400">{accessError}</p>}
@@ -608,43 +608,43 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
       <section>
         <h2 className={sectionTitleCls}>Alimentation des données e-commerce</h2>
         {!bot ? (
-          <p className="text-sm text-gray-500">Créez le bot pour générer un token d&apos;ingestion.</p>
+          <p className="text-sm text-ui-muted">Créez le bot pour générer un token d&apos;ingestion.</p>
         ) : (
           <div className="flex flex-col gap-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <Card padded className="!p-3">
-                <div className="text-[11px] text-gray-500 uppercase tracking-wide">Token d&apos;ingestion</div>
-                <div className="text-sm text-white mt-1">
+                <div className="text-[11px] text-ui-muted ">Token d&apos;ingestion</div>
+                <div className="text-sm text-ui-fg mt-1">
                   {data.ingestConfigured ? <Pill tone="emerald">Configuré</Pill> : <Pill tone="amber">Aucun</Pill>}
                 </div>
               </Card>
               <Card padded className="!p-3">
-                <div className="text-[11px] text-gray-500 uppercase tracking-wide">Dernier ingest</div>
-                <div className="text-sm text-white mt-1">{formatDate(bot.lastIngestAt)}</div>
+                <div className="text-[11px] text-ui-muted ">Dernier ingest</div>
+                <div className="text-sm text-ui-fg mt-1">{formatDate(bot.lastIngestAt)}</div>
               </Card>
               <Card padded className="!p-3">
-                <div className="text-[11px] text-gray-500 uppercase tracking-wide">Lignes reçues</div>
-                <div className="text-sm text-white mt-1">{bot.lastIngestRows ?? "—"}</div>
+                <div className="text-[11px] text-ui-muted ">Lignes reçues</div>
+                <div className="text-sm text-ui-fg mt-1">{bot.lastIngestRows ?? "—"}</div>
               </Card>
             </div>
 
             {issuedToken && (
               <Card padded className="border-emerald-900/40 bg-emerald-500/5">
-                <div className="text-sm font-semibold text-emerald-300 mb-2">Token généré — à copier dans n8n</div>
-                <div className="text-xs text-gray-300 flex items-center gap-2 flex-wrap">
+                <div className="text-sm font-medium text-emerald-300 mb-2">Token généré — à copier dans n8n</div>
+                <div className="text-xs text-ui-fg2 flex items-center gap-2 flex-wrap">
                   URL :
-                  <code className="px-2 py-0.5 rounded bg-gray-950 text-white break-all">{issuedToken.ingestUrl}</code>
+                  <code className="px-2 py-0.5 rounded bg-ui-bg text-ui-fg break-all">{issuedToken.ingestUrl}</code>
                   <CopyButton value={issuedToken.ingestUrl} />
                 </div>
-                <div className="text-xs text-gray-300 mt-1 flex items-center gap-2 flex-wrap">
+                <div className="text-xs text-ui-fg2 mt-1 flex items-center gap-2 flex-wrap">
                   Header :
-                  <code className="px-2 py-0.5 rounded bg-gray-950 text-white break-all">Authorization: Bearer {issuedToken.token}</code>
+                  <code className="px-2 py-0.5 rounded bg-ui-bg text-ui-fg break-all">Authorization: Bearer {issuedToken.token}</code>
                   <CopyButton value={issuedToken.token} label="Copier le token" />
                 </div>
-                <div className="text-xs mt-2 text-gray-500">
+                <div className="text-xs mt-2 text-ui-muted">
                   Body JSON <code>{"{ rows: [...] }"}</code> (max 2000 lignes par appel). Le token ne sera plus affiché.
                 </div>
-                <button onClick={() => setIssuedToken(null)} className="mt-2 text-xs text-gray-400 hover:text-white underline">
+                <button onClick={() => setIssuedToken(null)} className="mt-2 text-xs text-ui-fg2 hover:text-ui-fg underline">
                   Fermer
                 </button>
               </Card>
@@ -663,13 +663,13 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
       <section>
         <h2 className={sectionTitleCls}>Fichiers de données (Google Drive)</h2>
         {!bot ? (
-          <p className="text-sm text-gray-500">Créez le bot pour lui rattacher un dossier Drive.</p>
+          <p className="text-sm text-ui-muted">Créez le bot pour lui rattacher un dossier Drive.</p>
         ) : (
           <div className="flex flex-col gap-3">
             <Card padded className="!p-4">
-              <p className="text-xs text-gray-400 leading-relaxed">
-                Déposez des fichiers <span className="text-gray-200">CSV, Excel ou Google Sheets</span> dans le dossier Drive du
-                client (Drive de <code className="text-gray-200">data@impulse-analytics.com</code>) : n8n les récupère sous
+              <p className="text-xs text-ui-fg2 leading-relaxed">
+                Déposez des fichiers <span className="text-ui-fg">CSV, Excel ou Google Sheets</span> dans le dossier Drive du
+                client (Drive de <code className="text-ui-fg">data@impulse-analytics.com</code>) : n8n les récupère sous
                 une quinzaine de minutes. Première ligne = en-têtes de colonnes, un seul sujet par fichier ; le nom du fichier
                 devient le nom du jeu de données. Un fichier redéposé sous le même nom remplace la version précédente (200 000
                 lignes maximum par fichier). Le bot ne lit ces fichiers que si la source « Fichiers de données » est
@@ -681,7 +681,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
             <Card padded>
               <div className="flex flex-col gap-2">
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs text-gray-400">Dossier Drive du client</span>
+                  <span className="text-xs text-ui-fg2">Dossier Drive du client</span>
                   <input
                     type="text"
                     value={form.driveFolderId}
@@ -692,7 +692,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                     className={`${inputCls} font-mono text-xs`}
                     placeholder="Lien du dossier ou identifiant Drive"
                   />
-                  <span className="text-[11px] text-gray-500">
+                  <span className="text-[11px] text-ui-muted">
                     Collez le lien du dossier (…/drive/folders/ID). Le dossier doit être dans le Drive de
                     data@impulse-analytics.com ou partagé avec cette adresse. Vide = aucun dossier.
                   </span>
@@ -711,7 +711,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                       href={`https://drive.google.com/drive/folders/${bot.driveFolderId}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-violet-300 hover:text-violet-200 underline"
+                      className="text-xs text-ui-accent-ink hover:text-ui-accent-ink underline"
                     >
                       Ouvrir dans Drive
                     </a>
@@ -813,7 +813,7 @@ function DriveDatasets({ dashboardId, hasFolder, refreshKey }: { dashboardId: st
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-ui-fg2">
           Fichiers chargés{datasets && datasets.length > 0 ? ` (${datasets.length})` : ""}
         </span>
         <button type="button" onClick={load} disabled={loading} className={`${secondaryBtnCls} !px-3 !py-1 text-xs`}>
@@ -825,10 +825,10 @@ function DriveDatasets({ dashboardId, hasFolder, refreshKey }: { dashboardId: st
       {warning && <p className="text-xs text-amber-300">{warning}</p>}
 
       {loading && datasets === null ? (
-        <p className="text-sm text-gray-500">Chargement des fichiers…</p>
+        <p className="text-sm text-ui-muted">Chargement des fichiers…</p>
       ) : !datasets || datasets.length === 0 ? (
         !error && (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-ui-muted">
             Aucun fichier chargé pour l&apos;instant.{!hasFolder && " Indiquez le dossier Drive ci-dessus."}
           </p>
         )
@@ -841,8 +841,8 @@ function DriveDatasets({ dashboardId, hasFolder, refreshKey }: { dashboardId: st
             <Card key={ds.datasetKey} padded className="!p-3 flex flex-col gap-2">
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
-                  <div className="text-sm text-white font-medium truncate">{ds.name}</div>
-                  <div className="text-[11px] text-gray-500 flex items-center gap-2 flex-wrap">
+                  <div className="text-sm text-ui-fg font-medium truncate">{ds.name}</div>
+                  <div className="text-[11px] text-ui-muted flex items-center gap-2 flex-wrap">
                     <span>{ds.rowCount.toLocaleString("fr-FR")} lignes</span>
                     <span>·</span>
                     <span>chargé le {formatDate(ds.loadedAt)}</span>
@@ -866,8 +866,8 @@ function DriveDatasets({ dashboardId, hasFolder, refreshKey }: { dashboardId: st
 
               {ds.lastError && <p className="text-xs text-red-400 break-words">{ds.lastError}</p>}
 
-              <div className="text-[11px] text-gray-400">
-                <span className="text-gray-600">Colonnes : </span>
+              <div className="text-[11px] text-ui-fg2">
+                <span className="text-ui-muted">Colonnes : </span>
                 {summarizeColumns(ds.columns)}
               </div>
 
@@ -917,8 +917,8 @@ function SourceToggle({
 }) {
   return (
     <label
-      className={`flex items-center gap-3 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 ${
-        disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-gray-700"
+      className={`flex items-center gap-3 bg-ui-bg border border-ui-line rounded-lg px-3 py-2 ${
+        disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer hover:border-ui-line-strong"
       }`}
     >
       <input
@@ -926,11 +926,11 @@ function SourceToggle({
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="accent-violet-500 w-4 h-4"
+        className="accent-ui-accent w-4 h-4"
       />
       <span className="min-w-0">
-        <span className="block text-sm text-white">{label}</span>
-        {hint && <span className="block text-[11px] text-gray-500">{hint}</span>}
+        <span className="block text-sm text-ui-fg">{label}</span>
+        {hint && <span className="block text-[11px] text-ui-muted">{hint}</span>}
       </span>
     </label>
   );

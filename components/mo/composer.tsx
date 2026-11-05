@@ -115,18 +115,18 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ vo
   return (
     <div className={`flex flex-col items-center pointer-events-none ${className ?? ""}`}>
       <div className="w-[min(92vw,44rem)] mb-2 space-y-1.5 text-center min-h-[1.25rem]">
-        {lastSaid?.you && !voice.listening && <div className="text-[13px] text-gray-400 line-clamp-2"><span className="text-gray-600">Toi ·</span> {lastSaid.you}</div>}
+        {lastSaid?.you && !voice.listening && <div className="text-[13px] text-ui-fg2 line-clamp-2"><span className="text-ui-muted">Toi ·</span> {lastSaid.you}</div>}
         {status ? (
-          <div data-mo-status className="inline-flex items-center gap-2 rounded-full border border-violet-400/20 bg-violet-500/10 backdrop-blur px-3.5 py-1.5 text-[13px] text-violet-100 max-w-full">
+          <div data-mo-status className="inline-flex items-center gap-2 rounded-full border border-ui-accent bg-ui-accent-soft backdrop-blur px-3.5 py-1.5 text-[13px] text-ui-accent-ink max-w-full">
             {busy && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
             <span className="truncate">{status}{busy ? "…" : ""}</span>
           </div>
         ) : lastSaid?.mo ? (
-          <div data-mo-say className="text-[15px] text-gray-100 leading-snug pointer-events-auto">
-            {voice.speaking ? <Volume2 className="w-3.5 h-3.5 text-violet-300 inline -mt-0.5 mr-1" /> : <span className="text-violet-300">Mo ·</span>} {lastSaid.mo}
-            {voice.speaking && <button type="button" onClick={() => voice.hush()} className="ml-2 text-[11px] text-gray-400 hover:text-white align-middle">stop</button>}
+          <div data-mo-say className="text-[15px] text-ui-fg leading-snug pointer-events-auto">
+            {voice.speaking ? <Volume2 className="w-3.5 h-3.5 text-ui-accent-ink inline -mt-0.5 mr-1" /> : <span className="text-ui-accent-ink">Mo ·</span>} {lastSaid.mo}
+            {voice.speaking && <button type="button" onClick={() => voice.hush()} className="ml-2 text-[11px] text-ui-fg2 hover:text-ui-fg align-middle">stop</button>}
             {onThumbsDown && (
-              <button type="button" data-mo-thumbs-down onClick={() => { if (downed === lastSaid.mo) return; setDowned(lastSaid.mo); onThumbsDown(); }} disabled={downed === lastSaid.mo} className={`ml-2 inline-flex items-center gap-1 align-middle text-[11px] ${downed === lastSaid.mo ? "text-amber-300" : "text-gray-500 hover:text-amber-300"}`} title="Mo n'a pas compris : je le note pour améliorer Mo" aria-label="Mo n'a pas compris">
+              <button type="button" data-mo-thumbs-down onClick={() => { if (downed === lastSaid.mo) return; setDowned(lastSaid.mo); onThumbsDown(); }} disabled={downed === lastSaid.mo} className={`ml-2 inline-flex items-center gap-1 align-middle text-[11px] ${downed === lastSaid.mo ? "text-amber-300" : "text-ui-muted hover:text-amber-300"}`} title="Mo n'a pas compris : je le note pour améliorer Mo" aria-label="Mo n'a pas compris">
                 <ThumbsDown className="w-3 h-3" />{downed === lastSaid.mo ? "noté" : null}
               </button>
             )}
@@ -135,19 +135,19 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ vo
         {error && <div data-mo-error className="text-[12px] text-rose-300">{error}</div>}
         {ask && !running && (
           <div data-mo-chips className="pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 pt-1">
-            <span className="text-[12px] text-violet-200/80 mr-1">{ask.question}</span>
+            <span className="text-[12px] text-ui-accent-ink mr-1">{ask.question}</span>
             {ask.chips.map((c) => (
-              <button key={c.label} type="button" onClick={c.onPick} className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${c.muted ? "border-white/10 bg-black/30 text-gray-400 hover:text-white hover:border-white/30" : "border-violet-400/40 bg-violet-500/15 text-violet-100 hover:bg-violet-500/30 hover:border-violet-300"}`}>{c.label}</button>
+              <button key={c.label} type="button" onClick={c.onPick} className={`rounded-full border px-3 py-1 text-[12px] transition-colors ${c.muted ? "border-ui-line bg-black/50 text-ui-fg2 hover:text-ui-fg hover:border-ui-line" : "border-ui-accent bg-ui-accent-soft text-ui-accent-ink hover:bg-ui-accent-soft hover:border-ui-accent"}`}>{c.label}</button>
             ))}
           </div>
         )}
       </div>
       <form
-        className="pointer-events-auto flex items-center gap-2 w-[min(92vw,44rem)] rounded-full border border-white/10 bg-black/50 backdrop-blur-xl pl-1.5 pr-1.5 py-1.5 shadow-[0_10px_40px_-10px_rgba(124,58,237,0.5)] focus-within:border-violet-400/60"
+        className="pointer-events-auto flex items-center gap-2 w-[min(92vw,44rem)] rounded-full border border-ui-line bg-black/50 backdrop-blur-xl pl-1.5 pr-1.5 py-1.5 shadow-[0_10px_40px_-10px_rgba(124,58,237,0.5)] focus-within:border-ui-accent"
         onSubmit={(e) => { e.preventDefault(); submit(); }}
       >
         {running ? (
-          <button type="button" onClick={running.onStop} className="w-11 h-11 shrink-0 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 shadow-[0_0_40px_rgba(139,92,246,0.55)] inline-flex items-center justify-center text-white mo-orb-think" aria-label="Arrêter Mo" title="Arrêter Mo"><Square className="w-4 h-4" /></button>
+          <button type="button" onClick={running.onStop} className="w-11 h-11 shrink-0 rounded-full inline-flex items-center justify-center text-ui-on-accent mo-orb-think bg-ui-accent" aria-label="Arrêter Mo" title="Arrêter Mo"><Square className="w-4 h-4" /></button>
         ) : (
           <button
             type="button"
@@ -155,7 +155,7 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ vo
             onPointerUp={micUp}
             onPointerLeave={micLeave}
             onContextMenu={(e) => e.preventDefault()}
-            className={`w-11 h-11 shrink-0 rounded-full inline-flex items-center justify-center text-white transition-transform ${voice.listening ? "bg-gradient-to-br from-fuchsia-500 to-violet-600 shadow-[0_0_60px_rgba(217,70,239,0.7)]" : voice.transcribing ? "bg-gradient-to-br from-violet-500 to-purple-700 mo-orb-think" : "bg-gradient-to-br from-violet-500 to-purple-700 shadow-[0_0_30px_rgba(139,92,246,0.45)] hover:scale-105"}`}
+            className={`w-11 h-11 shrink-0 rounded-full inline-flex items-center justify-center text-white transition-transform ${voice.listening ? " bg-ui-accent" : voice.transcribing ? " mo-orb-think bg-ui-accent" : " hover:scale-105 bg-ui-accent"}`}
             style={voice.listening ? { transform: `scale(${1.05 + voice.level * 0.25})` } : undefined}
             aria-label={voice.listening ? "Arrêter d'écouter" : "Parler à Mo"}
             title={voice.supported ? "Maintiens pour parler (ou la barre espace) · un clic pour parler sans maintenir" : "Reconnaissance vocale indisponible ici : écris à Mo"}
@@ -174,19 +174,19 @@ export const Composer = forwardRef<ComposerHandle, Props>(function Composer({ vo
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
           }}
           placeholder={voice.listening ? "Je t'écoute…" : running ? "Mo travaille… (tu peux préparer la suite)" : "Écris à Mo, ou maintiens espace pour parler"}
-          className="flex-1 min-w-0 bg-transparent px-2 py-2 text-[14px] text-white placeholder:text-gray-500 focus:outline-none"
+          className="flex-1 min-w-0 bg-transparent px-2 py-2 text-[14px] text-ui-fg placeholder:text-ui-muted focus:outline-none"
           autoComplete="off"
           spellCheck={false}
         />
         {voice.supported && (
-          <button type="button" data-mo-handsfree onClick={() => voice.setHandsFree(!voice.handsFree)} aria-pressed={voice.handsFree} className={`w-8 h-8 shrink-0 rounded-full inline-flex items-center justify-center transition-colors ${voice.handsFree ? "bg-fuchsia-500/30 text-fuchsia-100 ring-1 ring-fuchsia-400/60" : "text-gray-500 hover:text-white hover:bg-white/10"}`} title={voice.handsFree ? "Mains libres actif : Mo écoute en continu et envoie après un silence · clic pour arrêter" : "Mains libres : Mo écoute en continu et envoie après un silence (pas de mot d'activation)"} aria-label="Mains libres">
+          <button type="button" data-mo-handsfree onClick={() => voice.setHandsFree(!voice.handsFree)} aria-pressed={voice.handsFree} className={`w-8 h-8 shrink-0 rounded-full inline-flex items-center justify-center transition-colors ${voice.handsFree ? "bg-ui-accent-soft text-ui-accent-ink ring-1 ring-ui-accent/40" : "text-ui-muted hover:text-ui-fg hover:bg-ui-raised"}`} title={voice.handsFree ? "Mains libres actif : Mo écoute en continu et envoie après un silence · clic pour arrêter" : "Mains libres : Mo écoute en continu et envoie après un silence (pas de mot d'activation)"} aria-label="Mains libres">
             <AudioLines className="w-4 h-4" />
           </button>
         )}
-        <kbd className="hidden sm:inline text-[10px] text-gray-600 border border-white/10 rounded px-1 py-0.5 mr-1">/</kbd>
-        <button type="submit" disabled={!text.trim() || !!running} className="w-9 h-9 shrink-0 rounded-full bg-violet-600 hover:bg-violet-500 disabled:opacity-30 inline-flex items-center justify-center text-white" aria-label="Envoyer" title="Envoyer (⏎ ou ⌘⏎)"><SendHorizontal className="w-4 h-4" /></button>
+        <kbd className="hidden sm:inline text-[10px] text-ui-muted border border-ui-line rounded px-1 py-0.5 mr-1">/</kbd>
+        <button type="submit" disabled={!text.trim() || !!running} className="w-9 h-9 shrink-0 rounded-full bg-ui-accent hover:brightness-110 disabled:opacity-30 inline-flex items-center justify-center text-ui-on-accent" aria-label="Envoyer" title="Envoyer (⏎ ou ⌘⏎)"><SendHorizontal className="w-4 h-4" /></button>
       </form>
-      <div className="mt-1.5 text-[11px] text-gray-500">{voice.handsFree ? "mains libres : parle, un silence envoie · parle pendant que Mo parle pour le couper · Échap pour arrêter" : voice.supported ? "espace ou l'orbe pour parler · / pour écrire · Échap pour couper" : "Reconnaissance vocale indisponible ici : utilise Chrome, ou écris à Mo"}</div>
+      <div className="mt-1.5 text-[11px] text-ui-muted">{voice.handsFree ? "mains libres : parle, un silence envoie · parle pendant que Mo parle pour le couper · Échap pour arrêter" : voice.supported ? "espace ou l'orbe pour parler · / pour écrire · Échap pour couper" : "Reconnaissance vocale indisponible ici : utilise Chrome, ou écris à Mo"}</div>
     </div>
   );
 });

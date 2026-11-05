@@ -270,58 +270,58 @@ export function PilotPage() {
       />
 
       {studioPick && (
-        <div className="flex items-center gap-3 rounded-xl border border-violet-500/40 bg-violet-500/5 p-3">
+        <div className="flex items-center gap-3 rounded-xl border border-ui-accent bg-ui-accent-soft p-3">
           {studioPick.kind === "video"
             ? <video src={studioPick.url} muted playsInline preload="metadata" className="w-14 h-14 rounded object-cover bg-black" />
             : <img src={studioPick.url} alt="" className="w-14 h-14 rounded object-cover" />}
-          <p className="text-sm text-gray-200 flex-1">
+          <p className="text-sm text-ui-fg flex-1">
             {studioPick.kind === "video" ? "Vidéo du Studio prête" : "Image du Studio prête"} à pousser sur Meta (format {studioPick.kind === "video" ? "vidéo" : "image"}) : choisissez le compte Meta, puis « Modifier » → « Nouvelle publicité » sur l&apos;ensemble de publicités voulu.
           </p>
-          <button type="button" onClick={() => setStudioPick(null)} className="text-xs text-gray-400 hover:text-white">Ignorer</button>
+          <button type="button" onClick={() => setStudioPick(null)} className="text-xs text-ui-fg2 hover:text-ui-fg">Ignorer</button>
         </div>
       )}
 
       <Card padded>
         {client ? (
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-white font-semibold">{client.name}</span>
+            <span className="text-ui-fg font-medium">{client.name}</span>
             {client.accounts.length > 1 ? (
-              <select value={refKey(account)} onChange={(e) => pickAccount(e.target.value)} className="bg-gray-950 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white">
+              <select value={refKey(account)} onChange={(e) => pickAccount(e.target.value)} className="bg-ui-bg border border-ui-line-strong rounded-lg px-2 py-1.5 text-sm text-ui-fg">
                 {client.accounts.map((a) => <option key={refKey(a)} value={refKey(a)}>{PLATFORM_FR[a.platform]} · {a.name ?? a.accountId}</option>)}
               </select>
-            ) : <span className="text-sm text-gray-400">{PLATFORM_FR[client.accounts[0]?.platform ?? "meta"]} · {client.accounts[0]?.name ?? client.accounts[0]?.accountId}</span>}
-            <button type="button" onClick={() => client && account && void loadStructure(client.id, account)} className="text-xs text-gray-400 hover:text-white flex items-center gap-1">
+            ) : <span className="text-sm text-ui-fg2">{PLATFORM_FR[client.accounts[0]?.platform ?? "meta"]} · {client.accounts[0]?.name ?? client.accounts[0]?.accountId}</span>}
+            <button type="button" onClick={() => client && account && void loadStructure(client.id, account)} className="text-xs text-ui-fg2 hover:text-ui-fg flex items-center gap-1">
               <RefreshCw className={`w-3.5 h-3.5 ${loadingStructure ? "animate-spin" : ""}`} /> Relire le compte
             </button>
-            <button type="button" onClick={() => { setClient(null); setStructure(null); setPending([]); setPreview(null); setJournal([]); }} className="ml-auto text-xs text-gray-400 hover:text-white">Changer de client</button>
+            <button type="button" onClick={() => { setClient(null); setStructure(null); setPending([]); setPreview(null); setJournal([]); }} className="ml-auto text-xs text-ui-fg2 hover:text-ui-fg">Changer de client</button>
           </div>
         ) : (
           <div>
-            <label className="flex items-center gap-2 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2">
-              <Search className="w-4 h-4 text-gray-500" />
-              <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={clients ? `Chercher parmi ${clients.length} clients (nom ou compte)` : "Chercher un client"} className="bg-transparent text-sm text-white outline-none flex-1" />
+            <label className="flex items-center gap-2 bg-ui-bg border border-ui-line rounded-lg px-3 py-2">
+              <Search className="w-4 h-4 text-ui-muted" />
+              <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={clients ? `Chercher parmi ${clients.length} clients (nom ou compte)` : "Chercher un client"} className="bg-transparent text-sm text-ui-fg outline-none flex-1" />
             </label>
             {clients && (
               <div className="flex flex-wrap items-center gap-2 mt-3 text-xs">
                 {([["", "Tous"], ["meta", "Avec Meta"], ["google", "Avec Google Ads"], ["tiktok", "Avec TikTok"]] as const).map(([k, l]) => (
-                  <button key={k} type="button" onClick={() => setPlatformFilter(k)} className={`px-2.5 py-1 rounded-md border ${platformFilter === k ? "border-violet-500 text-white" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
+                  <button key={k} type="button" onClick={() => setPlatformFilter(k)} className={`px-2.5 py-1 rounded-md border ${platformFilter === k ? "border-ui-accent text-ui-fg" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>{l}</button>
                 ))}
-                <span className="text-gray-500 ml-1">{found.length} client{found.length > 1 ? "s" : ""}</span>
+                <span className="text-ui-muted ml-1">{found.length} client{found.length > 1 ? "s" : ""}</span>
               </div>
             )}
             {clientsError && <p className="text-sm text-red-300 mt-3">{clientsError}</p>}
-            {!clients && !clientsError && <p className="text-sm text-gray-500 mt-3 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture des clients…</p>}
+            {!clients && !clientsError && <p className="text-sm text-ui-muted mt-3 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture des clients…</p>}
             {clients && (
               <ul className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[60vh] overflow-y-auto pr-1">
                 {found.map((c) => (
                   <li key={c.id}>
-                    <button type="button" onClick={() => pick(c)} className="w-full text-left px-3 py-2 rounded-lg border border-gray-800 hover:border-violet-500/60 hover:bg-gray-800/40">
-                      <span className="text-sm text-white">{c.name}</span>
-                      <span className="block text-[11px] text-gray-500">{accountsSummary(c)}{c.dormant ? " · sans dépense récente" : ""}</span>
+                    <button type="button" onClick={() => pick(c)} className="w-full text-left px-3 py-2 rounded-lg border border-ui-line hover:border-ui-accent hover:bg-ui-raised">
+                      <span className="text-sm text-ui-fg">{c.name}</span>
+                      <span className="block text-[11px] text-ui-muted">{accountsSummary(c)}{c.dormant ? " · sans dépense récente" : ""}</span>
                     </button>
                   </li>
                 ))}
-                {!found.length && <li className="text-sm text-gray-500">Aucun client trouvé.</li>}
+                {!found.length && <li className="text-sm text-ui-muted">Aucun client trouvé.</li>}
               </ul>
             )}
           </div>
@@ -337,7 +337,7 @@ export function PilotPage() {
       {client && account && (
         <div ref={modifyRef} className="grid lg:grid-cols-[minmax(0,1fr)_380px] gap-5 items-start scroll-mt-4">
           <Section title={structure ? `${PLATFORM_FR[account.platform]} · compte « ${structure.account.name || structure.account.id} »` : "Compte"}>
-            {loadingStructure && !structure && <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du compte sur {PLATFORM_FR[account.platform]}…</p>}
+            {loadingStructure && !structure && <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du compte sur {PLATFORM_FR[account.platform]}…</p>}
             {structureError && <p className="text-sm text-red-300">{structureError}</p>}
             {structure && (
               <>

@@ -15,7 +15,7 @@ import {
 } from "@/lib/pilot/targeting";
 
 type Audience = { id: string; name: string; subtype: string; size: number | null; ready: boolean };
-const input = "bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-sm text-white outline-none focus:border-violet-500";
+const input = "bg-ui-bg border border-ui-line rounded-lg px-2.5 py-1.5 text-sm text-ui-fg outline-none focus:border-ui-accent";
 
 export function TargetingForm({ clientId, accountId, adsetId, adsetName, onCancel, onDone }: {
   clientId: string;
@@ -64,40 +64,40 @@ export function TargetingForm({ clientId, accountId, adsetId, adsetName, onCance
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
 
   return (
-    <div className="fixed inset-0 z-40 bg-black/60 flex items-start justify-center overflow-y-auto p-4" onClick={onCancel}>
-      <div className="w-full max-w-2xl bg-gray-900 border border-gray-700 rounded-2xl p-5 my-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-40 bg-black/50 flex items-start justify-center overflow-y-auto p-4" onClick={onCancel}>
+      <div className="w-full max-w-2xl bg-ui-card border border-ui-line-strong rounded-xl p-5 my-6 space-y-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h3 className="text-white font-semibold">Ciblage — « {adsetName} »</h3>
-          <button type="button" onClick={onCancel} className="text-gray-400 hover:text-white" aria-label="Fermer"><X className="w-4 h-4" /></button>
+          <h3 className="text-ui-fg font-medium">Ciblage — « {adsetName} »</h3>
+          <button type="button" onClick={onCancel} className="text-ui-fg2 hover:text-ui-fg" aria-label="Fermer"><X className="w-4 h-4" /></button>
         </div>
         {error && <p className="text-sm text-red-300">{error}</p>}
-        {!base && !error && <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du ciblage sur Meta…</p>}
+        {!base && !error && <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture du ciblage sur Meta…</p>}
         {base && current && (
           <>
-            <p className="text-xs text-gray-400">Aujourd&apos;hui : {summarizeTargeting(base).join(" · ")}</p>
+            <p className="text-xs text-ui-fg2">Aujourd&apos;hui : {summarizeTargeting(base).join(" · ")}</p>
             <div className="grid sm:grid-cols-2 gap-3 text-sm">
               <label className="space-y-1">
-                <span className="text-xs text-gray-400">Âge</span>
+                <span className="text-xs text-ui-fg2">Âge</span>
                 <div className="flex items-center gap-2">
                   <input type="number" min={13} max={65} value={value.ageMin} onChange={(e) => setEdits({ ...edits, ageMin: Number(e.target.value) })} className={`${input} w-20`} />
-                  <span className="text-gray-500">à</span>
+                  <span className="text-ui-muted">à</span>
                   <input type="number" min={13} max={65} value={value.ageMax} onChange={(e) => setEdits({ ...edits, ageMax: Number(e.target.value) })} className={`${input} w-20`} />
                 </div>
               </label>
               <div className="space-y-1">
-                <span className="text-xs text-gray-400">Genre</span>
+                <span className="text-xs text-ui-fg2">Genre</span>
                 <div className="flex gap-2">
                   {([[[], "Tous"], [[1], "Hommes"], [[2], "Femmes"]] as Array<[number[], string]>).map(([g, l]) => (
-                    <button key={l} type="button" onClick={() => setEdits({ ...edits, genders: g })} className={`px-2.5 py-1 rounded-md border text-xs ${JSON.stringify(value.genders) === JSON.stringify(g) ? "border-violet-500 text-white" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>
+                    <button key={l} type="button" onClick={() => setEdits({ ...edits, genders: g })} className={`px-2.5 py-1 rounded-md border text-xs ${JSON.stringify(value.genders) === JSON.stringify(g) ? "border-ui-accent text-ui-fg" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>{l}</button>
                   ))}
                 </div>
               </div>
             </div>
             <div className="space-y-1 text-sm">
-              <span className="text-xs text-gray-400">Pays (les régions, villes et lieux déjà ciblés sont gardés)</span>
+              <span className="text-xs text-ui-fg2">Pays (les régions, villes et lieux déjà ciblés sont gardés)</span>
               <div className="flex flex-wrap gap-1.5">
                 {value.countries.map((c) => (
-                  <button key={c} type="button" onClick={() => setEdits({ ...edits, countries: value.countries.filter((x) => x !== c) })} className="px-2 py-0.5 rounded-md bg-violet-500/15 border border-violet-500/40 text-xs text-white">{COUNTRIES_FR[c] ?? c} ×</button>
+                  <button key={c} type="button" onClick={() => setEdits({ ...edits, countries: value.countries.filter((x) => x !== c) })} className="px-2 py-0.5 rounded-md bg-ui-accent-soft border border-ui-accent text-xs text-ui-fg">{COUNTRIES_FR[c] ?? c} ×</button>
                 ))}
                 <select value={countryInput} onChange={(e) => { if (e.target.value) setEdits({ ...edits, countries: [...new Set([...value.countries, e.target.value])] }); setCountryInput(""); }} className={`${input} py-0.5 text-xs`}>
                   <option value="">+ ajouter un pays</option>
@@ -108,48 +108,48 @@ export function TargetingForm({ clientId, accountId, adsetId, adsetName, onCance
             <div className="grid sm:grid-cols-2 gap-3 text-sm">
               {([["customAudiences", "Audiences incluses"], ["excludedCustomAudiences", "Audiences exclues"]] as const).map(([key, label]) => (
                 <div key={key} className="space-y-1">
-                  <span className="text-xs text-gray-400">{label}</span>
-                  <div className="max-h-40 overflow-y-auto rounded-lg border border-gray-800 divide-y divide-gray-800/60">
+                  <span className="text-xs text-ui-fg2">{label}</span>
+                  <div className="max-h-40 overflow-y-auto rounded-lg border border-ui-line divide-y divide-ui-line">
                     {value[key].filter((id) => !audiences.some((a) => a.id === id)).map((id) => (
-                      <label key={id} className="flex items-center gap-2 px-2 py-1 text-xs text-gray-300"><input type="checkbox" checked onChange={() => setEdits({ ...edits, [key]: toggle(value[key], id) })} /> {audienceName(id)}</label>
+                      <label key={id} className="flex items-center gap-2 px-2 py-1 text-xs text-ui-fg2"><input type="checkbox" checked onChange={() => setEdits({ ...edits, [key]: toggle(value[key], id) })} /> {audienceName(id)}</label>
                     ))}
                     {audiences.map((a) => (
-                      <label key={a.id} className={`flex items-center gap-2 px-2 py-1 text-xs ${a.ready ? "text-gray-300" : "text-gray-600"}`} title={a.ready ? `${a.subtype}${a.size !== null ? ` · ~${a.size.toLocaleString("fr-FR")}` : ""}` : "Audience trop petite ou indisponible"}>
+                      <label key={a.id} className={`flex items-center gap-2 px-2 py-1 text-xs ${a.ready ? "text-ui-fg2" : "text-ui-muted"}`} title={a.ready ? `${a.subtype}${a.size !== null ? ` · ~${a.size.toLocaleString("fr-FR")}` : ""}` : "Audience trop petite ou indisponible"}>
                         <input type="checkbox" checked={value[key].includes(a.id)} onChange={() => setEdits({ ...edits, [key]: toggle(value[key], a.id) })} /> <span className="truncate">{a.name}</span>
                       </label>
                     ))}
-                    {!audiences.length && <p className="px-2 py-1 text-xs text-gray-500">Aucune audience personnalisée sur ce compte.</p>}
+                    {!audiences.length && <p className="px-2 py-1 text-xs text-ui-muted">Aucune audience personnalisée sur ce compte.</p>}
                   </div>
                 </div>
               ))}
             </div>
             <div className="grid sm:grid-cols-2 gap-3 text-sm">
               <div className="space-y-1">
-                <span className="text-xs text-gray-400">Placements</span>
-                <label className="flex items-center gap-2 text-xs text-gray-300"><input type="radio" checked={value.publisherPlatforms === null} onChange={() => setEdits({ ...edits, publisherPlatforms: null })} /> Automatiques (Advantage+)</label>
-                <label className="flex items-center gap-2 text-xs text-gray-300"><input type="radio" checked={value.publisherPlatforms !== null} onChange={() => setEdits({ ...edits, publisherPlatforms: value.publisherPlatforms ?? ["facebook", "instagram"] })} /> Manuels :</label>
+                <span className="text-xs text-ui-fg2">Placements</span>
+                <label className="flex items-center gap-2 text-xs text-ui-fg2"><input type="radio" checked={value.publisherPlatforms === null} onChange={() => setEdits({ ...edits, publisherPlatforms: null })} /> Automatiques (Advantage+)</label>
+                <label className="flex items-center gap-2 text-xs text-ui-fg2"><input type="radio" checked={value.publisherPlatforms !== null} onChange={() => setEdits({ ...edits, publisherPlatforms: value.publisherPlatforms ?? ["facebook", "instagram"] })} /> Manuels :</label>
                 {value.publisherPlatforms !== null && (
                   <div className="flex flex-wrap gap-2 pl-5">
                     {PUBLISHER_PLATFORMS.map((p) => (
-                      <label key={p} className="flex items-center gap-1 text-xs text-gray-300"><input type="checkbox" checked={value.publisherPlatforms!.includes(p)} onChange={() => setEdits({ ...edits, publisherPlatforms: toggle(value.publisherPlatforms!, p) })} /> {PLATFORM_FR_META[p]}</label>
+                      <label key={p} className="flex items-center gap-1 text-xs text-ui-fg2"><input type="checkbox" checked={value.publisherPlatforms!.includes(p)} onChange={() => setEdits({ ...edits, publisherPlatforms: toggle(value.publisherPlatforms!, p) })} /> {PLATFORM_FR_META[p]}</label>
                     ))}
                   </div>
                 )}
               </div>
-              <label className="flex items-center gap-2 text-xs text-gray-300 self-start mt-5"><input type="checkbox" checked={value.advantageAudience} onChange={(e) => setEdits({ ...edits, advantageAudience: e.target.checked })} /> Audience Advantage+ (Meta élargit au-delà du ciblage)</label>
+              <label className="flex items-center gap-2 text-xs text-ui-fg2 self-start mt-5"><input type="checkbox" checked={value.advantageAudience} onChange={(e) => setEdits({ ...edits, advantageAudience: e.target.checked })} /> Audience Advantage+ (Meta élargit au-delà du ciblage)</label>
             </div>
             <div className="space-y-1">
-              <button type="button" onClick={() => { setAdvanced(!advanced); if (!advanced) setRaw(JSON.stringify(withTargetingEdits(base, edits), null, 2)); }} className="text-xs text-gray-400 hover:text-white">{advanced ? "← Revenir au formulaire" : "Mode expert : le JSON complet (intérêts, positions, langues…)"}</button>
+              <button type="button" onClick={() => { setAdvanced(!advanced); if (!advanced) setRaw(JSON.stringify(withTargetingEdits(base, edits), null, 2)); }} className="text-xs text-ui-fg2 hover:text-ui-fg">{advanced ? "← Revenir au formulaire" : "Mode expert : le JSON complet (intérêts, positions, langues…)"}</button>
               {advanced && <textarea value={raw} onChange={(e) => { setRaw(e.target.value); setRawError(null); }} rows={14} spellCheck={false} className={`${input} w-full font-mono text-xs`} />}
             </div>
-            <div className="rounded-lg border border-gray-800 px-3 py-2 text-xs">
-              <span className="text-gray-500">Ce qui changera : </span>
-              {diff.length ? <span className="text-gray-200">{diff.join(" ; ")}</span> : <span className="text-gray-500">rien pour le moment</span>}
+            <div className="rounded-lg border border-ui-line px-3 py-2 text-xs">
+              <span className="text-ui-muted">Ce qui changera : </span>
+              {diff.length ? <span className="text-ui-fg">{diff.join(" ; ")}</span> : <span className="text-ui-muted">rien pour le moment</span>}
             </div>
             {rawError && <p className="text-xs text-red-300">{rawError}</p>}
             <div className="flex items-center gap-3">
-              <button type="button" onClick={submit} disabled={!diff.length} className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm disabled:opacity-40">Ajouter aux modifications</button>
-              <button type="button" onClick={onCancel} className="text-sm text-gray-400 hover:text-white">Annuler</button>
+              <button type="button" onClick={submit} disabled={!diff.length} className="px-3 py-1.5 rounded-lg bg-ui-accent hover:brightness-110 text-ui-on-accent text-sm disabled:opacity-40">Ajouter aux modifications</button>
+              <button type="button" onClick={onCancel} className="text-sm text-ui-fg2 hover:text-ui-fg">Annuler</button>
             </div>
           </>
         )}

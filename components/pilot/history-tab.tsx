@@ -37,16 +37,16 @@ export function PilotHistoryTab({ dashboardId }: { dashboardId: string }) {
   const clientNames = useMemo(() => Object.fromEntries((data?.clients ?? []).map((c) => [c.id, c.name])), [data]);
 
   if (error) return <p className="text-sm text-red-300">{error}</p>;
-  if (!data || data.forDays !== days) return <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture de l&apos;historique (journaux des plateformes compris)…</p>;
+  if (!data || data.forDays !== days) return <p className="text-sm text-ui-muted flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Lecture de l&apos;historique (journaux des plateformes compris)…</p>;
 
   return (
     <div className="space-y-4">
       <Card padded>
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <History className="w-4 h-4 text-violet-300" />
-          <span className="text-white font-semibold">Historique & impact</span>
-          <span className="text-xs text-gray-500">Modifications depuis ImpulseMotion et depuis les plateformes, bilans à J+7 et J+14{data.hqProject ? <>, consignés dans HQ (projects/{data.hqProject})</> : null}.</span>
-          <Link href="/pilotage" className="text-violet-300 hover:text-white text-xs ml-auto">Modifier dans le Pilotage →</Link>
+          <History className="w-4 h-4 text-ui-accent-ink" />
+          <span className="text-ui-fg font-medium">Historique & impact</span>
+          <span className="text-xs text-ui-muted">Modifications depuis ImpulseMotion et depuis les plateformes, bilans à J+7 et J+14{data.hqProject ? <>, consignés dans HQ (projects/{data.hqProject})</> : null}.</span>
+          <Link href="/pilotage" className="text-ui-accent-ink hover:text-ui-fg text-xs ml-auto">Modifier dans le Pilotage →</Link>
         </div>
         {!data.clients.length && <p className="text-xs text-amber-300 mt-2">Aucun client de l&apos;agence n&apos;est rattaché aux comptes de ce dashboard.</p>}
       </Card>

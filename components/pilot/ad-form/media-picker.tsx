@@ -33,7 +33,7 @@ export function MediaThumb({ media, className }: { media: MediaRef | null | unde
   return <img src={media.url} alt="" className={className} />;
 }
 
-const tile = (on: boolean) => `relative aspect-square rounded overflow-hidden border outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on ? "border-violet-500" : "border-transparent hover:border-gray-600"}`;
+const tile = (on: boolean) => `relative aspect-square rounded overflow-hidden border outline-none focus-visible:ring-2 focus-visible:ring-ui-accent/40 ${on ? "border-ui-accent" : "border-transparent hover:border-ui-line-strong"}`;
 
 export function MediaPicker({ kind, clientId, studio, value, onChange, idPrefix, compact = false }: {
   /** What the slot takes: an image, a video, or either (a carousel card). */
@@ -91,36 +91,36 @@ export function MediaPicker({ kind, clientId, studio, value, onChange, idPrefix,
 
   return (
     <div className="space-y-2">
-      <div className={`relative ${isVideo ? "aspect-[9/16] max-h-64 mx-auto" : "aspect-square"} rounded-lg border border-gray-800 bg-gray-900 flex items-center justify-center overflow-hidden`}>
+      <div className={`relative ${isVideo ? "aspect-[9/16] max-h-64 mx-auto" : "aspect-square"} rounded-lg border border-ui-line bg-ui-card flex items-center justify-center overflow-hidden`}>
         {value?.url
           ? isVideo
             ? <video key={value.url} src={value.url} controls muted playsInline className="w-full h-full object-contain bg-black" />
             : <img src={value.url} alt="" className="w-full h-full object-cover" />
-          : <span className="text-xs text-gray-500 px-3 text-center">{emptyText}</span>}
+          : <span className="text-xs text-ui-muted px-3 text-center">{emptyText}</span>}
         {value?.url && (
-          <button type="button" onClick={() => { onChange(null); setUrlDraft(""); }} className="absolute top-1 right-1 rounded-full bg-black/70 p-1 text-gray-300 hover:text-white" aria-label="Retirer le média"><X className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={() => { onChange(null); setUrlDraft(""); }} className="absolute top-1 right-1 rounded-full bg-black/50 p-1 text-ui-fg2 hover:text-ui-fg" aria-label="Retirer le média"><X className="w-3.5 h-3.5" /></button>
         )}
       </div>
       {kind !== "video" && (
         <>
-          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading !== null} className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-800 text-xs text-gray-300 hover:text-white disabled:opacity-40">
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading !== null} className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-ui-line text-xs text-ui-fg2 hover:text-ui-fg disabled:opacity-40">
             {uploading === "media" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />} Envoyer une image
           </button>
           <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { void upload(e.target.files?.[0], "media"); e.target.value = ""; }} />
         </>
       )}
-      <label htmlFor={`${idPrefix}-url`} className="block text-[11px] text-gray-500">{urlLabel}
+      <label htmlFor={`${idPrefix}-url`} className="block text-[11px] text-ui-muted">{urlLabel}
         <input id={`${idPrefix}-url`} value={urlDraft} onChange={(e) => pickUrl(e.target.value)} className={`${input} mt-1 text-xs`} placeholder={kind === "video" ? "https://…/video.mp4" : "https://…/visuel.jpg"} />
       </label>
 
       <div className="flex items-center justify-between pt-1">
-        <span className="text-[11px] text-gray-500">Studio créa{ofClient.length ? ` · ${allClients ? "tous les clients" : "ce client"}` : ""}</span>
+        <span className="text-[11px] text-ui-muted">Studio créa{ofClient.length ? ` · ${allClients ? "tous les clients" : "ce client"}` : ""}</span>
         {ofClient.length > 0 && usable.length > ofClient.length && (
-          <button type="button" onClick={() => setAllClients(!allClients)} className="text-[11px] text-gray-400 hover:text-white underline-offset-2 hover:underline">{allClients ? "Ce client seulement" : "Tous les clients"}</button>
+          <button type="button" onClick={() => setAllClients(!allClients)} className="text-[11px] text-ui-fg2 hover:text-ui-fg underline-offset-2 hover:underline">{allClients ? "Ce client seulement" : "Tous les clients"}</button>
         )}
       </div>
-      {studio === null ? <Loader2 className="w-4 h-4 animate-spin text-gray-500" /> : shown.length === 0 ? (
-        <p className="text-[11px] text-gray-600">Aucun{kind === "video" ? "e vidéo" : " visuel"} dans le Studio pour le moment.</p>
+      {studio === null ? <Loader2 className="w-4 h-4 animate-spin text-ui-muted" /> : shown.length === 0 ? (
+        <p className="text-[11px] text-ui-muted">Aucun{kind === "video" ? "e vidéo" : " visuel"} dans le Studio pour le moment.</p>
       ) : (
         <div className={`grid ${compact ? "grid-cols-6 sm:grid-cols-8" : kind === "video" ? "grid-cols-3" : "grid-cols-4"} gap-1`} role="group" aria-label="Visuels du Studio">
           {shown.map((a) => {
@@ -129,7 +129,7 @@ export function MediaPicker({ kind, clientId, studio, value, onChange, idPrefix,
               <button key={a.id} type="button" aria-pressed={on} title={`${a.clientName || "Sans client"} — ${a.prompt}`} onClick={() => { setUrlDraft(""); onChange(studioMediaRef(a, studio ?? [])); }}
                 className={`${tile(on)} ${a.kind === "video" && kind === "video" ? "!aspect-[9/16]" : ""}`}>
                 {a.kind === "video" ? <video src={a.url} muted playsInline preload="metadata" className="w-full h-full object-cover" /> : <img src={a.url} alt="" className="w-full h-full object-cover" loading="lazy" />}
-                {a.kind === "video" && kind !== "video" && <span className="absolute bottom-0.5 right-0.5 rounded bg-black/70 px-1 text-[9px] text-white">vidéo</span>}
+                {a.kind === "video" && kind !== "video" && <span className="absolute bottom-0.5 right-0.5 rounded bg-black/50 px-1 text-[9px] text-ui-fg">vidéo</span>}
               </button>
             );
           })}
@@ -138,11 +138,11 @@ export function MediaPicker({ kind, clientId, studio, value, onChange, idPrefix,
 
       {isVideo && value && (
         <div className="space-y-1 pt-1">
-          <span className="text-xs text-gray-400">Vignette <span className="text-gray-600">(obligatoire)</span></span>
-          <div className="aspect-video rounded-lg border border-gray-800 bg-gray-900 flex items-center justify-center overflow-hidden">
-            {value.thumbUrl ? <img src={value.thumbUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-[11px] text-gray-500 px-2 text-center">Image du Studio d&apos;origine, ou envoyez une image</span>}
+          <span className="text-xs text-ui-fg2">Vignette <span className="text-ui-muted">(obligatoire)</span></span>
+          <div className="aspect-video rounded-lg border border-ui-line bg-ui-card flex items-center justify-center overflow-hidden">
+            {value.thumbUrl ? <img src={value.thumbUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-[11px] text-ui-muted px-2 text-center">Image du Studio d&apos;origine, ou envoyez une image</span>}
           </div>
-          <button type="button" onClick={() => thumbRef.current?.click()} disabled={uploading !== null} className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-800 text-[11px] text-gray-300 hover:text-white disabled:opacity-40">
+          <button type="button" onClick={() => thumbRef.current?.click()} disabled={uploading !== null} className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-ui-line text-[11px] text-ui-fg2 hover:text-ui-fg disabled:opacity-40">
             {uploading === "thumb" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />} {value.thumbUrl ? "Changer la vignette" : "Envoyer une vignette"}
           </button>
           <input ref={thumbRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { void upload(e.target.files?.[0], "thumb"); e.target.value = ""; }} />

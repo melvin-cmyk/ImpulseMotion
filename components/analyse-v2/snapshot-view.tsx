@@ -33,25 +33,25 @@ export function SnapshotView({ title, emoji, description, clientName, createdAt,
   const noop = () => undefined;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
-      <header className="h-14 border-b border-gray-800 flex items-center gap-3 px-5">
-        <span className="w-7 h-7 rounded-lg bg-violet-500 text-white text-sm font-bold flex items-center justify-center">I</span>
-        <span className="text-sm font-semibold text-white">ImpulseMotion</span>
-        <span className="ml-auto text-xs text-gray-500">Snapshot figé le {fmt(createdAt)}{createdByName ? ` par ${createdByName}` : ""}</span>
+    <div className="min-h-screen bg-ui-bg text-ui-fg">
+      <header className="h-14 border-b border-ui-line flex items-center gap-3 px-5">
+        <span className="w-7 h-7 rounded-lg bg-ui-accent text-ui-on-accent text-sm font-medium flex items-center justify-center">I</span>
+        <span className="text-sm font-medium text-ui-fg">ImpulseMotion</span>
+        <span className="ml-auto text-xs text-ui-muted">Snapshot figé le {fmt(createdAt)}{createdByName ? ` par ${createdByName}` : ""}</span>
       </header>
       <main className="mx-auto w-full max-w-[1040px] px-6 pt-14 pb-16">
-        <h1 className="text-[28px] leading-9 font-semibold text-white">{emoji} {title}</h1>
-        {description && <p className="mt-1 text-base text-gray-400">{description}</p>}
-        {clientName && <p className="mt-1 text-sm text-gray-500">{clientName}</p>}
+        <h1 className="text-[28px] leading-9 font-medium text-ui-fg">{emoji} {title}</h1>
+        {description && <p className="mt-1 text-base text-ui-fg2">{description}</p>}
+        {clientName && <p className="mt-1 text-sm text-ui-muted">{clientName}</p>}
         <div className="mt-10 flex items-center gap-2 flex-wrap">
-          <span className="h-8 inline-flex items-center gap-1.5 rounded-[10px] border border-gray-800 bg-gray-900 px-2.5 text-sm font-medium"><CalendarDays className="w-4 h-4 text-gray-400" />{fmt(payload.range.since)} – {fmt(payload.range.until)}{payload.compare && <span className="text-gray-500 font-normal">vs période précédente</span>}</span>
+          <span className="h-8 inline-flex items-center gap-1.5 rounded-[10px] border border-ui-line bg-ui-card px-2.5 text-sm font-medium"><CalendarDays className="w-4 h-4 text-ui-fg2" />{fmt(payload.range.since)} – {fmt(payload.range.until)}{payload.compare && <span className="text-ui-muted font-normal">vs période précédente</span>}</span>
         </div>
 
-        <section className="mt-6 rounded-2xl border border-gray-800 bg-gray-900 p-4">
+        <section className="mt-6 rounded-xl border border-ui-line bg-ui-card p-4">
           <div className="flex items-center gap-2 flex-wrap">
             {payload.metrics.map((k, i) => (
-              <span key={k} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] border border-gray-800 bg-gray-900 pl-1.5 pr-2.5 text-sm font-medium">
-                <span className={`w-[18px] h-[18px] rounded-[5px] text-[11px] font-semibold flex items-center justify-center ${RANK_SWATCH[i % RANK_SWATCH.length]}`}>{i + 1}</span>{METRIC_BY_KEY[k]?.label ?? k}
+              <span key={k} className="h-8 inline-flex items-center gap-1.5 rounded-[10px] border border-ui-line bg-ui-card pl-1.5 pr-2.5 text-sm font-medium">
+                <span className={`w-[18px] h-[18px] rounded-[5px] text-[11px] font-medium flex items-center justify-center ${RANK_SWATCH[i % RANK_SWATCH.length]}`}>{i + 1}</span>{METRIC_BY_KEY[k]?.label ?? k}
               </span>
             ))}
           </div>
@@ -60,12 +60,12 @@ export function SnapshotView({ title, emoji, description, clientName, createdAt,
           </div>
         </section>
 
-        <section className="mt-4 rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
-          <div className="p-4 border-b border-gray-800 text-xs text-gray-500">{payload.total} {payload.total > 1 ? groupNoun.many : groupNoun.one}{payload.rows.length < payload.total ? ` · ${payload.rows.length} premiers` : ""}</div>
+        <section className="mt-4 rounded-xl border border-ui-line bg-ui-card overflow-hidden">
+          <div className="p-4 border-b border-ui-line text-xs text-ui-muted">{payload.total} {payload.total > 1 ? groupNoun.many : groupNoun.one}{payload.rows.length < payload.total ? ` · ${payload.rows.length} premiers` : ""}</div>
           <AdsTable rows={rows} columns={payload.columns.length ? payload.columns : payload.metrics} chartMetrics={payload.metrics} onToggleChartMetric={noop} benchmark={payload.benchmark} benchmarkPrevious={payload.benchmarkPrevious} currency={payload.currency} compare={!!payload.compare}
             sort={sort} onSort={(key) => setSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }))} selected={cards} onSelect={noop} onSelectAll={noop} onOpen={noop} groupNoun={groupNoun} />
         </section>
-        <p className="mt-6 text-center text-xs text-gray-600">Rapport partagé en lecture seule depuis ImpulseMotion · chiffres au {fmt(payload.range.until)}</p>
+        <p className="mt-6 text-center text-xs text-ui-muted">Rapport partagé en lecture seule depuis ImpulseMotion · chiffres au {fmt(payload.range.until)}</p>
       </main>
     </div>
   );

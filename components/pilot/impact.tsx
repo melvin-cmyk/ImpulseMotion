@@ -24,30 +24,30 @@ function ImpactCard({ impact, platform, title }: { impact: PilotImpactView; plat
   const [open, setOpen] = useState(false);
   if (impact.status === "pending") {
     return (
-      <div className="rounded-lg border border-gray-800 px-3 py-2 text-xs text-gray-500 flex items-center gap-1.5">
+      <div className="rounded-lg border border-ui-line px-3 py-2 text-xs text-ui-muted flex items-center gap-1.5">
         <Clock className="w-3.5 h-3.5" /> Bilan J+{impact.horizon} {impact.dueOn ? `le ${day(impact.dueOn)}` : "à venir"}
       </div>
     );
   }
   const result = impact.result as ImpactResult | null;
   return (
-    <div className={`rounded-lg border px-3 py-2 space-y-1.5 ${title ? "border-violet-500/40 bg-violet-500/5" : "border-gray-800"}`}>
+    <div className={`rounded-lg border px-3 py-2 space-y-1.5 ${title ? "border-ui-accent bg-ui-accent-soft" : "border-ui-line"}`}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-semibold text-white">{title ?? `Bilan J+${impact.horizon}`}</span>
+        <span className="text-xs font-medium text-ui-fg">{title ?? `Bilan J+${impact.horizon}`}</span>
         <Pill tone={TONE[impact.verdict] ?? "default"} className="text-[10px]">{VERDICT_FR[impact.verdict as Verdict] ?? impact.verdict}</Pill>
-        {impact.hqWritten && <span className="text-[10px] text-gray-500">consigné dans HQ</span>}
+        {impact.hqWritten && <span className="text-[10px] text-ui-muted">consigné dans HQ</span>}
       </div>
-      <p className="text-xs text-gray-300 leading-relaxed">{impact.summary}</p>
+      <p className="text-xs text-ui-fg2 leading-relaxed">{impact.summary}</p>
       {result && result.objects?.length > 0 && (
         <>
-          <button type="button" onClick={() => setOpen(!open)} className="text-[11px] text-gray-400 hover:text-white flex items-center gap-1">
+          <button type="button" onClick={() => setOpen(!open)} className="text-[11px] text-ui-fg2 hover:text-ui-fg flex items-center gap-1">
             {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} Détail par objet
           </button>
           {open && (
-            <ul className="space-y-1 text-[11px] text-gray-400">
+            <ul className="space-y-1 text-[11px] text-ui-fg2">
               {result.objects.map((o) => (
                 <li key={o.objectId}>
-                  <span className="text-gray-200">{objectLabel(platform, o.objectType)} « {o.name} »</span>
+                  <span className="text-ui-fg">{objectLabel(platform, o.objectType)} « {o.name} »</span>
                   {" — "}{o.error ? `illisible (${o.error})` : figuresLine(o.before, o.after, result.currency)}
                 </li>
               ))}
@@ -94,7 +94,7 @@ export function ImpactCards({ impacts, platform, subject }: { impacts: PilotImpa
       </div>
       {subject && pending && !now && (
         <div className="flex items-center gap-3 text-xs">
-          <button type="button" disabled={busy} onClick={() => void seeNow()} className="flex items-center gap-1 text-gray-400 hover:text-white disabled:opacity-40">
+          <button type="button" disabled={busy} onClick={() => void seeNow()} className="flex items-center gap-1 text-ui-fg2 hover:text-ui-fg disabled:opacity-40">
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />} Voir l&apos;effet maintenant
           </button>
           {error && <span className="text-amber-300">{error}</span>}

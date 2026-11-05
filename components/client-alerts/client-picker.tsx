@@ -60,18 +60,18 @@ export function ClientPicker({ clients, busy, error, focusKey, onPick }: {
   const dormantTotal = clients.filter((c) => c.dormant).length;
 
   return (
-    <section className="bg-gray-900 border border-gray-800 rounded-2xl flex flex-col min-w-0">
-      <header className="px-4 py-3 border-b border-gray-800">
-        <h2 className="text-sm font-semibold text-white">Nouvelle alerte</h2>
-        <p className="text-[11px] text-gray-500">
+    <section className="bg-ui-card border border-ui-line rounded-xl flex flex-col min-w-0">
+      <header className="px-4 py-3 border-b border-ui-line">
+        <h2 className="text-sm font-medium text-ui-fg">Nouvelle alerte</h2>
+        <p className="text-[11px] text-ui-muted">
           Pour quels clients ? Cochez-en un ou plusieurs ({LOT_MAX_CLIENTS} au plus), puis dites en une phrase de quoi vous voulez être prévenu :
           la même alerte est créée pour chaque client, jugé sur ses propres comptes.
         </p>
       </header>
 
-      <div className="px-4 py-3 flex flex-wrap items-center gap-3 border-b border-gray-800">
+      <div className="px-4 py-3 flex flex-wrap items-center gap-3 border-b border-ui-line">
         <label className="relative flex-1 min-w-[12rem]">
-          <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-4 h-4 text-ui-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             ref={inputRef}
             type="search"
@@ -87,19 +87,19 @@ export function ClientPicker({ clients, busy, error, focusKey, onPick }: {
             }}
             placeholder="Chercher un client ou un compte"
             aria-label="Chercher un client"
-            className="w-full pl-9 pr-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white placeholder:text-gray-600 focus:border-violet-500 focus:outline-none"
+            className="w-full pl-9 pr-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg placeholder:text-ui-muted focus:border-ui-accent focus:outline-none"
           />
         </label>
         {dormantTotal > 0 && (
-          <label className="flex items-center gap-1.5 text-xs text-gray-400">
-            <input type="checkbox" className="accent-violet-500" checked={showDormant} onChange={(e) => setShowDormant(e.target.checked)} />
+          <label className="flex items-center gap-1.5 text-xs text-ui-fg2">
+            <input type="checkbox" className="accent-ui-accent" checked={showDormant} onChange={(e) => setShowDormant(e.target.checked)} />
             {SHOW_DORMANT}
           </label>
         )}
       </div>
 
       {chosen.length > 0 && (
-        <div className="px-4 py-2.5 border-b border-gray-800 flex flex-wrap items-center gap-2">
+        <div className="px-4 py-2.5 border-b border-ui-line flex flex-wrap items-center gap-2">
           {chosen.map((c) => (
             <button
               key={c.id}
@@ -107,18 +107,18 @@ export function ClientPicker({ clients, busy, error, focusKey, onPick }: {
               onClick={() => toggle(c)}
               disabled={busy}
               aria-label={`Retirer ${c.name}`}
-              className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-xs bg-violet-500/15 border border-violet-500/40 text-violet-100 hover:bg-violet-500/25 disabled:opacity-60"
+              className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-full text-xs bg-ui-accent-soft border border-ui-accent text-ui-accent-ink hover:bg-ui-accent-soft disabled:opacity-60"
             >
               <span className="truncate max-w-[12rem]">{c.name}</span><X className="w-3 h-3 shrink-0" />
             </button>
           ))}
           <div className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={() => setPicked([])} disabled={busy} className="text-[11px] text-gray-500 hover:text-gray-300 underline disabled:opacity-60">Tout retirer</button>
+            <button type="button" onClick={() => setPicked([])} disabled={busy} className="text-[11px] text-ui-muted hover:text-ui-fg2 underline disabled:opacity-60">Tout retirer</button>
             <button
               type="button"
               onClick={() => onPick(chosen)}
               disabled={busy}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent disabled:opacity-60"
             >
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
               {chosen.length > 1 ? `Écrire l'alerte pour ${chosen.length} clients` : "Écrire l'alerte"}
@@ -128,15 +128,15 @@ export function ClientPicker({ clients, busy, error, focusKey, onPick }: {
         </div>
       )}
 
-      {error && <p role="alert" className="px-4 py-2 text-xs text-red-400 border-b border-gray-800">{error}</p>}
+      {error && <p role="alert" className="px-4 py-2 text-xs text-red-400 border-b border-ui-line">{error}</p>}
 
-      <ul className="overflow-y-auto max-h-[min(60vh,32rem)] divide-y divide-gray-800/70">
-        {clients.length === 0 && <li className="px-4 py-6 text-sm text-gray-400">Aucun client à afficher : aucun compte publicitaire ne vous est attribué.</li>}
+      <ul className="overflow-y-auto max-h-[min(60vh,32rem)] divide-y divide-ui-line">
+        {clients.length === 0 && <li className="px-4 py-6 text-sm text-ui-fg2">Aucun client à afficher : aucun compte publicitaire ne vous est attribué.</li>}
         {clients.length > 0 && shown.length === 0 && (
-          <li className="px-4 py-6 text-sm text-gray-400">
+          <li className="px-4 py-6 text-sm text-ui-fg2">
             Aucun client ne correspond.
             {hiddenDormant > 0 && (
-              <button type="button" onClick={() => setShowDormant(true)} className="ml-1 underline text-gray-300">
+              <button type="button" onClick={() => setShowDormant(true)} className="ml-1 underline text-ui-fg2">
                 {hiddenDormant} client{hiddenDormant > 1 ? "s" : ""} sans dépense correspond{hiddenDormant > 1 ? "ent" : ""} : l{hiddenDormant > 1 ? "es" : "e"} afficher.
               </button>
             )}
@@ -153,15 +153,15 @@ export function ClientPicker({ clients, busy, error, focusKey, onPick }: {
                 aria-checked={on}
                 disabled={busy || (!on && full)}
                 onClick={() => toggle(c)}
-                className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-gray-800/40 focus:bg-gray-800/40 focus:outline-none disabled:opacity-60 transition-colors ${on ? "bg-violet-500/10" : ""}`}
+                className={`w-full text-left px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-ui-raised focus:bg-ui-raised focus:outline-none disabled:opacity-60 transition-colors ${on ? "bg-ui-accent-soft" : ""}`}
               >
                 <span className="min-w-0 flex items-center gap-2">
-                  <span className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center ${on ? "bg-violet-600 border-violet-500" : "border-gray-600"}`}>
-                    {on && <Check className="w-3 h-3 text-white" />}
+                  <span className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center ${on ? "bg-ui-accent border-ui-accent" : "border-ui-line-strong"}`}>
+                    {on && <Check className="w-3 h-3 text-ui-fg" />}
                   </span>
-                  <span className="text-sm text-white truncate">{c.name}</span>
+                  <span className="text-sm text-ui-fg truncate">{c.name}</span>
                   {c.dormant && <span title="Aucune dépense sur les dix derniers jours"><Pill className="text-[10px]">sans dépense</Pill></span>}
-                  {firstFree && <span className="hidden sm:inline text-[10px] text-gray-600">Entrée</span>}
+                  {firstFree && <span className="hidden sm:inline text-[10px] text-ui-muted">Entrée</span>}
                 </span>
                 <span className="shrink-0 inline-flex items-center gap-2">
                   <PlatformBadges accounts={c.accounts} />

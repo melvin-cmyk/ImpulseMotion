@@ -19,11 +19,11 @@ async function fileToDataUri(file: File): Promise<string> {
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
   useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
   return (
-    <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
-      <div className={`bg-gray-950 border border-gray-800 rounded-2xl w-full ${wide ? "max-w-4xl" : "max-w-2xl"} max-h-[92vh] overflow-auto`} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 sticky top-0 bg-gray-950 z-10">
-          <span className="text-sm text-white font-semibold">{title}</span>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-white" aria-label="Fermer"><X className="w-5 h-5" /></button>
+    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className={`bg-ui-bg border border-ui-line rounded-xl w-full ${wide ? "max-w-4xl" : "max-w-2xl"} max-h-[92vh] overflow-auto`} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-ui-line sticky top-0 bg-ui-bg z-10">
+          <span className="text-sm text-ui-fg font-medium">{title}</span>
+          <button type="button" onClick={onClose} className="text-ui-fg2 hover:text-ui-fg" aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-4 space-y-4">{children}</div>
       </div>
@@ -34,7 +34,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
 export function PriceLine({ quota, unitUsd, n }: { quota: QuotaInfo | null; unitUsd: number; n: number }) {
   const r = priceReminder(quota, unitUsd, n);
   if (!r) return null;
-  return <p className={`text-[12px] ${r.over ? "text-rose-300" : r.warn ? "text-amber-300" : "text-gray-400"}`}>{r.over ? "Plafond du jour atteint — " : r.warn ? "Proche du plafond — " : ""}{r.text}</p>;
+  return <p className={`text-[12px] ${r.over ? "text-rose-300" : r.warn ? "text-amber-300" : "text-ui-fg2"}`}>{r.over ? "Plafond du jour atteint — " : r.warn ? "Proche du plafond — " : ""}{r.text}</p>;
 }
 
 // ── Add a template ────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ export function AddTemplateDialog({ client, clients, onClose, onCreated }: { cli
     finally { setBusy(false); }
   }
 
-  const tab = (m: typeof mode, l: string) => <button key={m} type="button" onClick={() => setMode(m)} className={`px-2.5 py-1 rounded-md border text-xs ${mode === m ? "border-violet-500 text-white bg-violet-500/10" : "border-gray-800 text-gray-400 hover:text-white"}`}>{l}</button>;
+  const tab = (m: typeof mode, l: string) => <button key={m} type="button" onClick={() => setMode(m)} className={`px-2.5 py-1 rounded-md border text-xs ${mode === m ? "border-ui-accent text-ui-fg bg-ui-accent-soft" : "border-ui-line text-ui-fg2 hover:text-ui-fg"}`}>{l}</button>;
 
   return (
     <Modal title="Ajouter un template" onClose={onClose}>
@@ -106,10 +106,10 @@ export function AddTemplateDialog({ client, clients, onClose, onCreated }: { cli
         <div className="space-y-2">
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => fileRef.current?.click()} className={BTN}><ImagePlus className="w-4 h-4" /> Choisir une image</button>
-            <span className="text-xs text-gray-500">ou collez une capture d&apos;écran (⌘V / Ctrl+V) — une pub vue dans la bibliothèque Meta, TikTok, un site…</span>
+            <span className="text-xs text-ui-muted">ou collez une capture d&apos;écran (⌘V / Ctrl+V) — une pub vue dans la bibliothèque Meta, TikTok, un site…</span>
             <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) { try { setDataUri(await fileToDataUri(f)); } catch (err) { setError(err instanceof Error ? err.message : String(err)); } } }} />
           </div>
-          {dataUri && <img src={dataUri} alt="" className="max-h-64 rounded-lg border border-gray-800" />}
+          {dataUri && <img src={dataUri} alt="" className="max-h-64 rounded-lg border border-ui-line" />}
         </div>
       )}
       {mode === "link" && <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://… (adresse directe de l'image)" className={`${FIELD} w-full`} />}
@@ -120,20 +120,20 @@ export function AddTemplateDialog({ client, clients, onClose, onCreated }: { cli
             <button type="submit" className={BTN} disabled={searching}>{searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Chercher</button>
           </form>
           {library?.error && <p className="text-xs text-amber-300 whitespace-pre-wrap">{library.error}</p>}
-          {library && !library.error && !library.ads.length && <p className="text-xs text-gray-500">Aucune publicité active trouvée pour « {q} » en France.</p>}
+          {library && !library.error && !library.ads.length && <p className="text-xs text-ui-muted">Aucune publicité active trouvée pour « {q} » en France.</p>}
           {!!library?.ads.length && (
-            <ul className="divide-y divide-gray-800 border border-gray-800 rounded-lg max-h-72 overflow-auto">
+            <ul className="divide-y divide-ui-line border border-ui-line rounded-lg max-h-72 overflow-auto">
               {library.ads.map((ad) => (
                 <li key={ad.id} className="p-2.5 flex items-start gap-3">
                   {ad.imageUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`/api/media/proxy-image?url=${encodeURIComponent(ad.imageUrl)}`} alt="" className="w-16 h-20 object-cover rounded-md border border-gray-800 shrink-0 bg-black/40" loading="lazy" />
+                    <img src={`/api/media/proxy-image?url=${encodeURIComponent(ad.imageUrl)}`} alt="" className="w-16 h-20 object-cover rounded-md border border-ui-line shrink-0 bg-black/50" loading="lazy" />
                   )}
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm text-white">{ad.pageName} <span className="text-[11px] text-gray-500">{ad.platforms.length ? `· ${ad.platforms.join(", ")}` : ""}{startedLabel(ad.startedAt)}{ad.euReach ? ` · ${ad.euReach.toLocaleString("fr-FR")} pers. UE` : ""}{ad.videoUrl ? " · vidéo" : ""}{ad.domain ? ` · ${ad.domain}` : ""}</span></div>
-                    {ad.titles[0] && <div className="text-xs text-gray-300">{ad.titles[0]}</div>}
-                    {ad.bodies[0] && <div className="text-[11px] text-gray-500 line-clamp-2">{ad.bodies[0]}</div>}
-                    {ad.snapshotUrl && <a href={ad.snapshotUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-violet-300 hover:text-white">{ad.imageUrl ? "Voir dans la bibliothèque →" : "Voir la pub (capture à coller ensuite) →"}</a>}
+                    <div className="text-sm text-ui-fg">{ad.pageName} <span className="text-[11px] text-ui-muted">{ad.platforms.length ? `· ${ad.platforms.join(", ")}` : ""}{startedLabel(ad.startedAt)}{ad.euReach ? ` · ${ad.euReach.toLocaleString("fr-FR")} pers. UE` : ""}{ad.videoUrl ? " · vidéo" : ""}{ad.domain ? ` · ${ad.domain}` : ""}</span></div>
+                    {ad.titles[0] && <div className="text-xs text-ui-fg2">{ad.titles[0]}</div>}
+                    {ad.bodies[0] && <div className="text-[11px] text-ui-muted line-clamp-2">{ad.bodies[0]}</div>}
+                    {ad.snapshotUrl && <a href={ad.snapshotUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] text-ui-accent-ink hover:text-ui-fg">{ad.imageUrl ? "Voir dans la bibliothèque →" : "Voir la pub (capture à coller ensuite) →"}</a>}
                   </div>
                   <button type="button" disabled={busy} onClick={() => void create({ source: "competitor", brand: ad.pageName, title: ad.titles[0], body: ad.bodies[0], sourceRef: `adlib:${ad.id}`, sourceUrl: ad.snapshotUrl ?? undefined, ...(ad.imageUrl ? { imageUrl: ad.imageUrl } : {}) })} className={BTN}>Garder</button>
                 </li>
@@ -144,15 +144,15 @@ export function AddTemplateDialog({ client, clients, onClose, onCreated }: { cli
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-xs text-gray-400">Nom (facultatif)<input value={name} onChange={(e) => setName(e.target.value)} placeholder="L'IA propose un nom d'après l'accroche" className={FIELD} /></label>
-        <label className="flex flex-col gap-1 text-xs text-gray-400">Marque d&apos;origine (concurrent)<input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Ex. Emma, Back Market…" className={FIELD} /></label>
-        <label className="flex flex-col gap-1 text-xs text-gray-400">Pour
+        <label className="flex flex-col gap-1 text-xs text-ui-fg2">Nom (facultatif)<input value={name} onChange={(e) => setName(e.target.value)} placeholder="L'IA propose un nom d'après l'accroche" className={FIELD} /></label>
+        <label className="flex flex-col gap-1 text-xs text-ui-fg2">Marque d&apos;origine (concurrent)<input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="Ex. Emma, Back Market…" className={FIELD} /></label>
+        <label className="flex flex-col gap-1 text-xs text-ui-fg2">Pour
           <select value={owner} onChange={(e) => setOwner(e.target.value)} className={FIELD}>
             <option value="">Toute l&apos;agence (partagé)</option>
             {clients.map((c) => <option key={c.clientId} value={c.clientId}>{c.name}</option>)}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-xs text-gray-400">Tags (virgules)<input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="ugc, promo, avant-après" className={FIELD} /></label>
+        <label className="flex flex-col gap-1 text-xs text-ui-fg2">Tags (virgules)<input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="ugc, promo, avant-après" className={FIELD} /></label>
       </div>
       {error && <p className="text-sm text-rose-300">{error}</p>}
       {mode !== "library" && (
@@ -202,48 +202,48 @@ export function CopyDialog({ template, client, clients, engines, quota, brandAss
     <Modal title={`Copier « ${template.name} » à la marque`} onClose={onClose} wide>
       <div className="grid gap-4 md:grid-cols-[220px_1fr]">
         <div className="space-y-2">
-          {template.image ? <img src={template.image} alt="" className="w-full rounded-lg border border-gray-800" /> : <div className="aspect-square rounded-lg border border-gray-800 bg-gray-900 flex items-center justify-center text-xs text-gray-500">Sans image</div>}
-          {template.analysis.brief && <p className="text-[11px] text-gray-400 leading-snug line-clamp-6" title={template.analysis.brief}>{template.analysis.brief}</p>}
+          {template.image ? <img src={template.image} alt="" className="w-full rounded-lg border border-ui-line" /> : <div className="aspect-square rounded-lg border border-ui-line bg-ui-card flex items-center justify-center text-xs text-ui-muted">Sans image</div>}
+          {template.analysis.brief && <p className="text-[11px] text-ui-fg2 leading-snug line-clamp-6" title={template.analysis.brief}>{template.analysis.brief}</p>}
         </div>
         <div className="space-y-3">
-          <label className="flex flex-col gap-1 text-xs text-gray-400">Client
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">Client
             <select value={target} onChange={(e) => { setTarget(e.target.value); setPicked([]); }} className={FIELD}>
               <option value="">Choisir…</option>
               {clients.map((c) => <option key={c.clientId} value={c.clientId}>{c.name}</option>)}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-400">Ce que vous voulez (facultatif)
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">Ce que vous voulez (facultatif)
             <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={3} placeholder="Ex. : mettre en avant le pack découverte, ambiance hiver, garder le badge « -30 % »" className={`${FIELD} resize-y`} />
           </label>
           <div className="space-y-1">
-            <div className="text-xs text-gray-400">Éléments de marque (2 max) — logo, produit : gardés tels quels dans l&apos;image</div>
+            <div className="text-xs text-ui-fg2">Éléments de marque (2 max) — logo, produit : gardés tels quels dans l&apos;image</div>
             <div className="flex flex-wrap items-center gap-2">
               {myAssets.map((a) => (
-                <button key={a.id} type="button" onClick={() => setPicked((p) => (p.includes(a.id) ? p.filter((x) => x !== a.id) : p.length + extra.length < 2 ? [...p, a.id] : p))} className={`relative rounded-md overflow-hidden border-2 ${picked.includes(a.id) ? "border-violet-500" : "border-transparent"}`} title={a.prompt}>
+                <button key={a.id} type="button" onClick={() => setPicked((p) => (p.includes(a.id) ? p.filter((x) => x !== a.id) : p.length + extra.length < 2 ? [...p, a.id] : p))} className={`relative rounded-md overflow-hidden border-2 ${picked.includes(a.id) ? "border-ui-accent" : "border-transparent"}`} title={a.prompt}>
                   {a.url && <img src={a.url} alt={a.prompt} className="w-14 h-14 object-cover" />}
                 </button>
               ))}
-              {extra.map((d, i) => <span key={i} className="relative"><img src={d} alt="" className="w-14 h-14 object-cover rounded-md border-2 border-violet-500" /><button type="button" onClick={() => setExtra((l) => l.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 bg-gray-900 rounded-full text-gray-400 hover:text-white"><X className="w-3 h-3" /></button></span>)}
+              {extra.map((d, i) => <span key={i} className="relative"><img src={d} alt="" className="w-14 h-14 object-cover rounded-md border-2 border-ui-accent" /><button type="button" onClick={() => setExtra((l) => l.filter((_, j) => j !== i))} className="absolute -top-1.5 -right-1.5 bg-ui-card rounded-full text-ui-fg2 hover:text-ui-fg"><X className="w-3 h-3" /></button></span>)}
               <button type="button" onClick={() => fileRef.current?.click()} disabled={picked.length + extra.length >= 2} className={BTN}><ImagePlus className="w-4 h-4" /> Ajouter</button>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) { try { setExtra((l) => [...l, ""].slice(0, 2)); const d = await fileToDataUri(f); setExtra((l) => l.map((x) => (x === "" ? d : x))); } catch (err) { setExtra((l) => l.filter(Boolean)); setError(err instanceof Error ? err.message : String(err)); } } }} />
-              {!myAssets.length && !extra.length && <span className="text-[11px] text-gray-500">Aucun élément de marque enregistré pour ce client (onglet « Éléments de marque »).</span>}
+              {!myAssets.length && !extra.length && <span className="text-[11px] text-ui-muted">Aucun élément de marque enregistré pour ce client (onglet « Éléments de marque »).</span>}
             </div>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-xs text-gray-400">Moteur
+            <label className="flex flex-col gap-1 text-xs text-ui-fg2">Moteur
               <select value={engine} onChange={(e) => setEngine(e.target.value)} className={`${FIELD} max-w-[260px]`}>
                 {refEngines.map((e) => <option key={e.id} value={e.id}>{e.label}{e.usd ? ` · ${e.usd} $` : " · gratuit"}</option>)}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-gray-400">Format
+            <label className="flex flex-col gap-1 text-xs text-ui-fg2">Format
               <select value={ratio} onChange={(e) => setRatio(e.target.value)} className={FIELD}>
                 {[["1:1", "Carré 1:1"], ["3:4", "Portrait 3:4"], ["9:16", "Vertical 9:16"], ["16:9", "Paysage 16:9"], ["4:3", "Paysage 4:3"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-gray-400">Visuels
+            <label className="flex flex-col gap-1 text-xs text-ui-fg2">Visuels
               <select value={n} onChange={(e) => setN(Number(e.target.value))} className={FIELD}>{[1, 2, 3, 4].map((k) => <option key={k} value={k}>{k}</option>)}</select>
             </label>
-            <label className="flex items-center gap-1.5 text-xs text-gray-400 pb-2"><input type="checkbox" checked={textless} onChange={(e) => setTextless(e.target.checked)} /> Sans texte ni logo (posés ensuite)</label>
+            <label className="flex items-center gap-1.5 text-xs text-ui-fg2 pb-2"><input type="checkbox" checked={textless} onChange={(e) => setTextless(e.target.checked)} /> Sans texte ni logo (posés ensuite)</label>
           </div>
           <PriceLine quota={quota} unitUsd={unit} n={n} />
           {error && <p className="text-sm text-rose-300">{error}</p>}
@@ -281,12 +281,12 @@ export function VariationDialog({ asset, engines, quota, onClose, onDone }: { as
   return (
     <Modal title="Plus comme ça" onClose={onClose}>
       <div className="flex gap-4">
-        {asset.url && <img src={asset.url} alt="" className="w-32 h-32 object-cover rounded-lg border border-gray-800 shrink-0" />}
+        {asset.url && <img src={asset.url} alt="" className="w-32 h-32 object-cover rounded-lg border border-ui-line shrink-0" />}
         <div className="flex-1 space-y-3">
-          <label className="flex flex-col gap-1 text-xs text-gray-400">Ce qui change (facultatif)<textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={3} placeholder="Ex. : autre décor, plus lumineux, produit vu de plus près" className={`${FIELD} resize-y`} /></label>
+          <label className="flex flex-col gap-1 text-xs text-ui-fg2">Ce qui change (facultatif)<textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} rows={3} placeholder="Ex. : autre décor, plus lumineux, produit vu de plus près" className={`${FIELD} resize-y`} /></label>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 text-xs text-gray-400">Moteur<select value={engine} onChange={(e) => setEngine(e.target.value)} className={`${FIELD} max-w-[260px]`}>{refEngines.map((e) => <option key={e.id} value={e.id}>{e.label}{e.usd ? ` · ${e.usd} $` : " · gratuit"}</option>)}</select></label>
-            <label className="flex flex-col gap-1 text-xs text-gray-400">Variantes<select value={n} onChange={(e) => setN(Number(e.target.value))} className={FIELD}>{[1, 2, 3, 4].map((k) => <option key={k} value={k}>{k}</option>)}</select></label>
+            <label className="flex flex-col gap-1 text-xs text-ui-fg2">Moteur<select value={engine} onChange={(e) => setEngine(e.target.value)} className={`${FIELD} max-w-[260px]`}>{refEngines.map((e) => <option key={e.id} value={e.id}>{e.label}{e.usd ? ` · ${e.usd} $` : " · gratuit"}</option>)}</select></label>
+            <label className="flex flex-col gap-1 text-xs text-ui-fg2">Variantes<select value={n} onChange={(e) => setN(Number(e.target.value))} className={FIELD}>{[1, 2, 3, 4].map((k) => <option key={k} value={k}>{k}</option>)}</select></label>
           </div>
           <PriceLine quota={quota} unitUsd={unit} n={n} />
           {error && <p className="text-sm text-rose-300">{error}</p>}

@@ -21,9 +21,9 @@ import {
 export type AlertAction = "pause" | "resume" | "delete";
 
 const btnBase = "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
-const actionBtn = `${btnBase} bg-gray-950 hover:bg-gray-800 text-gray-300 border-gray-800`;
-const openBtn = `${btnBase} bg-violet-500/10 hover:bg-violet-500/20 text-violet-200 border-violet-500/40`;
-const dangerBtn = `${btnBase} bg-gray-950 hover:bg-red-950/40 text-red-300 border-red-900/60`;
+const actionBtn = `${btnBase} bg-ui-bg hover:bg-ui-raised text-ui-fg2 border-ui-line`;
+const openBtn = `${btnBase} bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border-ui-accent`;
+const dangerBtn = `${btnBase} bg-ui-bg hover:bg-red-950/40 text-red-300 border-red-900/60`;
 
 function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
   alert: AlertView;
@@ -51,10 +51,10 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
   const lead = alert.lotSize > 1;
 
   return (
-    <li className={`px-4 py-3 space-y-2 ${open ? "bg-violet-500/5" : ""}`}>
+    <li className={`px-4 py-3 space-y-2 ${open ? "bg-ui-accent-soft" : ""}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-wider text-violet-300 font-semibold break-words flex flex-wrap items-center gap-1.5">
+          <div className="text-[11px] text-ui-accent-ink font-medium break-words flex flex-wrap items-center gap-1.5">
             <span>{alert.clientName}</span>
             {lot && (
               <span title="Même règle demandée une fois pour plusieurs clients : chaque client est jugé séparément. La conversation se modifie pour tout le lot.">
@@ -62,23 +62,23 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
               </span>
             )}
           </div>
-          <div className={`text-sm font-medium mt-0.5 break-words ${alert.label ? "text-white" : "text-gray-400"}`}>{title}</div>
+          <div className={`text-sm font-medium mt-0.5 break-words ${alert.label ? "text-ui-fg" : "text-ui-fg2"}`}>{title}</div>
           <PlatformBadges accounts={alert.accounts} className="mt-1" />
         </div>
         <span title={status.help} className="shrink-0"><Pill tone={status.tone}>{status.label}</Pill></span>
       </div>
 
-      {owner && <p className="text-[11px] text-gray-500 truncate">{owner}</p>}
+      {owner && <p className="text-[11px] text-ui-muted truncate">{owner}</p>}
 
       {def && (
         <dl className="grid grid-cols-2 gap-2 text-[11px]">
           <div>
-            <dt className="text-gray-600">Dernière valeur</dt>
-            <dd className="text-gray-300 tabular-nums">{unbreakable(lastValueLine(alert))}</dd>
+            <dt className="text-ui-muted">Dernière valeur</dt>
+            <dd className="text-ui-fg2 tabular-nums">{unbreakable(lastValueLine(alert))}</dd>
           </div>
           <div>
-            <dt className="text-gray-600">Dernier déclenchement</dt>
-            <dd className="text-gray-300">{alert.lastTriggeredAt ? `le ${dayLabel(alert.lastTriggeredAt)}` : "Jamais"}</dd>
+            <dt className="text-ui-muted">Dernier déclenchement</dt>
+            <dd className="text-ui-fg2">{alert.lastTriggeredAt ? `le ${dayLabel(alert.lastTriggeredAt)}` : "Jamais"}</dd>
           </div>
         </dl>
       )}
@@ -87,21 +87,21 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
         ? <p className="text-[11px] text-amber-300 break-words">{CLIENT_GONE}</p>
         : alert.lastNote && <p className="text-[11px] text-amber-300 break-words">{alert.lastNote}</p>}
       {!alert.clientGone && alert.status === "review" && alert.mine && (
-        <p className="text-[11px] text-gray-400 break-words">
+        <p className="text-[11px] text-ui-fg2 break-words">
           Ouvrez la conversation : l&apos;IA repart des comptes actuels du client. Validez de nouveau la proposition, ou redemandez-la, pour remettre l&apos;alerte en service.
         </p>
       )}
 
       {details && def && (
-        <div className="text-xs text-gray-400 bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2 space-y-1.5">
-          <p className="text-gray-200">{unbreakable(ruleSentence(def))}</p>
+        <div className="text-xs text-ui-fg2 bg-ui-bg border border-ui-line rounded-lg px-3 py-2 space-y-1.5">
+          <p className="text-ui-fg">{unbreakable(ruleSentence(def))}</p>
           <p>{settingsLine(def)}</p>
           {guardsLine(def) && <p>{guardsLine(def)}</p>}
           {hindsightLine(def) && <p>{hindsightLine(def)}</p>}
-          {alert.backtest && <p className="text-gray-500">{replayLine(alert.backtest)} (au moment de la validation).</p>}
-          <div className="pt-1 border-t border-gray-800">
-            <p className="text-gray-500 mb-1">Derniers déclenchements</p>
-            {alert.events.length === 0 && <p className="text-gray-600">Aucun pour l&apos;instant.</p>}
+          {alert.backtest && <p className="text-ui-muted">{replayLine(alert.backtest)} (au moment de la validation).</p>}
+          <div className="pt-1 border-t border-ui-line">
+            <p className="text-ui-muted mb-1">Derniers déclenchements</p>
+            {alert.events.length === 0 && <p className="text-ui-muted">Aucun pour l&apos;instant.</p>}
             <ul className="space-y-1.5">
               {alert.events.map((e) => {
                 const st = eventStateOf(e, def.cooldownHours);
@@ -111,11 +111,11 @@ function AlertItem({ alert, open, everyone, busy, error, onOpen, onAction }: {
                 return (
                   <li key={e.id} className="space-y-0.5">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-gray-300">{dayLabel(e.triggeredAt)}</span>
+                      <span className="text-ui-fg2">{dayLabel(e.triggeredAt)}</span>
                       {e.kind === "reminder" && <Pill className="text-[10px]">rappel</Pill>}
                       <Pill tone={st.tone} className="text-[10px]">{st.label}</Pill>
                     </div>
-                    <p className="text-gray-400 whitespace-pre-wrap break-words line-clamp-4">{e.message}</p>
+                    <p className="text-ui-fg2 whitespace-pre-wrap break-words line-clamp-4">{e.message}</p>
                     {e.notifyError && <p className={`${soft ? "text-amber-300" : "text-red-400"} break-words`}>{e.notifyError}{waiting ? " — nouvel essai au prochain passage si la situation dure." : ""}</p>}
                   </li>
                 );
@@ -187,7 +187,7 @@ export function AlertList({ alerts, openId, everyone, busy, errors, onOpen, onAc
   onAction: (alert: AlertView, action: AlertAction) => void;
 }) {
   return (
-    <ul className="divide-y divide-gray-800">
+    <ul className="divide-y divide-ui-line">
       {alerts.map((a) => (
         <AlertItem
           key={a.id}

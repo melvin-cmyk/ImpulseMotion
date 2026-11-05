@@ -32,8 +32,8 @@ function inline(text: string, onNavigate: () => void): React.ReactNode[] {
   for (const m of text.matchAll(re)) {
     if (m.index > last) out.push(text.slice(last, m.index));
     out.push(m[2]
-      ? <Link key={m.index} href={m[2]} onClick={onNavigate} className="font-medium text-violet-300 underline underline-offset-2 hover:text-white">{m[1]}</Link>
-      : <strong key={m.index} className="font-semibold text-white">{m[3]}</strong>);
+      ? <Link key={m.index} href={m[2]} onClick={onNavigate} className="font-medium text-ui-accent-ink underline underline-offset-2 hover:text-ui-fg">{m[1]}</Link>
+      : <strong key={m.index} className="font-medium text-ui-fg">{m[3]}</strong>);
     last = m.index + m[0].length;
   }
   if (last < text.length) out.push(text.slice(last));
@@ -48,8 +48,8 @@ function Answer({ text, onNavigate }: { text: string; onNavigate: () => void }) 
       {lines.map((line, i) => {
         const step = /^(\d+)[.)]\s+(.*)$/.exec(line);
         const bullet = /^[-•*]\s+(.*)$/.exec(line);
-        if (step) return <p key={i} className="flex gap-2"><span className="shrink-0 font-semibold text-violet-300">{step[1]}.</span><span>{inline(step[2], onNavigate)}</span></p>;
-        if (bullet) return <p key={i} className="flex gap-2"><span className="shrink-0 text-violet-300">•</span><span>{inline(bullet[1], onNavigate)}</span></p>;
+        if (step) return <p key={i} className="flex gap-2"><span className="shrink-0 font-medium text-ui-accent-ink">{step[1]}.</span><span>{inline(step[2], onNavigate)}</span></p>;
+        if (bullet) return <p key={i} className="flex gap-2"><span className="shrink-0 text-ui-accent-ink">•</span><span>{inline(bullet[1], onNavigate)}</span></p>;
         return <p key={i}>{inline(line, onNavigate)}</p>;
       })}
     </div>
@@ -130,7 +130,7 @@ export function GuideBot() {
         onClick={() => setOpen(true)}
         aria-label="Ouvrir le guide de l'application"
         title="Besoin d'aide pour trouver une page ?"
-        className="fixed bottom-5 right-5 z-50 flex h-12 items-center gap-2 rounded-full bg-violet-600 px-4 text-sm font-semibold text-white shadow-lg shadow-black/40 transition-colors hover:bg-violet-500 print:hidden"
+        className="fixed bottom-5 right-5 z-50 flex h-12 items-center gap-2 rounded-full bg-ui-accent px-4 text-sm font-medium text-ui-on-accent shadow-lg shadow-black/40 transition-colors hover:brightness-110 print:hidden"
       >
         <Compass className="h-5 w-5" />
         Guide
@@ -142,23 +142,23 @@ export function GuideBot() {
     <section
       role="dialog"
       aria-label="Guide de l'application"
-      className="fixed bottom-5 right-5 z-50 flex max-h-[min(34rem,calc(100vh-2.5rem))] w-[min(23rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-2xl border border-gray-800 bg-gray-950 shadow-2xl shadow-black/60 print:hidden"
+      className="fixed bottom-5 right-5 z-50 flex max-h-[min(34rem,calc(100vh-2.5rem))] w-[min(23rem,calc(100vw-2.5rem))] flex-col overflow-hidden rounded-xl border border-ui-line bg-ui-bg shadow-2xl shadow-black/60 print:hidden"
     >
-      <header className="flex items-center justify-between gap-2 border-b border-gray-800 px-4 py-3">
+      <header className="flex items-center justify-between gap-2 border-b border-ui-line px-4 py-3">
         <div className="flex items-center gap-2">
-          <Compass className="h-4 w-4 text-violet-400" />
+          <Compass className="h-4 w-4 text-ui-accent-ink" />
           <div>
-            <h2 className="text-sm font-semibold text-white">Guide</h2>
-            <p className="text-[11px] text-gray-500">Où aller, quoi cliquer</p>
+            <h2 className="text-sm font-medium text-ui-fg">Guide</h2>
+            <p className="text-[11px] text-ui-muted">Où aller, quoi cliquer</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
-            <button type="button" onClick={() => { setMessages([]); setError(null); }} title="Recommencer" aria-label="Recommencer la conversation" className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-900 hover:text-gray-200">
+            <button type="button" onClick={() => { setMessages([]); setError(null); }} title="Recommencer" aria-label="Recommencer la conversation" className="rounded-lg p-1.5 text-ui-muted hover:bg-ui-raised hover:text-ui-fg">
               <RotateCcw className="h-4 w-4" />
             </button>
           )}
-          <button type="button" onClick={() => setOpen(false)} title="Fermer" aria-label="Fermer le guide" className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-900 hover:text-gray-200">
+          <button type="button" onClick={() => setOpen(false)} title="Fermer" aria-label="Fermer le guide" className="rounded-lg p-1.5 text-ui-muted hover:bg-ui-raised hover:text-ui-fg">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -167,10 +167,10 @@ export function GuideBot() {
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3" aria-live="polite">
         {messages.length === 0 && (
           <div className="space-y-2">
-            <p className="text-sm text-gray-300">Dites-moi ce que vous voulez faire, je vous indique la page et les étapes.</p>
+            <p className="text-sm text-ui-fg2">Dites-moi ce que vous voulez faire, je vous indique la page et les étapes.</p>
             <div className="flex flex-col gap-1.5">
               {SUGGESTIONS.map((s) => (
-                <button key={s} type="button" onClick={() => ask(s)} disabled={busy} className="rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-left text-xs text-gray-300 hover:border-violet-500/50 hover:text-white disabled:opacity-50">
+                <button key={s} type="button" onClick={() => ask(s)} disabled={busy} className="rounded-lg border border-ui-line bg-ui-card px-3 py-2 text-left text-xs text-ui-fg2 hover:border-ui-accent hover:text-ui-fg disabled:opacity-50">
                   {s}
                 </button>
               ))}
@@ -179,7 +179,7 @@ export function GuideBot() {
         )}
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-            <div className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${m.role === "user" ? "bg-violet-600 text-white" : "bg-gray-900 text-gray-200"}`}>
+            <div className={`max-w-[88%] rounded-xl px-3 py-2 text-sm leading-relaxed ${m.role === "user" ? "bg-ui-accent text-ui-on-accent" : "bg-ui-card text-ui-fg"}`}>
               {m.role === "user" ? m.content : (
                 <Answer text={m.content} onNavigate={() => setOpen(false)} />
               )}
@@ -187,7 +187,7 @@ export function GuideBot() {
           </div>
         ))}
         {busy && (
-          <div className="flex items-center gap-2 text-xs text-gray-500">
+          <div className="flex items-center gap-2 text-xs text-ui-muted">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Je cherche la bonne page…
           </div>
         )}
@@ -195,7 +195,7 @@ export function GuideBot() {
         <div ref={endRef} />
       </div>
 
-      <form onSubmit={(e) => { e.preventDefault(); void ask(input); }} className="flex items-end gap-2 border-t border-gray-800 p-3">
+      <form onSubmit={(e) => { e.preventDefault(); void ask(input); }} className="flex items-end gap-2 border-t border-ui-line p-3">
         <textarea
           ref={inputRef}
           value={input}
@@ -204,9 +204,9 @@ export function GuideBot() {
           rows={1}
           placeholder="Que voulez-vous faire ?"
           aria-label="Votre question"
-          className="max-h-24 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-gray-800 bg-gray-900 px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:border-violet-500 focus:outline-none"
+          className="max-h-24 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-ui-line bg-ui-card px-3 py-2 text-sm text-ui-fg placeholder:text-ui-muted focus:border-ui-accent focus:outline-none"
         />
-        <button type="submit" disabled={busy || !input.trim()} aria-label="Envoyer" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-40">
+        <button type="submit" disabled={busy || !input.trim()} aria-label="Envoyer" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ui-accent text-ui-on-accent hover:brightness-110 disabled:opacity-40">
           <Send className="h-4 w-4" />
         </button>
       </form>

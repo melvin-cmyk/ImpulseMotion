@@ -200,24 +200,24 @@ export function NewAdForm({ clientId, accountId, adsetId, adsetName, adsetDynami
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onCancel}>
       <form
         role="dialog" aria-modal="true" aria-labelledby="new-ad-title"
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => { e.preventDefault(); submit(); }}
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }}
-        className={`bg-gray-950 border border-gray-800 rounded-2xl ${wide ? "max-w-6xl" : "max-w-5xl"} w-full max-h-[92vh] overflow-auto`}
+        className={`bg-ui-bg border border-ui-line rounded-xl ${wide ? "max-w-6xl" : "max-w-5xl"} w-full max-h-[92vh] overflow-auto`}
       >
-        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-800">
-          <span id="new-ad-title" className="text-sm text-white font-semibold">Nouvelle publicité · ensemble « {adsetName} »</span>
-          <button type="button" onClick={onCancel} className="text-gray-400 hover:text-white" aria-label="Fermer"><X className="w-5 h-5" /></button>
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-ui-line">
+          <span id="new-ad-title" className="text-sm text-ui-fg font-medium">Nouvelle publicité · ensemble « {adsetName} »</span>
+          <button type="button" onClick={onCancel} className="text-ui-fg2 hover:text-ui-fg" aria-label="Fermer"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="px-4 pt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex items-center gap-1.5" role="tablist" aria-label="Plateforme">
             {AD_PLATFORM_TABS.map((t) => (
               <button key={t.id} type="button" role="tab" aria-selected={platform === t.id} disabled={!!t.soon || platform !== t.id} title={t.soon ?? undefined} className={tabClass(platform === t.id, !!t.soon)}>
-                {t.label}{t.soon ? <span className="ml-1 text-[10px] text-gray-500">bientôt</span> : null}
+                {t.label}{t.soon ? <span className="ml-1 text-[10px] text-ui-muted">bientôt</span> : null}
               </button>
             ))}
           </div>
@@ -227,12 +227,12 @@ export function NewAdForm({ clientId, accountId, adsetId, adsetName, adsetDynami
               return (
                 <button key={t.id} ref={i === 0 ? firstTab : undefined} type="button" role="tab" data-tab={t.id} aria-selected={format === t.id} aria-controls="new-ad-media" tabIndex={lock ? -1 : format === t.id ? 0 : -1}
                   disabled={!!lock} title={lock ?? undefined} onClick={() => pickFormat(t.id)} onKeyDown={(e) => tabKeyNav(e, formats, format, pickFormat)} className={tabClass(format === t.id, !!lock)}>
-                  {t.label}{t.soon ? <span className="ml-1 text-[10px] text-gray-500">bientôt</span> : null}
+                  {t.label}{t.soon ? <span className="ml-1 text-[10px] text-ui-muted">bientôt</span> : null}
                 </button>
               );
             })}
           </div>
-          <span className="text-[11px] text-gray-500">{AD_PLATFORM_TABS.find((t) => t.id === platform)?.soon ?? lockOf(format) ?? (format === "video" ? "mp4, du 16:9 au 9:16, 1 200 px de large conseillés. La vidéo part chez Meta à l'aperçu et y est traitée quelques minutes." : format === "carousel" ? "2 à 10 cartes, image ou vidéo, chacune avec son lien." : format === "dynamic" ? "Jusqu'à 10 images et 10 vidéos, 5 textes, 5 titres, 5 descriptions, 5 boutons : Meta assemble et montre les meilleures combinaisons. Les visuels partent chez Meta à l'aperçu." : "Image carrée 1:1 ou 4:5, 1 080 px conseillés.")}</span>
+          <span className="text-[11px] text-ui-muted">{AD_PLATFORM_TABS.find((t) => t.id === platform)?.soon ?? lockOf(format) ?? (format === "video" ? "mp4, du 16:9 au 9:16, 1 200 px de large conseillés. La vidéo part chez Meta à l'aperçu et y est traitée quelques minutes." : format === "carousel" ? "2 à 10 cartes, image ou vidéo, chacune avec son lien." : format === "dynamic" ? "Jusqu'à 10 images et 10 vidéos, 5 textes, 5 titres, 5 descriptions, 5 boutons : Meta assemble et montre les meilleures combinaisons. Les visuels partent chez Meta à l'aperçu." : "Image carrée 1:1 ou 4:5, 1 080 px conseillés.")}</span>
         </div>
 
         <div className={`p-4 grid gap-4 ${wide ? "lg:grid-cols-[minmax(0,1fr)_280px]" : "md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[240px_minmax(0,1fr)_280px]"}`}>
@@ -249,18 +249,18 @@ export function NewAdForm({ clientId, accountId, adsetId, adsetName, adsetDynami
           </div>
 
           <div className="space-y-3">
-            <label className="block text-xs text-gray-400">Nom de la publicité<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
-            {!dynamic && <label className="block text-xs text-gray-400">Texte principal<textarea value={f.primaryText} onChange={(e) => setF({ ...f, primaryText: e.target.value })} rows={4} className={`${input} mt-1 resize-y`} maxLength={2000} placeholder="Le texte au-dessus du visuel" /></label>}
+            <label className="block text-xs text-ui-fg2">Nom de la publicité<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
+            {!dynamic && <label className="block text-xs text-ui-fg2">Texte principal<textarea value={f.primaryText} onChange={(e) => setF({ ...f, primaryText: e.target.value })} rows={4} className={`${input} mt-1 resize-y`} maxLength={2000} placeholder="Le texte au-dessus du visuel" /></label>}
             {format !== "carousel" && !dynamic && (
               <div className="grid sm:grid-cols-2 gap-3">
-                <label className="block text-xs text-gray-400">Titre (facultatif)<input value={f.headline} onChange={(e) => setF({ ...f, headline: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
-                <label className="block text-xs text-gray-400">Description (facultatif)<input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
+                <label className="block text-xs text-ui-fg2">Titre (facultatif)<input value={f.headline} onChange={(e) => setF({ ...f, headline: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
+                <label className="block text-xs text-ui-fg2">Description (facultatif)<input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} className={`${input} mt-1`} maxLength={255} /></label>
               </div>
             )}
             <div className={`grid gap-3 ${dynamic ? "" : "sm:grid-cols-[minmax(0,1fr)_180px]"}`}>
-              <label className="block text-xs text-gray-400">{format === "carousel" ? "Lien « voir plus » (carte de fin, obligatoire)" : dynamic ? "Lien de destination (un seul pour toutes les combinaisons)" : "Lien de destination"}<input value={f.linkUrl} onChange={(e) => setF({ ...f, linkUrl: e.target.value })} className={`${input} mt-1`} placeholder="https://…" inputMode="url" /></label>
+              <label className="block text-xs text-ui-fg2">{format === "carousel" ? "Lien « voir plus » (carte de fin, obligatoire)" : dynamic ? "Lien de destination (un seul pour toutes les combinaisons)" : "Lien de destination"}<input value={f.linkUrl} onChange={(e) => setF({ ...f, linkUrl: e.target.value })} className={`${input} mt-1`} placeholder="https://…" inputMode="url" /></label>
               {!dynamic && (
-                <label className="block text-xs text-gray-400">{format === "carousel" ? "Bouton des cartes (par défaut)" : "Bouton"}
+                <label className="block text-xs text-ui-fg2">{format === "carousel" ? "Bouton des cartes (par défaut)" : "Bouton"}
                   <select value={f.callToAction} onChange={(e) => setF({ ...f, callToAction: e.target.value })} className={`${input} mt-1`}>
                     {CTA_FR.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                   </select>
@@ -268,13 +268,13 @@ export function NewAdForm({ clientId, accountId, adsetId, adsetName, adsetDynami
               )}
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
-              <label className="block text-xs text-gray-400">Page Facebook
+              <label className="block text-xs text-ui-fg2">Page Facebook
                 <select value={f.pageId} onChange={(e) => setF({ ...f, pageId: e.target.value })} className={`${input} mt-1`} disabled={!identities}>
                   <option value="">{identities ? "Choisir…" : "Lecture…"}</option>
                   {identities?.pages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </label>
-              <label className="block text-xs text-gray-400">Compte Instagram (facultatif)
+              <label className="block text-xs text-ui-fg2">Compte Instagram (facultatif)
                 <select value={f.instagramUserId} onChange={(e) => setF({ ...f, instagramUserId: e.target.value })} className={`${input} mt-1`} disabled={!identities}>
                   <option value="">Aucun / celui de la Page</option>
                   {identities?.instagram.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -290,9 +290,9 @@ export function NewAdForm({ clientId, accountId, adsetId, adsetName, adsetDynami
             )}
             {error && <p className="text-sm text-red-300" role="alert">{error}</p>}
             <div className="flex flex-wrap items-center gap-2 pt-1">
-              <button type="submit" className="px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-sm text-white font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-300">Ajouter aux modifications</button>
-              <button type="button" onClick={onCancel} className="px-3 py-2 text-sm text-gray-400 hover:text-white">Annuler</button>
-              <span className="text-[11px] text-gray-500 ml-auto">Créée en pause : rien n&apos;est dépensé avant « Mettre en ligne ». Entrée ajoute, Échap ferme.</span>
+              <button type="submit" className="px-3 py-2 rounded-lg bg-ui-accent hover:brightness-110 text-sm text-ui-on-accent font-medium outline-none focus-visible:ring-2 focus-visible:ring-ui-accent/40">Ajouter aux modifications</button>
+              <button type="button" onClick={onCancel} className="px-3 py-2 text-sm text-ui-fg2 hover:text-ui-fg">Annuler</button>
+              <span className="text-[11px] text-ui-muted ml-auto">Créée en pause : rien n&apos;est dépensé avant « Mettre en ligne ». Entrée ajoute, Échap ferme.</span>
             </div>
           </div>
 

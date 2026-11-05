@@ -64,33 +64,33 @@ export function SearchTermsPanel({ clientId, accountId, currency, onAdd }: { cli
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        {data && <span className="text-gray-400">{totals.terms} termes · {m(totals.spend)} dépensés · <span className={totals.waste > 0 ? "text-amber-300" : ""}>{m(totals.waste)} sans conversion</span> ({data.since.slice(8, 10)}/{data.since.slice(5, 7)} → {data.until.slice(8, 10)}/{data.until.slice(5, 7)})</span>}
+        {data && <span className="text-ui-fg2">{totals.terms} termes · {m(totals.spend)} dépensés · <span className={totals.waste > 0 ? "text-amber-300" : ""}>{m(totals.waste)} sans conversion</span> ({data.since.slice(8, 10)}/{data.since.slice(5, 7)} → {data.until.slice(8, 10)}/{data.until.slice(5, 7)})</span>}
         <span className="flex-1" />
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Chercher un terme" className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-gray-200 w-44" />
-        <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-gray-200">
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Chercher un terme" className="bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg w-44" />
+        <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg">
           <option value="waste">Dépense sans conversion d&apos;abord</option>
           <option value="spend">Dépense</option>
           <option value="conversions">Conversions</option>
           <option value="clicks">Clics</option>
         </select>
-        <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-gray-200">
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))} className="bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg">
           {[7, 14, 30, 60, 90].map((d) => <option key={d} value={d}>{d} jours</option>)}
         </select>
-        <label className="flex items-center gap-1 text-gray-400">ajouter en
-          <select value={match} onChange={(e) => setMatch(e.target.value as KeywordMatchType)} className="bg-gray-950 border border-gray-700 rounded-md px-2 py-1 text-gray-200">
+        <label className="flex items-center gap-1 text-ui-fg2">ajouter en
+          <select value={match} onChange={(e) => setMatch(e.target.value as KeywordMatchType)} className="bg-ui-bg border border-ui-line-strong rounded-md px-2 py-1 text-ui-fg">
             <option value="EXACT">exact</option><option value="PHRASE">expression</option><option value="BROAD">large</option>
           </select>
         </label>
-        {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />}
-        {!loading && <RefreshCw className="w-3.5 h-3.5 text-gray-600" />}
+        {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-ui-muted" />}
+        {!loading && <RefreshCw className="w-3.5 h-3.5 text-ui-muted" />}
       </div>
       {error && <p className="text-sm text-red-300">{error}</p>}
-      {!error && data && !rows.length && <p className="text-sm text-gray-500">Aucun terme de recherche sur la période.</p>}
+      {!error && data && !rows.length && <p className="text-sm text-ui-muted">Aucun terme de recherche sur la période.</p>}
       {rows.length > 0 && (
         <div className="overflow-x-auto -mx-1">
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-gray-500 uppercase tracking-wide border-b border-gray-800">
+              <tr className="text-ui-muted border-b border-ui-line">
                 <th className="py-1.5 px-1 text-left font-medium">Terme</th>
                 <th className="py-1.5 px-1 text-left font-medium hidden md:table-cell">Campagne · groupe</th>
                 <th className="py-1.5 px-1 text-right font-medium">Impr.</th>
@@ -106,20 +106,20 @@ export function SearchTermsPanel({ clientId, accountId, currency, onAdd }: { cli
                 const waste = r.conversions === 0 && r.spend >= 5;
                 const nk = `n:${r.term}:${r.campaignId}`, kk = `k:${r.term}:${r.adGroupId}`;
                 return (
-                  <tr key={`${r.term}|${r.adGroupId}`} className={`border-b border-gray-800/40 ${waste ? "bg-red-950/20" : ""}`}>
-                    <td className="py-1.5 px-1 text-gray-200 max-w-[260px] truncate" title={r.term}>{r.term}{STATUS_FR[r.status] && <span className="ml-1 text-[10px] text-gray-500">({STATUS_FR[r.status]})</span>}</td>
-                    <td className="py-1.5 px-1 text-gray-500 hidden md:table-cell max-w-[260px] truncate" title={`${r.campaignName} · ${r.adGroupName}`}>{r.campaignName} <span className="text-gray-600">·</span> {r.adGroupName}</td>
-                    <td className="py-1.5 px-1 text-right text-gray-400 tabular-nums">{r.impressions.toLocaleString("fr-FR")}</td>
-                    <td className="py-1.5 px-1 text-right text-gray-400 tabular-nums">{r.clicks.toLocaleString("fr-FR")}</td>
-                    <td className="py-1.5 px-1 text-right text-gray-200 tabular-nums">{m(r.spend)}</td>
-                    <td className="py-1.5 px-1 text-right text-gray-200 tabular-nums">{r.conversions.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}</td>
-                    <td className="py-1.5 px-1 text-right text-gray-400 tabular-nums">{r.conversions > 0 ? m(r.spend / r.conversions) : "—"}</td>
+                  <tr key={`${r.term}|${r.adGroupId}`} className={`border-b border-ui-line ${waste ? "bg-red-950/20" : ""}`}>
+                    <td className="py-1.5 px-1 text-ui-fg max-w-[260px] truncate" title={r.term}>{r.term}{STATUS_FR[r.status] && <span className="ml-1 text-[10px] text-ui-muted">({STATUS_FR[r.status]})</span>}</td>
+                    <td className="py-1.5 px-1 text-ui-muted hidden md:table-cell max-w-[260px] truncate" title={`${r.campaignName} · ${r.adGroupName}`}>{r.campaignName} <span className="text-ui-muted">·</span> {r.adGroupName}</td>
+                    <td className="py-1.5 px-1 text-right text-ui-fg2 tabular-nums">{r.impressions.toLocaleString("fr-FR")}</td>
+                    <td className="py-1.5 px-1 text-right text-ui-fg2 tabular-nums">{r.clicks.toLocaleString("fr-FR")}</td>
+                    <td className="py-1.5 px-1 text-right text-ui-fg tabular-nums">{m(r.spend)}</td>
+                    <td className="py-1.5 px-1 text-right text-ui-fg tabular-nums">{r.conversions.toLocaleString("fr-FR", { maximumFractionDigits: 1 })}</td>
+                    <td className="py-1.5 px-1 text-right text-ui-fg2 tabular-nums">{r.conversions > 0 ? m(r.spend / r.conversions) : "—"}</td>
                     <td className="py-1.5 px-1 text-right whitespace-nowrap">
                       {r.status !== "EXCLUDED" && r.status !== "ADDED_EXCLUDED" && (
-                        <button type="button" disabled={added.has(nk)} onClick={() => negative(r)} className="text-amber-300 hover:text-white disabled:text-gray-600 mr-2" title="Ajouter en mot-clé négatif sur la campagne">{added.has(nk) ? "négatif prévu" : "négatif"}</button>
+                        <button type="button" disabled={added.has(nk)} onClick={() => negative(r)} className="text-amber-300 hover:text-ui-fg disabled:text-ui-muted mr-2" title="Ajouter en mot-clé négatif sur la campagne">{added.has(nk) ? "négatif prévu" : "négatif"}</button>
                       )}
                       {r.status !== "ADDED" && r.status !== "ADDED_EXCLUDED" && r.adGroupId && (
-                        <button type="button" disabled={added.has(kk)} onClick={() => keyword(r)} className="text-violet-300 hover:text-white disabled:text-gray-600" title="Ajouter comme mot-clé dans le groupe d'annonces">{added.has(kk) ? "mot-clé prévu" : "mot-clé"}</button>
+                        <button type="button" disabled={added.has(kk)} onClick={() => keyword(r)} className="text-ui-accent-ink hover:text-ui-fg disabled:text-ui-muted" title="Ajouter comme mot-clé dans le groupe d'annonces">{added.has(kk) ? "mot-clé prévu" : "mot-clé"}</button>
                       )}
                     </td>
                   </tr>

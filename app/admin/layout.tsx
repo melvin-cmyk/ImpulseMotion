@@ -11,14 +11,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const isRealAdmin = session.baseRole === "admin";
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <nav className="sticky top-0 z-40 flex items-center justify-between px-6 py-3 bg-gray-950/80 backdrop-blur-xl border-b border-gray-800">
+    <div className="min-h-screen bg-ui-bg text-ui-fg">
+      <nav className="sticky top-0 z-40 flex items-center justify-between px-6 py-3 bg-ui-bg backdrop-blur-xl border-b border-ui-line">
         <div className="flex items-center gap-6">
           <Link href={isRealAdmin ? "/admin" : "/cockpit"} className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-gradient-to-br from-violet-500 to-purple-700 rounded-lg flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5 text-white" />
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-ui-accent">
+              <Zap className="w-3.5 h-3.5 text-ui-fg" />
             </div>
-            <span className="font-bold text-sm tracking-tight">Admin · ImpulseMotion</span>
+            <span className="font-medium text-sm tracking-tight">Admin · ImpulseMotion</span>
           </Link>
           <div className="flex items-center gap-1 text-sm">
             {isRealAdmin && <AdminNavLink href="/admin">Utilisateurs</AdminNavLink>}
@@ -30,7 +30,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <AdminNavLink href="/admin/alerts/assistant">Alertes</AdminNavLink>
             <AdminNavLink href="/admin/auto-alerts">Alertes automatiques</AdminNavLink>
             <AdminNavLink href="/portfolio">Portfolio</AdminNavLink>
-            <span className="mx-2 h-4 w-px bg-gray-800" />
+            <span className="mx-2 h-4 w-px bg-ui-raised" />
             <AdminNavLink href="/cockpit" muted>Retour à l&apos;app</AdminNavLink>
           </div>
         </div>
@@ -42,7 +42,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         >
           <button
             type="submit"
-            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-800 border border-gray-800 text-gray-400 transition-colors"
+            className="text-xs font-medium px-3 py-1.5 rounded-lg bg-ui-card hover:bg-ui-raised border border-ui-line text-ui-fg2 transition-colors"
           >
             Déconnexion
           </button>
@@ -58,7 +58,7 @@ function AdminNavLink({ href, muted, children }: { href: string; muted?: boolean
     <Link
       href={href}
       className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-        muted ? "text-gray-500 hover:text-gray-300" : "text-gray-300 hover:bg-gray-800 hover:text-white"
+        muted ? "text-ui-muted hover:text-ui-fg2" : "text-ui-fg2 hover:bg-ui-raised hover:text-ui-fg"
       }`}
     >
       {children}

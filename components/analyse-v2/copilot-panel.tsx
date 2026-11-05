@@ -100,25 +100,25 @@ export function CopilotPanel({ query, accountKey, clientParam, groupLabel, clien
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, run?.text]);
 
   return (
-    <aside className="fixed right-0 top-12 bottom-0 z-40 w-[400px] max-w-[92vw] border-l border-gray-800 bg-gray-950 flex flex-col shadow-2xl">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
-        <div className="inline-flex items-center gap-2 text-sm font-semibold text-white"><Sparkles className="w-4 h-4 text-violet-300" /> Copilote</div>
-        <button type="button" onClick={onClose} className="p-1 rounded-md text-gray-400 hover:text-white hover:bg-gray-800" aria-label="Fermer"><X className="w-4 h-4" /></button>
+    <aside className="fixed right-0 top-14 bottom-0 z-40 w-[400px] max-w-[92vw] border-l border-ui-line bg-ui-bg flex flex-col shadow-2xl">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-ui-line">
+        <div className="inline-flex items-center gap-2 text-sm font-medium text-ui-fg"><Sparkles className="w-4 h-4 text-ui-accent-ink" /> Copilote</div>
+        <button type="button" onClick={onClose} className="p-1 rounded-md text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised" aria-label="Fermer"><X className="w-4 h-4" /></button>
       </div>
-      <div className="px-3 py-2 text-[11px] text-gray-500 border-b border-gray-800">Il lit le rapport affiché : {clientName ?? "ce client"}, {query.range.since} → {query.range.until}, par {groupLabel.toLowerCase()}. Tu peux changer de page pendant qu&apos;il répond : la réponse t&apos;attendra ici.</div>
+      <div className="px-3 py-2 text-[11px] text-ui-muted border-b border-ui-line">Il lit le rapport affiché : {clientName ?? "ce client"}, {query.range.since} → {query.range.until}, par {groupLabel.toLowerCase()}. Tu peux changer de page pendant qu&apos;il répond : la réponse t&apos;attendra ici.</div>
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-        {!loaded && <div className="text-xs text-gray-500 inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Chargement…</div>}
+        {!loaded && <div className="text-xs text-ui-muted inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Chargement…</div>}
         {loaded && messages.length === 0 && !run && (
           <div className="space-y-1.5">
-            {COPILOT_SUGGESTIONS.filter((s) => s.prompt).map((s) => <button key={s.id} type="button" onClick={() => send(s.prompt)} className="w-full text-left rounded-lg border border-gray-800 bg-gray-900 px-3 py-2 text-xs text-gray-300 hover:border-violet-500/50 hover:text-white">{s.label}</button>)}
+            {COPILOT_SUGGESTIONS.filter((s) => s.prompt).map((s) => <button key={s.id} type="button" onClick={() => send(s.prompt)} className="w-full text-left rounded-lg border border-ui-line bg-ui-card px-3 py-2 text-xs text-ui-fg2 hover:border-ui-accent hover:text-ui-fg">{s.label}</button>)}
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
-            <div className={`rounded-xl px-3 py-2 text-xs max-w-[95%] ${m.role === "user" ? "bg-violet-600 text-white" : "bg-gray-900 border border-gray-800 text-gray-200"}`}>
+            <div className={`rounded-xl px-3 py-2 text-xs max-w-[95%] ${m.role === "user" ? "bg-ui-accent text-ui-on-accent" : "bg-ui-card border border-ui-line text-ui-fg"}`}>
               {m.role === "user" ? <span className="whitespace-pre-wrap">{m.content}</span> : <AiMarkdown content={m.content} filesBase={null} className="prose-xs" />}
               {m.role === "assistant" && m.content.length >= 20 && !m.content.startsWith("_Le copilote") && (
-                <div className="mt-1.5 pt-1.5 border-t border-gray-800 flex justify-end">
+                <div className="mt-1.5 pt-1.5 border-t border-ui-line flex justify-end">
                   <AddToPlaybook compact accountKey={accountKey || null} source="copilot" defaultTitle={(messages[i - 1]?.role === "user" ? messages[i - 1].content : "").replace(/\s+/g, " ").slice(0, 120)} aiNote={m.content.slice(0, 8000)} />
                 </div>
               )}
@@ -126,19 +126,19 @@ export function CopilotPanel({ query, accountKey, clientParam, groupLabel, clien
           </div>
         ))}
         {run && (
-          <div className="rounded-xl px-3 py-2 text-xs bg-gray-900 border border-violet-900/60 text-gray-200">
-            {run.text ? <AiMarkdown content={run.text} filesBase={null} className="prose-xs" /> : <span className="inline-flex items-center gap-2 text-gray-500"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Le copilote lit le rapport…</span>}
+          <div className="rounded-xl px-3 py-2 text-xs bg-ui-card border border-ui-accent text-ui-fg">
+            {run.text ? <AiMarkdown content={run.text} filesBase={null} className="prose-xs" /> : <span className="inline-flex items-center gap-2 text-ui-muted"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Le copilote lit le rapport…</span>}
           </div>
         )}
         {error && <div className="rounded-xl px-3 py-2 text-xs bg-red-950/60 border border-red-900 text-red-200">{error}</div>}
         <div ref={endRef} />
       </div>
-      <form className="p-3 border-t border-gray-800 flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
-        <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); } }} rows={2} placeholder="Pose une question sur ce rapport…" className="flex-1 bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500 resize-none" />
+      <form className="p-3 border-t border-ui-line flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
+        <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(input); } }} rows={2} placeholder="Pose une question sur ce rapport…" className="flex-1 bg-ui-card border border-ui-line rounded-lg px-3 py-2 text-xs text-ui-fg placeholder:text-ui-muted focus:outline-none focus:border-ui-accent resize-none" />
         {run ? (
-          <button type="button" onClick={() => void stopJob(run.jobId).catch(() => undefined)} className="rounded-lg bg-gray-800 hover:bg-gray-700 p-2 text-gray-200" aria-label="Arrêter" title="Arrêter la réponse"><Square className="w-4 h-4" /></button>
+          <button type="button" onClick={() => void stopJob(run.jobId).catch(() => undefined)} className="rounded-lg bg-ui-raised hover:bg-ui-line-strong p-2 text-ui-fg" aria-label="Arrêter" title="Arrêter la réponse"><Square className="w-4 h-4" /></button>
         ) : (
-          <button type="submit" disabled={!input.trim()} className="rounded-lg bg-violet-600 hover:bg-violet-500 p-2 text-white disabled:opacity-50" aria-label="Envoyer"><Send className="w-4 h-4" /></button>
+          <button type="submit" disabled={!input.trim()} className="rounded-lg bg-ui-accent hover:brightness-110 p-2 text-ui-on-accent disabled:opacity-50" aria-label="Envoyer"><Send className="w-4 h-4" /></button>
         )}
       </form>
     </aside>

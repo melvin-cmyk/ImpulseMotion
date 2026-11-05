@@ -145,22 +145,22 @@ export function ReportChat({
   }
 
   return (
-    <aside className="fixed right-0 top-12 bottom-0 z-40 w-full sm:w-[440px] bg-gray-950 border-l border-gray-800 flex flex-col animate-im-slide-right print:hidden">
-      <header className="h-11 px-4 flex items-center justify-between border-b border-gray-800 shrink-0">
-        <div className="text-sm font-semibold text-white">✦ Chat sur ce rapport</div>
-        <button type="button" onClick={onClose} className="text-gray-500 hover:text-white text-sm" aria-label="Fermer">✕</button>
+    <aside className="fixed right-0 top-14 bottom-0 z-40 w-full sm:w-[440px] bg-ui-bg border-l border-ui-line flex flex-col animate-im-slide-right print:hidden">
+      <header className="h-11 px-4 flex items-center justify-between border-b border-ui-line shrink-0">
+        <div className="text-sm font-medium text-ui-fg">Chat sur ce rapport</div>
+        <button type="button" onClick={onClose} className="text-ui-muted hover:text-ui-fg text-sm" aria-label="Fermer">✕</button>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && streamText === null && (
           <div className="space-y-2">
-            <p className="text-xs text-gray-500">Posez une question sur les chiffres de ce rapport. L&apos;IA lit le même snapshot de données que le rapport.</p>
+            <p className="text-xs text-ui-muted">Posez une question sur les chiffres de ce rapport. L&apos;IA lit le même snapshot de données que le rapport.</p>
             {SUGGESTIONS.map((s) => (
               <button
                 key={s}
                 type="button"
                 onClick={() => send(s)}
-                className="block w-full text-left text-xs px-3 py-2 rounded-lg bg-gray-900 border border-gray-800 text-gray-300 hover:border-violet-500 hover:text-white transition-colors"
+                className="block w-full text-left text-xs px-3 py-2 rounded-lg bg-ui-card border border-ui-line text-ui-fg2 hover:border-ui-accent hover:text-ui-fg transition-colors"
               >
                 {s}
               </button>
@@ -170,10 +170,10 @@ export function ReportChat({
         {messages.map((m, i) => (
           <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
             {m.role === "user" ? (
-              <div className="max-w-[85%] bg-violet-600 text-white text-sm px-3 py-2 rounded-2xl rounded-br-sm whitespace-pre-wrap">{m.content}</div>
+              <div className="max-w-[85%] bg-ui-accent text-ui-on-accent text-sm px-3 py-2 rounded-xl rounded-br-sm whitespace-pre-wrap">{m.content}</div>
             ) : (
-              <div className="bg-gray-900 border border-gray-800 rounded-2xl rounded-bl-sm px-3 py-2">
-                <div className="prose prose-invert prose-sm max-w-none prose-p:my-1.5 prose-table:text-xs">
+              <div className="bg-ui-card border border-ui-line rounded-xl rounded-bl-sm px-3 py-2">
+                <div className="prose ui-prose prose-sm max-w-none prose-p:my-1.5 prose-table:text-xs">
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{m.content}</ReactMarkdown>
                 </div>
                 <div className="mt-1.5 flex justify-end">
@@ -181,7 +181,7 @@ export function ReportChat({
                     type="button"
                     disabled={appendingIdx === i}
                     onClick={() => append(i)}
-                    className="text-[11px] text-violet-300 hover:text-white disabled:opacity-50"
+                    className="text-[11px] text-ui-accent-ink hover:text-ui-fg disabled:opacity-50"
                   >
                     {appendingIdx === i ? "Ajout…" : "+ Ajouter au rapport"}
                   </button>
@@ -191,9 +191,9 @@ export function ReportChat({
           </div>
         ))}
         {streamText !== null && (
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl rounded-bl-sm px-3 py-2 text-sm text-gray-200 whitespace-pre-wrap">
-            {streamText || <span className="text-gray-500">{toolNote ?? "Réflexion…"}</span>}
-            {streamText && toolNote && <div className="text-[11px] text-gray-500 mt-1">{toolNote}</div>}
+          <div className="bg-ui-card border border-ui-line rounded-xl rounded-bl-sm px-3 py-2 text-sm text-ui-fg whitespace-pre-wrap">
+            {streamText || <span className="text-ui-muted">{toolNote ?? "Réflexion…"}</span>}
+            {streamText && toolNote && <div className="text-[11px] text-ui-muted mt-1">{toolNote}</div>}
           </div>
         )}
         {error && <div className="text-xs text-red-400">{error}</div>}
@@ -202,7 +202,7 @@ export function ReportChat({
 
       <form
         onSubmit={(e) => { e.preventDefault(); send(input); }}
-        className="border-t border-gray-800 p-3 flex gap-2 shrink-0"
+        className="border-t border-ui-line p-3 flex gap-2 shrink-0"
       >
         <textarea
           value={input}
@@ -210,12 +210,12 @@ export function ReportChat({
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
           rows={2}
           placeholder="Votre question…"
-          className="flex-1 resize-none bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500"
+          className="flex-1 resize-none bg-ui-card border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg placeholder:text-ui-muted focus:outline-none focus:border-ui-accent"
         />
         {busy ? (
-          <button type="button" onClick={() => abortRef.current?.abort()} className="px-3 rounded-lg bg-gray-800 text-gray-300 text-sm">Stop</button>
+          <button type="button" onClick={() => abortRef.current?.abort()} className="px-3 rounded-lg bg-ui-raised text-ui-fg2 text-sm">Stop</button>
         ) : (
-          <button type="submit" disabled={!input.trim()} className="px-3 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold">Envoyer</button>
+          <button type="submit" disabled={!input.trim()} className="px-3 rounded-lg bg-ui-accent hover:brightness-110 disabled:opacity-40 text-ui-on-accent text-sm font-medium">Envoyer</button>
         )}
       </form>
     </aside>

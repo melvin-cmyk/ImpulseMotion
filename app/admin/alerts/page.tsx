@@ -53,12 +53,12 @@ type ClientUser = {
 };
 
 const inputCls =
-  "mt-1 w-full px-3 py-2 rounded-lg text-sm bg-gray-950 border border-gray-800 text-white focus:border-violet-500 focus:outline-none";
-const labelSpanCls = "text-xs text-gray-400";
+  "mt-1 w-full px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
+const labelSpanCls = "text-xs text-ui-fg2";
 const primaryBtnCls =
-  "px-4 py-2 rounded-lg font-semibold text-sm bg-violet-600 hover:bg-violet-500 text-white transition-colors";
+  "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors";
 const secondaryBtnCls =
-  "px-3 py-2 rounded-lg text-sm font-medium bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 border border-violet-500/30 transition-colors";
+  "px-3 py-2 rounded-lg text-sm font-medium bg-ui-accent-soft hover:bg-ui-accent-soft text-ui-accent-ink border border-ui-accent transition-colors";
 
 export default function AdminAlertsPage() {
   const { data: session } = useSession();
@@ -260,7 +260,7 @@ export default function AdminAlertsPage() {
               <AlertRuleFields draft={draft} onChange={patchDraft} classes={{ input: inputCls, label: labelSpanCls }} />
             </div>
             <div className="flex gap-2 justify-end">
-              <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-white">
+              <button type="button" onClick={() => setShowCreate(false)} className="px-3 py-1.5 rounded-lg text-sm text-ui-fg2 hover:text-ui-fg">
                 Annuler
               </button>
               <button type="submit" className={primaryBtnCls.replace("py-2", "py-1.5")}>
@@ -274,9 +274,9 @@ export default function AdminAlertsPage() {
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {loading ? (
-        <p className="text-gray-400">Chargement…</p>
+        <p className="text-ui-fg2">Chargement…</p>
       ) : rules.length === 0 ? (
-        <Card padded className="text-center text-gray-500 border-dashed space-y-2">
+        <Card padded className="text-center text-ui-muted border-dashed space-y-2">
           <p>Aucune règle d&apos;alerte configurée — le cockpit n&apos;affichera donc aucune alerte.</p>
           <p className="text-xs">Exemple : ROAS Meta en dessous de 1,5 sur 7 jours, ou mot-clé Google à plus de 100 € sans conversion. Les règles ROAS sont ignorées quand le revenu est indisponible.</p>
           <button onClick={() => setShowCreate(true)} className={primaryBtnCls}>+ Créer une première règle</button>
@@ -291,10 +291,10 @@ export default function AdminAlertsPage() {
                   <RuleKindPills rule={r} />
                   {ruleMode(r) !== "ai" && (
                     <>
-                      <span className="text-sm text-gray-400">
+                      <span className="text-sm text-ui-fg2">
                         {CONDITIONS.find((c) => c.value === r.condition)?.label ?? r.condition}
                       </span>
-                      <span className="font-semibold text-white">
+                      <span className="font-medium text-ui-fg">
                         {r.threshold}{r.condition === "drop_pct" ? "%" : ""}
                       </span>
                     </>
@@ -303,14 +303,14 @@ export default function AdminAlertsPage() {
                   <NotifyPills json={r.notifyJson} />
                   <Pill tone={r.enabled ? "emerald" : "default"}>{r.enabled ? "actif" : "désactivé"}</Pill>
                 </div>
-                <div className="text-xs mt-1 text-gray-400">
+                <div className="text-xs mt-1 text-ui-fg2">
                   {r.user?.email ?? r.userId} · {r.clientId ?? "tous comptes"} · {r._count.events} déclenchement{r._count.events > 1 ? "s" : ""}
                   {r.lastTriggeredAt && <> · dernier : {new Date(r.lastTriggeredAt).toLocaleString("fr-FR")}</>}
                 </div>
                 <RuleDetails rule={r} />
               </div>
               <div className="flex gap-2 shrink-0">
-                <button onClick={() => handleToggle(r)} className="text-xs px-2 py-1 rounded text-gray-400 hover:text-white">
+                <button onClick={() => handleToggle(r)} className="text-xs px-2 py-1 rounded text-ui-fg2 hover:text-ui-fg">
                   {r.enabled ? "Désactiver" : "Activer"}
                 </button>
                 <button onClick={() => handleDelete(r.id)} className="text-xs px-2 py-1 rounded text-red-400 hover:text-red-300">
