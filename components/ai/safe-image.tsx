@@ -52,6 +52,25 @@ export function SafeImage({ src, alt }: { src?: unknown; alt?: string }) {
     : <span className="text-xs text-ui-muted">[image non affichée]</span>;
 }
 
+/**
+ * Visual of a creative card (components/bot/bot-creative-cards.tsx): fills the
+ * card's frame uncropped; the bot's video address gets a player (poster = the
+ * image, image again when the MP4 is refused). Anything but the bot's own media
+ * addresses is not loaded.
+ */
+export function BotCardMedia({ src, alt }: { src: string; alt?: string }) {
+  const [failed, setFailed] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false);
+  if (!BOT_VIDEO.test(src) && !BOT_IMAGE.test(src)) return <span className="text-xs text-ui-muted px-3 text-center">Visuel non affiché</span>;
+  if (failed) return <span className="text-xs text-ui-muted px-3 text-center">Visuel momentanément indisponible</span>;
+  if (BOT_VIDEO.test(src) && !videoFailed) {
+    return <video src={src} poster={src.replace("/video?", "/image?")} controls playsInline preload="metadata" onError={() => setVideoFailed(true)} className="w-full h-full object-contain bg-black" aria-label={alt} />;
+  }
+  const img = BOT_VIDEO.test(src) ? src.replace("/video?", "/image?") : src;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={img} alt={alt ?? ""} loading="lazy" onError={() => setFailed(true)} className="w-full h-full object-contain" />;
+}
+
 /** `components` for react-markdown wherever AI text is shown. */
 export const SAFE_MD_COMPONENTS = {
   img: ({ src, alt }: { src?: unknown; alt?: string }) => <SafeImage src={src} alt={alt} />,

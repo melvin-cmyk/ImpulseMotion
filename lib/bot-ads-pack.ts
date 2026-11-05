@@ -39,6 +39,7 @@ async function syncedTo(platform: WarehousePlatform, accountIds: string[]): Prom
 }
 const TREND_LABEL: Record<string, string> = { new: "nouvelle", scaling: "dépense en hausse", declining: "dépense en baisse", paused: "en pause", stable: "dépense stable", testing: "en test" };
 const SHOWN_TAGS: GlossaryKey[] = ["ai:type", "ai:format", "ai:theme"];
+const FORMAT_FR: Record<string, string> = { Video: "Vidéo", Image: "Image", Carousel: "Carrousel", Text: "Texte", Unknown: "Créa" };
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const frDate = (s: string) => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
@@ -82,7 +83,7 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
   const m = r.metrics;
   const tags = SHOWN_TAGS.map((k) => (a.tags[k] ? `${GLOSSARY_LABELS[k].split(" ")[0]} ${a.tags[k]}` : "")).filter(Boolean).join(" ; ");
   const kpis = [`dépense ${money(m.spend, cur)}`, `CTR ${fmtMetric("ctr", m.ctr, cur, m)}`];
-  if (m.conversions > 0) kpis.push(`${num(m.conversions)} conv.`, `CPA ${money(m.cpa, cur)}`);
+  if (m.conversions > 0) kpis.push(`conversions ${num(m.conversions)}`, `CPA ${money(m.cpa, cur)}`);
   if (!m.roasUnavailable && m.conversionValue > 0) kpis.push(`ROAS ${m.roas.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}`);
   if (m.videoPlays > 0 && m.hookRate > 0) kpis.push(`hook ${fmtMetric("hookRate", m.hookRate, cur, m)}`);
   if (m.convertScore > 0) kpis.push(`score conversion ${Math.round(m.convertScore)}/100`);
@@ -92,16 +93,20 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
   // Dynamic product ad (catalogue): no fixed visual, Meta's thumbnail is a placeholder → products of its catalogue.
   const dpa = a.platform === "meta" && /\{\{\s*product\./.test(`${a.title ?? ""} ${a.body ?? ""}`);
   const alt = r.label.slice(0, 40).replace(/[[\]]/g, "");
+  const name = r.label.slice(0, 60).replace(/[[\]|]/g, " ").trim();
+  const caption = [
+    dpa ? "Catalogue dynamique (exemple de produit)" : `${FORMAT_FR[a.format] ?? a.format}${a.dynamic ? " dynamique" : ""}`,
+    r.launch ? `lancée le ${frDate(r.launch)}` : "",
+  ].filter(Boolean).join(" · ");
+  const src = dpa ? `${imageUrl(botId, a.platform, a.adId)}&product=0`
+    : a.platform === "meta" && a.videoId ? imageUrl(botId, a.platform, a.adId, "video")
+    : hasVisual ? imageUrl(botId, a.platform, a.adId) : "";
   return [
     `${i}. « ${r.label.slice(0, 60)} » — ${a.format}${a.dynamic ? " dynamique" : ""}${r.launch ? `, lancée le ${frDate(r.launch)}` : ""}${trend}`,
-    `   ${kpis.join(" · ")}`,
     tags ? `   ${tags}` : "",
     text ? `   texte : ${text}` : "",
-    dpa
-      ? `   publicité dynamique du catalogue : chaque personne voit un produit différent. Exemples de produits diffusés (à présenter comme tels) : ${[0, 1, 2].map((n) => `![${alt} produit ${n + 1}](${imageUrl(botId, a.platform, a.adId)}&product=${n})`).join(" ")}`
-      : a.platform === "meta" && a.videoId
-      ? `   vidéo : ![${r.label.slice(0, 40).replace(/[[\]]/g, "")}](${imageUrl(botId, a.platform, a.adId, "video")})`
-      : hasVisual ? `   visuel : ![${r.label.slice(0, 40).replace(/[[\]]/g, "")}](${imageUrl(botId, a.platform, a.adId)})` : "",
+    dpa ? `   publicité dynamique du catalogue : chaque personne voit un produit différent ; autres exemples de produits : &product=1 et &product=2` : "",
+    src ? `   carte : ![${name}](${src}) | ${caption} | ${kpis.join(" · ")}` : `   chiffres : ${kpis.join(" · ")}`,
   ].filter(Boolean).join("\n");
 }
 
@@ -157,9 +162,9 @@ export async function buildBotAdsPack(botId: string, accounts: BotAdsAccounts, n
   const text = blocks.length ? [
     "CRÉAS ET PERFORMANCES PUBLICITAIRES (déjà calculées pour vous, comptes de ce client uniquement)",
     "- Ces chiffres viennent de l'entrepôt de l'agence, mis à jour plusieurs fois par jour ; données complètes jusqu'à hier. Pour les 7 ou 30 derniers jours, réponds DIRECTEMENT avec ce bloc, sans appeler d'outil. N'appelle un outil que pour une autre période, un autre niveau (campagne, ensemble), un indicateur absent d'ici, ou une plateforme marquée ⚠ : là, va chercher les chiffres en direct.",
-    "- LES CLIENTS VEULENT VOIR LEURS CRÉAS, pas seulement des chiffres. Dès qu'une réponse porte sur les performances publicitaires (période, plateforme, campagne, meilleures pubs), termine-la par les visuels des 2 ou 3 créas qui pèsent le plus sur cette période, chacun avec son nom et ses chiffres clés, même si le client n'a demandé que des chiffres.",
-    "- Pour montrer une créa de ce bloc, recopie EXACTEMENT sa ligne « visuel » ou « vidéo » (syntaxe image Markdown ; une vidéo s'affiche en lecteur dans le chat). Mets le visuel juste au-dessus de ses chiffres. 3 visuels maximum par réponse sauf demande explicite.",
-    `- Pour une créa obtenue par un outil en direct (autre période, campagne précise…), écris son visuel ainsi, avec l'identifiant d'annonce renvoyé par l'outil : ![nom de la créa](${imageUrl(botId, "PLATEFORME", "ID")}) en remplaçant PLATEFORME par meta, google ou tiktok et ID par l'identifiant de l'annonce (ad id) ; pour une vidéo Meta, remplace « /image? » par « /video? ». Sans identifiant, utilise le nom exact de l'annonce : ![nom](/api/bot/${encodeURIComponent(botId)}/image?name=NOM) avec NOM = le nom de l'annonce encodé pour une adresse (espaces en %20). Ce sont les SEULES adresses que tu as le droit d'écrire ; l'identifiant reste dans l'adresse de l'image, jamais dans le texte.`,
+    "- LES CLIENTS VEULENT VOIR LEURS CRÉAS, pas seulement des chiffres. Dès qu'une réponse porte sur les performances publicitaires (période, plateforme, campagne, meilleures pubs), termine-la par les cartes des créas qui pèsent le plus sur cette période, même si le client n'a demandé que des chiffres. Pas de limite de nombre : autant de cartes que la question en appelle (toutes celles demandées si le client en veut plus).",
+    "- Les créas s'affichent en CARTES dans le chat : écris UN bloc de code ```creas puis une ligne par créa, et ferme le bloc. Pour une créa de ce bloc, recopie EXACTEMENT ce qui suit « carte : » (visuel | format · lancement | chiffres). N'écris jamais de visuel de créa hors d'un bloc creas, et ne répète pas sous le bloc les chiffres déjà dans les cartes.",
+    `- Pour une créa obtenue par un outil en direct (autre période, campagne précise…), écris sa ligne de carte ainsi, avec l'identifiant d'annonce renvoyé par l'outil : ![nom de la créa](${imageUrl(botId, "PLATEFORME", "ID")}) | format · lancement | dépense … · CTR … · ROAS … en remplaçant PLATEFORME par meta, google ou tiktok et ID par l'identifiant de l'annonce (ad id) ; pour une vidéo Meta, remplace « /image? » par « /video? ». Sans identifiant, utilise le nom exact de l'annonce : ![nom](/api/bot/${encodeURIComponent(botId)}/image?name=NOM) avec NOM = le nom de l'annonce encodé pour une adresse (espaces en %20). Ce sont les SEULES adresses que tu as le droit d'écrire ; l'identifiant reste dans l'adresse de l'image, jamais dans le texte.`,
     "- Publicité dynamique du catalogue (DPA, texte avec {{product.…}}) trouvée en direct : elle n'a pas de visuel fixe ; montre 3 produits de son catalogue en ajoutant &product=0, &product=1 et &product=2 à l'adresse image, présentés comme des exemples de produits diffusés.",
     "- Toutes les créas des comptes de ce client, même lancées hier, ont leur visuel côté serveur : ne dis JAMAIS qu'une créa n'est « pas indexée » ou que son visuel est indisponible, écris l'adresse du visuel ; si l'image ne se charge pas, le chat l'indique lui-même.",
     "- Désigne les créas par leur nom entre guillemets, jamais par un identifiant. Chaque plateforme a sa propre attribution : ne les additionne jamais.",

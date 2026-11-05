@@ -26,6 +26,7 @@ import { AttachFileButton, BotFilesList, useBotFiles } from "@/components/bot/bo
 import { useVoice } from "@/components/mo/use-voice";
 import { BotFeedbackBox } from "@/components/bot/bot-feedback";
 import { BotTable } from "@/components/bot/bot-table";
+import { BotCreativeCards } from "@/components/bot/bot-creative-cards";
 
 type ConversationRow = { id: string; title: string | null; updatedAt: string; jobId?: string | null };
 type UiMessage = Pick<BotMessage, "role" | "content">;
@@ -336,6 +337,15 @@ export function BotChat({
   const mdComponents = useMemo(() => ({
     ...SAFE_MD_COMPONENTS,
     table: ({ children }: { children?: React.ReactNode }) => <BotTable botId={botId} title={activeTitle}>{children}</BotTable>,
+    // ```creas block → grid of creative cards (components/bot/bot-creative-cards.tsx).
+    pre: ({ node, children, ...rest }: React.HTMLAttributes<HTMLPreElement> & { node?: MdNode }) => {
+      const code = node?.children?.[0];
+      const cls = code?.properties?.className;
+      if (Array.isArray(cls) && cls.includes("language-creas")) {
+        return <BotCreativeCards text={(code?.children ?? []).map((c) => c.value ?? "").join("")} />;
+      }
+      return <pre {...rest}>{children}</pre>;
+    },
   }), [botId, activeTitle]);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -618,6 +628,9 @@ export function BotChat({
     </div>
   );
 }
+
+/** The hast node react-markdown hands to a component (only what the creative block reads). */
+type MdNode = { children?: Array<{ properties?: { className?: unknown }; children?: Array<{ value?: string }> }> };
 
 const PROSE = "ui-prose prose prose-sm max-w-none prose-p:my-2 prose-p:leading-6 prose-headings:font-medium prose-strong:font-medium prose-li:my-0.5 prose-table:my-4 prose-img:my-3";
 
