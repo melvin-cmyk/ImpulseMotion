@@ -42,6 +42,7 @@ model User {
   slackCheckedAt       DateTime?
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
+  botFeedback       BotFeedback[]
 }
 
 model UserAdAccount {
@@ -485,6 +486,24 @@ model ClientBot {
   dashboard       Dashboard         @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
   accesses        ClientBotAccess[]
   conversations   BotConversation[]
+  feedback        BotFeedback[]
+}
+
+/// What a client says about their assistant, sent from the box of the chat (/bot/[botId]).
+model BotFeedback {
+  id             String    @id @default(cuid())
+  botId          String
+  userId         String
+  /// "up" | "down" | null (text only)
+  rating         String?
+  message        String    @db.Text
+  /// The conversation open when it was sent, if any (to read the context).
+  conversationId String?
+  createdAt      DateTime  @default(now())
+  bot            ClientBot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([botId, createdAt])
 }
 
 /// Who may talk to a bot. Granted by an admin, by email (user auto-created as "client" if unknown).

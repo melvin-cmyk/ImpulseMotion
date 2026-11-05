@@ -163,3 +163,26 @@ export async function uploadFile(getToken, folderId, { name, mimeType, data, con
   const out = await call(getToken, existing ? "PATCH" : "POST", url, { body, raw: true, headers: { "Content-Type": `multipart/related; boundary=${boundary}` } });
   return { id: out.id, name: out.name, mimeType: out.mimeType ?? (target || type), webViewLink: out.webViewLink ?? null, bytes: buf.length, replaced: !!existing };
 }
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/**
+ * Shares one file with one person (a client exporting a table from their bot).
+ * Silent when the address is a Google account; Drive refuses that for other
+ * addresses, so then the invitation e-mail is sent (the only way in for them).
+ */
+export async function shareFile(getToken, fileId, { email, role = "writer", message = "" }) {
+  if (!ID_RE.test(String(fileId || ""))) throw new DriveError("fichier invalide", 400);
+  const to = String(email || "").trim().toLowerCase();
+  if (!EMAIL_RE.test(to)) throw new DriveError("adresse invalide", 400);
+  const r = role === "reader" ? "reader" : "writer";
+  const url = (notify) => `${API}/files/${fileId}/permissions?supportsAllDrives=true&sendNotificationEmail=${notify}${notify && message ? `&emailMessage=${encodeURIComponent(String(message).slice(0, 500))}` : ""}`;
+  try {
+    await call(getToken, "POST", url(false), { body: { role: r, type: "user", emailAddress: to } });
+    return { shared: true, notified: false };
+  } catch (e) {
+    if (!(e instanceof DriveError) || e.status === 404) throw e;
+    await call(getToken, "POST", url(true), { body: { role: r, type: "user", emailAddress: to } });
+    return { shared: true, notified: true };
+  }
+}

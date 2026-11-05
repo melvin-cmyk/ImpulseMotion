@@ -14,7 +14,7 @@
  * stops the following, never the reply.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
@@ -24,6 +24,8 @@ import { AI_JOB_FINISHED_EVENT, AI_JOB_STARTED_EVENT, followJob, stopJob, type J
 import { useAiJobs } from "@/components/ai-jobs-watcher";
 import { AttachFileButton, BotFilesList, useBotFiles } from "@/components/bot/bot-files";
 import { useVoice } from "@/components/mo/use-voice";
+import { BotFeedbackBox } from "@/components/bot/bot-feedback";
+import { BotTable } from "@/components/bot/bot-table";
 
 type ConversationRow = { id: string; title: string | null; updatedAt: string; jobId?: string | null };
 type UiMessage = Pick<BotMessage, "role" | "content">;
@@ -329,6 +331,14 @@ export function BotChat({
     }
   }
 
+  // Tables of the replies carry « Ouvrir dans Google Sheets », named after the conversation.
+  const activeTitle = conversations.find((c) => c.id === activeId)?.title || dashboardName;
+  const mdComponents = useMemo(() => ({
+    ...SAFE_MD_COMPONENTS,
+    table: ({ children }: { children?: React.ReactNode }) => <BotTable botId={botId} title={activeTitle}>{children}</BotTable>,
+  }), [botId, activeTitle]);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+
   const enabledSources = SOURCE_LABELS.filter(([k]) => !!sources[k]);
   const showSuggestions = messages.length === 0 && !activeRun && !loadingThread && !sending;
   const runningCount = Object.keys(runs).length;
@@ -394,6 +404,9 @@ export function BotChat({
           })}
         </div>
         {filesOn && <BotFilesList files={botFiles.files} onRemove={(f) => void botFiles.removeFile(f)} />}
+        <div className="mx-4 mb-3 pt-3 border-t border-ui-line">
+          <BotFeedbackBox botId={botId} conversationId={activeId} />
+        </div>
         <div className="mx-4 mb-4 pt-3 border-t border-ui-line flex gap-2" title="Cet assistant ne lit que les données de votre espace. Les réponses sont générées sur Amazon Bedrock (AWS, région Europe), dans un environnement dédié.">
           <ShieldCheck className="w-4 h-4 text-ui-muted shrink-0 mt-0.5" strokeWidth={1.5} />
           <p className="text-xs leading-4 text-ui-muted">Uniquement vos données, IA hébergée en Europe (AWS Bedrock)</p>
@@ -470,7 +483,7 @@ export function BotChat({
                 </div>
               ) : (
                 <div key={i} className={`min-w-0 ${PROSE}`}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{m.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown>
                 </div>
               )
             ))}
@@ -478,7 +491,7 @@ export function BotChat({
               <div className="min-w-0">
                 {activeRun?.text ? (
                   <div className={PROSE}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{activeRun.text}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{activeRun.text}</ReactMarkdown>
                   </div>
                 ) : (
                   <div className="inline-flex items-center gap-2 text-sm text-ui-fg2">
@@ -517,6 +530,11 @@ export function BotChat({
 
         <div className="px-4 sm:px-6 pb-4 pt-2 shrink-0">
           <div className="max-w-3xl mx-auto">
+            {feedbackOpen && (
+              <div className="md:hidden mb-3 rounded-xl border border-ui-line bg-ui-card p-3">
+                <BotFeedbackBox botId={botId} conversationId={activeId} onClose={() => setFeedbackOpen(false)} />
+              </div>
+            )}
             {(voice.listening || voice.transcribing || voice.error) && (
               <div className={`mb-2 flex items-center gap-2 text-xs ${voice.error && !voice.listening && !voice.transcribing ? "text-ui-warn" : "text-ui-fg2"}`} role="status">
                 {voice.listening ? (
@@ -592,6 +610,7 @@ export function BotChat({
             </div>
             <p className="text-xs text-ui-muted mt-2 px-1">
               Entrée pour envoyer, Maj+Entrée pour aller à la ligne. L&apos;assistant lit vos données sans jamais agir sur vos campagnes ; vérifiez les chiffres importants avec votre équipe Impulse Analytics.
+              <button type="button" onClick={() => setFeedbackOpen((v) => !v)} className="md:hidden ml-1 text-ui-fg2 underline underline-offset-2">Donner votre avis</button>
             </p>
           </div>
         </div>

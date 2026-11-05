@@ -110,6 +110,11 @@ export async function createSheetFromRows(folderId: string, name: string, column
   return { id: up.id, webViewLink: up.webViewLink };
 }
 
+/** Shares one file with one person (writer by default); `notified` = Drive had to e-mail an invitation. */
+export async function shareFile(fileId: string, email: string, opts: { role?: "reader" | "writer"; message?: string } = {}): Promise<{ shared: boolean; notified: boolean }> {
+  return relay("/api/drive/share", { method: "POST", body: { fileId, email, role: opts.role ?? "writer", message: opts.message ?? "" } }, 30_000);
+}
+
 /** The agency's root folder (« ImpulseMotion – Clients »), created by the relay when missing. */
 export async function ensureRoot(): Promise<DriveFolderRef> {
   return relay<DriveFolderRef>("/api/drive/root", { method: "GET" }, 30_000);

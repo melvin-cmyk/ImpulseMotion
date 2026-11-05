@@ -2474,6 +2474,12 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname === "/api/drive/list" && req.method === "GET") {
           return send(200, { files: await drive.listFolder(getToken, url.searchParams.get("folderId") || "", { limit: Number(url.searchParams.get("limit")) || 100 }) });
         }
+        if (url.pathname === "/api/drive/share" && req.method === "POST") {
+          const body = await readBody(req);
+          const out = await drive.shareFile(getToken, body?.fileId || "", { email: body?.email, role: body?.role, message: body?.message });
+          console.log(`[drive] partagé ${body?.fileId} avec un client${out.notified ? " (invitation envoyée)" : ""}`);
+          return send(200, out);
+        }
         if (url.pathname === "/api/drive/upload" && req.method === "POST") {
           const body = await readBody(req, UPLOAD_BODY_MAX_BYTES);
           const out = await drive.uploadFile(getToken, body?.folderId || "", { name: body?.name, mimeType: body?.mimeType, data: body?.data, convertTo: body?.convertTo });

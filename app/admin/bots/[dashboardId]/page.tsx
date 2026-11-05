@@ -74,7 +74,7 @@ type DatasetSummary = {
 
 const inputCls =
   "px-3 py-2 rounded-lg text-sm bg-ui-bg border border-ui-line text-ui-fg focus:border-ui-accent focus:outline-none";
-const sectionTitleCls = "text-sm font-medium mb-3 text-ui-accent-ink";
+const sectionTitleCls = "text-sm font-medium mb-3 text-ui-fg";
 const primaryBtnCls =
   "px-4 py-2 rounded-lg font-medium text-sm bg-ui-accent hover:brightness-110 text-ui-on-accent transition-colors disabled:opacity-50";
 const secondaryBtnCls =
@@ -605,6 +605,8 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
         )}
       </section>
 
+      <BotFeedbackSection dashboardId={dashboardId} />
+
       <section>
         <h2 className={sectionTitleCls}>Alimentation des données e-commerce</h2>
         {!bot ? (
@@ -935,3 +937,47 @@ function SourceToggle({
     </label>
   );
 }
+
+type FeedbackRow = { id: string; rating: "up" | "down" | null; message: string; conversationId: string | null; createdAt: string; email: string | null; name: string | null };
+
+/** What the clients said about this assistant (box of the chat, POST /api/bot/[botId]/feedback). */
+function BotFeedbackSection({ dashboardId }: { dashboardId: string }) {
+  const [rows, setRows] = useState<FeedbackRow[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/admin/bots/${dashboardId}/feedback`, { cache: "no-store" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ feedback: FeedbackRow[] }>) : { feedback: [] }))
+      .then((j) => { if (alive) setRows(j.feedback); })
+      .catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [dashboardId]);
+  const up = rows?.filter((r) => r.rating === "up").length ?? 0;
+  const down = rows?.filter((r) => r.rating === "down").length ?? 0;
+  return (
+    <section>
+      <h2 className={sectionTitleCls}>Retours des clients</h2>
+      {rows === null ? (
+        <p className="text-sm text-ui-muted">Chargement</p>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-ui-muted">Aucun retour pour l&apos;instant. Les clients écrivent depuis l&apos;encart « Votre avis » du chat.</p>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-xs text-ui-muted font-mono tabular-nums">{rows.length} retour{rows.length > 1 ? "s" : ""} · {up} utile{up > 1 ? "s" : ""} · {down} pas utile{down > 1 ? "s" : ""}</p>
+          {rows.map((r) => (
+            <Card key={r.id} padded className="!p-3">
+              <div className="flex items-center justify-between gap-3 text-xs text-ui-muted">
+                <span className="truncate">{r.name ? `${r.name} · ` : ""}{r.email ?? ""}</span>
+                <span className="font-mono tabular-nums shrink-0">
+                  {r.rating === "up" ? <span className="text-ui-pos">utile</span> : r.rating === "down" ? <span className="text-ui-neg">pas utile</span> : null}
+                  {r.rating ? " · " : ""}{new Date(r.createdAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                </span>
+              </div>
+              <p className="text-sm text-ui-fg mt-1 whitespace-pre-wrap">{r.message}</p>
+            </Card>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
