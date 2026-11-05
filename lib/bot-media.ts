@@ -13,6 +13,32 @@ import { pageToken } from "@/lib/meta-comments";
 type Session = Parameters<typeof loadBotFor>[0];
 export type BotAd = { platform: "meta" | "google" | "tiktok"; adId: string; imageUrl: string | null; thumbnailUrl: string | null; videoId: string | null };
 
+/**
+ * The ad of `?name=` (a creative the bot found by name with a live tool, no
+ * id): the most recent ad of that exact name (case aside) on the bot's own
+ * accounts only. Same answer shape as botAd.
+ */
+export async function botAdByName(session: Session, botId: string, name: string): Promise<{ ad: BotAd } | { status: number; error: string }> {
+  const loaded = await loadBotFor(session, botId);
+  if (loaded.status !== 200) return { status: loaded.status, error: loaded.status === 403 ? "forbidden" : "not found" };
+  const clean = name.trim().slice(0, 300);
+  if (clean.length < 2) return { status: 400, error: "nom invalide" };
+  const d = loaded.bot.dashboard;
+  const scope = [
+    ...(d.metaAccountId ? [{ platform: "meta", accountId: d.metaAccountId.replace(/^act_/, "") }] : []),
+    ...(d.googleCustomerId ? [{ platform: "google", accountId: d.googleCustomerId.replace(/-/g, "") }] : []),
+    ...(await getDashboardTikTokIds(d.id)).map((id) => ({ platform: "tiktok", accountId: id })),
+  ];
+  if (!scope.length) return { status: 404, error: "annonce inconnue" };
+  const row = await prisma.adCatalog.findFirst({
+    where: { name: { equals: clean, mode: "insensitive" }, OR: scope },
+    orderBy: { createdTime: { sort: "desc", nulls: "last" } },
+    select: { platform: true, adId: true, imageUrl: true, thumbnailUrl: true, videoId: true },
+  });
+  if (!row) return { status: 404, error: "annonce inconnue" };
+  return { ad: { platform: row.platform as BotAd["platform"], adId: row.adId, imageUrl: row.imageUrl, thumbnailUrl: row.thumbnailUrl, videoId: row.videoId } };
+}
+
 /** The ad when the session may see it through this bot; else the HTTP status to answer. */
 export async function botAd(session: Session, botId: string, ad: string): Promise<{ ad: BotAd } | { status: number; error: string }> {
   const loaded = await loadBotFor(session, botId);

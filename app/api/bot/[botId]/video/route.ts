@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
-import { botAd, metaVideoSource } from "@/lib/bot-media";
+import { botAd, botAdByName, metaVideoSource } from "@/lib/bot-media";
 
 export const maxDuration = 30;
 
@@ -15,7 +15,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ botI
   const guard = await requireSession();
   if ("error" in guard) return guard.error;
   const { botId } = await params;
-  const r = await botAd(guard.session, botId, req.nextUrl.searchParams.get("ad") ?? "");
+  const byName = req.nextUrl.searchParams.get("name");
+  const r = byName ? await botAdByName(guard.session, botId, byName) : await botAd(guard.session, botId, req.nextUrl.searchParams.get("ad") ?? "");
   if ("status" in r) return NextResponse.json({ error: r.error }, { status: r.status });
   if (r.ad.platform !== "meta" || !r.ad.videoId) return NextResponse.json({ error: "pas de vidéo" }, { status: 404 });
   const url = await metaVideoSource(r.ad.adId, r.ad.videoId);

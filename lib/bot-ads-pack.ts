@@ -104,7 +104,8 @@ async function platformBlock(botId: string, platform: WarehousePlatform, account
   const base: Omit<AdsQuery, "range" | "compare"> = { platforms: [platform], accountIds, accounts: accountIds.map((id) => ({ platform, id })), groupBy: "creative", filters: {}, sort: { key: "spend", dir: "desc" } };
   const w30 = window(30, now), w7 = window(7, now);
   const [r30, r7, lastDay] = await Promise.all([
-    queryAds({ ...base, ...w30, limit: 6 }),
+    // 40 groups: the top 6 of the month plus the recent launches below.
+    queryAds({ ...base, ...w30, limit: 40 }),
     queryAds({ ...base, ...w7, limit: 3 }),
     syncedTo(platform, accountIds).catch(() => null),
   ]) as [AdsQueryResult, AdsQueryResult, string | null];
@@ -117,7 +118,12 @@ async function platformBlock(botId: string, platform: WarehousePlatform, account
   if (!lastDay || lastDay < w7.range.until) gaps.push(lastDay ? `l'entrepôt n'est à jour que jusqu'au ${frDate(lastDay)} (les chiffres ci-dessous sont incomplets)` : "synchronisation de l'entrepôt inachevée (chiffres possiblement incomplets)");
   if (r7.benchmark.spend > 0 && r7.benchmark.impressions <= 0) gaps.push("impressions absentes de l'entrepôt sur 7 jours");
   const cur = r30.currency;
-  const rows30 = r30.rows.filter((r) => r.sample && r.metrics.spend > 0);
+  const all30 = r30.rows.filter((r) => r.sample && r.metrics.spend > 0);
+  const rows30 = all30.slice(0, 6);
+  // Launched in the last 14 days (« les nouvelles créas », « S44-S45 »): with their visual, by spend.
+  const since14 = iso(new Date(now.getTime() - 14 * 86400_000));
+  const shownIds = new Set([...rows30, ...r7.rows].map((r) => r.sample?.adId));
+  const recent = all30.filter((r) => r.launch && r.launch >= since14 && !shownIds.has(r.sample?.adId)).slice(0, 6);
   const rows7 = r7.rows.filter((r) => r.sample && r.metrics.spend > 0);
   const best = [...rows30].filter((r) => r.metrics.conversions >= 3).sort((a, b) => (a.metrics.cpa || Infinity) - (b.metrics.cpa || Infinity)).slice(0, 3);
   return [
@@ -127,6 +133,7 @@ async function platformBlock(botId: string, platform: WarehousePlatform, account
     `30 derniers jours (${frDate(w30.range.since)} → ${frDate(w30.range.until)}, écarts vs les 30 jours d'avant) : ${totalsLine(r30.benchmark, r30.benchmarkPrevious, cur)}`,
     rows7.length ? `Créas qui dépensent le plus sur 7 jours :\n${rows7.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
     rows30.length ? `Créas qui dépensent le plus sur 30 jours :\n${rows30.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
+    recent.length ? `Créas lancées ces 14 derniers jours (hors celles ci-dessus) :\n${recent.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
     best.length ? `Meilleur coût par conversion sur 30 jours (au moins 3 conversions) : ${best.map((r) => `« ${r.label.slice(0, 60)} » (${money(r.metrics.cpa, cur)})`).join(", ")}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -147,7 +154,8 @@ export async function buildBotAdsPack(botId: string, accounts: BotAdsAccounts, n
     "- Ces chiffres viennent de l'entrepôt de l'agence, mis à jour plusieurs fois par jour ; données complètes jusqu'à hier. Pour les 7 ou 30 derniers jours, réponds DIRECTEMENT avec ce bloc, sans appeler d'outil. N'appelle un outil que pour une autre période, un autre niveau (campagne, ensemble), un indicateur absent d'ici, ou une plateforme marquée ⚠ : là, va chercher les chiffres en direct.",
     "- LES CLIENTS VEULENT VOIR LEURS CRÉAS, pas seulement des chiffres. Dès qu'une réponse porte sur les performances publicitaires (période, plateforme, campagne, meilleures pubs), termine-la par les visuels des 2 ou 3 créas qui pèsent le plus sur cette période, chacun avec son nom et ses chiffres clés, même si le client n'a demandé que des chiffres.",
     "- Pour montrer une créa de ce bloc, recopie EXACTEMENT sa ligne « visuel » ou « vidéo » (syntaxe image Markdown ; une vidéo s'affiche en lecteur dans le chat). Mets le visuel juste au-dessus de ses chiffres. 3 visuels maximum par réponse sauf demande explicite.",
-    `- Pour une créa obtenue par un outil en direct (autre période, campagne précise…), écris son visuel ainsi, avec l'identifiant d'annonce renvoyé par l'outil : ![nom de la créa](${imageUrl(botId, "PLATEFORME", "ID")}) en remplaçant PLATEFORME par meta, google ou tiktok et ID par l'identifiant de l'annonce (ad id) ; pour une vidéo Meta, remplace « /image? » par « /video? ». Ce sont les SEULES adresses que tu as le droit d'écrire ; l'identifiant reste dans l'adresse de l'image, jamais dans le texte.`,
+    `- Pour une créa obtenue par un outil en direct (autre période, campagne précise…), écris son visuel ainsi, avec l'identifiant d'annonce renvoyé par l'outil : ![nom de la créa](${imageUrl(botId, "PLATEFORME", "ID")}) en remplaçant PLATEFORME par meta, google ou tiktok et ID par l'identifiant de l'annonce (ad id) ; pour une vidéo Meta, remplace « /image? » par « /video? ». Sans identifiant, utilise le nom exact de l'annonce : ![nom](/api/bot/${encodeURIComponent(botId)}/image?name=NOM) avec NOM = le nom de l'annonce encodé pour une adresse (espaces en %20). Ce sont les SEULES adresses que tu as le droit d'écrire ; l'identifiant reste dans l'adresse de l'image, jamais dans le texte.`,
+    "- Toutes les créas des comptes de ce client, même lancées hier, ont leur visuel côté serveur : ne dis JAMAIS qu'une créa n'est « pas indexée » ou que son visuel est indisponible, écris l'adresse du visuel ; si l'image ne se charge pas, le chat l'indique lui-même.",
     "- Désigne les créas par leur nom entre guillemets, jamais par un identifiant. Chaque plateforme a sa propre attribution : ne les additionne jamais.",
     ...blocks,
   ].join("\n") : "";

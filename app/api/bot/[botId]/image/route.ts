@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth-helpers";
-import { botAd } from "@/lib/bot-media";
+import { botAd, botAdByName } from "@/lib/bot-media";
 import { freshMetaAdImage } from "@/lib/ads-warehouse/preview";
 
 export const maxDuration = 30;
@@ -16,7 +16,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ botI
   const guard = await requireSession();
   if ("error" in guard) return guard.error;
   const { botId } = await params;
-  const r = await botAd(guard.session, botId, req.nextUrl.searchParams.get("ad") ?? "");
+  const byName = req.nextUrl.searchParams.get("name");
+  const r = byName ? await botAdByName(guard.session, botId, byName) : await botAd(guard.session, botId, req.nextUrl.searchParams.get("ad") ?? "");
   if ("status" in r) return NextResponse.json({ error: r.error }, { status: r.status });
   const url = r.ad.platform === "meta" ? (await freshMetaAdImage(r.ad.adId))?.url ?? null : r.ad.imageUrl || r.ad.thumbnailUrl;
   if (!url || !/^https:\/\//.test(url)) return NextResponse.json({ error: "visuel indisponible" }, { status: 404 });
