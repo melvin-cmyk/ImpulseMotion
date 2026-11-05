@@ -17,7 +17,7 @@ const providerLabel = (provider: string | null | undefined) => {
   return { label: "Connected", color: "bg-gray-700" };
 };
 
-function clearScopedStorage() {
+export function clearScopedStorage() {
   // Clear any client-side cache or selection that could leak across users
   // when the same browser tab signs out then signs back in as someone else.
   try {

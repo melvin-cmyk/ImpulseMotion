@@ -14,12 +14,13 @@ export function ClientNavLink({ href, label }: { href: string; label: string }) 
   return (
     <Link
       href={href}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors ${active ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white hover:bg-gray-900"}`}
+      aria-current={active ? "page" : undefined}
+      className={`h-8 inline-flex items-center gap-2 px-3 rounded-lg text-sm transition-colors duration-150 ${active ? "bg-ui-raised text-ui-fg" : "text-ui-fg2 hover:text-ui-fg hover:bg-ui-raised/60"}`}
     >
       {label}
       {count > 0 && (
-        <span title={`${count} réponse${count > 1 ? "s" : ""} en cours`} className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-600/20 text-violet-300">
-          <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+        <span title={`${count} réponse${count > 1 ? "s" : ""} en cours`} className="inline-flex items-center gap-1 font-mono text-xs tabular-nums text-ui-accent-ink">
+          <span className="w-1.5 h-1.5 rounded-full bg-ui-accent" />
           {count}
         </span>
       )}

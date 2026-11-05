@@ -18,8 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpRight, Mic, BarChart3, FileSpreadsheet, Globe, Images, Loader2, MessageSquare, Plus, ShieldCheck, ShoppingBag, Sparkles, Square, Trash2 } from "lucide-react";
-import { LogoMark } from "@/components/brand/logo-mark";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpRight, Mic, BarChart3, FileSpreadsheet, Globe, Images, Loader2, MessageSquare, Plus, ShieldCheck, ShoppingBag, Square, Trash2 } from "lucide-react";
 import type { BotMessage, BotSources } from "@/lib/bot-types";
 import { AI_JOB_FINISHED_EVENT, AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent, type PublicAiJob } from "@/lib/ai-job-client";
 import { useAiJobs } from "@/components/ai-jobs-watcher";
@@ -335,35 +334,32 @@ export function BotChat({
   const runningCount = Object.keys(runs).length;
 
   return (
-    <div className="flex h-full min-h-0 bg-[#09090f] text-gray-100">
+    <div className="flex h-full min-h-0 bg-ui-bg text-ui-fg">
       {/* Conversations */}
-      <aside className="hidden md:flex w-72 shrink-0 border-r border-white/[0.06] bg-white/[0.015] flex-col min-h-0">
+      <aside className="hidden md:flex w-64 shrink-0 border-r border-ui-line bg-ui-sunken flex-col min-h-0">
         <div className="p-4 space-y-4">
-          <div className="flex items-center gap-3">
-            <LogoMark size={36} />
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-white truncate">{botName}</div>
-              <div className="text-xs text-gray-500 truncate">{dashboardName}</div>
-            </div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-ui-fg truncate">{botName}</div>
+            <div className="text-xs text-ui-muted truncate">{dashboardName}</div>
           </div>
           <button
             type="button"
             onClick={newConversation}
-            className="w-full flex items-center justify-center gap-2 text-sm font-medium bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-400 hover:to-purple-500 text-white rounded-xl px-3 py-2.5 shadow-lg shadow-violet-900/30 transition-colors"
+            className="w-full h-9 flex items-center justify-center gap-2 text-sm font-medium bg-ui-accent text-ui-on-accent rounded-lg px-3 hover:brightness-110 active:scale-[0.98] transition-[filter,transform] duration-150 ease-ui"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4" strokeWidth={1.5} />
             Nouvelle conversation
           </button>
           {runningCount > 0 && (
-            <p className="text-[11px] text-violet-300/90 px-1">
-              {runningCount} réponse{runningCount > 1 ? "s" : ""} en cours — vous pouvez changer de conversation ou de page.
+            <p className="text-xs text-ui-fg2">
+              {runningCount} réponse{runningCount > 1 ? "s" : ""} en cours, vous pouvez changer de conversation ou de page
             </p>
           )}
         </div>
-        <div className="px-5 pb-1 text-[11px] font-medium uppercase tracking-wider text-gray-600">Historique</div>
-        <div className="flex-1 overflow-y-auto px-2 pb-3">
+        <div className="px-4 pt-2 pb-2 text-xs text-ui-muted">Historique</div>
+        <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
           {conversations.length === 0 && (
-            <p className="text-xs text-gray-600 px-3 py-3">Vos conversations apparaîtront ici.</p>
+            <p className="text-xs text-ui-muted px-2 py-2">Vos conversations apparaîtront ici</p>
           )}
           {conversations.map((c) => {
             const active = c.id === activeId;
@@ -371,25 +367,26 @@ export function BotChat({
             return (
               <div
                 key={c.id}
-                className={`group relative flex items-start gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${active ? "bg-white/[0.07] text-white" : "text-gray-400 hover:bg-white/[0.04] hover:text-gray-200"}`}
+                className={`group flex items-center gap-2.5 h-12 px-2 rounded-lg cursor-pointer transition-colors duration-150 ${active ? "bg-ui-raised text-ui-fg" : "text-ui-fg2 hover:bg-ui-raised/60 hover:text-ui-fg"}`}
                 onClick={() => setActiveId(c.id)}
               >
-                {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-0.5 rounded-full bg-violet-400" />}
-                {running
-                  ? <Loader2 className="w-4 h-4 mt-0.5 shrink-0 text-violet-400 animate-spin" aria-label="Réponse en cours" />
-                  : <MessageSquare className={`w-4 h-4 mt-0.5 shrink-0 ${active ? "text-violet-300" : "text-gray-600"}`} />}
+                <span className="w-4 shrink-0 flex justify-center">
+                  {running
+                    ? <Loader2 className="w-4 h-4 text-ui-accent-ink animate-spin" strokeWidth={1.5} aria-label="Réponse en cours" />
+                    : <MessageSquare className="w-4 h-4 text-ui-muted" strokeWidth={1.5} />}
+                </span>
                 <div className="min-w-0 flex-1">
                   <div className="text-sm truncate">{c.title || "Nouvelle conversation"}</div>
-                  <div className="text-[11px] text-gray-600">{running ? "Réponse en cours…" : fmtDate(c.updatedAt)}</div>
+                  <div className="text-xs text-ui-muted font-mono tabular-nums">{running ? "réponse en cours" : fmtDate(c.updatedAt)}</div>
                 </div>
                 {!running && (
                   <button
                     type="button"
-                    aria-label="Supprimer"
+                    aria-label="Supprimer la conversation"
                     onClick={(e) => { e.stopPropagation(); void removeConversation(c.id); }}
-                    className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity"
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-ui-muted hover:text-ui-neg transition-[opacity,color] duration-150"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4" strokeWidth={1.5} />
                   </button>
                 )}
               </div>
@@ -397,63 +394,57 @@ export function BotChat({
           })}
         </div>
         {filesOn && <BotFilesList files={botFiles.files} onRemove={(f) => void botFiles.removeFile(f)} />}
-        <div className="m-3 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.05] px-3 py-2.5 flex gap-2.5" title="Cet assistant ne lit que les données de votre espace. Les réponses sont générées sur Amazon Bedrock (AWS, région Europe), dans un environnement dédié.">
-          <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-          <p className="text-[11px] leading-snug text-emerald-200/80">Espace privé : uniquement vos données, IA hébergée en Europe (AWS Bedrock).</p>
+        <div className="mx-4 mb-4 pt-3 border-t border-ui-line flex gap-2" title="Cet assistant ne lit que les données de votre espace. Les réponses sont générées sur Amazon Bedrock (AWS, région Europe), dans un environnement dédié.">
+          <ShieldCheck className="w-4 h-4 text-ui-muted shrink-0 mt-0.5" strokeWidth={1.5} />
+          <p className="text-xs leading-4 text-ui-muted">Uniquement vos données, IA hébergée en Europe (AWS Bedrock)</p>
         </div>
       </aside>
 
       {/* Chat */}
       <section className="relative flex-1 flex flex-col min-w-0 min-h-0">
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[radial-gradient(ellipse_at_top,rgba(139,92,246,0.14),transparent_70%)]" />
-        <header className="relative h-14 px-5 border-b border-white/[0.06] flex items-center justify-between gap-3 shrink-0 backdrop-blur">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="md:hidden"><LogoMark size={28} /></span>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-white truncate flex items-center gap-2">
-                {botName}
-                <span className="inline-flex items-center gap-1 text-[11px] font-normal text-emerald-300"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />en ligne</span>
-              </div>
-              <div className="text-[11px] text-gray-500 truncate">Lecture seule · données de {dashboardName}</div>
-            </div>
+        <header className="h-14 px-4 sm:px-6 border-b border-ui-line flex items-center justify-between gap-4 shrink-0">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-ui-fg truncate">{botName}</div>
+            <div className="text-xs text-ui-muted truncate">Lecture seule, données de {dashboardName}</div>
           </div>
-          <div className="flex items-center gap-1.5 overflow-hidden">
-            {enabledSources.length > 0 ? enabledSources.map(([k, label]) => (
-              <span key={k} className="hidden lg:inline-flex items-center gap-1.5 text-[11px] text-gray-300 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 whitespace-nowrap">
-                <span className={`w-1.5 h-1.5 rounded-full ${SOURCE_DOT[k] ?? "bg-gray-400"}`} />{label}
-              </span>
-            )) : <span className="text-[11px] text-gray-500">Aucune source branchée</span>}
-            <button type="button" onClick={newConversation} aria-label="Nouvelle conversation" className="md:hidden h-8 w-8 flex items-center justify-center rounded-lg bg-white/[0.06] text-white"><Plus className="w-4 h-4" /></button>
+          <div className="flex items-center gap-4 overflow-hidden">
+            {enabledSources.length > 0 ? (
+              <div className="hidden lg:flex items-center gap-4" aria-label="Sources lues par l'assistant">
+                {enabledSources.map(([k, label]) => (
+                  <span key={k} className="inline-flex items-center gap-1.5 text-xs text-ui-fg2 whitespace-nowrap">
+                    <span className={`w-1.5 h-1.5 rounded-full ${SOURCE_DOT[k] ?? "bg-ui-muted"}`} />{label}
+                  </span>
+                ))}
+              </div>
+            ) : <span className="text-xs text-ui-muted">Aucune source branchée</span>}
+            <button type="button" onClick={newConversation} aria-label="Nouvelle conversation" className="md:hidden h-8 w-8 flex items-center justify-center rounded-lg bg-ui-raised text-ui-fg"><Plus className="w-4 h-4" strokeWidth={1.5} /></button>
           </div>
         </header>
 
         {isStaff && !enabled && (
-          <div className="relative px-5 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-300 text-xs flex items-center gap-2 shrink-0">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          <div className="px-6 py-2 bg-ui-warn/10 border-b border-ui-line text-ui-warn text-xs flex items-center gap-2 shrink-0">
+            <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={1.5} />
             Assistant inactif : invisible pour les clients, mode test
           </div>
         )}
         {isStaff && enabled && accessCount === 0 && (
-          <div className="relative px-5 py-1.5 border-b border-white/[0.06] text-gray-500 text-[11px] shrink-0">
-            Aucun accès client sur cet assistant : seul le staff peut l&apos;ouvrir pour l&apos;instant.
+          <div className="px-6 py-2 border-b border-ui-line text-ui-muted text-xs shrink-0">
+            Aucun accès client sur cet assistant : seul le staff peut l&apos;ouvrir pour l&apos;instant
           </div>
         )}
 
-        <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-y-auto px-4 sm:px-6 py-6">
-          <div className="max-w-3xl mx-auto space-y-6">
+        <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-y-auto px-4 sm:px-6 py-8">
+          <div className="max-w-3xl mx-auto space-y-8">
             {loadingThread && (
-              <div className="text-xs text-gray-500 flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> Chargement…</div>
+              <div className="text-xs text-ui-muted flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> Chargement</div>
             )}
             {showSuggestions && (
-              <div className="pt-6 sm:pt-14 flex flex-col items-center text-center">
-                <LogoMark size={56} />
-                <h2 className="mt-5 text-2xl sm:text-3xl font-semibold tracking-tight bg-gradient-to-b from-white to-gray-400 bg-clip-text text-transparent">
-                  Bonjour, que voulez-vous savoir ?
-                </h2>
-                <p className="mt-2 max-w-lg text-sm text-gray-500">
-                  Vos performances, vos meilleures créas avec leurs visuels, votre trafic : je réponds à partir de vos données, avec la source et la période.
+              <div className="pt-8 sm:pt-16">
+                <h2 className="text-3xl font-normal leading-tight text-ui-fg">{dashboardName}</h2>
+                <p className="mt-2 max-w-xl text-[15px] leading-6 text-ui-fg2">
+                  Posez une question sur vos campagnes, vos créas ou votre trafic. Chaque réponse cite sa source et sa période, avec les visuels des créas concernées.
                 </p>
-                <div className="mt-8 w-full grid sm:grid-cols-2 gap-3 text-left">
+                <div className="mt-8 border-t border-ui-line">
                   {suggestions.map((s) => {
                     const Icon = suggestionIcon(s);
                     return (
@@ -461,11 +452,11 @@ export function BotChat({
                         key={s}
                         type="button"
                         onClick={() => send(s)}
-                        className="group flex items-start gap-3 text-left rounded-2xl border border-white/[0.07] bg-white/[0.025] px-4 py-3.5 text-sm text-gray-300 hover:border-violet-500/50 hover:bg-violet-500/[0.06] hover:text-white transition-colors"
+                        className="group w-full flex items-center gap-3 h-12 px-1 text-left border-b border-ui-line text-sm text-ui-fg2 hover:text-ui-fg transition-colors duration-150"
                       >
-                        <span className="mt-0.5 h-7 w-7 shrink-0 rounded-lg bg-violet-500/10 text-violet-300 flex items-center justify-center group-hover:bg-violet-500/20"><Icon className="w-4 h-4" /></span>
-                        <span className="flex-1">{s}</span>
-                        <ArrowUpRight className="w-4 h-4 mt-0.5 shrink-0 text-gray-600 group-hover:text-violet-300" />
+                        <Icon className="w-4 h-4 shrink-0 text-ui-muted group-hover:text-ui-accent-ink transition-colors duration-150" strokeWidth={1.5} />
+                        <span className="flex-1 truncate">{s}</span>
+                        <ArrowUpRight className="w-4 h-4 shrink-0 text-ui-muted opacity-0 group-hover:opacity-100 transition-opacity duration-150" strokeWidth={1.5} />
                       </button>
                     );
                   })}
@@ -475,42 +466,36 @@ export function BotChat({
             {messages.map((m, i) => (
               m.role === "user" ? (
                 <div key={i} className="flex justify-end">
-                  <div className="max-w-[80%] bg-gradient-to-br from-violet-500 to-purple-600 text-white text-sm px-4 py-2.5 rounded-2xl rounded-br-md shadow-lg shadow-violet-950/40 whitespace-pre-wrap">{m.content}</div>
+                  <div className="max-w-[80%] bg-ui-raised text-ui-fg text-sm leading-6 px-4 py-2 rounded-xl whitespace-pre-wrap">{m.content}</div>
                 </div>
               ) : (
-                <div key={i} className="flex gap-3">
-                  <span className="mt-0.5"><LogoMark size={28} /></span>
-                  <div className={`min-w-0 flex-1 ${PROSE}`}>
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{m.content}</ReactMarkdown>
-                  </div>
+                <div key={i} className={`min-w-0 ${PROSE}`}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{m.content}</ReactMarkdown>
                 </div>
               )
             ))}
             {(activeRun || sending) && (
-              <div className="flex gap-3">
-                <span className="mt-0.5"><LogoMark size={28} /></span>
-                <div className="min-w-0 flex-1">
-                  {activeRun?.text ? (
-                    <div className={PROSE}>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{activeRun.text}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center gap-2.5 rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-2.5 text-sm text-gray-400">
-                      <TypingDots />
-                      {activeRun?.stopping ? "Arrêt…" : activeRun?.toolNote ?? "Analyse de vos données…"}
-                    </div>
-                  )}
-                  {activeRun?.text && (activeRun.toolNote || activeRun.stopping) && (
-                    <div className="text-[11px] text-gray-500 mt-2 flex items-center gap-2">
-                      <TypingDots />
-                      {activeRun.stopping ? "Arrêt…" : activeRun.toolNote}
-                    </div>
-                  )}
-                </div>
+              <div className="min-w-0">
+                {activeRun?.text ? (
+                  <div className={PROSE}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={SAFE_MD_COMPONENTS}>{activeRun.text}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-2 text-sm text-ui-fg2">
+                    <Loader2 className="w-4 h-4 animate-spin text-ui-accent-ink" strokeWidth={1.5} />
+                    {activeRun?.stopping ? "Arrêt" : activeRun?.toolNote ?? "Lecture de vos données"}
+                  </div>
+                )}
+                {activeRun?.text && (activeRun.toolNote || activeRun.stopping) && (
+                  <div className="text-xs text-ui-muted mt-2 flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin" strokeWidth={1.5} />
+                    {activeRun.stopping ? "Arrêt" : activeRun.toolNote}
+                  </div>
+                )}
               </div>
             )}
             {error && (
-              <div className="text-xs text-red-300 bg-red-950/30 border border-red-900/40 rounded-xl px-3 py-2">{error}</div>
+              <div className="text-sm text-ui-neg bg-ui-neg/10 rounded-lg px-3 py-2">{error}</div>
             )}
             <div ref={bottomRef} />
           </div>
@@ -523,39 +508,39 @@ export function BotChat({
               onClick={() => scrollToBottom(true)}
               aria-label="Aller au dernier message"
               title="Aller au dernier message"
-              className="absolute -top-12 left-1/2 -translate-x-1/2 h-9 w-9 flex items-center justify-center rounded-full border border-white/10 bg-gray-900/90 text-gray-300 hover:text-white shadow-lg backdrop-blur"
+              className="absolute -top-12 left-1/2 -translate-x-1/2 h-9 w-9 flex items-center justify-center rounded-full border border-ui-line-strong bg-ui-card text-ui-fg2 hover:text-ui-fg transition-colors duration-150"
             >
-              <ArrowDown className="w-4 h-4" />
+              <ArrowDown className="w-4 h-4" strokeWidth={1.5} />
             </button>
           </div>
         )}
 
-        <div className="relative px-4 sm:px-6 pb-4 pt-2 shrink-0">
+        <div className="px-4 sm:px-6 pb-4 pt-2 shrink-0">
           <div className="max-w-3xl mx-auto">
             {(voice.listening || voice.transcribing || voice.error) && (
-              <div className={`mb-2 flex items-center gap-2 text-xs ${voice.error && !voice.listening && !voice.transcribing ? "text-amber-300" : "text-gray-400"}`} role="status">
+              <div className={`mb-2 flex items-center gap-2 text-xs ${voice.error && !voice.listening && !voice.transcribing ? "text-ui-warn" : "text-ui-fg2"}`} role="status">
                 {voice.listening ? (
-                  <><span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" /> Je vous écoute… cliquez à nouveau sur le micro pour arrêter.</>
+                  <><span className="h-2 w-2 rounded-full bg-ui-neg" /> Je vous écoute, cliquez à nouveau sur le micro pour arrêter</>
                 ) : voice.transcribing ? (
-                  <><Loader2 className="w-3 h-3 animate-spin" /> Transcription de votre message…</>
+                  <><Loader2 className="w-3 h-3 animate-spin" /> Transcription de votre message</>
                 ) : (
                   voice.error
                 )}
               </div>
             )}
             {(botFiles.upload || botFiles.notice) && (
-              <div className={`mb-2 flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${botFiles.notice?.tone === "error" && !botFiles.upload ? "border-red-900/40 bg-red-950/30 text-red-300" : "border-teal-500/20 bg-teal-500/[0.06] text-teal-100/90"}`}>
+              <div className={`mb-2 flex items-start gap-2 rounded-lg px-3 py-2 text-xs ${botFiles.notice?.tone === "error" && !botFiles.upload ? "bg-ui-neg/10 text-ui-neg" : "bg-ui-raised text-ui-fg2"}`}>
                 <span className="flex-1">
                   {botFiles.upload
-                    ? `Import de « ${botFiles.upload.fileName} »… ${botFiles.upload.total > 1 ? `${botFiles.upload.done}/${botFiles.upload.total}` : ""}`
+                    ? `Import de « ${botFiles.upload.fileName} » ${botFiles.upload.total > 1 ? `${botFiles.upload.done}/${botFiles.upload.total}` : ""}`
                     : botFiles.notice?.text}
                 </span>
                 {!botFiles.upload && (
-                  <button type="button" onClick={() => botFiles.setNotice(null)} className="text-gray-500 hover:text-white" aria-label="Fermer">×</button>
+                  <button type="button" onClick={() => botFiles.setNotice(null)} className="text-ui-muted hover:text-ui-fg" aria-label="Fermer">×</button>
                 )}
               </div>
             )}
-            <div className={`flex items-end gap-2 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-2 ${filesOn || voice.supported ? "pl-2" : "pl-4"} shadow-2xl shadow-black/40 focus-within:border-violet-500/60 focus-within:ring-4 focus-within:ring-violet-500/10 transition`}>
+            <div className={`flex items-end gap-1 rounded-xl border border-ui-line-strong bg-ui-card p-2 ${filesOn || voice.supported ? "pl-2" : "pl-4"} focus-within:border-ui-accent transition-colors duration-150`}>
               {filesOn && <AttachFileButton uploading={!!botFiles.upload} onFile={(f) => void onImport(f)} />}
               {voice.supported && (
                 <button
@@ -565,10 +550,10 @@ export function BotChat({
                   aria-label={voice.listening ? "Arrêter la dictée" : "Dicter votre question"}
                   aria-pressed={voice.listening}
                   title={voice.listening ? "Cliquez pour arrêter : le texte s'ajoute à votre message" : "Dicter votre question au micro"}
-                  className={`relative h-9 w-9 shrink-0 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 ${voice.listening ? "bg-red-500/15 text-red-300 hover:bg-red-500/25" : "text-gray-400 hover:text-white hover:bg-white/10"}`}
+                  className={`relative h-9 w-9 shrink-0 flex items-center justify-center rounded-lg transition-colors duration-150 disabled:opacity-40 ${voice.listening ? "bg-ui-neg/15 text-ui-neg" : "text-ui-muted hover:text-ui-fg hover:bg-ui-raised"}`}
                 >
-                  {voice.transcribing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
-                  {voice.listening && <span className="absolute inset-0 rounded-xl ring-2 ring-red-400/60 animate-pulse" style={{ opacity: 0.4 + Math.min(voice.level, 1) * 0.6 }} />}
+                  {voice.transcribing ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={1.5} /> : <Mic className="w-4 h-4" strokeWidth={1.5} />}
+                  {voice.listening && <span className="absolute inset-0 rounded-lg ring-2 ring-ui-neg/60" style={{ opacity: 0.3 + Math.min(voice.level, 1) * 0.7 }} />}
                 </button>
               )}
               <textarea
@@ -578,8 +563,9 @@ export function BotChat({
                 onKeyDown={onKeyDown}
                 rows={1}
                 disabled={busy}
-                placeholder={activeRun ? "Réponse en cours sur cette conversation — ouvrez-en une autre pour poser une nouvelle question." : "Posez votre question… (Entrée pour envoyer, Maj+Entrée pour un retour à la ligne)"}
-                className="flex-1 resize-none bg-transparent py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none max-h-40 disabled:opacity-60"
+                aria-label="Votre question"
+                placeholder={activeRun ? "Réponse en cours sur cette conversation, ouvrez-en une autre pour une nouvelle question" : "Votre question"}
+                className="flex-1 resize-none bg-transparent px-2 py-2 text-sm text-ui-fg placeholder:text-ui-muted focus:outline-none max-h-40 disabled:opacity-60"
               />
               {activeRun ? (
                 <button
@@ -588,7 +574,7 @@ export function BotChat({
                   disabled={activeRun.stopping}
                   aria-label="Arrêter la réponse"
                   title="Arrêter la réponse"
-                  className="h-9 w-9 shrink-0 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/15 disabled:opacity-40 text-white transition-colors"
+                  className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg bg-ui-raised hover:bg-ui-line-strong disabled:opacity-40 text-ui-fg transition-colors duration-150"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
                 </button>
@@ -598,14 +584,14 @@ export function BotChat({
                   onClick={() => send(input)}
                   disabled={busy || !input.trim()}
                   aria-label="Envoyer"
-                  className="h-9 w-9 shrink-0 flex items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 hover:from-violet-400 hover:to-purple-500 disabled:opacity-30 text-white transition-colors"
+                  className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg bg-ui-accent text-ui-on-accent hover:brightness-110 active:scale-[0.97] disabled:opacity-30 transition-[filter,transform,opacity] duration-150 ease-ui"
                 >
-                  {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUp className="w-4 h-4" />}
+                  {sending ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={1.5} /> : <ArrowUp className="w-4 h-4" strokeWidth={1.5} />}
                 </button>
               )}
             </div>
-            <p className="text-center text-[11px] text-gray-600 mt-2">
-              Lecture seule : l&apos;assistant n&apos;agit jamais sur vos campagnes. Vérifiez les chiffres importants avec votre équipe Impulse Analytics.
+            <p className="text-xs text-ui-muted mt-2 px-1">
+              Entrée pour envoyer, Maj+Entrée pour aller à la ligne. L&apos;assistant lit vos données sans jamais agir sur vos campagnes ; vérifiez les chiffres importants avec votre équipe Impulse Analytics.
             </p>
           </div>
         </div>
@@ -614,10 +600,11 @@ export function BotChat({
   );
 }
 
-const PROSE = "prose prose-invert prose-sm max-w-none text-gray-200 prose-p:my-2 prose-p:leading-relaxed prose-strong:text-white prose-headings:text-white prose-headings:font-semibold prose-a:text-violet-300 prose-li:my-0.5 prose-table:my-3 prose-table:text-xs prose-table:border prose-table:border-white/10 prose-thead:bg-white/[0.04] prose-th:px-3 prose-th:py-2 prose-th:text-gray-300 prose-td:px-3 prose-td:py-1.5 prose-tr:border-white/[0.06] prose-img:my-3";
+const PROSE = "ui-prose prose prose-sm max-w-none prose-p:my-2 prose-p:leading-6 prose-headings:font-medium prose-strong:font-medium prose-li:my-0.5 prose-table:my-4 prose-img:my-3";
 
+// Platform dots: the only colour in the header, one per source, toned down.
 const SOURCE_DOT: Partial<Record<keyof BotSources, string>> = {
-  data: "bg-emerald-400", meta: "bg-sky-400", google: "bg-amber-400", tiktok: "bg-pink-400", ga4PropertyId: "bg-orange-400", files: "bg-teal-400",
+  data: "bg-ui-pos", meta: "bg-[#4f8fdc]", google: "bg-[#d9a23b]", tiktok: "bg-[#d4588a]", ga4PropertyId: "bg-[#d27d3f]", files: "bg-ui-muted",
 };
 
 function suggestionIcon(text: string) {
@@ -626,14 +613,5 @@ function suggestionIcon(text: string) {
   if (/trafic|source/.test(t)) return Globe;
   if (/chiffre d'affaires|commande|produit|client/.test(t)) return ShoppingBag;
   if (/fichier/.test(t)) return FileSpreadsheet;
-  if (/meta|google|tiktok|campagne|coût|compare/.test(t)) return BarChart3;
-  return Sparkles;
-}
-
-function TypingDots() {
-  return (
-    <span className="inline-flex items-center gap-1" aria-hidden>
-      {[0, 150, 300].map((d) => <span key={d} className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />)}
-    </span>
-  );
+  return BarChart3;
 }

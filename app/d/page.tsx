@@ -31,28 +31,28 @@ export default async function DashboardsIndex() {
     // Attached for the private bot only (dashboard hidden): the assistant is their space.
     if (dashboards.length === 0 && (await countEnabledBotAccess(session.userId)) > 0) redirect("/bot");
     return (
-      <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
+      <div className="max-w-2xl mx-auto px-6 py-12 space-y-8">
         <div>
-          <h1 className="text-2xl font-bold text-white">Vos dashboards</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Espace privé : seuls vous, votre consultant et l&apos;équipe Impulse y avez accès.
+          <h1 className="text-3xl font-normal text-ui-fg">Vos dashboards</h1>
+          <p className="text-[15px] text-ui-fg2 mt-2">
+            Espace privé : seuls vous, votre consultant et l&apos;équipe Impulse Analytics y avez accès
           </p>
         </div>
-        <div className="grid gap-3">
+        <div className="border-t border-ui-line">
           {dashboards.map((d) => (
             <Link
               key={d.id}
               href={`/d/${d.id}`}
-              className="flex items-center justify-between bg-gray-900 border border-gray-800 hover:border-violet-700 rounded-xl px-5 py-4 transition-colors"
+              className="group flex items-center justify-between h-14 px-1 border-b border-ui-line"
             >
-              <span className="text-sm font-semibold text-white">{d.name}</span>
-              <span className="text-gray-600 text-sm">→</span>
+              <span className="text-sm text-ui-fg group-hover:text-ui-accent-ink transition-colors duration-150">{d.name}</span>
+              <span className="text-ui-muted text-sm" aria-hidden>→</span>
             </Link>
           ))}
           {dashboards.length === 0 && (
-            <div className="text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-xl px-5 py-6">
-              Aucun dashboard ne vous a encore été ouvert — contactez votre consultant.
-            </div>
+            <p className="text-sm text-ui-fg2 py-6">
+              Aucun dashboard ne vous a encore été ouvert. Votre consultant peut vous en ouvrir un.
+            </p>
           )}
         </div>
       </div>

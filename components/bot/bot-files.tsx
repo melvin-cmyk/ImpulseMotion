@@ -124,9 +124,9 @@ export function AttachFileButton({ disabled, uploading, onFile }: { disabled?: b
         disabled={disabled || uploading}
         aria-label="Importer un fichier de données"
         title="Importer un fichier de données (CSV ou Excel) — l'assistant pourra l'analyser"
-        className="h-9 w-9 shrink-0 flex items-center justify-center rounded-xl text-gray-400 hover:text-white hover:bg-white/10 disabled:opacity-40 transition-colors"
+        className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg text-ui-muted hover:text-ui-fg hover:bg-ui-raised disabled:opacity-40 transition-colors duration-150"
       >
-        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+        {uploading ? <Loader2 className="w-4 h-4 animate-spin" strokeWidth={1.5} /> : <Paperclip className="w-4 h-4" strokeWidth={1.5} />}
       </button>
     </>
   );
@@ -137,17 +137,17 @@ export function BotFilesList({ files, onRemove }: { files: BotFile[]; onRemove: 
   if (!files.length) return null;
   return (
     <div className="px-2 pb-2">
-      <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-gray-600">Fichiers de données</div>
+      <div className="px-2 pt-2 pb-2 text-xs text-ui-muted">Vos fichiers de données</div>
       {files.map((f) => (
-        <div key={f.datasetKey} className="group flex items-start gap-2.5 px-3 py-2 rounded-xl text-gray-400 hover:bg-white/[0.04]" title={f.columns.join(" · ")}>
-          <FileSpreadsheet className="w-4 h-4 mt-0.5 shrink-0 text-teal-400/80" />
+        <div key={f.datasetKey} className="group flex items-center gap-2.5 h-12 px-2 rounded-lg text-ui-fg2 hover:bg-ui-raised/60 transition-colors duration-150" title={f.columns.join(" · ")}>
+          <span className="w-4 shrink-0 flex justify-center"><FileSpreadsheet className="w-4 h-4 text-ui-muted" strokeWidth={1.5} /></span>
           <div className="min-w-0 flex-1">
-            <div className="text-sm truncate text-gray-300">{f.name}</div>
-            <div className="text-[11px] text-gray-600">{f.rowCount.toLocaleString("fr-FR")} lignes{f.uploaded ? "" : " · fourni par votre équipe"}</div>
+            <div className="text-sm truncate text-ui-fg">{f.name}</div>
+            <div className="text-xs text-ui-muted font-mono tabular-nums">{f.rowCount.toLocaleString("fr-FR")} lignes</div>
           </div>
           {f.uploaded && (
-            <button type="button" aria-label={`Retirer ${f.name}`} onClick={() => onRemove(f)} className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-opacity">
-              <Trash2 className="w-4 h-4" />
+            <button type="button" aria-label={`Retirer ${f.name}`} onClick={() => onRemove(f)} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-ui-muted hover:text-ui-neg transition-[opacity,color] duration-150">
+              <Trash2 className="w-4 h-4" strokeWidth={1.5} />
             </button>
           )}
         </div>

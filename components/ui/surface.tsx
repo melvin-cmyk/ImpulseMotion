@@ -28,9 +28,9 @@ export function Card({ className, padded, interactive, ...rest }: CardProps) {
   return (
     <div
       className={cn(
-        "bg-gray-900 border border-gray-800 rounded-2xl",
+        "bg-ui-card border border-ui-line rounded-xl",
         padded && "p-5",
-        interactive && "transition-colors hover:bg-gray-800/40",
+        interactive && "transition-colors duration-150 hover:bg-ui-raised/60",
         className,
       )}
       {...rest}
@@ -131,17 +131,17 @@ type PillProps = {
 };
 
 const PILL_TONE: Record<NonNullable<PillProps["tone"]>, string> = {
-  default: "bg-gray-800 text-gray-300",
-  violet: "bg-violet-500/15 text-violet-300",
-  emerald: "bg-emerald-500/15 text-emerald-300",
-  amber: "bg-amber-500/15 text-amber-300",
-  red: "bg-red-500/15 text-red-300",
-  blue: "bg-blue-500/15 text-blue-300",
+  default: "bg-ui-raised text-ui-fg2",
+  violet: "bg-ui-accent-soft text-ui-accent-ink",
+  emerald: "bg-ui-pos/10 text-ui-pos",
+  amber: "bg-ui-warn/10 text-ui-warn",
+  red: "bg-ui-neg/10 text-ui-neg",
+  blue: "bg-ui-raised text-ui-fg2",
 };
 
 export function Pill({ children, tone = "default", className }: PillProps) {
   return (
-    <span className={cn("text-xs px-2 py-0.5 rounded font-medium", PILL_TONE[tone], className)}>
+    <span className={cn("text-xs px-1.5 py-0.5 rounded", PILL_TONE[tone], className)}>
       {children}
     </span>
   );

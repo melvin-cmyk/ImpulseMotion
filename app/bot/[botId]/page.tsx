@@ -35,8 +35,8 @@ export default async function BotPage({ params, searchParams }: { params: Promis
   if (loaded.status === 403) {
     return (
       <div className="max-w-xl mx-auto px-6 py-16 text-center space-y-2">
-        <h1 className="text-lg font-semibold text-white">Accès non autorisé</h1>
-        <p className="text-sm text-gray-500">Cet assistant ne vous est pas attribué. Contactez votre interlocuteur chez Impulse Analytics.</p>
+        <h1 className="text-lg font-medium text-ui-fg">Accès non autorisé</h1>
+        <p className="text-sm text-ui-fg2">Cet assistant ne vous est pas attribué. Contactez votre interlocuteur chez Impulse Analytics.</p>
       </div>
     );
   }

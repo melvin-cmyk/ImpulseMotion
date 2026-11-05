@@ -29,11 +29,11 @@ export function PageTabs({
   const extraActive = extraTabs.some((t) => t.active);
   const active = extraActive ? null : pages.find((p) => p.id === activePageId) ?? pages[0] ?? null;
   return (
-    <div className="flex items-center gap-1 flex-wrap border-b border-gray-800 pb-1">
+    <div className="flex items-center gap-1 flex-wrap border-b border-ui-line pb-1">
       {pages.length === 0 && (
         extraActive
-          ? <button type="button" onClick={() => onSelect(DEFAULT_PAGE_ID)} className="px-3 py-1.5 text-xs font-semibold text-gray-400 border-b-2 border-transparent hover:text-white">{FIRST_PAGE_LABEL}</button>
-          : <span className="px-3 py-1.5 text-xs font-semibold text-white border-b-2 border-violet-500">{FIRST_PAGE_LABEL}</span>
+          ? <button type="button" onClick={() => onSelect(DEFAULT_PAGE_ID)} className="px-3 py-1.5 text-xs font-medium text-ui-fg2 border-b-2 border-transparent hover:text-ui-fg">{FIRST_PAGE_LABEL}</button>
+          : <span className="px-3 py-1.5 text-xs font-medium text-ui-fg border-b-2 border-ui-accent">{FIRST_PAGE_LABEL}</span>
       )}
       {pages.map((p) => {
         const isActive = active?.id === p.id;
@@ -42,8 +42,8 @@ export function PageTabs({
             key={p.id}
             type="button"
             onClick={() => onSelect(p.id)}
-            className={`px-3 py-1.5 text-xs font-semibold border-b-2 transition-colors ${
-              isActive ? "text-white border-violet-500" : "text-gray-400 border-transparent hover:text-white"
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+              isActive ? "text-ui-fg border-ui-accent" : "text-ui-fg2 border-transparent hover:text-ui-fg"
             }`}
             title={p.intent ?? undefined}
           >
@@ -56,7 +56,7 @@ export function PageTabs({
           key={t.id}
           type="button"
           onClick={t.onSelect}
-          className={`px-3 py-1.5 text-xs font-semibold border-b-2 transition-colors ${t.active ? "text-white border-violet-500" : "text-gray-400 border-transparent hover:text-white"}`}
+          className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${t.active ? "text-ui-fg border-ui-accent" : "text-ui-fg2 border-transparent hover:text-ui-fg"}`}
         >
           {t.label}
         </button>
@@ -65,10 +65,10 @@ export function PageTabs({
         <div className="flex items-center gap-1 ml-1">
           {active && active.id !== DEFAULT_PAGE_ID && (
             <>
-              <button type="button" onClick={() => onRename(active)} className="p-1.5 rounded-md text-gray-500 hover:text-white hover:bg-gray-800" title="Renommer la page">
+              <button type="button" onClick={() => onRename(active)} className="p-1.5 rounded-md text-ui-muted hover:text-ui-fg hover:bg-ui-raised" title="Renommer la page">
                 <Pencil className="w-3.5 h-3.5" />
               </button>
-              <button type="button" onClick={() => onDelete(active)} className="p-1.5 rounded-md text-gray-500 hover:text-red-300 hover:bg-gray-800" title="Supprimer la page (ses widgets reviennent sur la première page)">
+              <button type="button" onClick={() => onDelete(active)} className="p-1.5 rounded-md text-ui-muted hover:text-ui-neg hover:bg-ui-raised" title="Supprimer la page (ses widgets reviennent sur la première page)">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             </>
@@ -76,7 +76,7 @@ export function PageTabs({
           <button
             type="button"
             onClick={onAdd}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg"
           >
             <Plus className="w-3.5 h-3.5" /> Page
           </button>
@@ -116,23 +116,23 @@ export function PageForm({ dashboardId, onDone, onCancel }: { dashboardId: strin
     }
   }
 
-  const inputCls = "w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500";
+  const inputCls = "w-full bg-ui-bg border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg focus:outline-none focus:border-ui-accent";
   return (
-    <form onSubmit={submit} className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4 space-y-3">
+    <form onSubmit={submit} className="rounded-xl border border-ui-line bg-ui-card p-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-white flex items-center gap-2"><Sparkles className="w-4 h-4 text-violet-400" /> Nouvelle page</h3>
-        <label className="text-xs text-gray-400 inline-flex items-center gap-2">
+        <h3 className="text-sm font-medium text-ui-fg flex items-center gap-2"><Sparkles className="w-4 h-4 text-ui-accent-ink" /> Nouvelle page</h3>
+        <label className="text-xs text-ui-fg2 inline-flex items-center gap-2">
           <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} className="accent-violet-500" />
           Composer avec l&apos;IA
         </label>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <label className="block">
-          <span className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">Nom {useAi && <span className="normal-case tracking-normal font-normal text-gray-600">(optionnel, l&apos;IA en propose un)</span>}</span>
+          <span className="block text-[11px] text-ui-muted font-medium mb-1">Nom {useAi && <span className="normal-case tracking-normal font-normal text-ui-muted">(optionnel, l&apos;IA en propose un)</span>}</span>
           <input type="text" value={name} onChange={(e) => setName(e.target.value.slice(0, 40))} placeholder="Ex. : Google Ads" className={inputCls} disabled={busy} />
         </label>
         <label className="block md:col-span-2">
-          <span className="block text-[11px] uppercase tracking-wider text-gray-500 font-semibold mb-1">{useAi ? "Ce que vous voulez voir sur cette page" : "Description (optionnel)"}</span>
+          <span className="block text-[11px] text-ui-muted font-medium mb-1">{useAi ? "Ce que vous voulez voir sur cette page" : "Description (optionnel)"}</span>
           <textarea
             value={brief}
             onChange={(e) => setBrief(e.target.value.slice(0, 1500))}
@@ -143,10 +143,10 @@ export function PageForm({ dashboardId, onDone, onCancel }: { dashboardId: strin
           />
         </label>
       </div>
-      {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-900/40 rounded-lg px-3 py-2">{error}</div>}
+      {error && <div className="text-xs text-ui-neg bg-red-500/10 border border-red-900/40 rounded-lg px-3 py-2">{error}</div>}
       <div className="flex items-center gap-2 justify-end">
-        <button type="button" onClick={onCancel} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs text-gray-400 hover:text-white">Annuler</button>
-        <button type="submit" disabled={busy} className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white">
+        <button type="button" onClick={onCancel} disabled={busy} className="px-3 py-1.5 rounded-lg text-xs text-ui-fg2 hover:text-ui-fg">Annuler</button>
+        <button type="submit" disabled={busy} className="inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 disabled:opacity-50 text-ui-fg">
           {busy ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {useAi ? "L'IA compose la page…" : "Création…"}</> : useAi ? "Composer la page" : "Créer la page"}
         </button>
       </div>

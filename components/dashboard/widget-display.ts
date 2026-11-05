@@ -154,12 +154,12 @@ export function partialNote(flags: WidgetFlags): string | null {
  * number must never be read as a counter-performance.
  */
 export function kpiValueClass(metric: string, value: number, flags: WidgetFlags = {}): string {
-  if (flags.unavailable) return "text-gray-500";
+  if (flags.unavailable) return "text-ui-muted";
   if (metric === "roas" && value > 0) {
-    if (value >= 2) return "text-emerald-400";
-    if (value < 1) return "text-red-400";
+    if (value >= 2) return "text-ui-pos";
+    if (value < 1) return "text-ui-neg";
   }
-  return "text-white";
+  return "text-ui-fg";
 }
 
 export type PacingTone = "default" | "amber" | "red" | "emerald";

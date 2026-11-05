@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar, SecondaryNav } from "@/components/sidebar";
 import { SessionProvider } from "next-auth/react";
@@ -14,9 +14,18 @@ import { CreativesProvider } from "@/lib/creatives-context";
 import { ClientNavLink } from "@/components/bot/client-nav-link";
 import { LogoMark } from "@/components/brand/logo-mark";
 import { countEnabledBotAccess, countVisibleClientDashboards } from "@/lib/bot-access";
+import { cookies } from "next/headers";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { THEME_COOKIE, parseTheme, type UiTheme } from "@/lib/ui-theme";
+import { ClientUserNav } from "@/components/client-user-nav";
 
 const geist = Geist({
   variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+// Figures and periods (tabular): the client space's signature.
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
@@ -57,9 +66,18 @@ export default async function RootLayout({
     }
   }
 
+  // Day / night: the client's choice (cookie). Staff surfaces are drawn for
+  // the night only, so the staff app always stays dark.
+  let theme: UiTheme = "dark";
+  if (!showApp || isClient) {
+    try {
+      theme = parseTheme((await cookies()).get(THEME_COOKIE)?.value);
+    } catch { /* default */ }
+  }
+
   return (
-    <html lang="en">
-      <body className={`${geist.variable} antialiased`}>
+    <html lang="fr" data-theme={theme}>
+      <body className={`${geist.variable} ${geistMono.variable} antialiased`}>
         <SessionProvider session={session} refetchInterval={30} refetchOnWindowFocus>
           <AclWatcher />
           {/* Detached AI turns of the viewer: counts in the nav, a notice when a reply is ready. */}
@@ -67,18 +85,21 @@ export default async function RootLayout({
           <CreativesProvider>
             {showApp && isClient ? (
               // Client chrome: just their dashboard — no internal nav.
-              <div className="flex flex-col h-screen bg-gray-950 text-gray-100">
-                <header className="h-12 border-b border-gray-800 flex items-center justify-between px-4 flex-shrink-0">
-                  <div className="flex items-center gap-5">
-                    <span className="flex items-center gap-2"><LogoMark size={26} /><span className="font-semibold text-sm tracking-tight text-white">ImpulseMotion</span></span>
-                    <nav className="flex items-center gap-1 text-sm">
+              <div className="flex flex-col h-screen bg-ui-bg text-ui-fg">
+                <header className="h-14 border-b border-ui-line bg-ui-sunken flex items-center justify-between gap-4 px-4 sm:px-6 flex-shrink-0">
+                  <div className="flex items-center gap-6 min-w-0">
+                    <span className="flex items-center gap-2"><LogoMark size={24} /><span className="font-medium text-[15px] text-ui-fg">ImpulseMotion</span></span>
+                    <nav className="flex items-center gap-1" aria-label="Espace client">
                       {hasDashboard && <ClientNavLink href="/d" label="Dashboards" />}
                       {hasBot && <ClientNavLink href="/bot" label="Assistant IA" />}
                     </nav>
                   </div>
                   {/* No account picker for clients: the dashboard defines the
                       account; switching brands happens on /d. */}
-                  {session ? <UserNav session={session} /> : null}
+                  <div className="flex items-center gap-4">
+                    <ThemeToggle initial={theme} />
+                    {session ? <ClientUserNav session={session} /> : null}
+                  </div>
                 </header>
                 <main className="flex-1 overflow-auto min-h-0">{children}</main>
               </div>
@@ -105,7 +126,7 @@ export default async function RootLayout({
                 </div>
               </div>
             ) : (
-              <div className="min-h-screen bg-gray-950 text-gray-100">
+              <div className="min-h-screen bg-ui-bg text-ui-fg">
                 {children}
               </div>
             )}

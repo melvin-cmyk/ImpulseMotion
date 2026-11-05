@@ -1,5 +1,7 @@
 "use client";
 
+import { LogoMark } from "@/components/brand/logo-mark";
+
 import { signIn } from "next-auth/react";
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -70,127 +72,78 @@ function LoginForm({ google }: { google: boolean }) {
     router.refresh();
   }
 
+  const field = "h-10 px-3 rounded-lg text-sm bg-ui-card text-ui-fg border border-ui-line-strong outline-none focus:border-ui-accent transition-colors duration-150";
   return (
-    <div
-      className="min-h-screen flex items-center justify-center px-4"
-      style={{ backgroundColor: "#0a0a0f", color: "#ffffff" }}
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl p-px"
-        style={{
-          background:
-            "linear-gradient(135deg,rgba(124,58,237,0.6),rgba(168,85,247,0.2),rgba(255,255,255,0.05))",
-        }}
-      >
-        <div className="rounded-2xl p-8" style={{ background: "#0e0e18" }}>
-          <div className="flex items-center gap-2.5 mb-6">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)" }}
+    <div className="min-h-screen flex items-center justify-center px-4 bg-ui-bg text-ui-fg">
+      <div className="w-full max-w-sm">
+        <div className="flex items-center gap-2 mb-12">
+          <LogoMark size={24} />
+          <span className="font-medium text-[15px]">ImpulseMotion</span>
+        </div>
+
+        <h1 className="text-3xl font-normal leading-tight">Connexion</h1>
+        <p className="text-[15px] text-ui-fg2 mt-2 mb-8">Votre espace Impulse Analytics : vos campagnes, vos créas et votre assistant</p>
+
+        {google && (
+          <>
+            <button
+              type="button"
+              onClick={handleGoogle}
+              disabled={googleLoading || loading}
+              className="w-full h-11 flex items-center justify-center gap-2.5 rounded-lg text-sm font-medium bg-ui-card text-ui-fg border border-ui-line-strong hover:bg-ui-raised active:scale-[0.98] transition-[background-color,transform] duration-150 ease-ui disabled:opacity-50"
             >
-              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-white">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
+              <GoogleMark />
+              {googleLoading ? "Redirection vers Google" : "Continuer avec Google"}
+            </button>
+            <div className="flex items-center gap-3 my-6 text-xs text-ui-muted">
+              <div className="h-px flex-1 bg-ui-line" />
+              ou avec votre mot de passe
+              <div className="h-px flex-1 bg-ui-line" />
             </div>
-            <span className="font-bold text-white text-lg tracking-tight">
-              ImpulseMotion
-            </span>
-          </div>
+          </>
+        )}
 
-          <h1 className="text-xl font-semibold mb-1">Connexion</h1>
-          <p className="text-sm mb-6" style={{ color: "#9ca3af" }}>
-            Entrez vos identifiants fournis par l&apos;administrateur.
-          </p>
+        <form onSubmit={handleCredentials} className="flex flex-col gap-4">
+          <label className="flex flex-col gap-2">
+            <span className="text-sm text-ui-fg2">Email</span>
+            <input
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={field}
+            />
+          </label>
 
-          {google && (
-            <>
-              <button
-                type="button"
-                onClick={handleGoogle}
-                disabled={googleLoading || loading}
-                className="w-full flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl font-medium text-sm transition-all hover:brightness-95 active:scale-95 disabled:opacity-50"
-                style={{ background: "#ffffff", color: "#1f2937" }}
-              >
-                <GoogleMark />
-                {googleLoading ? "Redirection vers Google..." : "Se connecter avec Google"}
-              </button>
-              <div className="flex items-center gap-3 my-5 text-xs" style={{ color: "#4b5563" }}>
-                <div className="h-px flex-1" style={{ background: "rgba(255,255,255,0.08)" }} />
-                ou avec votre mot de passe
-                <div className="h-px flex-1" style={{ background: "rgba(255,255,255,0.08)" }} />
-              </div>
-            </>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm text-ui-fg2">Mot de passe</span>
+            <input
+              type="password"
+              required
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={field}
+            />
+          </label>
+
+          {error && (
+            <div role="alert" className="text-sm px-3 py-2 rounded-lg bg-ui-neg/10 text-ui-neg">
+              {error}
+            </div>
           )}
 
-          <form onSubmit={handleCredentials} className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium" style={{ color: "#c4b5fd" }}>
-                Email
-              </span>
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="px-3 py-2.5 rounded-lg text-sm outline-none transition-colors focus:ring-2"
-                style={{
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#fff",
-                }}
-              />
-            </label>
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-2 h-11 rounded-lg text-sm font-medium bg-ui-accent text-ui-on-accent hover:brightness-110 active:scale-[0.98] transition-[filter,transform] duration-150 ease-ui disabled:opacity-50"
+          >
+            {loading ? "Connexion" : "Se connecter"}
+          </button>
+        </form>
 
-            <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium" style={{ color: "#c4b5fd" }}>
-                Mot de passe
-              </span>
-              <input
-                type="password"
-                required
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="px-3 py-2.5 rounded-lg text-sm outline-none transition-colors focus:ring-2"
-                style={{
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#fff",
-                }}
-              />
-            </label>
-
-            {error && (
-              <div
-                className="text-xs px-3 py-2 rounded-lg"
-                style={{
-                  background: "rgba(239,68,68,0.1)",
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  color: "#fca5a5",
-                }}
-              >
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-2 px-5 py-3 rounded-xl font-semibold text-sm transition-all hover:brightness-110 active:scale-95 disabled:opacity-50"
-              style={{
-                background: "linear-gradient(135deg,#7c3aed,#a855f7)",
-                color: "#fff",
-              }}
-            >
-              {loading ? "Connexion..." : "Se connecter"}
-            </button>
-          </form>
-
-          <p className="mt-6 text-xs text-center" style={{ color: "#4b5563" }}>
-            Accès réservé aux clients ImpulseMotion
-          </p>
-        </div>
+        <p className="mt-8 text-xs text-ui-muted">Identifiants fournis par votre interlocuteur chez Impulse Analytics</p>
       </div>
     </div>
   );

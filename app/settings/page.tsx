@@ -33,17 +33,17 @@ function IntegrationRow({ name, description, status, initial, color }: { name: s
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3">
       <div className="flex items-center gap-3 min-w-0">
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm shrink-0 ${color}`}>{initial}</div>
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-ui-fg font-medium text-sm shrink-0 ${color}`}>{initial}</div>
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-white">{name}</div>
-          <div className="text-xs text-gray-500 truncate">{description}</div>
+          <div className="text-sm font-medium text-ui-fg">{name}</div>
+          <div className="text-xs text-ui-muted truncate">{description}</div>
         </div>
       </div>
       <div className="shrink-0 inline-flex items-center gap-2 text-xs">
-        {status.state === "loading" && <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-500" />}
-        {status.state === "ok" && <Check className="w-3.5 h-3.5 text-emerald-400" />}
-        {status.state === "error" && <AlertCircle className="w-3.5 h-3.5 text-amber-400" />}
-        <span className={status.state === "ok" ? "text-emerald-300" : status.state === "error" ? "text-amber-300" : "text-gray-500"}>{status.detail}</span>
+        {status.state === "loading" && <Loader2 className="w-3.5 h-3.5 animate-spin text-ui-muted" />}
+        {status.state === "ok" && <Check className="w-3.5 h-3.5 text-ui-pos" />}
+        {status.state === "error" && <AlertCircle className="w-3.5 h-3.5 text-ui-warn" />}
+        <span className={status.state === "ok" ? "text-ui-pos" : status.state === "error" ? "text-ui-warn" : "text-ui-muted"}>{status.detail}</span>
       </div>
     </div>
   );
@@ -79,7 +79,7 @@ export default function SettingsPage() {
     else setPwState({ busy: false, msg: j.error ?? `Erreur ${res.status}`, ok: false });
   }
 
-  const inputCls = "w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-violet-500";
+  const inputCls = "w-full bg-ui-bg border border-ui-line rounded-lg px-3 py-2 text-sm text-ui-fg focus:outline-none focus:border-ui-accent";
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -87,34 +87,34 @@ export default function SettingsPage() {
 
       {/* Internal plumbing (tokens, relay): staff only — a client only needs their account. */}
       {isStaff && (
-      <Section title={<span className="flex items-center gap-2"><Plug className="w-4 h-4 text-violet-400" /> Intégrations</span>}>
-        <div className="divide-y divide-gray-800">
+      <Section title={<span className="flex items-center gap-2"><Plug className="w-4 h-4 text-ui-accent-ink" /> Intégrations</span>}>
+        <div className="divide-y divide-ui-line">
           <IntegrationRow name="Meta Ads" description="Token System User partagé (Business Manager Impulse) — accès par compte géré dans Utilisateurs & accès." status={meta} initial="f" color="bg-blue-600" />
           <IntegrationRow name="Google Ads" description="Accès via le relay MCP (mcp-google-ads) — aucune OAuth côté utilisateur." status={google} initial="G" color="bg-emerald-600" />
         </div>
-        <div className="px-4 py-3 text-xs text-gray-500 border-t border-gray-800">
+        <div className="px-4 py-3 text-xs text-ui-muted border-t border-ui-line">
           L&apos;IA (rapports, chat, analyse créas) passe par le relay Impulse (Claude). Aucune clé API n&apos;est stockée dans l&apos;application.
         </div>
       </Section>
       )}
 
       <Card padded>
-        <h2 className="text-sm font-semibold text-white mb-3">Compte</h2>
+        <h2 className="text-sm font-medium text-ui-fg mb-3">Compte</h2>
         <dl className="grid grid-cols-3 gap-y-2 text-sm">
-          <dt className="text-gray-500">Nom</dt><dd className="col-span-2 text-white">{session?.user?.name ?? "—"}</dd>
-          <dt className="text-gray-500">Email</dt><dd className="col-span-2 text-white">{session?.user?.email ?? "—"}</dd>
-          <dt className="text-gray-500">Rôle</dt><dd className="col-span-2"><Pill tone="violet">{session?.role ?? "client"}</Pill></dd>
+          <dt className="text-ui-muted">Nom</dt><dd className="col-span-2 text-ui-fg">{session?.user?.name ?? "—"}</dd>
+          <dt className="text-ui-muted">Email</dt><dd className="col-span-2 text-ui-fg">{session?.user?.email ?? "—"}</dd>
+          <dt className="text-ui-muted">Rôle</dt><dd className="col-span-2"><Pill tone="violet">{session?.role ?? "client"}</Pill></dd>
         </dl>
       </Card>
 
       <Card padded>
-        <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2"><KeyRound className="w-4 h-4 text-violet-400" /> Changer le mot de passe</h2>
+        <h2 className="text-sm font-medium text-ui-fg mb-3 flex items-center gap-2"><KeyRound className="w-4 h-4 text-ui-accent-ink" /> Changer le mot de passe</h2>
         <form onSubmit={changePassword} className="space-y-3 max-w-sm">
           <input type="password" autoComplete="current-password" placeholder="Mot de passe actuel" value={current} onChange={(e) => setCurrent(e.target.value)} className={inputCls} required />
           <input type="password" autoComplete="new-password" placeholder="Nouveau mot de passe (12 caractères min.)" value={next} onChange={(e) => setNext(e.target.value)} className={inputCls} required minLength={12} />
           <input type="password" autoComplete="new-password" placeholder="Confirmer le nouveau mot de passe" value={confirm} onChange={(e) => setConfirm(e.target.value)} className={inputCls} required />
-          {pwState.msg && <div className={`text-xs ${pwState.ok ? "text-emerald-400" : "text-red-400"}`}>{pwState.msg}</div>}
-          <button type="submit" disabled={pwState.busy} className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white text-sm font-semibold">
+          {pwState.msg && <div className={`text-xs ${pwState.ok ? "text-ui-pos" : "text-ui-neg"}`}>{pwState.msg}</div>}
+          <button type="submit" disabled={pwState.busy} className="px-4 py-2 rounded-lg bg-ui-accent hover:brightness-110 disabled:opacity-50 text-ui-fg text-sm font-medium">
             {pwState.busy ? "Mise à jour…" : "Mettre à jour"}
           </button>
         </form>

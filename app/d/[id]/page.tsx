@@ -251,63 +251,55 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <Link href="/d" className="text-gray-600 hover:text-gray-400" title="Tous les comptes">←</Link>
+    <div className="max-w-[1440px] mx-auto px-4 sm:px-8 py-8 space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-3xl font-normal leading-tight text-ui-fg flex items-center gap-3">
+            <Link href="/d" className="text-ui-muted hover:text-ui-fg2 text-xl transition-colors duration-150" title="Tous les comptes" aria-label="Tous les comptes">←</Link>
             {payload?.dashboard.name ?? "Pilotage"}
-            {isStaff && (
-              <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-blue-900/60 text-blue-300 border border-blue-800">
-                Vue client
-              </span>
-            )}
-            <span
-              className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 border border-emerald-800/60"
-              title="Seules les personnes rattachées à ce dashboard par un admin (consultants, clients) y ont accès."
-            >
-              Espace privé
-            </span>
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2 flex-wrap">
-            <span>{payload ? (payload.rangeLabel ?? describeRange({ since: payload.since, until: payload.until }).label) : describeRange(range).label}</span>
+          <p className="text-sm text-ui-fg2 mt-2 flex items-center gap-3 flex-wrap">
+            <span className="font-mono tabular-nums">{payload ? (payload.rangeLabel ?? describeRange({ since: payload.since, until: payload.until }).label) : describeRange(range).label}</span>
             {(payload ? payload.partialDay : describeRange(range).partialDay) && (
-              <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30" title="La période inclut aujourd'hui : les chiffres du jour sont incomplets">
+              <span className="text-xs text-ui-warn" title="La période inclut aujourd'hui : les chiffres du jour sont incomplets">
                 aujourd&apos;hui partiel
               </span>
             )}
+            <span className="text-xs text-ui-muted" title="Seules les personnes rattachées à ce dashboard par un admin (consultants, clients) y ont accès.">Espace privé</span>
+            {isStaff && <span className="text-xs text-ui-muted">· vue client</span>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-gray-800 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-0.5 rounded-lg bg-ui-raised p-0.5" role="group" aria-label="Période">
             {PERIODS.map((p) => (
               <button
                 key={p.days}
                 type="button"
                 onClick={() => setDays(p.days)}
-                className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  !isCustom && days === p.days ? "bg-violet-600 text-white" : "bg-gray-900 text-gray-400 hover:text-white"
+                aria-pressed={!isCustom && days === p.days}
+                className={`h-7 px-3 rounded-md text-xs font-mono tabular-nums transition-colors duration-150 ${
+                  !isCustom && days === p.days ? "bg-ui-card text-ui-fg shadow-[inset_0_0_0_1px_var(--ui-line-strong)]" : "text-ui-fg2 hover:text-ui-fg"
                 }`}
               >
                 {p.label}
               </button>
             ))}
           </div>
-          <div className={`flex items-center gap-1 rounded-lg border px-2 py-1 ${isCustom ? "border-violet-600 bg-violet-950/40" : "border-gray-800 bg-gray-900"}`}>
+          <div className={`h-8 flex items-center gap-1 rounded-lg border px-2 ${isCustom ? "border-ui-accent bg-ui-card" : "border-ui-line bg-ui-card"}`}>
             <input
               type="date"
               value={range.since}
               max={range.until}
               onChange={(e) => setCustomRange(e.target.value, range.until)}
-              className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
+              className="bg-transparent text-xs text-ui-fg2 focus:outline-none"
             />
-            <span className="text-gray-600 text-xs">→</span>
+            <span className="text-ui-muted text-xs">→</span>
             <input
               type="date"
               value={range.until}
               min={range.since}
               onChange={(e) => setCustomRange(range.since, e.target.value)}
-              className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
+              className="bg-transparent text-xs text-ui-fg2 focus:outline-none"
             />
           </div>
           <select
@@ -321,7 +313,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
                 navigate({ compare: m });
               }
             }}
-            className="px-2 py-1.5 rounded-lg text-xs bg-gray-900 border border-gray-800 text-gray-300 focus:border-violet-500 focus:outline-none"
+            className="h-8 px-2 rounded-lg text-xs bg-ui-card border border-ui-line text-ui-fg2 focus:border-ui-accent focus:outline-none"
             title="Période de comparaison"
           >
             <option value="prev">vs période précédente</option>
@@ -330,22 +322,22 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
             <option value="none">sans comparaison</option>
           </select>
           {compareMode === "custom" && (
-            <div className="flex items-center gap-1 rounded-lg border border-gray-800 bg-gray-900 px-2 py-1">
-              <span className="text-[10px] uppercase text-gray-600 font-semibold">vs</span>
+            <div className="flex items-center gap-1 rounded-lg border border-ui-line bg-ui-card px-2 py-1">
+              <span className="text-xs text-ui-muted">vs</span>
               <input
                 type="date"
                 value={cmpSince}
                 max={cmpUntil || undefined}
                 onChange={(e) => navigate({ compare: "custom", cmpSince: e.target.value })}
-                className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
+                className="bg-transparent text-xs text-ui-fg2 focus:outline-none"
               />
-              <span className="text-gray-600 text-xs">→</span>
+              <span className="text-ui-muted text-xs">→</span>
               <input
                 type="date"
                 value={cmpUntil}
                 min={cmpSince || undefined}
                 onChange={(e) => navigate({ compare: "custom", cmpUntil: e.target.value })}
-                className="bg-transparent text-xs text-gray-300 focus:outline-none [color-scheme:dark]"
+                className="bg-transparent text-xs text-ui-fg2 focus:outline-none"
               />
             </div>
           )}
@@ -353,23 +345,23 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
             <button
               type="button"
               onClick={() => setShowCopilot((v) => !v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                 showCopilot
-                  ? "bg-violet-600 border-violet-500 text-white"
-                  : "bg-gray-900 border-gray-800 text-gray-300 hover:text-white"
+                  ? "bg-ui-accent border-ui-accent text-ui-on-accent"
+                  : "bg-ui-card border-ui-line text-ui-fg2 hover:text-ui-fg"
               }`}
             >
-              ✦ Copilote
+              Copilote
             </button>
           )}
           {isStaff && (
             <button
               type="button"
               onClick={() => { setEditMode((v) => !v); setShowAdd(false); setEditingWidget(null); setShowSettings(false); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                 editMode
-                  ? "bg-violet-600 border-violet-500 text-white"
-                  : "bg-gray-900 border-gray-800 text-gray-300 hover:text-white"
+                  ? "bg-ui-accent border-ui-accent text-ui-on-accent"
+                  : "bg-ui-card border-ui-line text-ui-fg2 hover:text-ui-fg"
               }`}
             >
               {editMode ? "Terminer" : "Modifier"}
@@ -391,9 +383,9 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
         />
       )}
       {pageNote && (
-        <div className="text-[11px] text-violet-300/80 bg-violet-500/5 border border-violet-900/30 rounded-lg px-3 py-2 flex items-start justify-between gap-3">
+        <div className="text-xs text-ui-fg2 bg-ui-raised rounded-lg px-3 py-2 flex items-start justify-between gap-3">
           <span>Note de l&apos;IA : {pageNote}</span>
-          <button type="button" onClick={() => setPageNote(null)} className="text-gray-500 hover:text-white">✕</button>
+          <button type="button" onClick={() => setPageNote(null)} className="text-ui-muted hover:text-ui-fg">✕</button>
         </div>
       )}
 
@@ -402,14 +394,14 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
           <button
             type="button"
             onClick={() => { setShowAdd(true); setEditingWidget(null); setShowSettings(false); setShowPageForm(false); }}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent transition-[filter] duration-150"
           >
             + Ajouter un widget
           </button>
           <button
             type="button"
             onClick={() => { setShowSettings(true); setShowAdd(false); setEditingWidget(null); }}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-gray-200 transition-colors"
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-raised hover:bg-ui-line-strong text-ui-fg transition-colors"
           >
             Réglages
           </button>
@@ -435,7 +427,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
       )}
 
       {(error || payload?.error) && (
-        <div className="text-sm text-red-400 bg-red-950/40 border border-red-900/50 rounded-xl px-4 py-3">{error ?? payload?.error}</div>
+        <div className="text-sm text-ui-neg bg-ui-neg/10 rounded-xl px-4 py-3">{error ?? payload?.error}</div>
       )}
 
       {isStaff && showHistory ? (
@@ -443,7 +435,7 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
       ) : loading && !payload ? (
         <div className="grid grid-cols-6 gap-4">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className={`${i < 3 ? "lg:col-span-2" : "lg:col-span-3"} col-span-6 h-36 rounded-2xl bg-gray-900 border border-gray-800 animate-pulse`} />
+            <div key={i} className={`${i < 3 ? "lg:col-span-2" : "lg:col-span-3"} col-span-6 h-36 rounded-xl bg-ui-card border border-ui-line animate-pulse`} />
           ))}
         </div>
       ) : (
@@ -489,9 +481,9 @@ export default function DashboardPage({ params }: { params: Promise<{ id: string
                 );
               })}
               {widgets.length === 0 && !loading && (
-                <div className="col-span-6 text-sm text-gray-500 bg-gray-900 border border-gray-800 rounded-2xl px-5 py-8 text-center">
+                <div className="col-span-6 text-sm text-ui-muted bg-ui-card border border-ui-line rounded-xl px-5 py-8 text-center">
                   Ce dashboard n&apos;a pas encore de widget.
-                  {isStaff ? " Passez en mode édition pour en ajouter." : " Votre consultant le configure bientôt."}
+                  {isStaff ? " Passez en mode édition pour en ajouter." : " Votre consultant est en train de le préparer."}
                 </div>
               )}
             </div>

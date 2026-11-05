@@ -42,15 +42,15 @@ describe("partialNote()", () => {
 
 describe("kpiValueClass()", () => {
   it("never paints an unavailable KPI red", () => {
-    expect(kpiValueClass("roas", 0, { unavailable: true })).toBe("text-gray-500");
-    expect(kpiValueClass("roas", 0.4, { unavailable: true })).toBe("text-gray-500");
+    expect(kpiValueClass("roas", 0, { unavailable: true })).toBe("text-ui-muted");
+    expect(kpiValueClass("roas", 0.4, { unavailable: true })).toBe("text-ui-muted");
   });
 
   it("keeps the ROAS judgement on real values", () => {
-    expect(kpiValueClass("roas", 2.5)).toBe("text-emerald-400");
-    expect(kpiValueClass("roas", 0.4)).toBe("text-red-400");
-    expect(kpiValueClass("roas", 0)).toBe("text-white");
-    expect(kpiValueClass("spend", 0.4)).toBe("text-white");
+    expect(kpiValueClass("roas", 2.5)).toBe("text-ui-pos");
+    expect(kpiValueClass("roas", 0.4)).toBe("text-ui-neg");
+    expect(kpiValueClass("roas", 0)).toBe("text-ui-fg");
+    expect(kpiValueClass("spend", 0.4)).toBe("text-ui-fg");
   });
 });
 
