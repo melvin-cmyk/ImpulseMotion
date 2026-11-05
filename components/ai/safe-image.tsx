@@ -28,8 +28,19 @@ function BotVideo({ src, alt }: { src: string; alt?: string }) {
   return <video src={src} poster={poster} controls playsInline preload="metadata" onError={() => setFailed(true)} className="max-w-full max-h-96 rounded-lg border border-gray-800 my-2 bg-black" aria-label={alt} />;
 }
 
+/** A client bot's image creative: a missing visual shows its name, not a broken image icon. */
+const BOT_IMAGE = /^\/api\/bot\/[\w-]+\/image\?/;
+
+function BotImage({ src, alt }: { src: string; alt?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span className="block text-xs text-gray-500 my-2">Visuel momentanément indisponible{alt ? ` — ${alt}` : ""}</span>;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt={alt ?? ""} onError={() => setFailed(true)} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;
+}
+
 export function SafeImage({ src, alt }: { src?: unknown; alt?: string }) {
   if (typeof src === "string" && BOT_VIDEO.test(src)) return <BotVideo src={src} alt={alt} />;
+  if (typeof src === "string" && BOT_IMAGE.test(src)) return <BotImage src={src} alt={alt} />;
   if (isOwnImage(src)) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={src} alt={alt ?? ""} className="max-w-full max-h-72 w-auto rounded-lg border border-gray-800 my-2" loading="lazy" />;

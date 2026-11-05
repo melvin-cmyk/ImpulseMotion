@@ -56,3 +56,13 @@ describe("bot ads pack — données manquantes → recherche en direct", () => {
     expect(t).not.toContain("⚠ Meta");
   });
 });
+
+describe("bot ads pack — visuels", () => {
+  it("demande toujours les visuels et donne le modèle d'adresse pour une créa trouvée en direct", async () => {
+    vi.mocked(queryAds).mockResolvedValue(result(100, 5000) as never);
+    states.mockResolvedValue([{ syncedTo: new Date("2026-11-04T00:00:00Z") }]);
+    const t = await buildBotAdsPack("bot9", { meta: "1" }, NOW);
+    expect(t).toContain("LES CLIENTS VEULENT VOIR LEURS CRÉAS");
+    expect(t).toContain("/api/bot/bot9/image?ad=PLATEFORME%3AID");
+  });
+});
