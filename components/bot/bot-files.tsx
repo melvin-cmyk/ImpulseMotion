@@ -132,7 +132,7 @@ export function AttachFileButton({ disabled, uploading, onFile }: { disabled?: b
   );
 }
 
-/** Sidebar list: the files the assistant can read. */
+/** Sidebar list: the files the client imported from the chat (team Drive files are not listed). */
 export function BotFilesList({ files, onRemove }: { files: BotFile[]; onRemove: (f: BotFile) => void }) {
   if (!files.length) return null;
   return (

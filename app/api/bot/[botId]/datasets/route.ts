@@ -9,6 +9,9 @@
  * « Fichiers de données » est cochée sur la fiche du bot.
  *
  *   GET    → { datasets: [{ datasetKey, name, rowCount, columns, loadedAt, uploaded }] }
+ *          seulement les fichiers importés par le client depuis le chat : ceux
+ *          du dossier Drive de l'équipe restent lisibles par le bot mais ne
+ *          sont pas listés.
  *   POST   { fileName, mimeType?, loadId, rowOffset, columns, rows, final }
  *          un lot (≤ 2000 lignes) ; `final: true` rend le fichier visible au bot
  *          et remplace un import précédent du même nom.
@@ -68,7 +71,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const all = await listDatasets(r.bot.clientKey);
     return NextResponse.json({
       datasets: all
-        .filter((d) => d.rowCount > 0)
+        .filter((d) => d.rowCount > 0 && d.source.uploadedVia === "chat")
         .map((d) => ({
           datasetKey: d.datasetKey,
           name: d.name,

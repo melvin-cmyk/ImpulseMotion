@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const scope = staff ? await getAccountScope(session) : null;
   const where = staff && scope
     ? { AND: [dashboardWhere(scope), userIdParam ? { userId: userIdParam } : {}] }
-    : { OR: [{ userId: session.userId }, { members: { some: { userId: session.userId } } }] };
+    : { OR: [{ userId: session.userId }, { members: { some: { userId: session.userId, dashboardHidden: false } } }] };
 
   const dashboards = await prisma.dashboard.findMany({
     where,

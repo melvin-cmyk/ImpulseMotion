@@ -88,10 +88,10 @@ describe("POST", () => {
 });
 
 describe("GET / DELETE", () => {
-  it("liste les fichiers lisibles et ne retire que ceux importés depuis le chat", async () => {
+  it("ne liste que les fichiers importés par le client et ne retire que ceux-là", async () => {
     datasets = [ds("drive-file"), ds("mon-import", "chat")];
     const j = await (await GET(new NextRequest(url), ctx)).json();
-    expect(j.datasets.map((d: { datasetKey: string; uploaded: boolean }) => [d.datasetKey, d.uploaded])).toEqual([["drive-file", false], ["mon-import", true]]);
+    expect(j.datasets.map((d: { datasetKey: string; uploaded: boolean }) => [d.datasetKey, d.uploaded])).toEqual([["mon-import", true]]);
     expect((await del({ datasetKey: "drive-file" })).status).toBe(403);
     expect((await del({ datasetKey: "mon-import" })).status).toBe(200);
     expect(deleted).toEqual(["mon-import"]);

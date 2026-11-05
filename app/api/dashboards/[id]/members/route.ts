@@ -3,6 +3,8 @@
  * POST   /api/dashboards/[id]/members            → admin: attach someone by email
  *   Body: { email, role: "consultant" | "client", name? }
  *   → { member, created, tempPassword? } (tempPassword shown once for a new login)
+ * PATCH  /api/dashboards/[id]/members            → admin: { userId, dashboardHidden } — a client
+ *   keeps the bot but no longer sees the dashboard (or sees it again)
  * DELETE /api/dashboards/[id]/members?userId=…   → admin: detach (revokes bot + ACL too)
  */
 
@@ -10,7 +12,7 @@ import { denyIfDashboardOutOfScope } from "@/lib/dashboard-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaff, requireRealAdmin } from "@/lib/auth-helpers";
-import { addDashboardMember, removeDashboardMember, memberSelect, MemberError } from "@/lib/dashboard-members";
+import { addDashboardMember, removeDashboardMember, setDashboardHidden, memberSelect, MemberError } from "@/lib/dashboard-members";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -48,8 +50,28 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       email: String(body?.email ?? ""),
       role,
       name: typeof body?.name === "string" ? body.name : null,
+      // Attaching someone here means giving them the dashboard: shown again if it was hidden.
+      dashboardHidden: false,
     });
     return NextResponse.json(result);
+  } catch (e) {
+    if (e instanceof MemberError) return NextResponse.json({ error: e.message }, { status: e.status });
+    throw e;
+  }
+}
+
+export async function PATCH(req: NextRequest, { params }: Ctx) {
+  const guard = await requireRealAdmin();
+  if ("error" in guard) return guard.error;
+  const { id } = await params;
+  const body = await req.json().catch(() => ({}));
+  const userId = typeof body?.userId === "string" ? body.userId : "";
+  if (!userId || typeof body?.dashboardHidden !== "boolean") {
+    return NextResponse.json({ error: "userId et dashboardHidden requis" }, { status: 400 });
+  }
+  try {
+    const member = await setDashboardHidden(id, userId, body.dashboardHidden);
+    return NextResponse.json({ member });
   } catch (e) {
     if (e instanceof MemberError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;

@@ -37,7 +37,7 @@ type Bot = {
   dailyMessages: number | null;
   updatedAt: string;
 };
-type Access = { userId: string; email: string | null; name: string | null; role: string; createdAt: string };
+type Access = { userId: string; email: string | null; name: string | null; role: string; createdAt: string; dashboardHidden: boolean };
 type Payload = {
   dashboard: Dashboard;
   bot: Bot | null;
@@ -166,6 +166,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
 
   const [accessEmail, setAccessEmail] = useState("");
   const [accessName, setAccessName] = useState("");
+  const [accessShowDashboard, setAccessShowDashboard] = useState(true);
   const [accessBusy, setAccessBusy] = useState(false);
   const [accessError, setAccessError] = useState<string | null>(null);
   const [lastGranted, setLastGranted] = useState<{ email: string; password?: string; created: boolean } | null>(null);
@@ -261,7 +262,7 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
     const res = await fetch(`/api/admin/bots/${dashboardId}/access`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: accessEmail, name: accessName || undefined }),
+      body: JSON.stringify({ email: accessEmail, name: accessName || undefined, showDashboard: accessShowDashboard }),
     });
     const json = await res.json().catch(() => ({}));
     setAccessBusy(false);
@@ -279,6 +280,21 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
     if (!confirm(`Retirer l'accès de ${email ?? userId} ?`)) return;
     const res = await fetch(`/api/admin/bots/${dashboardId}/access/${userId}`, { method: "DELETE" });
     if (res.ok) load();
+  }
+
+  async function toggleDashboard(a: Access) {
+    const res = await fetch(`/api/dashboards/${dashboardId}/members`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: a.userId, dashboardHidden: !a.dashboardHidden }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setAccessError(json.error || "Erreur");
+      return;
+    }
+    setAccessError(null);
+    load();
   }
 
   async function issueToken() {
@@ -531,10 +547,17 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                       <div className="text-sm text-white truncate">{a.email ?? a.userId}</div>
                       <div className="text-[11px] text-gray-500">
                         {a.name ? `${a.name} · ` : ""}accès depuis le {formatDate(a.createdAt)}
+                        {a.role === "client" && (a.dashboardHidden ? " · assistant seul (dashboard masqué)" : " · voit aussi le dashboard")}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    {a.role === "client" && (
+                      <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer" title="Le client voit aussi le dashboard en plus de l'assistant IA">
+                        <input type="checkbox" checked={!a.dashboardHidden} onChange={() => toggleDashboard(a)} className="accent-violet-500" />
+                        Dashboard
+                      </label>
+                    )}
                     <Link href={`/admin/users/${a.userId}`} className="text-xs text-gray-400 hover:text-white underline">
                       Fiche
                     </Link>
@@ -568,6 +591,10 @@ export default function AdminBotDetailPage({ params }: { params: Promise<{ dashb
                     className={inputCls}
                   />
                 </div>
+                <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                  <input type="checkbox" checked={accessShowDashboard} onChange={(e) => setAccessShowDashboard(e.target.checked)} className="accent-violet-500" />
+                  Le client voit aussi le dashboard (décoché : assistant IA seulement)
+                </label>
                 {accessError && <p className="text-xs text-red-400">{accessError}</p>}
                 <button type="submit" disabled={accessBusy} className={`${secondaryBtnCls} self-start`}>
                   {accessBusy ? "Attribution…" : "Donner accès"}

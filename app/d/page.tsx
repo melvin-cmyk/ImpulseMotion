@@ -7,6 +7,7 @@ import { groupDashboardsByAccount } from "@/lib/portfolio";
 import { TIKTOK_ACCOUNT_SOURCES_SELECT } from "@/lib/tiktok-dashboard";
 import { CreateDashboardForm } from "@/components/dashboard/create-form";
 import { DashboardMembersManager } from "@/components/dashboard/members-manager";
+import { countEnabledBotAccess } from "@/lib/bot-access";
 
 /**
  * /d — dashboard entry point.
@@ -22,11 +23,13 @@ export default async function DashboardsIndex() {
 
   if (session.role === "client") {
     const dashboards = await prisma.dashboard.findMany({
-      where: { OR: [{ members: { some: { userId: session.userId } } }, { userId: session.userId }] },
+      where: { OR: [{ members: { some: { userId: session.userId, dashboardHidden: false } } }, { userId: session.userId }] },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     });
     if (dashboards.length === 1) redirect(`/d/${dashboards[0].id}`);
+    // Attached for the private bot only (dashboard hidden): the assistant is their space.
+    if (dashboards.length === 0 && (await countEnabledBotAccess(session.userId)) > 0) redirect("/bot");
     return (
       <div className="max-w-2xl mx-auto px-6 py-10 space-y-6">
         <div>
@@ -64,7 +67,7 @@ export default async function DashboardsIndex() {
       user: { select: { id: true, email: true, name: true } },
       _count: { select: { widgets: true } },
       members: {
-        select: { id: true, userId: true, user: { select: { id: true, email: true, name: true, role: true } } },
+        select: { id: true, userId: true, dashboardHidden: true, user: { select: { id: true, email: true, name: true, role: true } } },
         orderBy: { createdAt: "asc" },
       },
       bot: { select: { enabled: true, name: true, accesses: { select: { userId: true } } } },
@@ -115,7 +118,7 @@ export default async function DashboardsIndex() {
             </Link>
             <DashboardMembersManager
               dashboardId={d.id}
-              initialMembers={d.members.map((m) => ({ id: m.id, userId: m.userId, user: m.user }))}
+              initialMembers={d.members.map((m) => ({ id: m.id, userId: m.userId, dashboardHidden: m.dashboardHidden, user: m.user }))}
               bot={d.bot ? { enabled: d.bot.enabled, name: d.bot.name, accessUserIds: d.bot.accesses.map((a) => a.userId) } : null}
             />
           </div>

@@ -179,3 +179,10 @@ export async function loadBotFor(session: BotSession, botId: string): Promise<Lo
 export async function countEnabledBotAccess(userId: string): Promise<number> {
   return prisma.clientBotAccess.count({ where: { userId, bot: { enabled: true } } });
 }
+
+/** Dashboards a client may open: theirs, or attached without dashboardHidden (client chrome nav). */
+export async function countVisibleClientDashboards(userId: string): Promise<number> {
+  return prisma.dashboard.count({
+    where: { OR: [{ userId }, { members: { some: { userId, dashboardHidden: false } } }] },
+  });
+}

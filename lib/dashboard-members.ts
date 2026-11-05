@@ -32,11 +32,12 @@ const ROLE_LABEL: Record<string, string> = { admin: "admin", consultant: "consul
 export const memberSelect = {
   id: true,
   userId: true,
+  dashboardHidden: true,
   user: { select: { id: true, email: true, name: true, role: true } },
 } as const;
 
 export type AddedMember = {
-  member: { id: string; userId: string; user: { id: string; email: string | null; name: string | null; role: string } };
+  member: { id: string; userId: string; dashboardHidden: boolean; user: { id: string; email: string | null; name: string | null; role: string } };
   /** true when the login did not exist and was created with a temp password. */
   created: boolean;
   /** Shown ONCE to the admin, never stored in clear. */
@@ -52,6 +53,8 @@ export async function addDashboardMember(input: {
   email: string;
   role: MemberRole;
   name?: string | null;
+  /** Clients only: true = attached for the bot only, the dashboard stays hidden. Undefined keeps the current value (new member: visible). */
+  dashboardHidden?: boolean;
 }): Promise<AddedMember> {
   const email = input.email.trim().toLowerCase();
   if (!EMAIL_RE.test(email)) throw new MemberError(`email invalide : ${input.email}`, 400);
@@ -83,14 +86,26 @@ export async function addDashboardMember(input: {
     });
   }
 
+  const hidden = user.role === "client" ? input.dashboardHidden : undefined;
   const member = await prisma.dashboardMember.upsert({
     where: { dashboardId_userId: { dashboardId: dashboard.id, userId: user.id } },
-    update: {},
-    create: { dashboardId: dashboard.id, userId: user.id },
+    update: hidden === undefined ? {} : { dashboardHidden: hidden },
+    create: { dashboardId: dashboard.id, userId: user.id, dashboardHidden: hidden ?? false },
     select: memberSelect,
   });
   await grantDashboardAccess(user.id, dashboard);
   return { member, created: !!tempPassword, ...(tempPassword ? { tempPassword } : {}) };
+}
+
+/** Shows or hides the dashboard to a client attached to it (the bot access and the ACL are untouched). */
+export async function setDashboardHidden(dashboardId: string, userId: string, hidden: boolean) {
+  const member = await prisma.dashboardMember.findUnique({
+    where: { dashboardId_userId: { dashboardId, userId } },
+    select: { id: true, user: { select: { role: true } } },
+  });
+  if (!member) throw new MemberError("cette personne n'est pas rattachée au dashboard", 404);
+  if (member.user.role !== "client") throw new MemberError("seul le dashboard d'un client peut être masqué", 400);
+  return prisma.dashboardMember.update({ where: { id: member.id }, data: { dashboardHidden: hidden }, select: memberSelect });
 }
 
 /**

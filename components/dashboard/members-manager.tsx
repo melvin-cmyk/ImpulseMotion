@@ -16,6 +16,8 @@ import { Pill } from "@/components/ui/surface";
 export type DashboardMemberEntry = {
   id: string;
   userId: string;
+  /** Client attached for the bot only: the dashboard is hidden from them. */
+  dashboardHidden?: boolean;
   user: { id: string; email: string | null; name: string | null; role: string };
 };
 
@@ -97,6 +99,15 @@ export function DashboardMembersManager({
     setBotUsers((prev) => { const next = new Set(prev); if (has) next.delete(m.userId); else next.add(m.userId); return next; });
   }
 
+  async function toggleDashboard(m: DashboardMemberEntry) {
+    const data = await call(`/api/dashboards/${dashboardId}/members`, {
+      method: "PATCH",
+      body: JSON.stringify({ userId: m.userId, dashboardHidden: !m.dashboardHidden }),
+    });
+    if (!data) return;
+    setMembers((prev) => prev.map((x) => (x.userId === m.userId ? { ...x, dashboardHidden: !m.dashboardHidden } : x)));
+  }
+
   const label = (m: DashboardMemberEntry) => m.user.name ?? m.user.email ?? m.userId;
 
   function group(title: string, list: DashboardMemberEntry[], tone: "violet" | "blue", withBot: boolean) {
@@ -108,6 +119,12 @@ export function DashboardMembersManager({
           <Pill key={m.id} tone={tone} className="inline-flex items-center gap-1.5">
             {label(m)}
             {withBot && bot && botUsers.has(m.userId) && <span title="Accès au bot privé">· bot</span>}
+            {withBot && m.dashboardHidden && <span title="Ce client ne voit pas le dashboard, seulement l'assistant IA">· sans dashboard</span>}
+            {isAdmin && open && withBot && (
+              <button type="button" disabled={busy} onClick={() => toggleDashboard(m)} className="underline opacity-80 hover:opacity-100">
+                {m.dashboardHidden ? "montrer le dashboard" : "masquer le dashboard"}
+              </button>
+            )}
             {isAdmin && open && withBot && bot && (
               <button type="button" disabled={busy} onClick={() => toggleBot(m)} className="underline opacity-80 hover:opacity-100">
                 {botUsers.has(m.userId) ? "retirer le bot" : "donner le bot"}

@@ -113,3 +113,25 @@ describe("parseEmails", () => {
     expect(parseEmails(undefined)).toEqual([]);
   });
 });
+
+describe("dashboard masqué (client avec l'assistant seulement)", () => {
+  it("rattachement d'un client avec dashboardHidden → posé à la création et à la mise à jour", async () => {
+    userFindUnique.mockResolvedValue({ id: "u1", role: "client" });
+    await addDashboardMember({ dashboardId: "d1", email: "c@marque.fr", role: "client", dashboardHidden: true });
+    expect(memberUpsert.mock.calls[0][0].create).toMatchObject({ dashboardHidden: true });
+    expect(memberUpsert.mock.calls[0][0].update).toEqual({ dashboardHidden: true });
+  });
+
+  it("sans dashboardHidden → visibilité existante inchangée, nouveau membre visible", async () => {
+    userFindUnique.mockResolvedValue({ id: "u1", role: "client" });
+    await addDashboardMember({ dashboardId: "d1", email: "c@marque.fr", role: "client" });
+    expect(memberUpsert.mock.calls[0][0].update).toEqual({});
+    expect(memberUpsert.mock.calls[0][0].create).toMatchObject({ dashboardHidden: false });
+  });
+
+  it("un consultant n'est jamais masqué", async () => {
+    userFindUnique.mockResolvedValue({ id: "u2", role: "consultant" });
+    await addDashboardMember({ dashboardId: "d1", email: "s@impulse.fr", role: "consultant", dashboardHidden: true });
+    expect(memberUpsert.mock.calls[0][0].create).toMatchObject({ dashboardHidden: false });
+  });
+});

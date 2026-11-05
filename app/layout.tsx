@@ -13,7 +13,7 @@ import { CommandPalette } from "@/components/command-palette";
 import { CreativesProvider } from "@/lib/creatives-context";
 import { ClientNavLink } from "@/components/bot/client-nav-link";
 import { LogoMark } from "@/components/brand/logo-mark";
-import { countEnabledBotAccess } from "@/lib/bot-access";
+import { countEnabledBotAccess, countVisibleClientDashboards } from "@/lib/bot-access";
 
 const geist = Geist({
   variable: "--font-geist-sans",
@@ -44,10 +44,14 @@ export default async function RootLayout({
 
   // Client chrome: "Assistant IA" only shows when the user was granted at
   // least one enabled private bot (see lib/bot-access.ts).
+  // "Dashboards" hides when every dashboard of theirs is hidden (client
+  // attached for the private bot only, DashboardMember.dashboardHidden).
   let hasBot = false;
+  let hasDashboard = true;
   if (isClient && session?.userId) {
     try {
       hasBot = (await countEnabledBotAccess(session.userId)) > 0;
+      hasDashboard = !hasBot || (await countVisibleClientDashboards(session.userId)) > 0;
     } catch {
       // DB hiccup: hide the link rather than break the layout
     }
@@ -68,7 +72,7 @@ export default async function RootLayout({
                   <div className="flex items-center gap-5">
                     <span className="flex items-center gap-2"><LogoMark size={26} /><span className="font-semibold text-sm tracking-tight text-white">ImpulseMotion</span></span>
                     <nav className="flex items-center gap-1 text-sm">
-                      <ClientNavLink href="/d" label="Dashboards" />
+                      {hasDashboard && <ClientNavLink href="/d" label="Dashboards" />}
                       {hasBot && <ClientNavLink href="/bot" label="Assistant IA" />}
                     </nav>
                   </div>

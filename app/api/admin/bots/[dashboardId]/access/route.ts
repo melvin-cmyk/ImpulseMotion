@@ -8,7 +8,8 @@ type Ctx = { params: Promise<{ dashboardId: string }> };
 /**
  * Donne accès au bot par email, à un CLIENT du dashboard uniquement (il y est
  * rattaché au passage). Email inconnu → login "client" créé, mot de passe
- * temporaire renvoyé UNE fois.
+ * temporaire renvoyé UNE fois. `showDashboard: false` → le client n'a que
+ * l'assistant (dashboard masqué) ; absent → visibilité inchangée.
  */
 export async function POST(req: Request, { params }: Ctx) {
   const guard = await requireRealAdmin();
@@ -23,6 +24,7 @@ export async function POST(req: Request, { params }: Ctx) {
   const body = await req.json().catch(() => ({}));
   const email = String(body.email ?? "").trim().toLowerCase();
   const name = body.name ? String(body.name).trim().slice(0, 120) : null;
+  const dashboardHidden = typeof body.showDashboard === "boolean" ? !body.showDashboard : undefined;
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     return NextResponse.json({ error: "invalid email" }, { status: 400 });
   }
@@ -32,7 +34,7 @@ export async function POST(req: Request, { params }: Ctx) {
   // login with a temp password when the email is unknown).
   let added;
   try {
-    added = await addDashboardMember({ dashboardId, email, role: "client", name });
+    added = await addDashboardMember({ dashboardId, email, role: "client", name, dashboardHidden });
   } catch (e) {
     if (e instanceof MemberError) return NextResponse.json({ error: e.message }, { status: e.status });
     throw e;

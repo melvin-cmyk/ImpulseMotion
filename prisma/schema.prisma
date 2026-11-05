@@ -366,6 +366,9 @@ model DashboardMember {
   id          String    @id @default(cuid())
   dashboardId String
   userId      String
+  /// Client attached for the private bot only: the dashboard itself is hidden from them
+  /// (the membership still scopes the bot's data and the ad-account ACL).
+  dashboardHidden Boolean @default(false)
   createdAt   DateTime  @default(now())
   dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)

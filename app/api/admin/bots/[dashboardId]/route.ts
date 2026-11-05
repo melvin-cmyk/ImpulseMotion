@@ -44,12 +44,15 @@ const botSelect = {
       user: { select: { email: true, name: true, role: true } },
     },
   },
+  // Whether each client with the bot also sees the dashboard (DashboardMember.dashboardHidden).
+  dashboard: { select: { members: { select: { userId: true, dashboardHidden: true } } } },
 } satisfies Prisma.ClientBotSelect;
 
 type BotRow = Prisma.ClientBotGetPayload<{ select: typeof botSelect }>;
 
 function serializeBot(bot: BotRow) {
-  const { ingestTokenHash, accesses, sourcesJson, ...rest } = bot;
+  const { ingestTokenHash, accesses, sourcesJson, dashboard, ...rest } = bot;
+  const hidden = new Set((dashboard?.members ?? []).filter((m) => m.dashboardHidden).map((m) => m.userId));
   return {
     bot: { ...rest, sources: parseBotSources(sourcesJson) },
     accesses: accesses.map((a) => ({
@@ -58,6 +61,7 @@ function serializeBot(bot: BotRow) {
       name: a.user.name,
       role: a.user.role,
       createdAt: a.createdAt,
+      dashboardHidden: hidden.has(a.userId),
     })),
     ingestConfigured: Boolean(ingestTokenHash),
   };

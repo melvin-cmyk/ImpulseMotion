@@ -9,20 +9,21 @@ export function isStaff(session: Session): boolean {
 
 /** Loads a dashboard if the session may see it: admin, a consultant whose
  *  assigned accounts cover it (lib/scope), the client who owns it, or a
- *  client attached as member (DashboardMember). */
+ *  client attached as member (DashboardMember) whose dashboard is not hidden
+ *  (a client attached for the private bot only never opens the dashboard). */
 export async function loadDashboardFor(session: Session, dashboardId: string) {
   const dashboard = await prisma.dashboard.findUnique({
     where: { id: dashboardId },
     include: {
       widgets: { orderBy: { position: "asc" } },
       pages: { orderBy: { position: "asc" }, select: { id: true, name: true, position: true, intent: true } },
-      members: { select: { userId: true } },
+      members: { select: { userId: true, dashboardHidden: true } },
     },
   });
   if (!dashboard) return { status: 404 as const };
   let allowed =
     dashboard.userId === session.userId ||
-    dashboard.members.some((m) => m.userId === session.userId);
+    dashboard.members.some((m) => m.userId === session.userId && !m.dashboardHidden);
   if (!allowed && isStaff(session)) {
     const scope = await getAccountScope(session);
     allowed = dashboardInScope(scope, dashboard);
