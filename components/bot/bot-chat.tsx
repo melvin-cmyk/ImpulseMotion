@@ -18,7 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, ArrowUp, ArrowUpRight, BarChart3, FileSpreadsheet, Globe, Images, Loader2, MessageSquare, Plus, ShieldCheck, ShoppingBag, Sparkles, Square, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpRight, BarChart3, FileSpreadsheet, Globe, Images, Loader2, MessageSquare, Plus, ShieldCheck, ShoppingBag, Sparkles, Square, Trash2 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo-mark";
 import type { BotMessage, BotSources } from "@/lib/bot-types";
 import { AI_JOB_FINISHED_EVENT, AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent, type PublicAiJob } from "@/lib/ai-job-client";
@@ -92,6 +92,11 @@ export function BotChat({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Follow the reply only while the reader is at the bottom: scrolling up to
+  // read stops the follow, the ↓ button (or sending) brings it back.
+  const stickRef = useRef(true);
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const followers = useRef<Map<string, AbortController>>(new Map());
   const activeRef = useRef<string | null>(activeId);
@@ -112,9 +117,31 @@ export function BotChat({
     }
   }
 
+  function scrollToBottom(smooth = false) {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = true;
+    setAwayFromBottom(false);
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  }
+
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    stickRef.current = atBottom;
+    setAwayFromBottom(!atBottom);
+  }
+
+  // Inside the chat pane only (scrollIntoView also moved the page), and only when following.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = scrollRef.current;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, activeRun?.text, activeRun?.toolNote]);
+
+  // Opening another conversation starts at its latest message.
+  // (the scroll event fired by the jump then clears the ↓ button by itself)
+  useEffect(() => { stickRef.current = true; }, [activeId]);
 
   // Leaving the page stops the following only: the replies go on in the relay.
   useEffect(() => {
@@ -244,6 +271,8 @@ export function BotChat({
     const content = text.trim();
     if (!content || busy) return;
     const previous = messages;
+    stickRef.current = true;
+    setAwayFromBottom(false);
     setMessages([...previous, { role: "user", content }]);
     setInput("");
     setSending(true);
@@ -393,7 +422,7 @@ export function BotChat({
           </div>
         )}
 
-        <div className="relative flex-1 overflow-y-auto px-4 sm:px-6 py-6">
+        <div ref={scrollRef} onScroll={onScroll} className="relative flex-1 overflow-y-auto px-4 sm:px-6 py-6">
           <div className="max-w-3xl mx-auto space-y-6">
             {loadingThread && (
               <div className="text-xs text-gray-500 flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> Chargement…</div>
@@ -469,6 +498,20 @@ export function BotChat({
             <div ref={bottomRef} />
           </div>
         </div>
+
+        {awayFromBottom && messages.length > 0 && (
+          <div className="relative h-0">
+            <button
+              type="button"
+              onClick={() => scrollToBottom(true)}
+              aria-label="Aller au dernier message"
+              title="Aller au dernier message"
+              className="absolute -top-12 left-1/2 -translate-x-1/2 h-9 w-9 flex items-center justify-center rounded-full border border-white/10 bg-gray-900/90 text-gray-300 hover:text-white shadow-lg backdrop-blur"
+            >
+              <ArrowDown className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         <div className="relative px-4 sm:px-6 pb-4 pt-2 shrink-0">
           <div className="max-w-3xl mx-auto">
