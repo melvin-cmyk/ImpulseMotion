@@ -62,7 +62,7 @@ export function BotCardMedia({ src, alt }: { src: string; alt?: string }) {
   const [failed, setFailed] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
   if (!BOT_VIDEO.test(src) && !BOT_IMAGE.test(src)) return <span className="text-xs text-ui-muted px-3 text-center">Visuel non affiché</span>;
-  if (failed) return <span className="text-xs text-ui-muted px-3 text-center">Visuel momentanément indisponible</span>;
+  if (failed) return <span className="text-xs text-ui-muted px-3 text-center">Pas de visuel pour cette annonce</span>;
   if (BOT_VIDEO.test(src) && !videoFailed) {
     return <video src={src} poster={src.replace("/video?", "/image?")} controls playsInline preload="metadata" onError={() => setVideoFailed(true)} className="w-full h-full object-contain bg-black" aria-label={alt} />;
   }

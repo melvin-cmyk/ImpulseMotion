@@ -31,4 +31,12 @@ describe("botAdByName — visuel d'une créa trouvée par son nom", () => {
     findFirst.mockResolvedValue(null);
     expect(await botAdByName(S, "b1", "Inconnue")).toMatchObject({ status: 404 });
   });
+
+  it("nom raccourci par l'IA : retrouvé par le début du nom", async () => {
+    loadBot.mockResolvedValue({ status: 200, bot: { dashboard: { id: "d1", metaAccountId: "44", googleCustomerId: null } } });
+    findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ platform: "google", adId: "7", imageUrl: null, thumbnailUrl: "https://t", videoId: "yt" });
+    const r = await botAdByName(S, "b1", "W5Y26 - SGL - VID - [g-");
+    expect("ad" in r && r.ad.adId).toBe("7");
+    expect(findFirst.mock.calls[1][0].where.name).toEqual({ startsWith: "W5Y26 - SGL - VID - [g-", mode: "insensitive" });
+  });
 });

@@ -30,11 +30,18 @@ export async function botAdByName(session: Session, botId: string, name: string)
     ...(await getDashboardTikTokIds(d.id)).map((id) => ({ platform: "tiktok", accountId: id })),
   ];
   if (!scope.length) return { status: 404, error: "annonce inconnue" };
-  const row = await prisma.adCatalog.findFirst({
-    where: { name: { equals: clean, mode: "insensitive" }, OR: scope },
-    orderBy: { createdTime: { sort: "desc", nulls: "last" } },
-    select: { platform: true, adId: true, imageUrl: true, thumbnailUrl: true, videoId: true },
-  });
+  // Exact name first; the model often shortens long names, so then the start of the name, then any part of it.
+  const select = { platform: true, adId: true, imageUrl: true, thumbnailUrl: true, videoId: true } as const;
+  const orderBy = { createdTime: { sort: "desc", nulls: "last" } } as const;
+  const tries = [
+    { equals: clean, mode: "insensitive" as const },
+    ...(clean.length >= 10 ? [{ startsWith: clean, mode: "insensitive" as const }, { contains: clean, mode: "insensitive" as const }] : []),
+  ];
+  let row = null;
+  for (const name of tries) {
+    row = await prisma.adCatalog.findFirst({ where: { name, OR: scope }, orderBy, select });
+    if (row) break;
+  }
   if (!row) return { status: 404, error: "annonce inconnue" };
   return { ad: { platform: row.platform as BotAd["platform"], adId: row.adId, imageUrl: row.imageUrl, thumbnailUrl: row.thumbnailUrl, videoId: row.videoId } };
 }
