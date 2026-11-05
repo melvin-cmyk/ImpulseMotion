@@ -18,12 +18,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { SAFE_MD_COMPONENTS } from "@/components/ai/safe-image";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpRight, BarChart3, FileSpreadsheet, Globe, Images, Loader2, MessageSquare, Plus, ShieldCheck, ShoppingBag, Sparkles, Square, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpRight, Mic, BarChart3, FileSpreadsheet, Globe, Images, Loader2, MessageSquare, Plus, ShieldCheck, ShoppingBag, Sparkles, Square, Trash2 } from "lucide-react";
 import { LogoMark } from "@/components/brand/logo-mark";
 import type { BotMessage, BotSources } from "@/lib/bot-types";
 import { AI_JOB_FINISHED_EVENT, AI_JOB_STARTED_EVENT, followJob, stopJob, type JobEvent, type PublicAiJob } from "@/lib/ai-job-client";
 import { useAiJobs } from "@/components/ai-jobs-watcher";
 import { AttachFileButton, BotFilesList, useBotFiles } from "@/components/bot/bot-files";
+import { useVoice } from "@/components/mo/use-voice";
 
 type ConversationRow = { id: string; title: string | null; updatedAt: string; jobId?: string | null };
 type UiMessage = Pick<BotMessage, "role" | "content">;
@@ -108,6 +109,22 @@ export function BotChat({
   const busy = !!activeRun || sending;
   const filesOn = !!sources.files;
   const botFiles = useBotFiles(botId, filesOn);
+
+  // Dictation: click to talk, click again to stop; the text lands in the box
+  // (appended), to read over before sending. Transcribed on the relay only.
+  const voice = useVoice(
+    (text) => {
+      setInput((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text));
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        el.style.height = "auto";
+        el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+      });
+    },
+    { sttUrl: `/api/bot/${botId}/stt`, liveRecognition: false, tooShortHint: "Je n'ai rien entendu : cliquez sur le micro, parlez, puis cliquez à nouveau pour arrêter." },
+  );
 
   async function onImport(file: File) {
     const name = await botFiles.importFile(file);
@@ -515,6 +532,17 @@ export function BotChat({
 
         <div className="relative px-4 sm:px-6 pb-4 pt-2 shrink-0">
           <div className="max-w-3xl mx-auto">
+            {(voice.listening || voice.transcribing || voice.error) && (
+              <div className={`mb-2 flex items-center gap-2 text-xs ${voice.error && !voice.listening && !voice.transcribing ? "text-amber-300" : "text-gray-400"}`} role="status">
+                {voice.listening ? (
+                  <><span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" /> Je vous écoute… cliquez à nouveau sur le micro pour arrêter.</>
+                ) : voice.transcribing ? (
+                  <><Loader2 className="w-3 h-3 animate-spin" /> Transcription de votre message…</>
+                ) : (
+                  voice.error
+                )}
+              </div>
+            )}
             {(botFiles.upload || botFiles.notice) && (
               <div className={`mb-2 flex items-start gap-2 rounded-xl border px-3 py-2 text-xs ${botFiles.notice?.tone === "error" && !botFiles.upload ? "border-red-900/40 bg-red-950/30 text-red-300" : "border-teal-500/20 bg-teal-500/[0.06] text-teal-100/90"}`}>
                 <span className="flex-1">
@@ -527,8 +555,22 @@ export function BotChat({
                 )}
               </div>
             )}
-            <div className={`flex items-end gap-2 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-2 ${filesOn ? "pl-2" : "pl-4"} shadow-2xl shadow-black/40 focus-within:border-violet-500/60 focus-within:ring-4 focus-within:ring-violet-500/10 transition`}>
+            <div className={`flex items-end gap-2 rounded-2xl border border-white/[0.09] bg-white/[0.03] p-2 ${filesOn || voice.supported ? "pl-2" : "pl-4"} shadow-2xl shadow-black/40 focus-within:border-violet-500/60 focus-within:ring-4 focus-within:ring-violet-500/10 transition`}>
               {filesOn && <AttachFileButton uploading={!!botFiles.upload} onFile={(f) => void onImport(f)} />}
+              {voice.supported && (
+                <button
+                  type="button"
+                  onClick={() => (voice.listening ? voice.end() : voice.begin())}
+                  disabled={busy || voice.transcribing}
+                  aria-label={voice.listening ? "Arrêter la dictée" : "Dicter votre question"}
+                  aria-pressed={voice.listening}
+                  title={voice.listening ? "Cliquez pour arrêter : le texte s'ajoute à votre message" : "Dicter votre question au micro"}
+                  className={`relative h-9 w-9 shrink-0 flex items-center justify-center rounded-xl transition-colors disabled:opacity-40 ${voice.listening ? "bg-red-500/15 text-red-300 hover:bg-red-500/25" : "text-gray-400 hover:text-white hover:bg-white/10"}`}
+                >
+                  {voice.transcribing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                  {voice.listening && <span className="absolute inset-0 rounded-xl ring-2 ring-red-400/60 animate-pulse" style={{ opacity: 0.4 + Math.min(voice.level, 1) * 0.6 }} />}
+                </button>
+              )}
               <textarea
                 ref={inputRef}
                 value={input}

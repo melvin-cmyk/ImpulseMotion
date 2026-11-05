@@ -105,7 +105,19 @@ function premiumBrowserVoice(): SpeechSynthesisVoice | null {
     ?? null;
 }
 
-export function useVoice(onFinal: (text: string) => void): Voice {
+export interface VoiceOptions {
+  /** Transcription endpoint (default: Mo's, staff only). */
+  sttUrl?: string;
+  /** false → no Web Speech API (Chrome sends the audio to Google): the relay transcribes alone. */
+  liveRecognition?: boolean;
+  /** Shown when the recording is too short. */
+  tooShortHint?: string;
+}
+
+export function useVoice(onFinal: (text: string) => void, options: VoiceOptions = {}): Voice {
+  const sttUrl = options.sttUrl ?? "/api/mo/stt";
+  const liveRecognition = options.liveRecognition ?? true;
+  const tooShortHint = options.tooShortHint ?? "Je n'ai rien entendu : maintiens l'orbe pendant que tu parles.";
   const [state, setState] = useState<VoiceState>({ supported: false, listening: false, interim: "", level: 0, transcribing: false, speaking: false, error: null, handsFree: false });
   /** The speech queue (lib/mo/voice.ts): what is being said, what waits. */
   const speech = useRef<SpeechState>(initialSpeech);
@@ -209,7 +221,7 @@ export function useVoice(onFinal: (text: string) => void): Voice {
     setState((s) => ({ ...s, listening: true, interim: "", error: null, speaking: false, transcribing: false }));
 
     // Live transcript when the browser really offers it (Chrome).
-    if (webSpeechUsable()) {
+    if (liveRecognition && webSpeechUsable()) {
       const Ctor = recognitionCtor()!;
       const r = new Ctor();
       r.lang = "fr-FR";
@@ -244,14 +256,14 @@ export function useVoice(onFinal: (text: string) => void): Voice {
         mr.start(250);
       } catch { recorder.current = null; }
     });
-  }, [openMic, hush]);
+  }, [openMic, hush, liveRecognition]);
 
   const sendRecording = useCallback(async (blob: Blob, spoken: string) => {
     if (spoken) { onFinalRef.current(spoken); return; }
-    if (!blob.size || blob.size < 2_000) { setState((s) => ({ ...s, error: "Je n'ai rien entendu : maintiens l'orbe pendant que tu parles." })); return; }
+    if (!blob.size || blob.size < 2_000) { setState((s) => ({ ...s, error: tooShortHint })); return; }
     setState((s) => ({ ...s, transcribing: true }));
     try {
-      const res = await fetch("/api/mo/stt", { method: "POST", headers: { "Content-Type": blob.type || "application/octet-stream" }, body: blob });
+      const res = await fetch(sttUrl, { method: "POST", headers: { "Content-Type": blob.type || "application/octet-stream" }, body: blob });
       const j = (await res.json().catch(() => ({}))) as { text?: string; error?: string };
       if (!res.ok) throw new Error(j.error ?? `Erreur ${res.status}`);
       const text = (j.text ?? "").trim();
@@ -262,7 +274,7 @@ export function useVoice(onFinal: (text: string) => void): Voice {
     } finally {
       setState((s) => ({ ...s, transcribing: false }));
     }
-  }, []);
+  }, [sttUrl, tooShortHint]);
 
   /** Push-to-talk: release → the transcript (or the recording) is sent. */
   const end = useCallback(() => {
