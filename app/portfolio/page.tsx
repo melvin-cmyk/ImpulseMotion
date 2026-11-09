@@ -119,16 +119,16 @@ function ClientListPage({ onShowKpis }: { onShowKpis: () => void }) {
                 </td>
                 <td className="px-3 py-2.5">
                   <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                    {c.dashboardId ? <Link href={`/portfolio/${c.dashboardId}`} className={action} title="Cockpit du client : KPIs, sources, rapports, Drive"><Gauge className="w-3.5 h-3.5 text-ui-accent-ink" /> Cockpit</Link> : <Link href="/d" className={action} title="Ce client n'a pas encore de dashboard consultant : créez-le pour avoir son cockpit, ses rapports et son Drive"><Gauge className="w-3.5 h-3.5 text-amber-300" /> Créer le dashboard</Link>}
+                    {c.dashboardId ? <Link href={`/portfolio/${c.dashboardId}`} className={action} title="Cockpit du client : KPIs, sources, rapports, Drive"><Gauge className="w-3.5 h-3.5 text-ui-accent-ink" /> Cockpit</Link> : <Link href="/d" className={action} title="Ce client n'a pas encore de dashboard client : créez-le pour avoir son cockpit, ses rapports et son Drive"><Gauge className="w-3.5 h-3.5 text-amber-300" /> Créer le dashboard</Link>}
                     <Link href={`/analyse?client=${c.clientId}`} className={action} title="Analyse Ads : les créas Meta, Google et TikTok de ce client"><Sparkles className="w-3.5 h-3.5 text-ui-accent-ink" /> Analyse Ads</Link>
-                    {c.dashboardId && <Link href={`/d/${c.dashboardId}`} className={action} title="Dashboard consultant"><LayoutDashboard className="w-3.5 h-3.5 text-ui-accent-ink" /> Dashboard</Link>}
+                    {c.dashboardId && <Link href={`/d/${c.dashboardId}`} className={action} title="Dashboard client"><LayoutDashboard className="w-3.5 h-3.5 text-ui-accent-ink" /> Dashboard</Link>}
                     {c.dashboardId && <Link href={`/reports?new=1&dashboardId=${c.dashboardId}`} className={action} title="Nouveau rapport IA pour ce client"><FileText className="w-3.5 h-3.5 text-ui-accent-ink" /> Rapport</Link>}
                   </div>
                 </td>
               </tr>
             ))}
             {clients && rows.length === 0 && (
-              <tr><td colSpan={3} className="px-4 py-10 text-center text-sm text-ui-muted">{q ? "Aucun client ne correspond." : <>Aucun client. Créez un dashboard client dans <Link href="/d" className="text-ui-accent-ink">Dashboards consultant</Link>.</>}</td></tr>
+              <tr><td colSpan={3} className="px-4 py-10 text-center text-sm text-ui-muted">{q ? "Aucun client ne correspond." : <>Aucun client. Créez un dashboard client dans <Link href="/d" className="text-ui-accent-ink">Dashboards client</Link>.</>}</td></tr>
             )}
           </tbody>
         </table>

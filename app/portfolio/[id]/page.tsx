@@ -258,7 +258,7 @@ export default function ClientSheetPage() {
             <span className="text-ui-muted text-xs">→</span>
             <input type="date" value={draft.until} min={draft.since || undefined} onChange={(e) => setDraft((x) => ({ ...x, until: e.target.value }))} onBlur={applyDraft} onKeyDown={(e) => { if (e.key === "Enter") applyDraft(); }} className={dateInput} />
           </div>
-          <Link href={`/d/${c.id}${rangeQs}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Dashboard consultant</Link>
+          <Link href={`/d/${c.id}${rangeQs}`} className={btn}><ExternalLink className="w-3.5 h-3.5" /> Dashboard client</Link>
           <Link href={`/analyse?client=${c.id}`} className={btn}><Sparkles className="w-3.5 h-3.5" /> Analyse Ads</Link>
           {session?.baseRole === "admin" && <Link href={`/admin/bots/${c.id}`} className={btn}><Bot className="w-3.5 h-3.5" /> Bot privé</Link>}
           <Link href={`/reports?new=1&dashboardId=${c.id}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-ui-accent hover:brightness-110 text-ui-on-accent"><FileText className="w-3.5 h-3.5" /> Rapport IA</Link>

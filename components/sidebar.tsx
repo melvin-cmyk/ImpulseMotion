@@ -111,7 +111,7 @@ const NAV_SECTIONS: NavSection[] = [
       {
         href: "/d",
         icon: Layers,
-        label: "Dashboards consultant",
+        label: "Dashboards client",
         match: (p) => p === "/d" || p.startsWith("/d/") || p === "/client" || p.startsWith("/client/"),
       },
       {

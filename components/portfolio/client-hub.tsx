@@ -82,7 +82,7 @@ export function ClientHub({ clientId, metaAccountId, isAdmin }: { clientId: stri
 
   const link = "flex items-center gap-2.5 rounded-lg border border-ui-line bg-ui-card hover:bg-ui-raised hover:border-ui-line-strong px-3 py-2.5 text-sm text-ui-fg transition-colors";
   const links: Array<{ href: string; label: string; hint: string; icon: React.ReactNode }> = [
-    { href: `/d/${clientId}`, label: "Dashboard consultant", hint: "KPIs, widgets, pages", icon: <BarChart3 className="w-4 h-4 text-ui-accent-ink" /> },
+    { href: `/d/${clientId}`, label: "Dashboard client", hint: "KPIs, widgets, pages", icon: <BarChart3 className="w-4 h-4 text-ui-accent-ink" /> },
     { href: `/analyse?client=${clientId}`, label: "Analyse Ads", hint: "créas Meta, Google, TikTok", icon: <Sparkles className="w-4 h-4 text-ui-accent-ink" /> },
     { href: `/reports?dashboardId=${clientId}`, label: "Rapports IA", hint: "rapports et personas", icon: <FileText className="w-4 h-4 text-ui-accent-ink" /> },
     { href: `/pilotage?dashboardId=${clientId}`, label: "Pilotage", hint: "modifications et impact", icon: <Gauge className="w-4 h-4 text-ui-accent-ink" /> },

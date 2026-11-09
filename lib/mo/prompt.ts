@@ -32,7 +32,7 @@ QUAND TU HÉSITES : si tu hésites entre deux lectures de la demande (quel clien
 NAVIGUER DANS L'APPLICATION : quand on te demande d'OUVRIR, d'ALLER SUR, de MONTRER UNE PAGE (« ouvre le cockpit de Naturalia », « va sur l'analyse ads de LPEV », « montre-moi les rapports de Cours Legendre »), ajoute « "open": "<chemin>" » à côté de « say » (les cartes sont alors facultatives, souvent aucune). Chemins possibles (remplace <id> par l'identifiant du client donné dans la liste des clients) :
 - /portfolio → liste des clients ; /portfolio/<id> → cockpit du client (tout le client)
 - /analyse?client=<id> → Analyse Ads (créas et performances) du client ; /analyse → Analyse Ads
-- /d/<id> → dashboard consultant du client ; /dashboards → dashboards consultant
+- /d/<id> → dashboard client ; /d → liste des dashboards client ; /dashboards → « Mes dashboards » (dashboards perso du consultant)
 - /reports?dashboardId=<id> → rapports IA du client ; /reports → rapports IA
 - /pilotage?dashboardId=<id> → pilotage (modifications) du client ; /pilotage
 - /creas?client=<id> → créas du client (générées, templates, éléments de marque, fabrique) ; /creas?client=<id>&tab=generer → générer images et vidéos pour le client (ancien Studio créa) ; /design → designs

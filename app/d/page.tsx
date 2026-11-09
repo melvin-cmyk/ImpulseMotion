@@ -89,7 +89,7 @@ export default async function DashboardsIndex() {
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-medium text-ui-fg">Dashboards consultant</h1>
+          <h1 className="text-2xl font-medium text-ui-fg">Dashboards client</h1>
           <p className="text-sm text-ui-muted mt-1">
             Un dashboard par client. Toute l&apos;équipe les voit ; un client ne voit que ceux qu&apos;un admin lui a ouverts.
           </p>
