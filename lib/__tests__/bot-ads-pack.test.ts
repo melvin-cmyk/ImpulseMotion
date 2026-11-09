@@ -66,3 +66,23 @@ describe("bot ads pack — visuels", () => {
     expect(t).toContain("/api/bot/bot9/image?ad=PLATEFORME%3AID");
   });
 });
+
+describe("bot ads pack — classement des meilleures créas", () => {
+  const row = (id: string, spend: number, roas: number, conv: number) => ({
+    key: id, label: `Créa ${id}`, adCount: 1, launch: "2026-10-01", trend: null, ads: [], previous: null,
+    sample: { adId: id, platform: "meta", format: "Image", tags: {}, title: null, body: null, imageUrl: "https://x/y.jpg", thumbnailUrl: null, dynamic: false, videoId: null },
+    metrics: { ...metrics(spend, 1000), roas, roasUnavailable: false, conversionValue: spend * roas, conversions: conv, cpa: conv ? spend / conv : 0, convertScore: 0 },
+  });
+  it("classe au ROAS et au CPA, écarte les petites dépenses, sans répéter une créa déjà détaillée", async () => {
+    const rows = [row("a", 1000, 2, 10), row("b", 800, 5, 40), row("c", 600, 3, 30), row("d", 500, 1, 5), row("e", 400, 4, 8), row("f", 300, 2.5, 6), row("g", 200, 6, 20), row("tiny", 5, 50, 3)];
+    vi.mocked(queryAds).mockResolvedValue({ currency: "EUR", rows, benchmark: metrics(3805, 9000), benchmarkPrevious: null } as never);
+    states.mockResolvedValue([{ syncedTo: new Date("2026-11-04T00:00:00Z") }]);
+    const t = await buildBotAdsPack("b-rank", { meta: "1" }, NOW);
+    const roas = t.slice(t.indexOf("Meilleures créas sur 30 jours au ROAS"), t.indexOf("Meilleures créas sur 30 jours au coût"));
+    expect(roas.split("\n")[1]).toContain("« Créa g »");
+    expect(roas).not.toContain("Créa tiny");
+    expect(roas).toContain("déjà détaillée plus haut");
+    expect(t).toContain("au coût par conversion");
+    expect(t).toContain("utilise DIRECTEMENT les classements");
+  });
+});

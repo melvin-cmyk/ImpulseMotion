@@ -135,7 +135,26 @@ async function platformBlock(botId: string, platform: WarehousePlatform, account
   const shownIds = new Set([...rows30, ...r7.rows].map((r) => r.sample?.adId));
   const recent = all30.filter((r) => r.launch && r.launch >= since14 && !shownIds.has(r.sample?.adId)).slice(0, 6);
   const rows7 = r7.rows.filter((r) => r.sample && r.metrics.spend > 0);
-  const best = [...rows30].filter((r) => r.metrics.conversions >= 3).sort((a, b) => (a.metrics.cpa || Infinity) - (b.metrics.cpa || Infinity)).slice(0, 3);
+  // « Mes meilleures créas » = efficiency, not spend: ranked here so the bot
+  // answers at once instead of fetching and sorting live (87 s → one turn).
+  // Creatives with too little spend are left out (a lucky 5 € ad is no « best »).
+  const minSpend = Math.max(20, r30.benchmark.spend * 0.01);
+  const ranked = all30.filter((r) => r.metrics.spend >= minSpend);
+  const byRoas = ranked.filter((r) => !r.metrics.roasUnavailable && r.metrics.conversionValue > 0 && r.metrics.roas > 0).sort((a, b) => b.metrics.roas - a.metrics.roas).slice(0, 6);
+  const byCpa = ranked.filter((r) => r.metrics.conversions >= 3 && r.metrics.cpa > 0).sort((a, b) => a.metrics.cpa - b.metrics.cpa).slice(0, 6);
+  // A creative already listed above is not repeated in full: its number points to it.
+  const listed = new Map<string | undefined, string>();
+  rows7.forEach((r, i) => { if (!listed.has(r.sample?.adId)) listed.set(r.sample?.adId, `n°${i + 1} des 7 jours`); });
+  rows30.forEach((r, i) => { if (!listed.has(r.sample?.adId)) listed.set(r.sample?.adId, `n°${i + 1} des 30 jours`); });
+  recent.forEach((r, i) => { if (!listed.has(r.sample?.adId)) listed.set(r.sample?.adId, `n°${i + 1} des lancées récemment`); });
+  const rankedLines = (rows: AdsGroupRow[], what: (r: AdsGroupRow) => string) => rows.map((r, i) => {
+    const seen = listed.get(r.sample?.adId);
+    if (seen) return `${i + 1}. « ${r.label.slice(0, 60)} » — ${what(r)} — déjà détaillée plus haut (${seen}) : reprends sa ligne « carte : »`;
+    listed.set(r.sample?.adId, `n°${i + 1} du classement`);
+    return creativeLine(botId, r, i + 1, cur);
+  }).join("\n");
+  const roasOf = (r: AdsGroupRow) => `ROAS ${r.metrics.roas.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}`;
+  const cpaOf = (r: AdsGroupRow) => `CPA ${money(r.metrics.cpa, cur)}`;
   return [
     `### ${PLATFORM_LABEL[platform]}`,
     gaps.length ? liveNote(platform, gaps.join(" ; ")) : "",
@@ -144,7 +163,8 @@ async function platformBlock(botId: string, platform: WarehousePlatform, account
     rows7.length ? `Créas qui dépensent le plus sur 7 jours :\n${rows7.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
     rows30.length ? `Créas qui dépensent le plus sur 30 jours :\n${rows30.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
     recent.length ? `Créas lancées ces 14 derniers jours (hors celles ci-dessus) :\n${recent.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
-    best.length ? `Meilleur coût par conversion sur 30 jours (au moins 3 conversions) : ${best.map((r) => `« ${r.label.slice(0, 60)} » (${money(r.metrics.cpa, cur)})`).join(", ")}` : "",
+    byRoas.length ? `Meilleures créas sur 30 jours au ROAS (dépense d'au moins ${money(minSpend, cur)}) :\n${rankedLines(byRoas, roasOf)}` : "",
+    byCpa.length ? `Meilleures créas sur 30 jours au coût par conversion (au moins 3 conversions, dépense d'au moins ${money(minSpend, cur)}) :\n${rankedLines(byCpa, cpaOf)}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -168,6 +188,7 @@ export async function buildBotAdsPack(botId: string, accounts: BotAdsAccounts, n
     `- Pour une créa obtenue par un outil en direct (autre période, campagne précise…), écris sa ligne de carte ainsi, avec l'identifiant d'annonce renvoyé par l'outil : ![nom de la créa](${imageUrl(botId, "PLATEFORME", "ID")}) | format · lancement | dépense … · CTR … · ROAS … en remplaçant PLATEFORME par meta, google ou tiktok et ID par l'identifiant de l'annonce (ad id) ; pour une vidéo Meta, remplace « /image? » par « /video? ». Sans identifiant, utilise le nom exact de l'annonce : ![nom](/api/bot/${encodeURIComponent(botId)}/image?name=NOM) avec NOM = le nom de l'annonce encodé pour une adresse (espaces en %20). Ce sont les SEULES adresses que tu as le droit d'écrire ; l'identifiant reste dans l'adresse de l'image, jamais dans le texte.`,
     "- Publicité dynamique du catalogue (DPA, texte avec {{product.…}}) trouvée en direct : elle n'a pas de visuel fixe ; montre 3 produits de son catalogue en ajoutant &product=0, &product=1 et &product=2 à l'adresse image, présentés comme des exemples de produits diffusés.",
     "- Toutes les créas des comptes de ce client, même lancées hier, ont leur visuel côté serveur : ne dis JAMAIS qu'une créa n'est « pas indexée » ou que son visuel est indisponible, écris l'adresse du visuel ; si l'image ne se charge pas, le chat l'indique lui-même.",
+    "- « Meilleures créas », « celles qui marchent le mieux », « les plus rentables » : sur 30 jours, utilise DIRECTEMENT les classements « Meilleures créas … au ROAS » (e-commerce) ou « … au coût par conversion » (sans ROAS), sans appeler d'outil. Les créas « qui dépensent le plus » ne sont pas les meilleures. N'appelle un outil que pour une autre période ou plus de 6 créas.",
     "- Désigne les créas par leur nom entre guillemets, jamais par un identifiant. Chaque plateforme a sa propre attribution : ne les additionne jamais.",
     ...blocks,
   ].join("\n") : "";

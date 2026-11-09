@@ -31,7 +31,30 @@ import { BotCreativeCards, looksLikeCreatives } from "@/components/bot/bot-creat
 type ConversationRow = { id: string; title: string | null; updatedAt: string; jobId?: string | null };
 type UiMessage = Pick<BotMessage, "role" | "content">;
 /** Live state of a reply being produced on one conversation. */
-type Run = { jobId: string; text: string; toolNote: string | null; stopping?: boolean };
+type RunPhase = "starting" | "thinking" | "writing";
+type Run = { jobId: string; text: string; toolNote: string | null; stopping?: boolean; phase: RunPhase; startedAt: number; tools: number };
+
+const PHASE_LABEL: Record<RunPhase, string> = { starting: "Connexion à vos données…", thinking: "Analyse de votre question…", writing: "Rédaction de la réponse…" };
+
+/** What the assistant is doing, with a timer, so a 30 s answer never looks frozen. */
+function BotWaiting({ run, sending, compact }: { run: Run | undefined; sending: boolean; compact?: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const label = run?.stopping ? "Arrêt…" : run?.toolNote ?? (run ? (run.tools && run.phase === "thinking" ? "Analyse des chiffres…" : PHASE_LABEL[run.phase]) : sending ? "Envoi…" : PHASE_LABEL.starting);
+  const s = run ? Math.max(0, Math.round((now - run.startedAt) / 1000)) : 0;
+  return (
+    <div role="status" aria-live="polite">
+      <div className={`inline-flex items-center gap-2 ${compact ? "text-xs text-ui-muted" : "text-sm text-ui-fg2"}`}>
+        <Loader2 className={`${compact ? "w-3 h-3" : "w-4 h-4"} animate-spin text-ui-accent-ink`} strokeWidth={1.5} />
+        <span>{label}</span>
+        {run && s >= 3 && <span className="text-xs text-ui-muted tabular-nums">{s} s</span>}
+      </div>
+      {!compact && run && !run.stopping && s >= 25 && (
+        <div className="text-xs text-ui-muted mt-1">{run.tools ? "Je vais chercher les chiffres directement sur les plateformes, ça peut prendre jusqu'à une minute." : "Encore quelques secondes…"}</div>
+      )}
+    </div>
+  );
+}
 
 const SOURCE_LABELS: Array<[keyof BotSources, string]> = [
   ["data", "Commandes e-commerce"],
@@ -190,14 +213,15 @@ export function BotChat({
     if (followers.current.has(conversationId)) return;
     const ctl = new AbortController();
     followers.current.set(conversationId, ctl);
-    setRuns((prev) => (prev[conversationId]?.jobId === jobId ? prev : { ...prev, [conversationId]: { jobId, text: "", toolNote: null } }));
+    setRuns((prev) => (prev[conversationId]?.jobId === jobId ? prev : { ...prev, [conversationId]: { jobId, text: "", toolNote: null, phase: "starting", startedAt: Date.now(), tools: 0 } }));
     jobs.ignore(jobId);
     const patch = (fn: (run: Run) => Run) => setRuns((prev) => (prev[conversationId] ? { ...prev, [conversationId]: fn(prev[conversationId]) } : prev));
     const onEvent = (event: JobEvent) => {
       if (event.type === "delta" && typeof event.text === "string") patch((r) => ({ ...r, text: r.text + event.text, toolNote: null }));
       else if (event.type === "content" && typeof event.text === "string") patch((r) => (r.text ? r : { ...r, text: event.text as string }));
-      else if (event.type === "tool_call") patch((r) => ({ ...r, toolNote: friendlyTool(event.name) }));
-      else if (event.type === "tool_result") patch((r) => ({ ...r, toolNote: null }));
+      else if (event.type === "activity") patch((r) => ({ ...r, phase: event.phase === "writing" ? "writing" : event.phase === "thinking" || event.phase === "tool" ? (r.phase === "writing" && event.phase === "thinking" ? r.phase : "thinking") : r.phase }));
+      else if (event.type === "tool_call") patch((r) => ({ ...r, toolNote: friendlyTool(event.name), tools: r.tools + 1 }));
+      else if (event.type === "tool_result") patch((r) => ({ ...r, toolNote: null, phase: "thinking" }));
       else if (event.type === "error" && activeRef.current === conversationId) setError(String(event.message ?? "Réponse interrompue"));
     };
     void followJob(jobId, onEvent, ctl.signal)
@@ -505,16 +529,10 @@ export function BotChat({
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{activeRun.text}</ReactMarkdown>
                   </div>
                 ) : (
-                  <div className="inline-flex items-center gap-2 text-sm text-ui-fg2">
-                    <Loader2 className="w-4 h-4 animate-spin text-ui-accent-ink" strokeWidth={1.5} />
-                    {activeRun?.stopping ? "Arrêt" : activeRun?.toolNote ?? "Lecture de vos données"}
-                  </div>
+                  <BotWaiting run={activeRun} sending={sending} />
                 )}
                 {activeRun?.text && (activeRun.toolNote || activeRun.stopping) && (
-                  <div className="text-xs text-ui-muted mt-2 flex items-center gap-2">
-                    <Loader2 className="w-3 h-3 animate-spin" strokeWidth={1.5} />
-                    {activeRun.stopping ? "Arrêt" : activeRun.toolNote}
-                  </div>
+                  <div className="mt-2"><BotWaiting run={activeRun} sending={sending} compact /></div>
                 )}
               </div>
             )}
