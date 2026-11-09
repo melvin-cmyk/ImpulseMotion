@@ -24,7 +24,7 @@ import { fbcdnUsable } from "@/lib/ads-warehouse/cdn";
 import { freshMetaAdImage } from "@/lib/ads-warehouse/preview";
 import { opportunitiesOf, OPPORTUNITY_LABEL } from "@/lib/ads-warehouse/opportunities";
 import { deltaPct, fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
-import type { AdsQuery, MetricKey } from "@/lib/ads-warehouse/query";
+import type { AdsGroupRow, AdsQuery, MetricKey } from "@/lib/ads-warehouse/query";
 import type { WarehousePlatform } from "@/lib/ads-warehouse/types";
 
 const APP_URL = (process.env.APP_PUBLIC_URL ?? "https://impulsemotion.ai").replace(/\/$/, "");
@@ -39,8 +39,8 @@ export interface Recap { text: string | null; blocks?: SlackBlock[]; fatigue?: n
 const SECTION_MAX = 2900;
 
 /** Public image of a creative for Slack (Meta signed URLs refreshed when expired), or null. */
-async function slackImageOf(hit: FatigueHit): Promise<string | null> {
-  const s = hit.row.sample;
+async function slackImageOf(row: { sample: AdsGroupRow["sample"] }): Promise<string | null> {
+  const s = row.sample;
   if (!s) return null;
   const stored = s.imageUrl ?? s.thumbnailUrl;
   if (stored && /^https:\/\//.test(stored) && fbcdnUsable(stored, 24 * 3600_000)) return stored;
@@ -92,14 +92,18 @@ export async function buildRecap(client: { id: string; name: string; accountsJso
   const lines: string[] = [];
   lines.push(`*📊 Récap créas de la semaine — ${esc(client.name)}*  (${fmtDay(lb.period.since)} → ${fmtDay(lb.period.until)})`);
   lines.push(kpi.join(" · "));
-  if (lb.leaderboard.length) {
+  const intro = [...lines];
+  const top = lb.leaderboard.slice(0, 3);
+  const topLine = (r: (typeof top)[number]) => {
+    const move = r.rankChange === null ? " · 🆕 entrée" : r.rankChange > 0 ? ` · ▲${r.rankChange}` : r.rankChange < 0 ? ` · ▼${-r.rankChange}` : "";
+    const perf = r.metrics.conversions > 0 ? ` · CPA ${fmtMetric("cpa", r.metrics.cpa, cy)}` : ` · CTR ${fmtMetric("ctr", r.metrics.ctr, cy)}`;
+    return `${r.rank}. ${link(r.key, r.label)} — ${fmtMetric("spend", r.metrics.spend, cy)}${perf}${move}`;
+  };
+  if (top.length) {
     lines.push("", "*🏆 Top 3 de la semaine*");
-    for (const r of lb.leaderboard.slice(0, 3)) {
-      const move = r.rankChange === null ? " · 🆕 entrée" : r.rankChange > 0 ? ` · ▲${r.rankChange}` : r.rankChange < 0 ? ` · ▼${-r.rankChange}` : "";
-      const perf = r.metrics.conversions > 0 ? ` · CPA ${fmtMetric("cpa", r.metrics.cpa, cy)}` : ` · CTR ${fmtMetric("ctr", r.metrics.ctr, cy)}`;
-      lines.push(`${r.rank}. ${link(r.key, r.label)} — ${fmtMetric("spend", r.metrics.spend, cy)}${perf}${move}`);
-    }
+    for (const r of top) lines.push(topLine(r));
   }
+  const restStart = lines.length;
   const named = (rows: typeof lb.trends.rows.scaling) => rows.slice(0, 3).map((r) => `${link(r.key, r.label)} (${r.trend?.wow !== null && r.trend?.wow !== undefined ? `${r.trend.wow > 0 ? "+" : ""}${Math.round(r.trend.wow)} %` : "nouvelle"})`).join(", ");
   if (lb.trends.counts.scaling) lines.push(`*📈 En hausse (${lb.trends.counts.scaling})* : ${named(lb.trends.rows.scaling)}`);
   if (lb.trends.counts.declining) lines.push(`*📉 En baisse (${lb.trends.counts.declining})* : ${named(lb.trends.rows.declining)}`);
@@ -115,7 +119,7 @@ export async function buildRecap(client: { id: string; name: string; accountsJso
   const hits = detectFatigue(week.rows, { minSpend: Math.max(50, lb.spendThreshold), money: (v) => fmtMetric("cpa", v, cy) });
   const fatigueLine = (h: FatigueHit) => `${link(h.row.key, h.row.label)} — ${fmtMetric("spend", h.row.metrics.spend, cy)} cette semaine · *${FATIGUE_VERDICT_LABEL[h.verdict]}* : ${h.signals.map((x) => x.text).join(", ")}`;
   const fatigueUrl = `${APP_URL}/analyse?client=${encodeURIComponent(client.id)}&view=fatigue`;
-  const head = [...lines];
+  const rest = lines.slice(restStart);
   if (hits.length) {
     lines.push("", `*🥱 Créas en fatigue (${hits.length})* — elles prennent encore du budget mais s'essoufflent (vs la semaine d'avant)`);
     for (const h of hits) lines.push(`• ${fatigueLine(h)}`);
@@ -123,10 +127,21 @@ export async function buildRecap(client: { id: string; name: string; accountsJso
   const footer = `<${APP_URL}/analyse?client=${encodeURIComponent(client.id)}&tab=leaderboard|Ouvrir le leaderboard dans ImpulseMotion>${hits.length ? ` · <${fatigueUrl}|Voir la fatigue>` : ""}`;
   lines.push("", footer);
 
-  const blocks: SlackBlock[] = [...sections(head)];
+  // Each top-3 creative gets its own section with its visual on the right (like the fatigue ones).
+  const blocks: SlackBlock[] = [...sections(intro)];
+  if (top.length) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: "*🏆 Top 3 de la semaine*" } });
+    const topImages = await Promise.all(top.map((r) => slackImageOf(r).catch(() => null)));
+    top.forEach((r, i) => {
+      const section: SlackBlock = { type: "section", text: { type: "mrkdwn", text: topLine(r).slice(0, SECTION_MAX) } };
+      if (topImages[i]) section.accessory = { type: "image", image_url: topImages[i], alt_text: short(r.label, 100) };
+      blocks.push(section);
+    });
+  }
+  blocks.push(...sections(rest.filter((l, i) => !(i === 0 && l === ""))));
   if (hits.length) {
     blocks.push({ type: "divider" }, { type: "section", text: { type: "mrkdwn", text: `*🥱 Créas en fatigue (${hits.length})* — elles prennent encore du budget mais s'essoufflent (vs la semaine d'avant)` } });
-    const images = await Promise.all(hits.map(slackImageOf));
+    const images = await Promise.all(hits.map((h) => slackImageOf(h.row).catch(() => null)));
     hits.forEach((h, i) => {
       const section: SlackBlock = { type: "section", text: { type: "mrkdwn", text: fatigueLine(h).slice(0, SECTION_MAX) } };
       if (images[i]) section.accessory = { type: "image", image_url: images[i], alt_text: short(h.row.label, 100) };
