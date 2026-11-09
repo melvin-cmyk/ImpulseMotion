@@ -8,7 +8,7 @@
  * by frame, then the free cards under them.
  */
 
-import { CARD_SIZES, COL_GAP, ROW_GAP, layoutNewCards, newCardId, type MoCard, type MoCardSpec } from "@/lib/mo/model";
+import { CARD_SIZES, COL_GAP, ROW_GAP, cardSizeOf, layoutNewCards, newCardId, type MoCard, type MoCardSpec } from "@/lib/mo/model";
 
 export type MoFrame = Extract<MoCard, { type: "frame" }>;
 
@@ -120,8 +120,8 @@ export function layoutWithFrames(existing: MoCard[], items: LayoutItem[], turn: 
     let y = children.length ? Math.max(...children.map((c) => c.y + heightOf(c))) + ROW_GAP : content.y;
     let x = content.x, rowH = 0;
     for (const it of group) {
-      const def = CARD_SIZES[it.type];
-      const w = it.w ?? def.w, h = it.h ?? def.h;
+      const def = cardSizeOf(it, it.w);
+      const w = def.w, h = it.type === "creatives" ? def.h : it.h ?? def.h;
       if (x > content.x && x + w > content.x + innerW) { y += rowH + ROW_GAP; x = content.x; rowH = 0; }
       const { ref, id: _id, w: _w, h: _h, ...rest } = it; void [_id, _w, _h];
       z += 1;
@@ -153,7 +153,7 @@ export function placeWithFrames(existing: MoCard[], spec: MoCardSpec, pt: { x: n
   const ids = new Set(existing.map((c) => c.id));
   let id = idGen();
   while (ids.has(id)) id = idGen();
-  const size = CARD_SIZES[spec.type];
+  const size = cardSizeOf(spec);
   const clamp = (v: number) => Math.min(50_000, Math.max(-50_000, Math.round(Number.isFinite(v) ? v : 0)));
   const z = existing.reduce((m, c) => Math.max(m, c.z ?? 0), 0) + 1;
   const { ref, ...rest } = spec;

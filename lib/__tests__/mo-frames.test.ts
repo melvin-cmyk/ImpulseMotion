@@ -33,7 +33,7 @@ describe("frames — a client's card opens its frame and goes inside", () => {
     expect(c.x).toBe(FRAME_PAD);
     expect(c.y).toBe(FRAME_HEADER + FRAME_PAD + CARD_SIZES.kpis.h + ROW_GAP);
     expect(f1.h!).toBeGreaterThan(f0.h!);
-    expect(f1.y + f1.h!).toBeGreaterThanOrEqual(c.y + CARD_SIZES.creatives.h + FRAME_PAD);
+    expect(f1.y + f1.h!).toBeGreaterThanOrEqual(c.y + c.h! + FRAME_PAD);
   });
   it("two cards of one turn sit side by side inside, wrapping at the inner width", () => {
     const r = layoutWithFrames([], [kpis("nat", "Naturalia", "a"), kpis("nat", "Naturalia", "b"), creatives("nat", "Naturalia")], 0, "t", ids);

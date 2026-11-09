@@ -197,6 +197,30 @@ export const CARD_SIZES: Record<MoCardType, { w: number; h: number }> = {
   frame: { w: 1168, h: 320 },
 };
 
+/**
+ * Height a creatives card needs to show every visual without scrolling
+ * (mirrors the grid of components/mo/card.tsx: 1-3 columns by width, 4:5
+ * images, name, metrics two per line, optional note). Other types: default.
+ */
+export function creativesHeight(items: MoCreative[], w: number): number {
+  const n = Math.max(1, items.length);
+  const cols = w < 420 ? 1 : w < 560 ? 2 : 3;
+  const colW = (w - 30 - (cols - 1) * 10) / cols;
+  const metricRows = Math.ceil(Math.max(0, ...items.map((it) => Object.keys(it.metrics ?? {}).length)) / 2);
+  const hasNote = items.some((it) => !!it.note);
+  const itemH = colW * 1.25 + 16 + 18 + (metricRows ? 4 + metricRows * 17 : 0) + (hasNote ? 34 : 0) + 2;
+  const rows = Math.ceil(n / cols);
+  return Math.ceil(70 + 24 + rows * itemH + (rows - 1) * 10 + 16);
+}
+
+/** Size of a new card: the default of its type, a creatives card as tall as its visuals need. */
+export function cardSizeOf(spec: { type: MoCardType; items?: unknown }, w?: number): { w: number; h: number } {
+  const def = CARD_SIZES[spec.type];
+  const width = w ?? def.w;
+  if (spec.type === "creatives" && Array.isArray(spec.items)) return { w: width, h: creativesHeight(spec.items as MoCreative[], width) };
+  return { w: width, h: def.h };
+}
+
 export const ROW_GAP = 70;
 export const COL_GAP = 40;
 /** A turn's cards wrap to a new row beyond this width (world px), so a fit stays legible. */
@@ -437,7 +461,8 @@ export function applyCardUpdates(cards: MoCard[], answer: Pick<MoAnswer, "update
     const base = { id: c.id, x: c.x, y: c.y, w: c.w, ...(c.h ? { h: c.h } : {}), ...(c.z !== undefined ? { z: c.z } : {}), ...(c.ref ? { ref: c.ref } : {}), ...(c.clientId ? { clientId: c.clientId } : {}), ...(c.clientName ? { clientName: c.clientName } : {}), ...(c.frame ? { frame: c.frame } : {}), ...(c.link ? { link: c.link, ...(c.linkLabel ? { linkLabel: c.linkLabel } : {}) } : {}), minimized: false, turn, at, title: title ?? c.title, ...(subtitle ? { subtitle } : c.subtitle ? { subtitle: c.subtitle } : {}) };
     if ("type" in rest && rest.type) {
       // New content: same size unless the type changed (then the default size of the new type).
-      const size = rest.type === c.type ? { w: c.w, h: c.h } : CARD_SIZES[rest.type];
+      // A creatives card grows to show all its visuals (no scrolling).
+      const size = rest.type === "creatives" ? cardSizeOf(rest as MoCardSpec, rest.type === c.type ? c.w : undefined) : rest.type === c.type ? { w: c.w, h: c.h } : CARD_SIZES[rest.type];
       out.push({ ...base, ...rest, w: size.w, ...(size.h ? { h: size.h } : {}) } as MoCard);
     } else {
       const { x: _x, y: _y, w: _w, h: _h, z: _z, ref: _r, minimized: _m, turn: _t, at: _a, title: _ti, subtitle: _su, id: _i, clientId: _ci, clientName: _cn, frame: _f, link: _l, linkLabel: _ll, ...payload } = c; void [_x, _y, _w, _h, _z, _r, _m, _t, _a, _ti, _su, _i, _ci, _cn, _f, _l, _ll];
@@ -461,7 +486,7 @@ export function layoutNewCards(existing: MoCard[], answer: { cards: MoCardSpec[]
   const ids = new Set(existing.map((c) => c.id));
   const out: MoCard[] = [];
   for (const c of answer.cards) {
-    const size = CARD_SIZES[c.type];
+    const size = cardSizeOf(c);
     if (x > 0 && x + size.w > ROW_WRAP_WIDTH) { y += rowH + ROW_GAP; x = 0; rowH = 0; }
     let id = newCardId();
     while (ids.has(id)) id = newCardId();

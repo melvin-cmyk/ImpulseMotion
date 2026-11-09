@@ -155,3 +155,17 @@ describe("Mo — export link on a card", () => {
     expect(describeCards([card])).toContain("exportée (Google Sheet)");
   });
 });
+
+describe("creatives card height — every visual visible, no scrolling", async () => {
+  const { cardSizeOf, creativesHeight } = await import("@/lib/mo/model");
+  const item = (i: number) => ({ name: `Créa ${i}`, metrics: { Dépense: "10 €", CPA: "5 €" } });
+  it("grows with the number of rows (3 columns at the default width)", () => {
+    const three = creativesHeight([1, 2, 3].map(item), 660);
+    const nine = creativesHeight(Array.from({ length: 9 }, (_, i) => item(i)), 660);
+    expect(nine).toBeGreaterThan(three * 2.5);
+  });
+  it("other card types keep their default size", () => {
+    expect(cardSizeOf({ type: "table" })).toEqual({ w: 640, h: 380 });
+    expect(cardSizeOf({ type: "creatives", items: Array.from({ length: 12 }, (_, i) => item(i)) }).h).toBeGreaterThan(1000);
+  });
+});
