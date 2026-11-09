@@ -13,7 +13,8 @@ import { BotCardMedia } from "@/components/ai/safe-image";
 
 export interface CreativeCardData { name: string; src: string; caption: string; kpis: Array<{ label: string; value: string }> }
 
-const IMG_LINE = /^\s*(?:[-*•]|\d+[.)])?\s*!\[([^\]]*)\]\(([^)\s]+)\)\s*(.*)$/;
+// « carte : » is the label the prompt puts before the line to copy: the model sometimes copies it too.
+const IMG_LINE = /^\s*(?:[-*•]|\d+[.)])?\s*(?:carte\s*:\s*)?!\[([^\]]*)\]\(([^)\s]+)\)\s*(.*)$/;
 // « Nom | chiffres » or « Nom — chiffres » (em / en dash only: names often contain « - »)
 const TEXT_LINE = /^\s*(?:[-*•]|\d+[.)])?\s*(.+?)\s*(?:\||—|–)\s*(.*\d.*)$/;
 
@@ -29,12 +30,17 @@ function kpisOf(part: string) {
  * A line with no visual (« Nom | Vidéo · lancée le 09/07 | dépense … ») gets
  * the visual of the ad of that name on the bot's accounts (?name=).
  */
+// Lines of the prompt's creative entries the model may copy along: never a card.
+const META_LINE = /^\s*(?:texte|chiffres|type|format|thème|theme|publicité dynamique|carte)\s*:/i;
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
 export function parseCreativeBlock(text: string, botId?: string): CreativeCardData[] {
-  const out: CreativeCardData[] = [];
+  const out: Array<CreativeCardData & { byName?: boolean }> = [];
   for (const raw of text.split("\n")) {
     let name = "", src = "", rest = "";
     const m = IMG_LINE.exec(raw);
     if (m) { name = m[1]; src = m[2]; rest = m[3]; }
+    else if (META_LINE.test(raw)) continue;
     else {
       const t = botId ? TEXT_LINE.exec(raw) : null;
       if (!t) continue;
@@ -46,9 +52,14 @@ export function parseCreativeBlock(text: string, botId?: string): CreativeCardDa
     const parts = rest.split("|").map((s) => s.trim()).filter(Boolean);
     const kpiPart = parts.length > 1 ? parts[parts.length - 1] : parts[0] ?? "";
     const caption = parts.length > 1 ? parts.slice(0, -1).join(" · ") : "";
-    out.push({ name: name.trim(), src, caption, kpis: kpisOf(kpiPart) });
+    out.push({ name: name.trim(), src, caption, kpis: kpisOf(kpiPart), ...(m ? {} : { byName: true }) });
   }
-  return out;
+  // A line found by name that repeats a creative already shown with its visual
+  // (the « 1. « Nom » — Image… » heading copied with its card) is dropped.
+  const shown = out.filter((c) => !c.byName).map((c) => norm(c.name)).filter((n) => n.length >= 6);
+  return out
+    .filter((c) => !c.byName || !shown.some((n) => { const k = norm(c.name); return k.length >= 6 && (n.startsWith(k) || k.startsWith(n)); }))
+    .map(({ byName: _b, ...c }) => { void _b; return c; });
 }
 
 /** Does this code block look like a list of creatives (whatever its language tag)? */
