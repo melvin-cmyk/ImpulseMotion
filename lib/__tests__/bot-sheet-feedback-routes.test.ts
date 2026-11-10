@@ -68,7 +68,7 @@ describe("POST /api/bot/[botId]/feedback", () => {
     loadBot.mockResolvedValue(BOT);
     fbCount.mockResolvedValue(0);
     expect((await feedbackPOST(req({ message: "  " }), ctx)).status).toBe(400);
-    fbCount.mockResolvedValue(10);
+    fbCount.mockResolvedValue(40);
     expect((await feedbackPOST(req({ message: "encore" }), ctx)).status).toBe(429);
   });
 });

@@ -499,6 +499,9 @@ model BotFeedback {
   message        String    @db.Text
   /// The conversation open when it was sent, if any (to read the context).
   conversationId String?
+  /// Thumb under one answer: the client's question and the start of the answer it rates.
+  question       String?   @db.Text
+  answerExcerpt  String?   @db.Text
   createdAt      DateTime  @default(now())
   bot            ClientBot @relation(fields: [botId], references: [id], onDelete: Cascade)
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)

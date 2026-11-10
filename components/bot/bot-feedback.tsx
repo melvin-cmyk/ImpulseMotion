@@ -93,3 +93,58 @@ export function BotFeedbackBox({ botId, conversationId, onClose }: { botId: stri
     </div>
   );
 }
+
+
+/**
+ * Thumbs under one answer of the chat. 👍 is sent at once; 👎 opens a line to
+ * say what was wrong (sent with or without words). The answer and the question
+ * it replies to go with it, so the admin reads the feedback in context.
+ */
+export function AnswerFeedback({ botId, conversationId, question, answer }: { botId: string; conversationId: string | null; question: string; answer: string }) {
+  const [state, setState] = useState<"idle" | "why" | "sending" | "sent" | "error">("idle");
+  const [why, setWhy] = useState("");
+
+  async function send(rating: "up" | "down", message: string) {
+    setState("sending");
+    try {
+      const res = await fetch(`/api/bot/${botId}/feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating, message, conversationId, question, answer }),
+      });
+      setState(res.ok ? "sent" : "error");
+    } catch { setState("error"); }
+  }
+
+  if (state === "sent") return <p className="not-prose mt-2 text-xs text-ui-muted" role="status">Merci pour votre retour</p>;
+  const btn = "h-7 w-7 flex items-center justify-center rounded-md text-ui-muted hover:text-ui-fg hover:bg-ui-raised transition-colors duration-150 disabled:opacity-50";
+  return (
+    <div className="not-prose mt-2">
+      <div className="flex items-center gap-1">
+        <button type="button" className={btn} disabled={state === "sending"} onClick={() => void send("up", "")} aria-label="Réponse utile" title="Réponse utile">
+          <ThumbsUp className="w-3.5 h-3.5" strokeWidth={1.5} />
+        </button>
+        <button type="button" className={`${btn} ${state === "why" ? "bg-ui-raised text-ui-fg" : ""}`} disabled={state === "sending"} onClick={() => setState(state === "why" ? "idle" : "why")} aria-label="Réponse pas utile" aria-expanded={state === "why"} title="Réponse pas utile">
+          <ThumbsDown className="w-3.5 h-3.5" strokeWidth={1.5} />
+        </button>
+        {state === "sending" && <Loader2 className="w-3.5 h-3.5 animate-spin text-ui-muted" strokeWidth={1.5} />}
+        {state === "error" && <span className="text-xs text-ui-neg">Envoi impossible, réessayez</span>}
+      </div>
+      {state === "why" && (
+        <form className="mt-2 flex items-end gap-2 max-w-xl" onSubmit={(e) => { e.preventDefault(); void send("down", why); }}>
+          <textarea
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+            rows={2}
+            maxLength={2000}
+            autoFocus
+            placeholder="Qu'est-ce qui n'allait pas ? Un chiffre faux, une donnée qui manque, une réponse à côté"
+            aria-label="Ce qui n'allait pas dans cette réponse"
+            className="flex-1 resize-none rounded-lg border border-ui-line-strong bg-ui-card px-3 py-2 text-sm text-ui-fg placeholder:text-ui-muted focus:outline-none focus:border-ui-accent transition-colors duration-150"
+          />
+          <button type="submit" className="h-9 px-3 rounded-lg bg-ui-accent text-ui-on-accent text-sm font-medium hover:brightness-110 transition-[filter] duration-150">Envoyer</button>
+        </form>
+      )}
+    </div>
+  );
+}

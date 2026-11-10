@@ -1,7 +1,9 @@
 /**
- * POST /api/bot/[botId]/feedback { message, rating?: "up" | "down", conversationId? }
- * — a client's feedback on their assistant, from the box of the chat. Read by
- * the admins on /admin/bots/[dashboardId]. 10 per person and per day at most.
+ * POST /api/bot/[botId]/feedback { message, rating?: "up" | "down", conversationId?, question?, answer? }
+ * — a client's feedback on their assistant: the box of the chat (free text), or
+ * the thumbs under one answer (`answer` = that answer, `question` = what was
+ * asked; only their start is kept). Read by the admins on
+ * /admin/bots/[dashboardId]. 40 per person and per day at most.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -10,7 +12,8 @@ import { requireSession } from "@/lib/auth-helpers";
 import { loadBotFor } from "@/lib/bot-access";
 
 const MAX_CHARS = 2000;
-const PER_DAY = 10;
+const PER_DAY = 40;
+const EXCERPT_CHARS = 600;
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
 
@@ -21,7 +24,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   const loaded = await loadBotFor(guard.session, botId);
   if (loaded.status !== 200) return bad(loaded.status === 404 ? "assistant introuvable" : "accès refusé", loaded.status);
 
-  const body = (await req.json().catch(() => ({}))) as { message?: unknown; rating?: unknown; conversationId?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { message?: unknown; rating?: unknown; conversationId?: unknown; question?: unknown; answer?: unknown };
+  const excerpt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, EXCERPT_CHARS) : null);
   const message = typeof body.message === "string" ? body.message.trim().slice(0, MAX_CHARS) : "";
   const rating = body.rating === "up" || body.rating === "down" ? body.rating : null;
   if (!message && !rating) return bad("écrivez quelques mots ou choisissez un avis");
@@ -37,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
     conversationId = c?.id ?? null;
   }
   await prisma.botFeedback.create({
-    data: { botId: loaded.bot.id, userId: guard.session.userId, rating, message: message || (rating === "up" ? "(avis positif)" : "(avis négatif)"), conversationId },
+    data: { botId: loaded.bot.id, userId: guard.session.userId, rating, message: message || (rating === "up" ? "(avis positif)" : "(avis négatif)"), conversationId, question: excerpt(body.question), answerExcerpt: excerpt(body.answer) },
   });
   return NextResponse.json({ ok: true });
 }

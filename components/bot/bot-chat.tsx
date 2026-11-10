@@ -24,7 +24,7 @@ import { AI_JOB_FINISHED_EVENT, AI_JOB_STARTED_EVENT, followJob, stopJob, type J
 import { useAiJobs } from "@/components/ai-jobs-watcher";
 import { AttachFileButton, BotFilesList, useBotFiles } from "@/components/bot/bot-files";
 import { useVoice } from "@/components/mo/use-voice";
-import { BotFeedbackBox } from "@/components/bot/bot-feedback";
+import { AnswerFeedback, BotFeedbackBox } from "@/components/bot/bot-feedback";
 import { BotTable } from "@/components/bot/bot-table";
 import { BotCreativeCards, looksLikeCreatives } from "@/components/bot/bot-creative-cards";
 
@@ -519,6 +519,8 @@ export function BotChat({
               ) : (
                 <div key={i} className={`min-w-0 ${PROSE}`}>
                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{m.content}</ReactMarkdown>
+                  {/* keyed by conversation + position: a thumb given stays on its answer, not on the next thread's */}
+                  <AnswerFeedback key={`${activeId ?? ""}-${i}`} botId={botId} conversationId={activeId} question={messages[i - 1]?.role === "user" ? messages[i - 1].content : ""} answer={m.content} />
                 </div>
               )
             ))}

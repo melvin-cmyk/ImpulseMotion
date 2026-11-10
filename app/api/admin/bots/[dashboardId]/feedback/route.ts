@@ -14,9 +14,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ dashboa
     where: { botId: bot.id },
     orderBy: { createdAt: "desc" },
     take: 100,
-    select: { id: true, rating: true, message: true, conversationId: true, createdAt: true, user: { select: { email: true, name: true } } },
+    select: { id: true, rating: true, message: true, conversationId: true, question: true, answerExcerpt: true, createdAt: true, user: { select: { email: true, name: true } } },
   });
   return NextResponse.json({
-    feedback: rows.map((r) => ({ id: r.id, rating: r.rating, message: r.message, conversationId: r.conversationId, createdAt: r.createdAt, email: r.user.email, name: r.user.name })),
+    feedback: rows.map((r) => ({ id: r.id, rating: r.rating, message: r.message, conversationId: r.conversationId, question: r.question, answerExcerpt: r.answerExcerpt, createdAt: r.createdAt, email: r.user.email, name: r.user.name })),
   });
 }

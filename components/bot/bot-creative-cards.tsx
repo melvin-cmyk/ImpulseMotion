@@ -10,6 +10,7 @@
  */
 
 import { BotCardMedia } from "@/components/ai/safe-image";
+import { readableAdName } from "@/lib/ad-readable-name";
 
 export interface CreativeCardData { name: string; src: string; caption: string; kpis: Array<{ label: string; value: string }> }
 
@@ -94,7 +95,8 @@ export function BotCreativeCards({ text, botId }: { text: string; botId?: string
           </div>
           <div className="px-3 pt-2 pb-3 space-y-2 min-w-0">
             <div className="min-w-0">
-              <div className="text-sm font-medium text-ui-fg truncate" title={c.name}>{c.name}</div>
+              {/* readable name (naming convention → words); the ad's own name stays in the tooltip */}
+              <div className="text-sm font-medium text-ui-fg line-clamp-2" title={c.name}>{readableAdName(c.name)}</div>
               {c.caption && <div className="text-xs text-ui-muted truncate" title={c.caption}>{c.caption}</div>}
             </div>
             {c.kpis.length > 0 && (

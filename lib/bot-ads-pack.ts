@@ -17,6 +17,7 @@ import { stateId, type WarehousePlatform } from "@/lib/ads-warehouse/types";
 import { prisma } from "@/lib/prisma";
 import { GLOSSARY_LABELS, type GlossaryKey } from "@/lib/ads-warehouse/glossary-labels";
 import { fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
+import { readableAdName } from "@/lib/ad-readable-name";
 
 export interface BotAdsAccounts { meta?: string | null; google?: string | null; tiktok?: string[] }
 
@@ -81,6 +82,11 @@ export function imageUrl(botId: string, platform: string, adId: string, kind: "i
 }
 
 /** `compact`: heading + card only (the long list of recent launches), no tags nor text. */
+/** Name of a creative as shown to the client (readable when the ad follows the naming convention). */
+function shownName(label: string): string {
+  return readableAdName(label).slice(0, 70).replace(/[[\]|]/g, " ").trim();
+}
+
 function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | null, compact = false): string {
   const a = r.sample!;
   const m = r.metrics;
@@ -95,8 +101,9 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
   const hasVisual = !!(a.imageUrl || a.thumbnailUrl || a.platform === "meta");
   // Dynamic product ad (catalogue): no fixed visual, Meta's thumbnail is a placeholder → products of its catalogue.
   const dpa = a.platform === "meta" && /\{\{\s*product\./.test(`${a.title ?? ""} ${a.body ?? ""}`);
-  const alt = r.label.slice(0, 40).replace(/[[\]]/g, "");
-  const name = r.label.slice(0, 60).replace(/[[\]|]/g, " ").trim();
+  // What the client reads: the name rebuilt from the naming convention, not the technical ad name.
+  const name = shownName(r.label);
+  const technical = name === r.label.slice(0, 60).replace(/[[\]|]/g, " ").trim() ? "" : ` (annonce ${r.label.slice(0, 24).replace(/[[\]|]/g, " ").trim()}…)`;
   const caption = [
     dpa ? "Catalogue dynamique (exemple de produit)" : `${FORMAT_FR[a.format] ?? a.format}${a.dynamic ? " dynamique" : ""}`,
     r.launch ? `lancée le ${frDate(r.launch)}` : "",
@@ -105,7 +112,7 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
     : a.platform === "meta" && a.videoId ? imageUrl(botId, a.platform, a.adId, "video")
     : hasVisual ? imageUrl(botId, a.platform, a.adId) : "";
   return [
-    `${i}. « ${r.label.slice(0, 60)} » — ${a.format}${a.dynamic ? " dynamique" : ""}${r.launch ? `, lancée le ${frDate(r.launch)}` : ""}${trend}`,
+    `${i}. « ${name} »${technical} — ${a.format}${a.dynamic ? " dynamique" : ""}${r.launch ? `, lancée le ${frDate(r.launch)}` : ""}${trend}`,
     tags && !compact ? `   ${tags}` : "",
     text && !compact ? `   texte : ${text}` : "",
     dpa ? `   publicité dynamique du catalogue : chaque personne voit un produit différent ; autres exemples de produits : &product=1 et &product=2` : "",
@@ -154,7 +161,7 @@ async function platformBlock(botId: string, platform: WarehousePlatform, account
   recent.forEach((r, i) => { if (!listed.has(r.sample?.adId)) listed.set(r.sample?.adId, `n°${i + 1} des lancées récemment`); });
   const rankedLines = (rows: AdsGroupRow[], what: (r: AdsGroupRow) => string) => rows.map((r, i) => {
     const seen = listed.get(r.sample?.adId);
-    if (seen) return `${i + 1}. « ${r.label.slice(0, 60)} » — ${what(r)} — déjà détaillée plus haut (${seen}) : sa carte est la même`;
+    if (seen) return `${i + 1}. « ${shownName(r.label)} » — ${what(r)} — déjà détaillée plus haut (${seen}) : sa carte est la même`;
     listed.set(r.sample?.adId, `n°${i + 1} du classement`);
     return creativeLine(botId, r, i + 1, cur);
   }).join("\n");
@@ -197,7 +204,7 @@ export async function buildBotAdsPack(botId: string, accounts: BotAdsAccounts, n
     "- Publicité dynamique du catalogue (DPA, texte avec {{product.…}}) trouvée en direct : elle n'a pas de visuel fixe ; montre 3 produits de son catalogue en ajoutant &product=0, &product=1 et &product=2 à l'adresse image, présentés comme des exemples de produits diffusés.",
     "- Toutes les créas des comptes de ce client, même lancées hier, ont leur visuel côté serveur : ne dis JAMAIS qu'une créa n'est « pas indexée » ou que son visuel est indisponible, écris l'adresse du visuel ; si l'image ne se charge pas, le chat l'indique lui-même.",
     "- « Meilleures créas », « celles qui marchent le mieux », « les plus rentables » : sur 30 jours, utilise DIRECTEMENT les classements « Meilleures créas … au ROAS » (e-commerce) ou « … au coût par conversion » (sans ROAS), sans appeler d'outil. Les créas « qui dépensent le plus » ne sont pas les meilleures. N'appelle un outil que pour une autre période ou plus de 6 créas.",
-    "- Désigne les créas par leur nom entre guillemets, jamais par un identifiant. Chaque plateforme a sa propre attribution : ne les additionne jamais.",
+    "- Désigne les créas par leur nom lisible (celui entre guillemets ici, ex. « Trek · Cap-Vert · Solo »), dans le texte comme dans les tableaux : jamais par le nom technique de l'annonce (W45Y26_SGL_IMG_…) ni par un identifiant. Pour une créa trouvée en direct, résume de même son nom d'annonce en quelques mots lisibles. Chaque plateforme a sa propre attribution : ne les additionne jamais.",
     ...blocks,
   ].join("\n") : "";
   cache.set(key, { at: Date.now(), text });

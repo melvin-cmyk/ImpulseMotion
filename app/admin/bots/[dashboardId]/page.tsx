@@ -938,7 +938,7 @@ function SourceToggle({
   );
 }
 
-type FeedbackRow = { id: string; rating: "up" | "down" | null; message: string; conversationId: string | null; createdAt: string; email: string | null; name: string | null };
+type FeedbackRow = { id: string; rating: "up" | "down" | null; message: string; conversationId: string | null; question?: string | null; answerExcerpt?: string | null; createdAt: string; email: string | null; name: string | null };
 
 /** What the clients said about this assistant (box of the chat, POST /api/bot/[botId]/feedback). */
 function BotFeedbackSection({ dashboardId }: { dashboardId: string }) {
@@ -959,7 +959,7 @@ function BotFeedbackSection({ dashboardId }: { dashboardId: string }) {
       {rows === null ? (
         <p className="text-sm text-ui-muted">Chargement</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-ui-muted">Aucun retour pour l&apos;instant. Les clients écrivent depuis l&apos;encart « Votre avis » du chat.</p>
+        <p className="text-sm text-ui-muted">Aucun retour pour l&apos;instant. Les clients écrivent depuis l&apos;encart « Votre avis » du chat ou les pouces sous chaque réponse.</p>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-ui-muted font-mono tabular-nums">{rows.length} retour{rows.length > 1 ? "s" : ""} · {up} utile{up > 1 ? "s" : ""} · {down} pas utile{down > 1 ? "s" : ""}</p>
@@ -973,6 +973,12 @@ function BotFeedbackSection({ dashboardId }: { dashboardId: string }) {
                 </span>
               </div>
               <p className="text-sm text-ui-fg mt-1 whitespace-pre-wrap">{r.message}</p>
+              {(r.question || r.answerExcerpt) && (
+                <div className="mt-2 pl-3 border-l border-ui-line space-y-1 text-xs text-ui-muted">
+                  {r.question && <p className="whitespace-pre-wrap"><span className="text-ui-fg2">Question :</span> {r.question}</p>}
+                  {r.answerExcerpt && <p className="whitespace-pre-wrap line-clamp-4" title={r.answerExcerpt}><span className="text-ui-fg2">Réponse notée :</span> {r.answerExcerpt}</p>}
+                </div>
+              )}
             </Card>
           ))}
         </div>
