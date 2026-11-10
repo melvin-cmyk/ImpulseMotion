@@ -25,6 +25,11 @@ describe("parseCreativeBlock — bloc ```creas → cartes", () => {
     expect(c[0].kpis).toEqual([{ label: "dépense", value: "1 498 €" }, { label: "ROAS", value: "4,95" }]);
     expect(c[1].caption).toBe("Vidéo");
   });
+  it("adresse écrite avec un nom brut (espaces, parenthèses) : carte gardée, adresse encodée", () => {
+    const c = parseCreativeBlock("![Promo (v2)](/api/bot/b1/image?ad=meta:Promo - été (v2)) | Image | dépense 10 €\n![B](/api/bot/b1/image?name=A B)");
+    expect(c.map((x) => x.src)).toEqual(["/api/bot/b1/image?ad=meta%3APromo%20-%20%C3%A9t%C3%A9%20(v2)", "/api/bot/b1/image?name=A%20B"]);
+    expect(c[0]).toMatchObject({ name: "Promo (v2)", caption: "Image", kpis: [{ label: "dépense", value: "10 €" }] });
+  });
   it("reconnaît un bloc de créas quel que soit son libellé", () => {
     expect(looksLikeCreatives("x", "creas")).toBe(true);
     expect(looksLikeCreatives("![A](/api/bot/b1/image?ad=meta%3A1) | dépense 1 €", "")).toBe(true);

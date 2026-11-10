@@ -61,14 +61,21 @@ export function SafeImage({ src, alt }: { src?: unknown; alt?: string }) {
 export function BotCardMedia({ src, alt }: { src: string; alt?: string }) {
   const [failed, setFailed] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [byName, setByName] = useState(false);
   if (!BOT_VIDEO.test(src) && !BOT_IMAGE.test(src)) return <span className="text-xs text-ui-muted px-3 text-center">Visuel non affiché</span>;
   if (failed) return <span className="text-xs text-ui-muted px-3 text-center">Pas de visuel pour cette annonce</span>;
+  // Second try when the address written by the assistant gives nothing: the ad of the card's name.
+  const nameSrc = alt && alt.trim().length >= 2 && !/[?&]name=/.test(src) ? src.replace(/\/(?:image|video)\?.*$/, `/image?name=${encodeURIComponent(alt.trim())}`) : null;
+  if (byName && nameSrc) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={nameSrc} alt={alt ?? ""} loading="lazy" onError={() => setFailed(true)} className="w-full h-full object-contain" />;
+  }
   if (BOT_VIDEO.test(src) && !videoFailed) {
     return <video src={src} poster={src.replace("/video?", "/image?")} controls playsInline preload="metadata" onError={() => setVideoFailed(true)} className="w-full h-full object-contain bg-black" aria-label={alt} />;
   }
   const img = BOT_VIDEO.test(src) ? src.replace("/video?", "/image?") : src;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={img} alt={alt ?? ""} loading="lazy" onError={() => setFailed(true)} className="w-full h-full object-contain" />;
+  return <img src={img} alt={alt ?? ""} loading="lazy" onError={() => (nameSrc ? setByName(true) : setFailed(true))} className="w-full h-full object-contain" />;
 }
 
 /** `components` for react-markdown wherever AI text is shown. */

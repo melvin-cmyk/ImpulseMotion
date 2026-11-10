@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ botI
     if (!urls[n]) return NextResponse.json({ error: "produit indisponible" }, { status: 404 });
     return NextResponse.redirect(urls[n], { status: 302, headers: { "Cache-Control": "private, max-age=1800" } });
   }
-  const url = r.ad.platform === "meta" ? (await freshMetaAdImage(r.ad.adId))?.url ?? null : r.ad.imageUrl || r.ad.thumbnailUrl;
+  const url = r.ad.platform === "meta" && !r.ad.live ? (await freshMetaAdImage(r.ad.adId))?.url ?? null : r.ad.imageUrl || r.ad.thumbnailUrl;
   if (!url || !/^https:\/\//.test(url)) return NextResponse.json({ error: "visuel indisponible" }, { status: 404 });
   return NextResponse.redirect(url, { status: 302, headers: { "Cache-Control": "private, max-age=3600" } });
 }

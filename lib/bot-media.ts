@@ -11,7 +11,8 @@ import { getMetaSystemToken, metaGraphGet } from "@/lib/meta-api";
 import { pageToken } from "@/lib/meta-comments";
 
 type Session = Parameters<typeof loadBotFor>[0];
-export type BotAd = { platform: "meta" | "google" | "tiktok"; adId: string; imageUrl: string | null; thumbnailUrl: string | null; videoId: string | null };
+/** `live`: read on Meta just now (ad not in the warehouse yet) — imageUrl is then fresh, to serve as is. */
+export type BotAd = { platform: "meta" | "google" | "tiktok"; adId: string; imageUrl: string | null; thumbnailUrl: string | null; videoId: string | null; live?: true };
 
 /**
  * The ad of `?name=` (a creative the bot found by name with a live tool, no
@@ -50,17 +51,53 @@ export async function botAdByName(session: Session, botId: string, name: string)
 export async function botAd(session: Session, botId: string, ad: string): Promise<{ ad: BotAd } | { status: number; error: string }> {
   const loaded = await loadBotFor(session, botId);
   if (loaded.status !== 200) return { status: loaded.status, error: loaded.status === 403 ? "forbidden" : "not found" };
+  // The model sometimes puts the ad's NAME where the id goes (« ad=meta:W42 - SGL - IMG »), or an id
+  // the catalogue does not hold yet: such an address is answered by name, on the bot's accounts only.
+  const byName = () => botAdByName(session, botId, ad.replace(/^(meta|google|tiktok)\s*:\s*/i, ""));
   const m = /^(meta|google|tiktok):([\w-]{3,40})$/.exec(ad);
-  if (!m) return { status: 400, error: "annonce invalide" };
+  if (!m) return ad.trim().length >= 2 ? byName() : { status: 400, error: "annonce invalide" };
   const platform = m[1] as BotAd["platform"], adId = m[2];
   const row = await prisma.adCatalog.findUnique({ where: { id: `${platform}:${adId}` }, select: { accountId: true, imageUrl: true, thumbnailUrl: true, videoId: true } });
-  if (!row) return { status: 404, error: "annonce inconnue" };
+  if (!row) {
+    if (!/^\d+$/.test(adId)) return byName();
+    // A Meta ad launched since the last sync: read on Meta, served only when it is on the bot's own account.
+    const account = (loaded.bot.dashboard.metaAccountId ?? "").replace(/^act_/, "");
+    const live = platform === "meta" && account ? await metaLiveAd(adId, account) : null;
+    return live ? { ad: live } : { status: 404, error: "annonce inconnue" };
+  }
   const d = loaded.bot.dashboard;
   const own = platform === "meta" ? (d.metaAccountId ?? "").replace(/^act_/, "") === row.accountId
     : platform === "google" ? (d.googleCustomerId ?? "").replace(/-/g, "") === row.accountId
     : (await getDashboardTikTokIds(d.id)).includes(row.accountId);
   if (!own) return { status: 403, error: "forbidden" };
   return { ad: { platform, adId, imageUrl: row.imageUrl, thumbnailUrl: row.thumbnailUrl, videoId: row.videoId } };
+}
+
+const liveCache = new Map<string, { at: number; ad: BotAd | null }>();
+
+/**
+ * A Meta ad the warehouse does not hold yet (launched since the last sync),
+ * read on Meta: null unless the ad belongs to `accountId` (the bot's account).
+ * Visual = the creative's large thumbnail, else its image. Cached 30 min.
+ */
+async function metaLiveAd(adId: string, accountId: string): Promise<BotAd | null> {
+  const key = `${accountId}:${adId}`;
+  const hit = liveCache.get(key);
+  if (hit && Date.now() - hit.at < VIDEO_TTL) return hit.ad;
+  let ad: BotAd | null = null;
+  try {
+    const sys = getMetaSystemToken();
+    const got = await metaGraphGet<{ account_id?: string; creative?: { id?: string; image_url?: string; video_id?: string } }>(`/${adId}`, sys, { fields: "account_id,creative{id,image_url,video_id}" });
+    if (got.account_id && got.account_id.replace(/^act_/, "") === accountId) {
+      const thumb = got.creative?.id
+        ? (await metaGraphGet<{ thumbnail_url?: string }>(`/${got.creative.id}`, sys, { fields: "thumbnail_url", thumbnail_width: "1200", thumbnail_height: "1200" }).catch(() => ({} as { thumbnail_url?: string }))).thumbnail_url
+        : undefined;
+      const url = [got.creative?.image_url, thumb].find((u) => u && /^https:\/\//.test(u)) ?? null;
+      ad = { platform: "meta", adId, imageUrl: url, thumbnailUrl: null, videoId: got.creative?.video_id ?? null, live: true };
+    }
+  } catch { ad = null; }
+  liveCache.set(key, { at: Date.now(), ad });
+  return ad;
 }
 
 const videoCache = new Map<string, { at: number; url: string | null }>();

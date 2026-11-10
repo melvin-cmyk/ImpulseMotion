@@ -15,6 +15,18 @@ export interface CreativeCardData { name: string; src: string; caption: string; 
 
 // « carte : » is the label the prompt puts before the line to copy: the model sometimes copies it too.
 const IMG_LINE = /^\s*(?:[-*•]|\d+[.)])?\s*(?:carte\s*:\s*)?!\[([^\]]*)\]\(([^)\s]+)\)\s*(.*)$/;
+// The bot's own address written with a raw name in it (spaces, parentheses): up to the « ) » that ends the line or precedes « | ».
+const LOOSE_IMG_LINE = /^\s*(?:[-*•]|\d+[.)])?\s*(?:carte\s*:\s*)?!\[([^\]]*)\]\((\/api\/bot\/.+?)\)\s*(\|.*)?$/;
+
+/** The value of ?ad= / ?name= re-encoded when the model wrote it raw (spaces, accents, « & »). */
+function cleanSrc(src: string): string {
+  const m = /^(\/api\/bot\/[\w-]+\/(?:image|video)\?(?:ad|name)=)(.*?)(&product=\d)?$/.exec(src);
+  if (!m) return src;
+  let v = m[2];
+  try { v = decodeURIComponent(v); } catch { /* raw « % » : kept as written */ }
+  return `${m[1]}${encodeURIComponent(v)}${m[3] ?? ""}`;
+}
+
 // « Nom | chiffres » or « Nom — chiffres » (em / en dash only: names often contain « - »)
 const TEXT_LINE = /^\s*(?:[-*•]|\d+[.)])?\s*(.+?)\s*(?:\||—|–)\s*(.*\d.*)$/;
 
@@ -38,8 +50,8 @@ export function parseCreativeBlock(text: string, botId?: string): CreativeCardDa
   const out: Array<CreativeCardData & { byName?: boolean }> = [];
   for (const raw of text.split("\n")) {
     let name = "", src = "", rest = "";
-    const m = IMG_LINE.exec(raw);
-    if (m) { name = m[1]; src = m[2]; rest = m[3]; }
+    const m = IMG_LINE.exec(raw) ?? LOOSE_IMG_LINE.exec(raw);
+    if (m) { name = m[1]; src = cleanSrc(m[2]); rest = m[3] ?? ""; }
     else if (META_LINE.test(raw)) continue;
     else {
       const t = botId ? TEXT_LINE.exec(raw) : null;
