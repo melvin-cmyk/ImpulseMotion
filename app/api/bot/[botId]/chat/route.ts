@@ -77,7 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   // Month's budget of the client bots (Bedrock, all bots together — Admin → Quotas). The staff
   // answers on the Max subscriptions: neither counted nor blocked.
   if (!isStaff(guard.session) && botBudgetSpent(quotas, await clientBotsSpendThisMonth())) {
-    return NextResponse.json({ error: "Cet assistant a atteint sa limite d'utilisation pour ce mois-ci. Il sera de nouveau disponible le 1er du mois prochain ; votre équipe Impulse Analytics peut le rouvrir avant." }, { status: 429 });
+    return NextResponse.json({ error: "Attention, limite de la bêta atteinte. Veuillez contacter un administrateur." }, { status: 429 });
   }
   const cap = botDailyCap(bot, quotas);
   if (cap > 0 && (await botMessagesToday(bot.id)) >= cap) {

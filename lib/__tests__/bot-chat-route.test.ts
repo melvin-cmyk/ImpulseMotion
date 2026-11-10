@@ -132,7 +132,7 @@ describe("POST /api/bot/[botId]/chat — budget mensuel des bots clients", () =>
     botsSpend.mockResolvedValue(200);
     const res = (await post())!;
     expect(res.status).toBe(429);
-    expect((await res.json()).error).toMatch(/limite d'utilisation pour ce mois/);
+    expect((await res.json()).error).toBe("Attention, limite de la bêta atteinte. Veuillez contacter un administrateur.");
     expect(relayCalls).toHaveLength(0);
     expect(saved).toHaveLength(0);
   });
