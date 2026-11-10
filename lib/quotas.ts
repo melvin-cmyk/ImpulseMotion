@@ -18,11 +18,17 @@ export interface Quotas {
   teamDailyImages: number;
   /** Messages a day per client bot (all its users together), unless the bot sets its own. 0 = unlimited. */
   botDailyMessages: number;
+  /**
+   * USD a calendar month (Paris) for ALL client bots together: what the clients'
+   * messages cost on Bedrock. The staff is not counted (its tests of a bot run on
+   * the Max subscriptions) and is never blocked. 0 = no cap.
+   */
+  botMonthlyUsd: number;
   /** Percentage of a cap from which the reminder turns amber. */
   warnAtPct: number;
 }
 
-export const DEFAULT_QUOTAS: Quotas = { teamDailyUsd: 10, userDailyUsd: 5, teamDailyImages: 300, botDailyMessages: 0, warnAtPct: 80 };
+export const DEFAULT_QUOTAS: Quotas = { teamDailyUsd: 10, userDailyUsd: 5, teamDailyImages: 300, botDailyMessages: 0, botMonthlyUsd: 200, warnAtPct: 80 };
 const KEY = "quotas";
 
 const num = (v: unknown, fallback: number, max = 1_000_000) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(max, v) : fallback);
@@ -35,6 +41,7 @@ export function parseQuotas(json: string | null | undefined): Quotas {
     userDailyUsd: Math.round(num(raw.userDailyUsd, DEFAULT_QUOTAS.userDailyUsd) * 100) / 100,
     teamDailyImages: Math.round(num(raw.teamDailyImages, DEFAULT_QUOTAS.teamDailyImages)),
     botDailyMessages: Math.round(num(raw.botDailyMessages, DEFAULT_QUOTAS.botDailyMessages)),
+    botMonthlyUsd: Math.round(num(raw.botMonthlyUsd, DEFAULT_QUOTAS.botMonthlyUsd) * 100) / 100,
     warnAtPct: Math.round(Math.min(100, Math.max(10, num(raw.warnAtPct, DEFAULT_QUOTAS.warnAtPct)))),
   };
 }
@@ -114,4 +121,25 @@ export async function botMessagesToday(botId: string, now = new Date()): Promise
 /** The daily cap of a bot: its own when set, else the agency's. 0 = unlimited. */
 export function botDailyCap(bot: { dailyMessages: number | null }, q: Quotas): number {
   return bot.dailyMessages ?? q.botDailyMessages;
+}
+
+/** First instant of the current month in Paris. */
+export function parisMonthStart(now = new Date()): Date {
+  const ym = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit" }).format(now);
+  return parisDayStart(new Date(`${ym}-01T12:00:00Z`));
+}
+
+/**
+ * What the client bots cost since the 1st of the month (Paris), all bots
+ * together: the Bedrock lines of the usage ledger that belong to a bot. The
+ * staff's own tests of a bot are on the Max subscriptions (another provider).
+ */
+export async function clientBotsSpendThisMonth(now = new Date()): Promise<number> {
+  const r = await prisma.aiUsage.aggregate({ where: { provider: "bedrock", botId: { not: null }, createdAt: { gte: parisMonthStart(now) } }, _sum: { costUsd: true } });
+  return Math.round((r._sum.costUsd ?? 0) * 100) / 100;
+}
+
+/** True when the month's budget of the client bots is spent (never for an unlimited budget). */
+export function botBudgetSpent(q: Quotas, spentUsd: number): boolean {
+  return q.botMonthlyUsd > 0 && spentUsd >= q.botMonthlyUsd;
 }

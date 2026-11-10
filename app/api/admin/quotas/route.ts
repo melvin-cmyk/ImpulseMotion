@@ -1,20 +1,20 @@
 /**
  * Admin quotas (lib/quotas.ts).
- *   GET → { quotas, today: { team, user } }
- *   PUT { teamDailyUsd?, userDailyUsd?, teamDailyImages?, botDailyMessages?, warnAtPct? } → { quotas }
+ *   GET → { quotas, today: { team, user }, botsMonthUsd }
+ *   PUT { teamDailyUsd?, userDailyUsd?, teamDailyImages?, botDailyMessages?, botMonthlyUsd?, warnAtPct? } → { quotas }
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth-helpers";
-import { readQuotas, spentToday, writeQuotas, type Quotas } from "@/lib/quotas";
+import { clientBotsSpendThisMonth, readQuotas, spentToday, writeQuotas, type Quotas } from "@/lib/quotas";
 
-const FIELDS: Array<keyof Quotas> = ["teamDailyUsd", "userDailyUsd", "teamDailyImages", "botDailyMessages", "warnAtPct"];
+const FIELDS: Array<keyof Quotas> = ["teamDailyUsd", "userDailyUsd", "teamDailyImages", "botDailyMessages", "botMonthlyUsd", "warnAtPct"];
 
 export async function GET() {
   const guard = await requireAdmin();
   if ("error" in guard) return guard.error;
-  const [quotas, today] = await Promise.all([readQuotas(), spentToday(guard.session.userId)]);
-  return NextResponse.json({ quotas, today }, { headers: { "Cache-Control": "no-store" } });
+  const [quotas, today, botsMonthUsd] = await Promise.all([readQuotas(), spentToday(guard.session.userId), clientBotsSpendThisMonth().catch(() => 0)]);
+  return NextResponse.json({ quotas, today, botsMonthUsd }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function PUT(req: NextRequest) {

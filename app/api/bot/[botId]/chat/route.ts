@@ -30,7 +30,7 @@ import { buildBotAdsPack } from "@/lib/bot-ads-pack";
 import { getDashboardTikTokIds } from "@/lib/tiktok-accounts";
 import type { RelayChatBody, RelayMessage } from "@/lib/relay-chat";
 import { appendBotMessages, jobTitle, runningJobCount, runningJobOf, startAiJob } from "@/lib/ai-jobs";
-import { botDailyCap, botMessagesToday, readQuotas } from "@/lib/quotas";
+import { botDailyCap, botMessagesToday, readQuotas, botBudgetSpent, clientBotsSpendThisMonth } from "@/lib/quotas";
 
 const MAX_RUNNING_JOBS_PER_USER = 3;
 
@@ -73,7 +73,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ bot
   }
 
   // Daily cap of the bot (its own, else the agency's — Admin → Quotas): all its users together, Paris day.
-  const cap = botDailyCap(bot, await readQuotas());
+  const quotas = await readQuotas();
+  // Month's budget of the client bots (Bedrock, all bots together — Admin → Quotas). The staff
+  // answers on the Max subscriptions: neither counted nor blocked.
+  if (!isStaff(guard.session) && botBudgetSpent(quotas, await clientBotsSpendThisMonth())) {
+    return NextResponse.json({ error: "Cet assistant a atteint sa limite d'utilisation pour ce mois-ci. Il sera de nouveau disponible le 1er du mois prochain ; votre équipe Impulse Analytics peut le rouvrir avant." }, { status: 429 });
+  }
+  const cap = botDailyCap(bot, quotas);
   if (cap > 0 && (await botMessagesToday(bot.id)) >= cap) {
     return NextResponse.json({ error: `Le quota du jour de cet assistant est atteint (${cap} message${cap > 1 ? "s" : ""}). Il sera de nouveau disponible demain.` }, { status: 429 });
   }

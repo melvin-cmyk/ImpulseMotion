@@ -41,9 +41,12 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 // Daily caps (lib/quotas.ts): none in these tests — the route reads them before building the turn.
+const botsSpend = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => 0));
 vi.mock("@/lib/quotas", () => ({
-  readQuotas: vi.fn(async () => ({ teamDailyUsd: 0, userDailyUsd: 0, teamDailyImages: 0, botDailyMessages: 0, warnAtPct: 80 })),
+  readQuotas: vi.fn(async () => ({ teamDailyUsd: 0, userDailyUsd: 0, teamDailyImages: 0, botDailyMessages: 0, botMonthlyUsd: 200, warnAtPct: 80 })),
   botMessagesToday: vi.fn(async () => 0),
+  clientBotsSpendThisMonth: (...a: unknown[]) => botsSpend(...a),
+  botBudgetSpent: (q: { botMonthlyUsd?: number }, spent: number) => (q.botMonthlyUsd ?? 0) > 0 && spent >= (q.botMonthlyUsd ?? 0),
   botDailyCap: (bot: { dailyMessages: number | null }, q: { botDailyMessages: number }) => bot.dailyMessages ?? q.botDailyMessages,
 }));
 vi.mock("@/lib/ai-usage", () => ({
@@ -98,6 +101,8 @@ beforeEach(() => {
   relayCalls.length = 0;
   saved.length = 0;
   role = "client";
+  botsSpend.mockReset();
+  botsSpend.mockResolvedValue(0);
 });
 
 describe("POST /api/bot/[botId]/chat — Bedrock pour les clients seulement", () => {
@@ -116,6 +121,32 @@ describe("POST /api/bot/[botId]/chat — Bedrock pour les clients seulement", ()
       expect(body.clientBot).toBe(true);
       expect(body.accountScope).toEqual({ meta: ["act_1"] });
     }
+  });
+});
+
+describe("POST /api/bot/[botId]/chat — budget mensuel des bots clients", () => {
+  const post = () => POST(new NextRequest("http://x/api/bot/bot1/chat", { method: "POST", body: JSON.stringify({ conversationId: "conv1", message: "Bonjour" }) }), { params: Promise.resolve({ botId: BOT.id }) });
+
+  it("budget atteint : le client est bloqué, rien n'est envoyé au relay ni écrit", async () => {
+    sourcesJson = JSON.stringify({ meta: true });
+    botsSpend.mockResolvedValue(200);
+    const res = (await post())!;
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toMatch(/limite d'utilisation pour ce mois/);
+    expect(relayCalls).toHaveLength(0);
+    expect(saved).toHaveLength(0);
+  });
+
+  it("budget atteint : le staff qui teste le bot passe toujours (abonnement Max)", async () => {
+    botsSpend.mockResolvedValue(5000);
+    role = "consultant";
+    const body = await ask({ meta: true });
+    expect(body.provider).toBeUndefined();
+  });
+
+  it("sous le budget : le client passe", async () => {
+    botsSpend.mockResolvedValue(199.99);
+    expect((await ask({ meta: true })).provider).toBe("bedrock");
   });
 });
 

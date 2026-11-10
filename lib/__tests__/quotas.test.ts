@@ -6,7 +6,7 @@ describe("quotas — settings", () => {
     expect(parseQuotas(null)).toEqual(DEFAULT_QUOTAS);
     expect(parseQuotas("not json")).toEqual(DEFAULT_QUOTAS);
     const q = parseQuotas(JSON.stringify({ teamDailyUsd: 20.555, userDailyUsd: -3, teamDailyImages: 50.4, botDailyMessages: 120, warnAtPct: 300 }));
-    expect(q).toEqual({ teamDailyUsd: 20.56, userDailyUsd: DEFAULT_QUOTAS.userDailyUsd, teamDailyImages: 50, botDailyMessages: 120, warnAtPct: 100 });
+    expect(q).toEqual({ teamDailyUsd: 20.56, userDailyUsd: DEFAULT_QUOTAS.userDailyUsd, teamDailyImages: 50, botDailyMessages: 120, botMonthlyUsd: DEFAULT_QUOTAS.botMonthlyUsd, warnAtPct: 100 });
   });
   it("bot cap: its own first, else the agency's", () => {
     const q = parseQuotas(JSON.stringify({ botDailyMessages: 40 }));

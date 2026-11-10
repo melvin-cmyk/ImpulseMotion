@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Save } from "lucide-react";
 import { Section } from "@/components/ui/surface";
 
-interface Quotas { teamDailyUsd: number; userDailyUsd: number; teamDailyImages: number; botDailyMessages: number; warnAtPct: number }
+interface Quotas { teamDailyUsd: number; userDailyUsd: number; teamDailyImages: number; botDailyMessages: number; botMonthlyUsd: number; warnAtPct: number }
 interface Today { team: { usd: number; images: number }; user: { usd: number; images: number } }
 
 const usd = (v: number) => `${v.toFixed(2).replace(".", ",")} $`;
@@ -19,16 +19,17 @@ const inputCls = "w-28 px-2.5 py-1.5 rounded-lg text-sm bg-ui-bg border border-u
 export function QuotasPanel({ compact = false }: { compact?: boolean }) {
   const [quotas, setQuotas] = useState<Quotas | null>(null);
   const [today, setToday] = useState<Today | null>(null);
+  const [botsMonthUsd, setBotsMonthUsd] = useState(0);
   const [draft, setDraft] = useState<Record<keyof Quotas, string> | null>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/admin/quotas", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j: { quotas: Quotas; today: Today } | null) => {
+    fetch("/api/admin/quotas", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j: { quotas: Quotas; today: Today; botsMonthUsd?: number } | null) => {
       if (cancelled || !j) return;
-      setQuotas(j.quotas); setToday(j.today);
-      setDraft({ teamDailyUsd: String(j.quotas.teamDailyUsd), userDailyUsd: String(j.quotas.userDailyUsd), teamDailyImages: String(j.quotas.teamDailyImages), botDailyMessages: String(j.quotas.botDailyMessages), warnAtPct: String(j.quotas.warnAtPct) });
+      setQuotas(j.quotas); setToday(j.today); setBotsMonthUsd(j.botsMonthUsd ?? 0);
+      setDraft({ teamDailyUsd: String(j.quotas.teamDailyUsd), userDailyUsd: String(j.quotas.userDailyUsd), teamDailyImages: String(j.quotas.teamDailyImages), botDailyMessages: String(j.quotas.botDailyMessages), botMonthlyUsd: String(j.quotas.botMonthlyUsd), warnAtPct: String(j.quotas.warnAtPct) });
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
@@ -87,6 +88,7 @@ export function QuotasPanel({ compact = false }: { compact?: boolean }) {
             {field("userDailyUsd", "Plafond par consultant par jour", "Chaque consultant, sur ses propres générations.", "$ / jour")}
             {field("teamDailyImages", "Images par jour (équipe)", "Nombre de visuels, gratuits compris.", "images / jour")}
             {field("botDailyMessages", "Messages par jour et par bot client", "Valeur par défaut ; chaque bot peut avoir la sienne (fiche du bot). 0 = illimité.", "messages / jour")}
+            {field("botMonthlyUsd", "Budget mensuel des bots clients", `Tous les bots clients ensemble (Bedrock), staff non compté. Atteint : les clients sont bloqués jusqu'au 1er du mois, le staff non. 0 = illimité. Ce mois-ci : ${usd(botsMonthUsd)}.`, "$ / mois")}
             {field("warnAtPct", "Avertir à partir de", "Le rappel de prix passe en orange à ce pourcentage du plafond.", "% du plafond")}
           </div>
         ) : <p className="text-xs text-ui-muted flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Chargement…</p>}
