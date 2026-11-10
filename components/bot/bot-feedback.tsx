@@ -6,7 +6,7 @@
  * `compact` = the variant shown above the composer on small screens.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, Loader2, ThumbsDown, ThumbsUp } from "lucide-react";
 
 export function BotFeedbackBox({ botId, conversationId, onClose }: { botId: string; conversationId: string | null; onClose?: () => void }) {
@@ -103,6 +103,9 @@ export function BotFeedbackBox({ botId, conversationId, onClose }: { botId: stri
 export function AnswerFeedback({ botId, conversationId, question, answer }: { botId: string; conversationId: string | null; question: string; answer: string }) {
   const [state, setState] = useState<"idle" | "why" | "sending" | "sent" | "error">("idle");
   const [why, setWhy] = useState("");
+  // Under the last answer the field opens below the fold: bring it into view.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => { if (state === "why") formRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, [state]);
 
   async function send(rating: "up" | "down", message: string) {
     setState("sending");
@@ -131,7 +134,7 @@ export function AnswerFeedback({ botId, conversationId, question, answer }: { bo
         {state === "error" && <span className="text-xs text-ui-neg">Envoi impossible, réessayez</span>}
       </div>
       {state === "why" && (
-        <form className="mt-2 flex items-end gap-2 max-w-xl" onSubmit={(e) => { e.preventDefault(); void send("down", why); }}>
+        <form ref={formRef} className="mt-2 pb-2 flex items-end gap-2 max-w-xl scroll-mb-4" onSubmit={(e) => { e.preventDefault(); void send("down", why); }}>
           <textarea
             value={why}
             onChange={(e) => setWhy(e.target.value)}
