@@ -21,6 +21,8 @@ import { fmtMetric } from "@/lib/ads-warehouse/metrics-ui";
 export interface BotAdsAccounts { meta?: string | null; google?: string | null; tiktok?: string[] }
 
 const TTL = 15 * 60_000;
+/** Recent launches listed per platform (compact lines). */
+const RECENT_MAX = 20;
 const cache = new Map<string, { at: number; text: string }>();
 const PLATFORM_LABEL: Record<string, string> = { meta: "Meta Ads", google: "Google Ads", tiktok: "TikTok Ads" };
 /** Live tools of each platform (relay MCP servers), named in the « go and fetch it » notes. */
@@ -78,7 +80,8 @@ export function imageUrl(botId: string, platform: string, adId: string, kind: "i
   return `/api/bot/${encodeURIComponent(botId)}/${kind}?ad=${encodeURIComponent(`${platform}:${adId}`)}`;
 }
 
-function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | null): string {
+/** `compact`: heading + card only (the long list of recent launches), no tags nor text. */
+function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | null, compact = false): string {
   const a = r.sample!;
   const m = r.metrics;
   const tags = SHOWN_TAGS.map((k) => (a.tags[k] ? `${GLOSSARY_LABELS[k].split(" ")[0]} ${a.tags[k]}` : "")).filter(Boolean).join(" ; ");
@@ -103,8 +106,8 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
     : hasVisual ? imageUrl(botId, a.platform, a.adId) : "";
   return [
     `${i}. « ${r.label.slice(0, 60)} » — ${a.format}${a.dynamic ? " dynamique" : ""}${r.launch ? `, lancée le ${frDate(r.launch)}` : ""}${trend}`,
-    tags ? `   ${tags}` : "",
-    text ? `   texte : ${text}` : "",
+    tags && !compact ? `   ${tags}` : "",
+    text && !compact ? `   texte : ${text}` : "",
     dpa ? `   publicité dynamique du catalogue : chaque personne voit un produit différent ; autres exemples de produits : &product=1 et &product=2` : "",
     src ? `   carte : ![${name}](${src}) | ${caption} | ${kpis.join(" · ")}` : `   chiffres : ${kpis.join(" · ")}`,
   ].filter(Boolean).join("\n");
@@ -113,12 +116,15 @@ function creativeLine(botId: string, r: AdsGroupRow, i: number, cur: string | nu
 async function platformBlock(botId: string, platform: WarehousePlatform, accountIds: string[], now: Date): Promise<string> {
   const base: Omit<AdsQuery, "range" | "compare"> = { platforms: [platform], accountIds, accounts: accountIds.map((id) => ({ platform, id })), groupBy: "creative", filters: {}, sort: { key: "spend", dir: "desc" } };
   const w30 = window(30, now), w7 = window(7, now);
-  const [r30, r7, lastDay] = await Promise.all([
-    // 40 groups: the top 6 of the month plus the recent launches below.
+  const since14 = iso(new Date(now.getTime() - 14 * 86400_000));
+  const [r30, r7, lastDay, rNew] = await Promise.all([
     queryAds({ ...base, ...w30, limit: 40 }),
     queryAds({ ...base, ...w7, limit: 3 }),
     syncedTo(platform, accountIds).catch(() => null),
-  ]) as [AdsQueryResult, AdsQueryResult, string | null];
+    // Every creative launched in the last 14 days, however little it spent (tests of a few euros
+    // are far below the month's top 40): « les nouvelles créas » is answered here, with visuals.
+    queryAds({ ...base, range: w30.range, filters: { launchedAfter: since14 }, sort: { key: "launch", dir: "desc" }, limit: RECENT_MAX }).catch(() => null),
+  ]) as [AdsQueryResult, AdsQueryResult, string | null, AdsQueryResult | null];
   // Nothing in the warehouse: say so, so the model fetches live instead of answering « no data ».
   if (r30.benchmark.spend <= 0 && r7.benchmark.spend <= 0) {
     return `### ${PLATFORM_LABEL[platform]}\n${liveNote(platform, "aucune donnée dans l'entrepôt de l'agence pour ce compte (pas encore synchronisé, ou pas de dépense récente)")}`;
@@ -131,9 +137,8 @@ async function platformBlock(botId: string, platform: WarehousePlatform, account
   const all30 = r30.rows.filter((r) => r.sample && r.metrics.spend > 0);
   const rows30 = all30.slice(0, 6);
   // Launched in the last 14 days (« les nouvelles créas », « S44-S45 »): with their visual, by spend.
-  const since14 = iso(new Date(now.getTime() - 14 * 86400_000));
   const shownIds = new Set([...rows30, ...r7.rows].map((r) => r.sample?.adId));
-  const recent = all30.filter((r) => r.launch && r.launch >= since14 && !shownIds.has(r.sample?.adId)).slice(0, 6);
+  const recent = (rNew?.rows ?? all30).filter((r) => r.sample && r.launch && r.launch >= since14 && !shownIds.has(r.sample?.adId)).slice(0, RECENT_MAX);
   const rows7 = r7.rows.filter((r) => r.sample && r.metrics.spend > 0);
   // « Mes meilleures créas » = efficiency, not spend: ranked here so the bot
   // answers at once instead of fetching and sorting live (87 s → one turn).
@@ -162,7 +167,7 @@ async function platformBlock(botId: string, platform: WarehousePlatform, account
     `30 derniers jours (${frDate(w30.range.since)} → ${frDate(w30.range.until)}, écarts vs les 30 jours d'avant) : ${totalsLine(r30.benchmark, r30.benchmarkPrevious, cur)}`,
     rows7.length ? `Créas qui dépensent le plus sur 7 jours :\n${rows7.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
     rows30.length ? `Créas qui dépensent le plus sur 30 jours :\n${rows30.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
-    recent.length ? `Créas lancées ces 14 derniers jours (hors celles ci-dessus) :\n${recent.map((r, i) => creativeLine(botId, r, i + 1, cur)).join("\n")}` : "",
+    recent.length ? `Créas lancées ces 14 derniers jours (depuis le ${frDate(since14)}, les plus récentes d'abord, hors celles ci-dessus ; chiffres depuis leur lancement) :\n${recent.map((r, i) => creativeLine(botId, r, i + 1, cur, true)).join("\n")}` : "",
     byRoas.length ? `Meilleures créas sur 30 jours au ROAS (dépense d'au moins ${money(minSpend, cur)}) :\n${rankedLines(byRoas, roasOf)}` : "",
     byCpa.length ? `Meilleures créas sur 30 jours au coût par conversion (au moins 3 conversions, dépense d'au moins ${money(minSpend, cur)}) :\n${rankedLines(byCpa, cpaOf)}` : "",
   ].filter(Boolean).join("\n");
@@ -186,6 +191,9 @@ export async function buildBotAdsPack(botId: string, accounts: BotAdsAccounts, n
     "- Une carte seulement pour une créa qui a un visuel (une ligne « carte : » ici, ou une vidéo / image d'un outil en direct). Les annonces texte (Google Recherche) et les créas marquées « chiffres : » n'ont pas de visuel : cite-les dans le texte ou dans un tableau, pas en carte.",
     "- Les créas s'affichent en CARTES dans le chat : écris UN bloc de code ```creas puis une ligne par créa, et ferme le bloc. Pour une créa de ce bloc, recopie EXACTEMENT ce qui suit « carte : » (visuel | format · lancement | chiffres). Dans le bloc, chaque ligne commence par « ![ » : n'y recopie JAMAIS le mot « carte : », le numéro, le titre « 1. « … » », le texte ni les tags. N'écris jamais de visuel de créa hors d'un bloc creas, et ne répète pas sous le bloc les chiffres déjà dans les cartes.",
     `- Pour une créa obtenue par un outil en direct (autre période, campagne précise…), écris sa ligne de carte ainsi, avec l'identifiant d'annonce renvoyé par l'outil : ![nom de la créa](${imageUrl(botId, "PLATEFORME", "ID")}) | format · lancement | dépense … · CTR … · ROAS … en remplaçant PLATEFORME par meta, google ou tiktok et ID par l'identifiant de l'annonce (ad id) ; pour une vidéo Meta, remplace « /image? » par « /video? ». Sans identifiant, utilise le nom exact de l'annonce : ![nom](/api/bot/${encodeURIComponent(botId)}/image?name=NOM) avec NOM = le nom de l'annonce encodé pour une adresse (espaces en %20). Ce sont les SEULES adresses que tu as le droit d'écrire ; l'identifiant reste dans l'adresse de l'image, jamais dans le texte.`,
+    "- « Nouvelles créas », « dernières créas lancées », « créas de la semaine » : réponds DIRECTEMENT avec la liste « Créas lancées ces 14 derniers jours » (et celles des listes au-dessus dont la date de lancement est récente), sans appeler d'outil.",
+    "- Le visuel d'une créa ne vient JAMAIS d'un outil : n'appelle aucun outil de créas (Get_Ad_Creatives…) pour afficher une image, ils ne renvoient pas les bons visuels. Pour une créa trouvée en direct par un outil de performance, écris simplement sa carte avec l'adresse « ?name= » et le nom d'annonce COMPLET, tel que l'outil le renvoie (jamais un nom raccourci ou reformulé dans l'adresse) : le serveur retrouve le visuel.",
+    "- Ne parle JAMAIS au client d'un outil, d'un bug, d'un filtre ignoré ou d'un identifiant manquant, et ne lui demande jamais de signaler un problème technique à son équipe : donne ce que tu as (cartes et chiffres), sans commenter la mécanique.",
     "- Publicité dynamique du catalogue (DPA, texte avec {{product.…}}) trouvée en direct : elle n'a pas de visuel fixe ; montre 3 produits de son catalogue en ajoutant &product=0, &product=1 et &product=2 à l'adresse image, présentés comme des exemples de produits diffusés.",
     "- Toutes les créas des comptes de ce client, même lancées hier, ont leur visuel côté serveur : ne dis JAMAIS qu'une créa n'est « pas indexée » ou que son visuel est indisponible, écris l'adresse du visuel ; si l'image ne se charge pas, le chat l'indique lui-même.",
     "- « Meilleures créas », « celles qui marchent le mieux », « les plus rentables » : sur 30 jours, utilise DIRECTEMENT les classements « Meilleures créas … au ROAS » (e-commerce) ou « … au coût par conversion » (sans ROAS), sans appeler d'outil. Les créas « qui dépensent le plus » ne sont pas les meilleures. N'appelle un outil que pour une autre période ou plus de 6 créas.",
